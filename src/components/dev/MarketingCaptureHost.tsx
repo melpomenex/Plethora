@@ -129,12 +129,14 @@ export function MarketingCaptureHost() {
       useStartupExperienceStore.getState().setStage("done");
       document.getElementById("boot-frame")?.remove();
       const tab = captureTab(application);
+      const capturePane = { id: "marketing-capture-pane", type: "tabs" as const, tabIds: [tab.id], activeTabId: tab.id };
       useTabsStore.setState({
         tabs: [tab],
-        rootPane: { id: "marketing-capture-pane", type: "tabs", tabIds: [tab.id], activeTabId: tab.id },
+        rootPane: capturePane,
         closedTabs: [],
         activeTabHistory: [tab.id],
-        forwardTabHistory: [],
+        navigationByPane: { [capturePane.id]: { back: [], current: tab.id, forward: [] } },
+        navigationPaneId: capturePane.id,
         evictedTabIds: new Set<string>(),
       });
       globalThis.__PLETHORA_MARKETING_SCENE__ = application;

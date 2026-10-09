@@ -98,6 +98,7 @@ import { useVimReading } from "../../hooks/useVimReading";
 import { VimModeIndicator } from "./VimModeIndicator";
 import { markItemViewed } from "../../lib/queueSession";
 import { useQueueNavigation } from "../../hooks/useQueueNavigation";
+import { useContextualBack } from "../../lib/contextualBack";
 import { cn } from "../../utils";
 import { eventMatchesCombo, getShortcutCombo, useShortcutStore } from "../common/KeyboardShortcuts";
 import { usePriorityPopup } from "../documents/usePriorityPopup";
@@ -116,7 +117,7 @@ import { recordReadingSession } from "../../utils/readingSpeed";
 import type { DocumentInitialJump, ExtractSourceContext } from "../../types/extractNavigation";
 import type { DocumentSearchState } from "../../types/searchHit";
 import { ReaderTTSControls, type ReaderTTSHandle } from "../common/ReaderTTSControls";
-import { useIsActiveTab, usePaneId } from "../common/Tabs/TabContent";
+import { useIsActiveTab, usePaneId, useTabId } from "../common/Tabs/TabContent";
 import { useTabReactivation } from "../../hooks/useTabReactivation";
 import { generateShareUrl, copyShareLink, DocumentState, parseStateFromUrl } from "../../lib/shareLink";
 import { usePdfUrlState } from "../../hooks/usePdfUrlState";
@@ -552,6 +553,7 @@ export function DocumentViewer({
   const { settings, updateSettings } = useSettingsStore();
 
   const paneId = usePaneId();
+  const tabId = useTabId();
   // TabContent already tracks the active tab for the current pane. Using that
   // context avoids a startup race where the tab store has not yet rebuilt its
   // pane indexes, which otherwise prevents the active viewer from hydrating.
@@ -707,6 +709,42 @@ export function DocumentViewer({
       : undefined;
   const jumpHighlightQuery = jumpTextQuote ?? (highlightQuery?.trim() ? highlightQuery.trim() : undefined);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const exitAppFullscreen = useCallback(() => {
+    if (!isFullscreen) return false;
+    // Native mobile fullscreen is owned by the operating system. The app
+    // handles Back only for the browser Fullscreen API and its reader-focus
+    // fallback mode.
+    if (isNativeMobile()) return false;
+
+    const fullscreenDocument = document as Document & {
+      webkitExitFullscreen?: () => Promise<void> | void;
+      msExitFullscreen?: () => Promise<void> | void;
+      webkitFullscreenElement?: Element | null;
+      msFullscreenElement?: Element | null;
+    };
+    const fullscreenElement = document.fullscreenElement ||
+      fullscreenDocument.webkitFullscreenElement || fullscreenDocument.msFullscreenElement;
+    const exit = document.exitFullscreen ?? fullscreenDocument.webkitExitFullscreen ?? fullscreenDocument.msExitFullscreen;
+
+    if (!fullscreenElement || !exit) {
+      // Reader-focus fallback is app state rather than an OS/browser surface.
+      setIsFullscreen(false);
+      return true;
+    }
+
+    try {
+      const result = exit.call(document);
+      void Promise.resolve(result).catch(() => setIsFullscreen(false));
+    } catch {
+      setIsFullscreen(false);
+    }
+    return true;
+  }, [isFullscreen]);
+  useContextualBack(exitAppFullscreen, {
+    priority: 10,
+    owner: paneId && tabId ? { scope: "view", paneId, tabId } : undefined,
+    isEligible: () => isFullscreen && !isNativeMobile(),
+  });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [minimapPosition, setMinimapPosition] = useState(0); // 0-1
   const [ocrContextText, setOcrContextText] = useState<string | null>(null);

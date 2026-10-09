@@ -1,8 +1,10 @@
 import { useEffect, useId, useRef, type RefObject, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "@phosphor-icons/react";
-import { registerOverlayDismissal } from "../../lib/overlayStack";
+import { registerOverlayDismissal, resolveOverlayOwner } from "../../lib/overlayStack";
 import { cn } from "../../utils/cn";
+import { usePaneId, useTabId } from "../common/Tabs/TabContent";
+import { useTabsStore } from "../../stores/tabsStore";
 
 const FOCUSABLE =
   'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])';
@@ -96,6 +98,8 @@ export function Dialog({
 }
 
 export function useDialogFocus(open: boolean, onClose: () => void, initialFocusRef?: RefObject<HTMLElement | null>) {
+  const paneId = usePaneId();
+  const tabId = useTabId();
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -103,7 +107,10 @@ export function useDialogFocus(open: boolean, onClose: () => void, initialFocusR
 
   useEffect(() => {
     if (!open) return;
-    const unregister = registerOverlayDismissal(() => closeRef.current(), 100);
+    const unregister = registerOverlayDismissal(() => closeRef.current(), {
+      priority: 100,
+      owner: resolveOverlayOwner(paneId, tabId),
+    });
     previousFocusRef.current = document.activeElement as HTMLElement | null;
     const frame = window.requestAnimationFrame(() => {
       if (panelRef.current?.contains(document.activeElement)) return;
@@ -143,9 +150,28 @@ export function useDialogFocus(open: boolean, onClose: () => void, initialFocusR
       unregister();
       window.cancelAnimationFrame(frame);
       document.removeEventListener("keydown", handleKey);
-      previousFocusRef.current?.focus();
+      restoreOverlayFocus(previousFocusRef.current);
     };
-  }, [open]);
+  }, [open, paneId, tabId]);
 
   return panelRef;
+}
+
+function restoreOverlayFocus(previous: HTMLElement | null): void {
+  if (previous && isVisibleFocusTarget(previous)) {
+    previous.focus();
+    return;
+  }
+  const activePaneId = useTabsStore.getState().navigationPaneId;
+  const pane = activePaneId
+    ? Array.from(document.querySelectorAll<HTMLElement>("[data-tab-pane]")).find((candidate) => candidate.dataset.tabPane === activePaneId) ?? null
+    : null;
+  const fallback = pane?.querySelector<HTMLElement>(FOCUSABLE) ?? document.querySelector<HTMLElement>("main [tabindex], main button, main a[href]");
+  fallback?.focus();
+}
+
+function isVisibleFocusTarget(element: HTMLElement): boolean {
+  if (!element.isConnected || element.closest('[aria-hidden="true"], [hidden]')) return false;
+  const style = window.getComputedStyle(element);
+  return style.display !== "none" && style.visibility !== "hidden" && style.visibility !== "collapse";
 }

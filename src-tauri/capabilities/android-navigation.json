@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "android-navigation-main",
+  "description": "Allows the trusted Android main window to coordinate native system Back.",
+  "platforms": ["android"],
+  "windows": ["main"],
+  "webviews": ["main"],
+  "permissions": [
+    "plethora-navigation:default"
+  ]
+}

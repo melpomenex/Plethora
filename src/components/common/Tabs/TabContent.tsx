@@ -21,6 +21,7 @@ interface TabContentProps {
 
 // Context to provide pane ID to tab content components
 const PaneIdContext = createContext<string | undefined>(undefined);
+const TabIdContext = createContext<string | undefined>(undefined);
 
 /**
  * Hook to get the current pane ID from within a tab component.
@@ -28,6 +29,10 @@ const PaneIdContext = createContext<string | undefined>(undefined);
  */
 export function usePaneId(): string | undefined {
   return useContext(PaneIdContext);
+}
+
+export function useTabId(): string | undefined {
+  return useContext(TabIdContext);
 }
 
 // Context to provide tab active status to sub-components
@@ -170,20 +175,22 @@ function MountedTab({ tab, isActive, paneId }: { tab: Tab; isActive: boolean; pa
   }, [isActive, tab.title]);
 
   return (
-    <TabErrorBoundary
-      resetKey={retryKey}
-      renderFallback={(error) => <TabErrorState error={error} onRetry={retry} />}
-    >
-      <Suspense fallback={<TabLoader />}>
-        <TabWrapper
-          key={retryKey}
-          content={tab.content}
-          data={tab.data}
-          isActive={isActive}
-          paneId={paneId}
-        />
-      </Suspense>
-    </TabErrorBoundary>
+    <TabIdContext.Provider value={tab.id}>
+      <TabErrorBoundary
+        resetKey={retryKey}
+        renderFallback={(error) => <TabErrorState error={error} onRetry={retry} />}
+      >
+        <Suspense fallback={<TabLoader />}>
+          <TabWrapper
+            key={retryKey}
+            content={tab.content}
+            data={tab.data}
+            isActive={isActive}
+            paneId={paneId}
+          />
+        </Suspense>
+      </TabErrorBoundary>
+    </TabIdContext.Provider>
   );
 }
 
@@ -242,9 +249,11 @@ export function TabContent({ tabs, activeTabId, paneId }: TabContentProps) {
             aria-hidden={!isActive}
           >
             {isMounted && (
-              <ActiveTabContext.Provider value={isActive}>
-                <MountedTab tab={tab} isActive={isActive} paneId={paneId} />
-              </ActiveTabContext.Provider>
+              <TabIdContext.Provider value={tab.id}>
+                <ActiveTabContext.Provider value={isActive}>
+                  <MountedTab tab={tab} isActive={isActive} paneId={paneId} />
+                </ActiveTabContext.Provider>
+              </TabIdContext.Provider>
             )}
           </div>
         );

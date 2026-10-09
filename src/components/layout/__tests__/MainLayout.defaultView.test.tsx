@@ -106,7 +106,6 @@ describe("MainLayout applies Default View after a restored session", () => {
       rootPane: createTabPane(),
       closedTabs: [],
       activeTabHistory: [],
-      forwardTabHistory: [],
     });
 
     useSettingsStore.getState().updateSettingsCategory("general", {

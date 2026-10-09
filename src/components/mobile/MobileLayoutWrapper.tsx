@@ -15,6 +15,9 @@ import { useMobileShell } from "../../hooks/useMobileShell";
 import { useEdgeSwipeBack } from "../../hooks/useEdgeSwipeBack";
 import { AdaptiveAppScaffold } from "../layout/AdaptiveAppScaffold";
 import { requestApplicationBack } from "../../lib/applicationBack";
+import { nativePlatform } from "../../lib/tauri";
+import { startNativeBackBridge } from "../../lib/nativeBackBridge";
+import { useTabsStore } from "../../stores/tabsStore";
 
 interface MobileLayoutWrapperProps {
   children: React.ReactNode;
@@ -24,12 +27,14 @@ export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
   const queueItems = useQueueStore((state) => state.items);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const isMobile = useMobileShell();
+  const navigationReady = useTabsStore((state) => state.navigationReady);
+  const isNativeAndroid = nativePlatform()?.toLowerCase() === "android";
 
   // --- Global mobile back gesture ---
   // Only the intentional left-edge back gesture is global. Horizontal swipes
   // elsewhere stay with the active view so Library scrolling cannot navigate
   // between tabs or away from the current screen.
-  const gesturesDisabled = !isMobile || isFullscreen;
+  const gesturesDisabled = !isMobile || isFullscreen || isNativeAndroid;
 
   useEdgeSwipeBack(
     () => {
@@ -65,7 +70,13 @@ export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
   }, []);
 
   useEffect(() => {
+    if (!isNativeAndroid || !navigationReady) return;
+    return startNativeBackBridge();
+  }, [isNativeAndroid, navigationReady]);
+
+  useEffect(() => {
     const handleSystemBack = (event: Event) => {
+      if (nativePlatform()?.toLowerCase() === "android") return;
       if (requestApplicationBack()) event.preventDefault();
     };
     window.addEventListener("plethora:system-back", handleSystemBack);

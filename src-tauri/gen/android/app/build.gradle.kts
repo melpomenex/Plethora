@@ -22,6 +22,13 @@ android {
     ndkVersion = "27.2.12479018"
     namespace = "com.plethora.app"
     defaultConfig {
+        // Native Android Back stays opt-in until the device acceptance matrix
+        // passes. Enable an internal build with -PplethoraNativeBackEnabled=true.
+        val nativeBackEnabled = providers.gradleProperty("plethoraNativeBackEnabled")
+            .map { it.toBoolean() }
+            .orElse(false)
+            .get()
+        buildConfigField("boolean", "NATIVE_BACK_ENABLED", nativeBackEnabled.toString())
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "com.plethora.app"
         // ML Kit GenAI libs (genai-image-description, genai-summarization,

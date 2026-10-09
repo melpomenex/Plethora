@@ -128,7 +128,6 @@ function seedFlatWorkspace(): { paneId: string; tabs: Tab[] } {
     rootPane: pane,
     closedTabs: [],
     activeTabHistory: [tabs[0].id],
-    forwardTabHistory: [],
   });
   return { paneId: pane.id, tabs };
 }

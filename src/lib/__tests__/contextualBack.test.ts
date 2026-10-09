@@ -4,9 +4,13 @@ import {
   requestContextualBack,
   resetContextualBackHandlersForTests,
 } from "../contextualBack";
+import { createSplitPane, createTabPane, useTabsStore } from "../../stores/tabsStore";
 
 describe("contextualBack", () => {
-  beforeEach(() => resetContextualBackHandlersForTests());
+  beforeEach(() => {
+    resetContextualBackHandlersForTests();
+    useTabsStore.setState({ tabs: [], rootPane: createTabPane([], null), navigationByPane: {}, navigationPaneId: null, activeTabHistory: [] });
+  });
 
   it("uses priority and stops after the first handler consumes back", () => {
     const lower = vi.fn(() => true);
@@ -30,5 +34,31 @@ describe("contextualBack", () => {
     consuming.mockClear();
     expect(requestContextualBack()).toBe(true);
     expect(consuming).toHaveBeenCalledOnce();
+  });
+
+  it("checks a view owner's pane and active tab against live store state", () => {
+    const left = createTabPane(["settings", "document"], "document");
+    const right = createTabPane(["queue"], "queue");
+    useTabsStore.setState({
+      tabs: [
+        { id: "settings", title: "Settings", icon: null, type: "settings", content: () => null, closable: true },
+        { id: "document", title: "Document", icon: null, type: "documents", content: () => null, closable: true },
+        { id: "queue", title: "Queue", icon: null, type: "queue", content: () => null, closable: true },
+      ],
+      rootPane: createSplitPane("horizontal", [left, right]),
+      navigationPaneId: left.id,
+    });
+    const owned = vi.fn(() => true);
+    registerContextualBackHandler(owned, {
+      priority: 20,
+      owner: { scope: "view", paneId: left.id, tabId: "settings" },
+    });
+
+    expect(requestContextualBack()).toBe(false);
+    useTabsStore.getState().setActiveTab(left.id, "settings");
+    expect(requestContextualBack()).toBe(true);
+    expect(owned).toHaveBeenCalledOnce();
+    useTabsStore.getState().setNavigationPane(right.id);
+    expect(requestContextualBack()).toBe(false);
   });
 });

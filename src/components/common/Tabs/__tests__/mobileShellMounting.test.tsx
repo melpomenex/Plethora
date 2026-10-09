@@ -43,7 +43,6 @@ describe("mobile shell tab mounting", () => {
       ),
       closedTabs: [],
       activeTabHistory: [tabs[2].id],
-      forwardTabHistory: [],
     });
 
     render(<Tabs />);

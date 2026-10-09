@@ -6,6 +6,7 @@
 import { useState, useCallback, useEffect, useRef, ReactNode } from "react";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { MobileContextMenuSheet, mobileSheetItemClass } from "./MobileContextMenuSheet";
+import { useOverlayDismissal } from "../../hooks/useOverlayDismissal";
 
 /**
  * Context menu item type
@@ -186,6 +187,18 @@ export function ContextMenu({
     itemId: string | null;
     position: ContextMenuPosition;
   } | null>(null);
+  const isMobile = useMobileShell();
+  const [mobileSubmenuStack, setMobileSubmenuStack] = useState<ContextMenuItem[]>([]);
+  const dismissBack = useCallback(() => {
+    if (isMobile && mobileSubmenuStack.length > 0) {
+      setMobileSubmenuStack((stack) => stack.slice(0, -1));
+    } else if (!isMobile && submenuState) {
+      setSubmenuState(null);
+    } else {
+      onClose();
+    }
+  }, [isMobile, mobileSubmenuStack.length, onClose, submenuState]);
+  useOverlayDismissal(visible, dismissBack, 80);
 
   // Adjust position if menu goes off screen
   const adjustedPosition = useCallback(() => {
@@ -328,8 +341,6 @@ export function ContextMenu({
   // floating menu. The sheet's full-screen scrim makes "tap anywhere to close"
   // robust (the core UX fix). Submenus become a drill-in stack with a back
   // button instead of hover flyouts (hover doesn't exist on touch).
-  const isMobile = useMobileShell();
-  const [mobileSubmenuStack, setMobileSubmenuStack] = useState<ContextMenuItem[]>([]);
   // Reset the drill-in stack each time the menu (re)opens.
   useEffect(() => {
     if (visible) setMobileSubmenuStack([]);

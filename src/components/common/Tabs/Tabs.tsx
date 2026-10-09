@@ -1,15 +1,10 @@
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useEffect, useState, useCallback, useMemo, type SyntheticEvent } from "react";
 import { useTabsStore, normalizePane, type TabPane } from "../../../stores";
 import { SplitPaneContainer } from "./SplitPaneContainer";
 import { TabContent } from "./TabContent";
 import { useMobileShell } from "../../../hooks/useMobileShell";
 import { useI18n } from "../../../lib/i18n";
 
-/**
- * Walk a pane tree (which may contain splits) and return the first tab pane,
- * flattening any split structure. Used on mobile where we render only a single
- * pane's active content — no splits, no drag handles.
- */
 function findFirstTabPane(pane: ReturnType<typeof normalizePane>): TabPane | null {
   if (!pane) return null;
   if (pane.type === "tabs") return pane;
@@ -32,6 +27,7 @@ export function Tabs() {
   // repeated that walk for nothing whenever the tree itself was unchanged.
   const rootPane = useMemo(() => normalizePane(rawRootPane), [rawRootPane]);
   const setActiveTab = useTabsStore((state) => state.setActiveTab);
+  const setNavigationPane = useTabsStore((state) => state.setNavigationPane);
   const closeTab = useTabsStore((state) => state.closeTab);
   const moveTab = useTabsStore((state) => state.moveTab);
   const moveTabToPane = useTabsStore((state) => state.moveTabToPane);
@@ -41,6 +37,13 @@ export function Tabs() {
   const resizeSplit = useTabsStore((state) => state.resizeSplit);
   const collapseSplit = useTabsStore((state) => state.collapseSplit);
   const isMobileShell = useMobileShell();
+
+  const focusNavigationPane = useCallback((event: SyntheticEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement | null;
+    const pane = target?.closest<HTMLElement>("[data-tab-pane]");
+    const paneId = pane?.dataset.tabPane;
+    if (paneId) setNavigationPane(paneId);
+  }, [setNavigationPane]);
 
   // Drag state
   const [draggedTabId, setDraggedTabId] = useState<string | null>(null);
@@ -171,7 +174,7 @@ export function Tabs() {
     }
     const paneTabs = tabs.filter((t) => firstPane.tabIds.includes(t.id));
     return (
-      <div className="flex flex-col h-full w-full bg-background overflow-hidden">
+      <div className="flex flex-col h-full w-full bg-background overflow-hidden" data-tab-pane={firstPane.id} onPointerDownCapture={focusNavigationPane} onFocusCapture={focusNavigationPane}>
         <div className="flex-1 min-h-0 overflow-hidden">
           <TabContent
             tabs={paneTabs}
@@ -184,7 +187,7 @@ export function Tabs() {
   }
 
   return (
-    <div className="flex flex-col h-full w-full bg-background overflow-hidden">
+    <div className="flex flex-col h-full w-full bg-background overflow-hidden" onPointerDownCapture={focusNavigationPane} onFocusCapture={focusNavigationPane}>
       <div className="flex-1 min-h-0 overflow-hidden">
         <SplitPaneContainer
           pane={rootPane}

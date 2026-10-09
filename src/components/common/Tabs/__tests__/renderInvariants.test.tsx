@@ -15,7 +15,7 @@ import { useEffect, useState } from "react";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { TabContent, useIsActiveTab } from "../TabContent";
+import { TabContent, useIsActiveTab, useTabId } from "../TabContent";
 import type { Tab } from "../../../../stores/tabsStore";
 
 /**
@@ -158,5 +158,21 @@ describe("tab workspace render invariants", () => {
     render(<TabContent tabs={tabs} activeTabId="tab-0" />);
 
     expect(boot).toHaveBeenCalledTimes(1);
+  });
+
+  it("provides the owning tab identity outside the frozen tab subtree", () => {
+    function OwnerProbe() {
+      return <span data-testid="owner-id">{useTabId()}</span>;
+    }
+    const tabs: Tab[] = [
+      { id: "owner-a", title: "A", icon: null, type: "documents", content: OwnerProbe, closable: true },
+      { id: "owner-b", title: "B", icon: null, type: "queue", content: OwnerProbe, closable: true },
+    ];
+    const view = render(<TabContent tabs={tabs} activeTabId="owner-a" paneId="owner-pane" />);
+    view.rerender(<TabContent tabs={tabs} activeTabId="owner-b" paneId="owner-pane" />);
+    view.rerender(<TabContent tabs={tabs} activeTabId="owner-a" paneId="owner-pane" />);
+
+    const ownerIds = screen.getAllByTestId("owner-id");
+    expect(ownerIds.map((node) => node.textContent)).toEqual(["owner-a", "owner-b"]);
   });
 });

@@ -931,6 +931,9 @@ pub fn run() {
         // (ACTION_OPEN_DOCUMENT_TREE) and iOS uses UIDocumentPickerViewController
         // in folder mode, staging files into app-private storage.
         .plugin(plethora_folder_import::init())
+        // Android system Back is intercepted by the scoped navigation plugin,
+        // which claims one frontend transition before acknowledging root.
+        .plugin(plethora_navigation::init())
         // On-device TTS for Android: native sherpa-onnx inference (KittenTTS
         // Micro / Kokoro-82M) with AudioTrack playback, audio focus, lifecycle,
         // model downloads, and System-TTS fallback — all owned by the Kotlin

@@ -10,7 +10,6 @@ function resetTabsStore() {
     rootPane: createTabPane([], null),
     closedTabs: [],
     activeTabHistory: [],
-    forwardTabHistory: [],
   });
 }
 

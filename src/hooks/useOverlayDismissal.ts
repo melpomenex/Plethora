@@ -1,18 +1,24 @@
 import { useEffect, useRef } from "react";
-import { registerOverlayDismissal } from "../lib/overlayStack";
+import { registerOverlayDismissal, resolveOverlayOwner } from "../lib/overlayStack";
+import { usePaneId, useTabId } from "../components/common/Tabs/TabContent";
 
 export function useOverlayDismissal(
   open: boolean,
   onDismiss: () => void,
   priority = 0,
 ) {
+  const paneId = usePaneId();
+  const tabId = useTabId();
   const dismissRef = useRef(onDismiss);
   dismissRef.current = onDismiss;
 
   useEffect(() => {
     if (!open) return;
-    return registerOverlayDismissal(() => dismissRef.current(), priority);
-  }, [open, priority]);
+    return registerOverlayDismissal(() => dismissRef.current(), {
+      priority,
+      owner: resolveOverlayOwner(paneId, tabId),
+    });
+  }, [open, paneId, priority, tabId]);
 
   useEffect(() => {
     if (!open) return;

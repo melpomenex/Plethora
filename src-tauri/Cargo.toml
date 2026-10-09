@@ -56,6 +56,7 @@ log = "0.4"
 # folder mode, staging files into app-private storage so the path-based import
 # pipeline can read them. See plugins/plethora-folder-import/.
 plethora-folder-import = { path = "plugins/plethora-folder-import" }
+plethora-navigation = { path = "plugins/plethora-navigation" }
 # In-repo iOS plugin for native StoreKit 2 billing (products, purchase with
 # appAccountToken, verified entitlements, restore, transaction updates,
 # manage-subscriptions). Non-iOS targets return typed UNSUPPORTED errors.

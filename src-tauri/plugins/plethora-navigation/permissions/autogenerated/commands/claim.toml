@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-claim"
+description = "Enables the claim command without any pre-configured scope."
+commands.allow = ["claim"]
+
+[[permission]]
+identifier = "deny-claim"
+description = "Denies the claim command without any pre-configured scope."
+commands.deny = ["claim"]

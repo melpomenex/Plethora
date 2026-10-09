@@ -240,6 +240,7 @@ export function MainLayout() {
     initializedRef.current = true;
 
     const initTabs = async () => {
+      try {
       // If no tabs exist, try restoring from saved session
       if (tabs.length === 0) {
         // loadTabs() will restore the session if restoreSession is enabled
@@ -253,7 +254,7 @@ export function MainLayout() {
             type: "dashboard",
             content: DashboardTab,
             closable: false,
-          });
+          }, undefined, "bootstrap");
         }
 
         // Open the view chosen in Settings ▸ Default View. Runs regardless of
@@ -277,7 +278,10 @@ export function MainLayout() {
           type: startupTab.type,
           content: startupTab.content,
           closable: true,
-        });
+        }, undefined, "bootstrap");
+      }
+      } finally {
+        useTabsStore.getState().finalizeNavigationBootstrap();
       }
     };
 

@@ -64,7 +64,6 @@ describe("SettingsPage return navigation", () => {
       rootPane: createTabPane([], null),
       closedTabs: [],
       activeTabHistory: [],
-      forwardTabHistory: [],
     });
     useSettingsStore.setState((state) => ({
       settings: {
@@ -105,16 +104,14 @@ describe("SettingsPage return navigation", () => {
     expect((useTabsStore.getState().rootPane as any).activeTabId).toBe(documentsId);
   });
 
-  it("uses the generic fallback label and requests Dashboard without prior history", () => {
+  it("uses the generic fallback label and creates Dashboard without prior history", () => {
     useTabsStore.getState().addTab({ title: "Settings", icon: null, type: "settings", content: DummyTab, closable: true });
-    const navigate = vi.fn();
-    window.addEventListener("navigate", navigate);
     render(<SettingsPage />);
 
     fireEvent.click(screen.getByRole("button", { name: "Back to app" }));
 
-    expect((navigate.mock.calls[0][0] as CustomEvent).detail).toBe("/dashboard");
-    window.removeEventListener("navigate", navigate);
+    expect(useTabsStore.getState().tabs.find((tab) => tab.type === "dashboard")).toBeDefined();
+    expect(useTabsStore.getState().rootPane).toMatchObject({ activeTabId: useTabsStore.getState().tabs.find((tab) => tab.type === "dashboard")?.id });
   });
 
   it("keeps the current section and history when unsaved back is cancelled", async () => {
@@ -152,5 +149,50 @@ describe("SettingsPage return navigation", () => {
     expect((useTabsStore.getState().rootPane as any).activeTabId).toBe(
       useTabsStore.getState().tabs.find((tab) => tab.type === "settings")?.id,
     );
+  });
+
+  it("does not let mounted Settings consume Back while another tab is active", () => {
+    const { documentsId, settingsId } = openSettingsWithPrevious();
+    const paneId = useTabsStore.getState().rootPane.id;
+    useTabsStore.getState().setActiveTab(paneId, documentsId);
+    render(<SettingsPage />);
+
+    expect(requestApplicationBack()).toBe(true);
+    expect((useTabsStore.getState().rootPane as any).activeTabId).toBe(settingsId);
+  });
+
+  it("coalesces a second Back while the discard prompt is pending", async () => {
+    presentation.mobile = true;
+    const { settingsId } = openSettingsWithPrevious();
+    let resolvePrompt: ((value: boolean) => void) | undefined;
+    modalMock.confirm.mockImplementation(() => new Promise<boolean>((resolve) => { resolvePrompt = resolve; }));
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "General" }));
+    fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "review" } });
+
+    act(() => {
+      expect(requestApplicationBack()).toBe(true);
+      expect(requestApplicationBack()).toBe(true);
+    });
+    expect(modalMock.confirm).toHaveBeenCalledOnce();
+    expect((useTabsStore.getState().rootPane as any).activeTabId).toBe(settingsId);
+    resolvePrompt?.(false);
+    await waitFor(() => expect((useTabsStore.getState().rootPane as any).activeTabId).toBe(settingsId));
+  });
+
+  it("does not continue a discard confirmation after Settings loses ownership", async () => {
+    presentation.mobile = true;
+    const { documentsId, settingsId } = openSettingsWithPrevious();
+    let resolvePrompt: ((value: boolean) => void) | undefined;
+    modalMock.confirm.mockImplementation(() => new Promise<boolean>((resolve) => { resolvePrompt = resolve; }));
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "General" }));
+    fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "review" } });
+    act(() => { expect(requestApplicationBack()).toBe(true); });
+
+    act(() => useTabsStore.getState().setActiveTab(useTabsStore.getState().rootPane.id, documentsId));
+    await act(async () => { resolvePrompt?.(true); });
+    expect((useTabsStore.getState().rootPane as any).activeTabId).toBe(documentsId);
+    expect(settingsId).not.toBe(documentsId);
   });
 });

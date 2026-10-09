@@ -2,7 +2,7 @@
 
 ### Requirement: Back navigation is restricted to a left-edge gesture
 
-On mobile, the application SHALL request back navigation from a touch gesture only when the single touch begins within the configured left-edge activation zone and then travels inward by at least the configured minimum horizontal distance with horizontal intent.
+On mobile browser/PWA and iOS fallback surfaces, the application SHALL request back navigation from its JavaScript touch recognizer only when the single touch begins within the configured left-edge activation zone and then travels inward by at least the configured minimum horizontal distance with horizontal intent.
 
 #### Scenario: Qualifying left-edge gesture requests back
 
@@ -26,7 +26,7 @@ On mobile, the application SHALL request back navigation from a touch gesture on
 
 ### Requirement: Non-qualifying movement preserves normal interaction
 
-The back recognizer SHALL ignore movement that is vertical-dominant, outward from the left edge, shorter than the minimum distance, multi-touch, or cancelled.
+The fallback JavaScript back recognizer SHALL ignore movement that is vertical-dominant, outward from the left edge, shorter than the minimum distance, multi-touch, or cancelled.
 
 #### Scenario: Vertical movement from the left edge continues scrolling
 
@@ -48,7 +48,7 @@ The back recognizer SHALL ignore movement that is vertical-dominant, outward fro
 
 ### Requirement: Gesture exclusions remain protected
 
-The mobile back recognizer SHALL NOT request back navigation for a touch that begins on an existing protected control or gesture-owned target, including interactive controls, dialogs, editable fields, horizontal-scroll surfaces, and local swipeable items.
+The fallback JavaScript back recognizer SHALL NOT request back navigation for a touch that begins on an existing protected control or gesture-owned target, including interactive controls, dialogs, editable fields, horizontal-scroll surfaces, and local swipeable items.
 
 #### Scenario: Protected target at the left edge is not hijacked
 
@@ -59,7 +59,7 @@ The mobile back recognizer SHALL NOT request back navigation for a touch that be
 
 ### Requirement: Horizontal swipes remain content-owned
 
-The mobile shell SHALL NOT install a full-width or right-edge horizontal gesture that changes the active tab or view. Horizontal swipes that do not qualify for left-edge back SHALL remain owned by the active view.
+The mobile shell SHALL NOT install a full-width or right-edge JavaScript horizontal gesture that changes the active tab or view. Horizontal swipes outside operating-system gesture ownership that do not qualify for fallback left-edge back SHALL remain owned by the active view. Native Android SHALL use OS system-back dispatch at either supported screen edge and SHALL NOT install the fallback JavaScript back recognizer; an OS right-edge Back is not a forward-tab gesture.
 
 #### Scenario: Library horizontal scrolling does not navigate away
 
@@ -73,8 +73,15 @@ The mobile shell SHALL NOT install a full-width or right-edge horizontal gesture
 - **THEN** the mobile shell SHALL NOT cycle to another tab or dispatch forward navigation
 - **AND** the active view SHALL retain ownership of the gesture
 
-#### Scenario: Right-edge left swipe does not change tabs
+#### Scenario: Fallback right-edge left swipe does not change tabs
 
-- **WHEN** a horizontal left swipe begins at the right edge of the screen
+- **WHEN** a horizontal left swipe begins at the right edge of a fallback surface outside OS gesture ownership
 - **THEN** the mobile shell SHALL NOT dispatch a right-edge forward navigation action
 - **AND** the active view SHALL retain ownership of the gesture
+
+#### Scenario: Native Android uses operating-system Back
+
+- **WHEN** an Android system Back gesture commits from either supported edge
+- **THEN** the native application back path SHALL handle it once
+- **AND** no JavaScript edge recognizer SHALL dispatch a second request
+- **AND** a cancelled OS gesture SHALL change no application navigation state

@@ -50,7 +50,9 @@ import { UpdateAvailableDialog } from "./UpdateAvailableDialog";
 import { DeleteAccountFlow } from "./DeleteAccountFlow";
 import { loadGoogleFont } from "../../utils/fonts";
 import { useI18n } from "../../lib/i18n";
-import { registerContextualBackHandler } from "../../lib/contextualBack";
+import { useContextualBack, type ContextualBackHandler } from "../../lib/contextualBack";
+import { requestApplicationBackIntent } from "../../lib/applicationBack";
+import { usePaneId, useTabId } from "../common/Tabs/TabContent";
 
 /**
  * Section panels are lazy chunks: SettingsPage used to statically import all
@@ -218,6 +220,87 @@ export enum SettingsTab {
   Handbook = "handbook",
   Embeddings = "embeddings",
   Help = "help",
+}
+
+function isActiveSettingsOwner(ownerTabId?: string): boolean {
+  const state = useTabsStore.getState();
+  const tab = state.tabs.find((candidate) => ownerTabId ? candidate.id === ownerTabId : candidate.type === "settings");
+  const pane = tab ? state.findPaneContainingTab(tab.id) : null;
+  return !!tab && tab.type === "settings" && !!pane && pane.activeTabId === tab.id &&
+    (!state.navigationPaneId || state.navigationPaneId === pane.id);
+}
+
+function continueSettingsBack(
+  kind: "hierarchy" | "app",
+  isMobile: boolean,
+  showMobileMenu: boolean,
+  setShowMobileMenu: (show: boolean) => void,
+  returnFromSettings: () => boolean,
+): void {
+  if (kind === "hierarchy" && isMobile && !showMobileMenu) {
+    setShowMobileMenu(true);
+    return;
+  }
+  returnFromSettings();
+}
+
+function useSettingsBackNavigation(options: {
+  activeTab: SettingsTab;
+  hasChanges: boolean;
+  isMobile: boolean;
+  modal: ReturnType<typeof useModal>;
+  ownerPaneId?: string;
+  ownerTabId?: string;
+  returnFromSettings: () => boolean;
+  setHasChanges: (hasChanges: boolean) => void;
+  setShowMobileMenu: (show: boolean) => void;
+  showMobileMenu: boolean;
+  t: ReturnType<typeof useI18n>["t"];
+}): void {
+  const {
+    activeTab, hasChanges, isMobile, modal, ownerPaneId, ownerTabId,
+    returnFromSettings, setHasChanges, setShowMobileMenu, showMobileMenu, t,
+  } = options;
+  const isNavigationOwner = useTabsStore((state) => {
+    const tab = state.tabs.find((candidate) => ownerTabId ? candidate.id === ownerTabId : candidate.type === "settings");
+    if (!tab || tab.type !== "settings") return false;
+    const pane = state.findPaneContainingTab(tab.id);
+    return !!pane && pane.activeTabId === tab.id && (!state.navigationPaneId || state.navigationPaneId === pane.id);
+  });
+  const showMobileMenuRef = useRef(showMobileMenu);
+  showMobileMenuRef.current = showMobileMenu;
+  const activeSectionRef = useRef(activeTab);
+  activeSectionRef.current = activeTab;
+  const pendingBackRef = useRef(false);
+
+  const attemptBack = useCallback((kind: "hierarchy" | "app") => {
+    if (!isActiveSettingsOwner(ownerTabId)) return false;
+    if (pendingBackRef.current) return true;
+    const continueBack = () => continueSettingsBack(
+      kind, isMobile, showMobileMenuRef.current, setShowMobileMenu, returnFromSettings,
+    );
+    if (hasChanges) {
+      pendingBackRef.current = true;
+      const requestedSection = activeTab;
+      void modal.confirm(t("settings.discardChangesConfirm")).then((discard) => {
+        pendingBackRef.current = false;
+        if (!discard || !isActiveSettingsOwner(ownerTabId) || activeSectionRef.current !== requestedSection) return;
+        setHasChanges(false);
+        continueBack();
+      });
+    } else {
+      continueBack();
+    }
+    return true;
+  }, [activeTab, hasChanges, isMobile, modal, ownerTabId, returnFromSettings, setHasChanges, setShowMobileMenu, t]);
+  const handler = useCallback<ContextualBackHandler>((input) =>
+    attemptBack(input?.intent === "leave-view" ? "app" : "hierarchy"), [attemptBack]);
+  const eligible = useCallback(() => isNavigationOwner, [isNavigationOwner]);
+  useContextualBack(handler, {
+    priority: 20,
+    owner: ownerPaneId && ownerTabId ? { scope: "view", paneId: ownerPaneId, tabId: ownerTabId } : undefined,
+    isEligible: eligible,
+  });
 }
 
 /**
@@ -524,6 +607,12 @@ export function SettingsPage() {
   const rootPane = useTabsStore((state) => state.rootPane);
   const activeTabHistory = useTabsStore((state) => state.activeTabHistory);
   const returnFromSettings = useTabsStore((state) => state.returnFromSettings);
+  const ownerPaneId = usePaneId();
+  const ownerTabId = useTabId();
+  useSettingsBackNavigation({
+    activeTab, hasChanges, isMobile, modal, ownerPaneId, ownerTabId,
+    returnFromSettings, setHasChanges, setShowMobileMenu, showMobileMenu, t,
+  });
   const returnDestination = useMemo(
     () => useTabsStore.getState().getSettingsReturnDestination(),
     [tabs, rootPane, activeTabHistory],
@@ -586,11 +675,6 @@ export function SettingsPage() {
     [hasChanges, modal, t],
   );
 
-  // A deferred continuation must read live layout state rather than whatever
-  // was captured when the back handler was registered.
-  const showMobileMenuRef = useRef(showMobileMenu);
-  showMobileMenuRef.current = showMobileMenu;
-
   const handleTabChange = (tab: SettingsTab) => {
     confirmDiscardChanges(() => {
       setActiveTab(tab);
@@ -599,24 +683,6 @@ export function SettingsPage() {
       }
     });
   };
-
-  const attemptBack = useCallback((kind: "hierarchy" | "app") => {
-    confirmDiscardChanges(() => {
-      if (kind === "hierarchy" && isMobile && !showMobileMenuRef.current) {
-        setShowMobileMenu(true);
-        return;
-      }
-      returnFromSettings();
-    });
-    // Report the back as handled either way, so the caller does not also run
-    // its own fallback navigation while a discard prompt is open.
-    return true;
-  }, [confirmDiscardChanges, isMobile, returnFromSettings]);
-
-  useEffect(
-    () => registerContextualBackHandler(() => attemptBack("hierarchy"), 20),
-    [attemptBack],
-  );
 
   const handleSave = () => {
     setHasChanges(false);
@@ -653,7 +719,7 @@ export function SettingsPage() {
 
           <button
             type="button"
-            onClick={() => attemptBack("app")}
+            onClick={() => requestApplicationBackIntent("leave-view")}
             className="mb-4 flex min-h-[44px] w-full items-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             aria-label={appReturnLabel}
           >
@@ -758,7 +824,7 @@ export function SettingsPage() {
               <div className="flex items-center gap-1">
                 <button
                   type="button"
-                  onClick={() => attemptBack("hierarchy")}
+                  onClick={() => requestApplicationBackIntent("hierarchy")}
                   className="adaptive-icon-button"
                   aria-label={t("settings.backToMenu")}
                 >
@@ -766,7 +832,7 @@ export function SettingsPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => attemptBack("app")}
+                  onClick={() => requestApplicationBackIntent("leave-view")}
                   className="adaptive-icon-button"
                   aria-label={appReturnLabel}
                 >

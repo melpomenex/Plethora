@@ -1,0 +1,15 @@
+[package]
+name = "plethora-navigation"
+version = "0.1.0"
+description = "Android application Back controller for Plethora"
+authors = ["Plethora Team"]
+edition = "2021"
+links = "plethora-navigation"
+
+[build-dependencies]
+tauri-plugin = { version = "2", features = ["build"] }
+
+[dependencies]
+tauri = { version = "=2.11.5", features = ["unstable"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

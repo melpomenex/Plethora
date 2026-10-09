@@ -1,0 +1,7 @@
+<resources>
+    <string name="navigation_recovery_title">Back navigation is unavailable</string>
+    <string name="navigation_recovery_message">Plethora could not reconnect to this screen. You can retry, stay here, or move the app to the background.</string>
+    <string name="navigation_recovery_retry">Retry</string>
+    <string name="navigation_recovery_stay">Stay</string>
+    <string name="navigation_recovery_background">Background app</string>
+</resources>

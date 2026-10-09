@@ -85,6 +85,9 @@ import { describeResolution, resolveTranscriptionWithReadiness } from "../../lib
 import { showTranscriptionResolutionFailure } from "../../lib/transcriptionResolutionFailure";
 import { useTranscriptionResolution } from "../../hooks/useTranscriptionResolution";
 import { routePodcastTranscription } from "../../lib/transcriptionRouting";
+import { useContextualBack } from "../../lib/contextualBack";
+import { requestApplicationBackIntent } from "../../lib/applicationBack";
+import { usePaneId, useTabId } from "../common/Tabs/TabContent";
 
 interface PodcastManagerProps {
   onPlayEpisode?: (feed: PodcastFeed, episode: PodcastEpisode) => void;
@@ -142,7 +145,9 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
     [tabs, activeTabId]
   );
 
-  const isPodcastTabActive = activeTab?.type === "podcast";
+  const isPodcastTabActive = useIsActiveTab();
+  const ownerPaneId = usePaneId();
+  const ownerTabId = useTabId();
   const [feeds, setFeeds] = useState<PodcastFeed[]>([]);
   const [selectedFeedId, setSelectedFeedId] = useState<string | null>(null);
   const [episodes, setEpisodes] = useState<PodcastEpisode[]>([]);
@@ -341,41 +346,24 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
     }
   }, [episodes, playingEpisode]);
 
-  // Intercept native hardware back button on Android to handle view navigation
-  useEffect(() => {
-    if (!isTauri() || !isPodcastTabActive || (!playingEpisode && !selectedFeedId)) return;
-
-    let listener: any | undefined;
-    let cancelled = false;
-
-    const setupBackButton = async () => {
-      try {
-        const { onBackButtonPress } = await import("@tauri-apps/api/app");
-        if (cancelled) return;
-        listener = await onBackButtonPress(() => {
-          if (playingEpisode) {
-            setPlayingEpisode(null);
-          } else if (selectedFeedId) {
-            setSelectedFeedId(null);
-          }
-        });
-        if (cancelled && listener) {
-          void listener.unregister();
-        }
-      } catch (err) {
-        console.error("Failed to setup back button interceptor:", err);
-      }
-    };
-
-    setupBackButton();
-
-    return () => {
-      cancelled = true;
-      if (listener) {
-        void listener.unregister();
-      }
-    };
+  const handlePodcastBack = useCallback(() => {
+    if (!isPodcastTabActive) return false;
+    if (playingEpisode) {
+      setPlayingEpisode(null);
+      return true;
+    }
+    if (selectedFeedId) {
+      setSelectedFeedId(null);
+      return true;
+    }
+    return false;
   }, [isPodcastTabActive, playingEpisode, selectedFeedId]);
+  const podcastOwnerEligible = useCallback(() => isPodcastTabActive, [isPodcastTabActive]);
+  useContextualBack(handlePodcastBack, {
+    priority: 30,
+    owner: ownerPaneId && ownerTabId ? { scope: "view", paneId: ownerPaneId, tabId: ownerTabId } : undefined,
+    isEligible: podcastOwnerEligible,
+  });
 
   // Check downloaded paths and probe duration for episodes missing it
   useEffect(() => {
@@ -1351,7 +1339,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                   {isMobile && (
                     <button
                       type="button"
-                      onClick={() => setSelectedFeedId(null)}
+                      onClick={() => requestApplicationBackIntent("hierarchy")}
                       className="self-start p-2 -ml-2 text-muted-foreground hover:text-foreground rounded-lg bg-background/50 hover:bg-background/80 transition-colors flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider"
                       title="Back to podcasts"
                     >
@@ -2006,7 +1994,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
             onEpisodeEnded={handleEpisodeEnded}
             autoPlayOnOpen={true}
             initialSeekTime={playerInitialSeekTime}
-            onBack={() => setPlayingEpisode(null)}
+            onBack={() => requestApplicationBackIntent("hierarchy")}
             hideTitleHeader={true}
           />
           </div>

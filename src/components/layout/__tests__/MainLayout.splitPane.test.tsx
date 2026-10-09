@@ -83,7 +83,6 @@ describe("MainLayout split-pane rendering", () => {
       rootPane: createSplitPane("horizontal", [left, right], [50, 50]),
       closedTabs: [],
       activeTabHistory: ["left-tab", "right-tab"],
-      forwardTabHistory: [],
     });
     useDocumentStore.setState({ loadDocuments: vi.fn() });
   });

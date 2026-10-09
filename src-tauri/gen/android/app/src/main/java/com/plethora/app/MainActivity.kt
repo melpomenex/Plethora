@@ -17,6 +17,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import app.tauri.plugin.PluginManager
 import com.plethora.app.BuildConfig
+import com.plethora.navigation.NavigationBackController
 
 class MainActivity : TauriActivity() {
 
@@ -66,6 +67,9 @@ class MainActivity : TauriActivity() {
         PluginManager.onActivityCreate(this)
 
         super.onCreate(savedInstanceState)
+        // Register one Activity-scoped OS Back callback after Tauri installs
+        // its callbacks so this application controller has first precedence.
+        if (BuildConfig.NATIVE_BACK_ENABLED) NavigationBackController.install(this)
         handleIntent(intent)
 
         // The WebView is created asynchronously during super.onCreate; install
@@ -77,7 +81,21 @@ class MainActivity : TauriActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (BuildConfig.NATIVE_BACK_ENABLED) {
+            NavigationBackController.onResume()
+            NavigationBackController.install(this)
+        }
         hookWebViewPermissions()
+    }
+
+    override fun onPause() {
+        if (BuildConfig.NATIVE_BACK_ENABLED) NavigationBackController.onPause()
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        if (BuildConfig.NATIVE_BACK_ENABLED) NavigationBackController.uninstall()
+        super.onDestroy()
     }
 
     /**
@@ -94,6 +112,7 @@ class MainActivity : TauriActivity() {
      */
     private fun hookWebViewPermissions() {
         val wv = findWebView(window.decorView.rootView) ?: return
+        if (BuildConfig.NATIVE_BACK_ENABLED) NavigationBackController.install(this)
         wv.settings.mediaPlaybackRequiresUserGesture = false
         // Chrome DevTools remote debugging instrumentation adds non-trivial
         // overhead to every JS execution and DOM mutation. It must NOT be
@@ -193,6 +212,7 @@ class MainActivity : TauriActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (BuildConfig.NATIVE_BACK_ENABLED) NavigationBackController.onExternalIntent()
         handleIntent(intent)
     }
 

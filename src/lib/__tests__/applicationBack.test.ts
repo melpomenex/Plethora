@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTabPane, useTabsStore } from "../../stores/tabsStore";
-import { requestApplicationBack } from "../applicationBack";
+import { dispatchApplicationBack, requestApplicationBack, resetApplicationBackForTests } from "../applicationBack";
 import {
   registerContextualBackHandler,
   resetContextualBackHandlersForTests,
@@ -14,12 +14,12 @@ describe("requestApplicationBack", () => {
   beforeEach(() => {
     resetOverlayStackForTests();
     resetContextualBackHandlersForTests();
+    resetApplicationBackForTests();
     useTabsStore.setState({
       tabs: [],
       rootPane: createTabPane([], null),
       closedTabs: [],
       activeTabHistory: [],
-      forwardTabHistory: [],
     });
   });
 
@@ -46,5 +46,29 @@ describe("requestApplicationBack", () => {
 
   it("returns false when no layer can navigate", () => {
     expect(requestApplicationBack()).toBe(false);
+  });
+
+  it("deduplicates request identities and consumes a throwing handler without falling through", () => {
+    const throwing = vi.fn(() => { throw new Error("handler failed"); });
+    registerContextualBackHandler(throwing);
+    const input = { source: "android-system" as const, id: "epoch-1:4" };
+    expect(dispatchApplicationBack(input)).toEqual({ kind: "consumed", outcome: "blocked" });
+    expect(dispatchApplicationBack(input)).toEqual({ kind: "consumed", outcome: "blocked" });
+    expect(throwing).toHaveBeenCalledOnce();
+  });
+
+  it("returns root only at Dashboard and creates a one-way Dashboard fallback otherwise", () => {
+    const pane = createTabPane(["queue"], "queue");
+    useTabsStore.setState({
+      tabs: [{ id: "queue", title: "Queue", icon: null, type: "queue", content: () => null, closable: true }],
+      rootPane: pane,
+      navigationByPane: { [pane.id]: { back: [], current: "queue", forward: [] } },
+      navigationPaneId: pane.id,
+      navigationReady: true,
+    });
+    expect(dispatchApplicationBack({ source: "android-system", id: "epoch-2:1" })).toMatchObject({ kind: "consumed", outcome: "completed" });
+    expect(useTabsStore.getState().tabs.find((tab) => tab.type === "dashboard")).toBeDefined();
+    expect(useTabsStore.getState().navigationByPane[pane.id]).toMatchObject({ back: [] });
+    expect(dispatchApplicationBack({ source: "android-system", id: "epoch-2:2" })).toEqual({ kind: "root" });
   });
 });

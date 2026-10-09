@@ -83,7 +83,6 @@ function seed(tabs: Tab[], rootPane: Pane, history: string[]) {
     rootPane,
     closedTabs: [],
     activeTabHistory: history,
-    forwardTabHistory: [],
     evictedTabIds: new Set<string>(),
   });
 }

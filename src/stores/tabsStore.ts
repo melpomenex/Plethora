@@ -6,6 +6,7 @@ import { useUIStore } from "./uiStore";
 import { useCollectionStore } from "./collectionStore";
 import { useSettingsStore } from "./settingsStore";
 import { isMarketingCaptureNamespace } from "../lib/marketingCapture/namespace";
+import { createCanonicalTab } from "../components/tabs/TabRegistry";
 
 export type TabType =
   | "continue-reading"
@@ -53,6 +54,126 @@ export interface SettingsReturnDestination {
   tabId: string;
   paneId: string;
   title: string;
+}
+
+interface PaneNavigationHistory {
+  back: string[];
+  current: string | null;
+  forward: string[];
+}
+
+const NAVIGATION_HISTORY_LIMIT = 256;
+const EMPTY_NAVIGATION_HISTORY: PaneNavigationHistory = { back: [], current: null, forward: [] };
+
+function boundedPush(items: string[], value: string): string[] {
+  return [...items, value].slice(-NAVIGATION_HISTORY_LIMIT);
+}
+
+function pushNavigationDestination(items: string[], value: string): string[] {
+  return items.at(-1) === value ? items : boundedPush(items, value);
+}
+
+function visitNavigation(
+  navigationByPane: Record<string, PaneNavigationHistory>,
+  paneId: string,
+  current: string | null,
+  target: string,
+): Record<string, PaneNavigationHistory> {
+  const record = navigationByPane[paneId] ?? { ...EMPTY_NAVIGATION_HISTORY, current };
+  if (target === current) return { ...navigationByPane, [paneId]: { ...record, current } };
+  return {
+    ...navigationByPane,
+    [paneId]: {
+      back: current ? boundedPush(record.back, current) : record.back,
+      current: target,
+      forward: [],
+    },
+  };
+}
+
+function replaceNavigation(
+  navigationByPane: Record<string, PaneNavigationHistory>,
+  paneId: string,
+  target: string,
+): Record<string, PaneNavigationHistory> {
+  const record = navigationByPane[paneId] ?? EMPTY_NAVIGATION_HISTORY;
+  return {
+    ...navigationByPane,
+    [paneId]: {
+      back: record.back.filter((id) => id !== target),
+      current: target,
+      forward: record.forward.filter((id) => id !== target),
+    },
+  };
+}
+
+function cleanNavigationRecord(
+  record: PaneNavigationHistory | undefined,
+  pane: TabPane,
+): PaneNavigationHistory {
+  const membership = new Set(pane.tabIds);
+  const back = Array.isArray(record?.back)
+    ? record.back.filter((id): id is string => typeof id === "string" && membership.has(id)).slice(-NAVIGATION_HISTORY_LIMIT)
+    : [];
+  const forward = Array.isArray(record?.forward)
+    ? record.forward.filter((id): id is string => typeof id === "string" && membership.has(id)).slice(-NAVIGATION_HISTORY_LIMIT)
+    : [];
+  return {
+    back,
+    current: pane.activeTabId && membership.has(pane.activeTabId) ? pane.activeTabId : null,
+    forward,
+  };
+}
+
+function normalizeNavigationByPane(
+  rootPane: Pane,
+  source: unknown,
+): Record<string, PaneNavigationHistory> {
+  const valid = source && typeof source === "object" &&
+    (source as { version?: unknown }).version === 1 &&
+    (source as { byPane?: unknown }).byPane && typeof (source as { byPane: unknown }).byPane === "object"
+    ? (source as { byPane: Record<string, PaneNavigationHistory> }).byPane
+    : {};
+  const output: Record<string, PaneNavigationHistory> = {};
+  const walk = (pane: Pane) => {
+    if (pane.type === "tabs") {
+      output[pane.id] = cleanNavigationRecord(valid[pane.id], pane);
+      return;
+    }
+    pane.children.forEach(walk);
+  };
+  walk(rootPane);
+  return output;
+}
+
+function moveNavigation(
+  navigationByPane: Record<string, PaneNavigationHistory>,
+  pane: TabPane,
+  direction: "back" | "forward",
+): { navigationByPane: Record<string, PaneNavigationHistory>; targetId: string | null } {
+  const membership = new Set(pane.tabIds);
+  const record = cleanNavigationRecord(navigationByPane[pane.id], pane);
+  const source = direction === "back" ? record.back : record.forward;
+  const destination = direction === "back" ? record.forward : record.back;
+  let targetId: string | null = null;
+  const remaining = [...source];
+  while (remaining.length) {
+    const candidate = remaining.pop()!;
+    if (membership.has(candidate) && candidate !== record.current) {
+      targetId = candidate;
+      break;
+    }
+  }
+  const next = { ...record };
+  if (direction === "back") {
+    next.back = remaining;
+    if (record.current && targetId) next.forward = pushNavigationDestination(destination, record.current);
+  } else {
+    next.forward = remaining;
+    if (record.current && targetId) next.back = pushNavigationDestination(destination, record.current);
+  }
+  if (targetId) next.current = targetId;
+  return { navigationByPane: { ...navigationByPane, [pane.id]: next }, targetId };
 }
 
 // Split direction for panes
@@ -144,10 +265,9 @@ export interface TabsState {
   rootPane: Pane;
   closedTabs: Tab[];
   activeTabHistory: string[];
-  // Tabs the user navigated "back" past — consumed by goToNextTab() (the
-  // forward counterpart to the edge-swipe-back gesture). Mirrors the back
-  // history's most-recent-last ordering.
-  forwardTabHistory: string[];
+  navigationByPane: Record<string, PaneNavigationHistory>;
+  navigationPaneId: string | null;
+  navigationReady: boolean;
   // Tabs unmounted by the resident-tab cap. Runtime-only and never persisted:
   // it describes what is currently in memory, not what the workspace contains.
   //
@@ -163,10 +283,11 @@ export interface TabsState {
   evictedTabIds: ReadonlySet<string>;
 
   // Actions
-  addTab: (tab: Omit<Tab, "id">, targetPaneId?: string) => string;
+  addTab: (tab: Omit<Tab, "id">, targetPaneId?: string, mode?: "visit" | "bootstrap") => string;
   addTabInBackground: (tab: Omit<Tab, "id">, targetPaneId?: string) => string;
   closeTab: (tabId: string) => void;
   setActiveTab: (paneId: string, tabId: string) => void;
+  setNavigationPane: (paneId: string) => void;
   updateTab: (tabId: string, updates: Partial<Tab>) => void;
   reopenLastClosedTab: () => void;
   // Navigate to the previous tab (edge-swipe back). Returns true if navigation
@@ -174,6 +295,8 @@ export interface TabsState {
   goToPreviousTab: () => boolean;
   // Navigate forward (edge-swipe forward). Returns true if navigation happened.
   goToNextTab: () => boolean;
+  activateDashboardFallback: () => boolean;
+  finalizeNavigationBootstrap: () => void;
   getSettingsReturnDestination: () => SettingsReturnDestination | null;
   returnFromSettings: () => boolean;
   closeOtherTabs: (tabId: string) => void;
@@ -507,7 +630,6 @@ function findReusableTab(state: TabsState, tab: Omit<Tab, "id">): Tab | undefine
   );
 }
 
-// Helper to find a pane by ID recursively
 function findPaneByIdRecursive(pane: Pane, paneId: string): Pane | null {
   if (pane.id === paneId) return pane;
   if (pane.type === "split") {
@@ -533,9 +655,7 @@ function findParentPane(pane: Pane, targetId: string): SplitPane | null {
 
 // Helper to find pane containing a tab
 function findPaneContainingTabRecursive(pane: Pane, tabId: string): TabPane | null {
-  if (pane.type === "tabs" && pane.tabIds.includes(tabId)) {
-    return pane;
-  }
+  if (pane.type === "tabs" && pane.tabIds.includes(tabId)) return pane;
   if (pane.type === "split") {
     for (const child of pane.children) {
       const found = findPaneContainingTabRecursive(child, tabId);
@@ -566,6 +686,16 @@ function collectTabPaneIds(pane: Pane, ids: string[] = []): string[] {
     }
   }
   return ids;
+}
+
+function firstTabPane(pane: Pane): TabPane | null {
+  const pending = [pane];
+  while (pending.length) {
+    const candidate = pending.shift()!;
+    if (candidate.type === "tabs") return candidate;
+    pending.unshift(...candidate.children);
+  }
+  return null;
 }
 
 // Helper to update pane in tree
@@ -670,15 +800,19 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   rootPane: createTabPane(),
   closedTabs: [],
   activeTabHistory: [],
-  forwardTabHistory: [],
+  navigationByPane: {},
+  navigationPaneId: null,
+  navigationReady: false,
   evictedTabIds: EMPTY_EVICTED,
 
   getDefaultTabs: () => {
     return [];
   },
 
+  finalizeNavigationBootstrap: () => set({ navigationReady: true }),
+
   // Add a new tab
-  addTab: (tab, targetPaneId?) => {
+  addTab: (tab, targetPaneId?, mode = "visit") => {
     const state = get();
     const existingTab = findReusableTab(state, tab);
 
@@ -687,12 +821,19 @@ export const useTabsStore = create<TabsState>((set, get) => ({
         // Find the pane containing this tab and activate it
         const pane = findPaneContainingTabRecursive(state.rootPane, existingTab.id);
         if (pane) {
+          const rootPane = updatePaneInTree(state.rootPane, pane.id, (p) => ({
+            ...(p as TabPane), activeTabId: existingTab.id,
+          }));
+          const activeTabHistory = [...state.activeTabHistory.filter((x) => x !== existingTab.id), existingTab.id];
+          const evictedTabIds = clearEvicted(state.evictedTabIds, [existingTab.id]);
           return {
-            rootPane: updatePaneInTree(state.rootPane, pane.id, (p) => ({
-              ...(p as TabPane),
-              activeTabId: existingTab.id,
-            })),
-            activeTabHistory: [...state.activeTabHistory.filter((x) => x !== existingTab.id), existingTab.id],
+            rootPane,
+            navigationByPane: mode === "bootstrap"
+              ? replaceNavigation(state.navigationByPane, pane.id, existingTab.id)
+              : visitNavigation(state.navigationByPane, pane.id, pane.activeTabId, existingTab.id),
+            navigationPaneId: pane.id,
+            activeTabHistory,
+            evictedTabIds: applyResidentCap({ tabs: state.tabs, rootPane, activeTabHistory, evictedTabIds }, residentTabCap(), readerTabCap()),
           };
         }
         return {};
@@ -715,61 +856,83 @@ export const useTabsStore = create<TabsState>((set, get) => ({
           finalTargetPaneId = targetPaneId;
         } else {
           // Fall back to first pane if target is invalid
-          const findFirstTabPane = (p: Pane): TabPane | null => {
+          const firstTabPane = (p: Pane): TabPane | null => {
             if (p.type === "tabs") return p;
             if (p.type === "split") {
               for (const child of p.children) {
-                const found = findFirstTabPane(child);
+                const found = firstTabPane(child);
                 if (found) return found;
               }
             }
             return null;
           };
-          const firstPane = findFirstTabPane(state.rootPane);
+          const firstPane = firstTabPane(state.rootPane);
           if (firstPane) {
             finalTargetPaneId = firstPane.id;
           } else {
             const newPane = createTabPane([id], id);
+            const tabs = [...state.tabs, newTab];
+            const activeTabHistory = [...state.activeTabHistory.filter((x) => x !== id), id];
+            const evictedTabIds = clearEvicted(state.evictedTabIds, [id]);
             return {
-              tabs: [...state.tabs, newTab],
+              tabs,
               rootPane: newPane,
-              activeTabHistory: [...state.activeTabHistory.filter((x) => x !== id), id],
+              navigationByPane: { ...state.navigationByPane, [newPane.id]: { back: [], current: id, forward: [] } },
+              navigationPaneId: newPane.id,
+              activeTabHistory,
+              evictedTabIds: applyResidentCap({ tabs, rootPane: newPane, activeTabHistory, evictedTabIds }, residentTabCap(), readerTabCap()),
             };
           }
         }
       } else {
         // No target provided, find the first tab pane
-        const findFirstTabPane = (p: Pane): TabPane | null => {
+        const firstTabPane = (p: Pane): TabPane | null => {
           if (p.type === "tabs") return p;
           if (p.type === "split") {
             for (const child of p.children) {
-              const found = findFirstTabPane(child);
+              const found = firstTabPane(child);
               if (found) return found;
             }
           }
           return null;
         };
-        const firstPane = findFirstTabPane(state.rootPane);
+        const firstPane = firstTabPane(state.rootPane);
         if (firstPane) {
           finalTargetPaneId = firstPane.id;
         } else {
           const newPane = createTabPane([id], id);
+          const tabs = [...state.tabs, newTab];
+          const activeTabHistory = [...state.activeTabHistory.filter((x) => x !== id), id];
+          const evictedTabIds = clearEvicted(state.evictedTabIds, [id]);
           return {
-            tabs: [...state.tabs, newTab],
+            tabs,
             rootPane: newPane,
-            activeTabHistory: [...state.activeTabHistory.filter((x) => x !== id), id],
+            navigationByPane: { ...state.navigationByPane, [newPane.id]: { back: [], current: id, forward: [] } },
+            navigationPaneId: newPane.id,
+            activeTabHistory,
+            evictedTabIds: applyResidentCap({ tabs, rootPane: newPane, activeTabHistory, evictedTabIds }, residentTabCap(), readerTabCap()),
           };
         }
       }
 
+      const targetPane = findPaneByIdRecursive(state.rootPane, finalTargetPaneId) as TabPane;
+      const rootPane = updatePaneInTree(state.rootPane, finalTargetPaneId, (p) => ({
+        ...(p as TabPane),
+        tabIds: [...(p as TabPane).tabIds, id],
+        activeTabId: id,
+      }));
+      const tabs = [...state.tabs, newTab];
+      const activeTabHistory = [...state.activeTabHistory.filter((x) => x !== id), id];
+      const evictedTabIds = clearEvicted(state.evictedTabIds, [id]);
       return {
-        tabs: [...state.tabs, newTab],
-        rootPane: updatePaneInTree(state.rootPane, finalTargetPaneId, (p) => ({
-          ...(p as TabPane),
-          tabIds: [...(p as TabPane).tabIds, id],
-          activeTabId: id,
-        })),
-        activeTabHistory: [...state.activeTabHistory.filter((x) => x !== id), id],
+        tabs,
+        rootPane,
+        navigationByPane: mode === "bootstrap"
+          ? replaceNavigation(state.navigationByPane, finalTargetPaneId, id)
+          : visitNavigation(state.navigationByPane, finalTargetPaneId, targetPane.activeTabId, id),
+        navigationPaneId: finalTargetPaneId,
+        activeTabHistory,
+        evictedTabIds: applyResidentCap({ tabs, rootPane, activeTabHistory, evictedTabIds }, residentTabCap(), readerTabCap()),
       };
     });
 
@@ -800,17 +963,17 @@ export const useTabsStore = create<TabsState>((set, get) => ({
           finalTargetPaneId = targetPaneId;
         } else {
           // Fall back to first pane if target is invalid
-          const findFirstTabPane = (p: Pane): TabPane | null => {
+          const firstTabPane = (p: Pane): TabPane | null => {
             if (p.type === "tabs") return p;
             if (p.type === "split") {
               for (const child of p.children) {
-                const found = findFirstTabPane(child);
+                const found = firstTabPane(child);
                 if (found) return found;
               }
             }
             return null;
           };
-          const firstPane = findFirstTabPane(state.rootPane);
+          const firstPane = firstTabPane(state.rootPane);
           if (firstPane) {
             finalTargetPaneId = firstPane.id;
           } else {
@@ -823,17 +986,17 @@ export const useTabsStore = create<TabsState>((set, get) => ({
         }
       } else {
         // No target provided, find the first tab pane
-        const findFirstTabPane = (p: Pane): TabPane | null => {
+        const firstTabPane = (p: Pane): TabPane | null => {
           if (p.type === "tabs") return p;
           if (p.type === "split") {
             for (const child of p.children) {
-              const found = findFirstTabPane(child);
+              const found = firstTabPane(child);
               if (found) return found;
             }
           }
           return null;
         };
-        const firstPane = findFirstTabPane(state.rootPane);
+        const firstPane = firstTabPane(state.rootPane);
         if (firstPane) {
           finalTargetPaneId = firstPane.id;
         } else {
@@ -918,11 +1081,32 @@ export const useTabsStore = create<TabsState>((set, get) => ({
         }));
       }
 
+      const navigationByPane = { ...state.navigationByPane };
+      const survivingPane = findPaneByIdRecursive(newRootPane, pane.id);
+      if (!survivingPane || survivingPane.type !== "tabs") {
+        delete navigationByPane[pane.id];
+      } else {
+        const previous = navigationByPane[pane.id] ?? EMPTY_NAVIGATION_HISTORY;
+        const back = previous.back.filter((id) => id !== tabId);
+        while (back.at(-1) === newActiveTabId) back.pop();
+        navigationByPane[pane.id] = {
+          back,
+          current: survivingPane.activeTabId,
+          forward: previous.forward.filter((id) => id !== tabId),
+        };
+      }
+      const navigationPaneId =
+        state.navigationPaneId && findPaneByIdRecursive(newRootPane, state.navigationPaneId)?.type === "tabs"
+          ? state.navigationPaneId
+          : firstTabPane(newRootPane)?.id ?? null;
+
       setTimeout(() => get().saveTabs(), 0);
 
       return {
         tabs: newTabs,
         rootPane: newRootPane,
+        navigationByPane,
+        navigationPaneId,
         closedTabs,
         activeTabHistory: newHistory,
         evictedTabIds: clearEvicted(state.evictedTabIds, [tabId]),
@@ -933,6 +1117,8 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   // Set the active tab in a specific pane
   setActiveTab: (paneId, tabId) => {
     set((state) => {
+      const pane = findPaneByIdRecursive(state.rootPane, paneId);
+      if (!pane || pane.type !== "tabs" || !pane.tabIds.includes(tabId)) return state;
       const rootPane = updatePaneInTree(state.rootPane, paneId, (p) => ({
         ...(p as TabPane),
         activeTabId: tabId,
@@ -943,12 +1129,13 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       ];
       // Activating a tab makes it resident again if the cap had evicted it.
       const evictedTabIds = clearEvicted(state.evictedTabIds, [tabId]);
+      const navigationByPane = visitNavigation(state.navigationByPane, paneId, pane.activeTabId, tabId);
 
       return {
         rootPane,
+        navigationByPane,
+        navigationPaneId: paneId,
         activeTabHistory,
-        // A direct navigation invalidates any forward history (browser semantics).
-        forwardTabHistory: [],
         // The cap is evaluated here rather than on a timer: activation is
         // the only moment the resident set can grow, and a timer would both
         // wake an idle app and make "when does a tab disappear" untestable.
@@ -960,6 +1147,11 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       };
     });
     scheduleTabsSave(() => get().saveTabs());
+  },
+
+  setNavigationPane: (paneId) => {
+    const pane = findPaneByIdRecursive(get().rootPane, paneId);
+    if (pane?.type === "tabs" && get().navigationPaneId !== paneId) set({ navigationPaneId: paneId });
   },
 
   updateTab: (tabId, updates) => {
@@ -982,28 +1174,31 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
       // Find first tab pane to add to
       let targetPaneId: string;
-      const findFirstTabPane = (p: Pane): TabPane | null => {
+      const firstTabPane = (p: Pane): TabPane | null => {
         if (p.type === "tabs") return p;
         if (p.type === "split") {
           for (const child of p.children) {
-            const found = findFirstTabPane(child);
+            const found = firstTabPane(child);
             if (found) return found;
           }
         }
         return null;
       };
-      const firstPane = findFirstTabPane(state.rootPane);
+      const firstPane = firstTabPane(state.rootPane);
       if (!firstPane) return state;
       targetPaneId = firstPane.id;
 
       const tabs = [...state.tabs, lastClosed];
+      const rootPane = updatePaneInTree(state.rootPane, targetPaneId, (p) => ({
+        ...(p as TabPane),
+        tabIds: [...(p as TabPane).tabIds, lastClosed.id],
+        activeTabId: lastClosed.id,
+      }));
       return {
         tabs,
-        rootPane: updatePaneInTree(state.rootPane, targetPaneId, (p) => ({
-          ...(p as TabPane),
-          tabIds: [...(p as TabPane).tabIds, lastClosed.id],
-          activeTabId: lastClosed.id,
-        })),
+        rootPane,
+        navigationByPane: visitNavigation(state.navigationByPane, targetPaneId, firstPane.activeTabId, lastClosed.id),
+        navigationPaneId: targetPaneId,
         closedTabs,
         activeTabHistory: [...state.activeTabHistory.filter((x) => x !== lastClosed.id), lastClosed.id],
       };
@@ -1019,21 +1214,12 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     const settingsPane = findPaneContainingTabRecursive(state.rootPane, settingsTab.id);
     if (!settingsPane || settingsPane.activeTabId !== settingsTab.id) return null;
 
-    const paneIds = new Set(settingsPane.tabIds);
-    for (let index = state.activeTabHistory.length - 1; index >= 0; index--) {
-      const candidateId = state.activeTabHistory[index];
-      if (candidateId === settingsTab.id || !paneIds.has(candidateId)) continue;
-
-      const candidate = state.tabs.find(
-        (tab) => tab.id === candidateId && tab.type !== "settings",
-      );
-      if (candidate) {
-        return {
-          tabId: candidate.id,
-          paneId: settingsPane.id,
-          title: candidate.title,
-        };
-      }
+    const chronological = state.navigationByPane[settingsPane.id]?.back;
+    const candidates = chronological ? [...chronological].reverse() : [...state.activeTabHistory].reverse();
+    for (const candidateId of candidates) {
+      if (candidateId === settingsTab.id || !settingsPane.tabIds.includes(candidateId)) continue;
+      const candidate = state.tabs.find((tab) => tab.id === candidateId && tab.type !== "settings");
+      if (candidate) return { tabId: candidate.id, paneId: settingsPane.id, title: candidate.title };
     }
 
     return null;
@@ -1054,126 +1240,152 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     const targetId = destination?.tabId ?? dashboardInPane?.id ?? null;
 
     if (targetId) {
-      set((current) => ({
+      set((current) => {
+        const source = current.navigationByPane[settingsPane.id] ?? { ...EMPTY_NAVIGATION_HISTORY, current: settingsTab.id };
+        const back = destination ? [...source.back] : [];
+        if (destination) {
+          const destinationIndex = back.lastIndexOf(targetId);
+          if (destinationIndex >= 0) back.splice(destinationIndex);
+        }
+        return {
         rootPane: updatePaneInTree(current.rootPane, settingsPane.id, (pane) => ({
           ...(pane as TabPane),
           activeTabId: targetId,
         })),
-        forwardTabHistory: [
-          ...current.forwardTabHistory.filter((id) => id !== settingsTab.id),
-          settingsTab.id,
-        ],
-      }));
+        navigationByPane: {
+          ...current.navigationByPane,
+          [settingsPane.id]: { back, current: targetId, forward: boundedPush(source.forward, settingsTab.id) },
+        },
+        navigationPaneId: settingsPane.id,
+        activeTabHistory: [...current.activeTabHistory.filter((id) => id !== targetId), targetId],
+      }; });
       setTimeout(() => get().saveTabs(), 0);
       return true;
     }
 
-    // Keep fallback creation on the app's existing navigation path so the
-    // dashboard receives its canonical component, title, and singleton rules.
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("navigate", { detail: "/dashboard" }));
-      return true;
-    }
-
-    return false;
-  },
-
-  // Edge-swipe back: activate the tab visited just before the current one.
-  // Pushes the current tab onto forwardTabHistory (so goToNextTab can return).
-  // No-ops (returns false) if there's no tab to go back to.
-  goToPreviousTab: () => {
-    const state = get();
-    const history = state.activeTabHistory;
-    // History is most-recent-last; the current active tab is the last entry.
-    // We need the entry before it that is still open and in the first tab pane
-    // (mobile only renders the first tab pane).
-    const findFirstTabPane = (p: Pane): TabPane | null => {
-      if (p.type === "tabs") return p;
-      if (p.type === "split") {
-        for (const child of p.children) {
-          const found = findFirstTabPane(child);
-          if (found) return found;
-        }
-      }
-      return null;
-    };
-    const firstPane = findFirstTabPane(state.rootPane);
-    if (!firstPane) return false;
-    const openIds = new Set(firstPane.tabIds);
-
-    if (history.length < 2) return false;
-
-    // Walk back from the end, skipping the current tab, to find a valid target.
-    let targetId: string | null = null;
-    for (let i = history.length - 2; i >= 0; i--) {
-      if (openIds.has(history[i])) {
-        targetId = history[i];
-        break;
-      }
-    }
-    if (!targetId || targetId === firstPane.activeTabId) return false;
-
-    const currentId = firstPane.activeTabId;
-    set((s) => ({
-      rootPane: updatePaneInTree(s.rootPane, firstPane.id, (p) => ({
-        ...(p as TabPane),
-        activeTabId: targetId!,
-      })),
-      // Move current tab to the forward stack so goToNextTab can retrace it.
-      forwardTabHistory: currentId
-        ? [...s.forwardTabHistory.filter((x) => x !== currentId), currentId]
-        : s.forwardTabHistory,
-    }));
+    const dashboardId = generateId();
+    const canonicalDashboard = createCanonicalTab("dashboard");
+    set((current) => {
+      const currentPane = findPaneByIdRecursive(current.rootPane, settingsPane.id);
+      if (!currentPane || currentPane.type !== "tabs" || currentPane.activeTabId !== settingsTab.id) return current;
+      const rootPane = updatePaneInTree(current.rootPane, currentPane.id, (pane) => ({
+        ...(pane as TabPane),
+        tabIds: [...(pane as TabPane).tabIds, dashboardId],
+        activeTabId: dashboardId,
+      }));
+      const tabs = [...current.tabs, { ...canonicalDashboard, id: dashboardId }];
+      const activeTabHistory = [...current.activeTabHistory.filter((id) => id !== dashboardId), dashboardId];
+      return {
+        tabs,
+        rootPane,
+        navigationByPane: {
+          ...current.navigationByPane,
+          [currentPane.id]: { back: [], current: dashboardId, forward: boundedPush(current.navigationByPane[currentPane.id]?.forward ?? [], settingsTab.id) },
+        },
+        navigationPaneId: currentPane.id,
+        activeTabHistory,
+        evictedTabIds: clearEvicted(current.evictedTabIds, [dashboardId]),
+      };
+    });
     setTimeout(() => get().saveTabs(), 0);
     return true;
   },
 
-  // Edge-swipe forward: retrace a prior "back". Consumes forwardTabHistory.
-  // Returns false if there is nowhere to go forward.
+  // Back and Forward consume chronological entries independently of MRU residency.
+  goToPreviousTab: () => {
+    const state = get();
+    const pane = (state.navigationPaneId && findPaneByIdRecursive(state.rootPane, state.navigationPaneId)?.type === "tabs"
+      ? findPaneByIdRecursive(state.rootPane, state.navigationPaneId)
+      : firstTabPane(state.rootPane)) as TabPane | null;
+    if (!pane || !pane.activeTabId) return false;
+    const transition = moveNavigation(state.navigationByPane, pane, "back");
+    const targetId = transition.targetId;
+    if (!targetId) return false;
+    let result = false;
+    set((current) => {
+      const livePane = findPaneByIdRecursive(current.rootPane, pane.id);
+      if (!livePane || livePane.type !== "tabs" || !livePane.tabIds.includes(targetId)) return current;
+      const rootPane = updatePaneInTree(current.rootPane, pane.id, (item) => ({ ...(item as TabPane), activeTabId: targetId }));
+      const activeTabHistory = [...current.activeTabHistory.filter((id) => id !== targetId), targetId];
+      const evictedTabIds = clearEvicted(current.evictedTabIds, [targetId]);
+      result = true;
+      return {
+        rootPane,
+        navigationByPane: transition.navigationByPane,
+        navigationPaneId: pane.id,
+        activeTabHistory,
+        evictedTabIds: applyResidentCap({ tabs: current.tabs, rootPane, activeTabHistory, evictedTabIds }, residentTabCap(), readerTabCap()),
+      };
+    });
+    if (result) setTimeout(() => get().saveTabs(), 0);
+    return result;
+  },
+
   goToNextTab: () => {
     const state = get();
-    const findFirstTabPane = (p: Pane): TabPane | null => {
-      if (p.type === "tabs") return p;
-      if (p.type === "split") {
-        for (const child of p.children) {
-          const found = findFirstTabPane(child);
-          if (found) return found;
-        }
-      }
-      return null;
+    const candidatePane = state.navigationPaneId ? findPaneByIdRecursive(state.rootPane, state.navigationPaneId) : null;
+    const pane = candidatePane?.type === "tabs" ? candidatePane : firstTabPane(state.rootPane);
+    if (!pane || pane.type !== "tabs" || !pane.activeTabId) return false;
+    const transition = moveNavigation(state.navigationByPane, pane, "forward");
+    const targetId = transition.targetId;
+    if (!targetId) return false;
+    let result = false;
+    set((current) => {
+      const livePane = findPaneByIdRecursive(current.rootPane, pane.id);
+      if (!livePane || livePane.type !== "tabs" || !livePane.tabIds.includes(targetId)) return current;
+      const rootPane = updatePaneInTree(current.rootPane, pane.id, (item) => ({ ...(item as TabPane), activeTabId: targetId }));
+      const activeTabHistory = [...current.activeTabHistory.filter((id) => id !== targetId), targetId];
+      const evictedTabIds = clearEvicted(current.evictedTabIds, [targetId]);
+      result = true;
+      return {
+        rootPane,
+        navigationByPane: transition.navigationByPane,
+        navigationPaneId: pane.id,
+        activeTabHistory,
+        evictedTabIds: applyResidentCap({ tabs: current.tabs, rootPane, activeTabHistory, evictedTabIds }, residentTabCap(), readerTabCap()),
+      };
+    });
+    if (result) setTimeout(() => get().saveTabs(), 0);
+    return result;
+  },
+
+  activateDashboardFallback: () => {
+    const state = get();
+    const preferred = state.navigationPaneId ? findPaneByIdRecursive(state.rootPane, state.navigationPaneId) : null;
+    const pane = preferred?.type === "tabs" ? preferred : firstTabPane(state.rootPane);
+    if (!pane) return false;
+    const existingDashboard = state.tabs.find((tab) => tab.type === "dashboard");
+    const dashboardPane = existingDashboard ? findPaneContainingTabRecursive(state.rootPane, existingDashboard.id) : null;
+    const targetPane = dashboardPane ?? pane;
+    const dashboard = existingDashboard ?? { ...createCanonicalTab("dashboard"), id: generateId() };
+    const rootPane = existingDashboard
+      ? updatePaneInTree(state.rootPane, targetPane.id, (item) => ({ ...(item as TabPane), activeTabId: dashboard.id }))
+      : updatePaneInTree(state.rootPane, targetPane.id, (item) => ({
+          ...(item as TabPane),
+          tabIds: [...(item as TabPane).tabIds, dashboard.id],
+          activeTabId: dashboard.id,
+        }));
+    const tabs = existingDashboard ? state.tabs : [...state.tabs, dashboard];
+    const activeTabHistory = [...state.activeTabHistory.filter((id) => id !== dashboard.id), dashboard.id];
+    const previous = state.navigationByPane[targetPane.id] ?? EMPTY_NAVIGATION_HISTORY;
+    const navigationByPane = {
+      ...state.navigationByPane,
+      [targetPane.id]: {
+        back: [],
+        current: dashboard.id,
+        forward: previous.current && previous.current !== dashboard.id
+          ? boundedPush(previous.forward, previous.current)
+          : previous.forward,
+      },
     };
-    const firstPane = findFirstTabPane(state.rootPane);
-    if (!firstPane) return false;
-    const openIds = new Set(firstPane.tabIds);
-
-    if (state.forwardTabHistory.length === 0) return false;
-
-    let targetId: string | null = null;
-    for (let i = state.forwardTabHistory.length - 1; i >= 0; i--) {
-      if (openIds.has(state.forwardTabHistory[i])) {
-        targetId = state.forwardTabHistory[i];
-        break;
-      }
-    }
-    if (!targetId || targetId === firstPane.activeTabId) return false;
-
-    const currentId = firstPane.activeTabId;
-    set((s) => ({
-      rootPane: updatePaneInTree(s.rootPane, firstPane.id, (p) => ({
-        ...(p as TabPane),
-        activeTabId: targetId!,
-      })),
-      // Pop the target off the forward stack; re-add current so a subsequent
-      // back/forward ping-pongs correctly.
-      forwardTabHistory: currentId
-        ? [
-            ...s.forwardTabHistory.filter(
-              (x) => x !== targetId && x !== currentId
-            ),
-            currentId,
-          ]
-        : s.forwardTabHistory.filter((x) => x !== targetId),
-    }));
+    set({
+      tabs,
+      rootPane,
+      navigationByPane,
+      navigationPaneId: targetPane.id,
+      activeTabHistory,
+      evictedTabIds: clearEvicted(state.evictedTabIds, [dashboard.id]),
+    });
     setTimeout(() => get().saveTabs(), 0);
     return true;
   },
@@ -1198,13 +1410,19 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
       setTimeout(() => get().saveTabs(), 0);
 
-      return {
-        tabs: state.tabs.filter((t) => !closableTabs.includes(t.id)),
-        rootPane: updatePaneInTree(state.rootPane, pane.id, (p) => ({
+      const rootPane = updatePaneInTree(state.rootPane, pane.id, (p) => ({
           ...(p as TabPane),
           tabIds: [tabId],
           activeTabId: tabId,
-        })),
+        }));
+      return {
+        tabs: state.tabs.filter((t) => !closableTabs.includes(t.id)),
+        rootPane,
+        navigationByPane: {
+          ...normalizeNavigationByPane(rootPane, { version: 1, byPane: state.navigationByPane }),
+          [pane.id]: { back: [], current: tabId, forward: [] },
+        },
+        navigationPaneId: pane.id,
         closedTabs: newClosedTabs,
         activeTabHistory: [tabId],
         evictedTabIds: clearEvicted(state.evictedTabIds, closableTabs),
@@ -1230,12 +1448,18 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
       setTimeout(() => get().saveTabs(), 0);
 
+      const remainingTabIds = pane.tabIds.filter((id) => !tabsToClose.includes(id));
+      const activeTabId = pane.activeTabId && remainingTabIds.includes(pane.activeTabId) ? pane.activeTabId : tabId;
+      const rootPane = updatePaneInTree(state.rootPane, pane.id, (p) => ({
+          ...(p as TabPane),
+          tabIds: remainingTabIds,
+          activeTabId,
+        }));
       return {
         tabs: state.tabs.filter((t) => !tabsToClose.includes(t.id)),
-        rootPane: updatePaneInTree(state.rootPane, pane.id, (p) => ({
-          ...(p as TabPane),
-          tabIds: (p as TabPane).tabIds.filter((id) => !tabsToClose.includes(id)),
-        })),
+        rootPane,
+        navigationByPane: normalizeNavigationByPane(rootPane, { version: 1, byPane: state.navigationByPane }),
+        navigationPaneId: pane.id,
         closedTabs: newClosedTabs,
         activeTabHistory: state.activeTabHistory.filter((id) => !tabsToClose.includes(id)),
         evictedTabIds: clearEvicted(state.evictedTabIds, tabsToClose),
@@ -1254,18 +1478,24 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       setTimeout(() => get().saveTabs(), 0);
 
       if (firstNonClosable) {
+        const rootPane = createTabPane([firstNonClosable.id], firstNonClosable.id);
         return {
           tabs: [firstNonClosable],
-          rootPane: createTabPane([firstNonClosable.id], firstNonClosable.id),
+          rootPane,
+          navigationByPane: { [rootPane.id]: { back: [], current: firstNonClosable.id, forward: [] } },
+          navigationPaneId: rootPane.id,
           closedTabs: newClosedTabs,
           activeTabHistory: [firstNonClosable.id],
           evictedTabIds: EMPTY_EVICTED,
         };
       }
 
+      const rootPane = createTabPane();
       return {
         tabs: [],
-        rootPane: createTabPane(),
+        rootPane,
+        navigationByPane: { [rootPane.id]: { ...EMPTY_NAVIGATION_HISTORY } },
+        navigationPaneId: rootPane.id,
         closedTabs: newClosedTabs,
         activeTabHistory: [],
         evictedTabIds: EMPTY_EVICTED,
@@ -1359,6 +1589,11 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
       return {
         rootPane: newRootPane,
+        navigationByPane: normalizeNavigationByPane(newRootPane, { version: 1, byPane: state.navigationByPane }),
+        navigationPaneId:
+          state.navigationPaneId && findPaneByIdRecursive(newRootPane, state.navigationPaneId)?.type === "tabs"
+            ? state.navigationPaneId
+            : firstTabPane(newRootPane)?.id ?? null,
         activeTabHistory: finalHistory,
       };
     });
@@ -1418,6 +1653,11 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
       return {
         rootPane: newRootPane,
+        navigationByPane: normalizeNavigationByPane(newRootPane, { version: 1, byPane: state.navigationByPane }),
+        navigationPaneId:
+          state.navigationPaneId && findPaneByIdRecursive(newRootPane, state.navigationPaneId)?.type === "tabs"
+            ? state.navigationPaneId
+          : firstTabPane(newRootPane)?.id ?? null,
         activeTabHistory: finalHistory,
       };
     });
@@ -1456,6 +1696,8 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       return {
         tabs: [...state.tabs, clonedTab],
         rootPane: newRootPane,
+        navigationByPane: normalizeNavigationByPane(newRootPane, { version: 1, byPane: state.navigationByPane }),
+        navigationPaneId: newPane.id,
         activeTabHistory: [...state.activeTabHistory.filter((x) => x !== newTabId), newTabId],
       };
     });
@@ -1519,6 +1761,11 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
       return {
         rootPane: newRootPane,
+        navigationByPane: normalizeNavigationByPane(newRootPane, { version: 1, byPane: state.navigationByPane }),
+        navigationPaneId:
+          state.navigationPaneId && findPaneByIdRecursive(newRootPane, state.navigationPaneId)?.type === "tabs"
+            ? state.navigationPaneId
+          : firstTabPane(newRootPane)?.id ?? null,
         activeTabHistory: finalHistory,
       };
     });
@@ -1561,7 +1808,14 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
       setTimeout(() => get().saveTabs(), 0);
 
-      return { rootPane: newRootPane };
+      return {
+        rootPane: newRootPane,
+        navigationByPane: normalizeNavigationByPane(newRootPane, { version: 1, byPane: state.navigationByPane }),
+        navigationPaneId:
+          state.navigationPaneId && findPaneByIdRecursive(newRootPane, state.navigationPaneId)?.type === "tabs"
+            ? state.navigationPaneId
+            : firstTabPane(newRootPane)?.id ?? null,
+      };
     });
   },
 
@@ -1631,6 +1885,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       const data = {
         tabs: serializableTabs,
         rootPane: state.rootPane,
+        navigation: { version: 1, byPane: state.navigationByPane },
         uiState,
       };
 
@@ -1707,6 +1962,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       const filteredRootPane = filterInvalidTabsFromPane(data.rootPane, validTabIds);
 
       const cleanedPane = cleanupEmptyPanes(filteredRootPane);
+      const navigationByPane = normalizeNavigationByPane(cleanedPane, data.navigation);
 
       // Collect all active tab IDs from restored pane tree to initialize history
       const activeIds: string[] = [];
@@ -1725,6 +1981,8 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       set({
         tabs: rehydratedTabs,
         rootPane: cleanedPane,
+        navigationByPane,
+        navigationPaneId: firstTabPane(cleanedPane)?.id ?? null,
         activeTabHistory: activeIds,
         evictedTabIds: EMPTY_EVICTED,
       });

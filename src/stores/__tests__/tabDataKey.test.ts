@@ -58,7 +58,6 @@ describe("tab reuse", () => {
       rootPane: createTabPane([], null),
       closedTabs: [],
       activeTabHistory: [],
-      forwardTabHistory: [],
       evictedTabIds: new Set<string>(),
     });
   }

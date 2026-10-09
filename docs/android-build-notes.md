@@ -13,6 +13,8 @@ can be re-applied.
 | `app/src/main/res/values/themes.xml` | `android:windowBackground` = `#0A0A0A` | Knowledge Peck launch continuity (API 24–30): pre-webview window matches the boot surface so cold launch shows no white flash. |
 | `app/src/main/res/values-night/themes.xml` | `android:windowBackground` = `#0A0A0A` | Same, night mode (the boot surface is theme-independent dark). |
 | `app/src/main/res/values-v31/themes.xml` | new file: full `Theme.plethora_tauri` re-declaration adding `android:windowSplashScreenBackground` = `#0A0A0A` | Android 12+ splash background matches the static pre-React frame's `#0A0A0A` (icon stays the launcher mascot) so native splash → static frame → animation read as one continuous launch. Pinned by `src/__tests__/brandInventory.test.ts`. |
+| `app/build.gradle.kts` | `NATIVE_BACK_ENABLED` BuildConfig flag from `-PplethoraNativeBackEnabled=true` (defaults false) | Keeps the Activity Back callback disabled until the mandatory real-device matrix passes. Enable the internal test APK and the controller/frontend handshake together; production remains off until acceptance. |
+| `app/src/main/java/com/plethora/app/MainActivity.kt` | Install/reorder the single `NavigationBackController` after `super.onCreate`, WebView load/resume, and invalidate on pause/destroy/new intents | AndroidX dispatcher owns committed system Back; no key-code interception or generated Tauri Activity edits. Reapply after `tauri android init`. |
 
 Everything else for the on-device AI feature lives in
 `src-tauri/plugins/plethora-android-genai/` — dependencies, R8 keep rules, manifest
@@ -20,6 +22,21 @@ override, Kotlin sources — which `tauri android init` does not touch. An
 `implementation` dependency in the plugin module already reaches the APK, and
 its `consumer-rules.pro` is applied by the app's own R8 pass, so duplicating
 either in `app/` would only create something to lose.
+
+The `plethora-navigation` plugin itself lives under
+`src-tauri/plugins/plethora-navigation/`; its Rust shim, Kotlin controller,
+resources, ACL and AndroidX dependencies are discovered from the Cargo plugin
+dependency. `tauri android init` regenerates the plugin module wiring, but it
+does not preserve the two app-level edits above. The native default remains
+disabled until the device acceptance matrix is recorded.
+
+When Back reaches exhausted workspace history, Android acknowledges `root`
+and the controller calls `moveTaskToBack(true)`. If that operation fails, a
+native Retry / Stay / Background app dialog appears; timeout never exits or
+replays navigation. The always-on dispatcher callback prevents Android's
+native predictive root preview from being shown before the frontend result is
+known. Gesture cancellation must still produce no app transition, but the
+platform's root preview is an accepted limitation of this interception model.
 
 ## AppSearch derived index (flag default off)
 
@@ -104,6 +121,9 @@ lazily inside `checkStatus`, whose `catch (e: Throwable)` covers the
    re-create `app/src/main/res/values-v31/themes.xml` (splash background
    items) — see the hand-edit table above.
 4. `npm run tauri:android:build` to confirm.
+5. Reapply the `MainActivity.kt` callback integration from the table. Build an
+   internal acceptance APK with `-PplethoraNativeBackEnabled=true`; ordinary
+   builds remain disabled until the recorded device gate is approved.
 
 ## Sibling Android AI plugins (planned)
 

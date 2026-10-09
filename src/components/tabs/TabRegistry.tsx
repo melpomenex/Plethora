@@ -1,5 +1,5 @@
 import { lazy, type ComponentType } from "react";
-import type { TabType } from "../../stores/tabsStore";
+import type { Tab, TabType } from "../../stores/tabsStore";
 import { importWithRetry } from "../../utils/importWithRetry";
 import {
   isPlatformCapabilityAvailable,
@@ -122,6 +122,11 @@ export const tabContentRegistry: Record<TabType, { content: ComponentType; title
   extracts: { content: ExtractsTab, title: "Extracts", icon: "✂️", closable: true },
   "import-needs-review": { content: ImportNeedsReviewTab, title: "Import Needs Review", icon: "🧭", closable: true },
 };
+
+export function createCanonicalTab(type: TabType): Omit<Tab, "id"> {
+  const entry = tabContentRegistry[type];
+  return { type, ...entry };
+}
 
 /**
  * §3.2: platform capability governing each tab type. Tabs whose capability

@@ -29,7 +29,6 @@ function resetStore() {
     rootPane: { id: "test-pane", type: "tabs", tabIds: [], activeTabId: null },
     closedTabs: [],
     activeTabHistory: [],
-    forwardTabHistory: [],
     evictedTabIds: new Set<string>(),
   });
 }
