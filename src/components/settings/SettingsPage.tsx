@@ -51,6 +51,7 @@ import { DeleteAccountFlow } from "./DeleteAccountFlow";
 import { loadGoogleFont } from "../../utils/fonts";
 import { useI18n } from "../../lib/i18n";
 import { useContextualBack, type ContextualBackHandler } from "../../lib/contextualBack";
+import type { NavigationCompletion } from "../../lib/navigationFeedback";
 import { requestApplicationBackIntent } from "../../lib/applicationBack";
 import { usePaneId, useTabId } from "../common/Tabs/TabContent";
 
@@ -273,28 +274,27 @@ function useSettingsBackNavigation(options: {
   activeSectionRef.current = activeTab;
   const pendingBackRef = useRef(false);
 
-  const attemptBack = useCallback((kind: "hierarchy" | "app") => {
+  const attemptBack = useCallback((kind: "hierarchy" | "app", completion?: NavigationCompletion) => {
     if (!isActiveSettingsOwner(ownerTabId)) return false;
-    if (pendingBackRef.current) return true;
+    if (pendingBackRef.current) { completion?.suppress(); return true; }
     const continueBack = () => continueSettingsBack(
       kind, isMobile, showMobileMenuRef.current, setShowMobileMenu, returnFromSettings,
     );
     if (hasChanges) {
-      pendingBackRef.current = true;
+      completion?.defer(); pendingBackRef.current = true;
       const requestedSection = activeTab;
       void modal.confirm(t("settings.discardChangesConfirm")).then((discard) => {
         pendingBackRef.current = false;
         if (!discard || !isActiveSettingsOwner(ownerTabId) || activeSectionRef.current !== requestedSection) return;
-        setHasChanges(false);
-        continueBack();
+        setHasChanges(false); continueBack(); completion?.complete();
       });
     } else {
       continueBack();
     }
     return true;
   }, [activeTab, hasChanges, isMobile, modal, ownerTabId, returnFromSettings, setHasChanges, setShowMobileMenu, t]);
-  const handler = useCallback<ContextualBackHandler>((input) =>
-    attemptBack(input?.intent === "leave-view" ? "app" : "hierarchy"), [attemptBack]);
+  const handler = useCallback<ContextualBackHandler>((input, completion) =>
+    attemptBack(input?.intent === "leave-view" ? "app" : "hierarchy", completion), [attemptBack]);
   const eligible = useCallback(() => isNavigationOwner, [isNavigationOwner]);
   useContextualBack(handler, {
     priority: 20,

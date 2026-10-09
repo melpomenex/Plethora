@@ -44,6 +44,73 @@ describe("requestApplicationBack", () => {
     expect(contextual).toHaveBeenCalledOnce();
   });
 
+  it("emits one injectable completion haptic for an overlay or contextual action", () => {
+    const emitFeedback = vi.fn(() => true);
+    registerOverlayDismissal(vi.fn());
+    expect(dispatchApplicationBack({ source: "ui", id: "overlay-back" }, { emitFeedback })).toMatchObject({
+      kind: "consumed",
+    });
+    expect(emitFeedback).toHaveBeenCalledOnce();
+
+    resetOverlayStackForTests();
+    resetApplicationBackForTests();
+    registerContextualBackHandler(vi.fn(() => true));
+    expect(dispatchApplicationBack({ source: "ui", id: "context-back" }, { emitFeedback })).toMatchObject({
+      kind: "consumed",
+    });
+    expect(emitFeedback).toHaveBeenCalledTimes(2);
+  });
+
+  it("haptically completes workspace history without letting failed delivery block dispatch", () => {
+    const emitFeedback = vi.fn(() => true);
+    const pane = createTabPane(["first", "second"], "second");
+    useTabsStore.setState({
+      tabs: [
+        { id: "first", title: "First", icon: null, type: "documents", content: () => null, closable: true },
+        { id: "second", title: "Second", icon: null, type: "queue", content: () => null, closable: true },
+      ],
+      rootPane: pane,
+      navigationByPane: { [pane.id]: { back: ["first", "second"], current: "second", forward: [] } },
+      navigationPaneId: pane.id,
+      navigationReady: true,
+    });
+    const previous = vi.spyOn(useTabsStore.getState(), "goToPreviousTab").mockReturnValue(true);
+    expect(dispatchApplicationBack({ source: "ui", id: "workspace-back" }, { emitFeedback })).toMatchObject({
+      kind: "consumed",
+      outcome: "completed",
+    });
+    expect(emitFeedback).toHaveBeenCalledOnce();
+
+    resetApplicationBackForTests();
+    registerOverlayDismissal(vi.fn());
+    const brokenDelivery = vi.fn(() => { throw new Error("haptic unavailable"); });
+    expect(dispatchApplicationBack({ source: "ui", id: "unblocked-back" }, { emitFeedback: brokenDelivery })).toMatchObject({
+      kind: "consumed",
+    });
+    expect(brokenDelivery).toHaveBeenCalledOnce();
+    previous.mockRestore();
+  });
+
+  it("waits for guarded contextual completion and stays silent at the root", () => {
+    const emitFeedback = vi.fn(() => true);
+    let complete: (() => void) | undefined;
+    registerContextualBackHandler((_input, completion) => {
+      completion?.defer();
+      complete = () => completion?.complete();
+      return true;
+    });
+    dispatchApplicationBack({ source: "ui", id: "guarded-back" }, { emitFeedback });
+    expect(emitFeedback).not.toHaveBeenCalled();
+    complete?.();
+    expect(emitFeedback).toHaveBeenCalledOnce();
+
+    resetContextualBackHandlersForTests();
+    resetApplicationBackForTests();
+    useTabsStore.setState({ navigationReady: true });
+    expect(dispatchApplicationBack({ source: "ui", id: "root-back" }, { emitFeedback })).toEqual({ kind: "root" });
+    expect(emitFeedback).toHaveBeenCalledOnce();
+  });
+
   it("returns false when no layer can navigate", () => {
     expect(requestApplicationBack()).toBe(false);
   });

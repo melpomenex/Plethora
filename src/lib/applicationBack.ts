@@ -1,6 +1,7 @@
 import { useTabsStore } from "../stores/tabsStore";
 import { requestContextualBack } from "./contextualBack";
 import { requestOverlayBack } from "./overlayStack";
+import { createNavigationCompletion } from "./navigationFeedback";
 
 export interface BackInput {
   source: "android-system" | "edge-fallback" | "ui";
@@ -34,14 +35,23 @@ function rememberBackId(id: string): boolean {
  * Dispatch application back in visual-layer order. Each layer reports whether
  * it consumed the request so a gesture or native event causes one transition.
  */
-export function dispatchApplicationBack(input: BackInput): BackDispatch {
+export function dispatchApplicationBack(
+  input: BackInput,
+  options: { emitFeedback?: (id: string) => boolean } = {},
+): BackDispatch {
   if (!rememberBackId(input.id)) return { kind: "consumed", outcome: "blocked" };
   if (dispatching) return { kind: "consumed", outcome: "pending" };
+  const completion = createNavigationCompletion(input.id, options.emitFeedback);
   dispatching = true;
   try {
-    if (requestOverlayBack()) return { kind: "consumed", outcome: "pending" };
-    if (requestContextualBack(input)) return { kind: "consumed", outcome: "pending" };
+    if (requestOverlayBack(completion)) {
+      return { kind: "consumed", outcome: "pending" };
+    }
+    if (requestContextualBack(input, completion)) {
+      return { kind: "consumed", outcome: "pending" };
+    }
     if (useTabsStore.getState().goToPreviousTab()) {
+      completion.complete();
       return { kind: "consumed", outcome: "completed", transitionId: input.id };
     }
 
@@ -52,6 +62,7 @@ export function dispatchApplicationBack(input: BackInput): BackDispatch {
     const activeTab = state.tabs.find((tab) => tab.id === activeId);
     if (activeTab?.type === "dashboard" || state.tabs.length === 0) return { kind: "root" };
     if (state.activateDashboardFallback()) {
+      completion.complete();
       return { kind: "consumed", outcome: "completed", transitionId: input.id };
     }
     return { kind: "unavailable" };

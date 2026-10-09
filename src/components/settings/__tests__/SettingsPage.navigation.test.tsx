@@ -35,6 +35,23 @@ vi.mock("../../../lib/tauri", async (importOriginal) => ({
 
 const DummyTab = () => null;
 
+function configureAndroidHaptics() {
+  const originalUserAgent = Object.getOwnPropertyDescriptor(navigator, "userAgent");
+  const originalVibrate = Object.getOwnPropertyDescriptor(navigator, "vibrate");
+  const vibrate = vi.fn(() => true);
+  Object.defineProperty(navigator, "userAgent", { configurable: true, value: "Mozilla Android" });
+  Object.defineProperty(navigator, "vibrate", { configurable: true, value: vibrate });
+  return {
+    vibrate,
+    restore() {
+      if (originalUserAgent) Object.defineProperty(navigator, "userAgent", originalUserAgent);
+      else Reflect.deleteProperty(navigator, "userAgent");
+      if (originalVibrate) Object.defineProperty(navigator, "vibrate", originalVibrate);
+      else Reflect.deleteProperty(navigator, "vibrate");
+    },
+  };
+}
+
 function openSettingsWithPrevious() {
   const documentsId = useTabsStore.getState().addTab({
     title: "Documents",
@@ -69,6 +86,7 @@ describe("SettingsPage return navigation", () => {
       settings: {
         ...state.settings,
         general: { ...state.settings.general, language: "en" },
+        notifications: { ...state.settings.notifications, feedbackSoundsEnabled: false },
       },
     }));
     vi.restoreAllMocks();
@@ -129,6 +147,31 @@ describe("SettingsPage return navigation", () => {
     expect((useTabsStore.getState().rootPane as any).activeTabId).toBe(settingsId);
     expect(useTabsStore.getState().activeTabHistory).toEqual(historyBefore);
     expect(screen.getByRole("button", { name: "Back to settings menu" })).toBeInTheDocument();
+  });
+
+  it("vibrates once after a dirty Back is confirmed and stays silent on cancel", async () => {
+    presentation.mobile = true;
+    openSettingsWithPrevious();
+    const haptics = configureAndroidHaptics();
+    useSettingsStore.setState((state) => ({
+      settings: { ...state.settings, notifications: { ...state.settings.notifications, feedbackSoundsEnabled: true } },
+    }));
+    try {
+      modalMock.confirm.mockResolvedValue(false);
+      render(<SettingsPage />);
+      fireEvent.click(screen.getByRole("button", { name: "General" }));
+      fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "review" } });
+      act(() => { expect(requestApplicationBack()).toBe(true); });
+      await waitFor(() => expect(modalMock.confirm).toHaveBeenCalledOnce());
+      expect(haptics.vibrate).not.toHaveBeenCalled();
+
+      modalMock.confirm.mockResolvedValue(true);
+      act(() => { expect(requestApplicationBack()).toBe(true); });
+      await waitFor(() => expect(screen.getByRole("button", { name: "Back to settings menu" }).closest("div.flex-1")).toHaveClass("hidden"));
+      expect(haptics.vibrate).toHaveBeenCalledOnce();
+    } finally {
+      haptics.restore();
+    }
   });
 
   it("performs exactly one guarded transition after unsaved back is confirmed", async () => {

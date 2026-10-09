@@ -1,8 +1,9 @@
 import { useEffect, useRef } from "react";
 import { useTabsStore } from "../stores/tabsStore";
 import type { BackInput } from "./applicationBack";
+import type { NavigationCompletion } from "./navigationFeedback";
 
-export type ContextualBackHandler = (input?: BackInput) => boolean;
+export type ContextualBackHandler = (input?: BackInput, completion?: NavigationCompletion) => boolean;
 export type ContextualBackOwner = { scope: "view"; paneId: string; tabId: string } | { scope: "global" };
 export interface ContextualBackOptions {
   priority?: number;
@@ -53,13 +54,16 @@ export function registerContextualBackHandler(
   };
 }
 
-export function requestContextualBack(input?: BackInput): boolean {
+export function requestContextualBack(input?: BackInput, completion?: NavigationCompletion): boolean {
   const ordered = [...entries].sort(
     (a, b) => b.priority - a.priority || b.order - a.order,
   );
   for (const entry of ordered) {
     if (!isContextualEntryEligible(entry)) continue;
-    if (entry.handler(input)) return true;
+    if (entry.handler(input, completion)) {
+      if (completion && !completion.isDeferred() && !completion.isFinished()) completion.complete();
+      return true;
+    }
   }
   return false;
 }
@@ -78,7 +82,7 @@ export function useContextualBack(
   handlerRef.current = handler;
   eligibilityRef.current = isEligible;
   useEffect(
-    () => registerContextualBackHandler((input) => handlerRef.current(input), {
+    () => registerContextualBackHandler((input, completion) => handlerRef.current(input, completion), {
       priority,
       owner: ownerScope === "global" ? { scope: "global" } : paneId && tabId ? { scope: "view", paneId, tabId } : undefined,
       isEligible: () => eligibilityRef.current?.() ?? true,

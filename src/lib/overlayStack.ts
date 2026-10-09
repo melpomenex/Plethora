@@ -1,4 +1,5 @@
 import { useTabsStore } from "../stores/tabsStore";
+import type { NavigationCompletion } from "./navigationFeedback";
 
 export type OverlayDismiss = () => void;
 export type OverlayOwner = { scope: "view"; paneId: string; tabId: string } | { scope: "global" };
@@ -47,7 +48,7 @@ export function registerOverlayDismissal(
   };
 }
 
-export function requestOverlayBack(): boolean {
+export function requestOverlayBack(completion?: NavigationCompletion): boolean {
   const ordered = [...entries].sort(
     (a, b) => b.priority - a.priority || b.order - a.order,
   );
@@ -61,9 +62,13 @@ export function requestOverlayBack(): boolean {
     return !candidate.isEligible || candidate.isEligible();
   });
   if (!entry) return false;
-  if (entry.claimed) return true;
+  if (entry.claimed) {
+    completion?.suppress();
+    return true;
+  }
   entry.claimed = true;
   entry.dismiss();
+  if (completion && !completion.isDeferred() && !completion.isFinished()) completion.complete();
   return true;
 }
 

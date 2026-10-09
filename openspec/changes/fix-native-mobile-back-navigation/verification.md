@@ -69,3 +69,12 @@ Android rollout stays disabled by default. An internal acceptance build opts in 
 | Browser reader fullscreen | Context priority 10 | Browser Fullscreen API and reader-focus fallback only; native-mobile fullscreen remains OS-owned; observed device exit is outstanding |
 
 This is an implementation inventory, not proof of full surface coverage; phase 3.6 and its representative UI/device audit remain unchecked.
+
+### Haptic completion follow-up
+
+Implemented `src/lib/navigationFeedback.ts` as an injectable completion adapter. It uses the existing `feedbackSoundsEnabled` opt-in and click vibration only; it adds no sound, visual feedback, or navigation event. Overlay/context/workspace completions emit once per request ID. Settings defers feedback until a dirty Back is confirmed; cancellation, stale confirmation, and a second Back while the prompt is pending stay silent. Vibration failures are swallowed so they cannot change dispatch or delay the native ACK.
+
+- Focused navigation/haptic suites: **4 files / 23 tests passed**. Coverage includes opt-in and dedupe, unsupported/disabled/rejected delivery, overlay/context/workspace completion, dirty-confirm once, cancel silence, and delivery failure not blocking dispatch.
+- ESLint on the changed haptic/coordinator/Settings files: **0 errors, 0 warnings**.
+- `git diff --check`: **passed** after the haptic follow-up.
+- Android device haptic feel/availability remains part of the unchecked device acceptance tasks.

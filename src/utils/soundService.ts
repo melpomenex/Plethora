@@ -217,13 +217,13 @@ async function playWithHtmlAudio(url: string, volume: number): Promise<void> {
  * Trigger device vibration for haptic feedback.
  * Silently no-ops on platforms that don't support the Vibration API.
  */
-export function vibrate(type: FeedbackType): void {
+export function vibrate(type: FeedbackType): boolean {
   try {
-    if (supportsHaptics()) {
-      (navigator as Navigator & { vibrate(pattern: number | number[]): boolean }).vibrate(VIBRATION_PATTERNS[type]);
-    }
+    if (!supportsHaptics()) return false;
+    return (navigator as Navigator & { vibrate(pattern: number | number[]): boolean }).vibrate(VIBRATION_PATTERNS[type]);
   } catch {
     // Vibration API not available — ignore
+    return false;
   }
 }
 
