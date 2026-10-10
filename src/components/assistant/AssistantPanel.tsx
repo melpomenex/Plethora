@@ -1,5 +1,4 @@
 import { useState, useRef, useEffect, useMemo, useCallback, type ReactNode } from "react";
-import DOMPurify from "dompurify";
 import {
   CaretDown,
   CaretLeft,
@@ -36,7 +35,8 @@ import { supportsVision } from "../../utils/visionCapability";
 import { chatWithContext, type LLMMessage, type LLMMessageContentPart, type LLMProvider } from "../../api/llm";
 import { resolveRequestPolicy } from "../../api/llm/policy";
 import { callAppMCPTool, getAppMCPTools, type MCPTool } from "../../api/mcp";
-import { renderMarkdown } from "../../utils/markdown";
+import { AssistantResponseContent } from "../common/AssistantResponseContent";
+import { getAssistantAnswer, parseAssistantThinking } from "../../utils/assistantThinking";
 import { useDocumentStore, useSettingsStore, useLLMProvidersStore, useReviewStore, useTabsStore } from "../../stores";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import { ReviewTab, SettingsTab } from "../tabs/TabRegistry";
@@ -158,6 +158,7 @@ interface Message {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  thinking?: string;
   timestamp: number;
   images?: AttachedImage[];
   toolCalls?: ToolCall[];
@@ -305,21 +306,6 @@ const isCaretOnLastLine = (textarea: HTMLTextAreaElement) => {
   if (caret !== selectionEnd) return false;
   return !textarea.value.slice(caret).includes("\n");
 };
-
-/** Memoized markdown renderer — avoids re-running renderMarkdown on unrelated re-renders. */
-function MemoizedMarkdown({ content }: { content: string }) {
-  const html = useMemo(() => renderMarkdown(content), [content]);
-  const safeHtml = useMemo(() => DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ['strong', 'em', 'p', 'br', 'code', 'pre', 'a', 'img', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'hr', 'div', 'span', 'sub', 'sup'],
-    ALLOWED_ATTR: ['href', 'src', 'alt', 'class', 'target', 'rel', 'data-language'],
-  }), [html]);
-  return (
-    <div
-      className="assistant-markdown leading-relaxed"
-      dangerouslySetInnerHTML={{ __html: safeHtml }}
-    />
-  );
-}
 
 export function AssistantPanel({
   context,
@@ -1231,10 +1217,12 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
                     .join("\n")
                 : "";
 
+            const parsedRagResponse = parseAssistantThinking(result.answer.answer + citationsBlock);
             const ragMessage: Message = {
               id: `assistant-${Date.now()}`,
               role: "assistant",
-              content: result.answer.answer + citationsBlock,
+              content: parsedRagResponse.answer,
+              thinking: parsedRagResponse.thinking || undefined,
               timestamp: Date.now(),
             };
             appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, ragMessage]);
@@ -1272,7 +1260,8 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       if (request.sourceContentOverride && response.content.startsWith("Error calling LLM:")) {
         throw new Error(response.content.replace(/^Error calling LLM:\s*/, ""));
       }
-      const { cleanedContent, toolCalls } = parseToolCalls(response.content);
+      const parsedResponse = parseAssistantThinking(response.content);
+      const { cleanedContent, toolCalls } = parseToolCalls(parsedResponse.answer);
 
       if (response.imagesStripped && response.modelName) {
         const warningMessage: Message = {
@@ -1284,11 +1273,12 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, warningMessage]);
       }
 
-      const displayContent = cleanedContent || (toolCalls.length > 0 ? "Running tool calls..." : response.content);
+      const displayContent = cleanedContent || (toolCalls.length > 0 ? "Running tool calls..." : parsedResponse.answer);
       const assistantMessage: Message = {
         id: `assistant-${Date.now()}`,
         role: "assistant",
         content: displayContent,
+        thinking: parsedResponse.thinking || undefined,
         timestamp: Date.now(),
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         sourceContext: response.sourceContext,
@@ -1376,7 +1366,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     }
     if (isLoading || flashcardGeneratingMessageId === sourceMessage.id) return;
 
-    const { requestContent, sourceContent } = buildAssistantMessageFlashcardRequest(sourceMessage.content);
+    const { requestContent, sourceContent } = buildAssistantMessageFlashcardRequest(getAssistantAnswer(sourceMessage.content));
     void submitAssistantRequest({
       requestContent,
       displayContent: t(ASSISTANT_MESSAGE_FLASHCARD_DISPLAY_KEY),
@@ -1730,7 +1720,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           }
           return {
             role: m.role as "system" | "user" | "assistant",
-            content: m.content,
+            content: m.role === "assistant" ? getAssistantAnswer(m.content) : m.content,
           };
         }),
         {
@@ -2608,7 +2598,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
   const handleCopyMessage = async (message: Message) => {
     const conversationMessage: ConversationMessage = {
       role: message.role,
-      content: message.content,
+      content: message.role === "assistant" ? getAssistantAnswer(message.content) : message.content,
       timestamp: message.timestamp,
     };
 
@@ -2631,7 +2621,9 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
   };
 
   const handleShareMessage = (message: Message) => {
-    setShareMessage(message);
+    setShareMessage(message.role === "assistant"
+      ? { ...message, content: getAssistantAnswer(message.content), thinking: undefined }
+      : message);
     setIsShareDialogOpen(true);
   };
 
@@ -2646,7 +2638,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       .filter((m) => m.role === "user" || m.role === "assistant")
       .map((m) => ({
         role: m.role,
-        content: m.content,
+        content: m.role === "assistant" ? getAssistantAnswer(m.content) : m.content,
         timestamp: m.timestamp,
       }));
   };
@@ -2839,14 +2831,14 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               id: "extract-message",
               label: "Extract Message Content",
               icon: <Quotes className="w-4 h-4" />,
-              onClick: () => handleExtractText(targetMessage.content),
+              onClick: () => handleExtractText(getAssistantAnswer(targetMessage.content)),
             },
             {
               id: "copy-message-plain",
               label: "Copy Text",
               icon: <Copy className="w-4 h-4" />,
               onClick: () => {
-                copyToClipboard(targetMessage.content);
+                copyToClipboard(getAssistantAnswer(targetMessage.content));
                 toast.success("Copied message text to clipboard");
               },
             },
@@ -3438,7 +3430,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 {message.role === "user" ? (
                   renderUserMessageContent(message.content, assistantSectionFlat)
                 ) : (
-                  <MemoizedMarkdown content={message.content} />
+                  <AssistantResponseContent content={message.content} thinking={message.thinking} />
                 )}
               </div>
 
@@ -3546,6 +3538,12 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               })()}
             </div>
           ))
+        )}
+        {isLoading && (
+          <div className="flex items-center gap-2 self-start text-xs text-muted-foreground" role="status">
+            <CircleNotch className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            <span>{t("assistant.thinkingInProgress")}</span>
+          </div>
         )}
       </div>
 

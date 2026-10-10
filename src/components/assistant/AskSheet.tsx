@@ -26,6 +26,8 @@ import {
 import { MobileContextMenuSheet } from "../common/MobileContextMenuSheet";
 import { useToast } from "../common/Toast";
 import { DocumentQASources } from "../tabs/DocumentQASources";
+import { AssistantResponseContent } from "../common/AssistantResponseContent";
+import { parseAssistantThinking } from "../../utils/assistantThinking";
 import { useI18n } from "../../lib/i18n";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import {
@@ -111,6 +113,7 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
   const [question, setQuestion] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [answer, setAnswer] = useState<AskLibraryResult | null>(null);
+  const [thinking, setThinking] = useState("");
   const [lastQuestion, setLastQuestion] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -142,6 +145,7 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
     setQuestion("");
     setSuggestions([]);
     setAnswer(null);
+      setThinking("");
     setLastQuestion("");
     setError(null);
     setExpanded(false);
@@ -278,7 +282,12 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
           signal: controller.signal,
         });
         if (controller.signal.aborted) return;
-        setAnswer(result);
+        const parsedAnswer = parseAssistantThinking(result.answer.answer);
+        setAnswer({
+          ...result,
+          answer: { ...result.answer, answer: parsedAnswer.answer },
+        });
+        setThinking(parsedAnswer.thinking);
         setLastQuestion(q);
         setQuestion("");
         setPhase("answered");
@@ -683,9 +692,12 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
                           {t("askSheet.retrievalOnlyNote")}
                         </div>
                       ) : (
-                        <div className="text-[15px] text-foreground leading-relaxed whitespace-pre-wrap">
-                          {answer.answer.answer}
-                        </div>
+                        <AssistantResponseContent
+                          content={answer.answer.answer}
+                          thinking={thinking || undefined}
+                          markdown={false}
+                          className="text-[15px] text-foreground"
+                        />
                       )}
 
                       {answer.sources.length > 0 && (

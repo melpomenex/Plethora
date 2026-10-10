@@ -9,7 +9,9 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { chatWithContext, type LLMMessage } from "../../api/llm";
-import { renderMarkdown } from "../../utils/markdown";
+import { useI18n } from "../../lib/i18n";
+import { AssistantResponseContent } from "../common/AssistantResponseContent";
+import { getAssistantAnswer, parseAssistantThinking } from "../../utils/assistantThinking";
 import { useLLMProvidersStore, useSettingsStore } from "../../stores";
 import type { AssistantContext } from "./AssistantPanel";
 import * as documentsApi from "../../api/documents";
@@ -30,6 +32,7 @@ type ChatMessage = {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  thinking?: string;
   timestamp: number;
 };
 
@@ -111,6 +114,7 @@ export function PwaAssistantButton({
   side: Side;
   enabled: boolean;
 }) {
+  const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const [isListening, setIsListening] = useState(false);
   const [interim, setInterim] = useState("");
@@ -349,7 +353,10 @@ export function PwaAssistantButton({
       const history = messages
         .filter((m) => m.role === "user" || m.role === "assistant")
         .slice(-6)
-        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+        .map((m) => ({
+          role: m.role as "user" | "assistant",
+          content: m.role === "assistant" ? getAssistantAnswer(m.content) : m.content,
+        }));
 
       if (resolved.useAppleFm) {
         setLastUsedProviderLabel("Apple Intelligence • on-device");
@@ -363,10 +370,12 @@ export function PwaAssistantButton({
             maxOutputTokens: contextWindow,
           });
 
+          const parsedResponse = parseAssistantThinking(response.content);
           const assistant: ChatMessage = {
             id: `a-${Date.now()}`,
             role: "assistant",
-            content: response.content,
+            content: parsedResponse.answer,
+            thinking: parsedResponse.thinking || undefined,
             timestamp: Date.now(),
           };
           setMessages((prev) => [...prev, assistant]);
@@ -416,10 +425,12 @@ export function PwaAssistantButton({
         settings.ai.aiControls?.documentSnippetLength
       );
 
+      const parsedResponse = parseAssistantThinking(response.content);
       const assistant: ChatMessage = {
         id: `a-${Date.now()}`,
         role: "assistant",
-        content: response.content,
+        content: parsedResponse.answer,
+        thinking: parsedResponse.thinking || undefined,
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, assistant]);
@@ -660,10 +671,7 @@ export function PwaAssistantButton({
                     ].join(" ")}
                   >
                     {m.role === "assistant" ? (
-                      <div
-                        className="prose prose-sm max-w-none"
-                        dangerouslySetInnerHTML={{ __html: renderMarkdown(m.content) }}
-                      />
+                      <AssistantResponseContent content={m.content} thinking={m.thinking} className="prose prose-sm max-w-none" />
                     ) : (
                       <div className="whitespace-pre-wrap">{m.content}</div>
                     )}
@@ -674,7 +682,7 @@ export function PwaAssistantButton({
               {isLoading && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">
                   <CircleNotch className="w-4 h-4 animate-spin" />
-                  Thinking…
+                  {t("assistant.thinkingInProgress")}
                 </div>
               )}
               <div ref={messagesEndRef} />

@@ -29,6 +29,7 @@ import {
 import { LearnThisProposalSheet } from "../learn/LearnThisProposalSheet";
 import { TutorTurnBubble } from "./TutorTurnBubble";
 import { TutorComposer } from "./TutorComposer";
+import { AssistantResponseContent } from "../common/AssistantResponseContent";
 import { redactTutorContext, redactTutorMaterial, resolveTutorPrivacyPolicy, type LearnerContextPacket, type TutorMode } from "../../lib/languageTutor";
 import { useLLMProvidersStore } from "../../stores/llmProvidersStore";
 
@@ -78,6 +79,7 @@ export function TutorSheet({
   const [starting, setStarting] = useState(false);
   const [running, setRunning] = useState(false);
   const [streamText, setStreamText] = useState("");
+  const [interruptedPreview, setInterruptedPreview] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [answer, setAnswer] = useState("");
   const [showPromotion, setShowPromotion] = useState(false);
@@ -111,6 +113,7 @@ export function TutorSheet({
     setStarting(false);
     setRunning(false);
     setStreamText("");
+    setInterruptedPreview("");
     setError(null);
     setAnswer("");
     setShowPromotion(false);
@@ -138,6 +141,7 @@ export function TutorSheet({
     startAttemptedRef.current = true;
     const controller = new AbortController();
     abortRef.current = controller;
+    let received = "";
     setStarting(true);
     setError(null);
 
@@ -147,7 +151,10 @@ export function TutorSheet({
       {
         signal: controller.signal,
         onChunk: (chunk) => {
-          if (!controller.signal.aborted) setStreamText((prev) => prev + chunk);
+          if (!controller.signal.aborted) {
+            received += chunk;
+            setStreamText(received);
+          }
         },
       }
     )
@@ -158,6 +165,7 @@ export function TutorSheet({
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
+        setInterruptedPreview(extractStreamingTutorContent(received));
         setError(toAIError(err).message || String(err));
       })
       .finally(() => {
@@ -199,17 +207,23 @@ export function TutorSheet({
       setRunning(true);
       setError(null);
       setStreamText("");
+      setInterruptedPreview("");
+      let received = "";
       let succeeded = false;
       try {
         await call(session, {
           signal: controller.signal,
           onChunk: (chunk) => {
-            if (!controller.signal.aborted) setStreamText((prev) => prev + chunk);
+            if (!controller.signal.aborted) {
+              received += chunk;
+              setStreamText(received);
+            }
           },
         });
         succeeded = true;
       } catch (err) {
         if (!controller.signal.aborted) {
+          setInterruptedPreview(extractStreamingTutorContent(received));
           setError(toAIError(err).message || String(err));
         }
       } finally {
@@ -369,13 +383,23 @@ export function TutorSheet({
           ))}
 
           {(starting || running) && (
-            <p
-              className="text-[13px] text-muted-foreground"
+            <div
+              className="text-sm text-muted-foreground"
               data-tutor-pending="true"
+              role="status"
             >
-              {streamPreview || (starting ? t("aiTutor.opening") : t("aiTutor.thinking"))}
-              …
-            </p>
+              {streamPreview ? (
+                <AssistantResponseContent content={streamPreview} status="running" markdown={false} />
+              ) : (
+                <>{starting ? t("aiTutor.opening") : t("aiTutor.thinking")}…</>
+              )}
+            </div>
+          )}
+
+          {!running && !starting && interruptedPreview && (
+            <div className="text-sm text-muted-foreground" data-tutor-interrupted="true">
+              <AssistantResponseContent content={interruptedPreview} status="interrupted" markdown={false} />
+            </div>
           )}
 
           {error && (

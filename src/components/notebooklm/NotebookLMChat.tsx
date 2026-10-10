@@ -16,12 +16,14 @@ import { notebooklmAsk, notebooklmResearch } from "../../api/integrations";
 import { createDocument, getDocuments, updateDocument, updateDocumentContent } from "../../api/documents";
 import { createExtract, getExtracts } from "../../api/extracts";
 import { useToast } from "../common/Toast";
-import { renderMarkdown } from "../../utils/markdown";
+import { AssistantResponseContent } from "../common/AssistantResponseContent";
+import { parseAssistantThinking } from "../../utils/assistantThinking";
 
 interface Message {
   id: string;
   role: "user" | "assistant";
   content: string;
+  thinking?: string;
   timestamp: Date;
   sources?: string[];
   isResearch?: boolean;
@@ -174,11 +176,13 @@ export function NotebookLMChat({ notebookId, notebookTitle }: NotebookLMChatProp
 
     try {
       const response = await notebooklmAsk(userMessage.content, notebookId);
+      const parsedResponse = parseAssistantThinking(response.answer);
       
       const assistantMessage: Message = {
         id: `msg-${Date.now() + 1}`,
         role: "assistant",
-        content: response.answer,
+        content: parsedResponse.answer,
+        thinking: parsedResponse.thinking || undefined,
         timestamp: new Date(),
         sources: response.sources,
       };
@@ -502,12 +506,7 @@ export function NotebookLMChat({ notebookId, notebookTitle }: NotebookLMChatProp
                     }`}
                   >
                     {message.role === "assistant" ? (
-                      <div
-                        className="prose prose-sm dark:prose-invert max-w-none"
-                        dangerouslySetInnerHTML={{
-                          __html: renderMarkdown(message.content),
-                        }}
-                      />
+                      <AssistantResponseContent content={message.content} thinking={message.thinking} className="prose prose-sm dark:prose-invert max-w-none" />
                     ) : (
                       <p className="text-sm whitespace-pre-wrap">{message.content}</p>
                     )}
@@ -593,6 +592,12 @@ export function NotebookLMChat({ notebookId, notebookTitle }: NotebookLMChatProp
                 </div>
               </div>
             ))}
+            {isLoading && (
+              <div className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+                <CircleNotch className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                <span>{t("assistant.thinkingInProgress")}</span>
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
         )}

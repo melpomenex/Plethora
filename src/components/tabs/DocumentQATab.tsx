@@ -41,7 +41,8 @@ import {
   X,
   XCircle,
 } from "@phosphor-icons/react";
-import { renderMarkdown } from "../../utils/markdown";
+import { AssistantResponseContent } from "../common/AssistantResponseContent";
+import { getAssistantAnswer, parseAssistantThinking } from "../../utils/assistantThinking";
 import { detectChapterReference, buildChapterQAContext, getChapterTitles, type ChapterReference } from "../../utils/chapterUtils";
 import { useI18n } from "../../lib/i18n";
 import { invokeCommand } from "../../lib/tauri";
@@ -1829,10 +1830,12 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
           // of letting the answer read as "I looked and my notes have nothing
           // on this".
           if (ragResult.sources.length === 0 && ragResult.answer.evidenceLevel === "none") {
+            const parsedRagAnswer = parseAssistantThinking(ragResult.answer.answer);
             addMessage({
               id: `assistant-${Date.now()}`,
               role: "assistant" as const,
-              content: `⚠️ ${ragResult.answer.answer}`,
+              content: `⚠️ ${parsedRagAnswer.answer}`,
+              thinking: parsedRagAnswer.thinking || undefined,
               timestamp: Date.now(),
             });
             setIsProcessing(false);
@@ -1848,10 +1851,12 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
             chunkText: source.text,
             score: source.score,
           }));
+          const parsedRagAnswer = parseAssistantThinking(ragResult.answer.answer);
           const ragMessage = {
             id: `assistant-${Date.now()}`,
             role: "assistant" as const,
-            content: ragResult.answer.answer,
+            content: parsedRagAnswer.answer,
+            thinking: parsedRagAnswer.thinking || undefined,
             timestamp: Date.now(),
             sourceDocuments: citations.length > 0
               ? citations.map(c => c.documentId)
@@ -1906,7 +1911,7 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
         .slice(-6) // Last 6 messages for context (3 turns)
         .map(m => ({
           role: m.role,
-          content: m.content,
+          content: m.role === "assistant" ? getAssistantAnswer(m.content) : m.content,
         }));
 
       // Call LLM with conversation history
@@ -1931,12 +1936,14 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
         aiControls?.documentSnippetLength
       );
 
-      const { cleanedContent, toolCalls } = parseToolCalls(response.content);
+      const parsedResponse = parseAssistantThinking(response.content);
+      const { cleanedContent, toolCalls } = parseToolCalls(parsedResponse.answer);
 
       const assistantMessage = {
         id: `assistant-${Date.now()}`,
         role: "assistant" as const,
-        content: cleanedContent || response.content,
+        content: cleanedContent || parsedResponse.answer,
+        thinking: parsedResponse.thinking || undefined,
         timestamp: Date.now(),
         sourceDocuments: mentionedDocumentIds.length > 0 ? mentionedDocumentIds : undefined,
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
@@ -2458,7 +2465,7 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
                       {message.role === "assistant" && (
                         <button
                           onClick={() => {
-                            navigator.clipboard.writeText(sourcesCopyText(message.content, message.citations));
+                            navigator.clipboard.writeText(sourcesCopyText(getAssistantAnswer(message.content), message.citations));
                             setCopiedMessageId(message.id);
                             setTimeout(() => setCopiedMessageId(null), 2000);
                           }}
@@ -2472,9 +2479,10 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
                           )}
                         </button>
                       )}
-                      <div
+                      <AssistantResponseContent
+                        content={message.content}
+                        thinking={message.thinking}
                         className="prose prose-sm max-w-none"
-                        dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
                       />
                       {/* Interactive sources footer — renders only when the
                           message carries structured citations (older persisted
@@ -2559,10 +2567,9 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
               </div>
             ))}
             {isProcessing && (
-              <div className="flex items-start">
-                <div className="bg-muted rounded-lg p-4">
-                  <CircleNotch className="w-5 h-5 animate-spin text-muted-foreground" />
-                </div>
+              <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
+                <CircleNotch className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                <span>{t("assistant.thinkingInProgress")}</span>
               </div>
             )}
             <div ref={messagesEndRef} />

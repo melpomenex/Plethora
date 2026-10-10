@@ -9,6 +9,7 @@
 
 import { useI18n } from "../../lib/i18n";
 import type { TutorTranscriptTurn } from "../../lib/ai/tutor/session";
+import { AssistantResponseContent } from "../common/AssistantResponseContent";
 
 const HINT_PIPS = [1, 2, 3] as const;
 
@@ -58,9 +59,9 @@ export function TutorTurnBubble({ turn }: { turn: TutorTranscriptTurn }) {
           </span>
         )}
       </div>
-      <p className="max-w-[95%] rounded-2xl rounded-bl-md border border-border bg-background px-3.5 py-2 text-[14px] leading-relaxed text-foreground whitespace-pre-wrap">
-        {turn.text}
-      </p>
+      <div className="max-w-[95%] rounded-2xl rounded-bl-md border border-border bg-background px-3.5 py-2 text-[14px] leading-relaxed text-foreground">
+        <AssistantResponseContent content={turn.text} markdown={false} />
+      </div>
       {turn.stuckDetected && (
         <p className="text-[11px] text-amber-600 dark:text-amber-400" data-tutor-stuck="true">
           {t("aiTutor.stuck")}

@@ -81,7 +81,8 @@ import { ingestImageFile, listImageAssets, type ImageAsset } from "../../api/ima
 import { modelSupportsImageInput, normalizeOcclusionRegions } from "../../utils/occlusionAI";
 import { getVideoTranscript } from "../../api/video-extracts";
 import { extractYouTubeID, fetchYouTubeTranscript } from "../../api/youtube";
-import { renderMarkdown } from "../../utils/markdown";
+import { AssistantResponseContent } from "../common/AssistantResponseContent";
+import { parseAssistantThinking } from "../../utils/assistantThinking";
 import { useDocumentStore, useLLMProvidersStore, useSettingsStore, useStudyDeckStore } from "../../stores";
 import { useToast } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
@@ -212,6 +213,7 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  thinking?: string;
   timestamp: number;
   cardsGenerated?: number;
   tokensUsed?: number;
@@ -3478,14 +3480,16 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       );
 
       const assistantId = `assistant-${Date.now()}`;
-      const { cards, cleaned } = parseCardsFromResponse(response.content, assistantId);
+      const parsedResponse = parseAssistantThinking(response.content);
+      const { cards, cleaned } = parseCardsFromResponse(parsedResponse.answer, assistantId);
 
       const assistantMessage: ChatMessage = {
         id: assistantId,
         role: "assistant",
         content: sectionTruncatedNote
-          ? `${sectionTruncatedNote}\n\n${cleaned || response.content}`
-          : cleaned || response.content,
+          ? `${sectionTruncatedNote}\n\n${cleaned || parsedResponse.answer}`
+          : cleaned || parsedResponse.answer,
+        thinking: parsedResponse.thinking || undefined,
         timestamp: Date.now(),
         cardsGenerated: cards.length,
         sourceContext: sectionSourceContext,
@@ -4470,10 +4474,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                           )}
                         >
                           {message.role === "assistant" ? (
-                            <div
-                              className="prose prose-sm dark:prose-invert max-w-none"
-                              dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }}
-                            />
+                            <AssistantResponseContent content={message.content} thinking={message.thinking} className="prose prose-sm dark:prose-invert max-w-none" />
                           ) : (
                             <p className="text-sm leading-relaxed">{message.content}</p>
                           )}
@@ -4490,6 +4491,12 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                         </div>
                       </div>
                     ))
+                  )}
+                  {isSending && (
+                    <div className="flex items-center gap-2 px-1 text-sm text-muted-foreground" role="status">
+                      <CircleNotch className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                      <span>{t("assistant.thinkingInProgress")}</span>
+                    </div>
                   )}
                   <div ref={messagesEndRef} />
                 </div>

@@ -27,6 +27,8 @@ export interface Message {
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
+  /** Separated model thinking, kept out of answer text and future chat context. */
+  thinking?: string;
   timestamp: number;
   sourceDocuments?: string[];
   /**
