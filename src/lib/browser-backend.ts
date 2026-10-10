@@ -4,6 +4,7 @@
  */
 
 import * as db from './database.js';
+import { DEFAULT_COLLECTION_ID } from '../types/collection';
 import { ARENA_MODEL_LABEL_ORDER } from "./schedulerCatalog";
 import {
     isAdaptiveScheduler,
@@ -218,6 +219,20 @@ function toCamelCase(obj: unknown): unknown {
         }, {} as Record<string, unknown>);
     }
     return obj;
+}
+
+function localScheduleKey(value: string): string | null {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return null;
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function isInBrowserCollection(record: { collection_id?: string }, collectionId: string): boolean {
+    const defaultScope = collectionId === 'default' || collectionId === DEFAULT_COLLECTION_ID;
+    if (!record.collection_id) return defaultScope;
+    return record.collection_id === collectionId ||
+        (defaultScope && (record.collection_id === 'default' || record.collection_id === DEFAULT_COLLECTION_ID));
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -897,6 +912,112 @@ function toUnixSeconds(value: unknown): number | null {
 }
 
 const commandHandlers: Record<string, CommandHandler> = {
+    get_auto_postpone_candidates: async (args) => {
+        const collectionId = String(args.collectionId ?? 'default');
+        const rawWindowStart = String(args.windowStart ?? '');
+        const rawWindowEnd = String(args.windowEnd ?? '');
+        const windowStart = localScheduleKey(rawWindowStart) ?? rawWindowStart;
+        const windowEnd = localScheduleKey(rawWindowEnd) ?? rawWindowEnd;
+        const [documents, extracts, learningItems] = await Promise.all([
+            db.getDocuments(), db.getAllExtracts(), db.getAllLearningItems(),
+        ]);
+        const documentById = new Map(documents.map((document) => [document.id, document]));
+        const inCandidateWindow = (value?: string) => {
+            if (!value) return false;
+            const key = localScheduleKey(value);
+            return key === null || key < windowEnd;
+        };
+        const candidates = [
+            ...learningItems
+                .filter((item) => isInBrowserCollection(item, collectionId) && inCandidateWindow(item.due_date))
+                .map((item) => {
+                    const parent = item.document_id ? documentById.get(item.document_id) : undefined;
+                    return {
+                        id: item.id,
+                        entityType: 'learning-item',
+                        dueDate: item.due_date ?? null,
+                        lastReviewDate: item.last_review_date ?? null,
+                        interval: item.interval ?? null,
+                        priorityScore: 50,
+                        stability: item.memory_state?.stability ?? null,
+                        difficulty: item.memory_state?.difficulty ?? item.difficulty ?? null,
+                        reviewCount: item.review_count ?? 0,
+                        lapses: item.lapses ?? 0,
+                        isSuspended: !!item.is_suspended,
+                        isArchived: !!parent?.is_archived,
+                        isDismissed: !!parent?.is_dismissed,
+                        isInactive: !!(item.document_id && (!parent || !isInBrowserCollection(parent, collectionId))),
+                    };
+                }),
+            ...documents
+                .filter((document) => isInBrowserCollection(document, collectionId) && inCandidateWindow(document.next_reading_date))
+                .map((document) => ({
+                    id: document.id,
+                    entityType: 'document',
+                    dueDate: document.next_reading_date ?? null,
+                    lastReviewDate: document.date_last_reviewed ?? null,
+                    interval: 0,
+                    priorityScore: document.priority_score ?? 50,
+                    stability: document.stability ?? null,
+                    difficulty: document.difficulty ?? null,
+                    reviewCount: document.reps ?? document.reading_count ?? 0,
+                    lapses: 0,
+                    isSuspended: false,
+                    isArchived: !!document.is_archived,
+                    isDismissed: !!document.is_dismissed,
+                    isInactive: false,
+                })),
+            ...extracts
+                .filter((extract) => isInBrowserCollection(extract, collectionId) && inCandidateWindow(extract.next_review_date))
+                .map((extract) => {
+                    const parent = documentById.get(extract.document_id);
+                    return {
+                        id: extract.id,
+                        entityType: 'extract',
+                        dueDate: extract.next_review_date ?? null,
+                        lastReviewDate: extract.last_review_date ?? null,
+                        interval: 0,
+                        priorityScore: 50,
+                        stability: extract.memory_state?.stability ?? null,
+                        difficulty: extract.memory_state?.difficulty ?? null,
+                        reviewCount: extract.review_count ?? 0,
+                        lapses: 0,
+                        isSuspended: false,
+                        isArchived: !!parent?.is_archived,
+                        isDismissed: !!parent?.is_dismissed,
+                        isInactive: !parent || !isInBrowserCollection(parent, collectionId),
+                    };
+                }),
+        ];
+        const scheduledDates = [
+            ...learningItems
+                .filter((item) => {
+                    if (!isInBrowserCollection(item, collectionId) || item.is_suspended) return false;
+                    const parent = item.document_id ? documentById.get(item.document_id) : undefined;
+                    return !item.document_id || !!parent && isInBrowserCollection(parent, collectionId) && !parent.is_archived && !parent.is_dismissed;
+                })
+                .map((item) => item.due_date),
+            ...documents
+                .filter((document) => isInBrowserCollection(document, collectionId) && !document.is_archived && !document.is_dismissed)
+                .map((document) => document.next_reading_date),
+            ...extracts
+                .filter((extract) => {
+                    const parent = documentById.get(extract.document_id);
+                    return isInBrowserCollection(extract, collectionId) && !!parent && isInBrowserCollection(parent, collectionId) && !parent.is_archived && !parent.is_dismissed;
+                })
+                .map((extract) => extract.next_review_date),
+        ].filter((value): value is string => {
+            if (!value) return false;
+            const key = localScheduleKey(value);
+            return key !== null && key >= windowStart && key < windowEnd;
+        });
+        return { candidates, scheduledDates };
+    },
+    apply_auto_postpone_plan: async (args) => {
+        const plan = (args.plan ?? []) as db.BrowserAutoPostponePlanItem[];
+        const outcomes = await db.applyBrowserAutoPostponePlan(plan, String(args.collectionId ?? 'default'));
+        return { outcomes };
+    },
     get_language_knowledge_state: async (args) => {
         const data = readBrowserKnowledgeData();
         const snapshot = browserKnowledgeSnapshot(data, String(args.profileId || ''), String(args.entryId || ''));

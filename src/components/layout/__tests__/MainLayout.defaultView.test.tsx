@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, waitFor } from "@testing-library/react";
 
-const { Placeholder } = vi.hoisted(() => ({ Placeholder: () => null }));
+const { Placeholder, autoPostpone, mobileShell } = vi.hoisted(() => ({
+  Placeholder: () => null,
+  autoPostpone: { run: vi.fn().mockResolvedValue({ status: "disabled" }) },
+  mobileShell: { enabled: false },
+}));
 
 vi.mock("../../common/Tabs", () => ({ Tabs: Placeholder }));
 vi.mock("../../Toolbar", () => ({ Toolbar: Placeholder }));
@@ -21,7 +25,8 @@ vi.mock("../../common/VimiumNavigation", () => ({
 }));
 vi.mock("../../common/KeyboardShortcuts", () => ({ useShortcut: vi.fn() }));
 vi.mock("../../../hooks/useKeyboardShortcuts", () => ({ useGlobalShortcuts: vi.fn() }));
-vi.mock("../../../hooks/useMobileShell", () => ({ useMobileShell: () => false }));
+vi.mock("../../../hooks/useMobileShell", () => ({ useMobileShell: () => mobileShell.enabled }));
+vi.mock("../../../lib/autoPostponeSession", () => ({ runAutoPostponeSession: autoPostpone.run }));
 vi.mock("../../../lib/tauri", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../lib/tauri")>();
   return {
@@ -90,6 +95,8 @@ import { useDocumentStore } from "../../../stores/documentStore";
  */
 describe("MainLayout applies Default View after a restored session", () => {
   beforeEach(() => {
+    mobileShell.enabled = false;
+    autoPostpone.run.mockClear();
     localStorage.clear();
     localStorage.setItem(
       "plethora-tabs",
@@ -151,5 +158,12 @@ describe("MainLayout applies Default View after a restored session", () => {
     expect(paneWithAnalytics && "activeTabId" in paneWithAnalytics ? paneWithAnalytics.activeTabId : null).toBe(
       analyticsTab!.id,
     );
+  });
+
+  it("starts the shared postpone session from the main mobile shell once", async () => {
+    mobileShell.enabled = true;
+    render(<MainLayout />);
+
+    await waitFor(() => expect(autoPostpone.run).toHaveBeenCalledTimes(1));
   });
 });

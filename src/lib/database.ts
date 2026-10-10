@@ -426,6 +426,7 @@ export interface Document {
     priority_slider: number;
     priority_score: number;
     is_archived: boolean;
+    is_dismissed?: boolean;
     is_favorite: boolean;
     metadata?: Record<string, unknown>;
     cover_image_url?: string;
@@ -569,6 +570,7 @@ export interface MemoryState {
 
 export interface Extract {
     id: string;
+    collection_id?: string;
     document_id: string;
     /** Plain text content for search and AI processing */
     content: string;
@@ -719,6 +721,7 @@ export interface LearningItem {
     /** Serialized `CardSourceReference` JSON — provenance for extract-less cards. */
     source_reference?: string;
     sync_version?: number;
+    collection_id?: string;
     _deleted?: boolean;
 }
 
@@ -805,6 +808,142 @@ export async function updateLearningItem(id: string, updates: Partial<LearningIt
         date_modified: new Date().toISOString(),
     };
     return put(STORES.learningItems, updated);
+}
+
+export interface BrowserAutoPostponePlanItem {
+    id: string;
+    entityType: "learning-item" | "document" | "extract" | "video-extract";
+    expectedDueDate: string;
+    targetDueDate: string;
+}
+
+/**
+ * Apply browser-mode schedule changes with a single IndexedDB transaction.
+ * Expected dates and active status are checked inside that transaction so a
+ * stale plan cannot overwrite a concurrent review or lifecycle change.
+ */
+export async function applyBrowserAutoPostponePlan(
+    plan: BrowserAutoPostponePlanItem[],
+    collectionId: string,
+): Promise<Array<{ id: string; status: "postponed" | "skipped"; reason?: string }>> {
+    if (plan.length === 0) return [];
+    return withRetry((database) => new Promise((resolve, reject) => {
+        const tx = database.transaction(
+            [STORES.documents, STORES.extracts, STORES.learningItems],
+            'readwrite',
+        );
+        const docs = tx.objectStore(STORES.documents);
+        const extracts = tx.objectStore(STORES.extracts);
+        const learningItems = tx.objectStore(STORES.learningItems);
+        const now = new Date().toISOString();
+        const outcomes = new Map<string, { id: string; status: "postponed" | "skipped"; reason?: string }>();
+
+        const skip = (item: BrowserAutoPostponePlanItem, reason: string) => {
+            outcomes.set(item.id, { id: item.id, status: "skipped", reason });
+        };
+        const storeTarget = (item: BrowserAutoPostponePlanItem) => {
+            if (item.entityType === "learning-item") return learningItems;
+            if (item.entityType === "document") return docs;
+            if (item.entityType === "extract") return extracts;
+            return null;
+        };
+        const dueField = (item: BrowserAutoPostponePlanItem) =>
+            item.entityType === "document" ? "next_reading_date" :
+                item.entityType === "extract" ? "next_review_date" : "due_date";
+        const inCollection = (record: { collection_id?: string }) => {
+            const defaultScope = collectionId === 'default' || collectionId === '00000000-0000-0000-0000-000000000001';
+            if (!record.collection_id) return defaultScope;
+            return record.collection_id === collectionId ||
+                (defaultScope && (record.collection_id === 'default' || record.collection_id === '00000000-0000-0000-0000-000000000001'));
+        };
+
+        for (const item of plan) {
+            const store = storeTarget(item);
+            if (!store) {
+                skip(item, "unsupported-entity");
+                continue;
+            }
+            const request = store.get(item.id);
+            request.onerror = () => tx.abort();
+            request.onsuccess = () => {
+                const record = request.result as (Document | Extract | LearningItem | undefined);
+                const field = dueField(item);
+                if (!record || record._deleted || !inCollection(record) || record[field as keyof typeof record] !== item.expectedDueDate) {
+                    skip(item, "changed-or-missing-before-commit");
+                    return;
+                }
+                if (item.entityType === "document") {
+                    const doc = record as Document;
+                    if (doc.is_archived || doc.is_dismissed) {
+                        skip(item, "inactive-before-commit");
+                        return;
+                    }
+                    docs.put({
+                        ...doc,
+                        next_reading_date: item.targetDueDate,
+                        date_modified: now,
+                        sync_version: (doc.sync_version ?? 0) + 1,
+                    });
+                    outcomes.set(item.id, { id: item.id, status: "postponed" });
+                } else if (item.entityType === "learning-item") {
+                    const learningItem = record as LearningItem;
+                    if (learningItem.is_suspended) {
+                        skip(item, "inactive-before-commit");
+                        return;
+                    }
+                    const apply = () => {
+                        learningItems.put({
+                            ...learningItem,
+                            due_date: item.targetDueDate,
+                            date_modified: now,
+                            sync_version: (learningItem.sync_version ?? 0) + 1,
+                        });
+                        outcomes.set(item.id, { id: item.id, status: "postponed" });
+                    };
+                    if (learningItem.document_id) {
+                        const parentRequest = docs.get(learningItem.document_id);
+                        parentRequest.onerror = () => tx.abort();
+                        parentRequest.onsuccess = () => {
+                            const parent = parentRequest.result as Document | undefined;
+                            if (!parent || parent._deleted || !inCollection(parent) || parent.is_archived || parent.is_dismissed) {
+                                skip(item, "inactive-before-commit");
+                                return;
+                            }
+                            apply();
+                        };
+                    } else {
+                        apply();
+                    }
+                } else {
+                    const extract = record as Extract;
+                    const parentRequest = docs.get(extract.document_id);
+                    parentRequest.onerror = () => tx.abort();
+                    parentRequest.onsuccess = () => {
+                        const parent = parentRequest.result as Document | undefined;
+                        if (!parent || parent._deleted || !inCollection(parent) || parent.is_archived || parent.is_dismissed) {
+                            skip(item, "inactive-before-commit");
+                            return;
+                        }
+                        extracts.put({
+                            ...extract,
+                            next_review_date: item.targetDueDate,
+                            date_modified: now,
+                            sync_version: (extract.sync_version ?? 0) + 1,
+                        });
+                        outcomes.set(item.id, { id: item.id, status: "postponed" });
+                    };
+                }
+            };
+        }
+
+        tx.oncomplete = () => resolve(plan.map((item) => outcomes.get(item.id) ?? {
+            id: item.id,
+            status: "skipped" as const,
+            reason: "transaction-did-not-return-an-outcome",
+        }));
+        tx.onerror = () => reject(tx.error ?? new Error("Automatic postpone transaction failed"));
+        tx.onabort = () => reject(tx.error ?? new Error("Automatic postpone transaction aborted"));
+    }));
 }
 
 export async function deleteLearningItem(id: string): Promise<void> {

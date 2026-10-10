@@ -624,6 +624,9 @@ Shows all scheduled items, including future reviews
 #### New View
 Shows newly created cards not yet reviewed
 
+#### Automatic postpone
+In Learning Settings, enable **Auto-postpone on session start** to reschedule eligible overdue items when Plethora starts a new app session. It runs once per session, spreads items across the next 30 local calendar days, and shows a nonblocking summary. Review history and memory state are preserved; manual Postpone All remains available.
+
 ### Queue Operations
 
 **Filtering:**

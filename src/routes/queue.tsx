@@ -23,7 +23,6 @@ import { QueueContextMenu } from "../components/queue/QueueContextMenu";
 import { QueueItemActionSheet } from "../components/queue/QueueItemActionSheet";
 import { ExportQueueDialog } from "../components/queue/ExportQueueDialog";
 import { PostponeAllDialog } from "../components/queue/PostponeAllDialog";
-import { AutoPostponePrompt } from "../components/queue/AutoPostponePrompt";
 import { DynamicVirtualList } from "../components/common/VirtualList";
 import { CompactTagEditor } from "../components/common/CompactTagEditor";
 import type { QueueItem } from "../types/queue";
@@ -1053,9 +1052,6 @@ export function Queue() {
         isOpen={showPostponeAllDialog}
         onClose={() => setShowPostponeAllDialog(false)}
       />
-
-      {/* Auto-Postpone Prompt */}
-      <AutoPostponePrompt />
 
       <QueueItemActionSheet
         item={actionItem}

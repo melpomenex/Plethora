@@ -1854,14 +1854,29 @@ export const en: Dict = {
   "postpone.days": "{count} days",
   "postpone.autoPostponeTitle": "Auto-Postpone",
   "postpone.autoPostponeDescription":
-    "You have {count} overdue items. Would you like to postpone them?",
+    "When enabled, eligible overdue items are rescheduled automatically at the start of each new app session.",
+  "postpone.autoPostponeResultTitle": "Auto-postpone complete",
+  "postpone.autoPostponeResultMessage":
+    "Found {discovered} overdue items. Postponed: {postponed}; skipped: {skipped}; failed: {failed}; remaining overdue: {remaining}. Skip reasons: {skipReasons}. Distribution: {distribution}.",
+  "postpone.autoPostponeNoDistribution": "No items were scheduled.",
+  "postpone.autoPostponeNoSkipReasons": "none",
+  "postpone.autoPostponeReasonInvalidDate": "invalid date",
+  "postpone.autoPostponeReasonVideoUnsupported": "video extract is not sync-enabled",
+  "postpone.autoPostponeReasonSuspended": "suspended",
+  "postpone.autoPostponeReasonArchived": "archived",
+  "postpone.autoPostponeReasonDismissed": "dismissed",
+  "postpone.autoPostponeReasonInactive": "inactive or deleted",
+  "postpone.autoPostponeReasonRules": "postpone rules did not select it",
+  "postpone.autoPostponeReasonChanged": "changed before commit",
+  "postpone.autoPostponeFailedTitle": "Auto-postpone could not complete",
+  "postpone.autoPostponeFailedMessage": "Automatic scheduling failed. Your review state was preserved.",
   "postpone.reviewNow": "Review Now",
   "postpone.settingsTitle": "Postpone",
   "postpone.settingsDescription":
     "Configure how items are postponed. Well-established items (high stability, low difficulty) receive larger interval increases. Struggling items are preserved with smaller increases.",
   "postpone.autoPostponeEnabled": "Auto-postpone on session start",
   "postpone.autoPostponeEnabledDescription":
-    "Automatically offer to postpone overdue items when you open the queue",
+    "Automatically reschedule eligible overdue content when the app starts a new session",
   "postpone.simpleMode": "Simple mode",
   "postpone.simpleModeDescription":
     "Use linear interpolation by priority instead of the full algorithm",

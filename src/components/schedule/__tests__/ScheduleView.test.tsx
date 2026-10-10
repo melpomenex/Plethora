@@ -8,9 +8,14 @@ const tauri = vi.hoisted(() => {
   return { invoke };
 });
 
+const autoPostpone = vi.hoisted(() => ({ run: vi.fn() }));
+
 vi.mock("../../../lib/tauri", () => ({
   isTauri: () => true,
   invokeCommand: (cmd: string, args?: Record<string, unknown>) => tauri.invoke(cmd, args),
+}));
+vi.mock("../../../lib/autoPostponeSession", () => ({
+  runAutoPostponeSession: autoPostpone.run,
 }));
 
 // Local calendar date helpers so tests are deterministic in any timezone.
@@ -57,7 +62,31 @@ function mockScheduleData(items: RustQueueItem[], horizonDays = 14) {
 
 beforeEach(() => {
   tauri.invoke.mockReset();
+  autoPostpone.run.mockReset().mockResolvedValue({
+    status: "disabled", discovered: 0, postponed: 0, skipped: 0, failed: 0,
+    remainingOverdue: null, distribution: {},
+  });
   localStorage.clear();
+});
+
+describe("ScheduleView session-start recovery", () => {
+  it("waits for the shared session operation before loading Schedule data", async () => {
+    let releaseSession!: () => void;
+    autoPostpone.run.mockReturnValue(new Promise<void>((resolve) => { releaseSession = resolve; }));
+    const items = [makeRustItem({ id: "a", due_date: localDateKey(0) })];
+    mockScheduleData(items);
+
+    render(<ScheduleView />);
+    expect(autoPostpone.run).toHaveBeenCalledTimes(1);
+    expect(tauri.invoke).not.toHaveBeenCalledWith("get_due_workload_forecast", expect.anything());
+    expect(tauri.invoke).not.toHaveBeenCalledWith("get_queue", expect.anything());
+
+    releaseSession();
+    expect(await screen.findByText("Doc")).toBeInTheDocument();
+    const recoveryIndex = autoPostpone.run.mock.invocationCallOrder[0];
+    const forecastIndex = tauri.invoke.mock.invocationCallOrder.find((_, index) => tauri.invoke.mock.calls[index][0] === "get_due_workload_forecast");
+    expect(forecastIndex).toBeGreaterThan(recoveryIndex);
+  });
 });
 
 describe("ScheduleView — workspace hierarchy and preferences (7.1)", () => {

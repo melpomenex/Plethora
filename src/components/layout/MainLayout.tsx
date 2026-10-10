@@ -42,6 +42,7 @@ import { useExternalOpen } from "../../hooks/useExternalOpen";
 import { useWebviewRecovery } from "../../lib/webviewRecovery";
 import { useLifecycleCheckpoint } from "../../lib/lifecycleCheckpoint";
 import { cn } from "../../utils";
+import { runAutoPostponeSession } from "../../lib/autoPostponeSession";
 const PaywallModal = lazy(() => import("../monetization/PaywallModal").then(({ PaywallModal: modal }) => ({ default: modal })));
 
 const TAB_TYPE_ALIASES: Record<string, TabType> = {
@@ -317,6 +318,11 @@ export function MainLayout() {
   useEffect(() => {
     void ensureStartup("queue", { queueMode: "due-today" });
   }, [ensureStartup, activeCollectionId]);
+
+  // Queue and Schedule join one settings-aware operation for this app process.
+  useEffect(() => {
+    void runAutoPostponeSession();
+  }, []);
 
   // Background update check on startup (desktop only). Runs once, after a
   // short delay so it doesn't compete with boot. Each version is shown to the

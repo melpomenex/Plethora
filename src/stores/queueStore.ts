@@ -223,7 +223,6 @@ interface QueueState {
   // Postpone state
   postponeLoading: boolean;
   postponeStats: PostponeStats | null;
-  showAutoPostponePrompt: boolean;
 
   /**
    * True when single-item mutations have been applied to local state without
@@ -313,7 +312,6 @@ interface QueueState {
   postponeItem: (id: string, days: number) => Promise<void>;
   postponeItemSmart: (queueItem: QueueItem) => Promise<{ increase: number; newInterval: number }>;
   postponeAllItems: () => Promise<PostponeStats>;
-  dismissAutoPostponePrompt: () => void;
   bulkSuspend: () => Promise<void>;
   bulkUnsuspend: () => Promise<void>;
   bulkDelete: () => Promise<void>;
@@ -358,7 +356,6 @@ export const useQueueStore = create<QueueState>((set, get) => ({
   bulkOperationResult: null,
   postponeLoading: false,
   postponeStats: null,
-  showAutoPostponePrompt: false,
 
   // Actions
   loadQueue: async (forceAllItems?: boolean) => {
@@ -382,7 +379,6 @@ export const useQueueStore = create<QueueState>((set, get) => ({
             break;
         }
         items = await enrichQueueItemsWithAudio(items);
-        const now = new Date();
         set({
           items,
           isLoading: false,
@@ -402,15 +398,6 @@ export const useQueueStore = create<QueueState>((set, get) => ({
         // Off by default — when rankingEnabled is false the listing above stands.
         if (settings.daqe.rankingEnabled) {
           void get().applyRankSnapshot(settings.daqe.knobs);
-        }
-        if (settings.learning.postpone.autoPostponeEnabled) {
-          const overdueCount = items.filter((i) => {
-            if (!i.dueDate) return true;
-            return new Date(i.dueDate) < now;
-          }).length;
-          if (overdueCount > 0) {
-            set({ showAutoPostponePrompt: true });
-          }
         }
       } catch (error) {
         set({
@@ -1068,7 +1055,11 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
       const toPersist = results.filter((r) => r.postponed);
       if (toPersist.length > 0) {
-        const tasks = toPersist.map((result) => () => postponeItem(result.id, result.increase));
+        const tasks = toPersist.map((result) => () => postponeItem(
+          result.id,
+          result.increase,
+          queueItemMap.get(result.id)?.itemType === "document" ? "document" : undefined,
+        ));
         await parallelWithLimit(tasks, 6);
       }
 
@@ -1084,8 +1075,6 @@ export const useQueueStore = create<QueueState>((set, get) => ({
       throw error;
     }
   },
-
-  dismissAutoPostponePrompt: () => set({ showAutoPostponePrompt: false }),
 
   postponeItem: async (id, days) => {
     try {

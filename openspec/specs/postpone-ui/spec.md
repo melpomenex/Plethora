@@ -1,4 +1,12 @@
-## ADDED Requirements
+# postpone-ui Specification
+
+Defines the user-facing controls and feedback for single-item, batch, and automatic postpone operations.
+
+## Purpose
+
+The postpone interface gives users understandable manual controls and clear feedback when scheduled work is moved, without hiding outcomes or requiring an unnecessary interruption.
+
+## Requirements
 
 ### Requirement: Single-item postpone uses algorithm-aware computation
 The queue context menu "Postpone" action SHALL compute the new interval using the postpone engine instead of adding a fixed number of days. The context menu SHALL show the computed increase and allow the user to confirm or cancel.

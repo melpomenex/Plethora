@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
-  "corpusHash": "sha256:1d8720570edd81d18109273ac9d9f2aefc0b4c4431ecf76c7bcc2a0d60c0ab3f",
-  "generatedAt": "2026-09-01T12:19:33.310Z",
+  "corpusHash": "sha256:5e62c1f64935aedca08bd2fea231a426c8f894e66bdcc718835d3f06f144fa7e",
+  "generatedAt": "2026-10-10T11:02:45.047Z",
   "totalDocs": 75,
   "totalChunks": 226,
   "aliasMap": {
@@ -3010,8 +3010,8 @@
         "mobile-android",
         "mobile-ios"
       ],
-      "summary": "Algorithmic workload management postponing low-priority review backlogs while strictly preserving memory stability on core cards.",
-      "how_to": "When facing a review backlog, click \"Postpone Overdue Items\" in Queue/Review header or configure Auto-Postpone.",
+      "summary": "Schedule recovery for overdue queue content while preserving review and memory state.",
+      "how_to": "Enable Auto-postpone in Learning Settings to reschedule eligible overdue content when a new app session starts. Use Postpone All for a manual queue operation.",
       "why": "Life disruptions cause massive review backlogs; blindly reviewing 1,000 overdue cards in alphabetical order leads to study burnout, whereas intelligent postponement preserves core knowledge.",
       "aliases": [
         "postpone engine",
@@ -3020,8 +3020,7 @@
         "review delay"
       ],
       "settings": [
-        "scheduler.postpone.maxItemsPerDay",
-        "scheduler.postpone.protectHighPriority"
+        "learning.postpone.autoPostponeEnabled"
       ],
       "actions": [
         {
@@ -3038,12 +3037,12 @@
       "filePath": "docs/product/features/scheduling/postpone-engine.md",
       "sections": {
         "intro": "# Postpone Engine",
-        "Purpose": "Provides mathematical backlog management that distributes overdue reviews over future days based on priority rankings and current memory retrievability.",
-        "User-Facing Behavior": "- Visual \"Overdue Backlog\" card offering one-click intelligent redistribution.\n- Sliders to choose how many items to postpone and across how many days to spread the load.\n- Protection indicators guaranteeing that items with Priority < 20 will never be delayed.",
-        "Exact Behavioral Rules": "1. Sorts candidate backlog items by Priority ($P$) and current estimated Retrievability ($R$).\n2. Items near their forgetting threshold ($R \\approx 0.85$) receive scheduling preference over items that have already lapsed ($R < 0.5$) or items with high stability.\n3. Postponed dates are dithered to avoid creating artificial secondary backlog peaks.",
+        "Purpose": "At the beginning of a new app session, the enabled recovery flow finds eligible overdue learning items, documents, and text extracts in the active collection. It assigns them to the least-loaded local dates from tomorrow through the next 30 days. It changes schedule dates and sync metadata only; review history and memory state stay intact.",
+        "User-Facing Behavior": "- Automatic recovery runs once after backend and settings hydration. Reopening Queue or Schedule does not repeat it.\n- A nonblocking summary reports discovered, postponed, skipped, failed, and remaining overdue counts plus the date distribution.\n- Manual Postpone All and review controls remain available.\n- Video extracts are reported as skipped because they do not yet have a first-class sync entity.",
+        "Exact Behavioral Rules": "1. A due date is overdue only when its local calendar day is strictly before today; missing dates are not overdue.\n2. Existing eligible workload is counted for each local calendar day in the planning window.\n3. Candidates are assigned deterministically to the least-loaded day. The existing postpone eligibility rules determine which items are skipped.\n4. Only the due-date field and sync metadata are updated; FSRS state, interval, review count, and last-review date are preserved.",
         "Rationale": "Adopts the fundamental workload balancing postulate: \"It is better to review the top 20% of your knowledge base thoroughly than to fail 100% of it due to despair.\"",
-        "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `scheduler.postpone.protectHighPriority` | `true` | Never postpone items with priority <= 20 |",
-        "Platform Behavior": "- **All Platforms**: Evaluated in Rust backend (`src-tauri/src/algorithms/postpone.rs`)."
+        "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `learning.postpone.autoPostponeEnabled` | `false` | Automatically recover overdue content once at the start of a new app session |",
+        "Platform Behavior": "- **Desktop and mobile**: Native storage applies the plan in a journaled SQLite transaction; browser storage uses one IndexedDB transaction.\n- **Session scope**: The startup collection is processed once per app process. Queue and Schedule share the same operation."
       }
     },
     {
@@ -9692,7 +9691,7 @@
       "title": "Postpone Engine",
       "domain": "scheduling",
       "section": "Summary & How-To",
-      "content": "Title: Postpone Engine\nDomain: scheduling\nSummary: Algorithmic workload management postponing low-priority review backlogs while strictly preserving memory stability on core cards.\nHow to use: When facing a review backlog, click \"Postpone Overdue Items\" in Queue/Review header or configure Auto-Postpone.\nRationale: Life disruptions cause massive review backlogs; blindly reviewing 1,000 overdue cards in alphabetical order leads to study burnout, whereas intelligent postponement preserves core knowledge.\nAliases: postpone engine, backlog manager, auto postpone, review delay\nSettings: scheduler.postpone.maxItemsPerDay, scheduler.postpone.protectHighPriority",
+      "content": "Title: Postpone Engine\nDomain: scheduling\nSummary: Schedule recovery for overdue queue content while preserving review and memory state.\nHow to use: Enable Auto-postpone in Learning Settings to reschedule eligible overdue content when a new app session starts. Use Postpone All for a manual queue operation.\nRationale: Life disruptions cause massive review backlogs; blindly reviewing 1,000 overdue cards in alphabetical order leads to study burnout, whereas intelligent postponement preserves core knowledge.\nAliases: postpone engine, backlog manager, auto postpone, review delay\nSettings: learning.postpone.autoPostponeEnabled",
       "aliases": [
         "postpone engine",
         "backlog manager",
@@ -9701,8 +9700,7 @@
       ],
       "tags": [
         "scheduling",
-        "scheduler.postpone.maxItemsPerDay",
-        "scheduler.postpone.protectHighPriority",
+        "learning.postpone.autoPostponeEnabled",
         "postpone engine",
         "backlog manager",
         "auto postpone",
@@ -9730,7 +9728,7 @@
       "title": "Postpone Engine › Behavioral Rules",
       "domain": "scheduling",
       "section": "Exact Behavioral Rules",
-      "content": "1. Sorts candidate backlog items by Priority ($P$) and current estimated Retrievability ($R$).\n2. Items near their forgetting threshold ($R \\approx 0.85$) receive scheduling preference over items that have already lapsed ($R < 0.5$) or items with high stability.\n3. Postponed dates are dithered to avoid creating artificial secondary backlog peaks.",
+      "content": "1. A due date is overdue only when its local calendar day is strictly before today; missing dates are not overdue.\n2. Existing eligible workload is counted for each local calendar day in the planning window.\n3. Candidates are assigned deterministically to the least-loaded day. The existing postpone eligibility rules determine which items are skipped.\n4. Only the due-date field and sync metadata are updated; FSRS state, interval, review count, and last-review date are preserved.",
       "aliases": [
         "postpone engine",
         "backlog manager",

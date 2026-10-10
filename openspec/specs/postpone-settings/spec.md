@@ -1,4 +1,12 @@
-## ADDED Requirements
+# postpone-settings Specification
+
+Defines the user-controlled configuration for manual and automatic postpone behavior.
+
+## Purpose
+
+The postpone settings let users choose how backlog recovery is calculated and when automatic session-start recovery is enabled, with their choices preserved across application restarts.
+
+## Requirements
 
 ### Requirement: Postpone settings are stored in LearningSettings
 The system SHALL add a `postpone` field of type `PostponeSettings` to the `LearningSettings` interface. The settings SHALL persist via the existing Zustand persist middleware alongside other learning settings.

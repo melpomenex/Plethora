@@ -1,4 +1,12 @@
-## ADDED Requirements
+# postpone-engine Specification
+
+Defines how interval changes, postpone eligibility, priority, and randomization are computed when scheduled content is postponed.
+
+## Purpose
+
+The postpone engine provides consistent backlog-management calculations for learning items and reading topics while preserving the scheduling history used by the spaced-repetition system.
+
+## Requirements
 
 ### Requirement: Postpone computes algorithm-aware interval increase
 The system SHALL compute a new interval for a postponed element using priority-weighted formulas. For items, the ratio SHALL be `itemIncrease / 100 + 1`, the raw increase SHALL be `round(minInterval * ratio) - minInterval`, and the final increase SHALL be scaled by `floor(priority / 100) * 2`. The result SHALL be clamped to `[minIncrease, maxIncrease]` and then `[floor, cap]`.

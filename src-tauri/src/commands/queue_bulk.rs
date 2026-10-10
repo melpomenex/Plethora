@@ -40,7 +40,7 @@ pub struct BulkOperationResult {
 /// assume every id was a learning item, so selecting documents in the Reading
 /// Queue and choosing Suspend always reported "Item not found".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum QueueEntityKind {
+pub(crate) enum QueueEntityKind {
     LearningItem,
     Document,
     Extract,
@@ -666,7 +666,7 @@ fn not_found(item_id: &str) -> crate::error::PlethoraError {
 /// Serialize and journal the post-mutation row while the domain transaction is
 /// still open. This keeps bulk operations from committing data that another
 /// device can never observe.
-async fn journal_queue_fields(
+pub(crate) async fn journal_queue_fields(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
     kind: QueueEntityKind,
     item_id: &str,
