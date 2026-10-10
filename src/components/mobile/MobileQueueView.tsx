@@ -351,8 +351,9 @@ export function MobileQueueView({
       const reviewQueueIds = filteredItems
         .filter((item) => item.itemType === "learning-item")
         .map((item) => item.learningItemId ?? item.id);
-      if (reviewQueueIds.length > 0) {
-        onStartReview?.(reviewQueueIds[0], reviewQueueIds);
+      if (reviewQueueIds.length > 0 && onStartReview) {
+        emitUserInteraction("navigation.destination-opened");
+        onStartReview(reviewQueueIds[0], reviewQueueIds);
       }
       return;
     }
@@ -363,9 +364,11 @@ export function MobileQueueView({
     // per-document tab model. Fall back to opening the document directly only
     // if scroll mode isn't wired up.
     if (onOpenScrollMode) {
+      emitUserInteraction("navigation.destination-opened");
       onOpenScrollMode({ mode: "optimal" });
-    } else {
-      onOpenDocument?.(firstDue);
+    } else if (onOpenDocument) {
+      emitUserInteraction("navigation.destination-opened");
+      onOpenDocument(firstDue);
     }
   };
 

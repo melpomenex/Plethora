@@ -80,12 +80,30 @@ describe("SettingsPage return navigation", () => {
       settings: {
         ...state.settings,
         general: { ...state.settings.general, language: "en" },
+        haptics: { ...state.settings.haptics, enabled: true },
         notifications: { ...state.settings.notifications, feedbackSoundsEnabled: false },
       },
     }));
     vi.restoreAllMocks();
     modalMock.confirm.mockReset();
     modalMock.confirm.mockResolvedValue(true);
+  });
+
+  it("exposes the default-on haptic preference in mobile General settings and persists opt-out", async () => {
+    presentation.mobile = true;
+    openSettingsWithPrevious();
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "General" }));
+
+    const toggle = screen.getByRole("checkbox", { name: "Enable haptic feedback" });
+    expect(toggle).toBeChecked();
+    fireEvent.click(toggle);
+    expect(toggle).not.toBeChecked();
+    expect(useSettingsStore.getState().settings.haptics.enabled).toBe(false);
+
+    await act(async () => { await useSettingsStore.persist.rehydrate(); });
+    expect(useSettingsStore.getState().settings.haptics.enabled).toBe(false);
+    expect(toggle).not.toBeChecked();
   });
 
   it("shows the prior destination on wide layouts and returns by keyboard-compatible button activation", () => {

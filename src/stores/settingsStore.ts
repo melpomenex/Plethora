@@ -1792,19 +1792,15 @@ export const useSettingsStore = create<SettingsState>()(
           }
         }
         // v14 -> v15 (native-mobile-haptics): store tactile preference
-        // independently. Preserve each existing install's effective legacy
-        // opt-in/opt-out exactly once; malformed or absent values use the new
-        // enabled/Subtle default. Explicit new settings always win.
+        // independently. Only an explicit haptic preference opts out; legacy
+        // sound preferences do not disable tactile feedback.
         if (version < 15) {
           const current = root?.haptics as Partial<HapticsSettings> | undefined;
-          const legacyFeedback = root?.notifications?.feedbackSoundsEnabled;
           root.haptics = {
             enabled:
               typeof current?.enabled === "boolean"
                 ? current.enabled
-                : typeof legacyFeedback === "boolean"
-                  ? legacyFeedback
-                  : DEFAULT_HAPTICS_SETTINGS.enabled,
+                : DEFAULT_HAPTICS_SETTINGS.enabled,
             intensity: isHapticIntensity(current?.intensity)
               ? current.intensity
               : DEFAULT_HAPTICS_SETTINGS.intensity,

@@ -11,6 +11,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 
 const ensureStartup = vi.fn();
+const emitUserInteraction = vi.hoisted(() => vi.fn());
+
+vi.mock("../../../lib/feedback/orchestrator", () => ({ emitUserInteraction }));
 
 let storeItems: any[] = [];
 
@@ -130,6 +133,7 @@ const readingItem = {
 describe("MobileQueueView Scroll Mode launcher (mode-accent styling)", () => {
   beforeEach(() => {
     ensureStartup.mockReset().mockResolvedValue(null);
+    emitUserInteraction.mockClear();
     storeItems = [];
   });
 
@@ -186,5 +190,69 @@ describe("MobileQueueView Scroll Mode launcher (mode-accent styling)", () => {
     await waitFor(() => expect(getLauncher()!.disabled).toBe(true));
     fireEvent.click(getLauncher()!);
     expect(onOpenScrollMode).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("MobileQueueView session activation feedback", () => {
+  beforeEach(() => {
+    ensureStartup.mockReset().mockResolvedValue(null);
+    emitUserInteraction.mockClear();
+    storeItems = [readingItem];
+  });
+
+  it("emits one activation when Start Reading opens the optimal scroll session", () => {
+    const onOpenScrollMode = vi.fn();
+    render(<MobileQueueView onOpenScrollMode={onOpenScrollMode} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "mobileQueue.startReading" }));
+
+    expect(onOpenScrollMode).toHaveBeenCalledExactlyOnceWith({ mode: "optimal" });
+    expect(emitUserInteraction).toHaveBeenCalledExactlyOnceWith("navigation.destination-opened");
+  });
+
+  it("emits one activation when Start Reading falls back to a document", () => {
+    const onOpenDocument = vi.fn();
+    render(<MobileQueueView onOpenDocument={onOpenDocument} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "mobileQueue.startReading" }));
+
+    expect(onOpenDocument).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "item-1" }));
+    expect(emitUserInteraction).toHaveBeenCalledExactlyOnceWith("navigation.destination-opened");
+  });
+
+  it("emits one activation when Start Review starts the filtered learning queue", () => {
+    const onStartReview = vi.fn();
+    storeItems = [readingItem, { ...readingItem, id: "queue-card-1", learningItemId: "card-1", itemType: "learning-item" }];
+    render(<MobileQueueView onStartReview={onStartReview} />);
+    fireEvent.click(screen.getByRole("button", { name: "mobileQueue.review" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "mobileQueue.startReview" }));
+
+    expect(onStartReview).toHaveBeenCalledExactlyOnceWith("card-1", ["card-1"]);
+    expect(emitUserInteraction).toHaveBeenCalledExactlyOnceWith("navigation.destination-opened");
+  });
+
+  it("stays silent when the reading or review queue is empty", () => {
+    storeItems = [];
+    const onOpenScrollMode = vi.fn();
+    const onStartReview = vi.fn();
+    render(<MobileQueueView onOpenScrollMode={onOpenScrollMode} onStartReview={onStartReview} />);
+    fireEvent.click(screen.getByRole("button", { name: "mobileQueue.startReading" }));
+    fireEvent.click(screen.getByRole("button", { name: "mobileQueue.review" }));
+    fireEvent.click(screen.getByRole("button", { name: "mobileQueue.startReview" }));
+
+    expect(onOpenScrollMode).not.toHaveBeenCalled();
+    expect(onStartReview).not.toHaveBeenCalled();
+    expect(emitUserInteraction).not.toHaveBeenCalled();
+  });
+
+  it("stays silent when no session callback is wired up", () => {
+    storeItems.push({ ...readingItem, id: "card-1", itemType: "learning-item" });
+    render(<MobileQueueView />);
+    fireEvent.click(screen.getByRole("button", { name: "mobileQueue.startReading" }));
+    fireEvent.click(screen.getByRole("button", { name: "mobileQueue.review" }));
+    fireEvent.click(screen.getByRole("button", { name: "mobileQueue.startReview" }));
+
+    expect(emitUserInteraction).not.toHaveBeenCalled();
   });
 });

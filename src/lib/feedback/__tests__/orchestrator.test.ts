@@ -224,11 +224,11 @@ describe("emitFeedback", () => {
     debug.mockRestore();
   });
 
-  it("admits interaction haptics synchronously without notification capability queries", () => {
+  it.each(["review.answer-revealed", "navigation.destination-opened"] as const)("admits %s haptics synchronously without notification capability queries", (event) => {
     Object.assign(mocks.hapticsSnapshot, { configured: true, enabled: true, capabilities: { hardware: "available" } });
     mocks.settingsState.settings.haptics.enabled = true;
 
-    const result = emitInteractionFeedback("review.answer-revealed", {}, {
+    const result = emitInteractionFeedback(event, {}, {
       interactionId: "review:session-1:card-2:visit-1:reveal",
       sessionId: "session-1",
       origin: "user",
@@ -239,11 +239,13 @@ describe("emitFeedback", () => {
     expect(mocks.queryAsyncCapabilities).not.toHaveBeenCalled();
   });
 
-  it("silences haptics immediately when its independent preference is disabled", () => {
-    Object.assign(mocks.hapticsSnapshot, { configured: true, enabled: false, capabilities: { hardware: "available" } });
+  it.each(["review.answer-revealed", "navigation.destination-opened"] as const)("silences %s immediately when its independent preference is disabled", (event) => {
+    // The driver can still hold the old configuration while the opt-out is
+    // being applied; policy must suppress delivery immediately.
+    Object.assign(mocks.hapticsSnapshot, { configured: true, enabled: true, capabilities: { hardware: "available" } });
     mocks.settingsState.settings.haptics.enabled = false;
 
-    const result = emitInteractionFeedback("review.answer-revealed", {}, {
+    const result = emitInteractionFeedback(event, {}, {
       interactionId: "review:session-1:card-2:visit-1:reveal-disabled",
       origin: "user",
     });

@@ -48,6 +48,7 @@ import { PLETHORA_API_URL, isPlethoraCloudAvailable } from "../../config/product
 import type { DefaultStartupView } from "../../stores/settingsStore";
 import { UpdateAvailableDialog } from "./UpdateAvailableDialog";
 import { DeleteAccountFlow } from "./DeleteAccountFlow";
+import { HapticsSettingsControl } from "./HapticsSettingsControl";
 import { loadGoogleFont } from "../../utils/fonts";
 import { useI18n } from "../../lib/i18n";
 import { useContextualBack, type ContextualBackHandler } from "../../lib/contextualBack";
@@ -326,7 +327,7 @@ export const ALL_SETTINGS_TABS: SettingsTabConfig[] = [
     id: SettingsTab.General,
     label: "settings.general",
     icon: Sliders,
-    keywords: ["language", "startup", "default", "view", "auto-save", "backup", "data", "storage"],
+    keywords: ["language", "startup", "default", "view", "auto-save", "backup", "data", "storage", "haptics", "haptic", "vibration", "feedback"],
     description: "Basic application settings, language, and data management",
   },
   {
@@ -1197,6 +1198,10 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
         {updateInfo && (
           <UpdateAvailableDialog update={updateInfo} onClose={() => setUpdateInfo(null)} />
         )}
+      </SettingsSection>
+
+      <SettingsSection title={t("haptics.sectionTitle")}>
+        <HapticsSettingsControl />
       </SettingsSection>
 
       <SettingsSection title={t("settings.data")} description={t("settings.dataDesc")}>

@@ -37,7 +37,6 @@ import {
   playNotificationDefaultTone,
   type NotificationSoundId,
 } from "../../utils/soundService";
-import { HapticsSettingsControl } from "./HapticsSettingsControl";
 
 interface NotificationSettingsProps {
   onChange?: () => void;
@@ -593,11 +592,6 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
             </div>
           )}
         </div>
-      </section>
-
-      <section>
-        <h3 className="text-lg font-semibold mb-4">{t("haptics.sectionTitle")}</h3>
-        <HapticsSettingsControl />
       </section>
 
       {/* Additional Options */}

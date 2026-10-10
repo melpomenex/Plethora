@@ -60,9 +60,9 @@ describe("settingsStore independent haptic settings (v15)", () => {
     expect(defaultSettings.haptics).toEqual({ enabled: true, intensity: "subtle" });
   });
 
-  it("preserves the legacy explicit sound opt-out on a wrapped migration", async () => {
+  it("defaults haptics on independently of the legacy sound opt-out", async () => {
     const settings = await rehydrate({ settings: { notifications: { feedbackSoundsEnabled: false } } });
-    expect(settings.haptics).toEqual({ enabled: false, intensity: "subtle" });
+    expect(settings.haptics).toEqual({ enabled: true, intensity: "subtle" });
     expect(settings.notifications.feedbackSoundsEnabled).toBe(false);
   });
 
