@@ -18,6 +18,9 @@ export RUST_MIN_STACK="${RUST_MIN_STACK:-33554432}"
 if [[ "$cmd" == "build" || "$cmd" == "android" ]]; then
   if [[ "$cmd" == "android" ]]; then
     export PLETHORA_ANDROID_BUILD=1
+    if [[ "${1:-}" == "build" || "${1:-}" == "dev" ]]; then
+      node scripts/check-android-integration.mjs
+    fi
   fi
   if [[ "$(uname -s)" == "Linux" ]]; then
     export NO_STRIP=1
