@@ -78,3 +78,9 @@ Implemented `src/lib/navigationFeedback.ts` as an injectable completion adapter.
 - ESLint on the changed haptic/coordinator/Settings files: **0 errors, 0 warnings**.
 - `git diff --check`: **passed** after the haptic follow-up.
 - Android device haptic feel/availability remains part of the unchecked device acceptance tasks.
+
+### Native Android APK repair follow-up
+
+The repaired code and generated Android project now agree on one Back owner. Debug builds enable the controller; release builds require an explicit `plethoraNativeBackEnabled` value and fail with an actionable preflight message when omitted. ACKs use the Tauri `{ args: ... }` envelope, plugin calls are asynchronous, and lifecycle/session epochs reject stale work. The JS edge recognizer is disabled only for native Android, preserving browser/PWA/iOS fallback gestures. Native haptic admission uses a nullable monotonic timestamp so the first request is not suppressed, and delivery exposes bounded diagnostics and a developer smoke action.
+
+The automated evidence is recorded in `validation.md`. Physical Android Back/haptic/interaction acceptance, release R8 default enablement, and device accessibility remain unchecked because this host has no connected device or emulator.

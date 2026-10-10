@@ -22,13 +22,11 @@ android {
     ndkVersion = "27.2.12479018"
     namespace = "com.plethora.app"
     defaultConfig {
-        // Native Android Back stays opt-in until the device acceptance matrix
-        // passes. Enable an internal build with -PplethoraNativeBackEnabled=true.
-        val nativeBackEnabled = providers.gradleProperty("plethoraNativeBackEnabled")
-            .map { it.toBoolean() }
-            .orElse(false)
-            .get()
-        buildConfigField("boolean", "NATIVE_BACK_ENABLED", nativeBackEnabled.toString())
+        // Debug acceptance APKs use native Back by default. Release packaging
+        // remains gated until physical acceptance is recorded; explicit true
+        // enables an internal release/R8 acceptance APK, false is diagnostic rollback.
+        val nativeBackOverride = providers.gradleProperty("plethoraNativeBackEnabled")
+        buildConfigField("boolean", "NATIVE_BACK_ENABLED", nativeBackOverride.orElse("false").get())
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "com.plethora.app"
         // ML Kit GenAI libs (genai-image-description, genai-summarization,
@@ -91,6 +89,7 @@ android {
     buildTypes {
         getByName("debug") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
+            buildConfigField("boolean", "NATIVE_BACK_ENABLED", providers.gradleProperty("plethoraNativeBackEnabled").orElse("true").get())
             isDebuggable = true
             isJniDebuggable = true
             isMinifyEnabled = false
@@ -133,3 +132,16 @@ dependencies {
 }
 
 apply(from = "tauri.build.gradle.kts")
+
+// An ordinary release must never silently package the known disabled Back path.
+// Remove this gate only after recording the mandatory physical-device matrix.
+tasks.configureEach {
+    if (name.matches(Regex("pre.*ReleaseBuild"))) {
+        doFirst {
+            val override = providers.gradleProperty("plethoraNativeBackEnabled").orNull
+            check(override == "true" || override == "false") {
+                "Native Android Back physical acceptance is outstanding. Build an internal acceptance APK with -PplethoraNativeBackEnabled=true, or an explicit diagnostic rollback with false; production rollout remains gated."
+            }
+        }
+    }
+}

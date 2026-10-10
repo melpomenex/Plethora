@@ -24,3 +24,7 @@ On mobile, the app's back navigation can be invoked by a horizontal swipe that b
 - Shared gesture-exclusion behavior in `src/lib/gestureTargets.ts` if the audit identifies an overlapping global handler.
 - Unit tests under `src/hooks/__tests__/`, with mobile/manual verification of Library horizontal scrolling and edge-back navigation on native mobile builds.
 - No backend, persistence, or public API changes.
+
+## Reconciliation with native Android Back repair
+
+On native Android, the OS dispatcher and `plethora-navigation` controller own Back; this predecessor's JavaScript edge recognizer must not register there. The edge hook remains the browser/PWA and iOS fallback for platforms without the native dispatcher. This preserves the Library and reader horizontal gesture boundary without creating a second Android Back coordinator. Native device verification remains the unchecked task below.

@@ -1,4 +1,5 @@
 import { addPluginListener, invoke } from "@tauri-apps/api/core";
+import { reserveNavigationRoot, resumeNavigationMutations } from "./navigationRootReservation";
 import { dispatchApplicationBack, type BackDispatch } from "./applicationBack";
 
 const PLUGIN = "plethora-navigation";
@@ -42,16 +43,18 @@ export interface NativeBackBridgeOptions {
   onRecoveryRetry?: () => void;
 }
 
-const productionTransport: NativeBackTransport = {
+export const productionNativeBackTransport: NativeBackTransport = {
   listen: (handler) => addPluginListener<NativeBackRequest>(PLUGIN, "back-request", handler),
   listenControl: (handler) => addPluginListener(PLUGIN, "back-control", handler),
   attach: (clientSessionId) => invoke<NativeBackSession>(`plugin:${PLUGIN}|attach`, { clientSessionId }),
   claim: (epoch, id) => invoke<NativeBackClaim>(`plugin:${PLUGIN}|claim`, { epoch, id }),
   acknowledge: (epoch, id, result) => invoke(`plugin:${PLUGIN}|acknowledge`, {
-    epoch,
-    id,
-    kind: result.kind,
-    ...(result.kind === "consumed" ? { outcome: result.outcome, transitionId: result.transitionId } : {}),
+    args: {
+      epoch,
+      id,
+      kind: result.kind,
+      ...(result.kind === "consumed" ? { outcome: result.outcome, transitionId: result.transitionId } : {}),
+    },
   }),
   detach: (epoch) => invoke(`plugin:${PLUGIN}|detach`, { epoch }),
 };
@@ -69,7 +72,7 @@ function validRequest(value: NativeBackRequest): boolean {
  * causes navigation to be replayed.
  */
 export function startNativeBackBridge(options: NativeBackBridgeOptions = {}): () => void {
-  const transport = options.transport ?? productionTransport;
+  const transport = options.transport ?? productionNativeBackTransport;
   const dispatch = options.dispatch ?? ((request) => dispatchApplicationBack({
     source: "android-system",
     id: request.id,
@@ -86,6 +89,7 @@ export function startNativeBackBridge(options: NativeBackBridgeOptions = {}): ()
   let controlListener: { unregister(): Promise<void> } | null = null;
   let attachRevision = 0;
   let attachInFlight = false;
+  let foregroundSignalPending = false;
 
   const remember = (id: string) => {
     if (seen.has(id)) return false;
@@ -117,54 +121,114 @@ export function startNativeBackBridge(options: NativeBackBridgeOptions = {}): ()
     if (!Number.isFinite(elapsedMono) || !Number.isFinite(elapsedWall) || Math.abs(elapsedWall - elapsedMono) > 100) return;
 
     // No await between an accepted claim and the coordinator call.
-    const result = dispatch(request);
+    let result: BackDispatch;
+    try { result = dispatch(request); }
+    catch { result = { kind: "unavailable" }; }
+    const release = result.kind === "root" ? reserveNavigationRoot() : null;
+    if (release) releaseRoot = release;
     try {
-      await transport.acknowledge(request.epoch, request.id, result);
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const acknowledgment = await Promise.race([
+        transport.acknowledge(request.epoch, request.id, result),
+        new Promise<never>((_resolve, reject) => {
+          timeout = setTimeout(() => reject(new Error("ack-timeout")), Math.min(remaining, wallRemaining));
+        }),
+      ]).finally(() => { if (timeout) clearTimeout(timeout); });
+      const accepted = acknowledgment as { accepted?: boolean; backgrounded?: boolean } | undefined;
+      if (accepted?.accepted === false) report("ack-rejected");
+      release?.(accepted?.accepted === true && accepted.backgrounded === true);
     } catch {
-      // The request journal is retained. An uncertain ACK is never replayed.
+      report("ack-failed; request-not-replayed");
+      release?.();
+    } finally {
+      if (releaseRoot === release) releaseRoot = null;
     }
+
   };
 
-  const registerListener = transport.listen((request) => { void handleRequest(request); });
-  const registerControl = transport.listenControl?.((event) => {
-    if (event?.type !== "retry" && event?.type !== "session-invalidated") return;
+  let registration: Promise<void> | null = null;
+  let diagnosticAt = -Infinity;
+  let releaseRoot: ((didBackground?: boolean) => void) | null = null;
+  const report = (stage: string) => {
+    if (now() - diagnosticAt < 1000) return;
+    diagnosticAt = now();
+    console.warn(`[native-back] ${stage}`);
+  };
+  const invalidate = () => {
+    ++attachRevision;
+    const previous = epoch;
     epoch = null;
-    if (isVisible()) void attach();
-  });
+    releaseRoot?.();
+    releaseRoot = null;
+    if (previous) void transport.detach(previous).catch(() => report("detach-failed"));
+  };
+  const ensureListeners = () => {
+    if (registration) return registration;
+    registration = (async () => {
+      const next = await transport.listen((request) => { void handleRequest(request); });
+      if (disposed) { await next.unregister(); return; }
+      listener = next;
+      if (transport.listenControl) {
+        try {
+          const control = await transport.listenControl((event) => {
+            if (event?.type !== "retry" && event?.type !== "session-invalidated") return;
+            invalidate();
+            if (isVisible()) void attach();
+          });
+          if (disposed) { await control.unregister(); return; }
+          controlListener = control;
+        } catch (error) {
+          await next.unregister();
+          listener = null;
+          throw error;
+        }
+      }
+    })().catch(() => {
+      registration = null;
+      throw new Error("listener-registration-failed");
+    });
+    return registration;
+  };
   const attach = async () => {
-    if (disposed || epoch || attachInFlight) return;
+    if (attachInFlight) { foregroundSignalPending = true; return; }
+    if (disposed || epoch || !isVisible()) return;
+    foregroundSignalPending = false;
     attachInFlight = true;
     const revision = ++attachRevision;
     try {
-      [listener, controlListener] = await Promise.all([
-        registerListener,
-        registerControl ?? Promise.resolve(null),
-      ]);
-      if (disposed || revision !== attachRevision) {
-        await listener.unregister();
-        return;
-      }
+      await ensureListeners();
+      if (disposed || revision !== attachRevision || !isVisible()) return;
       const session = await transport.attach(clientSessionId());
-      if (disposed || revision !== attachRevision) {
+      if (disposed || revision !== attachRevision || !isVisible()) {
         if (session?.epoch) await transport.detach(session.epoch);
         return;
       }
-      if (session?.protocolVersion === PROTOCOL_VERSION && typeof session.epoch === "string" && session.epoch.length > 0) {
-        epoch = session.epoch;
+      if (session?.protocolVersion !== PROTOCOL_VERSION || typeof session.epoch !== "string" || !session.epoch) {
+        if (session?.epoch) await transport.detach(session.epoch);
+        report("invalid-session");
+        return;
       }
+      epoch = session.epoch;
+      seen.clear();
+      seenOrder.splice(0);
     } catch {
-      // Retry only on a new visibility/resume signal; never poll or replay.
       epoch = null;
+      report("attach-failed; retry-on-resume-or-focus");
     } finally {
       attachInFlight = false;
+      // A lifecycle invalidation while attach was resolving needs a fresh
+      // handshake; ordinary failures wait for a new foreground signal.
+      if (!disposed && (revision !== attachRevision || foregroundSignalPending) && isVisible()) void attach();
     }
   };
 
   const handleVisibility = () => {
-    if (document.visibilityState === "visible") void attach();
+    if (isVisible()) { resumeNavigationMutations(); void attach(); }
+    else invalidate();
   };
   const handleRetry = () => {
     options.onRecoveryRetry?.();
+    invalidate();
     void attach();
   };
 
@@ -173,12 +237,18 @@ export function startNativeBackBridge(options: NativeBackBridgeOptions = {}): ()
   void attach();
   document.addEventListener("visibilitychange", handleVisibility);
   window.addEventListener("plethora:native-back-retry", handleRetry);
+  window.addEventListener("focus", handleVisibility);
+  window.addEventListener("pageshow", handleVisibility);
 
   return () => {
     disposed = true;
     attachRevision++;
     document.removeEventListener("visibilitychange", handleVisibility);
     window.removeEventListener("plethora:native-back-retry", handleRetry);
+    window.removeEventListener("focus", handleVisibility);
+    window.removeEventListener("pageshow", handleVisibility);
+    releaseRoot?.();
+    resumeNavigationMutations();
     const currentEpoch = epoch;
     epoch = null;
     if (currentEpoch) void transport.detach(currentEpoch).catch(() => undefined);

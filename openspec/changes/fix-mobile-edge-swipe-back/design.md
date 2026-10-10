@@ -63,3 +63,7 @@ No data or schema migration is required. Remove the competing global swipe handl
 ## Open Questions
 
 - Confirm the final edge activation width on the target Android and iOS devices; the design assumes the existing 24 CSS-pixel default is a suitable starting point.
+
+## Native Android reconciliation
+
+The native Android build disables this hook and routes OS Back through the Activity dispatcher. The hook remains enabled for browser/PWA and iOS fallback paths, so the existing Library horizontal-scroll exclusions and edge-width decision still apply there. No physical device result is inferred from the hook tests.

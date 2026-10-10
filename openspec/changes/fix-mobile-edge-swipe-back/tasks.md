@@ -22,3 +22,8 @@
 - [x] 4.1 Run the targeted gesture tests and the project's applicable typecheck/lint or frontend test commands.
 - [ ] 4.2 On representative native Android and iOS builds, verify that a left-edge inward gesture navigates back while Library horizontal scrolling and other mid-screen horizontal interactions remain in place.
 - [x] 4.3 Verify fullscreen reading, dialogs, editable controls, and vertical scrolling retain their existing gesture behavior.
+
+## 5. Native Android reconciliation
+
+- [x] 5.1 Disable the JavaScript edge recognizer when the native Android Back controller is active; retain browser/PWA/iOS fallback behavior.
+- [ ] 5.2 On a physical Android build, verify OS gesture and three-button Back with no duplicate edge dispatch while Library and reader horizontal gestures remain intact.

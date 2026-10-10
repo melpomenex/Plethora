@@ -72,8 +72,7 @@ class NavigationPlugin(private val activity: Activity) : Plugin(activity) {
     @Command
     fun acknowledge(invoke: Invoke) {
         val args = invoke.parseArgs(AcknowledgeArgs::class.java)
-        val accepted = NavigationBackController.acknowledge(args)
-        invoke.resolve(JSObject().put("accepted", accepted))
+        invoke.resolve(NavigationBackController.acknowledge(args))
     }
 
     @Command

@@ -68,7 +68,7 @@ mod commands {
     use super::*;
 
     #[tauri::command]
-    pub fn attach(
+    pub async fn attach(
         state: State<'_, NavigationPlugin>,
         client_session_id: String,
     ) -> Result<AttachResponse, String> {
@@ -76,10 +76,11 @@ mod commands {
         {
             return state
                 .handle
-                .run_mobile_plugin(
+                .run_mobile_plugin_async(
                     "attach",
                     serde_json::json!({ "clientSessionId": client_session_id }),
                 )
+                .await
                 .map_err(|error| error.to_string());
         }
         #[cfg(not(target_os = "android"))]
@@ -90,7 +91,7 @@ mod commands {
     }
 
     #[tauri::command]
-    pub fn claim(
+    pub async fn claim(
         state: State<'_, NavigationPlugin>,
         epoch: String,
         id: String,
@@ -99,7 +100,8 @@ mod commands {
         {
             return state
                 .handle
-                .run_mobile_plugin("claim", serde_json::json!({ "epoch": epoch, "id": id }))
+                .run_mobile_plugin_async("claim", serde_json::json!({ "epoch": epoch, "id": id }))
+                .await
                 .map_err(|error| error.to_string());
         }
         #[cfg(not(target_os = "android"))]
@@ -110,7 +112,7 @@ mod commands {
     }
 
     #[tauri::command]
-    pub fn acknowledge(
+    pub async fn acknowledge(
         state: State<'_, NavigationPlugin>,
         args: AckArgs,
     ) -> Result<serde_json::Value, String> {
@@ -118,10 +120,11 @@ mod commands {
         {
             return state
                 .handle
-                .run_mobile_plugin(
+                .run_mobile_plugin_async(
                     "acknowledge",
                     serde_json::to_value(args).map_err(|error| error.to_string())?,
                 )
+                .await
                 .map_err(|error| error.to_string());
         }
         #[cfg(not(target_os = "android"))]
@@ -132,7 +135,7 @@ mod commands {
     }
 
     #[tauri::command]
-    pub fn detach(
+    pub async fn detach(
         state: State<'_, NavigationPlugin>,
         epoch: String,
     ) -> Result<serde_json::Value, String> {
@@ -140,7 +143,8 @@ mod commands {
         {
             return state
                 .handle
-                .run_mobile_plugin("detach", serde_json::json!({ "epoch": epoch }))
+                .run_mobile_plugin_async("detach", serde_json::json!({ "epoch": epoch }))
+                .await
                 .map_err(|error| error.to_string());
         }
         #[cfg(not(target_os = "android"))]

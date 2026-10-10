@@ -211,8 +211,8 @@ class MainActivity : TauriActivity() {
     }
 
     override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
         if (BuildConfig.NATIVE_BACK_ENABLED) NavigationBackController.onExternalIntent()
+        super.onNewIntent(intent)
         handleIntent(intent)
     }
 

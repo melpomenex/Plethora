@@ -91,3 +91,15 @@ Fault injection must be debug-only: delay/drop request/claim/ACK, attach before/
 ## Release acceptance
 
 All B01–B31 applicable automated rows and mandatory device/platform rows pass; no stale root actions, duplicate transitions, draft loss or gesture regressions. Required quality gates pass. Record predictive-preview limitation and rollback behavior; regenerate a disposable native project and confirm documented host edits restore behavior. Enable production switch only after evidence is reviewed. Missing device infrastructure is a release blocker, not a reason to mark tasks complete. No production implementation or deployment is authorized by completion of this proposal alone.
+
+## Repair implementation evidence (2026-10-09)
+
+Automated evidence collected for the repair:
+
+- Android integration preflight and generated manifest/build checks pass.
+- Haptics and navigation plugin release AAR compilation passes in the local Gradle harness.
+- Haptics Robolectric controller tests pass after the visibility/lifecycle correction; focused frontend haptics, queue, and scroll suites pass (18 tests).
+- The full Android debug APK build was started with the local SDK/JDK and remains subject to the final cargo/build result; no phone or emulator is connected (`adb devices -l` is empty).
+- Script tests retain four unrelated pre-existing failures in iOS override/freshness/environment/updater-key fixtures; they were not changed to hide baseline noise. Typecheck and quality-delta results remain recorded as non-green baseline gates until rerun against the final diff.
+
+The physical rows above are intentionally still unchecked. No synthetic DOM event, Robolectric result, or local APK compile is presented as proof of OS Back, haptic feel, OEM gesture behavior, or accessibility acceptance.

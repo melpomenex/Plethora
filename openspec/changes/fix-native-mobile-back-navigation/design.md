@@ -322,3 +322,9 @@ Existing changes:
 ## Open Questions
 
 No architectural decisions are left to implementation. Device/OEM callback timing, resolved Gradle version and available test hardware are empirical checks with fixed acceptance/fallback above; unsupported or unverified required platform coverage blocks release, not completion of this proposal.
+
+## Repair addendum — native Android Back ownership
+
+The repaired implementation makes Android's `OnBackInvokedDispatcher` the sole owner of the system gesture and three-button Back. `MainActivity` installs the controller only when the generated build gate is enabled, attaches it after the WebView exists, and invalidates it on pause/destroy. The controller claims a bounded root reservation before dispatching, sends an epoch/session-scoped ACK through the typed Tauri argument envelope, and releases the reservation on ACK or timeout without replaying a late ACK. Native calls are asynchronous so Activity callbacks cannot wait on IPC.
+
+The bridge's Android transport is disabled when the native gate is off; the existing edge-swipe hook is likewise disabled only for native Android. PWA/browser and iOS retain their existing fallback gesture behavior. Release builds must pass the Android preflight and explicitly choose the native gate; physical device rows in validation remain the authority for rollout.

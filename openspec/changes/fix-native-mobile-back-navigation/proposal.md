@@ -38,3 +38,14 @@ None of the affected capabilities is currently archived in `openspec/specs/`. Th
 **Rollout/rollback:** land history/ownership first; ship callback plus frontend handshake atomically in an internal Android build; enable production only after the device matrix passes. A native internal switch can restore the previous host path if required, with the original Android defect explicitly acknowledged. New history serialization is additive/versioned and ignored by old binaries; no database migration. Roll back plugin/frontend wiring together; retain independently tested history and ownership fixes.
 
 **Success:** all normative scenarios and automated gates pass, real Android edge/three-button Back performs at most one correct action, no valid destination causes automatic backgrounding, root intentionally backgrounds without killing the process, and iOS/PWA/reader interactions remain intact. Production implementation begins only in the follow-up implementation task.
+
+## Repair addendum — reported Android APK regression (2026-10-09)
+
+The first implementation exposed a broken Android APK path. The repair scope records the concrete causes and the corrected contract while preserving the historical planning text above:
+
+- the generated Android build defaulted the native Back gate off while the JavaScript edge recognizer was also disabled, so Android had no active Back owner;
+- JavaScript sent the ACK fields at the wrong Tauri argument level, so the native command rejected otherwise valid claims;
+- synchronous mobile-plugin calls could block Activity dispatch, and the native controller mixed clock domains and lacked lifecycle/session fencing;
+- native haptics used an overflowing first-submission timestamp, suppressing every initial request.
+
+The implementation now enables the debug native path, requires an explicit release override with a preflight failure for an unreviewed default, sends the typed `{ args: ... }` ACK envelope, uses asynchronous plugin calls, fences epochs and sessions, reserves the root action until ACK/timeout, and keeps the JavaScript edge recognizer disabled on Android. Browser/PWA/iOS fallback gestures remain available. Haptic admission, recovery, diagnostics, and the developer smoke action are wired without inventing device evidence. Physical Android acceptance remains an unchecked release gate.

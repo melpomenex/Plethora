@@ -65,3 +65,13 @@ All implementation tasks remain unchecked: this change contains planning only. D
 - [ ] 8.3 Run PWA/browser tests and real iOS regression using existing smoke/e2e tooling; test portrait/landscape/wide tablet, URL history, fallback edge, semantic buttons, VoiceOver, reading position/drafts after resume. Complete when evidence is recorded, with unrun device checks explicitly outstanding; dependency: phase 6.
 - [ ] 8.4 Run local `npm run test:run`, `npm run test:scripts`, `npm run lint`, `npm run build:check`, `npm run bench:check`, relevant Rust checks and Android unit/instrumented/release-R8 builds. Complete when results are recorded and regressions resolved; update performance/bundle baselines only for justified intentional changes per AGENTS.md, never to hide noise/failure; dependencies: phases 2–7.
 - [ ] 8.5 Record full acceptance results, generated-build persistence, rollout/atomic rollback exercise and predictive-preview limitation in implementation verification; enable production default only after all required device/local gates pass. Complete when no unresolved release-critical failures remain and production enablement is reviewable; dependencies: 8.1–8.4. No feature branch or implementation PR is required by repository policy.
+
+## 9. Repair tasks — reported APK regression
+
+- [x] 9.1 Correct the generated Android gate and add a preflight check that prevents an unreviewed release default; preserve an explicit diagnostic rollback value.
+- [x] 9.2 Correct the Tauri ACK argument envelope and make native Back plugin calls asynchronous; add lifecycle, epoch, timeout, and late-ACK tests.
+- [x] 9.3 Make native Android own OS Back and disable the competing JavaScript edge recognizer only on native Android; retain PWA/browser/iOS fallback behavior.
+- [x] 9.4 Fix native haptic first-submission admission, lifecycle/view checks, and diagnostics/recovery; add JVM/Robolectric and focused frontend coverage.
+- [x] 9.5 Run generated-project/preflight checks, native plugin release compilation, focused frontend tests, and strict OpenSpec validation; record failures without relabeling them as device evidence.
+- [ ] 9.6 Install the repaired APK on a physical Android device and complete gesture, three-button, lifecycle, Back, haptic, and interaction acceptance rows. No device is connected in this environment.
+- [ ] 9.7 Enable the native release default only after the physical matrix and release R8 build pass; until then retain the explicit release property gate.

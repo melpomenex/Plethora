@@ -1,3 +1,4 @@
+import { deferNavigationMutation, isNavigationRootReserved } from "../lib/navigationRootReservation";
 import { migratedGetItem } from "../lib/brandMigration";
 import { create } from "zustand";
 import type { ComponentType, ReactNode } from "react";
@@ -813,6 +814,14 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
   // Add a new tab
   addTab: (tab, targetPaneId?, mode = "visit") => {
+    if (isNavigationRootReserved()) {
+      const id = get().addTabInBackground(tab, targetPaneId);
+      deferNavigationMutation(() => {
+        const pane = get().findPaneContainingTab(id);
+        if (pane) get().setActiveTab(pane.id, id);
+      });
+      return id;
+    }
     const state = get();
     const existingTab = findReusableTab(state, tab);
 
@@ -1025,6 +1034,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
   // Close a tab
   closeTab: (tabId) => {
+    if (deferNavigationMutation(() => get().closeTab(tabId))) return;
     set((state) => {
       const tabToClose = state.tabs.find((t) => t.id === tabId);
       if (tabToClose && !tabToClose.closable) {
@@ -1116,6 +1126,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
   // Set the active tab in a specific pane
   setActiveTab: (paneId, tabId) => {
+    if (deferNavigationMutation(() => get().setActiveTab(paneId, tabId))) return;
     set((state) => {
       const pane = findPaneByIdRecursive(state.rootPane, paneId);
       if (!pane || pane.type !== "tabs" || !pane.tabIds.includes(tabId)) return state;
@@ -1150,6 +1161,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   },
 
   setNavigationPane: (paneId) => {
+    if (deferNavigationMutation(() => get().setNavigationPane(paneId))) return;
     const pane = findPaneByIdRecursive(get().rootPane, paneId);
     if (pane?.type === "tabs" && get().navigationPaneId !== paneId) set({ navigationPaneId: paneId });
   },
@@ -1163,6 +1175,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   },
 
   reopenLastClosedTab: () => {
+    if (deferNavigationMutation(() => get().reopenLastClosedTab())) return;
     set((state) => {
       const closedTabs = [...state.closedTabs];
       const lastClosed = closedTabs.pop();
@@ -1226,6 +1239,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   },
 
   returnFromSettings: () => {
+    if (isNavigationRootReserved()) return false;
     const state = get();
     const settingsTab = state.tabs.find((tab) => tab.type === "settings");
     if (!settingsTab) return false;
@@ -1293,6 +1307,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
 
   // Back and Forward consume chronological entries independently of MRU residency.
   goToPreviousTab: () => {
+    if (isNavigationRootReserved()) return false;
     const state = get();
     const pane = (state.navigationPaneId && findPaneByIdRecursive(state.rootPane, state.navigationPaneId)?.type === "tabs"
       ? findPaneByIdRecursive(state.rootPane, state.navigationPaneId)
@@ -1322,6 +1337,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   },
 
   goToNextTab: () => {
+    if (isNavigationRootReserved()) return false;
     const state = get();
     const candidatePane = state.navigationPaneId ? findPaneByIdRecursive(state.rootPane, state.navigationPaneId) : null;
     const pane = candidatePane?.type === "tabs" ? candidatePane : firstTabPane(state.rootPane);
@@ -1350,6 +1366,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   },
 
   activateDashboardFallback: () => {
+    if (isNavigationRootReserved()) return false;
     const state = get();
     const preferred = state.navigationPaneId ? findPaneByIdRecursive(state.rootPane, state.navigationPaneId) : null;
     const pane = preferred?.type === "tabs" ? preferred : firstTabPane(state.rootPane);
@@ -1391,6 +1408,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   },
 
   closeOtherTabs: (tabId) => {
+    if (deferNavigationMutation(() => get().closeOtherTabs(tabId))) return;
     set((state) => {
       const pane = findPaneContainingTabRecursive(state.rootPane, tabId);
       if (!pane) return state;
@@ -1431,6 +1449,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   },
 
   closeTabsToRight: (tabId) => {
+    if (deferNavigationMutation(() => get().closeTabsToRight(tabId))) return;
     set((state) => {
       const pane = findPaneContainingTabRecursive(state.rootPane, tabId);
       if (!pane) return state;
@@ -1468,6 +1487,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   },
 
   closeAllTabs: () => {
+    if (deferNavigationMutation(() => get().closeAllTabs())) return;
     set((state) => {
       const allClosableTabs = state.tabs.filter((t) => t.closable);
       const newClosedTabs = [...state.closedTabs, ...allClosableTabs];
@@ -1542,6 +1562,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   },
 
   moveTabToPane: (tabId, fromPaneId, toPaneId, targetIndex) => {
+    if (deferNavigationMutation(() => get().moveTabToPane(tabId, fromPaneId, toPaneId, targetIndex))) return;
     set((state) => {
       const fromPane = findPaneByIdRecursive(state.rootPane, fromPaneId) as TabPane;
       const toPane = findPaneByIdRecursive(state.rootPane, toPaneId) as TabPane;
@@ -1600,6 +1621,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   },
 
   splitPane: (paneId, tabId, direction, side) => {
+    if (deferNavigationMutation(() => get().splitPane(paneId, tabId, direction, side))) return;
     set((state) => {
       const pane = findPaneByIdRecursive(state.rootPane, paneId) as TabPane;
       if (!pane) return state;
@@ -1664,6 +1686,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   },
 
   spawnTabInSplit: (paneId, tabId, direction, side) => {
+    if (deferNavigationMutation(() => get().spawnTabInSplit(paneId, tabId, direction, side))) return;
     set((state) => {
       const pane = findPaneByIdRecursive(state.rootPane, paneId) as TabPane;
       if (!pane || pane.type !== "tabs") return state;
@@ -1704,6 +1727,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   },
 
   moveTabToSplit: (tabId, fromPaneId, targetPaneId, direction, side) => {
+    if (deferNavigationMutation(() => get().moveTabToSplit(tabId, fromPaneId, targetPaneId, direction, side))) return;
     set((state) => {
       const fromPane = findPaneByIdRecursive(state.rootPane, fromPaneId) as TabPane;
       const targetPane = findPaneByIdRecursive(state.rootPane, targetPaneId) as TabPane;
@@ -1782,6 +1806,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
   },
 
   collapseSplit: (splitPaneId, childPaneId) => {
+    if (deferNavigationMutation(() => get().collapseSplit(splitPaneId, childPaneId))) return;
     set((state) => {
       const splitPane = findPaneByIdRecursive(state.rootPane, splitPaneId) as SplitPane;
       if (!splitPane) return state;

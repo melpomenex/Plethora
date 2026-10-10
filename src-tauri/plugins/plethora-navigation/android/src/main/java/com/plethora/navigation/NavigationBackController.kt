@@ -1,9 +1,9 @@
 package com.plethora.navigation
 
-import android.app.Activity
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
@@ -30,6 +30,9 @@ object NavigationBackController {
     private var inFlight: InFlight? = null
     private var resumed = false
     private var startedAt = 0L
+    private val timeoutToken = Any()
+    private val startupToken = Any()
+    private var lastDiagnosticAt = 0L
     private var recoveryDialog: AlertDialog? = null
     private val acknowledged = LinkedHashMap<String, String>()
 
@@ -49,13 +52,16 @@ object NavigationBackController {
             override fun handleOnBackPressed() { handleBack() }
         }
         callback = next
+        diagnostic("controller-installed")
         activity.onBackPressedDispatcher.addCallback(activity, next)
-        main.postDelayed({
+        main.postAtTime({
             if (!isReady() && activityRef?.get() === activity) showRecovery()
-        }, STARTUP_GRACE_MS)
+        }, startupToken, SystemClock.uptimeMillis() + STARTUP_GRACE_MS)
     }
 
     fun uninstall() = onMain {
+        main.removeCallbacksAndMessages(timeoutToken)
+        main.removeCallbacksAndMessages(startupToken)
         callback?.remove()
         callback = null
         inFlight = null
@@ -67,8 +73,10 @@ object NavigationBackController {
     }
 
     fun bind(emitBack: (JSObject) -> Unit, emitControl: (JSObject) -> Unit) = onMain {
+        invalidateSession()
         emitRequest = emitBack
         this.emitControl = emitControl
+        activityRef?.get()?.let { install(it) }
     }
 
     fun unbind() = onMain { emitRequest = null; emitControl = null; invalidateSession() }
@@ -83,7 +91,11 @@ object NavigationBackController {
     fun onExternalIntent() = onMain { invalidateSession() }
 
     fun attach(): JSObject = onMainResult {
+        check(callback?.isEnabled == true) { "Native Back controller disabled in this APK" }
+        check(resumed) { "Native Back session requires a resumed Activity" }
         epoch = UUID.randomUUID().toString()
+        acknowledged.clear()
+        diagnostic("session-attached")
         sequence = 0L
         inFlight = null
         recoveryDialog?.dismiss()
@@ -104,26 +116,33 @@ object NavigationBackController {
         }
     }
 
-    fun acknowledge(args: AcknowledgeArgs): Boolean = onMainResult {
-        val id = args.id ?: return@onMainResult false
-        val epochValue = args.epoch ?: return@onMainResult false
-        val kind = args.kind ?: return@onMainResult false
+    fun acknowledge(args: AcknowledgeArgs): JSObject = onMainResult {
+        fun response(accepted: Boolean, backgrounded: Boolean = false) = JSObject().also {
+            it.put("accepted", accepted); it.put("backgrounded", backgrounded)
+        }
+        val id = args.id ?: return@onMainResult response(false)
+        val epochValue = args.epoch ?: return@onMainResult response(false)
+        val kind = args.kind ?: return@onMainResult response(false)
         val signature = "$kind|${args.outcome.orEmpty()}|${args.transitionId.orEmpty()}"
-        acknowledged[id]?.let { return@onMainResult it == signature }
-        val current = inFlight ?: return@onMainResult false
+        if (epochValue != epoch) return@onMainResult response(false)
+        acknowledged[id]?.let { return@onMainResult response(it == signature) }
+        val current = inFlight ?: return@onMainResult response(false)
         if (epochValue != epoch || current.id != id || !current.claimed ||
-            SystemClock.elapsedRealtime() >= current.deadline || !resumed) return@onMainResult false
-        if (kind !in setOf("consumed", "root", "unavailable")) return@onMainResult false
+            SystemClock.elapsedRealtime() >= current.deadline || !resumed) return@onMainResult response(false)
+        if (kind !in setOf("consumed", "root", "unavailable")) return@onMainResult response(false)
         rememberAck(id, signature)
         inFlight = null
+        var backgrounded = false
         when (kind) {
             "root" -> {
                 val moved = activityRef?.get()?.moveTaskToBack(true) == true
+                backgrounded = moved
                 if (!moved) showRecovery()
             }
             "unavailable" -> showRecovery()
         }
-        true
+        diagnostic("ack-$kind")
+        response(true, backgrounded)
     }
 
     fun detach(requestEpoch: String?) = onMain {
@@ -147,7 +166,7 @@ object NavigationBackController {
                 inFlight = null
                 showRecovery()
             }
-        }, pending.deadline)
+        }, timeoutToken, SystemClock.uptimeMillis() + REQUEST_TIMEOUT_MS)
         try {
             emitRequest?.invoke(
                 JSObject()
@@ -165,6 +184,7 @@ object NavigationBackController {
     private fun isReady() = resumed && epoch != null && emitRequest != null
 
     private fun invalidateSession() {
+        main.removeCallbacksAndMessages(timeoutToken)
         val hadSession = epoch != null
         epoch = null
         inFlight = null
@@ -203,6 +223,13 @@ object NavigationBackController {
             }
             .create()
         recoveryDialog?.show()
+    }
+
+    private fun diagnostic(stage: String) {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastDiagnosticAt < 1000L) return
+        lastDiagnosticAt = now
+        Log.d("PlethoraBack", "$stage resumed=$resumed installed=${callback != null} session=${epoch != null}")
     }
 
     private fun onMain(action: () -> Unit) {
