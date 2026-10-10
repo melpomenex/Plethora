@@ -1,3 +1,4 @@
+import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   ChatCircle,
@@ -61,6 +62,14 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
     const isAnswerRevealedRef = useRef(isAnswerRevealed);
     isAnswerRevealedRef.current = isAnswerRevealed;
 
+    const revealAnswer = () => {
+        if (!isAnswerRevealedRef.current) {
+            isAnswerRevealedRef.current = true;
+            setIsAnswerRevealed(true);
+            emitUserInteraction("review.answer-revealed");
+        }
+    };
+
     const handleCreateCloze = () => {
         if (!onCreateCloze) return;
         const selection = window.getSelection();
@@ -98,7 +107,7 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
             // Space or Enter to reveal answer
             if ((e.key === " " || e.key === "Enter") && !isAnswerRevealed) {
                 e.preventDefault();
-                setIsAnswerRevealed(true);
+                revealAnswer();
             }
 
             if (e.key === "c" || e.key === "C") {
@@ -155,7 +164,7 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
     // focus inside its container; Scroll Mode drives the reveal through this
     // window-event bridge instead (see queueScrollKeyboard.ts).
     useEffect(() => {
-        const handleRevealRequest = () => setIsAnswerRevealed(true);
+        const handleRevealRequest = revealAnswer;
         window.addEventListener(FLASHCARD_REVEAL_EVENT, handleRevealRequest);
         return () => window.removeEventListener(FLASHCARD_REVEAL_EVENT, handleRevealRequest);
     }, []);
@@ -458,7 +467,7 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
                 {/* Show Answer Button */}
                 {!isAnswerRevealed && (
                     <button
-                        onClick={() => setIsAnswerRevealed(true)}
+                        onClick={revealAnswer}
                         className="w-full py-4 bg-primary text-primary-foreground rounded-xl font-medium text-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-3 shadow-lg"
                     >
                         <Eye className="w-5 h-5" />

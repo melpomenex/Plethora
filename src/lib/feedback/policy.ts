@@ -119,6 +119,9 @@ function interaction(
  * TODO(implementation): consumed by ./orchestrator.ts `emitFeedback` (task 2.1).
  */
 export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> = {
+  "diagnostic.haptic-smoke-test": interaction("completion", 250, 50),
+  "interaction.context-activated": interaction("activation", 250, 10),
+  "task.completed": interaction("completion", 1000, 50),
   "review.card-graded": {
     kind: "domain",
     importance: "passive",
@@ -137,7 +140,8 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     importance: "actionable",
     toast: "default-on",
     sound: "confirm",
-    haptic: false,
+    haptic: true,
+    hapticEffect: { effect: "success", cooldownMs: 250, priority: 20 },
     osNotification: "never",
     osVisibility: "never",
     quietHours: false,
@@ -223,7 +227,8 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     importance: "informative",
     toast: "default-on",
     sound: "confirm",
-    haptic: false,
+    haptic: true,
+    hapticEffect: { effect: "success", cooldownMs: 250, priority: 20 },
     osNotification: "never", // v2 may allow hidden-window long imports
     osVisibility: "never",
     quietHours: false,
@@ -248,7 +253,8 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     importance: "informative",
     toast: "default-on",
     sound: "confirm",
-    haptic: false,
+    haptic: true,
+    hapticEffect: { effect: "success", cooldownMs: 250, priority: 20 },
     osNotification: "never", // v2: hidden-window only
     osVisibility: "never",
     quietHours: false,
@@ -260,7 +266,8 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     importance: "warning",
     toast: "default-on",
     sound: "error",
-    haptic: false,
+    haptic: true,
+    hapticEffect: { effect: "error", cooldownMs: 250, priority: 40 },
     osNotification: "never",
     osVisibility: "never",
     quietHours: false,
@@ -284,7 +291,8 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     importance: "critical",
     toast: "default-on", // persistent until dismissed
     sound: "warning",
-    haptic: false,
+    haptic: true,
+    hapticEffect: { effect: "warning", cooldownMs: 1000, priority: 30 },
     osNotification: "never",
     osVisibility: "never",
     quietHours: false, // critical events are never time-gated
@@ -322,7 +330,8 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
     importance: "critical",
     toast: "default-on", // persistent, with recovery action
     sound: "warning",
-    haptic: false,
+    haptic: true,
+    hapticEffect: { effect: "warning", cooldownMs: 1000, priority: 30 },
     osNotification: "never",
     osVisibility: "never",
     quietHours: false,

@@ -1,3 +1,4 @@
+import { emitInteractionFeedback, createFeedbackInteractionId } from "../lib/feedback/orchestrator";
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../lib/i18n";
@@ -3350,6 +3351,7 @@ export function QueueScrollPage() {
         await submitReview(currentItem.learningItem.id, rating, timeTaken, undefined, {
           algorithm: settings.learning.algorithm,
         });
+        emitInteractionFeedback("review.card-graded", { rating }, { interactionId: createFeedbackInteractionId(), origin: "user" });
 
         // Track items reviewed
         setItemsReviewedThisSession(prev => prev + 1);

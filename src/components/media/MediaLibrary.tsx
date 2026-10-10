@@ -1,3 +1,4 @@
+import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 import { useState, useEffect } from "react";
 import {
   Download,
@@ -107,12 +108,14 @@ export function MediaLibrary() {
   const handleDeleteItem = (id: string) => {
     if (confirm(t("mediaLibrary.deleteConfirm"))) {
       deleteMediaItem(id);
+      emitUserInteraction("library.action-committed");
       loadItems();
     }
   };
 
   const handleRateItem = (id: string, rating: number) => {
     updateMediaItem(id, { rating });
+    emitUserInteraction("library.action-committed");
     loadItems();
   };
 

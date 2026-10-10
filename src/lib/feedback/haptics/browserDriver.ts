@@ -1,4 +1,4 @@
-import type { HapticCapabilities, HapticEffect, HapticIntensity, NativeHapticResult } from "./types";
+import type { HapticCapabilities, HapticEffect, NativeHapticResult } from "./types";
 import type { HapticsDriver } from "./noopDriver";
 
 const DURATION_MS: Record<HapticEffect, number> = {

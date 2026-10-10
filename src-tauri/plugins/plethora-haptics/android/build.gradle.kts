@@ -19,6 +19,7 @@ android {
     }
     kotlinOptions { jvmTarget = "1.8" }
     sourceSets["test"].resources.srcDir("../fixtures")
+    testOptions { unitTests.isIncludeAndroidResources = true }
 }
 
 repositories {
@@ -31,4 +32,5 @@ dependencies {
     implementation(project(":tauri-android"))
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }

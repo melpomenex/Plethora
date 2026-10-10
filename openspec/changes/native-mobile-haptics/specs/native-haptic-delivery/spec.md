@@ -97,3 +97,33 @@ Native delivery acceptance SHALL include recorded Android and iPhone hardware ve
 #### Scenario: Device evidence is missing
 - **WHEN** automated tests pass but either Android or iPhone physical delivery has not been verified
 - **THEN** native haptic implementation acceptance remains incomplete and the missing device gate is explicitly recorded
+
+### Requirement: Recoverable initialization and observable native delivery
+The service SHALL select the authoritative native driver at hydrated startup and recovery, fence stale configuration responses, recover transient native setup failures with bounded attempts, and retain structured bounded diagnostics without content or personal data. Failure SHALL NOT permanently select browser vibration or replay missed feedback. Native Android admission SHALL allow the first eligible request without timestamp overflow.
+
+#### Scenario: First Android semantic request
+- **WHEN** a configured foreground Android driver receives its first eligible semantic request
+- **THEN** absence of an earlier submission does not trigger a rate-limit rejection and the platform API result is reported honestly
+
+#### Scenario: Metadata or bridge becomes ready after startup
+- **WHEN** initialization temporarily cannot identify the native platform or reach the plugin
+- **THEN** bounded startup/resume recovery can configure the correct native driver and later interactions work without replaying the earlier interaction
+
+#### Scenario: Configuration changes during a delayed response
+- **WHEN** a settings or lifecycle revision supersedes a pending capability/configuration response
+- **THEN** the stale response cannot restore ready/enabled admission for the obsolete configuration
+
+#### Scenario: Native command or system refuses feedback
+- **WHEN** a native command rejects or Android returns false from performHapticFeedback
+- **THEN** diagnostics distinguish bridge rejection from system suppression and neither result triggers a browser, raw-vibrator or stronger-effect fallback
+
+### Requirement: Development hardware smoke action
+A development-only diagnostic action SHALL request a recognizable supported semantic effect through the production policy and native driver, honor saved app/system controls, and report admission, submission, suppression or rejection. It SHALL support exercising all saved intensity levels without claiming an IPC response proves physical feel.
+
+#### Scenario: Smoke test with app haptics disabled
+- **WHEN** a developer requests a smoke effect while persisted haptics are disabled
+- **THEN** the request is reported as suppressed and no native perform call is made
+
+#### Scenario: All configured intensities
+- **WHEN** a developer selects Subtle, Standard and Strong and tests each after configuration settles
+- **THEN** each eligible request uses its saved semantic style and reports the native result separately from the observer's tactile result

@@ -13,7 +13,7 @@
     },
     "kp-timeline/sample-sweep-desktop": {
       "cost": 0.1521,
-      "reason": "knowledge-peck-startup-animation: initial baseline for a full canonical-desktop sampleTimeline sweep at 60 fps frame granularity (113 frames, 9 elements each) — the per-frame cost the single rAF driver pays during the ~1.5 s choreography."
+      "reason": "knowledge-peck-startup-animation: initial baseline for a full canonical-desktop sampleTimeline sweep at 60 fps frame granularity (113 frames, 9 elements each) \u2014 the per-frame cost the single rAF driver pays during the ~1.5 s choreography."
     },
     "kp-timeline/sample-sweep-phone": {
       "cost": 0.0776,
@@ -125,7 +125,7 @@
     "reader-speech-index/build": {
       "cost": 3.759,
       "tolerance": 1.4,
-      "reason": "improve-reader-tts: initial baseline for building the anchored speech index (24 seeded sections × 30 paragraphs, CHUNK_MAX packing with page markers)."
+      "reason": "improve-reader-tts: initial baseline for building the anchored speech index (24 seeded sections \u00d7 30 paragraphs, CHUNK_MAX packing with page markers)."
     },
     "reader-speech-index/locate": {
       "cost": 4.128,
@@ -216,7 +216,11 @@
     },
     "daqe/project-snapshot-5000-items-no-snapshot": {
       "cost": 0.05393,
-      "reason": "add-dynamic-adaptive-queue-engine: initial baseline for the no-snapshot fallback path, which runs on first paint and on every store reload before a background re-rank completes. It must stay far cheaper than the projecting path — a ratio of ~14x here is the signal that the previous order is being preserved rather than recomputed."
+      "reason": "add-dynamic-adaptive-queue-engine: initial baseline for the no-snapshot fallback path, which runs on first paint and on every store reload before a background re-rank completes. It must stay far cheaper than the projecting path \u2014 a ratio of ~14x here is the signal that the previous order is being preserved rather than recomputed."
+    },
+    "haptic-policy-admission-512": {
+      "cost": 0.4462,
+      "reason": "native-mobile-haptics: initial baseline for deterministic admission of 512 seeded haptic interaction requests, including identity deduplication, per-event cooldowns, and global rate limits."
     }
   }
 }

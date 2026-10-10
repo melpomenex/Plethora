@@ -7,6 +7,8 @@ import android.os.VibratorManager
 import android.provider.Settings
 import android.view.View
 import android.webkit.WebView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
 import app.tauri.annotation.TauriPlugin
@@ -14,7 +16,6 @@ import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 import java.lang.ref.WeakReference
-import java.util.LinkedHashMap
 import java.util.UUID
 
 @InvokeArg
@@ -60,22 +61,25 @@ class HapticsPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun getCapabilities(invoke: Invoke) {
-        invoke.resolve(controller.capabilities())
+        activity.runOnUiThread { invoke.resolve(controller.capabilities()) }
     }
 
     @Command
     fun configure(invoke: Invoke) {
         val args = invoke.parseArgs(HapticConfigurationArgs::class.java)
-        val result = controller.configure(args)
-        if (result == null) invoke.reject("stale or invalid haptic configuration", "stale")
-        else invoke.resolve(result)
+        activity.runOnUiThread {
+            val result = controller.configure(args)
+            if (result == null) invoke.reject("stale or invalid haptic configuration", "stale")
+            else invoke.resolve(result)
+        }
     }
 
     @Command
     fun perform(invoke: Invoke) {
         val args = invoke.parseArgs(HapticRequestArgs::class.java)
         val receivedAt = android.os.SystemClock.elapsedRealtime()
-        activity.runOnUiThread { invoke.resolve(controller.perform(args, receivedAt)) }
+        val epoch = controller.lifecycleEpoch
+        activity.runOnUiThread { invoke.resolve(controller.perform(args, receivedAt, epoch)) }
     }
 }
 
@@ -88,12 +92,34 @@ internal class HapticController(private val activity: Activity) {
     private var enabled = false
     private var intensity = "subtle"
     private var revision = 0L
-    private val recentIds = object : LinkedHashMap<String, Long>(256, 0.75f, true) {}
-    private val submissions = ArrayDeque<Long>()
-    private var lastSubmission = Long.MIN_VALUE
+    private val admission = HapticAdmission()
+    @Volatile var lifecycleEpoch = 0L
+        private set
 
-    fun bind(view: WebView) { webView = WeakReference(view) }
-    fun setForeground(value: Boolean) { foreground = value && !destroyed }
+    fun bind(view: WebView) {
+        webView = WeakReference(view)
+        // PluginManager.load does not replay onResume for a late registration.
+        foreground = (activity as? LifecycleOwner)?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) == true
+    }
+    fun setForeground(value: Boolean) {
+        foreground = value && !destroyed
+        if (!value) {
+            lifecycleEpoch += 1
+            admission.clear()
+        }
+    }
+
+    private fun isForeground(): Boolean = !destroyed &&
+        ((activity as? LifecycleOwner)?.lifecycle?.currentState?.isAtLeast(Lifecycle.State.RESUMED) ?: foreground)
+
+    private fun nativeState(): JSObject {
+        val view = webView.get()
+        return JSObject().put("foreground", isForeground())
+            .put("webViewAttached", view?.isAttachedToWindow == true)
+            .put("webViewVisible", view?.isShown == true)
+            .put("viewHapticsEnabled", view?.isHapticFeedbackEnabled == true)
+            .put("configured", configured)
+    }
 
     fun capabilities(): JSObject {
         val motor = try {
@@ -111,6 +137,7 @@ internal class HapticController(private val activity: Activity) {
             .put("hardware", motor)
             .put("systemPreference", preference)
             .put("intensityControl", "effect-style")
+            .put("nativeState", nativeState())
     }
 
     fun configure(args: HapticConfigurationArgs): JSObject? {
@@ -126,33 +153,26 @@ internal class HapticController(private val activity: Activity) {
         return JSObject().put("driverSessionId", sessionId).put("revision", revision)
     }
 
-    fun perform(args: HapticRequestArgs, receivedAt: Long): JSObject {
+    fun perform(args: HapticRequestArgs, receivedAt: Long, expectedEpoch: Long = lifecycleEpoch): JSObject {
         val now = android.os.SystemClock.elapsedRealtime()
         fun skipped(reason: String) = JSObject().put("status", "skipped").put("reason", reason)
         if (args.driverSessionId != sessionId || !configured || args.revision != revision || args.ttlMs !in 1..150) return skipped("stale")
-        if (now - receivedAt > args.ttlMs) return skipped("stale")
+        if (now - receivedAt > args.ttlMs || expectedEpoch != lifecycleEpoch) return skipped("stale")
         if (!enabled) return skipped("disabled")
-        if (!foreground || destroyed) return skipped("background")
+        if (!isForeground()) return skipped("background")
         val view = webView.get()
-        if (view == null || !view.isAttachedToWindow || view.windowVisibility != View.VISIBLE || !view.isShown) return skipped("background")
-        if (vibrator()?.hasVibrator() != true) return skipped("unsupported")
+        if (view == null || !view.isAttachedToWindow || !view.isShown) return skipped("background")
+        if (try { vibrator()?.hasVibrator() != true } catch (_: RuntimeException) { true }) return skipped("unsupported")
         val effect = args.effect
         val id = args.interactionId
         if (effect !in EFFECTS || id.isNullOrBlank() || id.length > 128) return skipped("unsupported")
-        recentIds.entries.removeIf { now - it.value > 2_000L }
-        if (recentIds.containsKey(id)) return skipped("rate-limited")
-        while (submissions.isNotEmpty() && now - submissions.first() >= 1_000L) submissions.removeFirst()
-        val cooldown = if (effect == "error" || effect == "warning") 250L else 60L
-        if (submissions.size >= 8 || now - lastSubmission < cooldown) return skipped("rate-limited")
-
-        recentIds[id] = now
-        while (recentIds.size > 256) recentIds.remove(recentIds.entries.first().key)
+        if (!admission.admit(id, effect!!, now)) return skipped("rate-limited")
         val constant = HapticMapping.constant(effect!!, intensity) ?: return skipped("unsupported")
         val invoked = try { view.performHapticFeedback(constant) } catch (_: RuntimeException) { false }
-        if (!invoked) return skipped("system-suppressed")
-        submissions.addLast(now)
-        lastSubmission = now
-        return JSObject().put("status", "submitted")
+        val state = JSObject().put("hapticFeedbackConstant", constant).put("platformAccepted", invoked)
+        if (!invoked) return skipped("system-suppressed").put("nativeState", state)
+        admission.submitted(effect, now)
+        return JSObject().put("status", "submitted").put("nativeState", state)
     }
 
     fun destroy() {
@@ -160,9 +180,9 @@ internal class HapticController(private val activity: Activity) {
         destroyed = true
         enabled = false
         configured = false
+        lifecycleEpoch += 1
         webView.clear()
-        recentIds.clear()
-        submissions.clear()
+        admission.clear()
     }
 
     private fun vibrator(): Vibrator? = if (Build.VERSION.SDK_INT >= 31) {

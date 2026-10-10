@@ -26,7 +26,7 @@ import { filterByDecks } from "../utils/studyDecks";
 import { featureFlags } from "../lib/featureFlags";
 import { isMarketingCaptureNamespace } from "../lib/marketingCapture/namespace";
 import { isPrecisionScheduler } from "../lib/schedulerIdentity";
-import { emitInteractionFeedback } from "../lib/feedback/orchestrator";
+import { createFeedbackInteractionId, emitInteractionFeedback } from "../lib/feedback/orchestrator";
 
 interface StoredReviewSession {
   reviewedIds: string[];
@@ -581,18 +581,28 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         ],
       }));
 
-      // The store is the commit owner for normal review modes. Emit only after
-      // submitReview and visible queue advancement succeed; the final card is
-      // left to the session-completion owner so the two outcomes cannot stack.
-      if (remainingQueue.length > 0) {
-        const interactionId = `review:${state.sessionId || "session"}:${currentCard.id}:${state.reviewsCompleted}:grade`;
-        emitInteractionFeedback("review.card-graded", { rating }, {
-          interactionId,
-          sessionId: state.sessionId || undefined,
-          step: "grade",
-          origin: "user",
-        });
+      // Resolve one outcome at the successful commit owner, never from result mounts.
+      const interactionId = createFeedbackInteractionId();
+      const context = { interactionId, sessionId: state.sessionId || undefined, origin: "user" as const };
+      if (remainingQueue.length === 0) {
+        let committedStreak = state.streak;
+        try { committedStreak = await getReviewStreak(); }
+        catch (error) { console.warn("[review] Could not refresh committed streak", error); }
+        if (get().sessionId !== state.sessionId || get().reviewsCompleted !== newReviewsCompleted || get().queue.length > 0) return;
+        set({ streak: committedStreak });
+        const newlyCrossed = committedStreak && state.streak && committedStreak.current_streak > state.streak.current_streak
+          && (committedStreak.current_streak % 10 === 0 || committedStreak.current_streak > state.streak.longest_streak);
+        if (newlyCrossed) {
+          emitInteractionFeedback("review.streak-milestone", { currentStreak: committedStreak.current_streak }, context);
+        } else {
+          emitInteractionFeedback("review.session-completed", { reviewsCompleted: newReviewsCompleted, correctCount: newCorrectCount, durationMs: Math.max(0, Date.now() - state.sessionStartedAt) }, context);
+        }
+      } else if ([25, 50, 100].includes(newReviewsCompleted) || newReviewsCompleted > 100 && newReviewsCompleted % 100 === 0) {
+        emitInteractionFeedback("review.progress-milestone", { completedCount: newReviewsCompleted }, context);
+      } else {
+        emitInteractionFeedback("review.card-graded", { rating }, context);
       }
+
 
       if (remainingQueue.length === 0) {
         clearStoredSession();
@@ -605,6 +615,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         setTimeout(() => void get().loadPreviewIntervals(), 100);
       }
     } catch (error) {
+      emitInteractionFeedback("action.failed", {}, { interactionId: createFeedbackInteractionId(), origin: "user" });
       const message = error instanceof Error ? error.message : "Failed to submit review";
       set({
         error: message,

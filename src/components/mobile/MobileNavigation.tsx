@@ -8,6 +8,7 @@
  * - Responsive icon sizing
  */
 
+import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowsInSimple,
@@ -388,6 +389,15 @@ export function MobileNavigation({
     }
   }, [showMoreMenu]);
 
+  const pendingTabFeedback = useRef<{ id?: string; type: TabType } | null>(null);
+  useEffect(() => {
+    const requested = pendingTabFeedback.current;
+    if (!requested || !activeTab) return;
+    if (requested.id ? activeTab.id !== requested.id : activeTab.type !== requested.type) return;
+    pendingTabFeedback.current = null;
+    emitUserInteraction("navigation.primary-tab-selected");
+  }, [activeTab]);
+
   const openTab = (item: NavItem) => {
     if (item.tabType === "queue") {
       // "Queue" can mean either the list view or Scroll Mode — reactivate
@@ -397,6 +407,7 @@ export function MobileNavigation({
       if (recentQueueTab) {
         const pane = findPane(recentQueueTab.id);
         if (pane) {
+          pendingTabFeedback.current = activeTabId !== recentQueueTab.id ? { id: recentQueueTab.id, type: recentQueueTab.type } : null;
           activateTab(pane.id, recentQueueTab.id);
           return;
         }
@@ -418,11 +429,13 @@ export function MobileNavigation({
       };
       const pane = findPaneContainingTab(rootPane);
       if (pane) {
+        pendingTabFeedback.current = activeTabId !== existing.id ? { id: existing.id, type: existing.type } : null;
         setActiveTab(pane.id, existing.id);
       }
       return;
     }
 
+    pendingTabFeedback.current = { type: item.tabType };
     addTab({
       title: t(item.tabTitle),
       icon: item.tabIcon,

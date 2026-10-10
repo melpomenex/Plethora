@@ -66,11 +66,12 @@ export function ReviewComplete({
     if (didPlaySoundsRef.current) return;
     didPlaySoundsRef.current = true;
 
+    if (reviewsCompleted === 0) return;
     void emitFeedback("review.session-completed", {
       reviewsCompleted,
       correctCount,
       durationMs,
-    });
+    }, { hapticHandledExternally: true });
 
     if (isPWA()) {
       void getQueueStats()
@@ -87,7 +88,7 @@ export function ReviewComplete({
       window.setTimeout(() => {
         void emitFeedback("review.streak-milestone", {
           currentStreak: streak?.current_streak ?? 0,
-        });
+        }, { hapticHandledExternally: true });
       }, 200);
     }
   }, [correctCount, durationMs, hitMilestone, reviewsCompleted, streak?.current_streak]);

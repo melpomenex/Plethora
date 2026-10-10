@@ -71,9 +71,11 @@ const PENDING_MIGRATION = [
   "src/components/settings/ThemePicker.tsx",
   "src/components/settings/UserProfilePanel.tsx",
   "src/components/settings/VoiceBrowser.tsx",
+  "src/components/settings/ChatterboxModelManager.tsx",
   "src/components/sync/OfflineSyncIndicator.tsx",
   "src/components/tabs/ScreenshotTab.tsx",
   "src/components/video/VideoExtracts.tsx",
+  "src/components/review/ReviewHome.tsx",
   "src/pages/NotebookLMPage.tsx",
 ];
 

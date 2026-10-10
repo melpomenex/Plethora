@@ -1,3 +1,4 @@
+import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -255,8 +256,10 @@ export function RSSReader() {
     try {
       if (editingReadingList) {
         await updateReadingListAuto(editingReadingList.id, { name, feedIds });
+      emitUserInteraction("library.action-committed");
       } else {
         await createReadingListAuto({ name, feedIds });
+      emitUserInteraction("library.action-committed");
       }
       await reloadReadingLists();
       setReadingListDialogOpen(false);
@@ -272,6 +275,7 @@ export function RSSReader() {
   const handleDeleteReadingList = useCallback(async (list: ReadingList) => {
     try {
       await deleteReadingListAuto(list.id);
+      emitUserInteraction("library.action-committed");
       await reloadReadingLists();
     } catch (err) {
       console.error("Failed to delete reading list:", err);
@@ -281,6 +285,7 @@ export function RSSReader() {
   const handleDuplicateReadingList = useCallback(async (list: ReadingList) => {
     try {
       await duplicateReadingListAuto(list.id);
+      emitUserInteraction("library.action-committed");
       await reloadReadingLists();
     } catch (err) {
       console.error("Failed to duplicate reading list:", err);
@@ -941,6 +946,7 @@ export function RSSReader() {
       const feed = await fetchFeed(newFeedUrl);
       if (feed) {
         await subscribeToFeedAuto(feed);
+      emitUserInteraction("library.action-committed");
         const updatedFeeds = await loadFeeds();
         setSelectedFeed(
           updatedFeeds.find(
@@ -1053,6 +1059,7 @@ export function RSSReader() {
   const handleRemoveFeed = async (feedId: string) => {
     if (confirm(t("delete.unsubscribeConfirm"))) {
       await unsubscribeFromFeedAuto(feedId);
+      emitUserInteraction("library.action-committed");
       await loadFeeds();
       if (selectedFeed?.id === feedId) {
         setSelectedFeed(null);
@@ -1143,10 +1150,13 @@ export function RSSReader() {
       setSelectedItem((prev) => (prev ? { ...prev, favorite: nextFavorite } : null));
     }
 
-    // Call API in background
-    toggleItemFavoriteAuto(feed.id, item.id).catch((err) => {
+    try {
+      await toggleItemFavoriteAuto(feed.id, item.id);
+      emitUserInteraction("library.action-committed");
+    } catch (err) {
+      emitUserInteraction("action.failed");
       console.error("Failed to toggle favorite in backend:", err);
-    });
+    }
   };
 
   const handleMarkAllRead = async (feedId: string) => {
@@ -1154,6 +1164,7 @@ export function RSSReader() {
     if (confirm(msg)) {
       // Mark read in database (background / async)
       await markFeedReadAuto(feedId);
+      emitUserInteraction("library.action-committed");
       
       // Instantly dismiss/update the local feeds and items state so the UI updates without delay
       setFeeds((prevFeeds) =>
@@ -1275,6 +1286,7 @@ export function RSSReader() {
         for (const feed of importedFeeds) {
           try {
             await subscribeToFeedAuto(feed);
+      emitUserInteraction("library.action-committed");
           } catch (error) {
             console.warn("Failed to subscribe feed during OPML import:", feed.feedUrl, error);
           }

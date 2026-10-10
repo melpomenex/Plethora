@@ -4,6 +4,7 @@
  * Manages bookmarks within a document viewer with creation, listing, and deletion.
  */
 
+import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 import { useEffect, useState } from 'react';
 import { createBookmark, deleteBookmark, listBookmarks } from '../../api/position';
 import { formatPosition, type Bookmark, type DocumentPosition } from "../../types/position";
@@ -54,11 +55,13 @@ export function BookmarkManager({
     try {
       setError(null);
       const bookmark = await createBookmark(documentId, name, currentPosition);
+      emitUserInteraction("reader.bookmark-saved");
       setBookmarks([...bookmarks, bookmark]);
       setShowCreateDialog(false);
       setNewBookmarkName('');
       onCreateBookmark?.(bookmark);
     } catch (err) {
+      emitUserInteraction("action.failed");
       setError(err instanceof Error ? err.message : 'Failed to create bookmark');
     }
   };
@@ -67,8 +70,10 @@ export function BookmarkManager({
     try {
       setError(null);
       await deleteBookmark(bookmarkId);
+      emitUserInteraction("action.committed");
       setBookmarks(bookmarks.filter((b) => b.id !== bookmarkId));
     } catch (err) {
+      emitUserInteraction("action.failed");
       setError(err instanceof Error ? err.message : 'Failed to delete bookmark');
     }
   };
@@ -261,6 +266,7 @@ export function QuickBookmarkButton({
     try {
       const name = `Bookmark at ${formatPosition(currentPosition)}`;
       const bookmark = await createBookmark(documentId, name, currentPosition);
+      emitUserInteraction("reader.bookmark-saved");
       setShowFeedback(true);
       setTimeout(() => setShowFeedback(false), 2000);
       onBookmarkCreated?.(bookmark);

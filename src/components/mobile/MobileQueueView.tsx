@@ -1,3 +1,4 @@
+import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 /**
  * Mobile Queue View - Simplified for PWA
  * 
@@ -374,7 +375,9 @@ export function MobileQueueView({
   const handleSuspend = useCallback(async (item: QueueItem) => {
     captureScrollAnchor();
     try {
-      await bulkSuspendItems([item.id]);
+      const result = await bulkSuspendItems([item.id]);
+      if (result.failed.length) throw new Error(result.errors.join(", "));
+      emitUserInteraction("action.committed");
       toast.success(t("mobileQueue.itemSuspended"), t("mobileQueue.removedFromQueue"));
       // Drop the one suspended item locally (design D2) — no full reload.
       useQueueStore.getState().removeItemsLocally([item.id]);
@@ -405,6 +408,7 @@ export function MobileQueueView({
 
       requestAnimationFrame(animate);
     } catch (error) {
+      emitUserInteraction("action.failed");
       toast.error(t("mobileQueue.failedToSuspend"), error instanceof Error ? error.message : t("reviewSession.unknownError"));
     }
   }, [captureScrollAnchor, loadQueue, toast, undoState?.visible]);
@@ -415,6 +419,7 @@ export function MobileQueueView({
       // postponeItemSmart applies the new due date to store state itself
       // (local delta, design D2) — no full queue reload here.
       const result = await postponeItemSmart(item);
+      emitUserInteraction("action.committed");
       toast.success(
         t("mobileQueue.itemPostponed"),
         t("mobileQueue.rescheduledByDays", { days: result.increase }),
@@ -447,6 +452,7 @@ export function MobileQueueView({
 
       requestAnimationFrame(animate);
     } catch (error) {
+      emitUserInteraction("action.failed");
       toast.error(t("mobileQueue.failedToPostpone"), error instanceof Error ? error.message : t("reviewSession.unknownError"));
     }
   }, [captureScrollAnchor, loadQueue, postponeItemSmart, toast, t, undoState?.visible]);
@@ -463,6 +469,7 @@ export function MobileQueueView({
         if (result.failed.length > 0) {
           throw new Error(result.errors.join(", "));
         }
+        emitUserInteraction("action.committed");
         toast.success(t("mobileQueue.itemSuspended"), t("mobileQueue.removedFromQueue"));
         setUndoState({
           visible: true,
@@ -473,6 +480,7 @@ export function MobileQueueView({
         });
       } else if (item.itemType === "document") {
         await dismissDocument(item.documentId, true);
+        emitUserInteraction("action.committed");
         toast.success(t("queueScroll.documentDismissed"), t("queueScroll.documentDismissedDesc"));
         setUndoState({
           visible: true,
@@ -485,6 +493,7 @@ export function MobileQueueView({
       }
       await loadQueue();
     } catch (error) {
+      emitUserInteraction("action.failed");
       toast.error(
         t("mobileQueue.failedToRemove"),
         error instanceof Error ? error.message : t("reviewSession.unknownError"),
@@ -495,6 +504,7 @@ export function MobileQueueView({
   const openItemActions = useCallback((item: QueueItem, trigger?: HTMLElement) => {
     actionTriggerRef.current = trigger ?? null;
     setActionItem(item);
+    emitUserInteraction("interaction.context-activated");
   }, []);
 
   const closeItemActions = useCallback(() => {
@@ -507,15 +517,19 @@ export function MobileQueueView({
 
     try {
       if (undoState.action === "suspend") {
-        await bulkUnsuspendItems([undoState.itemId]);
+        const result = await bulkUnsuspendItems([undoState.itemId]);
+        if (result.failed.length) throw new Error(result.errors.join(", "));
+        emitUserInteraction("action.committed");
         toast.success(t("mobileQueue.itemRestored"), t("mobileQueue.backInQueue"));
       } else if (undoState.action === "dismiss" && undoState.documentId) {
         await dismissDocument(undoState.documentId, false);
+        emitUserInteraction("action.committed");
         toast.success(t("mobileQueue.itemRestored"), t("mobileQueue.backInQueue"));
       }
       // Postpone undo would require storing the original due date
       loadQueue();
     } catch (error) {
+      emitUserInteraction("action.failed");
       toast.error(t("mobileQueue.failedToUndo"), error instanceof Error ? error.message : t("reviewSession.unknownError"));
     } finally {
       setUndoState(null);
@@ -524,15 +538,17 @@ export function MobileQueueView({
 
   // --- Multi-select helpers ---
   const enterSelection = useCallback((itemId: string) => {
+    if (!selectionMode) emitUserInteraction("queue.selection-mode-entered");
     setSelectionMode(true);
     setSelected(itemId, true);
-  }, [setSelected]);
+  }, [setSelected, selectionMode]);
 
   const toggleSelect = useCallback((itemId: string) => {
     // Reuse the store's current selection to decide toggle direction so we
     // don't depend on stale closure state.
     const isSelected = useQueueStore.getState().selectedIds.has(itemId);
     setSelected(itemId, !isSelected);
+    emitUserInteraction("queue.selection-changed");
   }, [setSelected]);
 
   const exitSelection = useCallback(() => {
@@ -555,24 +571,63 @@ export function MobileQueueView({
   }, [selectionMode, exitSelection]);
 
   const handleBulkSuspend = useCallback(async () => {
-    await bulkSuspend();
+    if (!useQueueStore.getState().selectedIds.size) return;
+    try {
+      await bulkSuspend();
+      const result = useQueueStore.getState().bulkOperationResult;
+      if (!result) return;
+      emitUserInteraction(result.failed.length ? result.succeeded.length ? "feedback.warning" : "action.failed" : "action.committed");
+      if (result.failed.length) {
+        toast.error(t("mobileQueue.failedToRemove"), result.errors.join(", "));
+        return;
+      }
     toast.success(t("mobileQueue.itemSuspended"), "");
     exitSelection();
     loadQueue();
+    } catch (error) {
+      emitUserInteraction("action.failed");
+      toast.error(t("mobileQueue.failedToRemove"), error instanceof Error ? error.message : String(error));
+    }
   }, [bulkSuspend, toast, t, exitSelection, loadQueue]);
 
   const handleBulkRestore = useCallback(async () => {
-    await bulkUnsuspend();
+    if (!useQueueStore.getState().selectedIds.size) return;
+    try {
+      await bulkUnsuspend();
+      const result = useQueueStore.getState().bulkOperationResult;
+      if (!result) return;
+      emitUserInteraction(result.failed.length ? result.succeeded.length ? "feedback.warning" : "action.failed" : "action.committed");
+      if (result.failed.length) {
+        toast.error(t("mobileQueue.failedToRemove"), result.errors.join(", "));
+        return;
+      }
     toast.success(t("mobileQueue.itemRestored"), "");
     exitSelection();
     loadQueue();
+    } catch (error) {
+      emitUserInteraction("action.failed");
+      toast.error(t("mobileQueue.failedToRemove"), error instanceof Error ? error.message : String(error));
+    }
   }, [bulkUnsuspend, toast, t, exitSelection, loadQueue]);
 
   const handleBulkDelete = useCallback(async () => {
-    await bulkDelete();
+    if (!useQueueStore.getState().selectedIds.size) return;
+    try {
+      await bulkDelete();
+      const result = useQueueStore.getState().bulkOperationResult;
+      if (!result) return;
+      emitUserInteraction(result.failed.length ? result.succeeded.length ? "feedback.warning" : "action.failed" : "action.committed");
+      if (result.failed.length) {
+        toast.error(t("mobileQueue.failedToRemove"), result.errors.join(", "));
+        return;
+      }
     toast.success(t("mobileQueue.itemSuspended"), "");
     exitSelection();
     loadQueue();
+    } catch (error) {
+      emitUserInteraction("action.failed");
+      toast.error(t("mobileQueue.failedToRemove"), error instanceof Error ? error.message : String(error));
+    }
   }, [bulkDelete, toast, t, exitSelection, loadQueue]);
 
   return (

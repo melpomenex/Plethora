@@ -25,6 +25,13 @@ export interface HapticCapabilities {
   hardware: HapticSupport;
   systemPreference: HapticSystemPreference;
   intensityControl: HapticIntensityControl;
+  nativeState?: {
+    foreground: boolean;
+    webViewAttached: boolean;
+    webViewVisible: boolean;
+    viewHapticsEnabled: boolean;
+    configured: boolean;
+  };
 }
 
 export interface HapticConfiguration {
@@ -43,11 +50,17 @@ export interface NativeHapticRequest {
 }
 
 export type NativeHapticResult =
-  | { status: "submitted" }
+  | { status: "submitted"; nativeState?: NativeHapticDeliveryState }
   | {
       status: "skipped";
       reason?: "unsupported" | "disabled" | "background" | "stale" | "rate-limited" | "system-suppressed";
+      nativeState?: NativeHapticDeliveryState;
     };
+
+export interface NativeHapticDeliveryState {
+  hapticFeedbackConstant: number;
+  platformAccepted: boolean;
+}
 
 export interface HapticsSettings {
   enabled: boolean;

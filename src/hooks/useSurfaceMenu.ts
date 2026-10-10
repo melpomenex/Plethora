@@ -29,6 +29,7 @@ import {
   type ContextMenuPosition,
 } from "../components/common/ContextMenu";
 import { LONG_PRESS_MS, shouldYieldRowMenu } from "../lib/contextMenus";
+import { emitUserInteraction } from "../lib/feedback/orchestrator";
 import { useLongPress } from "./useLongPress";
 
 export interface SurfaceMenu {
@@ -79,7 +80,9 @@ export function useSurfaceMenu(menuId: string): SurfaceMenu {
       pendingMenu.current = null;
       touchMenuRef.current = true;
       if (pending.trigger) triggerRef.current = pending.trigger;
-      menu.showMenu(position, pending.getItems());
+      const items = pending.getItems();
+      menu.showMenu(position, items);
+      if (items.length) emitUserInteraction("interaction.context-activated");
       // Auto-release the swallow flag: a menu dismissed without a row
       // click must not eat the *next* unrelated tap.
       setTimeout(() => {
@@ -95,6 +98,7 @@ export function useSurfaceMenu(menuId: string): SurfaceMenu {
     (position: ContextMenuPosition, items: ContextMenuItem[], trigger?: HTMLElement | null) => {
       if (trigger) triggerRef.current = trigger;
       menu.showMenu(position, items);
+      if (items.length) emitUserInteraction("interaction.context-activated");
     },
     [menu],
   );
@@ -106,6 +110,7 @@ export function useSurfaceMenu(menuId: string): SurfaceMenu {
       e.stopPropagation();
       triggerRef.current = e.currentTarget as HTMLElement | null;
       menu.showMenu({ x: e.clientX, y: e.clientY }, items);
+      if (items.length) emitUserInteraction("interaction.context-activated");
       return true;
     },
     [menu],
@@ -129,7 +134,9 @@ export function useSurfaceMenu(menuId: string): SurfaceMenu {
       e.stopPropagation();
       const rect = el.getBoundingClientRect();
       triggerRef.current = el;
-      menu.showMenu({ x: rect.left + 16, y: rect.bottom + 4 }, getItems());
+      const items = getItems();
+      menu.showMenu({ x: rect.left + 16, y: rect.bottom + 4 }, items);
+      if (items.length) emitUserInteraction("interaction.context-activated");
       return true;
     },
     [menu],

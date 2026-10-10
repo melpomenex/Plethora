@@ -3,6 +3,8 @@ import { useI18n } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { getHapticsSnapshot, subscribeHaptics, type HapticsSnapshot } from "../../lib/feedback/haptics/service";
 import type { HapticIntensity } from "../../lib/feedback/haptics/types";
+import { HAPTIC_DIAGNOSTICS_ENABLED } from "../../lib/feedback/haptics/diagnostics";
+import { HapticsDiagnosticPanel } from "./HapticsDiagnosticPanel";
 
 export function HapticsSettingsControl({ compact = false }: { compact?: boolean }) {
   const { t } = useI18n();
@@ -54,6 +56,7 @@ export function HapticsSettingsControl({ compact = false }: { compact?: boolean 
         </select>
       </label>
       <p className="text-xs text-muted-foreground">{t("haptics.intensityDescription")}</p>
+      {HAPTIC_DIAGNOSTICS_ENABLED && <HapticsDiagnosticPanel status={status} />}
     </div>
   );
 }

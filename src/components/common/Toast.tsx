@@ -5,6 +5,7 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { create } from "zustand";
+import { createFeedbackInteractionId, emitInteractionFeedback } from "../../lib/feedback/orchestrator";
 import { playFeedback } from "../../utils/soundService";
 
 /**
@@ -32,6 +33,8 @@ export interface ToastData {
   };
   /** @deprecated Kept for compat; progress is now driven by CSS transition */
   progress?: number;
+  /** Explicit owner context; passive/background toasts never infer an interaction. */
+  feedback?: { interactionId?: string; hapticHandled?: boolean; soundHandled?: boolean; origin: "user" | "system" };
 }
 
 /**
@@ -260,17 +263,26 @@ export function useToast() {
   }, [addToast]);
 
   const success = useCallback((title: string, message?: string, options?: Partial<ToastData>) => {
-    playFeedback('success');
+    if (!options?.feedback?.soundHandled) playFeedback('success');
+    if (options?.feedback && !options.feedback.hapticHandled) {
+      emitInteractionFeedback("feedback.confirmed", {}, { interactionId: options.feedback.interactionId ?? createFeedbackInteractionId(), origin: options.feedback.origin });
+    }
     return addToast({ type: ToastType.Success, title, message, ...options });
   }, [addToast]);
 
   const error = useCallback((title: string, message?: string, options?: Partial<ToastData>) => {
-    playFeedback('error');
+    if (!options?.feedback?.soundHandled) playFeedback('error');
+    if (options?.feedback && !options.feedback.hapticHandled) {
+      emitInteractionFeedback("feedback.error", {}, { interactionId: options.feedback.interactionId ?? createFeedbackInteractionId(), origin: options.feedback.origin });
+    }
     return addToast({ type: ToastType.Error, title, message, ...options });
   }, [addToast]);
 
   const warning = useCallback((title: string, message?: string, options?: Partial<ToastData>) => {
-    playFeedback('warning');
+    if (!options?.feedback?.soundHandled) playFeedback('warning');
+    if (options?.feedback && !options.feedback.hapticHandled) {
+      emitInteractionFeedback("feedback.warning", {}, { interactionId: options.feedback.interactionId ?? createFeedbackInteractionId(), origin: options.feedback.origin });
+    }
     return addToast({ type: ToastType.Warning, title, message, ...options });
   }, [addToast]);
 

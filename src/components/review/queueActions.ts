@@ -1,5 +1,5 @@
 import type { QueueItem } from "../../types/queue";
-import { emitFeedback, type FeedbackEmitOptions } from "../../lib/feedback";
+import { createFeedbackInteractionId, emitUserInteraction, emitFeedback, type FeedbackEmitOptions } from "../../lib/feedback";
 import type { FeedbackEventPayloads } from "../../lib/feedback/events";
 
 export type QueueItemActionKind = "study-now" | "open-document" | "open-extract" | "listen-edition";
@@ -72,6 +72,7 @@ export type QueueActionFeedback = Omit<FeedbackEventPayloads["review.card-action
   onUndo?: () => void | Promise<void>;
   undoLabel?: string;
   dedupeKey?: string;
+  interactionId?: string;
 };
 
 /** Route queue-action presentation through the policy layer without changing its copy or Undo callback. */
@@ -79,12 +80,20 @@ export function emitQueueActionFeedback({
   onUndo,
   undoLabel,
   dedupeKey,
+  interactionId = createFeedbackInteractionId(),
   ...payload
 }: QueueActionFeedback): void {
   const options: FeedbackEmitOptions = {
-    dedupeKey: dedupeKey ?? `${payload.action}:${payload.title}:${payload.message ?? ""}`,
+    dedupeKey: dedupeKey ?? interactionId,
+    interactionId,
+    origin: "user",
     toast: onUndo
-      ? { action: { label: undoLabel ?? "Undo", onClick: onUndo } }
+      ? { action: { label: undoLabel ?? "Undo", onClick: () => {
+        void Promise.resolve().then(onUndo).then(
+          () => { emitUserInteraction("action.committed"); },
+          () => { emitUserInteraction("action.failed"); },
+        );
+      } } }
       : undefined,
   };
   void emitFeedback("review.card-action", { ...payload, onUndo }, options);

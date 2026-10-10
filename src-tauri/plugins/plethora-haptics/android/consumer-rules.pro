@@ -1,1 +1,3 @@
 -keep class com.plethora.haptics.HapticsPlugin { *; }
+-keep class com.plethora.haptics.HapticConfigurationArgs { *; }
+-keep class com.plethora.haptics.HapticRequestArgs { *; }

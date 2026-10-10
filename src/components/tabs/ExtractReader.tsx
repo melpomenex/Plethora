@@ -1,3 +1,4 @@
+import { emitUserInteraction, emitInteractionFeedback, createFeedbackInteractionId } from "../../lib/feedback/orchestrator";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowSquareOut, TextT, SpinnerGap } from "@phosphor-icons/react";
 import { getExtract, type Extract } from "../../api/extracts";
@@ -106,6 +107,7 @@ export function ExtractReader({ extractId, documentId, documentTitle }: ExtractR
       },
       paneId,
     );
+    emitUserInteraction("navigation.destination-opened");
   }, [addTab, documentId, documentTitle, extractId, paneId, sourceAvailable, t]);
 
   const rate = useCallback(
@@ -115,6 +117,7 @@ export function ExtractReader({ extractId, documentId, documentTitle }: ExtractR
       try {
         const timeTaken = Math.max(1, Math.round((Date.now() - startTimeRef.current) / 1000));
         const updated = await submitExtractReview(extractId, value, timeTaken);
+        emitInteractionFeedback("review.card-graded", { rating: value }, { interactionId: createFeedbackInteractionId(), origin: "user" });
         setExtract(updated);
         setNextReviewDate(updated.next_review_date ?? null);
         setRating("done");
@@ -127,6 +130,7 @@ export function ExtractReader({ extractId, documentId, documentTitle }: ExtractR
         });
         toast.success(t("extractReader.ratingSubmitted"));
       } catch (err) {
+        emitUserInteraction("action.failed");
         setRating("idle");
         toast.error(t("extractReader.ratingFailed"), err instanceof Error ? err.message : undefined);
       }

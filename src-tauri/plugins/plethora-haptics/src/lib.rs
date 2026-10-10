@@ -93,6 +93,18 @@ pub struct HapticCapabilities {
     pub hardware: HapticSupport,
     pub system_preference: SystemPreference,
     pub intensity_control: IntensityControl,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_state: Option<NativeHapticState>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeHapticState {
+    pub foreground: bool,
+    pub web_view_attached: bool,
+    pub web_view_visible: bool,
+    pub view_haptics_enabled: bool,
+    pub configured: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -120,6 +132,15 @@ pub struct NativeHapticResult {
     pub status: ResultStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<SkipReason>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_state: Option<NativeHapticDeliveryState>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeHapticDeliveryState {
+    pub haptic_feedback_constant: i32,
+    pub platform_accepted: bool,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq)]
@@ -206,6 +227,7 @@ fn unsupported_capabilities() -> HapticCapabilities {
         hardware: HapticSupport::Unavailable,
         system_preference: SystemPreference::Unknown,
         intensity_control: IntensityControl::None,
+        native_state: None,
     }
 }
 
@@ -272,7 +294,18 @@ mod commands {
         #[cfg(any(target_os = "android", target_os = "ios"))]
         {
             let plugin = state.inner().clone();
+            let received_at = std::time::Instant::now();
             return tauri::async_runtime::spawn_blocking(move || {
+                let mut request = request;
+                let elapsed_ms = received_at.elapsed().as_millis();
+                if elapsed_ms >= u128::from(request.ttl_ms) {
+                    return Ok(NativeHapticResult {
+                        status: ResultStatus::Skipped,
+                        reason: Some(SkipReason::Stale),
+                        native_state: None,
+                    });
+                }
+                request.ttl_ms -= elapsed_ms as u16;
                 plugin
                     .handle
                     .run_mobile_plugin(
@@ -290,6 +323,7 @@ mod commands {
             Ok(NativeHapticResult {
                 status: ResultStatus::Skipped,
                 reason: Some(SkipReason::Unsupported),
+                native_state: None,
             })
         }
     }

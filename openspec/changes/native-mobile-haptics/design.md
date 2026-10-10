@@ -1,8 +1,8 @@
 ## Context
 
-See [proposal.md](proposal.md) for the product motivation and [interaction-inventory.md](interaction-inventory.md) for the complete call-site and journey audit. Audit reference: local HEAD `7976f42b`, 2026-10-09; remote HEAD was not fetched. This change contains planning artifacts only.
+See [proposal.md](proposal.md) for the product motivation and [interaction-inventory.md](interaction-inventory.md) for the complete call-site and journey audit. Audit reference: local HEAD `7976f42b`, 2026-10-09; remote HEAD was not fetched. The original context below is preserved as historical planning evidence; the implementation and APK regression assessment are recorded in the repair addendum.
 
-### Current state
+### Original planning state (historical)
 
 - `src/utils/soundService.ts` combines audio and browser vibration. `supportsHaptics()` requires `navigator.vibrate` before considering Tauri; it cannot discover native iOS hardware. Its arbitrary patterns have no native semantic mapping or global rate limit.
 - `useHapticFeedback` gates both sound and vibration on `notifications.feedbackSoundsEnabled`; its visual-feedback setting is already separate. `navigationFeedback.ts` repeats the sound gate. The orchestrator requires a sound role and `roleIsEnabled` to admit haptics; completion haptics therefore depend on notification sound settings too.
@@ -253,3 +253,25 @@ Validate the normative scenarios in four specs and every inventory row using [va
 5. Deliver one coherent implementation with all mandatory features. If rollback is necessary, revert haptic plugin/integration together while leaving schema-compatible haptic preferences stored; preserve version/merge readers and existing sound/native Back behavior. Unsupported driver remains no-op. Do not restore the combined sound/haptic control as the rollback mechanism.
 
 There are no unresolved architectural decisions. Device feel/latency tuning is bounded by the declared semantic mappings, limits, specification and required measurement tasks.
+
+## APK repair addendum (2026-10-09)
+
+### Verified causes and evidence boundaries
+
+Repository refresh confirmed `origin/main` equals `6320e94fbc9b35a7567bb41760eadfc3b80ecf71`. The original planning state above no longer describes all implemented code. `useHapticFeedback` now provides sound/visual compatibility only; removing its vibration did not migrate every consumer to typed events. A policy entry alone is not interaction coverage. Each inventory row must name a live accepted owner and its success boundary.
+
+In `HapticsPlugin.kt`, `lastSubmission = Long.MIN_VALUE` combined with `now - lastSubmission < spacing` overflows Kotlin `Long`, making first native delivery perpetually rate-limited. Fix by representing no prior submission explicitly and testing first, subsequent and expired requests with deterministic monotonic timestamps. Hardware output and system refusal still require runtime/device evidence.
+
+`service.ts` selected its driver during module evaluation and silently reset capabilities on configuration exceptions. Selection must be reevaluated at initialization/recovery after settings hydration and native metadata readiness. An absent startup metadata value is a conditional startup risk, not an observed physical-device diagnosis. Failures must record their stage and bounded recovery without replaying missed interactions. Configuration transitions fence stale responses; app-off admission stops immediately. Lifecycle listeners and settings/hydration subscriptions have explicit cleanup and cannot multiply across restart/test/reset.
+
+### Diagnostic contract
+
+Keep a bounded ring of structured state metadata and rate-limit debug output. Record platform/selected driver, capability hardware/system status, preference/intensity, configuration revision/session validity, foreground/visibility/view attachment, requested semantic effect, policy suppression/admission, IPC failure or native result and Android API Boolean result. Do not log content, selected text, document identifiers, titles, arbitrary native exception payloads or personal information. Production stays quiet; failures remain observable through retained diagnostic state, with development inspection/actions.
+
+Distinguish missing emitter, policy suppression, incorrect driver, bridge unavailable, rejected configuration, stale/background/rate-limited request, system refusal and submitted-but-unfelt effects. A native `submitted` result is API evidence only. No console record or successful IPC can establish tactile perception.
+
+The development smoke action requests a clearly recognizable `completion` semantic effect through the same interaction policy, service, scoped native command and system API. It honors persisted enabled/intensity settings, foreground admission, limits and system suppression. Test Subtle/Standard/Strong by selecting each existing setting; do not temporarily enable haptics or substitute raw vibration. Report admitted/submitted/skipped/rejected separately and keep physical feel as an observer result.
+
+### Back coordination and rollout
+
+The historical opt-in Back configuration contributed to the reported APK regression and is repaired only in its existing Back change. This change preserves completion/defer/suppress and one navigation identity. A cancelled predictive gesture, pending/cancelled dirty prompt, root result or failed Back never emits haptics. Native ACK must not await hardware output. Neither successful JavaScript tests nor debug packaging satisfies the Back physical acceptance gate.

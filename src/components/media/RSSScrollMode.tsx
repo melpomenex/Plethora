@@ -1,3 +1,4 @@
+import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 /**
  * RSS Scroll Mode - TikTok-style vertical scrolling through RSS articles
  *
@@ -1017,8 +1018,11 @@ export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }
       // Toggle favorite
       try {
         await toggleItemFavoriteAuto(feedId, itemId);
+        emitUserInteraction("library.action-committed");
       } catch (error) {
+        emitUserInteraction("action.failed");
         console.warn("Failed to toggle favorite:", error);
+        return;
       }
 
       setScrollItems((prev) =>
@@ -1204,6 +1208,7 @@ export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }
       } else if (undoState.action === "favorite") {
         // ArrowCounterClockwise favorite toggle - toggle back
         await toggleItemFavoriteAuto(undoState.feedId, undoState.itemId);
+        emitUserInteraction("library.action-committed");
         setScrollItems((prev) =>
           prev.map((si) =>
             si.feed.id === undoState.feedId && si.item.id === undoState.itemId
@@ -1274,6 +1279,7 @@ export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }
     try {
       // Mark all items as read
       await Promise.all(itemsToMark.map((si) => markItemReadAuto(si.feed.id, si.item.id, true)));
+      if (itemsToMark.length) emitUserInteraction("library.action-committed");
 
       const newReadItems = new Set(readItems);
       itemsToMark.forEach((si) => {

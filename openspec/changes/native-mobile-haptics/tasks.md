@@ -97,3 +97,15 @@
 - [ ] 15.4 Verify gesture/accessibility regressions on real devices, including native Back opt-in and existing fallback without changing its rollout, dirty confirmation, text selection, joystick, Queue/Library swipes, TalkBack/VoiceOver and fullscreen/tablet cases; complete when each mandatory matrix row has evidence and no duplicate navigation/feedback remains. Depends on 15.1–15.3.
 - [ ] 15.5 Document native plugin regeneration/linking, preference migration, independent sound/haptic controls, device/system limitations and rollback in native-haptics/build guides; reconcile stale feedback/Back predecessor comments narrowly. Complete when a disposable regenerated native build resolves the plugin and docs validation plus openspec validate native-mobile-haptics --strict pass. Depends on 15.4.
 - [ ] 15.6 Create an implementation verification report linking every requirement/scenario/inventory row to passing automated/device evidence and final production vibration scan; complete when all mandatory tasks pass with no deferred native iOS/Android/settings/integration gate and rollback preserves compatible stored preferences/audio/Back. Depends on 14.7, 15.5. Follow repository main-only workflow if a later user request authorizes committing/pushing; no feature branch or PR is required.
+
+## 16. Repair the reported nonfunctional Android APK
+
+Historical completed tasks above remain preserved; unchecked work is not implied complete by this addendum.
+
+- [ ] 16.1 Reproduce and repair first-native-request overflow; add monotonic native admission regression tests and lifecycle checks.
+- [ ] 16.2 Reevaluate driver at hydrated startup/recovery, fence configuration races, clean up subscriptions and recover transient bridge failures without effect replay.
+- [ ] 16.3 Add bounded privacy-safe diagnostics across policy/service/native stages and development smoke action for all saved intensities.
+- [ ] 16.4 Audit every interaction inventory row and migrate accepted/success owners, helper ownership, gesture latches and combined review outcomes; record actual tests and remaining gaps.
+- [ ] 16.5 Compile Kotlin/Rust bridges, build fresh enabled debug and internal release/R8 APKs, inspect manifest/BuildConfig/permissions/packaging and verify trusted WebView IPC.
+- [ ] 16.6 Record physical Android haptic, disable/re-enable, restart/intensity/system suppression and native Back matrix; retain mandatory iPhone checks. Missing hardware leaves this task unchecked.
+- [ ] 16.7 Run required frontend/script/lint/build/performance/OpenSpec checks and record truthful results and exact installation/acceptance steps in verification.md.

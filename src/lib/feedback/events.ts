@@ -20,6 +20,10 @@
 
 /** All feedback-eligible application events. Keep alphabetized within groups. */
 export const FEEDBACK_EVENT_IDS = [
+  "diagnostic.haptic-smoke-test",
+  "interaction.context-activated",
+  "task.completed",
+
   // Review session
   "review.card-action",
   "review.card-graded",
@@ -88,6 +92,9 @@ export interface FeedbackInteractionContext {
  * they never carry channel choices.
  */
 export interface FeedbackEventPayloads {
+  "diagnostic.haptic-smoke-test": Record<string, never>;
+  "interaction.context-activated": Record<string, never>;
+  "task.completed": Record<string, never>;
   "review.card-action": {
     /** Which queue/card mutation happened. */
     action: "delete" | "suspend" | "postpone" | "dismiss" | "restore";
@@ -133,7 +140,7 @@ export interface FeedbackEventPayloads {
   "feedback.warning": Record<string, never>;
   "feedback.error": Record<string, never>;
 
-  "import.completed": { documentCount: number; extractCount: number; title: string; message?: string };
+  "import.completed": { documentCount: number; extractCount: number; title: string; message?: string; partial?: boolean };
   "import.failed": { title: string; message?: string };
   "transcription.completed": { title: string; message?: string };
   "transcription.failed": { title: string; message?: string };

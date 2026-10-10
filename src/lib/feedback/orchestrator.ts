@@ -28,7 +28,8 @@ import {
 } from "./capabilities";
 import { t } from "../i18n";
 import { getHapticsSnapshot, performAdmittedHaptic } from "./haptics/service";
-import type { HapticEffect } from "./haptics/types";
+import { HapticAdmission } from "./admission";
+import { recordHapticDiagnostic } from "./haptics/diagnostics";
 
 export type FeedbackChannel = "toast" | "sound" | "haptic" | "os" | "badge";
 
@@ -41,7 +42,12 @@ export type FeedbackSuppressionReason =
   | "quiet-hours"
   | "cooldown"
   | "daily-cooldown"
-  | "no-channels";
+  | "no-channels"
+  | "configuration"
+  | "invalid-identity"
+  | "duplicate"
+  | "rate-limited"
+  | "busy";
 
 export interface FeedbackResolution {
   channels: FeedbackChannel[];
@@ -76,6 +82,7 @@ export interface FeedbackEmitOptions {
   notificationsEnabled?: boolean;
   /** The caller owns the event's sound delivery and the orchestrator must not layer one. */
   soundHandledExternally?: boolean;
+  hapticHandledExternally?: boolean;
 }
 
 type NotificationSettings = ReturnType<typeof useSettingsStore.getState>["settings"]["notifications"];
@@ -120,10 +127,7 @@ const ROLE_PRIORITY: Record<SoundRole, number> = {
 };
 
 const cooldowns = new Map<string, number>();
-const hapticReservations = new Map<string, number>();
-const hapticEventCooldowns = new Map<FeedbackEventId, number>();
-const hapticSubmissions: number[] = [];
-let lastHapticSubmission = Number.NEGATIVE_INFINITY;
+const hapticAdmission = new HapticAdmission();
 let activeReviewSession = false;
 let windowFocused = true;
 let activeSound: { role: SoundRole; priority: number; until: number } | null = null;
@@ -163,7 +167,8 @@ export const setReviewSessionActive = setActiveReviewSession;
 
 function isForeground(): boolean {
   if (typeof document === "undefined") return true;
-  return document.visibilityState === "visible" && windowFocused;
+  const native = getHapticsSnapshot().capabilities.driver;
+  return document.visibilityState === "visible" && (native === "android-native" || native === "ios-native" || windowFocused);
 }
 
 function isInQuietHours(settings: NotificationSettings, now = new Date()): boolean {
@@ -392,36 +397,49 @@ function deliverSound(role: SoundRole, settings: NotificationSettings): boolean 
   return true;
 }
 
-const HAPTIC_OUTCOMES = new Set<HapticEffect>(["success", "warning", "error", "completion", "celebration"]);
+function hapticSuppression(eventId: FeedbackEventId, reason: FeedbackSuppressionReason): FeedbackResolution {
+  recordHapticDiagnostic({ stage: "policy", event: eventId, reason, effect: FEEDBACK_POLICY_REGISTRY[eventId]?.hapticEffect?.effect });
+  return { channels: [], suppressedBy: reason };
+}
 
-function reserveHaptic(eventId: FeedbackEventId, interactionId: string, origin: "user" | "system"): boolean {
+function reserveHaptic(eventId: FeedbackEventId, interactionId: string, origin: "user" | "system", payload?: FeedbackEventPayloads[FeedbackEventId]): FeedbackResolution {
   const policy = FEEDBACK_POLICY_REGISTRY[eventId];
-  const haptic = policy?.hapticEffect;
-  if (!policy?.haptic || !haptic || !useSettingsStore.getState().settings.haptics?.enabled) return false;
-  if (origin === "system" && !isForeground()) return false;
-  if (!isForeground()) return false;
+  const haptic = eventId === "import.completed" && (payload as FeedbackEventPayloads["import.completed"] | undefined)?.partial
+    ? FEEDBACK_POLICY_REGISTRY["feedback.warning"].hapticEffect
+    : eventId === "review.card-action" && (payload as FeedbackEventPayloads["review.card-action"] | undefined)?.succeeded === false
+    ? FEEDBACK_POLICY_REGISTRY["action.failed"].hapticEffect
+    : policy?.hapticEffect;
+  if (eventId === "import.completed" && (payload as FeedbackEventPayloads["import.completed"] | undefined)?.documentCount === 0) return hapticSuppression(eventId, "policy");
+  if (!policy?.haptic || !haptic || eventId === "diagnostic.haptic-smoke-test" && !import.meta.env.DEV) return hapticSuppression(eventId, "policy");
+  if (!useSettingsStore.getState().settings.haptics?.enabled) return hapticSuppression(eventId, "settings");
+  if ((policy.kind === "interaction" || eventId.startsWith("import.") || eventId.startsWith("transcription.")) && origin !== "user") return hapticSuppression(eventId, "policy");
+  if (!isForeground()) return hapticSuppression(eventId, "focus");
   const driver = getHapticsSnapshot();
-  if (!driver.configured || !driver.enabled || driver.capabilities.hardware !== "available") return false;
-  if (!interactionId || interactionId.length > 128) return false;
+  if (!driver.configured) return hapticSuppression(eventId, "configuration");
+  if (!driver.enabled) return hapticSuppression(eventId, "settings");
+  if (driver.capabilities.hardware !== "available") return hapticSuppression(eventId, "capability");
+  if (driver.busy) return hapticSuppression(eventId, "busy");
+  if (!interactionId || interactionId.length > 128) return hapticSuppression(eventId, "invalid-identity");
 
-  const now = Date.now();
-  for (const [key, at] of hapticReservations) if (now - at > 2_000) hapticReservations.delete(key);
-  while (hapticSubmissions.length > 0 && now - hapticSubmissions[0]! >= 1_000) hapticSubmissions.shift();
-  if (hapticReservations.has(interactionId)) return false;
-  const lastEvent = hapticEventCooldowns.get(eventId);
-  if (lastEvent !== undefined && now - lastEvent < haptic.cooldownMs) return false;
-  const minimumGap = HAPTIC_OUTCOMES.has(haptic.effect) ? 120 : haptic.effect === "selection" ? 80 : 60;
-  if (hapticSubmissions.length >= 8 || HAPTIC_OUTCOMES.has(haptic.effect) && hapticSubmissions.filter((time) => now - time < 1_000).length >= 4) return false;
-  if (now - lastHapticSubmission < minimumGap) return false;
-
-  // Reserve synchronously before invoking the driver. A native call is
-  // best-effort and never awaited by the action or by notification queries.
-  hapticReservations.set(interactionId, now);
-  hapticEventCooldowns.set(eventId, now);
-  hapticSubmissions.push(now);
-  lastHapticSubmission = now;
+  const rejection = hapticAdmission.admit(eventId, interactionId, haptic, Date.now());
+  if (rejection) return hapticSuppression(eventId, rejection);
+  recordHapticDiagnostic({ stage: "policy", event: eventId, effect: haptic.effect, reason: "admitted" });
   performAdmittedHaptic(haptic.effect, interactionId);
-  return true;
+  return { channels: ["haptic"] };
+}
+
+let interactionSequence = 0;
+/** Opaque IDs contain no titles, selected words or document contents. */
+export function createFeedbackInteractionId(): string {
+  return `interaction:${Date.now().toString(36)}:${(++interactionSequence).toString(36)}`;
+}
+
+type EmptyFeedbackEvent = { [Event in FeedbackEventId]: keyof FeedbackEventPayloads[Event] extends never ? Event : FeedbackEventPayloads[Event] extends Record<string, never> ? Event : never }[FeedbackEventId];
+
+/** An accepted UI owner can share the returned identity with its toast/helper. */
+export function emitUserInteraction(eventId: EmptyFeedbackEvent, interactionId = createFeedbackInteractionId()): string {
+  emitInteractionFeedback(eventId, {}, { interactionId, origin: "user" });
+  return interactionId;
 }
 
 export function emitInteractionFeedback<Event extends FeedbackEventId>(
@@ -429,11 +447,8 @@ export function emitInteractionFeedback<Event extends FeedbackEventId>(
   payload: FeedbackEventPayloads[Event],
   context: FeedbackInteractionContext,
 ): FeedbackResolution {
-  const policy = FEEDBACK_POLICY_REGISTRY[eventId];
-  if (!policy) return withDebug(eventId, { channels: [], suppressedBy: "policy" });
-  const admitted = reserveHaptic(eventId, context.interactionId, context.origin);
   void payload;
-  return withDebug(eventId, { channels: admitted ? ["haptic"] : [], suppressedBy: admitted ? undefined : "settings" });
+  return withDebug(eventId, reserveHaptic(eventId, context.interactionId, context.origin, payload));
 }
 
 function payloadDedupeKey(payload: FeedbackEventPayloads[FeedbackEventId]): string | undefined {
@@ -479,7 +494,7 @@ export async function emitFeedback<Event extends FeedbackEventId>(
   const eventKey = options?.dedupeKey ?? payloadDedupeKey(typedPayload) ?? eventId;
   const now = Date.now();
   const hapticInteractionId = options?.interactionId ?? options?.dedupeKey ?? payloadDedupeKey(typedPayload) ?? `${eventId}:${now}`;
-  const hapticAdmitted = reserveHaptic(eventId, hapticInteractionId, options?.origin ?? "system");
+  const hapticAdmitted = !options?.hapticHandledExternally && reserveHaptic(eventId, hapticInteractionId, options?.origin ?? "system", typedPayload).channels.includes("haptic");
   const lastDelivery = cooldowns.get(eventKey);
   if (lastDelivery !== undefined && policy.cooldownMs > 0 && now - lastDelivery < policy.cooldownMs) {
     return withDebug(eventId, { channels: [], suppressedBy: "cooldown" });
@@ -567,9 +582,6 @@ export async function emitFeedback<Event extends FeedbackEventId>(
 /** Test/support hook for clearing only in-memory cooldowns on a reload boundary. */
 export function resetFeedbackCooldowns(): void {
   cooldowns.clear();
-  hapticReservations.clear();
-  hapticEventCooldowns.clear();
-  hapticSubmissions.length = 0;
-  lastHapticSubmission = Number.NEGATIVE_INFINITY;
+  hapticAdmission.reset();
   activeSound = null;
 }

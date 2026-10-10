@@ -1,3 +1,4 @@
+import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 import { Fragment, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -826,6 +827,9 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
     const next = modifiers.checkbox
       ? selectDocumentsByCheckbox(current, orderedDocumentIds, doc.id, modifiers)
       : selectDocumentsByClick(current, orderedDocumentIds, doc.id, modifiers);
+    if (next.selectedIds.size !== selectedIds.size || [...next.selectedIds].some((id) => !selectedIds.has(id))) {
+      emitUserInteraction(selectedIds.size === 0 && next.selectedIds.size > 0 ? "queue.selection-mode-entered" : "queue.selection-changed");
+    }
     setSelectedIds(next.selectedIds);
     setSelectionAnchorId(next.anchorId);
     setSelectionToggledIds(next.toggledIds);
@@ -846,12 +850,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
       itemName: "document",
       itemCount: selectedIds.size,
       details: docTitles,
-      onConfirm: () => {
-        selectedIds.forEach((id) => {
-          updateDocument(id, { isArchived: true });
-        });
-        clearDocumentSelection();
-      },
+      onConfirm: () => applyToSelection(t("documentsView.archiveTitle"), (doc) => updateDocument(doc.id, { isArchived: true })),
     });
   };
 
@@ -871,6 +870,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
       onConfirm: async () => {
         const ids = Array.from(selectedIds);
         const result = await bulkDelete(ids);
+        emitUserInteraction(result.failed.length ? result.succeeded.length ? "feedback.warning" : "action.failed" : "action.committed");
         clearDocumentSelection();
         setActiveId(null);
         if (result.failed.length > 0) {
@@ -896,6 +896,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
       details: [doc.title || "Untitled"],
       onConfirm: async () => {
         await deleteDocument(doc.id);
+        emitUserInteraction("action.committed");
         if (activeId === doc.id) {
           setActiveId(null);
         }
@@ -987,6 +988,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
     failures: { id: string; reason: string }[],
   ) => {
     clearDocumentSelection();
+    if (succeeded.length + failures.length > 0) emitUserInteraction(failures.length ? succeeded.length ? "feedback.warning" : "action.failed" : "action.committed");
     if (failures.length === 0) {
       toast.success(action, t("documentsView.bulkSucceeded", { count: succeeded.length }));
       return;
@@ -1117,8 +1119,10 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
           result.failed.map((id, index) => ({ id, reason: result.errors[index] ?? id })),
         );
       } else if (result.failed.length > 0) {
+        emitUserInteraction(result.succeeded.length ? "feedback.warning" : "action.failed");
         toast.error(t("documentsView.suspend"), result.errors[0] ?? result.failed[0]);
       } else {
+        emitUserInteraction("action.committed");
         toast.success(
           t("documentsView.suspend"),
           t("documentsView.bulkSucceeded", { count: result.succeeded.length }),

@@ -67,4 +67,36 @@ describe("haptics drivers", () => {
     const performArgs = invoke.mock.calls[3]?.[1] as { request: { revision: number; ttlMs: number } };
     expect(performArgs.request).toMatchObject({ revision: 1, ttlMs: 90 });
   });
+
+  it("recovers after a failed configuration and advances an existing native revision on WebView reload", async () => {
+    const invoke = vi.fn(async (command: string, args?: Record<string, unknown>) => {
+      if (command.endsWith("get_capabilities")) return { ...bridgeFixture.capabilities, configurationRevision: 17 };
+      if (command.endsWith("configure")) return { driverSessionId: bridgeFixture.capabilities.driverSessionId, revision: (args!.config as { revision: number }).revision };
+      return bridgeFixture.submitted;
+    });
+    invoke.mockRejectedValueOnce(new Error("bridge not loaded"));
+    const driver = new NativeHapticsDriver("android-native", invoke as unknown as ConstructorParameters<typeof NativeHapticsDriver>[1]);
+    await expect(driver.configure(true, "strong")).rejects.toThrow("bridge not loaded");
+    expect(await driver.perform("completion", "unconfigured", 150)).toEqual({ status: "skipped", reason: "stale" });
+    expect(await driver.configure(true, "strong")).toBe(true);
+    expect(await driver.perform("completion", "fresh", 150)).toEqual(bridgeFixture.submitted);
+    expect(invoke).toHaveBeenLastCalledWith("plugin:plethora-haptics|perform", { request: expect.objectContaining({ revision: 18 }) });
+  });
+
+  it("releases a stuck native command without replaying it or poisoning subsequent configuration", async () => {
+    vi.useFakeTimers();
+    try {
+      const invoke = vi.fn(async (command: string) => {
+        if (command.endsWith("get_capabilities")) return bridgeFixture.capabilities;
+        return { driverSessionId: bridgeFixture.capabilities.driverSessionId, revision: 5 };
+      });
+      invoke.mockImplementationOnce(() => new Promise(() => undefined));
+      const driver = new NativeHapticsDriver("android-native", invoke as unknown as ConstructorParameters<typeof NativeHapticsDriver>[1]);
+      const failed = expect(driver.configure(true, "standard")).rejects.toThrow("timed out");
+      await vi.advanceTimersByTimeAsync(2_001);
+      await failed;
+      expect(await driver.configure(true, "standard")).toBe(true);
+      expect(invoke.mock.calls.filter(([command]) => command.endsWith("perform"))).toHaveLength(0);
+    } finally { vi.useRealTimers(); }
+  });
 });

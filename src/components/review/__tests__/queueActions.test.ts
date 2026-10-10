@@ -1,7 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 const emitFeedback = vi.hoisted(() => vi.fn().mockResolvedValue({ channels: ["toast"] }));
-vi.mock("../../../lib/feedback", () => ({ emitFeedback }));
+const emitUserInteraction = vi.hoisted(() => vi.fn());
+vi.mock("../../../lib/feedback", () => ({ emitFeedback, emitUserInteraction, createFeedbackInteractionId: () => "queue:operation" }));
 
 import type { QueueItem } from "../../../types/queue";
 import {
@@ -24,7 +25,7 @@ const item = (itemType: QueueItem["itemType"]): QueueItem => ({
 });
 
 describe("queue action hierarchy", () => {
-  it("routes action feedback through the orchestrator while preserving Undo", () => {
+  it("routes action feedback through the orchestrator while preserving Undo", async () => {
     const onUndo = vi.fn();
 
     emitQueueActionFeedback({
@@ -40,9 +41,23 @@ describe("queue action hierarchy", () => {
       "review.card-action",
       expect.objectContaining({ action: "suspend", succeeded: true, onUndo }),
       expect.objectContaining({
-        toast: { action: { label: "Undo", onClick: onUndo } },
+        toast: { action: { label: "Undo", onClick: expect.any(Function) } },
+        origin: "user",
+        interactionId: "queue:operation",
       }),
     );
+    const options = emitFeedback.mock.calls.at(-1)?.[2];
+    options.toast.action.onClick();
+    await vi.waitFor(() => expect(onUndo).toHaveBeenCalledOnce());
+    expect(emitUserInteraction).toHaveBeenCalledWith("action.committed");
+  });
+
+  it("contains thrown/rejected undo failures without claiming success", async () => {
+    emitUserInteraction.mockClear();
+    emitQueueActionFeedback({ action: "suspend", succeeded: true, title: "Suspended", onUndo: () => { throw new Error("failed"); } });
+    emitFeedback.mock.calls.at(-1)?.[2].toast.action.onClick();
+    await vi.waitFor(() => expect(emitUserInteraction).toHaveBeenCalledWith("action.failed"));
+    expect(emitUserInteraction).not.toHaveBeenCalledWith("action.committed");
   });
 
   it("maps learning items to study-now with reversible secondary actions", () => {
@@ -71,6 +86,7 @@ describe("queue action hierarchy", () => {
     ]);
     expect(getQueueItemSheetActions(item("learning-item"))).toEqual([
       "study-now",
+      "edit-card",
       "postpone",
       "suspend",
       "select",

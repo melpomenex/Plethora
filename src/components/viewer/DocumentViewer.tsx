@@ -1,3 +1,4 @@
+import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -567,6 +568,7 @@ export function DocumentViewer({
       return false;
     }
 
+    emitUserInteraction("action.committed");
     for (const tab of tabs) {
       if (tab.data?.documentId === documentId) updateTab(tab.id, { title });
     }
@@ -2189,6 +2191,7 @@ export function DocumentViewer({
         console.error("Auto-summarization failed:", err)
       );
 
+      emitUserInteraction("reader.annotation-saved");
       toast.success(t("viewer.extractCreated"));
       // Refresh extracts for minimap
       loadExtracts(options.documentId);
@@ -2208,6 +2211,7 @@ export function DocumentViewer({
         selection_context: selectionContext ?? undefined,
       });
       await generateLearningItemsFromExtract(extract.id);
+      emitUserInteraction("reader.annotation-saved");
       toast.success(t("viewer.clozeCreated"));
       loadExtracts(options.documentId);
     } catch (error) {
@@ -5741,6 +5745,7 @@ export function DocumentViewer({
         });
         setPdfViewMode("ocr-html");
 
+        emitUserInteraction("task.completed");
         toast.success("Converted to HTML", "Rendered OCR-derived HTML for this image-only PDF");
       }
     } catch (error) {
@@ -5792,6 +5797,7 @@ export function DocumentViewer({
     setIsReimporting(true);
     try {
       await useDocumentStore.getState().reimportCanonicalArticle(docId);
+      emitUserInteraction("task.completed");
       toast.success(t("viewer.reimportSuccess"));
     } catch (error) {
       // Offline/HTTP failures surface actionably; the stored document is
@@ -6146,6 +6152,7 @@ export function DocumentViewer({
             source_url: currentDocument.metadata?.source ?? currentDocument.filePath,
             tags: ["x", "twitter", "post"],
           });
+          emitUserInteraction("reader.annotation-saved");
           toast.success("Post Extracted", `Saved Post ${postIndex} to extracts`);
         } catch (err) {
           console.error("Failed to extract post:", err);
@@ -7033,7 +7040,7 @@ export function DocumentViewer({
               </button>
 
               <button
-                onClick={() => setViewMode(viewMode === "extracts" ? "document" : "extracts")}
+                onClick={() => { setViewMode(viewMode === "extracts" ? "document" : "extracts"); emitUserInteraction("reader.tool-selected"); }}
                 className={cn(
                   "p-2 rounded-md transition-colors flex-shrink-0",
                   viewMode === "extracts" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"
@@ -7397,7 +7404,7 @@ export function DocumentViewer({
           {/* View Mode Toggle */}
           <div className="flex flex-shrink-0 items-center bg-muted rounded-md p-1">
             <button
-              onClick={() => setViewMode("document")}
+              onClick={() => { if (viewMode !== "document") { setViewMode("document"); emitUserInteraction("reader.tool-selected"); } } }
               className={cn(
                 "p-2 rounded-md transition-colors",
                 viewMode === "document"
@@ -7409,7 +7416,7 @@ export function DocumentViewer({
               <TextT className="w-4 h-4" />
             </button>
             <button
-              onClick={() => setViewMode("extracts")}
+              onClick={() => { if (viewMode !== "extracts") { setViewMode("extracts"); emitUserInteraction("reader.tool-selected"); } } }
               className={cn(
                 "p-2 rounded-md transition-colors",
                 viewMode === "extracts"
@@ -7421,7 +7428,7 @@ export function DocumentViewer({
               <List className="w-4 h-4" />
             </button>
             <button
-              onClick={() => setViewMode("cards")}
+              onClick={() => { if (viewMode !== "cards") { setViewMode("cards"); emitUserInteraction("reader.tool-selected"); } } }
               className={cn(
                 "p-2 rounded-md transition-colors",
                 viewMode === "cards"
@@ -7438,7 +7445,7 @@ export function DocumentViewer({
           {viewMode === "document" && (
             <div className="flex items-center gap-1">
               <button
-                onClick={() => setIsExtractMode((prev) => !prev)}
+                onClick={() => { setIsExtractMode((prev) => !prev); emitUserInteraction("reader.tool-selected"); }}
                 className={cn(
                   "p-2 rounded-md transition-colors",
                   isExtractMode
@@ -7546,7 +7553,7 @@ export function DocumentViewer({
 
           {/* Extracts View Mode Toggle (desktop) */}
           <button
-            onClick={() => setViewMode(viewMode === "extracts" ? "document" : "extracts")}
+            onClick={() => { setViewMode(viewMode === "extracts" ? "document" : "extracts"); emitUserInteraction("reader.tool-selected"); }}
             className={cn(
               "flex-shrink-0 p-2 rounded-md transition-colors",
               viewMode === "extracts" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:bg-muted"
@@ -8877,6 +8884,7 @@ export function DocumentViewer({
                   answer: dictionaryResult.definitions[0] || dictionaryResult.synonyms.join(", "),
                   allow_duplicate: true,
                 });
+                emitUserInteraction("reader.annotation-saved");
                 toast.success(t("viewer.vocabularyCardCreated"));
                 setDictionaryResult(null);
               }}

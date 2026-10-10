@@ -7,6 +7,16 @@ import { resetContextualBackHandlersForTests } from "../../../lib/contextualBack
 import { resetOverlayStackForTests } from "../../../lib/overlayStack";
 import { SettingsPage } from "../SettingsPage";
 
+const semanticFeedback = vi.hoisted(() => vi.fn(() => ({ channels: ["haptic"] })));
+vi.mock("../../../lib/feedback/orchestrator", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  emitInteractionFeedback: semanticFeedback,
+}));
+vi.mock("../../../lib/feedback/haptics/service", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  getHapticsSnapshot: () => ({ configured: true, capabilities: { hardware: "available" } }),
+}));
+
 const presentation = vi.hoisted(() => ({ mobile: false }));
 
 // The discard guard moved off window.confirm(), which the desktop WebView
@@ -35,23 +45,6 @@ vi.mock("../../../lib/tauri", async (importOriginal) => ({
 
 const DummyTab = () => null;
 
-function configureAndroidHaptics() {
-  const originalUserAgent = Object.getOwnPropertyDescriptor(navigator, "userAgent");
-  const originalVibrate = Object.getOwnPropertyDescriptor(navigator, "vibrate");
-  const vibrate = vi.fn(() => true);
-  Object.defineProperty(navigator, "userAgent", { configurable: true, value: "Mozilla Android" });
-  Object.defineProperty(navigator, "vibrate", { configurable: true, value: vibrate });
-  return {
-    vibrate,
-    restore() {
-      if (originalUserAgent) Object.defineProperty(navigator, "userAgent", originalUserAgent);
-      else Reflect.deleteProperty(navigator, "userAgent");
-      if (originalVibrate) Object.defineProperty(navigator, "vibrate", originalVibrate);
-      else Reflect.deleteProperty(navigator, "vibrate");
-    },
-  };
-}
-
 function openSettingsWithPrevious() {
   const documentsId = useTabsStore.getState().addTab({
     title: "Documents",
@@ -72,6 +65,7 @@ function openSettingsWithPrevious() {
 
 describe("SettingsPage return navigation", () => {
   beforeEach(() => {
+    semanticFeedback.mockClear();
     presentation.mobile = false;
     localStorage.removeItem("plethora_settings_initial_tab");
     resetContextualBackHandlersForTests();
@@ -149,29 +143,25 @@ describe("SettingsPage return navigation", () => {
     expect(screen.getByRole("button", { name: "Back to settings menu" })).toBeInTheDocument();
   });
 
-  it("vibrates once after a dirty Back is confirmed and stays silent on cancel", async () => {
+  it("emits completed Back once after dirty confirmation and stays silent on cancel", async () => {
     presentation.mobile = true;
     openSettingsWithPrevious();
-    const haptics = configureAndroidHaptics();
     useSettingsStore.setState((state) => ({
-      settings: { ...state.settings, notifications: { ...state.settings.notifications, feedbackSoundsEnabled: true } },
+      settings: { ...state.settings, haptics: { ...state.settings.haptics, enabled: true } },
     }));
-    try {
-      modalMock.confirm.mockResolvedValue(false);
-      render(<SettingsPage />);
-      fireEvent.click(screen.getByRole("button", { name: "General" }));
-      fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "review" } });
-      act(() => { expect(requestApplicationBack()).toBe(true); });
-      await waitFor(() => expect(modalMock.confirm).toHaveBeenCalledOnce());
-      expect(haptics.vibrate).not.toHaveBeenCalled();
+    modalMock.confirm.mockResolvedValue(false);
+    render(<SettingsPage />);
+    fireEvent.click(screen.getByRole("button", { name: "General" }));
+    fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "review" } });
+    act(() => { expect(requestApplicationBack()).toBe(true); });
+    await waitFor(() => expect(modalMock.confirm).toHaveBeenCalledOnce());
+    expect(semanticFeedback).not.toHaveBeenCalled();
 
-      modalMock.confirm.mockResolvedValue(true);
-      act(() => { expect(requestApplicationBack()).toBe(true); });
-      await waitFor(() => expect(screen.getByRole("button", { name: "Back to settings menu" }).closest("div.flex-1")).toHaveClass("hidden"));
-      expect(haptics.vibrate).toHaveBeenCalledOnce();
-    } finally {
-      haptics.restore();
-    }
+    modalMock.confirm.mockResolvedValue(true);
+    act(() => { expect(requestApplicationBack()).toBe(true); });
+    await waitFor(() => expect(screen.getByRole("button", { name: "Back to settings menu" }).closest("div.flex-1")).toHaveClass("hidden"));
+    expect(semanticFeedback).toHaveBeenCalledOnce();
+    expect(semanticFeedback).toHaveBeenCalledWith("navigation.back-completed", {}, expect.objectContaining({ origin: "user" }));
   });
 
   it("performs exactly one guarded transition after unsaved back is confirmed", async () => {

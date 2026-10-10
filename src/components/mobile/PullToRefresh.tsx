@@ -5,6 +5,7 @@
  * with visual feedback and smooth animations
  */
 
+import { createFeedbackInteractionId, emitUserInteraction } from "../../lib/feedback/orchestrator";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { ArrowsClockwise, Check, WarningCircle } from "@phosphor-icons/react";
 
@@ -32,6 +33,9 @@ export function PullToRefresh({
   const [refreshSuccess, setRefreshSuccess] = useState(false);
   const [refreshError, setRefreshError] = useState(false);
 
+  const gestureId = useRef("");
+  const armed = useRef(false);
+  const distanceRef = useRef(0);
   const startY = useRef(0);
   const currentY = useRef(0);
   const isDragging = useRef(false);
@@ -48,6 +52,8 @@ export function PullToRefresh({
 
       if (scrollContainer.scrollTop <= 0) {
         isDragging.current = true;
+        gestureId.current = createFeedbackInteractionId();
+        armed.current = false;
         startY.current = touch.clientY;
         currentY.current = touch.clientY;
       }
@@ -55,7 +61,7 @@ export function PullToRefresh({
   }, [disabled, refreshing]);
 
   const handleTouchMove = useCallback((e: TouchEvent) => {
-    if (!isDragging.current || disabled) return;
+    if (!isDragging.current || disabled || e.touches.length !== 1) return;
 
     const y = e.touches[0].clientY;
     const deltaY = y - startY.current;
@@ -64,21 +70,27 @@ export function PullToRefresh({
     if (deltaY > 0) {
       // Calculate pull distance with resistance
       const distance = Math.min(deltaY * 0.5, pullMax);
+      distanceRef.current = distance;
       setPullDistance(distance);
+      if (distance >= threshold && !armed.current) {
+        armed.current = true;
+        emitUserInteraction("queue.refresh-armed", `${gestureId.current}:armed`);
+      }
     } else {
       // Reset when pulling up
+      distanceRef.current = 0;
       setPullDistance(0);
     }
 
     currentY.current = y;
-  }, [disabled, pullMax]);
+  }, [disabled, pullMax, threshold]);
 
   const handleTouchEnd = useCallback(() => {
     if (!isDragging.current) return;
 
     isDragging.current = false;
 
-    if (pullDistance >= threshold && !refreshing) {
+    if (distanceRef.current >= threshold && !refreshing) {
       performRefresh();
     } else {
       // Reset without refreshing
@@ -105,6 +117,7 @@ export function PullToRefresh({
         setRefreshSuccess(false);
       }, 500);
     } catch {
+      emitUserInteraction("action.failed", `${gestureId.current}:result`);
       setRefreshError(true);
       setTimeout(() => {
         setRefreshing(false);
@@ -114,6 +127,15 @@ export function PullToRefresh({
     }
   }, [onRefresh, threshold]);
 
+  const cancelPull = useCallback(() => {
+    isDragging.current = false;
+    armed.current = false;
+    distanceRef.current = 0;
+    setPullDistance(0);
+  }, []);
+
+  useEffect(() => { if (disabled) cancelPull(); }, [disabled, cancelPull]);
+
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
@@ -122,12 +144,14 @@ export function PullToRefresh({
     container.addEventListener("touchmove", handleTouchMove as any, { passive: true });
     container.addEventListener("touchend", handleTouchEnd as any, { passive: true });
 
+    container.addEventListener("touchcancel", cancelPull, { passive: true });
     return () => {
+      container.removeEventListener("touchcancel", cancelPull);
       container.removeEventListener("touchstart", handleTouchStart as any);
       container.removeEventListener("touchmove", handleTouchMove as any);
       container.removeEventListener("touchend", handleTouchEnd as any);
     };
-  }, [handleTouchStart, handleTouchMove, handleTouchEnd]);
+  }, [handleTouchStart, handleTouchMove, handleTouchEnd, cancelPull]);
 
   // Reset state when component unmounts
   useEffect(() => {

@@ -1,3 +1,4 @@
+import { emitUserInteraction } from "../../../lib/feedback/orchestrator";
 /**
  * DictionaryPeek — the shared compact dictionary card shown when a settled
  * selection resolves to a single lexical word (spec: dictionary-peek; change:
@@ -337,7 +338,7 @@ export function DictionaryPeek({
         content: text,
         selection_context: target.selectionContext as Record<string, unknown> | undefined,
       })
-        .then(() => onDismiss())
+        .then(() => { emitUserInteraction("reader.annotation-saved"); onDismiss(); })
         .catch(() => {
           /* extract failed — peek stays open for a retry */
         });
@@ -374,6 +375,7 @@ export function DictionaryPeek({
         },
       });
       const item = result.item;
+      emitUserInteraction("reader.annotation-saved");
       toast.success(t("viewer.dictionaryPeek.flashcardCreated"), undefined, {
         duration: 8000,
         action: {
@@ -384,6 +386,7 @@ export function DictionaryPeek({
         },
       });
     } catch (error) {
+      emitUserInteraction("action.failed");
       toast.error(
         t("viewer.dictionaryPeek.flashcardFailed"),
         error instanceof Error ? error.message : undefined,

@@ -44,6 +44,9 @@ export type {
 
 export {
   emitFeedback,
+  emitInteractionFeedback,
+  emitUserInteraction,
+  createFeedbackInteractionId,
   resetFeedbackCooldowns,
   setActiveReviewSession,
   setReviewSessionActive,

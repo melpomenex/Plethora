@@ -1,3 +1,4 @@
+import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { sanitizeHtml as _sanitizeHtml } from "../common/RichContentRenderer";
 import {
@@ -521,6 +522,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
     setIsAdding(true);
     try {
       const feed = await subscribeToPodcast(newFeedUrl);
+      emitUserInteraction("library.action-committed");
       // Only add the feed and close the dialog on success
       setFeeds((prev) => [...prev, feed]);
       setSelectedFeedId(feed.id);
@@ -554,6 +556,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
       onConfirm: async () => {
         try {
           await unsubscribeFromPodcast(feedId);
+      emitUserInteraction("library.action-committed");
           setFeeds((prev) => prev.filter((f) => f.id !== feedId));
           if (selectedFeedId === feedId) {
             setSelectedFeedId(null);
@@ -587,6 +590,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
   const handleTogglePlayed = async (episodeId: string, currentlyPlayed: boolean) => {
     try {
       await markEpisodePlayed(episodeId, !currentlyPlayed);
+      emitUserInteraction("library.action-committed");
       setEpisodes((prev) =>
         prev.map((ep) => (ep.id === episodeId ? { ...ep, played: !currentlyPlayed } : ep))
       );
@@ -834,6 +838,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
   const showEpisodeMenu = useCallback(
     (position: { x: number; y: number }, episode: PodcastEpisode, feed: PodcastFeed) => {
       setContextEpisode(episode);
+      emitUserInteraction("interaction.context-activated");
       episodeContextMenu.showMenu(
         position,
         [
@@ -853,6 +858,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                 icon: <Circle className="w-4 h-4" />,
                 onClick: async () => {
                   await markEpisodePlayed(episode.id, false);
+      emitUserInteraction("library.action-committed");
                   if (selectedFeedId === feed.id) await loadEpisodes(feed.id);
                   loadFeeds();
                 },
@@ -863,6 +869,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                 icon: <CheckCircle className="w-4 h-4" />,
                 onClick: async () => {
                   await markEpisodePlayed(episode.id, true);
+      emitUserInteraction("library.action-committed");
                   if (selectedFeedId === feed.id) await loadEpisodes(feed.id);
                   loadFeeds();
                 },
@@ -874,6 +881,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
             onClick: async () => {
               try {
                 await importPodcastEpisodeAsDocument(episode.id, useCollectionStore.getState().activeCollectionId);
+      emitUserInteraction("library.action-committed");
                 toast.success(t("podcastManager.insertedToQueue"));
               } catch (err) {
                 toast.error(t("podcastManager.insertToQueueFailed"), err instanceof Error ? err.message : String(err));
@@ -1068,8 +1076,10 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
     setDownloadingEpisodes((prev) => new Set(prev).add(episode.id));
     try {
       const path = await downloadEpisodeAudio(episode.id, episode.audioUrl, episode.audioType ?? undefined);
+      emitUserInteraction("action.committed");
       setDownloadedEpisodes((prev) => new Map(prev).set(episode.id, path));
     } catch (error) {
+      emitUserInteraction("action.failed");
       toast.error("Download failed", error instanceof Error ? error.message : "Unknown error");
     } finally {
       setDownloadingEpisodes((prev) => {
@@ -1083,6 +1093,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
   const handleDeleteDownload = async (episodeId: string) => {
     try {
       await deleteDownloadedEpisode(episodeId);
+      emitUserInteraction("library.action-committed");
       setDownloadedEpisodes((prev) => {
         const next = new Map(prev);
         next.delete(episodeId);

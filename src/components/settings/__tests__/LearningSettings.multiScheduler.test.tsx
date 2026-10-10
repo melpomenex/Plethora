@@ -5,6 +5,7 @@ import { LearningSettings } from "../LearningSettings";
 
 vi.mock("../../../lib/tauri", () => ({
   isTauri: () => false,
+  isNativeMobile: () => false,
   invoke: vi.fn(),
 }));
 

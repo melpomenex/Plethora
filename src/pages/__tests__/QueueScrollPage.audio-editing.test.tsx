@@ -223,6 +223,7 @@ vi.mock("../../components/common/ReaderTTSControls", () => ({
   ReaderTTSControls: () => null,
 }));
 vi.mock("../../components/common/Tabs/TabContent", () => ({
+  useTabId: () => "tab-1",
   usePaneId: () => "pane-1",
   useIsActiveTab: () => true,
 }));

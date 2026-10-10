@@ -24,7 +24,7 @@ import {
   playTrainLikeSound,
   playTrainDislikeSound,
 } from "../utils/soundService";
-import { emitFeedback } from "../lib/feedback/orchestrator";
+import { emitUserInteraction } from "../lib/feedback/orchestrator";
 import {
   setRssArticleFeedback,
   type RssFeedbackSummary,
@@ -98,7 +98,7 @@ export function useTrainFeedback(options: UseTrainFeedbackOptions = {}) {
       try {
         const created = await addClassifier(feedId, classifierType, value, sentiment, scope);
         lastCreatedId.current = created?.id ?? null;
-        void emitFeedback("library.training-committed", {});
+        if (created) emitUserInteraction("library.training-committed");
 
         // Semantic preference write — non-fatal: classifier training must
         // succeed even when embeddings/profile are unavailable.
@@ -129,6 +129,7 @@ export function useTrainFeedback(options: UseTrainFeedbackOptions = {}) {
                   const id = lastCreatedId.current;
                   if (!id) return;
                   void removeClassifier(id).then(() => {
+                    emitUserInteraction("action.committed");
                     if (params.articleFeedback) {
                       void setRssArticleFeedback(params.articleFeedback.articleId, null).catch(
                         () => undefined
@@ -145,6 +146,7 @@ export function useTrainFeedback(options: UseTrainFeedbackOptions = {}) {
         onSuccess?.();
         return true;
       } catch (err) {
+        emitUserInteraction("action.failed");
         toast.error(
           t("training.trainFailed"),
           err instanceof Error ? err.message : String(err)

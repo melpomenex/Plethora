@@ -1,3 +1,4 @@
+import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 import { useCallback, useRef, useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -546,6 +547,7 @@ export function CreateExtractDialog({
       };
 
       const created = await createExtract(input);
+      emitUserInteraction("reader.annotation-saved");
       toast.success(t("extracts.extractCreated"));
 
       if (action === "generate") {
@@ -561,6 +563,7 @@ export function CreateExtractDialog({
       }
       onClose();
     } catch (err) {
+      emitUserInteraction("action.failed");
       setError(err instanceof Error ? err.message : t("extracts.failedToCreate"));
     } finally {
       setIsSaving(false);
@@ -592,6 +595,7 @@ export function CreateExtractDialog({
       };
 
       const updated = await updateExtract(input);
+      emitUserInteraction("reader.annotation-saved");
 
       if (generateCards) {
         setIsGenerating(true);
@@ -601,6 +605,7 @@ export function CreateExtractDialog({
       onCreate?.(updated);
       onClose();
     } catch (err) {
+      emitUserInteraction("action.failed");
       setError(err instanceof Error ? err.message : t("extracts.failedToUpdate"));
     } finally {
       setIsSaving(false);

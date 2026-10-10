@@ -17,6 +17,7 @@ const { submitReviewMock, restoreLearningItemStateMock, previewReviewIntervalsMo
 }));
 
 vi.mock("../../lib/feedback/orchestrator", () => ({
+  createFeedbackInteractionId: (() => { let id = 0; return () => `test-interaction:${++id}`; })(),
   emitInteractionFeedback: emitInteractionFeedbackMock,
 }));
 

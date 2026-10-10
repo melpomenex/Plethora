@@ -5,6 +5,7 @@
  * and shows a success toast with an "Edit" action button.
  */
 
+import { createFeedbackInteractionId, emitUserInteraction } from "../lib/feedback/orchestrator";
 import { useCallback, useRef } from "react";
 import { createExtract, CreateExtractInput, Extract } from "../api/extracts";
 import { useToast } from "../components/common/Toast";
@@ -38,6 +39,7 @@ export function useToastExtract(options?: UseToastExtractOptions) {
       if (pendingRef.current.has(dedupeKey)) return null;
       pendingRef.current.add(dedupeKey);
 
+      const interactionId = createFeedbackInteractionId();
       const extractColor = color || lastHighlightColor;
 
       try {
@@ -51,6 +53,7 @@ export function useToastExtract(options?: UseToastExtractOptions) {
         };
 
         const extract = await createExtract(input);
+        emitUserInteraction("reader.annotation-saved", interactionId);
         setLastHighlightColor(extractColor);
         await loadExtracts(documentId);
 
@@ -65,6 +68,7 @@ export function useToastExtract(options?: UseToastExtractOptions) {
         );
 
         toast.success("Highlight saved", undefined, {
+          feedback: { interactionId, origin: "user", hapticHandled: true },
           action: {
             label: "Edit",
             onClick: () => options?.onEditExtract?.(extract),
@@ -73,6 +77,7 @@ export function useToastExtract(options?: UseToastExtractOptions) {
 
         return extract;
       } catch (error) {
+        emitUserInteraction("action.failed", interactionId);
         console.error("Failed to create extract:", error);
         toast.error("Failed to create highlight", error instanceof Error ? error.message : undefined);
         return null;
