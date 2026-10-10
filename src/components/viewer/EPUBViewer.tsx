@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, useCallback, type MouseEvent } from "react
 import type { EpubSelectionContext, SelectionContext } from "../../types/selection";
 import type { DocumentMetadata, Document } from "../../types/document";
 import ePub from "epubjs";
+import { ReaderNavigationOwner, observeReaderInput, announceReaderNavigation } from "../../lib/readerNavigation";
+import { alignEpubFragment, guardEpubDisplay, guardEpubResize, resolveEpubTocTarget, waitForEpubAnchorLayout } from "./epubNavigation";
 import { cn } from "../../utils";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -536,15 +538,11 @@ export function EPUBViewer({
   const selectionActiveRef = useRef(false);
   const lastEpubSelectionContextRef = useRef<EpubSelectionContext | null>(null);
   const initialDisplayCompleteRef = useRef(false);
-  // Tracks recent user interaction (touch/scroll/wheel). While active, the
-  // ResizeObserver must NOT trigger rendition.resize(): epub.js re-displays
-  // this.location.start.cfi on resize, which in continuous-scrolled mode snaps
-  // the view back to the start of the section the user navigated to (e.g. a
-  // TOC jump) instead of staying at their current scroll position. Mobile
-  // browsers fire viewport resizes constantly (address bar show/hide, keyboard),
-  // so without this guard every such resize yanks the reader back.
-  const interactingRef = useRef(false);
-  const interactingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const flushDeferredResizeRef = useRef<((cfi: string) => boolean) | null>(null);
+  const navigationOwnerRef = useRef(new ReaderNavigationOwner());
+  const interruptNavigation = useCallback(() => {
+    navigationOwnerRef.current.userScroll();
+  }, []);
   const activeSearchHighlightsRef = useRef<string[]>([]);
   const liveSearchHighlightsRef = useRef<string[]>([]);
   const liveSearchResultsRef = useRef<string[]>([]);
@@ -1059,100 +1057,25 @@ export function EPUBViewer({
     updateFontSize(16);
   }, [updateFontSize]);
 
-  // ResizeObserver to handle container resize (e.g., when assistant panel is resized)
-  useEffect(() => {
-    if (!rendition || !viewerRef.current) return;
-
-    let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
-    let animationFrameId: number | null = null;
-
-    const resizeObserver = new ResizeObserver(() => {
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
-
-      animationFrameId = requestAnimationFrame(() => {
-        if (!initialDisplayCompleteRef.current) {
-          return;
-        }
-        if (resizeTimeout) {
-          clearTimeout(resizeTimeout);
-        }
-        resizeTimeout = setTimeout(() => {
-          if (!rendition) return;
-          // Skip the resize while the user is actively scrolling/touching.
-          // A pending resize stays armed via the observer firing again once
-          // interaction ends (mobile address-bar resizes are continuous).
-          if (interactingRef.current) return;
-          try {
-            // Pass the live current location so epub.js re-displays where the
-            // reader actually is, not a stale this.location.start.cfi that
-            // would snap back to the last navigated section start.
-            const liveCfi = (rendition as any).currentLocation?.()?.start?.cfi;
-            rendition.resize(undefined, undefined, liveCfi);
-          } catch {
-            // Rendition may be destroyed during unmount while a resize is pending
-          }
-        }, 150);
-      });
-    });
-
-    resizeObserver.observe(viewerRef.current);
-
-    return () => {
-      if (resizeTimeout) {
-        clearTimeout(resizeTimeout);
-      }
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
-      resizeObserver.disconnect();
-    };
-  }, [rendition]);
-
-  // Mark the user as actively interacting so the ResizeObserver above defers
-  // rendition.resize() (which would snap the view back). Bumped by direct
-  // touch/pointer/wheel on the viewer and by every epub.js `relocated` (i.e.
-  // any scroll-driven location change). After a quiet period we re-arm a
-  // resize so the layout still corrects itself once scrolling stops.
+  // Resize only in response to actual geometry changes. Relocation is not a
+  // resize signal: a 600ms correction after every scroll redisplayed old CFIs.
   useEffect(() => {
     if (!rendition || !viewerRef.current) return;
     const el = viewerRef.current;
-
-    const markInteracting = () => {
-      interactingRef.current = true;
-      if (interactingTimerRef.current) clearTimeout(interactingTimerRef.current);
-      interactingTimerRef.current = setTimeout(() => {
-        interactingRef.current = false;
-        // Re-run a layout correction now that the user has stopped, using the
-        // live location so it never snaps to a stale section-start CFI.
-        try {
-          const liveCfi = (rendition as any).currentLocation?.()?.start?.cfi;
-          rendition.resize(undefined, undefined, liveCfi);
-        } catch {
-          /* rendition may be torn down */
-        }
-      }, 600);
-    };
-
-    el.addEventListener("touchstart", markInteracting, { passive: true });
-    el.addEventListener("touchmove", markInteracting, { passive: true });
-    el.addEventListener("pointerdown", markInteracting, { passive: true });
-    el.addEventListener("wheel", markInteracting, { passive: true });
-    // epub.js fires `relocated` on scroll in continuous mode — treat it as
-    // active interaction so a viewport resize mid-scroll can't preempt it.
-    rendition.on("relocated", markInteracting);
-
-    return () => {
-      el.removeEventListener("touchstart", markInteracting);
-      el.removeEventListener("touchmove", markInteracting);
-      el.removeEventListener("pointerdown", markInteracting);
-      el.removeEventListener("wheel", markInteracting);
-      rendition.off("relocated", markInteracting);
-      if (interactingTimerRef.current) clearTimeout(interactingTimerRef.current);
-      interactingRef.current = false;
-    };
-  }, [rendition]);
+    let frame = 0;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        if (!initialDisplayCompleteRef.current) return;
+        const liveCfi = (rendition as any).currentLocation?.()?.start?.cfi;
+        if (!liveCfi) return;
+        try { rendition.resize(undefined, undefined, liveCfi); } catch { /* unmounted */ }
+      });
+    });
+    observer.observe(el);
+    const stopInput = observeReaderInput(el, interruptNavigation);
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); stopInput(); };
+  }, [rendition, interruptNavigation]);
 
   useEffect(() => {
     if (!containerHasSize || (!fileUrl && !fileData)) return;
@@ -1350,8 +1273,22 @@ export function EPUBViewer({
             manager: preferPaginated ? "default" : "continuous",
           });
 
+          navigationOwnerRef.current = new ReaderNavigationOwner();
+          const owner = navigationOwnerRef.current;
+          initialDisplayCompleteRef.current = false;
           renditionInstance = rendition;
           renditionRef.current = rendition;
+          // renderTo returns before epub.js constructs its manager. Install
+          // the ownership guards after start, before queued attachment/display.
+          await (rendition as any).started;
+          if (!mounted) return true;
+          bridgeDetachersRef.current.add(guardEpubDisplay(rendition, owner));
+          const resizeGuard = guardEpubResize(rendition, owner, () => initialDisplayCompleteRef.current);
+          flushDeferredResizeRef.current = resizeGuard.flush;
+          bridgeDetachersRef.current.add(() => {
+            flushDeferredResizeRef.current = null;
+            resizeGuard.cleanup();
+          });
           setRendition(rendition);
 
           epubDiag("rendition created", { themeId: themeRef.current?.id });
@@ -1569,6 +1506,7 @@ export function EPUBViewer({
                 /* parent unreachable (standalone reader) — ignore */
               }
             };
+            bridgeDetachersRef.current.add(observeReaderInput(contents.document, interruptNavigation));
             contents.document.addEventListener("touchstart", (e: TouchEvent) => {
               if (e.touches.length !== 1) return;
               epubTouchStartX = e.touches[0].clientX;
@@ -1605,6 +1543,12 @@ export function EPUBViewer({
                 epubLongPressTriggered = false;
                 return;
               }
+              // Continuous mode owns native vertical scrolling. Never turn a
+              // chapter/page in response to the same scroll flick.
+              if (!preferPaginated) return;
+              const selection = contents.window.getSelection();
+              if (selection && !selection.isCollapsed) return;
+              if ((e.target as Element | null)?.closest("a, button, input, textarea, select")) return;
               if (e.changedTouches.length !== 1) return;
               const endX = e.changedTouches[0].clientX;
               const endY = e.changedTouches[0].clientY;
@@ -1807,31 +1751,34 @@ export function EPUBViewer({
           applyRenditionTheme(rendition);
 
           // Display the book at saved position or start
+          const initialTicket = owner.ticket;
           const savedPosition = await loadReadingPositionRef.current();
-          const startIdx = metadataRef.current?.chunkStartSpineIndex;
+          if (!mounted) return true;
+          if (owner.owns(initialTicket) && owner.canRestore) {
+            const startIdx = metadataRef.current?.chunkStartSpineIndex;
 
-          let displayTarget: any = null;
-          if (initialCfiRef.current) {
-            displayTarget = initialCfiRef.current;
-          } else if (savedPosition) {
-            displayTarget = savedPosition;
-          } else if (startIdx !== undefined) {
-            const spine = epubBook.spine;
-            if (spine) {
-              const item = spine.get(startIdx);
-              if (item) {
-                displayTarget = (item as any).cfi || item.href;
+            let displayTarget: any = null;
+            if (initialCfiRef.current) {
+              displayTarget = initialCfiRef.current;
+            } else if (savedPosition) {
+              displayTarget = savedPosition;
+            } else if (startIdx !== undefined) {
+              const spine = epubBook.spine;
+              if (spine) {
+                const item = spine.get(startIdx);
+                if (item) {
+                  displayTarget = (item as any).cfi || item.href;
+                }
               }
             }
-          }
 
-          if (displayTarget) {
-            lastDisplayedCfiRef.current = displayTarget;
-            await rendition.display(displayTarget);
-          } else {
-            await rendition.display();
+            if (displayTarget) {
+              lastDisplayedCfiRef.current = displayTarget;
+              await rendition.display(displayTarget);
+            } else {
+              await rendition.display();
+            }
           }
-
           if (onContextTextChangeRef.current || onSpeechSectionsChangeRef.current) {
             // Extract text from current chapter only (not entire book).
             // NOTE: in epub.js continuous-scrolled mode, `relocated` fires on
@@ -1922,17 +1869,10 @@ export function EPUBViewer({
             })();
           }
 
-          // Mark initial display as complete after a delay to allow content to render
-          // This prevents resize events from causing blank page issues
-          setTimeout(() => {
-            if (mounted) {
-              initialDisplayCompleteRef.current = true;
-              // Force a resize to ensure proper rendering after content is stable
-              if (rendition) {
-                try { rendition.resize(undefined, undefined); } catch { /* ignore */ }
-              }
-            }
-          }, 500);
+          // display() completes after the manager has loaded and laid out the
+          // section. No delayed resize is allowed to reclaim initial ownership.
+          initialDisplayCompleteRef.current = true;
+          owner.settle(initialTicket);
 
           if (!mounted) return true;
 
@@ -2167,7 +2107,7 @@ export function EPUBViewer({
   const lastDisplayedCfiRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (rendition && initialCfi && initialCfi !== lastDisplayedCfiRef.current) {
+    if (rendition && initialCfi && navigationOwnerRef.current.canRestore && initialCfi !== lastDisplayedCfiRef.current) {
       lastDisplayedCfiRef.current = initialCfi;
       rendition.display(initialCfi);
     }
@@ -2346,6 +2286,7 @@ export function EPUBViewer({
     if (!highlightQuery || !highlightQuery.trim()) return;
     if (!rendition || !book) return;
 
+    const navigationTicket = navigationOwnerRef.current.ticket;
     try {
       for (const cfi of activeSearchHighlightsRef.current) {
         rendition.annotations?.remove?.(cfi, "highlight");
@@ -2407,7 +2348,7 @@ export function EPUBViewer({
             : 0;
       const targetCfi = cfis[targetIndex] ?? cfis[0];
 
-      if (!initialCfi && targetCfi) {
+      if (!initialCfi && targetCfi && navigationOwnerRef.current.owns(navigationTicket)) {
         try {
           await rendition.display(targetCfi);
         } catch {
@@ -2857,100 +2798,32 @@ export function EPUBViewer({
   }, [rendition, onSyncWordClick]);
 
   const handleTocClick = async (href: string) => {
-    if (!rendition || !book) {
-      console.warn("EPUBViewer: Cannot navigate - rendition or book not ready");
-      return;
-    }
-
+    if (!rendition || !book) return;
+    const owner = navigationOwnerRef.current;
+    const ticket = owner.beginToc();
+    announceReaderNavigation((rendition as any).manager?.container ?? viewerRef.current);
     try {
-      const normalizeHref = (value: string) =>
-        value.replace(/^\.?\//, "").split("#")[0];
-      const [rawPath, rawFragment] = href.split("#");
-      const normalizedPath = normalizeHref(rawPath);
-
-      const spine = await book.loaded.spine;
-
-      // Try to find the spine item by href
-      let spineItem = spine.get(normalizedPath);
-
-      // If not found directly, try to find by searching the spine
-      if (!spineItem) {
-        // Search through spine items for a match
-        for (const item of spine.items) {
-          const itemHref = normalizeHref(item.href || "");
-          if (itemHref === normalizedPath || itemHref?.endsWith?.(normalizedPath)) {
-            spineItem = item;
-            break;
-          }
-        }
+      const target = await resolveEpubTocTarget(book, href);
+      if (!owner.owns(ticket)) return;
+      await rendition.display(target);
+      if (!owner.owns(ticket)) return;
+      await waitForEpubAnchorLayout(rendition, href, owner.signal);
+      if (!owner.owns(ticket)) return;
+      if (flushDeferredResizeRef.current?.(target)) {
+        await rendition.display(target);
+        if (!owner.owns(ticket)) return;
+        await waitForEpubAnchorLayout(rendition, href, owner.signal);
+        if (!owner.owns(ticket)) return;
       }
-
-      // If we found the spine item, navigate to it
-      if (spineItem) {
-        const targetHref = rawFragment ? `${spineItem.href}#${rawFragment}` : spineItem.href;
-
-        // Method 1: Use rendition.display with the full href (preserves anchor fragments)
-        try {
-          await rendition.display(targetHref);
-          return;
-        } catch (e) {
-          console.error("EPUBViewer: rendition.display failed:", e);
-        }
-
-        // Method 2: Use spine.goto with index (ignores fragments, but works as fallback)
-        try {
-          if (typeof spineItem.index === 'number') {
-            await spine.goto(spineItem.index);
-            return;
-          }
-        } catch (e) {
-          console.error("EPUBViewer: spine.goto with index failed:", e);
-        }
-
-        // Method 3: Try navigating to the URL directly
-        try {
-          await rendition.display(spineItem.url || targetHref);
-          return;
-        } catch (e) {
-          console.error("EPUBViewer: URL navigation failed:", e);
-        }
-
-        console.warn("EPUBViewer: All navigation methods failed for href:", href);
-        return;
+      if (!alignEpubFragment(rendition, href)) {
+        throw new Error(`EPUB destination was not mounted: ${href}`);
       }
-
-      // Fallback: Try to navigate to the href directly
-      try {
-        await rendition.display(rawFragment ? `${normalizedPath}#${rawFragment}` : normalizedPath);
-        return;
-      } catch (e) {
-        console.error("EPUBViewer: Direct href navigation failed:", e);
-      }
-
-      // Try searching through TOC to find a matching item
-      const searchToc = (items: any[]): any => {
-        for (const item of items) {
-          if (item.href === href || item.href?.endsWith?.(href)) {
-            return item;
-          }
-          if (item.subitems) {
-            const found = searchToc(item.subitems);
-            if (found) return found;
-          }
-        }
-        return null;
-      };
-
-      const tocItem = searchToc(toc);
-      if (tocItem) {
-        const tocPath = normalizeHref(tocItem.href || "");
-        await rendition.display(tocPath || tocItem.href);
-        return;
-      }
-
-      console.warn("EPUBViewer: Could not resolve TOC href:", href);
+      if (owner.settle(ticket)) onNavigationSettledRef.current?.();
     } catch (error) {
-      console.error("EPUBViewer: Error navigating to TOC item:", error);
+      if (owner.owns(ticket)) {
+        owner.settle(ticket);
+        console.error("EPUBViewer: Error navigating to TOC item:", error);
+      }
     }
   };
 

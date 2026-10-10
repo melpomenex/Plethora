@@ -861,20 +861,16 @@ export function DocumentViewer({
   }, [docType, pdfViewMode, pdfTextLayerRoots, pdfScrollContainer]);
   const [isOcrConverting, setIsOcrConverting] = useState(false);
   const [restoreRequestId, setRestoreRequestId] = useState(0);
+  const [pdfNavigationRequest, setPdfNavigationRequest] = useState<{ id: number; pageNumber: number } | null>(null);
   const [restoreState, setRestoreState] = useState<ViewState | null>(null);
   // Start with auto-scroll suppressed until restoration completes (or we confirm there's no saved position)
   const [suppressPdfAutoScroll, setSuppressPdfAutoScroll] = useState(true);
-  const restoreScrollAttemptsRef = useRef(0);
-  const restoreScrollTimeoutRef = useRef<number | null>(null);
   const restoreScrollDoneRef = useRef(false);
   const restorationInProgressRef = useRef(false);
   const scrollSaveTimeoutRef = useRef<number | null>(null);
   const htmlScrollTimeoutRef = useRef<number | null>(null);
   const htmlRestorationPendingRef = useRef<ViewState | null>(null);
   const htmlResumeReloadAtRef = useRef(0);
-  const restoreRequestIdRef = useRef(0);
-  const restoreAttemptRef = useRef(0);
-  const restoreReadyAttemptsRef = useRef(0);
   const pendingViewStateRef = useRef<ViewState | null>(null);
   const lastViewStateRef = useRef<ViewState | null>(null);
   const pdfFingerprintRef = useRef<string | null>(null);
@@ -2031,33 +2027,21 @@ export function DocumentViewer({
   );
 
   const handleUserScrollDuringRestore = useCallback(() => {
-    if (!restorationInProgressRef.current && !suppressPdfAutoScroll) return;
-
     restoreScrollDoneRef.current = true;
     restorationInProgressRef.current = false;
     pendingViewStateRef.current = null;
     setRestoreState(null);
     setSuppressPdfAutoScroll(false);
 
-    if (restoreScrollTimeoutRef.current !== null) {
-      clearTimeout(restoreScrollTimeoutRef.current);
-      restoreScrollTimeoutRef.current = null;
-    }
   }, [setRestoreState, setSuppressPdfAutoScroll, suppressPdfAutoScroll]);
 
-  const cancelPdfRestoreAttempt = useCallback((reason: string) => {
-    if (!restorationInProgressRef.current && !suppressPdfAutoScroll && !restoreState) return;
-
+  const cancelPdfRestoreAttempt = useCallback((_reason: string) => {
     restoreScrollDoneRef.current = true;
     restorationInProgressRef.current = false;
     pendingViewStateRef.current = null;
     setRestoreState(null);
     setSuppressPdfAutoScroll(false);
 
-    if (restoreScrollTimeoutRef.current !== null) {
-      clearTimeout(restoreScrollTimeoutRef.current);
-      restoreScrollTimeoutRef.current = null;
-    }
   }, [restoreState, suppressPdfAutoScroll]);
 
   const captureHtmlScrollState = useCallback(() => {
@@ -3506,89 +3490,9 @@ export function DocumentViewer({
         isVisibleRef.current = true;
         reloadHtmlIframeAfterResume();
         
-        // For PDFs, we need to restore the scroll position
-        // because the PDFViewer might have reset to page 1
-        if (docType === "pdf" && currentDocument?.id) {
-          // Reset restoration state so the restoration effect will run
-          restoreScrollDoneRef.current = false;
-          restorationInProgressRef.current = true;
-          setSuppressPdfAutoScroll(true);
-          
-          // Use in-memory state first (most recent), fallback to localStorage
-          // This is needed because setViewState is debounced and localStorage might have stale data
-          let viewStateToRestore: ViewState | null = lastViewStateRef.current;
-          
-          // If no in-memory state, try localStorage
-          if (!viewStateToRestore) {
-            const keys = resolveViewStateKeyCandidates(currentDocument.id);
-            let best: ViewState | null = null;
-            for (const key of keys) {
-              const candidate = getViewState(key);
-              if (!candidate) continue;
-              if (!best || candidate.updatedAt > best.updatedAt) best = candidate;
-            }
-            viewStateToRestore = best;
-          }
-          
-          // If still no state, try the legacy storage keys
-          if (!viewStateToRestore) {
-            const scrollStorageKey = `document-scroll-position:${currentDocument.id}`;
-            const stored = localStorage.getItem(scrollStorageKey);
-            const legacyStored = localStorage.getItem(`pdf-position-${currentDocument.id}`);
-            
-            let legacyParsed: { pageNumber?: number; scrollPercent?: number; scrollTop?: number; updatedAt?: number } | null = null;
-            if (stored) {
-              try {
-                legacyParsed = JSON.parse(stored);
-              } catch { /* ignore */ }
-            }
-            if (!legacyParsed && legacyStored) {
-              try {
-                const legacyState = JSON.parse(legacyStored);
-                legacyParsed = {
-                  pageNumber: legacyState.page ?? legacyState.pageNumber ?? 1,
-                  scrollTop: legacyState.scrollTop,
-                  scrollPercent: legacyState.percent ?? legacyState.scrollPercent,
-                  updatedAt: legacyState.updatedAt
-                };
-              } catch { /* ignore */ }
-            }
-            
-            if (legacyParsed) {
-              viewStateToRestore = {
-                docId: currentDocument.id,
-                pageNumber: legacyParsed.pageNumber ?? 1,
-                scale: scaleRef.current,
-                zoomMode: zoomModeRef.current,
-                rotation: 0,
-                viewMode: viewModeRef.current,
-                dest: null,
-                scrollTop: legacyParsed.scrollTop ?? null,
-                scrollLeft: null,
-                scrollPercent: legacyParsed.scrollPercent ?? null,
-                updatedAt: legacyParsed.updatedAt ?? Date.now(),
-                version: 1,
-              };
-            }
-          }
-          
-          if (viewStateToRestore) {
-            pendingViewStateRef.current = viewStateToRestore;
-            lastViewStateRef.current = viewStateToRestore;
-            currentPageRef.current = viewStateToRestore.pageNumber;
-            setRestoreState(viewStateToRestore);
-            
-            if (viewStateToRestore.zoomMode) {
-              setZoomMode(viewStateToRestore.zoomMode);
-            }
-            if (typeof viewStateToRestore.scale === "number") {
-              setScale(viewStateToRestore.scale);
-            }
-            if (typeof viewStateToRestore.pageNumber === "number" && viewStateToRestore.pageNumber > 0) {
-              setPageNumber(viewStateToRestore.pageNumber);
-            }
-          }
-        }
+        // A mounted reader retains its viewport while hidden. Reopening a
+        // destroyed reader runs the normal initial restoration path instead.
+
       }
     };
 
@@ -3637,6 +3541,22 @@ export function DocumentViewer({
     };
   }, [documentId, docType, currentDocument?.id, saveScrollProgress, resolvePreferredViewStateKey, resolveViewStateKeyCandidates, persistScrollState, reloadHtmlIframeAfterResume, recoverHtmlIframeAfterTabReactivation]);
 
+  // Restore scroll position for this document
+  useEffect(() => {
+    // Only reset restoration state when document ID changes, not on viewMode change
+    // to avoid race conditions with pending restoration
+    restorationInProgressRef.current = false;
+    restoreScrollDoneRef.current = false;
+    setPdfNavigationRequest(null);
+    setRestoreRequestId(0);
+    setPagesRendered(false);
+    pendingViewStateRef.current = null;
+    lastViewStateRef.current = null;
+    lastScrollStateRef.current = null;
+    setRestoreState(null);
+  }, [currentDocument?.id]);
+
+
   // Parse URL fragment and restore state after document is loaded
   useEffect(() => {
     if (!currentDocument || !documentId || !enablePdfUrlSync) return;
@@ -3669,22 +3589,14 @@ export function DocumentViewer({
       }
     }
 
-    // Restore scroll position from fragment
     if (state.scroll !== undefined) {
-      // Scroll to percentage position
-      setTimeout(() => {
-        const scrollableElement = document.querySelector('[data-document-scroll-container]');
-        if (scrollableElement) {
-          const scrollHeight = scrollableElement.scrollHeight - scrollableElement.clientHeight;
-          const targetScroll = (state.scroll / 100) * scrollHeight;
-          scrollableElement.scrollTop = targetScroll;
-        } else {
-          // Fallback to window scroll
-          const scrollHeight = document.documentElement.scrollHeight - window.innerHeight;
-          const targetScroll = (state.scroll / 100) * scrollHeight;
-          window.scrollTo(0, targetScroll);
-        }
-      }, 100);
+      setRestoreState({
+        docId: currentDocument.id, pageNumber: state.pos ?? currentDocument.currentPage ?? 1,
+        scale: scaleRef.current, zoomMode: zoomModeRef.current, rotation: 0,
+        viewMode: "document", dest: null, scrollPercent: state.scroll,
+        updatedAt: Date.now(), version: 1,
+      });
+      setSuppressPdfAutoScroll(true);
     }
 
     // TODO: Restore highlights and extracts from fragment IDs
@@ -3694,34 +3606,8 @@ export function DocumentViewer({
     }
   }, [currentDocument, documentId]);
 
-  // Restore scroll position for this document
   useEffect(() => {
-    // Only reset restoration state when document ID changes, not on viewMode change
-    // to avoid race conditions with pending restoration
-    if (restorationInProgressRef.current) {
-      return;
-    }
-    restoreScrollDoneRef.current = false;
-    restoreScrollAttemptsRef.current = 0;
-    restoreAttemptRef.current = 0;
-    restoreRequestIdRef.current = 0;
-    setRestoreRequestId(0);
-    setPagesRendered(false);
-    pendingViewStateRef.current = null;
-    lastViewStateRef.current = null;
-    lastScrollStateRef.current = null;
-    setRestoreState(null);
-    if (restoreScrollTimeoutRef.current !== null) {
-      clearTimeout(restoreScrollTimeoutRef.current);
-      restoreScrollTimeoutRef.current = null;
-    }
-  }, [currentDocument?.id]);
-
-  useEffect(() => {
-    if (viewMode !== "document") {
-      restoreScrollDoneRef.current = false;
-      return;
-    }
+    if (viewMode !== "document") return;
     if (docType !== "pdf" && docType !== "html") return;
     if (isLoading) return;
     if (!currentDocument?.id) return;
@@ -3926,105 +3812,16 @@ export function DocumentViewer({
     // Note: restorationInProgressRef will be cleared by the verification effect after restoration completes
   }, [currentDocument, docType, initialJump, isLoading, resolvePreferredViewStateKey, resolveViewStateKeyCandidates, scrollStorageKey, viewMode]);
 
-  useEffect(() => {
-    if (viewMode !== "document") return;
-    if (docType !== "pdf") return;
-    if (isLoading) return;
-    if (restoreScrollDoneRef.current) return;
-
-    const state = restoreState ?? pendingViewStateRef.current;
-    if (!state) {
-      setSuppressPdfAutoScroll(false);
-      restoreScrollDoneRef.current = true;
-      restorationInProgressRef.current = false;
-      return;
-    }
-
-    restoreRequestIdRef.current += 1;
-    setRestoreRequestId(restoreRequestIdRef.current);
-    restoreAttemptRef.current = 0;
-    restoreReadyAttemptsRef.current = 0;
-
-    const maxReadyAttempts = 100;
-    const maxVerifyAttempts = 3;
-
-    const getRestoreContainer = () =>
-      document.querySelector("[data-document-scroll-container]") as HTMLElement | null;
-
-    const getRestoreReadiness = () => {
-      const container = getRestoreContainer();
-      if (!container) return { ready: false, container: null };
-      const pageEl = container.querySelector<HTMLElement>(
-        `[data-pdf-page][data-page-number="${state.pageNumber}"]`
-      );
-      if (!pageEl) return { ready: false, container };
-      const hasLayout = pageEl.offsetHeight > 0 || container.scrollHeight > 0;
-      return { ready: hasLayout, container };
-    };
-
-    const verifyRestore = (container: HTMLElement) => {
-
-      const pages = Array.from(container.querySelectorAll<HTMLElement>("[data-pdf-page]"));
-      let currentPage = 1;
-      for (const pageEl of pages) {
-        const pageNum = Number(pageEl.dataset.pageNumber);
-        if (!Number.isNaN(pageNum) && pageEl.offsetTop - 24 <= container.scrollTop) {
-          currentPage = pageNum;
-        }
-      }
-
-      const withinPage = Math.abs(currentPage - state.pageNumber) <= 1;
-      if (!withinPage) return false;
-
-      const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
-      const expectedScroll = typeof state.scrollTop === "number"
-        ? Math.min(Math.max(0, state.scrollTop), maxScroll)
-        : typeof state.scrollPercent === "number"
-          ? (state.scrollPercent / 100) * maxScroll
-          : null;
-      if (expectedScroll !== null) {
-        return Math.abs(container.scrollTop - expectedScroll) <= 200;
-      }
-      return true;
-    };
-
-    const attemptVerify = () => {
-      const readiness = getRestoreReadiness();
-      if (!readiness.container || !readiness.ready) {
-        restoreReadyAttemptsRef.current += 1;
-        if (restoreReadyAttemptsRef.current <= maxReadyAttempts) {
-          restoreScrollTimeoutRef.current = window.setTimeout(attemptVerify, 200);
-          return;
-        }
-      }
-
-      const container = readiness.container ?? getRestoreContainer();
-      const ok = container ? verifyRestore(container) : false;
-      if (ok) {
-        if (state.pageNumber !== pageNumber) {
-          setPageNumber(state.pageNumber);
-        }
-        restoreScrollDoneRef.current = true;
-        restorationInProgressRef.current = false;
-        setTimeout(() => setSuppressPdfAutoScroll(false), 500);
-        return;
-      }
-
-      if (restoreAttemptRef.current < maxVerifyAttempts - 1) {
-        restoreAttemptRef.current += 1;
-        restoreRequestIdRef.current += 1;
-        setRestoreRequestId(restoreRequestIdRef.current);
-        restoreScrollTimeoutRef.current = window.setTimeout(attemptVerify, 200);
-        return;
-      }
-
-      restoreScrollDoneRef.current = true;
-      restorationInProgressRef.current = false;
-      setSuppressPdfAutoScroll(false);
-    };
-
-    restoreScrollTimeoutRef.current = window.setTimeout(attemptVerify, 200);
-  }, [docType, isLoading, pageNumber, restoreState, viewMode]);
+  // The child owns readiness, destination geometry and arrival verification.
+  // Parent retry loops formerly reissued saved positions after a TOC selection
+  // (especially a same-page selection), competing with the reader itself.
+  const handleInitialRestoreComplete = useCallback(() => {
+    restoreScrollDoneRef.current = true;
+    restorationInProgressRef.current = false;
+    pendingViewStateRef.current = null;
+    setRestoreState(null);
+    setSuppressPdfAutoScroll(false);
+  }, []);
 
   // NOTE: a previous effect unconditionally called loadQueue() on every
   // DocumentViewer mount. In Scroll Mode, a new DocumentViewer mounts on every
@@ -4037,9 +3834,6 @@ export function DocumentViewer({
 
   useEffect(() => {
     return () => {
-      if (restoreScrollTimeoutRef.current !== null) {
-        clearTimeout(restoreScrollTimeoutRef.current);
-      }
       if (scrollSaveTimeoutRef.current !== null) {
         clearTimeout(scrollSaveTimeoutRef.current);
         scrollSaveTimeoutRef.current = null;
@@ -4687,6 +4481,10 @@ export function DocumentViewer({
       ) {
         cancelPdfRestoreAttempt("manual-prev-page");
       }
+      if (docType === "pdf") {
+        cancelPdfRestoreAttempt("manual-page-navigation");
+        setPdfNavigationRequest((previous) => ({ id: (previous?.id ?? 0) + 1, pageNumber: newPage }));
+      }
       setPageNumber(newPage);
       // Push to history for back/forward navigation
       if (docType === "pdf") {
@@ -4705,6 +4503,10 @@ export function DocumentViewer({
         restoreState.pageNumber !== newPage
       ) {
         cancelPdfRestoreAttempt("manual-next-page");
+      }
+      if (docType === "pdf") {
+        cancelPdfRestoreAttempt("manual-page-navigation");
+        setPdfNavigationRequest((previous) => ({ id: (previous?.id ?? 0) + 1, pageNumber: newPage }));
       }
       setPageNumber(newPage);
       // Push to history for back/forward navigation
@@ -8001,6 +7803,10 @@ export function DocumentViewer({
             onPdfInfo={handlePdfInfo}
             onPagesRendered={() => setPagesRendered(true)}
             onScrollPositionChange={handleScrollPositionChange}
+            navigationRequest={pdfNavigationRequest}
+            parentOwnsRestoration
+            onNavigationStart={() => cancelPdfRestoreAttempt("explicit-reader-navigation")}
+            onInitialRestoreComplete={handleInitialRestoreComplete}
             onUserScrollDuringRestore={handleUserScrollDuringRestore}
             restoreState={restoreState}
             restoreRequestId={restoreRequestId}

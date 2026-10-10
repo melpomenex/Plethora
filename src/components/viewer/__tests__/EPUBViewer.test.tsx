@@ -13,7 +13,7 @@ afterEach(() => {
 // Mutable shell flag: the real useMobileShell() returns a boolean — the mock
 // must too, so tests can run explicit mobile/desktop cases instead of a
 // truthy-object pseudo-mobile branch.
-const mobileState = vi.hoisted(() => ({ isMobile: false }));
+const mobileState = vi.hoisted(() => ({ isMobile: false, paginated: false }));
 
 // Mutable list backing rendition.getContents() (production exposes it on the
 // rendition itself, not under themes).
@@ -22,6 +22,8 @@ const contentState = vi.hoisted(() => ({ docs: [] as any[] }));
 // Mock epubjs
 const mockRendition = {
   display: vi.fn().mockResolvedValue(undefined),
+  next: vi.fn(),
+  prev: vi.fn(),
   resize: vi.fn(),
   destroy: vi.fn(),
   on: vi.fn(),
@@ -64,6 +66,13 @@ const mockBook = {
 
 vi.mock("epubjs", () => ({
   default: vi.fn(() => mockBook),
+}));
+
+vi.mock("../../../lib/displayMode", async (original) => ({
+  ...await original<any>(),
+  loadSavedDisplayMode: () => "eink",
+  resolveEffectiveEinkMode: () => mobileState.paginated,
+  loadSavedEinkSettings: () => ({ preferPaginated: true }),
 }));
 
 // Mock stores
@@ -170,6 +179,10 @@ describe("EPUBViewer", () => {
     vi.clearAllMocks();
     mockBook.ready = Promise.resolve();
     mobileState.isMobile = false;
+    mobileState.paginated = false;
+    (mockRendition as any).manager = undefined;
+    mockBook.loaded.navigation = Promise.resolve({ toc: [] });
+    delete (mockBook.loaded as any).spine;
     contentState.docs = [];
     (mockBook.spine as any).spineItems = [];
     HTMLDivElement.prototype.getBoundingClientRect = vi.fn().mockReturnValue({
@@ -180,6 +193,60 @@ describe("EPUBViewer", () => {
       bottom: 100,
       right: 100,
     });
+  });
+
+  it("installs navigation guards after the asynchronous EPUB manager startup", async () => {
+    let start!: () => void;
+    const runtime = mockRendition as any;
+    const originalDisplay = runtime.display;
+    runtime.started = new Promise<void>((resolve) => { start = resolve; });
+    const reader = render(<EPUBViewer documentId="doc-epub" fileUrl="mock.epub" fileName="fixture.epub" />);
+    try {
+      await waitFor(() => expect(mockBook.renderTo).toHaveBeenCalled());
+      expect(runtime.display).toBe(originalDisplay);
+      let chain = Promise.resolve();
+      runtime.q = { enqueue: (fn: () => Promise<void>) => { chain = chain.then(fn); return chain; } };
+      runtime.manager = { resize: vi.fn(), scrollTo: vi.fn() };
+      runtime._display = vi.fn(async () => {});
+      await act(async () => start());
+      await waitFor(() => expect(runtime._display).toHaveBeenCalled());
+      expect(runtime.display).not.toBe(originalDisplay);
+    } finally {
+      reader.unmount();
+      for (const key of ["started", "manager", "q", "_display"]) delete runtime[key];
+      runtime.display = originalDisplay;
+    }
+  });
+
+  it.each([false, true])("iframe vertical touch preserves continuous scrolling and genuine paginated navigation (paginated=%s)", async (paginated) => {
+    mobileState.isMobile = true;
+    mobileState.paginated = paginated;
+    const reader = render(<EPUBViewer documentId="doc-epub" fileUrl="mock.epub" fileName="fixture.epub" />);
+    await waitFor(() => expect(mockRendition.hooks.content.register).toHaveBeenCalled());
+    const frame = document.createElement("iframe");
+    document.body.appendChild(frame);
+    const contents = { document: frame.contentDocument!, window: frame.contentWindow!, section: { index: 0, href: "chapter.xhtml" } };
+    const hook = mockRendition.hooks.content.register.mock.calls.at(-1)![0];
+    act(() => hook(contents));
+    const touch = (type: string, x: number, y: number) => {
+      const event = new Event(type, { bubbles: true });
+      Object.defineProperties(event, { touches: { value: [{ clientX: x, clientY: y }] }, changedTouches: { value: [{ clientX: x, clientY: y }] } });
+      act(() => contents.document.body.dispatchEvent(event));
+    };
+    touch("touchstart", 50, 300);
+    touch("touchmove", 50, 170);
+    touch("touchend", 50, 100);
+    expect(mockRendition.next).toHaveBeenCalledTimes(paginated ? 1 : 0);
+    touch("touchstart", 50, 100);
+    touch("touchmove", 50, 230);
+    touch("touchend", 50, 300);
+    expect(mockRendition.prev).toHaveBeenCalledTimes(paginated ? 1 : 0);
+    mockRendition.next.mockClear(); mockRendition.prev.mockClear();
+    touch("touchstart", 50, 100);
+    touch("touchend", 300, 110);
+    expect(mockRendition.next).not.toHaveBeenCalled();
+    expect(mockRendition.prev).not.toHaveBeenCalled();
+    reader.unmount(); frame.remove();
   });
 
   it("keeps one set of top chrome controls when embedded", () => {

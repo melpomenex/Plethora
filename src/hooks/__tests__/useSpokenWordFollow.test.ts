@@ -7,6 +7,7 @@
 
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
+import { announceReaderNavigation } from "../../lib/readerNavigation";
 import { useSpokenWordFollow } from "../useSpokenWordFollow";
 import type { UseSpokenWordFollowOptions } from "../useSpokenWordFollow";
 
@@ -50,6 +51,18 @@ describe("useSpokenWordFollow", () => {
     vi.useRealTimers();
     container.remove();
     vi.restoreAllMocks();
+  });
+
+  it("explicit navigation cancels queued follow before the destination is resolved", async () => {
+    makeSpan(container);
+    const { result } = renderHook(() => useSpokenWordFollow({ enabled: true, active: true, wordKey: "0:1", containers: [container] }));
+    act(() => announceReaderNavigation(container));
+    await act(async () => { await vi.advanceTimersByTimeAsync(300); });
+    expect(result.current.pausedByUser).toBe(true);
+    expect(container.scrollTo).not.toHaveBeenCalled();
+    act(() => result.current.reCenter());
+    expect(result.current.pausedByUser).toBe(false);
+    expect(container.scrollTo).toHaveBeenCalledTimes(1);
   });
 
   it("follows the spoken word with debounced scrolling", async () => {
@@ -161,6 +174,34 @@ describe("useSpokenWordFollow", () => {
       container.dispatchEvent(new Event("scroll"));
     });
     expect(result.current.pausedByUser).toBe(false);
+  });
+
+  it("touch input overrides a follow arrival immediately and clears queued scrolling", async () => {
+    makeSpan(container);
+    const { result } = renderHook(() => useSpokenWordFollow({ enabled: true, active: true, wordKey: "0:1", containers: [container] }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(160); });
+    act(() => container.dispatchEvent(new Event("touchstart")));
+    expect(result.current.pausedByUser).toBe(true);
+    const calls = (container.scrollTo as ReturnType<typeof vi.fn>).mock.calls.length;
+    await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+    expect(container.scrollTo).toHaveBeenCalledTimes(calls);
+    act(() => result.current.reCenter());
+    expect(result.current.pausedByUser).toBe(false);
+    expect(container.scrollTo).toHaveBeenCalledTimes(calls + 1);
+  });
+
+  it("touch inside an EPUB iframe pauses follow before it can scroll", async () => {
+    const frame = document.createElement("iframe");
+    container.appendChild(frame);
+    const body = frame.contentDocument!.body;
+    const span = frame.contentDocument!.createElement("span");
+    span.className = "tts-word-highlight";
+    body.appendChild(span);
+    const { result } = renderHook(() => useSpokenWordFollow({ enabled: true, active: true, wordKey: "0:1", containers: [body] }));
+    act(() => body.dispatchEvent(new Event("touchstart", { bubbles: true })));
+    expect(result.current.pausedByUser).toBe(true);
+    await act(async () => { await vi.advanceTimersByTimeAsync(400); });
+    expect(container.scrollTo).not.toHaveBeenCalled();
   });
 
   it("reduced motion scrolls instantly", async () => {

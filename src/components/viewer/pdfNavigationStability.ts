@@ -54,3 +54,14 @@ export function isStaleNavigationToken(activeToken: number | null, token: number
 export function isNavigationSettled(deltaPx: number, onTargetPage: boolean, thresholdPx: number): boolean {
   return onTargetPage && deltaPx <= thresholdPx;
 }
+
+/** Prefix offsets retain measured page sizes across virtualization and zoom. */
+export function buildPdfPageOffsets(
+  count: number, defaultHeight: number, measuredHeights: ReadonlyMap<number, number>, scale: number, gap: number,
+): number[] {
+  const offsets = [0];
+  for (let index = 0; index < count; index += 1) {
+    offsets.push(offsets[index] + (measuredHeights.get(index) ?? defaultHeight) * scale + gap);
+  }
+  return offsets;
+}

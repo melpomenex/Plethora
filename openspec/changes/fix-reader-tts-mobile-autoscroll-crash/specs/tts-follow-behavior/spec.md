@@ -69,3 +69,11 @@ Follow scrolling SHALL respect the application's reduced-motion presentation mod
 #### Scenario: Playback stopped
 - **WHEN** playback is stopped or reader is unmounted
 - **THEN** no follow scrolling or polling loops execute
+
+#### Scenario: Real iframe input during follow arrival
+- **WHEN** the user touches or scrolls inside an EPUB iframe while a follow scroll or debounce is pending
+- **THEN** follow pauses immediately, pending follow movement is cancelled, and playback/highlighting continue until Re-center explicitly resumes following
+
+#### Scenario: Explicit navigation interrupts pending follow
+- **WHEN** the reader starts explicit navigation while spoken-word follow has a queued correction
+- **THEN** the correction is cancelled before destination lookup finishes, playback and highlighting retain their existing semantics, and Re-center can resume following

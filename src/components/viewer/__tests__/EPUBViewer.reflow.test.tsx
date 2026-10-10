@@ -1,14 +1,4 @@
-/**
- * Assistant-resize → EPUB reflow (#17).
- *
- * The reader reflows when its container width changes (ResizeObserver →
- * requestAnimationFrame → debounce → `rendition.resize(undefined, undefined,
- * liveCfi)`). This suite verifies that path end-to-end with a controllable
- * ResizeObserver: continuous resize events coalesce into a single reflow,
- * the live reading location is preserved (no chapter jump), and reflow is
- * suppressed while the user is actively interacting, then re-armed once the
- * gesture settles.
- */
+/** Real geometry changes reflow; scrolling never schedules a delayed redisplay. */
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EPUBViewer } from "../EPUBViewer";
@@ -205,9 +195,7 @@ describe("EPUB reflow on container resize", () => {
     await act(async () => {
       // A drag produces many intermediate widths — all must collapse into one.
       fireObserver(1);
-      await vi.advanceTimersByTimeAsync(4);
       fireObserver(1);
-      await vi.advanceTimersByTimeAsync(4);
       fireObserver(1);
       await vi.advanceTimersByTimeAsync(16);
       await vi.advanceTimersByTimeAsync(160);
@@ -235,31 +223,31 @@ describe("EPUB reflow on container resize", () => {
     expect(calls[0]).toBe(mockRendition.currentLocation().start.cfi);
   });
 
-  it("suppresses reflow while the user is interacting, then re-arms once", async () => {
+  it("never resizes after wheel input or scroll-driven relocation alone", async () => {
     const { container } = await renderLoadedReader();
     mockRendition.resize.mockClear();
-
     const viewer = container.querySelector('[data-epub-viewer="true"]') as HTMLElement;
-    expect(viewer).not.toBeNull();
-
-    // User is scrolling the reader: interaction suppresses a resize.
     await act(async () => {
-      viewer.dispatchEvent(new WheelEvent("wheel", { bubbles: true, cancelable: true }));
-      fireObserver(1);
-      await vi.advanceTimersByTimeAsync(16);
-      await vi.advanceTimersByTimeAsync(160);
+      viewer.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
+      for (const [event, listener] of mockRendition.on.mock.calls) {
+        if (event === "relocated") listener({ start: { cfi: "epubcfi(/6/4)", href: "chapter.xhtml" } });
+      }
+      await vi.advanceTimersByTimeAsync(2000);
     });
     expect(mockRendition.resize).not.toHaveBeenCalled();
+  });
 
-    // Once the gesture settles (600ms quiet), a layout correction re-arms.
+  it("uses live geometry on a real resize following interaction, without a quiet-period timer", async () => {
+    const { container } = await renderLoadedReader();
+    mockRendition.resize.mockClear();
+    const viewer = container.querySelector('[data-epub-viewer="true"]') as HTMLElement;
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(700);
+      viewer.dispatchEvent(new WheelEvent("wheel", { bubbles: true }));
+      fireObserver(1);
+      await vi.advanceTimersByTimeAsync(20);
     });
+    expect(mockRendition.resize).toHaveBeenCalledExactlyOnceWith(undefined, undefined, mockRendition.currentLocation().start.cfi);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
     expect(mockRendition.resize).toHaveBeenCalledTimes(1);
-    expect(mockRendition.resize).toHaveBeenCalledWith(
-      undefined,
-      undefined,
-      mockRendition.currentLocation().start.cfi,
-    );
   });
 });

@@ -1,3 +1,4 @@
+import { buildPdfPageOffsets } from "../pdfNavigationStability";
 import { describe, expect, it } from "vitest";
 import {
   deriveCurrentPageFromOffsets,
@@ -58,5 +59,16 @@ describe("pdfNavigationStability", () => {
     expect(isNavigationSettled(24, true, 40)).toBe(true);
     expect(isNavigationSettled(55, true, 40)).toBe(false);
     expect(isNavigationSettled(10, false, 40)).toBe(false);
+  });
+});
+
+
+describe("measured page geometry across virtualization", () => {
+  it("retains mixed page heights and scales them without reverting to estimates", () => {
+    const measured = new Map([[0, 1200], [1, 500]]);
+    expect(buildPdfPageOffsets(4, 800, measured, 1, 24)).toEqual([0, 1224, 1748, 2572, 3396]);
+    expect(buildPdfPageOffsets(4, 800, measured, 2, 24)).toEqual([0, 2424, 3448, 5072, 6696]);
+    // Unmounting a page removes its viewport/DOM; the source-size cache remains.
+    expect(buildPdfPageOffsets(4, 800, measured, 1, 24)[2]).toBe(1748);
   });
 });

@@ -1,3 +1,5 @@
+import { ReaderNavigationOwner, observeReaderInput, announceReaderNavigation } from "../../lib/readerNavigation";
+import { pdfDestinationPoint, pdfDestinationScale, pdfReflowDestinationBlock } from "./pdfTocDestination";
 import { useEffect, useRef, useState, useCallback, useMemo, useReducer, type CSSProperties } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 // URL of the compiled bootstrap worker chunk (src/workers/pdfjs.worker.ts).
@@ -50,8 +52,7 @@ import { ensureRegionAssetUrl, releaseDocumentResources } from "../../lib/pdf/re
 import { createPdfDocumentHolder } from "../../lib/pdf/pdfDocumentHolder";
 import {
   deriveCurrentPageFromOffsets,
-  isNavigationSettled,
-  isStaleNavigationToken,
+  buildPdfPageOffsets,
   shouldSuppressProgrammaticScroll,
   type NavigationMode,
 } from "./pdfNavigationStability";
@@ -443,6 +444,11 @@ interface PDFViewerProps {
   restoreState?: ViewState | null;
   restoreRequestId?: number;
   onUserScrollDuringRestore?: () => void;
+  /** DocumentViewer owns initial saved-position restoration when mounted there. */
+  parentOwnsRestoration?: boolean;
+  navigationRequest?: { id: number; pageNumber: number } | null;
+  onNavigationStart?: () => void;
+  onInitialRestoreComplete?: () => void;
   contextPageWindow?: number;
   onTextWindowChange?: (text: string, speechPages?: PdfSpeechPage[]) => void;
   /** TOC navigation settled — the host resolves the visible TTS anchor. */
@@ -493,10 +499,7 @@ const VIRTUALIZATION_THRESHOLD_PAGES = 40;
 const VIRTUAL_WINDOW_PAGES = 6;
 const PAGE_GAP_PX = 24;
 const ENABLE_PDF_VIRTUALIZATION = true;
-const USER_SCROLL_LOCKOUT_MS = 1200;
-const NAV_SETTLE_THRESHOLD_PX = 40;
-const NAV_SETTLE_STABLE_MS = 180;
-const NAV_SETTLE_TIMEOUT_MS = 1400;
+
 const PDF_NAV_STABILITY_FLAG_KEY = "plethora.feature.pdfNavigationStability";
 const PDF_NAV_STABILITY_DEBUG_KEY = "plethora.debug.pdfNavigationStability";
 
@@ -525,6 +528,10 @@ export function PDFViewer({
   restoreState,
   restoreRequestId,
   onUserScrollDuringRestore,
+  parentOwnsRestoration = false,
+  navigationRequest,
+  onNavigationStart,
+  onInitialRestoreComplete,
   contextPageWindow = 2,
   onTextWindowChange,
   onNavigationSettled,
@@ -653,6 +660,10 @@ export function PDFViewer({
   const vimRuntimeListenersRef = useRef(new Set<(event: { kind: "content" | "geometry" | "destroyed"; pageNumber?: number }) => void>());
   const pageViewportRefs = useRef<(import("pdfjs-dist").PageViewport | null)[]>([]);
   const pageScaleRefs = useRef<(number | null)[]>([]);
+  // Keep measured heights after virtualization unmounts a page. Replacing
+  // known pages with uniform estimates changes spacer height and causes jumps.
+  const pageHeightCacheRef = useRef(new Map<number, number>());
+  const [pageGeometryRevision, setPageGeometryRevision] = useState(0);
   // Shared pdf.js EventBus — every PDFPageView for this document shares it.
   // We listen for textlayerrendered/pagerendered on it to know when to grab
   // pageView.textLayer.div.
@@ -678,16 +689,11 @@ export function PDFViewer({
   const userScrollSignaledRef = useRef(false);
   const textCacheRef = useRef<Map<number, string>>(new Map());
   const textWindowRef = useRef<{ start: number; end: number }>({ start: 1, end: 1 });
-  const skipAutoScrollOnceRef = useRef(false);
   const lastSelectionWasPdfRef = useRef(false);
   const onContextMenuRef = useRef(onContextMenu);
   onContextMenuRef.current = onContextMenu;
   const pageTextSelectionAvailabilityRef = useRef<Map<number, boolean>>(new Map());
   // Track the last restored page to prevent scroll events from resetting backwards
-  const restoredPageRef = useRef<number | null>(null);
-  const restorationWindowRef = useRef<number>(0);
-  // Track initial load to suppress resize during first render
-  const initialLoadWindowRef = useRef<number>(Date.now() + 5000); // 5 second initial protection
   const searchResultsRef = useRef<PdfSearchMatch[]>([]);
   const pageSearchMatchesRef = useRef<Map<number, PdfSearchMatch[]>>(new Map());
   const searchQueryRef = useRef("");
@@ -697,7 +703,6 @@ export function PDFViewer({
   const pendingSearchScrollRef = useRef<number | null>(null);
   const searchRequestTokenRef = useRef(0);
   const lastProcessedSearchNavRequestRef = useRef<number | null>(null);
-  const lastScrolledTtsQueryRef = useRef("");
 
   const getHighlightsForPage = useCallback(
     (pageNumberForHighlights: number) =>
@@ -760,12 +765,19 @@ export function PDFViewer({
 
   const handleSlotRef = useCallback((idx: number, slot: HTMLDivElement | null) => {
     pageContainerRefs.current[idx] = slot;
+    if (slot) requestAnimationFrame(() => { applyResizeAnchorRef.current?.(); applyPendingNavigationRef.current?.(); initialRestoreAttemptRef.current?.(); });
   }, []);
 
   const handleViewportChange = useCallback((idx: number, viewport: import("pdfjs-dist").PageViewport) => {
     pageViewportRefs.current[idx] = viewport;
     pageScaleRefs.current[idx] = viewport.scale;
+    const height = viewport.height / viewport.scale;
+    if (pageHeightCacheRef.current.get(idx) !== height) {
+      pageHeightCacheRef.current.set(idx, height);
+      setPageGeometryRevision((revision) => revision + 1);
+    }
     recomputePageOffsetsRef.current?.();
+    requestAnimationFrame(() => { applyResizeAnchorRef.current?.(); applyPendingNavigationRef.current?.(); initialRestoreAttemptRef.current?.(); });
     vimRuntimeListenersRef.current.forEach((listener) => listener({ kind: "geometry", pageNumber: idx + 1 }));
     // Re-derive persisted-selection overlay rects when page geometry changes
     // (zoom / relayout) even if the change did not flow through the `scale`
@@ -799,20 +811,27 @@ export function PDFViewer({
   // Lazy loading: track which pages should be rendered
   const [renderedPageRange, setRenderedPageRange] = useState<{ start: number; end: number }>({ start: 1, end: 1 });
   const renderedPageRangeRef = useRef({ start: 1, end: 1 });
-  const pendingNavRef = useRef<{ token: number; pageNumber: number; destArray: any[] | null } | null>(null);
-  const navModeRef = useRef<NavigationMode>("idle");
+  const pendingNavRef = useRef<{ token: number; pageNumber: number; destArray: any[] | null; requestedZoom?: number | null } | null>(null);
+  const navigationOwnerRef = useRef(new ReaderNavigationOwner());
+  const [navigationRevision, setNavigationRevision] = useState(0);
+  const applyPendingNavigationRef = useRef<(() => void) | null>(null);
+  const standaloneRestoreStartedRef = useRef(false);
+  const publishNavigationPositionRef = useRef<(() => void) | null>(null);
   const userScrollLockoutUntilRef = useRef(0);
   const navTokenCounterRef = useRef(0);
   const activeNavTokenRef = useRef<number | null>(null);
   const latestTocRequestTokenRef = useRef<number | null>(null);
-  const navSettleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const onNavigationSettledRef = useRef(onNavigationSettled);
+  const onNavigationStartRef = useRef(onNavigationStart);
+  onNavigationStartRef.current = onNavigationStart;
   onNavigationSettledRef.current = onNavigationSettled;
   // Origin of the current programmatic navigation; only TOC-initiated
   // completions notify TTS synchronization.
   const navOriginRef = useRef<"toc" | "other">("other");
-  const navSettleStableSinceRef = useRef<number | null>(null);
-  const navSettleTargetRef = useRef<{ token: number; targetTop: number; pageNumber: number } | null>(null);
+  const claimedRestoreRequestRef = useRef<number | null>(null);
+  const initialRestoreAttemptRef = useRef<(() => void) | null>(null);
+  const pendingResizeAnchorRef = useRef<{ ticket: number; page: number; x: number; y: number } | null>(null);
+  const applyResizeAnchorRef = useRef<(() => void) | null>(null);
   const pdfNavStabilityEnabledRef = useRef(true);
   const pdfNavStabilityDebugRef = useRef(false);
   const isTauriRuntime = isTauri();
@@ -904,7 +923,7 @@ export function PDFViewer({
   const pinchRef = useRef<{ distance: number; scale: number } | null>(null);
   const fixedColumnIndexRef = useRef(0);
 
-  const highlightConfigRef = useRef<{ query: string; pageNumber: number; textQuote?: string; resolved: boolean } | null>(null);
+  const highlightConfigRef = useRef<{ query: string; pageNumber: number; textQuote?: string; resolved: boolean; ticket: number } | null>(null);
   useEffect(() => {
     if (highlightQuery && highlightPageNumber) {
       highlightConfigRef.current = {
@@ -912,6 +931,7 @@ export function PDFViewer({
         pageNumber: highlightPageNumber,
         textQuote: highlightTextQuote?.trim() || undefined,
         resolved: false,
+        ticket: navigationOwnerRef.current.ticket,
       };
     } else {
       highlightConfigRef.current = null;
@@ -1084,18 +1104,8 @@ export function PDFViewer({
           span.innerHTML = `${before}<mark class="pdf-tts-highlight">${middle}</mark>${after}`;
         });
 
-        if (lastScrolledTtsQueryRef.current !== ttsQuery) {
-          lastScrolledTtsQueryRef.current = ttsQuery;
-          const firstSpanIdx = Array.from(spansToHighlight.keys())[0];
-          if (typeof firstSpanIdx === "number") {
-            const firstSpan = spans[firstSpanIdx];
-            if (firstSpan) {
-              requestAnimationFrame(() => {
-                firstSpan.scrollIntoView({ behavior: "smooth", block: "center" });
-              });
-            }
-          }
-        }
+        // Highlight rendering never owns following. useSpokenWordFollow is
+        // the sole TTS viewport writer and observes real-input interruption.
         return;
       }
     }
@@ -1134,7 +1144,9 @@ export function PDFViewer({
       if (activeMark) {
         activeMark.classList.add("pdf-search-highlight-target");
         if (pendingSearchScrollRef.current === activeSearchMatchIndexRef.current) {
+          const searchTicket = navigationOwnerRef.current.ticket;
           requestAnimationFrame(() => {
+            if (!navigationOwnerRef.current.owns(searchTicket) || pendingSearchScrollRef.current === null) return;
             activeMark.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
             pendingSearchScrollRef.current = null;
           });
@@ -1185,7 +1197,7 @@ export function PDFViewer({
 
     targetMark.classList.add("pdf-search-highlight-target");
     requestAnimationFrame(() => {
-      targetMark.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
+      if (navigationOwnerRef.current.owns(cfg.ticket)) targetMark.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
     });
   }, [getSearchHighlightPattern]);
   // Wire the forward ref so PdfPageViewWrapper's onTextLayerReady can re-apply
@@ -1200,6 +1212,22 @@ export function PDFViewer({
     });
   }, [applyTextLayerHighlights]);
 
+  const beginExplicitNavigation = useCallback(() => {
+    navigationOwnerRef.current.beginToc();
+    announceReaderNavigation(scrollContainerRef.current);
+    pendingSearchScrollRef.current = null;
+    onNavigationStartRef.current?.();
+    userScrolledDuringRestoreRef.current = true;
+    latestTocRequestTokenRef.current = null;
+    pendingNavRef.current = null;
+    activeNavTokenRef.current = null;
+    navOriginRef.current = "other";
+    userScrollLockoutUntilRef.current = 0;
+    const token = ++navTokenCounterRef.current;
+    setNavigationRevision(token);
+    return token;
+  }, []);
+
   const focusSearchMatch = useCallback(
     (requestedIndex: number, options?: { scroll?: boolean }) => {
       if (searchResultsRef.current.length === 0) {
@@ -1208,6 +1236,7 @@ export function PDFViewer({
         return;
       }
 
+      const token = options?.scroll !== false ? beginExplicitNavigation() : null;
       const clampedIndex = Math.max(0, Math.min(requestedIndex, searchResultsRef.current.length - 1));
       activeSearchMatchIndexRef.current = clampedIndex;
       if (options?.scroll !== false) {
@@ -1219,8 +1248,7 @@ export function PDFViewer({
       const target = searchResultsRef.current[clampedIndex];
       if (!target) return;
 
-      if (pageNumber !== target.pageNumber) {
-        const token = ++navTokenCounterRef.current;
+      if (token !== null && pageNumber !== target.pageNumber) {
         activeNavTokenRef.current = token;
         pendingNavRef.current = { token, pageNumber: target.pageNumber, destArray: null };
         isProgrammaticScrollRef.current = true;
@@ -1228,11 +1256,13 @@ export function PDFViewer({
         return;
       }
 
+      const ticket = navigationOwnerRef.current.ticket;
       requestAnimationFrame(() => {
+        if (!navigationOwnerRef.current.owns(ticket)) return;
         applyTextLayerHighlights(target.pageNumber - 1);
       });
     },
-    [applyTextLayerHighlights, onPageChange, pageNumber, publishSearchResults, reapplyVisibleTextLayerHighlights],
+    [beginExplicitNavigation, applyTextLayerHighlights, onPageChange, pageNumber, publishSearchResults, reapplyVisibleTextLayerHighlights],
   );
 
   useEffect(() => {
@@ -1242,12 +1272,6 @@ export function PDFViewer({
   useEffect(() => {
     reapplyVisibleTextLayerHighlights();
   }, [ttsQuery, ttsHighlightEnabled, reapplyVisibleTextLayerHighlights]);
-
-  useEffect(() => {
-    if (!highlightPageNumber) return;
-    restoredPageRef.current = highlightPageNumber;
-    restorationWindowRef.current = Date.now() + 2500;
-  }, [highlightPageNumber, highlightQuery, highlightTextQuote]);
 
   const publishTextSelectionCapability = useCallback(
     (availability: ReadonlyMap<number, boolean>, totalPagesOverride?: number) => {
@@ -1320,28 +1344,29 @@ export function PDFViewer({
   }, []);
 
   const setNavigationMode = useCallback((mode: NavigationMode, reason: string) => {
-    if (!pdfNavStabilityEnabledRef.current) return;
-    if (navModeRef.current === mode) return;
-    const previous = navModeRef.current;
-    navModeRef.current = mode;
-    logNav("mode-transition", { from: previous, to: mode, reason });
+    logNav("ownership", { state: navigationOwnerRef.current.state, legacyMode: mode, reason });
   }, [logNav]);
 
   const markUserScrollOwnership = useCallback((reason: string) => {
-    if (!pdfNavStabilityEnabledRef.current) return;
-    userScrollLockoutUntilRef.current = Date.now() + USER_SCROLL_LOCKOUT_MS;
+    navigationOwnerRef.current.userScroll();
+    latestTocRequestTokenRef.current = null;
+    activeNavTokenRef.current = null;
+    pendingNavRef.current = null;
+    pendingSearchScrollRef.current = null;
+    pendingResizeAnchorRef.current = null;
+    userScrolledDuringRestoreRef.current = true;
+    isRestoringPositionRef.current = false;
+    isProgrammaticScrollRef.current = false;
+    onUserScrollDuringRestore?.();
+    userScrollLockoutUntilRef.current = Infinity;
     setNavigationMode("user-scroll", reason);
-    logNav("lockout-armed", { until: userScrollLockoutUntilRef.current, reason });
-  }, [logNav, setNavigationMode]);
+  }, [onUserScrollDuringRestore, setNavigationMode]);
 
-  const clearNavigationSettleTimeout = useCallback(() => {
-    if (navSettleTimeoutRef.current) {
-      clearTimeout(navSettleTimeoutRef.current);
-      navSettleTimeoutRef.current = null;
-    }
-    navSettleStableSinceRef.current = null;
-    navSettleTargetRef.current = null;
-  }, []);
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    return observeReaderInput(container, () => markUserScrollOwnership("direct-input"));
+  }, [markUserScrollOwnership, pdf]);
 
   useEffect(() => {
     let mounted = true;
@@ -1748,7 +1773,7 @@ export function PDFViewer({
 
   const handleReflowScroll = useCallback(() => {
     const container = scrollContainerRef.current;
-    if (!container) return;
+    if (!container || isProgrammaticScrollRef.current) return;
     const sections = Array.from(container.querySelectorAll<HTMLElement>("[data-pdf-reflow-page]"));
     let current = pageNumber;
     for (const section of sections) {
@@ -1756,7 +1781,8 @@ export function PDFViewer({
       else break;
     }
     if (current !== pageNumber) onPageChange?.(current);
-    const currentBlockElement = container.querySelector<HTMLElement>(`[data-pdf-reflow-page="${current}"] [data-pdf-reflow-block]`);
+    const currentBlockElement = Array.from(container.querySelectorAll<HTMLElement>(`[data-pdf-reflow-page="${current}"] [data-pdf-reflow-block]`))
+      .find((element) => element.getBoundingClientRect().bottom >= container.getBoundingClientRect().top + 16);
     const blockId = currentBlockElement?.dataset.pdfReflowBlock;
     const canonicalBlock = canonicalPages.get(current)?.blocks.find((candidate) => candidate.id === blockId);
     const block = reflowDocument?.pages[current]?.blocks.find((candidate) => candidate.id === blockId);
@@ -1954,6 +1980,19 @@ export function PDFViewer({
     [canonicalPages],
   );
 
+  const claimRestoreRequest = useCallback((requestId: number | undefined) => {
+    if (requestId !== undefined && requestId > 0 && claimedRestoreRequestRef.current !== requestId) {
+      claimedRestoreRequestRef.current = requestId;
+      navigationOwnerRef.current.beginToc();
+      pendingNavRef.current = null;
+      activeNavTokenRef.current = null;
+      latestTocRequestTokenRef.current = null;
+      userScrollLockoutUntilRef.current = 0;
+      userScrolledDuringRestoreRef.current = false;
+    }
+    return navigationOwnerRef.current.ticket;
+  }, []);
+
   const scrollReflowToPage = useCallback((targetPage: number, behavior: ScrollBehavior = "smooth") => {
     const container = scrollContainerRef.current;
     const section = container?.querySelector<HTMLElement>(`[data-pdf-reflow-page="${targetPage}"]`);
@@ -1963,44 +2002,36 @@ export function PDFViewer({
     return true;
   }, [onPageChange]);
 
-  // Restore must run ONCE per restore request — not on every analyzed page.
-  // The scheduler updates `canonicalPages` continuously, and re-running the
-  // scroll here yanked the reader back mid-scroll ("bounces back" bug).
-  const canonicalPagesRef = useRef(canonicalPages);
   useEffect(() => {
-    canonicalPagesRef.current = canonicalPages;
-  }, [canonicalPages]);
-  const reflowRestoreKeyRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (mobilePdfMode !== "reflow" || !restoreState) {
-      reflowRestoreKeyRef.current = null;
-      return;
-    }
-    const key = `${restoreRequestId ?? "none"}:${restoreState.pageNumber}`;
-    if (reflowRestoreKeyRef.current === key) return;
-    reflowRestoreKeyRef.current = key;
-    // Canonical resolution first (wordId → blockId → quote → rect, D9);
-    // the v1 prototype resolves when the v2 pipeline is off.
-    const pages = canonicalPagesRef.current;
-    const canonicalResolved = restoreState.pdfAnchor && pages.size > 0
-      ? resolveCanonicalAnchor(pages, restoreState.pdfAnchor)
-      : null;
-    const block = !canonicalResolved && reflowDocument && restoreState.pdfAnchor
-      ? resolveReflowBlock(reflowDocument, restoreState.pdfAnchor)
-      : null;
-    const targetElementId = canonicalResolved?.block.id ?? block?.id ?? null;
+    const owner = navigationOwnerRef.current;
+    if (mobilePdfMode !== "reflow" || !restoreState) return;
+    const explicit = (restoreRequestId ?? 0) > 0;
+    if (!explicit && !owner.canRestore) return;
+    const ticket = claimRestoreRequest(restoreRequestId);
+    if (userScrolledDuringRestoreRef.current) return;
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const canonical = restoreState.pdfAnchor ? resolveCanonicalAnchor(canonicalPages, restoreState.pdfAnchor) : null;
+    const prototype = restoreState.pdfAnchor && !canonical && reflowDocument ? resolveReflowBlock(reflowDocument, restoreState.pdfAnchor) : null;
+    const blockId = canonical?.block.id ?? prototype?.id;
+    if (restoreState.pdfAnchor && !blockId) return; // analysis readiness reruns
+    const target = blockId
+      ? Array.from(container.querySelectorAll<HTMLElement>("[data-pdf-reflow-block]")).find((element) => element.dataset.pdfReflowBlock === blockId)
+      : container.querySelector<HTMLElement>(`[data-pdf-reflow-page="${restoreState.pageNumber}"]`);
+    if (!target) return;
     const frame = requestAnimationFrame(() => {
-      if (targetElementId && document.getElementById(targetElementId)) {
-        document.getElementById(targetElementId)?.scrollIntoView({ block: "start", behavior: "auto" });
-      } else {
-        scrollReflowToPage(restoreState.pageNumber, "auto");
-      }
+      if (!owner.owns(ticket) || (!explicit && !owner.canRestore)) return;
+      const top = Math.max(0, Math.min(container.scrollHeight - container.clientHeight,
+        container.scrollTop + target.getBoundingClientRect().top - container.getBoundingClientRect().top - 16));
+      isProgrammaticScrollRef.current = true;
+      container.scrollTo({ top, behavior: "auto" });
+      if (Math.abs(container.scrollTop - top) > 2) return;
+      owner.settle(ticket);
+      isProgrammaticScrollRef.current = false;
+      onInitialRestoreComplete?.();
     });
     return () => cancelAnimationFrame(frame);
-    // canonicalPages deliberately read via ref — see above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mobilePdfMode, reflowDocument, restoreState, restoreRequestId, scrollReflowToPage]);
+  }, [mobilePdfMode, canonicalPages, reflowDocument, restoreState, restoreRequestId, onInitialRestoreComplete, claimRestoreRequest]);
 
   useEffect(() => {
     if (mobilePdfMode !== "reflow" || !highlightPageNumber) return;
@@ -2202,143 +2233,75 @@ export function PDFViewer({
     return null;
   }, []);
 
-  // Restore position when PDF loads (fallback when no explicit restoreState)
   useEffect(() => {
-    if (!pdf || numPages === 0) return;
-    if (restoreState) return;
-
-    const restorePosition = async () => {
-      isRestoringPositionRef.current = true;
-
-      const position = await loadReadingPosition();
-      if (!position) {
-        isRestoringPositionRef.current = false;
-        return;
-      }
-
-      console.log("[PDFViewer] Restoring position:", position);
-
-      const attemptRestore = (attempt: number) => {
-        const container = scrollContainerRef.current;
-        if (!container) {
-          isRestoringPositionRef.current = false;
-          return;
-        }
-
-        let targetPage = 1;
-        let targetScrollTop = 0;
-        let ready = true;
-
-        if (position.type === 'page') {
-          targetPage = Math.max(1, Math.min(position.page, numPages));
-          const pageIndex = targetPage - 1;
-          const pageEl = pageContainerRefs.current[pageIndex];
-          if (!pageEl || pageEl.offsetHeight === 0) {
-            ready = false;
-          } else if (position.offset !== undefined && position.offset > 0) {
-            targetScrollTop = pageEl.offsetTop + (pageEl.offsetHeight * position.offset);
-          } else {
-            targetScrollTop = Math.max(0, pageEl.offsetTop - 16);
-          }
-        } else if (position.type === 'scroll') {
-          const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
-          if (maxScroll <= 0) {
-            ready = false;
-          } else {
-            targetScrollTop = (position.percent / 100) * maxScroll;
-          }
-
-          if (ready) {
-            for (let i = 0; i < pageContainerRefs.current.length; i++) {
-              const pageEl = pageContainerRefs.current[i];
-              if (!pageEl || pageEl.offsetHeight === 0) {
-                ready = false;
-                break;
-              }
-              if (pageEl.offsetTop - 24 <= targetScrollTop) {
-                targetPage = i + 1;
-              } else {
-                break;
-              }
-            }
-          }
-        }
-
-        if (!ready) {
-          if (attempt < 15) {
-            setTimeout(() => attemptRestore(attempt + 1), 200);
-          } else {
-            isRestoringPositionRef.current = false;
-          }
-          return;
-        }
-
-        restoredPageRef.current = targetPage;
-        restorationWindowRef.current = Date.now() + 2000;
-
-        if (targetPage !== pageNumber) {
-          onPageChange?.(targetPage);
-        }
-
-        setTimeout(() => {
-          const activeContainer = scrollContainerRef.current;
-          if (activeContainer) {
-            if (shouldSuppressProgrammaticScroll({
-              enabled: pdfNavStabilityEnabledRef.current,
-              source: "restore",
-              now: Date.now(),
-              lockoutUntil: userScrollLockoutUntilRef.current,
-              activeToken: activeNavTokenRef.current,
-            })) {
-              logNav("initial-restore-suppressed-by-user-lockout", {
-                targetPage,
-                lockoutUntil: userScrollLockoutUntilRef.current,
-              });
-              isRestoringPositionRef.current = false;
-              return;
-            }
-            if (pdfNavStabilityEnabledRef.current) {
-              setNavigationMode("programmatic-nav", "initial-restore");
-            }
-            isProgrammaticScrollRef.current = true;
-            activeContainer.scrollTop = targetScrollTop;
-            console.log("[PDFViewer] Scrolled to position:", {
-              targetPage,
-              targetScrollTop,
-              scrollRestoration: history.scrollRestoration,
-              containerReady: activeContainer.scrollHeight > 0,
-            });
-
-            setTimeout(() => {
-              isProgrammaticScrollRef.current = false;
-              if (pdfNavStabilityEnabledRef.current && activeNavTokenRef.current === null) {
-                if (Date.now() >= userScrollLockoutUntilRef.current) {
-                  setNavigationMode("idle", "initial-restore-complete");
-                }
-              }
-              isRestoringPositionRef.current = false;
-            }, 300);
-          } else {
-            isRestoringPositionRef.current = false;
-          }
-        }, 100);
-      };
-
-      attemptRestore(0);
+    navigationOwnerRef.current = new ReaderNavigationOwner();
+    standaloneRestoreStartedRef.current = false;
+    claimedRestoreRequestRef.current = null;
+    pendingNavRef.current = null;
+    activeNavTokenRef.current = null;
+    latestTocRequestTokenRef.current = null;
+    pageHeightCacheRef.current.clear();
+    userScrollLockoutUntilRef.current = 0;
+    const owner = navigationOwnerRef.current;
+    return () => {
+      owner.userScroll();
+      activeNavTokenRef.current = null;
+      latestTocRequestTokenRef.current = null;
+      pendingNavRef.current = null;
     };
+  }, [pdf]);
 
-    const timeout = setTimeout(restorePosition, 500);
-    return () => clearTimeout(timeout);
-  }, [
-    loadReadingPosition,
-    logNav,
-    numPages,
-    onPageChange,
-    pageNumber,
-    pdf,
-    restoreState,
-    setNavigationMode,
-  ]);
+  // Standalone viewer fallback. DocumentViewer explicitly owns saved-state
+  // loading when present, so clearing its restoreState never starts this path.
+  useEffect(() => {
+    if (!pdf || numPages === 0 || parentOwnsRestoration || restoreState || standaloneRestoreStartedRef.current) return;
+    standaloneRestoreStartedRef.current = true;
+    const owner = navigationOwnerRef.current;
+    const ticket = owner.ticket;
+    let cancelled = false;
+    let frame = 0;
+    const valid = () => !cancelled && owner.owns(ticket) && owner.canRestore;
+    void (async () => {
+      isRestoringPositionRef.current = true;
+      const position = await loadReadingPosition();
+      if (!valid()) return;
+      if (!position) { owner.settle(ticket); isRestoringPositionRef.current = false; return; }
+      const targetPage = position.type === "page" ? Math.max(1, Math.min(position.page, numPages)) : null;
+      if (targetPage !== null) onPageChangeRef.current?.(targetPage);
+      const attempt = () => {
+        if (!valid()) return;
+        const container = scrollContainerRef.current;
+        if (!container) return;
+        let top: number;
+        if (position.type === "page") {
+          const page = pageContainerRefs.current[targetPage! - 1];
+          if (!page || !pageViewportRefs.current[targetPage! - 1] || page.offsetHeight <= 0) return;
+          top = page.offsetTop + page.offsetHeight * (position.offset ?? 0);
+        } else if (position.type === "scroll") {
+          top = position.percent / 100 * Math.max(0, container.scrollHeight - container.clientHeight);
+        } else { owner.settle(ticket); isRestoringPositionRef.current = false; return; }
+        top = Math.min(Math.max(0, top), Math.max(0, container.scrollHeight - container.clientHeight));
+        isProgrammaticScrollRef.current = true;
+        container.scrollTop = top;
+        cancelAnimationFrame(frame);
+        frame = requestAnimationFrame(() => {
+          if (!valid() || Math.abs(container.scrollTop - top) > 2) return;
+          owner.settle(ticket);
+          isProgrammaticScrollRef.current = false;
+          isRestoringPositionRef.current = false;
+        });
+      };
+      initialRestoreAttemptRef.current = attempt;
+      attempt();
+    })();
+    return () => {
+      cancelled = true;
+      cancelAnimationFrame(frame);
+      initialRestoreAttemptRef.current = null;
+    };
+    // One request per loaded PDF. Prop changes must not restart stored progress.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pdf, numPages, parentOwnsRestoration, loadReadingPosition]);
 
   // Cleanup on unmount: cancel all render tasks, text layers, highlights, and timeouts.
   useEffect(() => {
@@ -2349,12 +2312,11 @@ export function PDFViewer({
           void saveReadingPosition(lastPositionRef.current);
         }
       }
-      clearNavigationSettleTimeout();
-      // Note: per-page PDFPageView teardown (canvas + text layer cancel/destroy)
+        // Note: per-page PDFPageView teardown (canvas + text layer cancel/destroy)
       // is handled by each PdfPageViewWrapper's own effect cleanup when React
       // unmounts it. No manual cancel loop is needed here.
     };
-  }, [clearNavigationSettleTimeout, saveReadingPosition]);
+  }, [saveReadingPosition]);
 
   useEffect(() => {
     if (!pdf || numPages <= 0) return;
@@ -2444,6 +2406,7 @@ export function PDFViewer({
   useEffect(() => {
     searchQueryRef.current = searchQuery?.trim() ?? "";
     const requestToken = ++searchRequestTokenRef.current;
+    const navigationTicket = navigationOwnerRef.current.ticket;
 
     if (!pdf || numPages <= 0) {
       searchResultsRef.current = [];
@@ -2539,7 +2502,7 @@ export function PDFViewer({
 
       const nextActiveIndex = nextResults.length > 0 ? 0 : -1;
       activeSearchMatchIndexRef.current = nextActiveIndex;
-      pendingSearchScrollRef.current = nextActiveIndex >= 0 ? nextActiveIndex : null;
+      pendingSearchScrollRef.current = nextActiveIndex >= 0 && navigationOwnerRef.current.owns(navigationTicket) ? nextActiveIndex : null;
 
       publishSearchResults({
         query: searchQueryRef.current,
@@ -2550,7 +2513,7 @@ export function PDFViewer({
       });
       reapplyVisibleTextLayerHighlights();
 
-      if (nextActiveIndex >= 0) {
+      if (nextActiveIndex >= 0 && navigationOwnerRef.current.owns(navigationTicket)) {
         focusSearchMatch(nextActiveIndex);
       }
     };
@@ -2593,110 +2556,54 @@ export function PDFViewer({
     focusSearchMatch((currentIndex + 1) % searchResultsRef.current.length);
   }, [focusSearchMatch, publishSearchResults, searchNavigationRequest]);
 
-  // ResizeObserver to handle container resize (e.g., when assistant panel is resized)
+  // Preserve the live source point when fit geometry changes. A percentage
+  // snapshot of the whole virtual document is not a stable reading anchor.
+  applyResizeAnchorRef.current = () => {
+    const anchor = pendingResizeAnchorRef.current;
+    const container = scrollContainerRef.current;
+    if (!anchor || !container) return;
+    if (!navigationOwnerRef.current.owns(anchor.ticket) || activeNavTokenRef.current !== null) {
+      pendingResizeAnchorRef.current = null;
+      return;
+    }
+    const page = pageContainerRefs.current[anchor.page - 1];
+    const viewport = pageViewportRefs.current[anchor.page - 1];
+    if (!page || !viewport) return;
+    const [x, y] = viewport.convertToViewportPoint(anchor.x, anchor.y);
+    container.scrollTop = Math.max(0, Math.min(container.scrollHeight - container.clientHeight, page.offsetTop + y));
+    container.scrollLeft = Math.max(0, Math.min(container.scrollWidth - container.clientWidth, page.offsetLeft + x));
+    pendingResizeAnchorRef.current = null;
+  };
   useEffect(() => {
-    if (!pdf || !scrollContainerRef.current) return;
-
-    let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
-    let animationFrameId: number | null = null;
-
-    const resizeObserver = new ResizeObserver(() => {
-      // Use requestAnimationFrame to avoid "loop completed with undelivered notifications" error
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
-      
-      animationFrameId = requestAnimationFrame(() => {
-        // Debounce resize calls to avoid excessive re-renders
-        if (resizeTimeout) {
-          clearTimeout(resizeTimeout);
+    const container = scrollContainerRef.current;
+    if (!container || !pdf) return;
+    let frame = 0;
+    let lastWidth = container.clientWidth;
+    let lastHeight = container.clientHeight;
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const width = container.clientWidth;
+        const height = container.clientHeight;
+        if (width <= 0 || height <= 0 || (width === lastWidth && height === lastHeight)) return;
+        lastWidth = width; lastHeight = height;
+        if (zoomMode !== "fit-width" && zoomMode !== "fit-page") return;
+        if (!navigationOwnerRef.current.canRestore && activeNavTokenRef.current === null && mobilePdfMode === "fixed") {
+          const currentPage = pageNumberRef.current;
+          const page = pageContainerRefs.current[currentPage - 1];
+          const viewport = pageViewportRefs.current[currentPage - 1];
+          if (page && viewport) {
+            const [x, y] = viewport.convertToPdfPoint(container.scrollLeft - page.offsetLeft, container.scrollTop - page.offsetTop);
+            pendingResizeAnchorRef.current = { ticket: navigationOwnerRef.current.ticket, page: currentPage, x, y };
+          }
         }
-        resizeTimeout = setTimeout(async () => {
-          const container = scrollContainerRef.current;
-          if (!container) return;
-
-          // Skip resize handling while scroll position restoration is in progress
-          // suppressAutoScroll is controlled by DocumentViewer and stays true until restoration completes
-          if (suppressAutoScroll) {
-            return;
-          }
-
-          // Also skip during protection windows
-          const now = Date.now();
-          const isInInitialLoadWindow = now < initialLoadWindowRef.current;
-          const isInRestorationWindow = now < restorationWindowRef.current;
-          if (isInInitialLoadWindow || isInRestorationWindow) {
-            return;
-          }
-
-          if (pdf && (zoomMode === "fit-width" || zoomMode === "fit-page")) {
-            // Save current scroll position before the re-render that the scale
-            // change will trigger.
-            const scrollTop = container.scrollTop;
-            const scrollHeight = container.scrollHeight;
-            const scrollPercent = scrollHeight > 0 ? scrollTop / scrollHeight : 0;
-
-            // Bump a nonce so the per-page scale recomputes from the new
-            // container dimensions; PdfPageViewWrapper then re-draws on its own.
-            resizeNonceRef.current += 1;
-            setResizeNonce(resizeNonceRef.current);
-
-            // Restore scroll position after the re-render settles (percentage-based).
-            if (scrollPercent > 0) {
-              window.requestAnimationFrame(() => {
-                if (container.scrollHeight <= 0) return;
-                if (shouldSuppressProgrammaticScroll({
-                  enabled: pdfNavStabilityEnabledRef.current,
-                  source: "resize",
-                  now: Date.now(),
-                  lockoutUntil: userScrollLockoutUntilRef.current,
-                  activeToken: activeNavTokenRef.current,
-                })) {
-                  logNav("resize-scroll-restore-suppressed", {
-                    scrollPercent,
-                    lockoutUntil: userScrollLockoutUntilRef.current,
-                  });
-                  return;
-                }
-                const newScrollTop = scrollPercent * container.scrollHeight;
-                if (pdfNavStabilityEnabledRef.current) {
-                  setNavigationMode("programmatic-nav", "resize-restore");
-                }
-                container.scrollTop = newScrollTop;
-                if (pdfNavStabilityEnabledRef.current) {
-                  isProgrammaticScrollRef.current = true;
-                  window.setTimeout(() => {
-                    if (activeNavTokenRef.current === null) {
-                      isProgrammaticScrollRef.current = false;
-                      if (Date.now() >= userScrollLockoutUntilRef.current) {
-                        setNavigationMode("idle", "resize-restore-complete");
-                      }
-                    }
-                  }, 200);
-                }
-              });
-            }
-          }
-        }, 100);
+        resizeNonceRef.current += 1;
+        setResizeNonce(resizeNonceRef.current);
       });
     });
-
-    resizeObserver.observe(scrollContainerRef.current);
-    // Also observe outer container to catch width changes from assistant panel show/hide
-    if (outerContainerRef.current) {
-      resizeObserver.observe(outerContainerRef.current);
-    }
-
-    return () => {
-      if (resizeTimeout) {
-        clearTimeout(resizeTimeout);
-      }
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-      }
-      resizeObserver.disconnect();
-    };
-  }, [pdf, zoomMode, suppressAutoScroll]);
+    observer.observe(container);
+    return () => { observer.disconnect(); cancelAnimationFrame(frame); };
+  }, [pdf, zoomMode, mobilePdfMode]);
 
   const buildPdfSelectionContext = useCallback((): PdfSelectionContext | null => {
     const selection = window.getSelection();
@@ -3082,211 +2989,68 @@ export function PDFViewer({
     return deriveCurrentPageFromOffsets(pageOffsetsRef.current, numPages, pageNumber, scrollTop, 24);
   }, [numPages, pageNumber]);
 
-  const completeProgrammaticNavigation = useCallback((token: number, reason: string) => {
-    if (!pdfNavStabilityEnabledRef.current) {
-      isProgrammaticScrollRef.current = false;
-      return;
-    }
+  const completeProgrammaticNavigation = useCallback((token: number) => {
     if (activeNavTokenRef.current !== token) return;
     activeNavTokenRef.current = null;
+    pendingNavRef.current = null;
     isProgrammaticScrollRef.current = false;
-    clearNavigationSettleTimeout();
-    if (Date.now() >= userScrollLockoutUntilRef.current) {
-      setNavigationMode("idle", reason);
-    }
-    logNav("programmatic-nav-complete", { token, reason });
+    navigationOwnerRef.current.settle(navigationOwnerRef.current.ticket);
+    setNavigationMode("idle", "destination-verified");
+    publishNavigationPositionRef.current?.();
     if (navOriginRef.current === "toc") {
       navOriginRef.current = "other";
-      // Let the scroll truly settle before the host resolves the anchor.
-      setTimeout(() => {
-        try {
-          onNavigationSettledRef.current?.();
-        } catch {
-          /* ignore */
-        }
-      }, 120);
+      onNavigationSettledRef.current?.();
     }
-  }, [clearNavigationSettleTimeout, logNav, setNavigationMode]);
+  }, [setNavigationMode]);
 
-  const startNavigationSettleCheck = useCallback((token: number, targetTop: number, targetPageNumber: number) => {
-    if (!pdfNavStabilityEnabledRef.current) return;
-    clearNavigationSettleTimeout();
-    navSettleTargetRef.current = { token, targetTop, pageNumber: targetPageNumber };
-    const deadline = Date.now() + NAV_SETTLE_TIMEOUT_MS;
-
-    const check = () => {
-      if (activeNavTokenRef.current !== token) return;
-      const container = scrollContainerRef.current;
-      if (!container) {
-        completeProgrammaticNavigation(token, "container-missing");
-        return;
-      }
-
-      const currentTop = container.scrollTop;
-      const currentPageFromOffsets = getCurrentPageFromScrollTop(currentTop);
-      const delta = Math.abs(currentTop - targetTop);
-      const onTargetPage = currentPageFromOffsets === targetPageNumber;
-      const settled = isNavigationSettled(delta, onTargetPage, NAV_SETTLE_THRESHOLD_PX);
-      const now = Date.now();
-
-      if (settled) {
-        if (!navSettleStableSinceRef.current) {
-          navSettleStableSinceRef.current = now;
-        }
-        if (now - navSettleStableSinceRef.current >= NAV_SETTLE_STABLE_MS) {
-          completeProgrammaticNavigation(token, "settled");
-          return;
-        }
-      } else {
-        navSettleStableSinceRef.current = null;
-      }
-
-      if (now >= deadline) {
-        completeProgrammaticNavigation(token, "settle-timeout");
-        return;
-      }
-
-      navSettleTimeoutRef.current = setTimeout(check, 80);
-    };
-
-    navSettleTimeoutRef.current = setTimeout(check, 80);
-  }, [
-    clearNavigationSettleTimeout,
-    completeProgrammaticNavigation,
-    getCurrentPageFromScrollTop,
-  ]);
-
-  useEffect(() => {
-    const container = scrollContainerRef.current;
-    const pageContainer = pageContainerRefs.current[pageNumber - 1];
-    if (!container || !pageContainer) return;
-
-    // If the pageNumber update came from scroll syncing, avoid auto-scrolling
-    // (it feels like the viewer is "snapping back" while scrolling).
-    if (pageUpdateFromScrollRef.current) {
-      pageUpdateFromScrollRef.current = false;
-      return;
-    }
-
-    if (suppressAutoScroll) {
-      skipAutoScrollOnceRef.current = true;
-      // Track the restored page to prevent scroll events from resetting it backwards
-      restoredPageRef.current = pageNumber;
-      // Set a protection window - ignore ALL auto-scrolls for 2 seconds after restoration
-      restorationWindowRef.current = Date.now() + 2000;
-      return;
-    }
-
-    // Check if we're still in the restoration protection window
-    const now = Date.now();
-    const isInRestorationWindow = now < restorationWindowRef.current;
-
-    if (skipAutoScrollOnceRef.current) {
-      skipAutoScrollOnceRef.current = false;
-      // Don't scroll during restoration window
-      if (isInRestorationWindow) {
-        console.log("[PDFViewer] Skipping auto-scroll during restoration window", { pageNumber, restoredPage: restoredPageRef.current });
-        return;
-      }
-    }
-
-    // Block any auto-scroll that would take us to a different page during restoration window
-    if (isInRestorationWindow && restoredPageRef.current !== null && pageNumber !== restoredPageRef.current) {
-      console.log("[PDFViewer] Blocking auto-scroll to different page during restoration:", { pageNumber, restoredPage: restoredPageRef.current });
-      return;
-    }
-
+  const applyPendingNavigation = useCallback(() => {
     const pending = pendingNavRef.current;
-    if (pending && pending.pageNumber === pageNumber) {
-      if (pdfNavStabilityEnabledRef.current && isStaleNavigationToken(activeNavTokenRef.current, pending.token)) {
-        logNav("stale-pending-nav-ignored", {
-          pendingToken: pending.token,
-          activeToken: activeNavTokenRef.current,
-          pageNumber,
-        });
-        pendingNavRef.current = null;
-        return;
+    const container = scrollContainerRef.current;
+    if (!pending || !container || activeNavTokenRef.current !== pending.token) return;
+    if (mobilePdfMode === "reflow") return;
+    const pageContainer = pageContainerRefs.current[pending.pageNumber - 1];
+    const viewport = pageViewportRefs.current[pending.pageNumber - 1];
+    // Virtual slots alone are not destinations. Wait for real page geometry.
+    if (!pageContainer || !viewport || pageContainer.offsetHeight <= 0) return;
+    const requestedZoom = pending.requestedZoom;
+    if (typeof requestedZoom === "number" && requestedZoom > 0 && Math.abs(viewport.scale - requestedZoom) > 0.001) return;
+    const point = pdfDestinationPoint(pending.destArray, viewport);
+    const maxTop = Math.max(0, container.scrollHeight - container.clientHeight);
+    const top = point.y === null ? container.scrollTop : Math.min(maxTop, Math.max(0, pageContainer.offsetTop + point.y - 16));
+    const left = point.x === null ? container.scrollLeft : Math.min(Math.max(0, container.scrollWidth - container.clientWidth), Math.max(0, pageContainer.offsetLeft + point.x));
+    isProgrammaticScrollRef.current = true;
+    container.scrollTo({ top, left, behavior: "auto" });
+    // Verify actual arrival on the next layout frame, recomputing coordinates
+    // if rendering changed the page geometry. User input clears pending first.
+    requestAnimationFrame(() => {
+      if (activeNavTokenRef.current !== pending.token) return;
+      if (Math.abs(container.scrollTop - top) <= 2 && Math.abs(container.scrollLeft - left) <= 2) {
+        completeProgrammaticNavigation(pending.token);
       }
+    });
+  }, [mobilePdfMode, completeProgrammaticNavigation]);
+  applyPendingNavigationRef.current = applyPendingNavigation;
+  useEffect(() => { applyPendingNavigation(); }, [applyPendingNavigation, pageNumber, numPages, navigationRevision, pageGeometryRevision]);
 
-      const pageIndex = pageNumber - 1;
-      const viewport = pageViewportRefs.current[pageIndex];
-      const destArray = pending.destArray;
-
-      let targetTop = Math.max(0, pageContainer.offsetTop - 16);
-      let targetLeft = container.scrollLeft;
-
-      if (destArray && viewport) {
-        const kindRaw = destArray[1];
-        const kind =
-          (kindRaw && typeof kindRaw === "object" && typeof (kindRaw as any).name === "string"
-            ? (kindRaw as any).name
-            : typeof kindRaw === "string"
-              ? kindRaw
-              : null) as string | null;
-
-        try {
-          if (kind === "XYZ") {
-            const leftPdf = typeof destArray[2] === "number" ? destArray[2] : 0;
-            const topPdf = typeof destArray[3] === "number" ? destArray[3] : null;
-            if (topPdf !== null) {
-              const [vx, vy] = viewport.convertToViewportPoint(leftPdf, topPdf);
-              if (Number.isFinite(vy)) targetTop = Math.max(0, pageContainer.offsetTop + vy - 16);
-              if (Number.isFinite(vx)) targetLeft = Math.max(0, vx);
-            }
-          } else if (kind === "FitH" || kind === "FitBH") {
-            const topPdf = typeof destArray[2] === "number" ? destArray[2] : null;
-            if (topPdf !== null) {
-              const [, vy] = viewport.convertToViewportPoint(0, topPdf);
-              if (Number.isFinite(vy)) targetTop = Math.max(0, pageContainer.offsetTop + vy - 16);
-            }
-          }
-        } catch {
-          // Ignore dest parsing issues and fall back to top-of-page scroll.
-        }
-      }
-
-      const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
-      const maxScrollLeft = Math.max(0, container.scrollWidth - container.clientWidth);
-      targetTop = Math.min(Math.max(0, targetTop), maxScrollTop);
-      targetLeft = Math.min(Math.max(0, targetLeft), maxScrollLeft);
-
-      pendingNavRef.current = null;
-      if (pdfNavStabilityEnabledRef.current) {
-        setNavigationMode("programmatic-nav", "toc-pending-nav");
-        isProgrammaticScrollRef.current = true;
-      }
-      isProgrammaticScrollRef.current = true;
-      container.scrollTo({ top: targetTop, left: targetLeft, behavior: "auto" });
-
-      if (pdfNavStabilityEnabledRef.current) {
-        startNavigationSettleCheck(pending.token, targetTop, pageNumber);
-      } else {
-        const timeout = setTimeout(() => {
-          isProgrammaticScrollRef.current = false;
-        }, 300);
-        return () => {
-          clearTimeout(timeout);
-        };
-      }
-      return;
-    }
-
-    // Do not auto-scroll on generic pageNumber prop changes. Programmatic
-    // navigation must go through pendingNavRef to avoid snap-back loops.
-    return;
-  }, [
-    logNav,
-    pageNumber,
-    numPages,
-    suppressAutoScroll,
-    startNavigationSettleCheck,
-  ]);
+  const processedNavigationRequestRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!navigationRequest || processedNavigationRequestRef.current === navigationRequest.id) return;
+    processedNavigationRequestRef.current = navigationRequest.id;
+    const token = beginExplicitNavigation();
+    activeNavTokenRef.current = token;
+    pendingNavRef.current = { token, pageNumber: navigationRequest.pageNumber, destArray: null };
+    isProgrammaticScrollRef.current = true;
+    applyPendingNavigation();
+  }, [navigationRequest, beginExplicitNavigation, applyPendingNavigation]);
 
   // Track the last restoreRequestId we've processed to detect new restore attempts
   const lastProcessedRestoreIdRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (!restoreState || restoreRequestId === undefined) return;
+    const explicit = restoreRequestId > 0;
+    if (!explicit && !navigationOwnerRef.current.canRestore) return;
+    const ticket = claimRestoreRequest(restoreRequestId);
     const container = scrollContainerRef.current;
     if (!container) return;
 
@@ -3299,14 +3063,13 @@ export function PDFViewer({
       userScrollSignaledRef.current = false;
     }
     lastProcessedRestoreIdRef.current = restoreRequestId;
-    const start = Date.now();
-    const deadline = start + 8000;
     let canceled = false;
-    let settleTimeout: ReturnType<typeof setTimeout> | null = null;
-    let retryTimeout: ReturnType<typeof setTimeout> | null = null;
+    let settleFrame = 0;
 
     const attempt = () => {
-      if (canceled) return;
+      if (canceled || !navigationOwnerRef.current.owns(ticket) || (!explicit && !navigationOwnerRef.current.canRestore)) return;
+      if (mobilePdfMode === "reflow") return;
+      if (restoreState.pdfAnchor && isPhone && mobilePreferences.preferredMobileMode !== "fixed" && isPdfFeatureEnabled("semanticReflow")) return;
       if (userScrolledDuringRestoreRef.current) return;
       const activeContainer = scrollContainerRef.current;
       if (!activeContainer) return;
@@ -3357,12 +3120,7 @@ export function PDFViewer({
         (!!pageEl && pageEl.offsetHeight > 0) ||
         (activeContainer.scrollHeight > 0 && activeContainer.clientHeight > 0);
 
-      if (targetScrollTop === null || !hasEnoughLayout) {
-        if (!userScrolledDuringRestoreRef.current && Date.now() < deadline) {
-          retryTimeout = setTimeout(attempt, 120);
-        }
-        return;
-      }
+      if (targetScrollTop === null || !hasEnoughLayout || (restoreState.dest && !viewport)) return; // geometry callbacks retry
 
       const clamped = Math.min(Math.max(0, targetScrollTop), maxScroll > 0 ? maxScroll : targetScrollTop);
       if (shouldSuppressProgrammaticScroll({
@@ -3378,8 +3136,6 @@ export function PDFViewer({
         });
         return;
       }
-      restoredPageRef.current = clampedPageNumber;
-      restorationWindowRef.current = Date.now() + 2000;
       if (pdfNavStabilityEnabledRef.current) {
         setNavigationMode("programmatic-nav", "restore-request");
       }
@@ -3391,25 +3147,26 @@ export function PDFViewer({
         activeContainer.scrollLeft = Math.min(Math.max(0, targetScrollLeft), maxScrollLeft);
       }
 
-      if (settleTimeout) clearTimeout(settleTimeout);
-      settleTimeout = setTimeout(() => {
+      cancelAnimationFrame(settleFrame);
+      settleFrame = requestAnimationFrame(() => {
+        if (canceled || !navigationOwnerRef.current.owns(ticket) || (!explicit && !navigationOwnerRef.current.canRestore)) return;
+        if (Math.abs(activeContainer.scrollTop - clamped) > 2) return;
         isProgrammaticScrollRef.current = false;
-        if (pdfNavStabilityEnabledRef.current && activeNavTokenRef.current === null) {
-          if (Date.now() >= userScrollLockoutUntilRef.current) {
-            setNavigationMode("idle", "restore-request-complete");
-          }
-        }
-      }, 300);
+        navigationOwnerRef.current.settle(ticket);
+        setNavigationMode("idle", "initial-restoration-verified");
+        onInitialRestoreComplete?.();
+      });
     };
 
+    initialRestoreAttemptRef.current = attempt;
     attempt();
 
     return () => {
       canceled = true;
-      if (retryTimeout) clearTimeout(retryTimeout);
-      if (settleTimeout) clearTimeout(settleTimeout);
+      initialRestoreAttemptRef.current = null;
+      cancelAnimationFrame(settleFrame);
     };
-  }, [logNav, numPages, restoreRequestId, restoreState, setNavigationMode]);
+  }, [logNav, mobilePdfMode, numPages, onInitialRestoreComplete, restoreRequestId, restoreState, setNavigationMode, claimRestoreRequest]);
 
   // Reset restore tracking when restoreState becomes null (restoration complete/cancelled)
   useEffect(() => {
@@ -3427,6 +3184,7 @@ export function PDFViewer({
   };
 
   const handlePrevPage = () => {
+    const token = beginExplicitNavigation();
     if (mobilePdfMode === "fixed" && mobilePreferences.fixedMobileMode === "columns" && fixedColumnIndexRef.current > 0) {
       fixedColumnIndexRef.current -= 1;
       const container = scrollContainerRef.current;
@@ -3439,7 +3197,6 @@ export function PDFViewer({
         if (scrollReflowToPage(nextPageNumber)) return;
         setMobilePdfMode("fixed");
       }
-      const token = ++navTokenCounterRef.current;
       activeNavTokenRef.current = token;
       pendingNavRef.current = { token, pageNumber: nextPageNumber, destArray: null };
       if (pdfNavStabilityEnabledRef.current) {
@@ -3451,6 +3208,7 @@ export function PDFViewer({
   };
 
   const handleNextPage = () => {
+    const token = beginExplicitNavigation();
     if (mobilePdfMode === "fixed" && mobilePreferences.fixedMobileMode === "columns" && fixedColumnIndexRef.current < mobilePreferences.fixedColumns - 1) {
       fixedColumnIndexRef.current += 1;
       const container = scrollContainerRef.current;
@@ -3464,7 +3222,6 @@ export function PDFViewer({
         if (scrollReflowToPage(nextPageNumber)) return;
         setMobilePdfMode("fixed");
       }
-      const token = ++navTokenCounterRef.current;
       activeNavTokenRef.current = token;
       pendingNavRef.current = { token, pageNumber: nextPageNumber, destArray: null };
       if (pdfNavStabilityEnabledRef.current) {
@@ -3488,11 +3245,11 @@ export function PDFViewer({
     if (!Number.isFinite(targetPage)) return;
     const clamped = Math.max(effectiveStartPage, Math.min(effectiveEndPage, targetPage));
     if (clamped === pageNumber) return;
+    const token = beginExplicitNavigation();
     if (mobilePdfMode === "reflow") {
       if (scrollReflowToPage(clamped)) return;
       setMobilePdfMode("fixed");
     }
-    const token = ++navTokenCounterRef.current;
     activeNavTokenRef.current = token;
     pendingNavRef.current = { token, pageNumber: clamped, destArray: null };
     if (pdfNavStabilityEnabledRef.current) {
@@ -3541,17 +3298,36 @@ export function PDFViewer({
   }, [pdf, numPages]);
 
   const handleTocClick = useCallback(async (dest: any) => {
+    const owner = navigationOwnerRef.current;
+    const ticket = owner.beginToc();
+    announceReaderNavigation(scrollContainerRef.current);
+    pendingSearchScrollRef.current = null;
+    onNavigationStartRef.current?.();
+    userScrolledDuringRestoreRef.current = true;
+    isRestoringPositionRef.current = false;
+    pendingNavRef.current = null;
+    userScrollLockoutUntilRef.current = 0;
     const requestToken = ++navTokenCounterRef.current;
+    activeNavTokenRef.current = requestToken;
     navOriginRef.current = "toc";
     latestTocRequestTokenRef.current = requestToken;
+    const abandon = () => {
+      if (latestTocRequestTokenRef.current !== requestToken) return;
+      activeNavTokenRef.current = null;
+      latestTocRequestTokenRef.current = null;
+      pendingNavRef.current = null;
+      isProgrammaticScrollRef.current = false;
+      owner.settle(ticket);
+    };
     const resolved = await resolveOutlineDest(dest);
     if (!resolved) {
-      if (pdfNavStabilityEnabledRef.current && latestTocRequestTokenRef.current !== requestToken) {
+      if (latestTocRequestTokenRef.current !== requestToken) {
         logNav("stale-toc-resolve-ignored", { requestToken, reason: "no-resolved-destination" });
       }
+      abandon();
       return;
     }
-    if (pdfNavStabilityEnabledRef.current && latestTocRequestTokenRef.current !== requestToken) {
+    if (latestTocRequestTokenRef.current !== requestToken) {
       logNav("stale-toc-resolve-ignored", {
         requestToken,
         latestToken: latestTocRequestTokenRef.current,
@@ -3562,22 +3338,63 @@ export function PDFViewer({
     const nextPageNumber = resolved.pageIndex + 1;
     if (nextPageNumber < effectiveStartPage || nextPageNumber > effectiveEndPage) {
       console.warn("TOC click is out of bounds for the current chunk:", nextPageNumber);
+      abandon();
       return;
     }
 
+    let zoom: number | null = null;
+    const container = scrollContainerRef.current;
+    if (mobilePdfMode === "fixed" && onScaleChange && container && pdf) {
+      let page;
+      try { page = await pdf.getPage(nextPageNumber); }
+      catch (error) { abandon(); console.warn("Unable to load PDF destination", error); return; }
+      if (latestTocRequestTokenRef.current !== requestToken) return;
+      zoom = pdfDestinationScale(resolved.destArray, page.getViewport({ scale: 1 }), container.clientWidth, container.clientHeight);
+      if (zoom !== null) {
+        setZoomMode("custom");
+        onZoomModeChange?.("custom");
+        onScaleChange(zoom);
+      }
+    }
     activeNavTokenRef.current = requestToken;
-    pendingNavRef.current = { token: requestToken, pageNumber: nextPageNumber, destArray: resolved.destArray };
+    pendingNavRef.current = { token: requestToken, pageNumber: nextPageNumber, destArray: resolved.destArray, requestedZoom: zoom };
     if (pdfNavStabilityEnabledRef.current) {
       setNavigationMode("programmatic-nav", "toc-click");
       isProgrammaticScrollRef.current = true;
     }
     setShowTOC(false);
-    if (mobilePdfMode === "reflow") {
-      if (scrollReflowToPage(nextPageNumber)) return;
-      setMobilePdfMode("fixed");
-    }
+    setNavigationRevision(requestToken);
     onPageChange?.(nextPageNumber);
-  }, [logNav, mobilePdfMode, onPageChange, resolveOutlineDest, scrollReflowToPage, setNavigationMode, effectiveStartPage, effectiveEndPage]);
+    if (mobilePdfMode === "fixed") applyPendingNavigation();
+  }, [logNav, mobilePdfMode, onPageChange, applyPendingNavigation, resolveOutlineDest, setNavigationMode, effectiveStartPage, effectiveEndPage, onScaleChange, onZoomModeChange, pdf]);
+
+  useEffect(() => {
+    const pending = pendingNavRef.current;
+    if (mobilePdfMode !== "reflow" || !pending || !pdf) return;
+    let cancelled = false;
+    void (async () => {
+      const page = await pdf.getPage(pending.pageNumber);
+      if (cancelled || activeNavTokenRef.current !== pending.token) return;
+      const canonical = canonicalPages.get(pending.pageNumber);
+      const prototype = reflowDocument?.pages[pending.pageNumber];
+      if (canonical?.state !== "ready" && prototype?.state !== "ready") return; // analysis callback reruns
+      const viewport = page.getViewport({ scale: 1 });
+      const blockId = pending.destArray
+        ? pdfReflowDestinationBlock(pending.destArray, viewport, canonical?.blocks, prototype?.blocks)
+        : null;
+      if (pending.destArray && !blockId) return;
+      const container = scrollContainerRef.current;
+      const target = blockId ? Array.from(container?.querySelectorAll<HTMLElement>("[data-pdf-reflow-block]") ?? []).find((element) => element.dataset.pdfReflowBlock === blockId)
+        : container?.querySelector<HTMLElement>(`[data-pdf-reflow-page="${pending.pageNumber}"]`);
+      if (!target || !container) return;
+      const top = Math.max(0, Math.min(container.scrollHeight - container.clientHeight,
+        container.scrollTop + target.getBoundingClientRect().top - container.getBoundingClientRect().top - 16));
+      isProgrammaticScrollRef.current = true;
+      container.scrollTo({ top, behavior: "auto" });
+      if (Math.abs(container.scrollTop - top) <= 2) completeProgrammaticNavigation(pending.token);
+    })();
+    return () => { cancelled = true; };
+  }, [mobilePdfMode, navigationRevision, canonicalPages, reflowDocument, pdf, completeProgrammaticNavigation]);
 
   const handleZoomModeChange = (mode: ZoomMode) => {
     setZoomMode(mode);
@@ -3755,7 +3572,7 @@ export function PDFViewer({
       handleNextPage();
     } else if (e.key === "Home") {
       e.preventDefault();
-      const token = ++navTokenCounterRef.current;
+      const token = beginExplicitNavigation();
       activeNavTokenRef.current = token;
       pendingNavRef.current = { token, pageNumber: effectiveStartPage, destArray: null };
       if (pdfNavStabilityEnabledRef.current) {
@@ -3765,7 +3582,7 @@ export function PDFViewer({
       onPageChange?.(effectiveStartPage);
     } else if (e.key === "End") {
       e.preventDefault();
-      const token = ++navTokenCounterRef.current;
+      const token = beginExplicitNavigation();
       activeNavTokenRef.current = token;
       pendingNavRef.current = { token, pageNumber: effectiveEndPage, destArray: null };
       if (pdfNavStabilityEnabledRef.current) {
@@ -3908,31 +3725,20 @@ export function PDFViewer({
   const shouldVirtualize = (ENABLE_PDF_VIRTUALIZATION && numPages > VIRTUALIZATION_THRESHOLD_PAGES) || effectiveStartPage > 1 || effectiveEndPage < numPages;
   const virtualStartPage = shouldVirtualize ? Math.max(effectiveStartPage, pageNumber - VIRTUAL_WINDOW_PAGES) : effectiveStartPage;
   const virtualEndPage = shouldVirtualize ? Math.min(effectiveEndPage, pageNumber + VIRTUAL_WINDOW_PAGES) : effectiveEndPage;
-  const currentScaleEstimate = pageScaleRefs.current[Math.max(0, pageNumber - 1)] ?? scale;
-  const estimatedPageHeight = Math.max(400, (fallbackPageSize?.height ?? 1100) * currentScaleEstimate);
-  const estimatedPageStride = estimatedPageHeight + PAGE_GAP_PX;
-  const topSpacerHeight = shouldVirtualize ? (virtualStartPage - 1) * estimatedPageStride : 0;
-  const bottomSpacerHeight = shouldVirtualize ? (numPages - virtualEndPage) * estimatedPageStride : 0;
+  const cachedPageOffsets = useMemo(() => {
+    void pageGeometryRevision;
+    return buildPdfPageOffsets(numPages, fallbackPageSize?.height ?? 1100, pageHeightCacheRef.current, resolvedScale, PAGE_GAP_PX);
+  }, [pageGeometryRevision, numPages, fallbackPageSize, resolvedScale]);
+  const topSpacerHeight = shouldVirtualize ? cachedPageOffsets[virtualStartPage - 1] : 0;
+  const bottomSpacerHeight = shouldVirtualize ? cachedPageOffsets[numPages] - cachedPageOffsets[virtualEndPage] : 0;
 
   const recomputePageOffsets = useCallback(() => {
     if (offsetsUpdateRafRef.current !== null) return;
     offsetsUpdateRafRef.current = requestAnimationFrame(() => {
       offsetsUpdateRafRef.current = null;
-      const offsets: number[] = new Array(numPages).fill(0);
-      let runningOffset = 0;
-      for (let i = 0; i < numPages; i += 1) {
-        const el = pageContainerRefs.current[i];
-        if (el) {
-          runningOffset = el.offsetTop;
-          offsets[i] = runningOffset;
-        } else if (i > 0) {
-          runningOffset = offsets[i - 1] + estimatedPageStride;
-          offsets[i] = runningOffset;
-        }
-      }
-      pageOffsetsRef.current = offsets;
+      pageOffsetsRef.current = cachedPageOffsets.slice(0, numPages).map((offset, index) => pageContainerRefs.current[index]?.offsetTop ?? offset);
     });
-  }, [estimatedPageStride, numPages]);
+  }, [cachedPageOffsets, numPages]);
   // Wire the forward ref so PdfPageViewWrapper's onViewportChange can trigger
   // a page-offset recompute (scroll math depends on rendered page sizes).
   recomputePageOffsetsRef.current = recomputePageOffsets;
@@ -3962,7 +3768,7 @@ export function PDFViewer({
     // Recompute again shortly to catch late layout (fonts, text layer, etc).
     const t = setTimeout(() => recomputePageOffsets(), 150);
     return () => clearTimeout(t);
-  }, [numPages]);
+  }, [numPages, recomputePageOffsets]);
 
   // Sync scroll position
   const handleScroll = () => {
@@ -3980,7 +3786,7 @@ export function PDFViewer({
     scrollRafRef.current = requestAnimationFrame(() => {
       scrollRafRef.current = null;
       if (isProgrammaticScrollRef.current) return;
-      markUserScrollOwnership("user-scroll");
+      if (navigationOwnerRef.current.state === "initial-restoration") markUserScrollOwnership("user-scroll");
 
       // User scrolled. If we're still trying to restore, don't snap them back later.
       if (restoreState && restoreRequestId !== undefined) {
@@ -3995,23 +3801,8 @@ export function PDFViewer({
       let currentPage = getCurrentPageFromScrollTop(scrollTop);
 
       if (currentPage !== pageNumber && !suppressAutoScroll) {
-        // Check if we're in a restoration protection window
-        const now = Date.now();
-        const isInRestorationWindow = now < restorationWindowRef.current;
-        const restoredPage = restoredPageRef.current;
-
-        // Block backward page changes during restoration window to prevent reset to page 1
-        if (isInRestorationWindow && restoredPage !== null && currentPage < restoredPage) {
-          // Ignore transient "current page" changes while restoring.
-          currentPage = restoredPage;
-        } else {
-          // Clear restoration tracking if we've moved past the window or forward
-          if (!isInRestorationWindow) {
-            restoredPageRef.current = null;
-          }
-          pageUpdateFromScrollRef.current = true;
-          onPageChange?.(currentPage);
-        }
+        pageUpdateFromScrollRef.current = true;
+        onPageChange?.(currentPage);
       }
 
       let dest: PdfDest | null = null;
@@ -4021,7 +3812,7 @@ export function PDFViewer({
       const pageScale = pageScaleRefs.current[pageIndex] ?? scale;
       if (pageEl && viewport) {
         const relativeTop = Math.max(0, scrollTop - pageEl.offsetTop);
-        const relativeLeft = Math.max(0, container.scrollLeft);
+        const relativeLeft = Math.max(0, container.scrollLeft - pageEl.offsetLeft);
         const [pdfX, pdfY] = viewport.convertToPdfPoint(relativeLeft, relativeTop);
         dest = {
           kind: "XYZ",
@@ -4063,6 +3854,8 @@ export function PDFViewer({
       }
     });
   };
+  publishNavigationPositionRef.current = mobilePdfMode === "reflow" ? handleReflowScroll : handleScroll;
+
 
   return (
     <div

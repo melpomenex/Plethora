@@ -1,52 +1,30 @@
 ## Context
 
-The PDF viewer currently applies programmatic scroll restoration while content is still being laid out and virtualized. This competes with user-driven scroll input and can force viewport jumps. TOC navigation appears to trigger multiple destination/position updates during page load, causing visible load/unload churn and unstable final position.
+See proposal.md. The original implementation used temporary scroll lockouts, page-number-driven pending navigation, and settle polling. Those mechanisms could finish without resolving a heading and could expire before stale restoration ran. Existing EPUB navigation and reader TTS contracts are amended in their original pending changes rather than duplicated.
 
 ## Goals / Non-Goals
 
-**Goals:**
-- Stabilize viewport behavior so user scroll input remains authoritative after direct interaction.
-- Make TOC navigation deterministic by resolving a destination once and converging to that destination without extra jumps.
-- Prevent virtualization and late render updates from overriding an already-stable viewport.
-- Define measurable acceptance criteria for scroll and TOC stability.
+**Goals:** A small authority model shared by readers, exact anchor resolution, cancellable asynchronous rendering, one initial restoration owner, event-driven readiness, and preservation of continuous and paginated behavior.
 
-**Non-Goals:**
-- Redesigning the PDF UI/controls or TOC presentation.
-- Changing PDF parsing engines or introducing a new document format pipeline.
-- Tuning unrelated performance areas outside navigation/viewport state handling.
+**Non-Goals:** Reader UI redesign, a PDF engine replacement, or changing persisted position formats.
 
 ## Decisions
 
-1. Introduce a navigation state machine with explicit modes: `idle`, `user-scroll`, and `programmatic-nav`.
-- Rationale: Centralizes ownership of scroll position and removes race conditions between user input and internal restoration logic.
-- Alternative considered: keep existing event handlers and add debounce/throttle guards only. Rejected because it reduces frequency but does not remove conflicting write paths.
-
-2. Add a scroll ownership lockout window after user input.
-- Rationale: After wheel/touch/drag/keyboard scroll, programmatic viewport writes are suppressed unless they are tied to an explicit user-triggered TOC navigation still in progress.
-- Alternative considered: always allow programmatic writes and prefer latest timestamp. Rejected because render churn can still win over user intent.
-
-3. Make TOC navigation a single-flight action keyed by navigation token.
-- Rationale: Each TOC click creates one active navigation token; only events tied to the active token may update viewport. Late events from previous tokens are ignored.
-- Alternative considered: cancel in-flight rendering. Rejected due to higher implementation risk in rendering pipeline; token gating is lower-risk and sufficient.
-
-4. Anchor destination using page+offset and settle criteria.
-- Rationale: Navigation completes only after destination page is rendered and viewport is within threshold of target offset for a short stable interval.
-- Alternative considered: mark complete immediately after first scrollTo call. Rejected due to frequent post-render corrections that cause jumps.
+1. Use explicit `initial-restoration`, `user-scroll`, `toc-navigation`, and `idle` states with monotonically increasing identities. Direct input and explicit navigation permanently revoke initial-restoration eligibility for the reader lifetime. A new navigation may interrupt user-scroll. Settling never re-enables restoration. Reject time-based authority expiration.
+2. PDF TOC claims ownership before asynchronous destination lookup. Apply destinations independently of React page-number changes. Render/slot callbacks supply real page geometry; virtual placeholders cannot settle navigation. Verify actual clamped arrival in a layout frame. Map XYZ/Fit/FitH/FitBH/FitV/FitBV/FitR with PDF.js viewport conversion, including rotation, crop boxes, explicit XYZ zoom, and fit zoom derived from the scale-1 rotated viewport. Wait for the requested scale before applying coordinates.
+3. Reflow resolves destination source coordinates against canonical source regions or prototype source rectangles, then scrolls the corresponding rendered block. Delayed analysis reruns only a still-active request. Page-level destinations may use a page section. Do not switch to fixed mode simply because analysis is pending.
+4. EPUB fragments load the resolved spine document and become CFIs for the actual ID/name node. No index or chapter-only fallback may discard an anchor. Queue real display completion rather than epub.js's prematurely resolved display deferred; reject obsolete queued work and suppress in-flight stale manager scroll writes. Align the mounted continuous heading with 16px padding. Paginated CFIs retain column/page geometry.
+5. Actual geometry changes may resize EPUB using the live CFI; relocation and a quiet-period timer cannot trigger redisplay. Install adapters after `rendition.started` creates the manager. Guard the engine's own resize path as well; geometry changes during TOC ownership defer until they can preserve that heading CFI. Iframe direct input is observed inside its document. Only paginated mode interprets vertical flicks as page turns; selection and horizontal back gestures remain available.
+6. DocumentViewer selects initial saved/URL state; PDFViewer owns readiness and arrival verification. Parent verification/retry loops are removed. Standalone PDF fallback runs once per loaded document and uses geometry callbacks. Navigation-start and direct-input callbacks cancel the parent even for same-page TOC navigation. Completion persists the reached position and only the successful latest TOC synchronizes TTS. Returning to a mounted PDF tab cannot replay saved state. Retain measured page heights through virtualization and reuse their prefix offsets instead of replacing them with estimates.
+7. TTS follow observes real input inside EPUB documents and pauses immediately, including during programmatic-arrival grace. A navigation-start event scoped to the reader cancels queued follow before asynchronous destination resolution. Re-center remains the explicit way to resume follow. Existing audiobook sync remains a separate explicit host-controlled workflow.
 
 ## Risks / Trade-offs
 
-- [Additional state complexity] -> Mitigation: keep a small explicit state machine with invariant checks and debug logging behind a flag.
-- [Edge cases for very large PDFs] -> Mitigation: add integration tests with virtualization-heavy docs and stress scrolling.
-- [Possible delay before final settle on TOC jump] -> Mitigation: bounded settle timeout with graceful fallback to nearest stable position.
+- [EPUB engine internals] → Small adapter, queued/in-flight regression tests, pinned epub.js API, and real Android matrix. Native manager trimming outside display work stays available.
+- [Malformed EPUB anchors] → Report a missing heading instead of claiming successful chapter-only navigation.
+- [Missing PDF semantic blocks] → Wait for analysis readiness while the request owns the viewport; manual input cancels it. Device verification must include OCR and sparse reflow documents.
+- [Physical WebView timing] → Automated jsdom tests cannot certify Android selection handles, renderer layout, inertia or system back gestures. All such rows stay pending until performed.
 
 ## Migration Plan
 
-1. Implement behind an internal feature flag for PDF navigation stability.
-2. Add unit and integration coverage for scroll ownership and TOC single-flight behavior.
-3. Enable by default after validation on representative PDFs.
-4. Rollback strategy: disable feature flag to revert to legacy behavior if regressions are found.
-
-## Open Questions
-
-- Should keyboard page navigation be treated as `user-scroll` ownership or explicit programmatic navigation mode?
-- What settle threshold (pixels/time window) produces best stability across zoom levels?
+No data migration. Replace conflicting writer paths in place. Keep existing specifications, bookmark and saved-position formats. Run focused reader tests, TypeScript, relevant lint, local benchmark/bundle gate, and OpenSpec validation. Archive only after the outstanding device validation is performed or explicitly deferred by the user.

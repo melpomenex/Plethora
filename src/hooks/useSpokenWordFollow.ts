@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { observeReaderInput, READER_NAVIGATION_EVENT } from "../lib/readerNavigation";
 import { SPOKEN_WORD_HIGHLIGHT_SELECTORS } from "../utils/spokenWordHighlightSelectors";
 
 /**
@@ -226,17 +227,25 @@ export function useSpokenWordFollow(options: UseSpokenWordFollowOptions): Spoken
       userScrollingRef.current = true;
       setPausedByUser(true);
     };
-    const handleUserGesture = () => endProgrammaticScroll();
+    const handleUserGesture = () => {
+      endProgrammaticScroll();
+      if (debounceRef.current) { clearTimeout(debounceRef.current); debounceRef.current = null; }
+      userScrollingRef.current = true;
+      setPausedByUser(true);
+    };
 
     container.addEventListener("scroll", handleScroll, { passive: true });
-    container.addEventListener("wheel", handleUserGesture, { passive: true });
-    container.addEventListener("pointerdown", handleUserGesture, { passive: true });
-    container.addEventListener("keydown", handleUserGesture);
+    container.addEventListener(READER_NAVIGATION_EVENT, handleUserGesture);
+    const targets = new Set<EventTarget>([container]);
+    for (const content of containers) {
+      // Same-origin EPUB iframe input does not bubble to the outer reader.
+      if (content?.ownerDocument && content.ownerDocument !== document) targets.add(content.ownerDocument);
+    }
+    const stopInput = [...targets].map((target) => observeReaderInput(target, handleUserGesture));
     return () => {
       container.removeEventListener("scroll", handleScroll);
-      container.removeEventListener("wheel", handleUserGesture);
-      container.removeEventListener("pointerdown", handleUserGesture);
-      container.removeEventListener("keydown", handleUserGesture);
+      container.removeEventListener(READER_NAVIGATION_EVENT, handleUserGesture);
+      stopInput.forEach((stop) => stop());
     };
   }, [enabled, active, wordKey, containers, findActiveTarget, endProgrammaticScroll]);
 
