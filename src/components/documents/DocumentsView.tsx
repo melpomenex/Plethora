@@ -3888,6 +3888,7 @@ function LibraryCard({
   const modal = useModal();
   const { t } = useI18n();
   const coverUrl = getDocumentCoverUrl(doc);
+  const fitEpubCoverToMobileFrame = isMobile && doc.fileType === "epub";
   const CoverIcon = getCoverFallbackIcon(doc.fileType);
   const progress = doc.progressPercent ?? 0;
   const [ctxPos, setCtxPos] = useState<{ x: number; y: number } | null>(null);
@@ -4061,7 +4062,12 @@ function LibraryCard({
         {/* Cover */}
         <div className="relative h-[160px] sm:h-[180px] overflow-hidden rounded-t-xl bg-muted/40">
           {coverUrl ? (
-            <img src={coverUrl} alt={doc.title} className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy" />
+            <img
+              src={coverUrl}
+              alt={doc.title}
+              className={`h-full w-full ${fitEpubCoverToMobileFrame ? "object-contain" : "object-cover group-hover:scale-105 transition-transform duration-300"}`}
+              loading="lazy"
+            />
           ) : (
             <div className="h-full w-full flex flex-col items-center justify-center gap-2">
               <div className={"absolute inset-0 " + coverFallbackGradient(doc.fileType)} />

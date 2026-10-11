@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { DocumentsView } from "../DocumentsView";
 
+const mobileShellState = vi.hoisted(() => ({ enabled: false }));
+
 // ---- Mock data ----
 
 const mockDocuments = [
@@ -228,6 +230,10 @@ vi.mock("../../../hooks/useMarkdownBundleImport", () => ({
   useMarkdownBundleImport: () => ({ importBundle: vi.fn() }),
 }));
 
+vi.mock("../../../hooks/useMobileShell", () => ({
+  useMobileShell: () => mobileShellState.enabled,
+}));
+
 vi.mock("../../../utils/ankiImport", () => ({
   importAnkiPackage: vi.fn(),
 }));
@@ -259,6 +265,7 @@ describe("DocumentsView grid mode", () => {
     documentStoreValues.documents = mockDocuments;
     settingsStoreValues.settings.interface.compactDocumentsView = false;
     settingsStoreValues.updateSettingsCategory.mockClear();
+    mobileShellState.enabled = false;
   });
 
   it("renders all document titles in grid", () => {
@@ -277,6 +284,54 @@ describe("DocumentsView grid mode", () => {
     expect(screen.getAllByText("epub").length).toBeGreaterThan(0);
     expect(screen.getAllByText("markdown").length).toBeGreaterThan(0);
     expect(screen.getAllByText("youtube").length).toBeGreaterThan(0);
+  });
+
+  it("fits EPUB covers inside mobile dashboard cards without hover zoom", () => {
+    mobileShellState.enabled = true;
+    documentStoreValues.documents = mockDocuments.map((doc) =>
+      doc.id === "doc-2"
+        ? { ...doc, coverImageUrl: "data:image/png;base64,AA==" }
+        : doc
+    );
+
+    const { container } = render(<DocumentsView enableYouTubeImport={false} />);
+    const covers = Array.from(
+      container.querySelectorAll<HTMLImageElement>(
+        '.snap-start img[alt="Machine Learning Guide"]'
+      )
+    );
+
+    expect(covers.length).toBeGreaterThan(0);
+    for (const cover of covers) {
+      expect(cover).toHaveClass("object-contain");
+      expect(cover).not.toHaveClass("object-cover");
+      expect(cover).not.toHaveClass("group-hover:scale-105");
+      expect(cover.parentElement?.className).toContain("h-[160px] sm:h-[180px]");
+    }
+  });
+
+  it("preserves desktop EPUB and mobile non-EPUB cover behavior", () => {
+    documentStoreValues.documents = mockDocuments.map((doc) =>
+      doc.id === "doc-1" || doc.id === "doc-2"
+        ? { ...doc, coverImageUrl: "data:image/png;base64,AA==" }
+        : doc
+    );
+
+    const desktop = render(<DocumentsView enableYouTubeImport={false} />);
+    const desktopEpubCover = desktop.container.querySelector(
+      '.snap-start img[alt="Machine Learning Guide"]'
+    );
+    expect(desktopEpubCover).toHaveClass("object-cover");
+    expect(desktopEpubCover).toHaveClass("group-hover:scale-105");
+    desktop.unmount();
+
+    mobileShellState.enabled = true;
+    const mobile = render(<DocumentsView enableYouTubeImport={false} />);
+    const mobilePdfCover = mobile.container.querySelector(
+      '.snap-start img[alt="Linear Algebra Textbook"]'
+    );
+    expect(mobilePdfCover).toHaveClass("object-cover");
+    expect(mobilePdfCover).toHaveClass("group-hover:scale-105");
   });
 
   it("shows file type filter dropdown", () => {
