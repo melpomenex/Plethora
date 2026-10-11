@@ -125,6 +125,7 @@ describe("MainLayout applies Default View after a restored session", () => {
 
   afterEach(() => {
     cleanup();
+    vi.useRealTimers();
   });
 
   it("focuses the configured default view without discarding the restored tabs", async () => {
@@ -162,8 +163,11 @@ describe("MainLayout applies Default View after a restored session", () => {
 
   it("starts the shared postpone session from the main mobile shell once", async () => {
     mobileShell.enabled = true;
+    vi.useFakeTimers();
     render(<MainLayout />);
 
-    await waitFor(() => expect(autoPostpone.run).toHaveBeenCalledTimes(1));
+    expect(autoPostpone.run).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(2_000);
+    expect(autoPostpone.run).toHaveBeenCalledTimes(1);
   });
 });

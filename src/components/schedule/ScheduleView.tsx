@@ -20,7 +20,6 @@ import {
 import { useToast } from "../common/Toast";
 import { cn } from "../../utils";
 import { subscribeItemTagsUpdated } from "../../lib/tagEditing/itemTagEvents";
-import { runAutoPostponeSession } from "../../lib/autoPostponeSession";
 
 interface ScheduleViewProps {
   isMobile?: boolean;
@@ -160,7 +159,6 @@ export function ScheduleView({
     setIsLoading(true);
     setLoadError(null);
     try {
-      await runAutoPostponeSession();
       const [forecastData, queueItems] = await Promise.all([
         getWorkloadForecast(90),
         getQueue(),

@@ -45,6 +45,11 @@ import { cn } from "../../utils";
 import { runAutoPostponeSession } from "../../lib/autoPostponeSession";
 const PaywallModal = lazy(() => import("../monetization/PaywallModal").then(({ PaywallModal: modal }) => ({ default: modal })));
 
+// Auto-postpone scans the full scheduled backlog and may write many rows. Give
+// the mobile shell time to paint and finish its first library/settings loads
+// before starting that background work.
+const AUTO_POSTPONE_BOOT_DELAY_MS = 2_000;
+
 const TAB_TYPE_ALIASES: Record<string, TabType> = {
   dash: "dashboard", dashboard: "dashboard", home: "dashboard",
   docs: "documents", documents: "documents", doc: "documents",
@@ -319,9 +324,12 @@ export function MainLayout() {
     void ensureStartup("queue", { queueMode: "due-today" });
   }, [ensureStartup, activeCollectionId]);
 
-  // Queue and Schedule join one settings-aware operation for this app process.
+  // Let initial mobile library/settings requests settle before the session scan.
   useEffect(() => {
-    void runAutoPostponeSession();
+    const timer = window.setTimeout(() => {
+      void runAutoPostponeSession();
+    }, AUTO_POSTPONE_BOOT_DELAY_MS);
+    return () => window.clearTimeout(timer);
   }, []);
 
   // Background update check on startup (desktop only). Runs once, after a
