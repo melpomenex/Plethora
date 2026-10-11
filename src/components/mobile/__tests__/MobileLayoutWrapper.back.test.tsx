@@ -14,7 +14,10 @@ import {
   resetOverlayStackForTests,
 } from "../../../lib/overlayStack";
 
-const { useEdgeSwipeBackMock } = vi.hoisted(() => ({ useEdgeSwipeBackMock: vi.fn() }));
+const { useEdgeSwipeBackMock, startNativeBackBridgeMock } = vi.hoisted(() => ({
+  useEdgeSwipeBackMock: vi.fn(),
+  startNativeBackBridgeMock: vi.fn(() => vi.fn()),
+}));
 
 vi.mock("../../../hooks/useEdgeSwipeBack", () => ({
   useEdgeSwipeBack: useEdgeSwipeBackMock,
@@ -22,6 +25,10 @@ vi.mock("../../../hooks/useEdgeSwipeBack", () => ({
 
 vi.mock("../../../hooks/useMobileShell", () => ({
   useMobileShell: () => true,
+}));
+
+vi.mock("../../../lib/nativeBackBridge", () => ({
+  startNativeBackBridge: startNativeBackBridgeMock,
 }));
 
 vi.mock("../MobileNavigation", () => ({
@@ -37,6 +44,7 @@ describe("MobileLayoutWrapper back dispatch", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     useEdgeSwipeBackMock.mockClear();
+    startNativeBackBridgeMock.mockClear();
     resetContextualBackHandlersForTests();
     resetOverlayStackForTests();
   });
@@ -96,5 +104,6 @@ describe("MobileLayoutWrapper back dispatch", () => {
     expect(contextual).not.toHaveBeenCalled();
     expect(event.defaultPrevented).toBe(false);
     expect(useEdgeSwipeBackMock).toHaveBeenLastCalledWith(expect.any(Function), { disabled: true });
+    expect(startNativeBackBridgeMock).toHaveBeenCalledOnce();
   });
 });

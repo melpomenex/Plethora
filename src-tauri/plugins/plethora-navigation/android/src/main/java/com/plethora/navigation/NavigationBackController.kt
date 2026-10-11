@@ -31,7 +31,6 @@ object NavigationBackController {
     private var resumed = false
     private var startedAt = 0L
     private val timeoutToken = Any()
-    private val startupToken = Any()
     private var lastDiagnosticAt = 0L
     private var recoveryDialog: AlertDialog? = null
     private val acknowledged = LinkedHashMap<String, String>()
@@ -53,15 +52,14 @@ object NavigationBackController {
         }
         callback = next
         diagnostic("controller-installed")
+        // Do not show recovery solely because the WebView is still booting.
+        // Cold starts can legitimately outlast STARTUP_GRACE_MS; recovery is
+        // requested by an actual Back input or a failed in-flight request.
         activity.onBackPressedDispatcher.addCallback(activity, next)
-        main.postAtTime({
-            if (!isReady() && activityRef?.get() === activity) showRecovery()
-        }, startupToken, SystemClock.uptimeMillis() + STARTUP_GRACE_MS)
     }
 
     fun uninstall() = onMain {
         main.removeCallbacksAndMessages(timeoutToken)
-        main.removeCallbacksAndMessages(startupToken)
         callback?.remove()
         callback = null
         inFlight = null

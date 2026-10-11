@@ -17,7 +17,6 @@ import { AdaptiveAppScaffold } from "../layout/AdaptiveAppScaffold";
 import { requestApplicationBack } from "../../lib/applicationBack";
 import { nativePlatform } from "../../lib/tauri";
 import { startNativeBackBridge } from "../../lib/nativeBackBridge";
-import { useTabsStore } from "../../stores/tabsStore";
 
 interface MobileLayoutWrapperProps {
   children: React.ReactNode;
@@ -27,7 +26,6 @@ export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
   const queueItems = useQueueStore((state) => state.items);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const isMobile = useMobileShell();
-  const navigationReady = useTabsStore((state) => state.navigationReady);
   const isNativeAndroid = nativePlatform()?.toLowerCase() === "android";
 
   // --- Global mobile back gesture ---
@@ -70,9 +68,12 @@ export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
   }, []);
 
   useEffect(() => {
-    if (!isNativeAndroid || !navigationReady) return;
+    // Attach the native transport as soon as the shell exists. Waiting for
+    // tab restoration makes a slow cold start look like a broken navigation
+    // session to the Android controller.
+    if (!isNativeAndroid) return;
     return startNativeBackBridge();
-  }, [isNativeAndroid, navigationReady]);
+  }, [isNativeAndroid]);
 
   useEffect(() => {
     const handleSystemBack = (event: Event) => {

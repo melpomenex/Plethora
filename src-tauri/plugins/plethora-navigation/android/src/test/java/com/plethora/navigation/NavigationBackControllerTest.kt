@@ -106,6 +106,17 @@ class NavigationBackControllerTest {
         shadowOf(Looper.getMainLooper()).idle()
         assertTrue(ShadowDialog.getLatestDialog().isShowing)
     }
+
+    @Test fun slowStartupDoesNotShowRecoveryBeforeBackIsRequested() {
+        NavigationBackController.uninstall()
+        NavigationBackController.install(host)
+        NavigationBackController.onResume()
+
+        ShadowSystemClock.advanceBy(Duration.ofMillis(STARTUP_GRACE_MS_FOR_TEST))
+        shadowOf(Looper.getMainLooper()).idle()
+
+        assertFalse(ShadowDialog.getLatestDialog()?.isShowing == true)
+    }
     @Test fun predictiveCancellationDoesNotDispatchAndCommitDispatchesOnce() {
         host.onBackPressedDispatcher.dispatchOnBackStarted(BackEventCompat(0f, 100f, 0f, BackEventCompat.EDGE_LEFT))
         host.onBackPressedDispatcher.dispatchOnBackProgressed(BackEventCompat(70f, 100f, 0.5f, BackEventCompat.EDGE_LEFT))
@@ -118,5 +129,9 @@ class NavigationBackControllerTest {
     @Test fun disabledControllerCannotAdvertiseReadySession() {
         NavigationBackController.uninstall()
         assertThrows(IllegalStateException::class.java) { NavigationBackController.attach() }
+    }
+
+    private companion object {
+        const val STARTUP_GRACE_MS_FOR_TEST = 5_001L
     }
 }
