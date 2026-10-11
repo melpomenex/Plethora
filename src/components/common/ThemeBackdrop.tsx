@@ -17,15 +17,17 @@ import type { RendererInputs } from "./ambient/renderer/types";
  * their own canvas element inside the host div below.
  */
 export function ThemeBackdrop() {
-  const { theme } = useTheme();
+  const { theme, themes = [], previewThemeId = null } = useTheme();
+  const activeTheme =
+    (previewThemeId !== null && themes.find((t) => t.id === previewThemeId)) || theme;
   const settings = useSettingsStore((s) => s.settings.interface);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const controllerRef = useRef<BackdropController | null>(null);
   const [suspended, setSuspended] = useState(false);
   const [isVisible, setIsVisible] = useState(!document.hidden);
 
-  const animation = theme.effects?.backgroundAnimation;
-  const ambientPaletteId = theme.effects?.ambientPaletteId ?? theme.id;
+  const animation = activeTheme.effects?.backgroundAnimation;
+  const ambientPaletteId = activeTheme.effects?.ambientPaletteId ?? activeTheme.id;
   const { onBattery } = useBattery();
   const density = settings.animationFrequency;
   // Reduce density when on battery (50% reduction)

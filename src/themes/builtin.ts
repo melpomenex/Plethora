@@ -4214,6 +4214,16 @@ export const neonPulseTheme: Theme = {
   },
   effects: { backgroundAnimation: 'cyberhighway' },
   customCSS: `
+    :root[data-theme-id="neon-pulse"] .app-shell {
+      background: rgba(10, 8, 20, 0.6) !important;
+      background-color: rgba(10, 8, 20, 0.6) !important;
+    }
+    :root[data-theme-id="neon-pulse"] .bg-background:not(.app-shell),
+    :root[data-theme-id="neon-pulse"] .main-content,
+    :root[data-theme-id="neon-pulse"] .bg-cream {
+      background: transparent !important;
+      background-color: transparent !important;
+    }
     :root[data-theme-id="neon-pulse"] .sidebar-item-active {
       background: rgba(0, 229, 255, 0.08) !important;
       border-left: 3px solid #00e5ff !important;
@@ -4381,6 +4391,16 @@ export const abyssalDepthsTheme: Theme = {
   },
   effects: { backgroundAnimation: 'bioglow' },
   customCSS: `
+    :root[data-theme-id="abyssal-depths"] .app-shell {
+      background: rgba(3, 10, 16, 0.6) !important;
+      background-color: rgba(3, 10, 16, 0.6) !important;
+    }
+    :root[data-theme-id="abyssal-depths"] .bg-background:not(.app-shell),
+    :root[data-theme-id="abyssal-depths"] .main-content,
+    :root[data-theme-id="abyssal-depths"] .bg-cream {
+      background: transparent !important;
+      background-color: transparent !important;
+    }
     :root[data-theme-id="abyssal-depths"] .sidebar-item-active {
       background: rgba(0, 212, 200, 0.08) !important;
       border-left: 3px solid #00d4c8 !important;
@@ -4535,6 +4555,16 @@ export const goldenHourTheme: Theme = {
   },
   effects: { backgroundAnimation: 'sunbeams' },
   customCSS: `
+    :root[data-theme-id="golden-hour"] .app-shell {
+      background: rgba(20, 16, 8, 0.6) !important;
+      background-color: rgba(20, 16, 8, 0.6) !important;
+    }
+    :root[data-theme-id="golden-hour"] .bg-background:not(.app-shell),
+    :root[data-theme-id="golden-hour"] .main-content,
+    :root[data-theme-id="golden-hour"] .bg-cream {
+      background: transparent !important;
+      background-color: transparent !important;
+    }
     :root[data-theme-id="golden-hour"] .sidebar-item-active {
       background: linear-gradient(135deg, rgba(212, 145, 62, 0.12), rgba(232, 180, 100, 0.06)) !important;
       border-left: 3px solid #d4913e !important;

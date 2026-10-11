@@ -6,10 +6,16 @@ import { ThemeBackdrop } from "../ThemeBackdrop";
 /*  Mocks                                                              */
 /* ------------------------------------------------------------------ */
 
-let mockTheme: { effects?: { backgroundAnimation?: string; ambientPaletteId?: string } };
+let mockTheme: { id?: string; effects?: { backgroundAnimation?: string; ambientPaletteId?: string } };
+let mockThemes: Array<{ id: string; effects?: { backgroundAnimation?: string; ambientPaletteId?: string } }> = [];
+let mockPreviewThemeId: string | null = null;
 
 vi.mock("../../../contexts/ThemeContext", () => ({
-  useTheme: () => ({ theme: mockTheme }),
+  useTheme: () => ({
+    theme: mockTheme,
+    themes: mockThemes,
+    previewThemeId: mockPreviewThemeId,
+  }),
 }));
 
 vi.mock("../../../contexts/BatteryContext", () => ({
@@ -77,6 +83,8 @@ beforeEach(() => {
   rafScheduled = 0;
   cancelled = [];
   mockTheme = {};
+  mockThemes = [];
+  mockPreviewThemeId = null;
   interfaceState.animationsEnabled = true;
   interfaceState.animationFrequency = 1;
   interfaceState.animationBrightness = 12;
@@ -147,6 +155,20 @@ describe("ThemeBackdrop", () => {
     mockTheme = { effects: { backgroundAnimation: "snowfall" } };
     rerender(<ThemeBackdrop />);
     expect(container.querySelectorAll("canvas")).toHaveLength(1);
+  });
+
+  it("renders previewed animated theme when previewThemeId is active", () => {
+    mockTheme = { id: "static-theme" };
+    mockThemes = [
+      { id: "static-theme" },
+      { id: "starwarp", effects: { backgroundAnimation: "starwarp" } },
+    ];
+    const { rerender, container } = render(<ThemeBackdrop />);
+    expect(container.querySelector("canvas")).toBeNull();
+
+    mockPreviewThemeId = "starwarp";
+    rerender(<ThemeBackdrop />);
+    expect(container.querySelector("canvas.theme-backdrop-canvas")).not.toBeNull();
   });
 });
 

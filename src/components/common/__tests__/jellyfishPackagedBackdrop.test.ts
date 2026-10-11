@@ -22,5 +22,7 @@ describe("packaged Jellyfish backdrop contract", () => {
 
     expect(css).toContain(':root[data-theme-animation="jellyfish"] .app-shell');
     expect(css).toContain(':root[data-theme-animation="jellyfish"] .bg-background:not(.app-shell)');
+    expect(css).toContain(':root[data-theme-animation] .app-shell');
+    expect(css).toContain(':root[data-theme-animation] .bg-background:not(.app-shell)');
   });
 });

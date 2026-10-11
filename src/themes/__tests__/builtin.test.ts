@@ -24,4 +24,19 @@ describe("builtInThemes", () => {
       expect(css).toContain(`background: transparent !important;`);
     }
   });
+
+  it("all built-in animated themes define customCSS with shell and layout transparency", () => {
+    const animated = builtInThemes.filter((t) => Boolean(t.effects?.backgroundAnimation));
+    expect(animated.length).toBeGreaterThan(0);
+
+    for (const theme of animated) {
+      expect(theme.customCSS, `Theme ${theme.id} should have customCSS`).toBeDefined();
+      const css = theme.customCSS || "";
+      expect(css, `Theme ${theme.id} should have app-shell rule`).toContain(".app-shell");
+      expect(css, `Theme ${theme.id} should have bg-background:not(.app-shell) rule`).toContain(
+        ".bg-background:not(.app-shell)",
+      );
+      expect(css, `Theme ${theme.id} should have main-content rule`).toContain(".main-content");
+    }
+  });
 });
