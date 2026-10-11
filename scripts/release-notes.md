@@ -1,16 +1,16 @@
 ### Added
-- **Saved Queues** — Create, manage, and persist custom queue presets with customizable filters, sorting, and session goals. Features dedicated toolbar and dropdown integration, quick-switching via Command Palette, and starter presets across 6 locales.
-- **Dynamic Adaptive Queue Engine (DAQE)** — Adaptive queue ranking that dynamically balances cognitive load, urgency, spacing, retention goals, and session targets. Supports decision-model providers including OpenAI and Cloudflare Workers AI with explicit session goal guidance.
-- **Cactus Whistle Speech-to-Text** — Cross-platform on-device speech recognition powered by the Cactus Whistle STT model, with exhaustive native handling across desktop and mobile.
-- **Audio Editions in Queue & Voice Selection** — Listen to long-form content, articles, and PDFs directly in your review queue with multi-part position resume, voice selection, live auditioning, and section synthesis.
-- **Pocket-TTS Runtime Provisioning** — Automatically provision and execute the Pocket-TTS runtime directly from the application via `uv`.
-- **Enhanced Mobile Web & Article Reader** — Generalized selection actions to saved web articles, ranking the most-used actions on mobile and maintaining an active selection bridge across iframes.
-- **Inline Product Showcase** — Added a 49-second animated preview reel directly to documentation showcasing Plethora's core workflows.
+- **Chatterbox Local TTS & Voice Cloning** — Integrated local text-to-speech and zero-shot voice cloning with an OpenAI-compatible API, GPU acceleration probing, and preset integration in the Create Audio Edition dialog.
+- **EmbeddingGemma 2 Multimodal Embeddings** — Added EmbeddingGemma 2 support with Matryoshka Representation Learning (MRL) dimension slicing, dynamic model listing in settings, vision embeddings on mobile, and automated library re-indexing.
+- **Native Mobile Haptics & Feedback Engine** — Complete native haptic feedback foundation for review grading, navigation, pull-to-refresh, and deck management, with a General settings opt-out switch.
+- **Mobile Ask Sheet & Selection Actions** — Bottom-sheet Q&A composer on mobile with passage, document, and library scopes, docked citations, and intelligent gesture handling.
+- **App-Wide Context Menus** — Unified right-click context menu framework delivering surface-tailored actions across documents, decks, review queues, citations, and RSS feeds.
+- **Model Reasoning in Assistant Replies** — Interactive disclosure to inspect internal model thinking tokens and reasoning chains during assistant conversations.
+- **Coordinated Mobile Back Navigation** — Robust multi-layer Android back handling architecture preventing startup races and coordinating drawer, sheet, and tab dismissals.
 
 ### Fixed & Improved
-- **Audio Edition Extraction & Playback** — Support PDF text extraction for Audio Editions, repair section synthesis extraction, improve generation UX, and resolve codec playback errors.
-- **Saved Queue & Review Invariants** — Resolve foreign key errors on saved queues, sync session goals and DAQE presets to settings upon selection, and properly resolve stored queue strategies.
-- **Mobile UI & Styling** — Fix audio edition dialog clipping and tag editor translucency on mobile, repair mobile queue layouts, and prevent raw icon names from rendering as text labels.
-- **Review Fallbacks & Media Controls** — Repair card source fallback navigation, SponsorBlock settings, and narrow command scoping when archiving finished videos.
-- **Linux AppImage Subprocess Environment** — Prevent `PYTHONHOME` from leaking into Python subprocesses, and restore YouTube HTML5 playback in AppImages.
-- **Cross-Platform CI & Packaging Stability** — Extensive build and packaging hardening: Linux runner swap and memory allocation, serial linking with LLD, Windows sparse identity MSIX integration, MSVC build fixes, and Android/iOS build timeout and signing improvements.
+- **Anki Cloze & Package Export** — Correctly map raw cloze markers to native Anki clozes during APKG and CSV exports, and connect native file save dialogs to deck exports.
+- **TTS Chunk Recovery & Subprocess Safety** — Resume failed read-aloud chunks at the active reading position without restarting from the beginning, cap request payloads at 500 characters, and sanitize AppImage Python environments.
+- **Dynamic Adaptive Queue Engine (DAQE)** — Consult the decision model immediately on initial queue loading when adaptive ranking is active.
+- **RSS Feed Reading & Selection** — Retain unread item selection and scroll offsets during reading sessions, and expose full document selection menus in article readers.
+- **Mobile Reader & UI Polish** — Correct EPUB cover aspect ratios, improve reader table-of-contents navigation, refine pull-to-refresh animations, and restore transparency for animated background themes.
+- **Android Native Library Packaging** — Resolve startup back recovery races and enable legacy packaging so native libraries extract reliably to native directories.
