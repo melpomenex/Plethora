@@ -10,12 +10,14 @@
 import { useState, useCallback } from "react";
 import { PullToRefresh } from "./PullToRefresh";
 import { useMobileShell } from "../../hooks/useMobileShell";
+import { useDocumentStore } from "../../stores/documentStore";
 
 interface MobileDocumentWrapperProps {
   documentId: string;
   documentTitle: string;
   children: React.ReactNode;
   onRefresh?: () => Promise<void>;
+  className?: string;
 }
 
 export function MobileDocumentWrapper({
@@ -23,24 +25,23 @@ export function MobileDocumentWrapper({
   documentTitle: _documentTitle,
   children,
   onRefresh,
+  className = "",
 }: MobileDocumentWrapperProps) {
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const isMobile = useMobileShell();
 
-  // Default refresh handler - reloads the document data
+  // Reload the current document data when the host has no specialized action.
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
 
     try {
-      // Call the provided refresh handler
       if (onRefresh) {
         await onRefresh();
       } else {
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        const document = await useDocumentStore.getState().hydrateDocument(documentId);
+        if (!document) throw new Error(`Document ${documentId} could not be refreshed`);
       }
-    } catch (error) {
-      console.error('[Mobile] Refresh failed:', error);
     } finally {
       setIsRefreshing(false);
     }
@@ -55,7 +56,7 @@ export function MobileDocumentWrapper({
     <PullToRefresh
       onRefresh={handleRefresh}
       disabled={isRefreshing}
-      className="mobile-document-wrapper"
+      className={`mobile-document-wrapper ${className}`}
     >
       {children}
     </PullToRefresh>
@@ -71,9 +72,8 @@ export function useMobileDocumentRefresh(documentId: string) {
   const refresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      // Trigger document reload via invalidation
-      // This would integrate with your data fetching layer
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      const document = await useDocumentStore.getState().hydrateDocument(documentId);
+      if (!document) throw new Error(`Document ${documentId} could not be refreshed`);
     } finally {
       setIsRefreshing(false);
     }

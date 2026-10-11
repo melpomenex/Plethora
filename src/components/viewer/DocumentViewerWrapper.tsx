@@ -6,6 +6,7 @@ import { DocumentViewer as BaseDocumentViewer } from "./DocumentViewer";
 import { AssistantPanel, type AssistantContext, type AssistantPosition, READER_MIN_WIDTH } from "../assistant/AssistantPanel";
 import { PwaAssistantButton } from "../assistant/PwaAssistantButton";
 import { useDocumentStore, useSettingsStore } from "../../stores";
+import { MobileDocumentWrapper } from "../mobile/MobileDocumentWrapper";
 import * as documentsApi from "../../api/documents";
 import { trimToTokenWindow } from "../../utils/tokenizer";
 import { useFormFactor } from "../../hooks/useFormFactor";
@@ -692,7 +693,13 @@ export function DocumentViewer({
     <div className="flex h-full min-h-0 overflow-hidden">
       {isMobile ? (
         <>
-          {documentViewer}
+          <MobileDocumentWrapper
+            documentId={documentId}
+            documentTitle={currentDoc?.title ?? ""}
+            className="flex-1 min-w-0 min-h-0 overflow-hidden"
+          >
+            {documentViewer}
+          </MobileDocumentWrapper>
           {isPWA() && (
             <PwaAssistantButton
               context={assistantContext}
