@@ -230,6 +230,22 @@ describe("documentStore.loadDocuments", () => {
     expect(article.contentHash).toBe("content-hash");
     expect(article.metadata?.articleHtml).toContain("<h2>Structured article</h2>");
   });
+
+  it("preserves the last successful document list when a refresh fails", async () => {
+    const existing = makeDoc("already-loaded");
+    useDocumentStore.setState({
+      documents: [existing],
+      hasCompletedFirstLoad: true,
+      error: null,
+    });
+    getDocumentsMock.mockRejectedValueOnce(new Error("database unavailable"));
+
+    await useDocumentStore.getState().loadDocuments();
+
+    expect(useDocumentStore.getState().documents).toEqual([existing]);
+    expect(useDocumentStore.getState().hasCompletedFirstLoad).toBe(true);
+    expect(useDocumentStore.getState().error).toBe("database unavailable");
+  });
 });
 
 describe("documentStore.importFromFolder", () => {

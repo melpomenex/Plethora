@@ -1,4 +1,8 @@
-import { invokeCommand, isTauri } from "../lib/tauri";
+import { invokeCommand, isNativeAndroid, isTauri } from "../lib/tauri";
+import {
+  classifyAndroidStartupFailure,
+  recordAndroidStartupDiagnostic,
+} from "../lib/startupDiagnostics";
 import { mapDocuments } from "./documents";
 import { convertQueueItem, type RustQueueItem } from "./queue";
 import {
@@ -53,6 +57,7 @@ export async function getStartupSnapshot(options: {
   documentOffset?: number;
   queueMode?: "due-today" | "due-all";
 } = {}): Promise<StartupSnapshot> {
+  const startedAt = performance.now();
   const surface = options.surface ?? "dashboard";
   const args = {
     includeQueue: options.includeQueue ?? surface === "queue",
@@ -62,6 +67,9 @@ export async function getStartupSnapshot(options: {
     queueMode: options.queueMode,
     progressLimit: STARTUP_PROGRESS_LIMIT,
   };
+  if (isNativeAndroid()) {
+    recordAndroidStartupDiagnostic("snapshot-request-start", { surface });
+  }
   try {
     const raw = isTauri()
       ? await invokeCommand<StartupSnapshotWire>("get_startup_snapshot", args)
@@ -104,8 +112,26 @@ export async function getStartupSnapshot(options: {
     if (bytes > STARTUP_RESPONSE_BYTE_BUDGET) {
       console.warn(`[startup] snapshot exceeded 256 KiB (${bytes} bytes)`);
     }
+    if (isNativeAndroid()) {
+      recordAndroidStartupDiagnostic("snapshot-request-complete", {
+        surface,
+        durationMs: Math.round(performance.now() - startedAt),
+        outcome: documents.length + queue.length > 0 ? "populated" : "empty",
+        documents: documents.length,
+        queueItems: queue.length,
+        dueCount: snapshot.dueCount,
+      });
+    }
     return snapshot;
   } catch (error) {
+    if (isNativeAndroid()) {
+      recordAndroidStartupDiagnostic("snapshot-request-failed", {
+        surface,
+        durationMs: Math.round(performance.now() - startedAt),
+        outcome: "error",
+        failureKind: classifyAndroidStartupFailure(error),
+      });
+    }
     throw error;
   }
 }

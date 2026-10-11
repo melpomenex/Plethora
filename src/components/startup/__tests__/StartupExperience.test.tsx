@@ -143,7 +143,7 @@ beforeEach(() => {
     (cb: (t: number) => void) => setTimeout(() => cb(fakeClock), 16) as unknown as number
   );
   vi.stubGlobal("cancelAnimationFrame", (id: number) => clearTimeout(id));
-  mocks.ensureStartup.mockClear();
+  mocks.ensureStartup.mockReset().mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -327,14 +327,29 @@ describe("e-ink variant", () => {
 });
 
 describe("failure paths", () => {
-  it("startup error aborts into a fast fade and unmounts", () => {
+  it("a failed startup request aborts into a fast fade and unmounts", async () => {
     const d = setup();
     d.advance(64);
-    act(() => mocks.setStartupStatus("error"));
+    await act(async () => {
+      await Promise.resolve();
+    });
     expect(stageOf()).toBe("aborted");
     expect(overlayRoot()!.getAttribute("data-aborting")).toBe("true");
     d.advance(200);
     expect(overlayRoot()).toBeNull();
+  });
+
+  it("does not abort when another startup surface fails while this request is pending", () => {
+    mocks.ensureStartup.mockImplementation(() => new Promise(() => {}));
+    const d = setup();
+    d.advance(64);
+
+    act(() => mocks.setStartupStatus("error"));
+
+    expect(stageOf()).not.toBe("aborted");
+    expect(overlayRoot()).not.toBeNull();
+    d.advance(15_000);
+    expect(stageOf()).toBe("aborted");
   });
 
   it("watchdog force-exits at 15 s even with no signal at all", () => {

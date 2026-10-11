@@ -562,6 +562,8 @@ interface DocumentState {
 
   // UI State
   isLoading: boolean;
+  /** True after one successful document-list load for the current collection. */
+  hasCompletedFirstLoad: boolean;
   isSaving: boolean;
   isImporting: boolean;
   isSegmenting: boolean;
@@ -676,6 +678,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   extracts: [],
   currentExtract: null,
   isLoading: false,
+  hasCompletedFirstLoad: false,
   isSaving: false,
   isImporting: false,
   isSegmenting: false,
@@ -714,7 +717,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         const mergedDocs = docs.map((summary) =>
           mergeDocumentSummary(existingById.get(summary.id), summary)
         );
-        return { documents: mergedDocs, isLoading: false };
+        return { documents: mergedDocs, isLoading: false, hasCompletedFirstLoad: true };
       });
       void reconcileBrowserOrganizationNow();
     } catch (error) {
@@ -726,7 +729,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
   },
 
   hydrateStartupDocuments: (documents) => {
-    set({ documents, isLoading: false, error: null });
+    set({ documents, isLoading: false, error: null, hasCompletedFirstLoad: true });
     // File manifests and local binary registration can be large on mobile;
     // the first render only needs the metadata projection above.
   },
@@ -783,6 +786,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       set({
         documents: nextDocuments,
         isLoading: false,
+        hasCompletedFirstLoad: true,
         currentPage: page,
         totalPages: Math.max(1, Math.ceil(snapshot.documents.total / 50)),
       });

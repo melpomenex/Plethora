@@ -101,7 +101,8 @@ import { bulkSuspendItems } from "../../api/queue";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { useLongPress } from "../../hooks/useLongPress";
 import { useIsActiveTab } from "../common/Tabs";
-import { invokeCommand, isTauri, isNativeMobile } from "../../lib/tauri";
+import { invokeCommand, isTauri, isNativeAndroid, isNativeMobile } from "../../lib/tauri";
+import { recordAndroidStartupDiagnostic } from "../../lib/startupDiagnostics";
 import { renderPdfCover } from "../../lib/pdfCoverRender";
 import { importAnkiPackageFromPicker, inferAnkiDeckNames } from "../../utils/ankiImport";
 import { useI18n } from "../../lib/i18n";
@@ -225,6 +226,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   const {
     documents,
     isLoading,
+    hasCompletedFirstLoad,
     isImporting,
     isSegmenting,
     importProgress,
@@ -241,6 +243,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   } = useDocumentStore(useShallow(s => ({
     documents: s.documents,
     isLoading: s.isLoading,
+    hasCompletedFirstLoad: s.hasCompletedFirstLoad,
     isImporting: s.isImporting,
     isSegmenting: s.isSegmenting,
     importProgress: s.importProgress,
@@ -359,6 +362,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
 
   const searchRef = useRef<HTMLInputElement>(null);
+  const reportedStartupCollectionRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isActiveTab) return;
@@ -369,6 +373,20 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
     // re-triggers when hydration lands the real collection id — the view
     // stayed empty until the user cycled tabs.
   }, [isActiveTab, loadDocuments, activeCollectionId]);
+
+  useEffect(() => {
+    if (!hasCompletedFirstLoad) {
+      reportedStartupCollectionRef.current = null;
+      return;
+    }
+    if (!isNativeAndroid() || reportedStartupCollectionRef.current === activeCollectionId) return;
+    reportedStartupCollectionRef.current = activeCollectionId;
+    recordAndroidStartupDiagnostic("surface-ready", {
+      surface: "documents",
+      outcome: documents.length > 0 ? "populated" : "empty",
+      documents: documents.length,
+    });
+  }, [activeCollectionId, documents.length, hasCompletedFirstLoad]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -1645,7 +1663,15 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
 
         <div className="flex-1 flex overflow-hidden documents-layout">
           <div ref={documentsScrollRef} className="flex-1 overflow-auto p-4 documents-content">
-            {isLoading ? (
+            {!compactDocumentsView && error && hasCompletedFirstLoad && (
+              <div className="mb-3 flex items-center justify-center gap-3 border-b border-border px-4 py-3 text-sm text-muted-foreground" role="status">
+                <span>{t("common.error")}</span>
+                <button type="button" onClick={() => void loadDocuments()} className="text-primary underline">
+                  {t("common.retry")}
+                </button>
+              </div>
+            )}
+            {isLoading && !hasCompletedFirstLoad ? (
               mode === "list" || compactDocumentsView ? (
                 <div className="space-y-2">
                   {Array.from({ length: 5 }).map((_, i) => (
@@ -1655,10 +1681,30 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
               ) : (
                 <DocumentGridSkeleton count={8} />
               )
+            ) : error && !hasCompletedFirstLoad && documents.length === 0 ? (
+              <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 px-6 py-12 text-center" role="alert">
+                <p className="text-sm text-muted-foreground">{t("common.error")}</p>
+                <button
+                  type="button"
+                  onClick={() => void loadDocuments()}
+                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+                >
+                  {t("common.retry")}
+                </button>
+              </div>
+            ) : !hasCompletedFirstLoad && documents.length === 0 ? (
+              <div className="flex min-h-[260px] items-center justify-center gap-2 text-sm text-muted-foreground" role="status">
+                <CircleNotch className="h-4 w-4 animate-spin" />
+                {t("common.loading")}
+              </div>
             ) : compactDocumentsView ? (
               <CompactLibraryView
                 documents={documents}
                 sortedDocuments={sortedDocuments}
+                isLoading={isLoading}
+                hasCompletedFirstLoad={hasCompletedFirstLoad}
+                error={error}
+                loadDocuments={loadDocuments}
                 collections={collections}
                 activeCollectionId={activeCollectionId}
                 switchCollection={switchCollection}
@@ -1689,7 +1735,12 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
             ) : sortedDocuments.length === 0 ? (
               // The Cards group renders below as a sibling; when it has hits,
               // "no results" would be a lie, so show nothing here.
-              cardResults ? null : debouncedSearch ? (
+              cardResults ? null : isLoading ? (
+                <div className="flex min-h-[260px] items-center justify-center gap-2 text-sm text-muted-foreground" role="status">
+                  <CircleNotch className="h-4 w-4 animate-spin" />
+                  {t("common.loading")}
+                </div>
+              ) : debouncedSearch ? (
                 <EmptySearch query={debouncedSearch} onClear={() => setSearchInput("")} />
               ) : (
                 <EmptyDocuments onImport={handleImport} onImportFolder={handleImportFolder} />
@@ -2750,6 +2801,10 @@ function DocumentProgressIndicator({ doc }: { doc: Document }) {
 interface CompactLibraryViewProps {
   documents: Document[];
   sortedDocuments: Document[];
+  isLoading: boolean;
+  hasCompletedFirstLoad: boolean;
+  error: string | null;
+  loadDocuments: () => Promise<void>;
   collections: Collection[];
   activeCollectionId?: string | null;
   switchCollection?: (id: string) => Promise<void> | void;
@@ -2815,6 +2870,10 @@ function useScrollMargin(
 function CompactLibraryView({
   documents,
   sortedDocuments,
+  isLoading,
+  hasCompletedFirstLoad,
+  error,
+  loadDocuments,
   collections,
   activeCollectionId,
   switchCollection,
@@ -3069,7 +3128,31 @@ function CompactLibraryView({
         </div>
 
         <div className="overflow-hidden rounded-lg border border-border bg-card/70">
-          {sortedDocuments.length > 0 ? (
+          {error && hasCompletedFirstLoad && (
+            <div className="flex items-center justify-center gap-3 border-b border-border px-4 py-3 text-sm text-muted-foreground" role="status">
+              <span>{t("common.error")}</span>
+              <button type="button" onClick={() => void loadDocuments()} className="text-primary underline">
+                {t("common.retry")}
+              </button>
+            </div>
+          )}
+          {documents.length === 0 && error && !hasCompletedFirstLoad ? (
+            <div className="flex min-h-[260px] flex-col items-center justify-center gap-3 px-6 py-12 text-center" role="alert">
+              <p className="text-sm text-muted-foreground">{t("common.error")}</p>
+              <button
+                type="button"
+                onClick={() => void loadDocuments()}
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+              >
+                {t("common.retry")}
+              </button>
+            </div>
+          ) : documents.length === 0 && (isLoading || !hasCompletedFirstLoad) ? (
+            <div className="flex min-h-[260px] items-center justify-center gap-2 text-sm text-muted-foreground" role="status">
+              <CircleNotch className="h-4 w-4 animate-spin" />
+              {t("common.loading")}
+            </div>
+          ) : sortedDocuments.length > 0 ? (
             <>
               <div className="hidden grid-cols-[minmax(220px,2.2fr)_minmax(130px,1fr)_64px_64px_92px_54px_78px] items-center gap-3 border-b border-border bg-muted/30 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground lg:grid">
                 <span className="text-left">{t("documentsView.sortTitle")}</span>

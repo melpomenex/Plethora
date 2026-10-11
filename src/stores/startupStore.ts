@@ -1,5 +1,10 @@
 import { create } from "zustand";
 import { getStartupSnapshot } from "../api/startup";
+import { isNativeAndroid, waitForBackendReady } from "../lib/tauri";
+import {
+  classifyAndroidStartupFailure,
+  recordAndroidStartupDiagnostic,
+} from "../lib/startupDiagnostics";
 import type { StartupSnapshot, StartupSurface } from "../types/startup";
 import { useCollectionStore } from "./collectionStore";
 import { useDocumentStore } from "./documentStore";
@@ -20,19 +25,43 @@ interface StartupState {
 }
 
 const inflight = new Map<string, Promise<StartupSnapshot | null>>();
+const requestGenerations = new Map<string, number>();
+const surfaceGenerations = new Map<string, number>();
+let collectionEpoch = 0;
 
-// On a cold Android WebView the first IPC round-trip can stall ~30s inside
-// the bridge even though the backend is up (see the retrying readiness gate
-// in lib/tauri.ts). A hung snapshot request would also pin this module's
-// inflight entry — every later ensureStartup with the same key would share
-// the dead promise forever. Race the request against this timeout and
-// resolve null: the finally below frees the inflight slot, so the next call
-// issues a fresh request instead of waiting for the user to navigate away
-// and back.
+// The Android readiness gate can take longer than an individual data query,
+// so only start this watchdog after the shared backend-ready gate succeeds.
 const SNAPSHOT_REQUEST_TIMEOUT_MS = 8_000;
+const ANDROID_STARTUP_MAX_ATTEMPTS = 3;
+const ANDROID_STARTUP_RETRY_DELAYS_MS = [1_000, 3_000] as const;
+const SNAPSHOT_TIMEOUT = Symbol("snapshot-timeout");
 
 function requestKey(collectionId: string, surface: StartupSurface, queueMode?: string): string {
-  return `${collectionId}:${surface === "queue" ? `queue:${queueMode ?? "due-all"}` : "base"}`;
+  return `${collectionEpoch}:${collectionId}:${surface === "queue" ? `queue:${queueMode ?? "due-all"}` : "base"}`;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function requestSnapshotWithTimeout(
+  surface: StartupSurface,
+  options?: { queueMode?: "due-today" | "due-all" },
+): Promise<StartupSnapshot> {
+  const request = getStartupSnapshot({ surface, queueMode: options?.queueMode });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      request,
+      new Promise<typeof SNAPSHOT_TIMEOUT>((resolve) => {
+        timer = setTimeout(() => resolve(SNAPSHOT_TIMEOUT), SNAPSHOT_REQUEST_TIMEOUT_MS);
+      }),
+    ]);
+    if (result === SNAPSHOT_TIMEOUT) throw new Error("Startup snapshot request timed out");
+    return result;
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 async function fallbackToLegacyLoads(surface: StartupSurface, queueMode?: "due-today" | "due-all"): Promise<void> {
@@ -81,52 +110,137 @@ export const useStartupStore = create<StartupState>((set, get) => ({
       lastSurface: surface,
       lastQueueMode: surface === "queue" ? (options?.queueMode ?? "due-all") : null,
     });
-    let snapshotTimer: ReturnType<typeof setTimeout> | undefined;
-    const snapshotTimeout = new Promise<null>((resolve) => {
-      snapshotTimer = setTimeout(() => resolve(null), SNAPSHOT_REQUEST_TIMEOUT_MS);
-    });
-    const promise = Promise.race([
-      getStartupSnapshot({ surface, queueMode: options?.queueMode }),
-      snapshotTimeout,
-    ])
-      .then((snapshot) => {
+    const generation = (requestGenerations.get(key) ?? 0) + 1;
+    requestGenerations.set(key, generation);
+    const surfaceKey = `${collectionEpoch}:${collectionId}:${surface === "queue" ? "queue" : "base"}`;
+    const surfaceGeneration = (surfaceGenerations.get(surfaceKey) ?? 0) + 1;
+    surfaceGenerations.set(surfaceKey, surfaceGeneration);
+    const android = isNativeAndroid();
+
+    if (android) {
+      const documentState = useDocumentStore.getState();
+      if (!documentState.hasCompletedFirstLoad && documentState.documents.length === 0) {
+        useDocumentStore.setState({ isLoading: true, error: null });
+      }
+      if (surface === "queue") {
+        const queueState = useQueueStore.getState();
+        if (!queueState.hasCompletedFirstLoad && queueState.items.length === 0) {
+          useQueueStore.setState({ isLoading: true, error: null });
+        }
+      }
+    }
+
+    const isCurrentRequest = () =>
+      requestGenerations.get(key) === generation &&
+      surfaceGenerations.get(surfaceKey) === surfaceGeneration &&
+      key.startsWith(`${collectionEpoch}:`);
+
+    const applySnapshot = (snapshot: StartupSnapshot): StartupSnapshot | null => {
+      if (!isCurrentRequest()) return null;
+      // Before first hydration, the collection store starts with the default
+      // id while the persisted active collection is still unknown. Accept the
+      // first authoritative snapshot, then reject any stale scoped response.
+      const collectionState = useCollectionStore.getState();
+      if (collectionState.loaded && collectionState.activeCollectionId !== snapshot.activeCollectionId) return null;
+
+      useCollectionStore.getState().hydrateStartup(
+        snapshot.collections,
+        snapshot.activeCollectionId,
+        snapshot.dueCount,
+      );
+      useDocumentStore.getState().hydrateStartupDocuments(snapshot.documents.items);
+      if (surface === "queue") {
+        useQueueStore.getState().hydrateStartupQueue(snapshot.queue.items);
+      }
+      void useSavedQueueStore.getState().loadSavedQueues(snapshot.activeCollectionId);
+      if (android) {
+        recordAndroidStartupDiagnostic("snapshot-hydrated", {
+          surface,
+          outcome: snapshot.documents.items.length + snapshot.queue.items.length > 0 ? "populated" : "empty",
+          documents: snapshot.documents.items.length,
+          queueItems: snapshot.queue.items.length,
+          dueCount: snapshot.dueCount,
+        });
+      }
+      set({
+        status: "ready",
+        error: null,
+        snapshot,
+        collectionId: snapshot.activeCollectionId,
+        lastSurface: surface,
+        lastQueueMode: surface === "queue" ? (options?.queueMode ?? "due-all") : null,
+      });
+      return snapshot;
+    };
+
+    const runAndroidStartup = async (): Promise<StartupSnapshot | null> => {
+      let lastError: unknown = new Error("Failed to load startup data");
+      for (let attempt = 1; attempt <= ANDROID_STARTUP_MAX_ATTEMPTS; attempt += 1) {
+        try {
+          // This gate is shared with every invokeCommand. Waiting before the
+          // request watchdog avoids treating slow database migrations as a
+          // failed/empty startup query.
+          await waitForBackendReady();
+          const snapshot = await requestSnapshotWithTimeout(surface, options);
+          const applied = applySnapshot(snapshot);
+          if (applied) return applied;
+          return null;
+        } catch (error) {
+          lastError = error;
+          if (!isCurrentRequest()) return null;
+          if (attempt < ANDROID_STARTUP_MAX_ATTEMPTS) {
+            const backoffMs = ANDROID_STARTUP_RETRY_DELAYS_MS[attempt - 1];
+            recordAndroidStartupDiagnostic("snapshot-retry", {
+              surface,
+              attempt,
+              outcome: "retrying",
+              failureKind: classifyAndroidStartupFailure(error),
+            });
+            await delay(backoffMs);
+            continue;
+          }
+        }
+      }
+
+      if (!isCurrentRequest()) return null;
+      const message = lastError instanceof Error ? lastError.message : "Failed to load startup data";
+      // A failed refresh must leave the last successful rows intact while
+      // still exposing the terminal error and manual retry affordance.
+      useDocumentStore.setState({ isLoading: false, error: message });
+      if (surface === "queue") {
+        useQueueStore.setState({ isLoading: false, error: message });
+      }
+      recordAndroidStartupDiagnostic("snapshot-request-failed", {
+        surface,
+        attempt: ANDROID_STARTUP_MAX_ATTEMPTS,
+        outcome: "error",
+        failureKind: classifyAndroidStartupFailure(lastError),
+      });
+      set({
+        status: "error",
+        error: message,
+        lastSurface: surface,
+        lastQueueMode: surface === "queue" ? (options?.queueMode ?? "due-all") : null,
+      });
+      return null;
+    };
+
+    const runLegacyStartup = async (): Promise<StartupSnapshot | null> => {
+      let snapshotTimer: ReturnType<typeof setTimeout> | undefined;
+      const snapshotTimeout = new Promise<null>((resolve) => {
+        snapshotTimer = setTimeout(() => resolve(null), SNAPSHOT_REQUEST_TIMEOUT_MS);
+      });
+      try {
+        const snapshot = await Promise.race([
+          getStartupSnapshot({ surface, queueMode: options?.queueMode }),
+          snapshotTimeout,
+        ]);
         if (snapshot === null) {
-          // Transport stall, not a data error: free the telemetry phases and
-          // reset the status machine so a retry starts cleanly. The legacy
-          // fallback deliberately does NOT run — its invokes would queue
-          // behind the same stalled bridge.
           set({ status: "idle" });
           return null;
         }
-        // A collection switch during the request makes the response stale.
-        // Before the first snapshot, the collection store starts with the
-        // default id while the persisted active collection is still unknown;
-        // do not reject the first authoritative response in that state.
-        const collectionState = useCollectionStore.getState();
-        if (collectionState.loaded && collectionState.activeCollectionId !== snapshot.activeCollectionId) {
-          return null;
-        }
-        useCollectionStore.getState().hydrateStartup(
-          snapshot.collections,
-          snapshot.activeCollectionId,
-          snapshot.dueCount,
-        );
-        useDocumentStore.getState().hydrateStartupDocuments(snapshot.documents.items);
-        if (surface === "queue") {
-          useQueueStore.getState().hydrateStartupQueue(snapshot.queue.items);
-        }
-        void useSavedQueueStore.getState().loadSavedQueues(snapshot.activeCollectionId);
-        set({
-          status: "ready",
-          error: null,
-          snapshot,
-          collectionId: snapshot.activeCollectionId,
-          lastSurface: surface,
-          lastQueueMode: surface === "queue" ? (options?.queueMode ?? "due-all") : null,
-        });
-        return snapshot;
-      })
-      .catch(async (error) => {
+        return applySnapshot(snapshot);
+      } catch (error) {
         try {
           await fallbackToLegacyLoads(surface, options?.queueMode);
           set({
@@ -144,9 +258,13 @@ export const useStartupStore = create<StartupState>((set, get) => ({
           });
         }
         return null;
-      })
-      .finally(() => {
+      } finally {
         if (snapshotTimer !== undefined) clearTimeout(snapshotTimer);
+      }
+    };
+
+    const promise = (android ? runAndroidStartup() : runLegacyStartup())
+      .finally(() => {
         if (inflight.get(key) === promise) inflight.delete(key);
       });
     inflight.set(key, promise);
@@ -168,6 +286,9 @@ export const useStartupStore = create<StartupState>((set, get) => ({
 // responses for the old collection are ignored by the coordinator above.
 useCollectionStore.subscribe((state, previousState) => {
   if (state.activeCollectionId === previousState.activeCollectionId) return;
+  collectionEpoch += 1;
+  useDocumentStore.setState({ hasCompletedFirstLoad: false, isLoading: false, error: null });
+  useQueueStore.setState({ hasCompletedFirstLoad: false, loadedQueryKey: null, isLoading: false, error: null });
   useStartupStore.setState({
     status: "idle",
     error: null,

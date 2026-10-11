@@ -308,17 +308,12 @@ export function StartupExperience() {
     const handleStatus = (status: string) => {
       if (status === "ready") {
         useStartupExperienceStore.getState().markDataReady();
-      } else if (status === "error") {
-        dispatch("APP_ERROR");
       }
     };
     handleStatus(useStartupStore.getState().status);
-    // A timed-out native startup snapshot intentionally returns null and
-    // resets the coordinator to `idle` so later surfaces can retry. `idle` is
-    // not a terminal error for the store, but it must be terminal for this
-    // launch overlay: the React route is already mounted and can boot with
-    // its normal empty/loading states. Without this branch the overlay sits
-    // forever in its idle pose on a stalled iOS IPC bridge.
+    // A failed startup surface resolves null after its bounded retry sequence.
+    // Do not abort from the global store's status subscription: another
+    // concurrent surface may still be loading successfully.
     void useStartupStore.getState().ensureStartup("startup").then((snapshot) => {
       if (snapshot === null) dispatch("APP_ERROR");
     });

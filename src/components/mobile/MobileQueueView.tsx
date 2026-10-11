@@ -50,6 +50,8 @@ import {
 } from "../queue/scrollModeEntry";
 import { useStartupStore } from "../../stores/startupStore";
 import { DynamicVirtualList } from "../common/VirtualList";
+import { isNativeAndroid } from "../../lib/tauri";
+import { recordAndroidStartupDiagnostic } from "../../lib/startupDiagnostics";
 
 /**
  * Above this many filtered items the mobile queue list windows its rows
@@ -83,6 +85,8 @@ export function MobileQueueView({
   const {
     items,
     isLoading,
+    error,
+    hasCompletedFirstLoad,
     selectedIds,
     loadQueue,
     loadDueQueueItems,
@@ -101,6 +105,8 @@ export function MobileQueueView({
     useShallow((state) => ({
       items: state.items,
       isLoading: state.isLoading,
+      error: state.error,
+      hasCompletedFirstLoad: state.hasCompletedFirstLoad,
       selectedIds: state.selectedIds,
       loadQueue: state.loadQueue,
       loadDueQueueItems: state.loadDueQueueItems,
@@ -146,6 +152,7 @@ export function MobileQueueView({
   const scrollAnchorRef = useRef<{ id: string; offset: number } | null>(null);
   const isActiveTab = useIsActiveTab();
   const ensureStartup = useStartupStore((state) => state.ensureStartup);
+  const retryStartup = useStartupStore((state) => state.retryStartup);
   const wasActiveRef = useRef(isActiveTab);
 
   // Persist scroll continuously so a remount (e.g. after scroll mode) can also
@@ -167,6 +174,12 @@ export function MobileQueueView({
       // sessionStorage may be unavailable (private mode); ref still holds it.
     }
   }, []);
+
+  const handlePullRefresh = useCallback(async () => {
+    await loadQueue();
+    const refreshError = useQueueStore.getState().error;
+    if (refreshError) throw new Error(refreshError);
+  }, [loadQueue]);
 
   // NOTE: a previous "reconcile-on-focus" effect auto-reloaded the queue via
   // reconcileIfDirty() whenever this tab regained focus. It fired whenever
@@ -256,36 +269,24 @@ export function MobileQueueView({
     // "today" loads through the startup snapshot. Mark loaded ONLY after the
     // snapshot actually arrived: on a fresh install the first pass races
     // backend setup and the cold-WebView IPC stall (~30s first-invoke window
-    // — see the retrying readiness gate in lib/tauri.ts and the snapshot
-    // watchdog in startupStore), so `ensureStartup` can resolve null. A
+    // — see the retrying readiness gate in lib/tauri.ts and the bounded
+    // coordinator retries in startupStore), so `ensureStartup` can resolve null. A
     // pre-set key made every later activation skip the reload — the "Queue
     // opens empty until you visit another view and come back" bug. A failed
-    // pass now leaves the key unset AND schedules its own retry, so the
-    // queue self-populates once the bridge recovers without waiting for the
-    // user to tap away and back.
-    let retryTimer: ReturnType<typeof setTimeout> | undefined;
-    let retryDelay = 3_000;
+    // pass leaves the key unset; the shared coordinator retries, so the queue
+    // self-populates once the bridge recovers without waiting for navigation.
     let cancelled = false;
-    const attempt = () => {
-      if (cancelled) return;
-      if (useQueueStore.getState().loadedQueryKey === mobileKey) return;
+    if (useQueueStore.getState().loadedQueryKey !== mobileKey) {
       void ensureStartup("queue", { queueMode: "due-today" }).then((snapshot) => {
-        if (cancelled) return;
-        if (snapshot == null) {
-          retryTimer = setTimeout(attempt, retryDelay);
-          retryDelay = Math.min(retryDelay * 2, 15_000);
-          return;
-        }
+        if (cancelled || snapshot == null) return;
         useQueueStore.getState().setLoadedQueryKey(mobileKey);
         if (useQueueStore.getState().items.length <= 50) {
           void loadDueQueueItems();
         }
       });
-    };
-    attempt();
+    }
     return () => {
       cancelled = true;
-      if (retryTimer !== undefined) clearTimeout(retryTimer);
     };
   }, [quickFilter, ensureStartup, isActiveTab, setQueueFilterMode, loadDueQueueItems]);
 
@@ -308,6 +309,21 @@ export function MobileQueueView({
 
     return orderQueueItems(result, queueStrategyPreset);
   }, [items, activeTab, searchQuery, queueStrategyPreset]);
+
+  const hasReportedStartupSurface = useRef(false);
+  useEffect(() => {
+    if (!hasCompletedFirstLoad) {
+      hasReportedStartupSurface.current = false;
+      return;
+    }
+    if (!isNativeAndroid() || hasReportedStartupSurface.current) return;
+    hasReportedStartupSurface.current = true;
+    recordAndroidStartupDiagnostic("surface-ready", {
+      surface: "queue",
+      outcome: items.length > 0 ? "populated" : "empty",
+      queueItems: items.length,
+    });
+  }, [hasCompletedFirstLoad, items.length]);
 
   useEffect(() => {
     if (isLoading || !scrollAnchorRef.current) return;
@@ -816,7 +832,7 @@ export function MobileQueueView({
           it takes listScrollRef and the data-scroll-container marker, keeping
           the PullToRefresh detection and the scroll save/restore contract that
           commit 2b12f2f2 established (never nest a second scroller). */}
-      <PullToRefresh onRefresh={() => loadQueue()} className="flex-1 min-h-0 overflow-hidden">
+      <PullToRefresh onRefresh={handlePullRefresh} className="flex-1 min-h-0 overflow-hidden">
         {!isLoading && filteredItems.length > MOBILE_QUEUE_VIRTUALIZE_THRESHOLD ? (
           <DynamicVirtualList
             items={filteredItems}
@@ -844,7 +860,26 @@ export function MobileQueueView({
           />
         ) : (
         <div ref={listScrollRef} onScroll={handleListScroll} className="h-full min-h-0 overflow-y-auto overscroll-contain" data-scroll-container="true">
-          {(isLoading && filteredItems.length === 0) ? (
+          {error && hasCompletedFirstLoad && (
+            <div className="flex items-center justify-center gap-3 px-4 py-3 text-sm text-muted-foreground" role="status">
+              <span>{t("common.error")}</span>
+              <button type="button" onClick={() => void retryStartup("queue")} className="text-primary underline">
+                {t("common.retry")}
+              </button>
+            </div>
+          )}
+          {error && !hasCompletedFirstLoad && filteredItems.length === 0 ? (
+            <div className="flex h-64 flex-col items-center justify-center gap-3 px-6 text-center" role="alert">
+              <p className="text-sm text-muted-foreground">{t("common.error")}</p>
+              <button
+                type="button"
+                onClick={() => void retryStartup("queue")}
+                className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+              >
+                {t("common.retry")}
+              </button>
+            </div>
+          ) : filteredItems.length === 0 && (isLoading || !hasCompletedFirstLoad) ? (
             <div className="flex items-center justify-center h-32 text-muted-foreground">
               <div className="animate-spin w-6 h-6 border-2 border-primary border-t-transparent rounded-full mr-2" />
               {t("mobileQueue.loading")}

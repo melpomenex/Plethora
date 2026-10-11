@@ -1,3 +1,5 @@
+import { recordAndroidStartupDiagnostic } from "./startupDiagnostics";
+
 /**
  * Type-safe wrapper for Tauri invoke commands
  *
@@ -26,6 +28,8 @@ function tauriInternalsInvoke(): WindowWithTauriInternals['__TAURI_INTERNALS__']
 let tauriInvoke: ((cmd: string, args?: Record<string, unknown>) => Promise<unknown>) | null = null;
 let tauriApiLoadPromise: Promise<void> | null = null;
 let backendReadyPromise: Promise<void> | null = null;
+let androidBackendReadyStartedAt: number | null = null;
+let androidBackendReadyReported = false;
 
 // Cold-start Android: the first IPC round-trip can stall ~30s inside the
 // WebView bridge (the JavaBridge thread that services window.ipc messages
@@ -229,6 +233,11 @@ export function isNativeMobile(): boolean {
   return p === 'android' || p === 'ios';
 }
 
+/** True only for the native Android Tauri runtime. */
+export function isNativeAndroid(): boolean {
+  return nativePlatform()?.toLowerCase() === "android";
+}
+
 /** Visual form factor, derived from the native platform + viewport. */
 export type FormFactor = 'phone' | 'tablet' | 'desktop';
 
@@ -379,16 +388,7 @@ export async function invokeCommand<T>(command: string, args?: Record<string, un
     }
     try {
       if (command !== "wait_for_backend_ready") {
-        backendReadyPromise ??= awaitBackendReadyWithRetry().catch((error) => {
-          // A cycle that exhausted every probe attempt must not poison later
-          // commands: with `??=` alone the rejected promise stays cached and
-          // every subsequent invoke fails instantly until app restart, even
-          // after the backend finishes initializing. Drop the cache so the
-          // next command re-probes.
-          backendReadyPromise = null;
-          throw error;
-        });
-        await backendReadyPromise;
+        await waitForBackendReady();
       }
       return await tauriInvoke(command, args) as T;
     } catch (error) {
@@ -403,6 +403,52 @@ export async function invokeCommand<T>(command: string, args?: Record<string, un
     // Browser/PWA environment - use IndexedDB backend
     return browserInvoke<T>(command, args);
   }
+}
+
+/** Wait for native database/bootstrap readiness and share the same gate used
+ * by all commands. Startup coordination calls this before starting its data
+ * request watchdog so a slow but healthy Android boot is not mistaken for an
+ * empty or failed database. */
+export async function waitForBackendReady(): Promise<void> {
+  if (!isTauri()) return;
+  await loadTauriAPI();
+  if (!tauriInvoke) throw new Error("Failed to load Tauri invoke API");
+
+  if (!backendReadyPromise) {
+    if (isNativeAndroid()) {
+      androidBackendReadyStartedAt = performance.now();
+      androidBackendReadyReported = false;
+      recordAndroidStartupDiagnostic("backend-ready-start");
+    }
+    backendReadyPromise = awaitBackendReadyWithRetry()
+      .then(() => {
+        if (isNativeAndroid() && !androidBackendReadyReported) {
+          androidBackendReadyReported = true;
+          recordAndroidStartupDiagnostic("backend-ready-complete", {
+            durationMs: androidBackendReadyStartedAt == null
+              ? undefined
+              : Math.round(performance.now() - androidBackendReadyStartedAt),
+            outcome: "success",
+          });
+        }
+      })
+      .catch((error) => {
+        // An exhausted cycle must not poison later commands: a later explicit
+        // retry should be able to probe again after the backend recovers.
+        backendReadyPromise = null;
+        if (isNativeAndroid() && !androidBackendReadyReported) {
+          androidBackendReadyReported = true;
+          recordAndroidStartupDiagnostic("backend-ready-failed", {
+            durationMs: androidBackendReadyStartedAt == null
+              ? undefined
+              : Math.round(performance.now() - androidBackendReadyStartedAt),
+            outcome: "error",
+          });
+        }
+        throw error;
+      });
+  }
+  await backendReadyPromise;
 }
 
 /**

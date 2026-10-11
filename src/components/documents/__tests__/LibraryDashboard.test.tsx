@@ -76,6 +76,7 @@ const mockDocuments = [
 const documentStoreValues = {
   documents: mockDocuments,
   isLoading: false,
+  hasCompletedFirstLoad: true,
   isImporting: false,
   importProgress: { current: 0, total: 0 },
   error: null,
@@ -163,6 +164,7 @@ vi.mock("../../../lib/pwa", () => ({
 vi.mock("../../../lib/tauri", () => ({
   isTauri: () => false,
   isMac: () => false,
+  isNativeAndroid: () => false,
   invokeCommand: vi.fn(),
   getPlatform: () => "mac",
   // Mobile-shell detection — these tests render DocumentsView in desktop/grid
@@ -263,6 +265,9 @@ describe("DocumentsView grid mode", () => {
   beforeEach(() => {
     window.localStorage.setItem("documentsViewMode", "grid");
     documentStoreValues.documents = mockDocuments;
+    documentStoreValues.isLoading = false;
+    documentStoreValues.hasCompletedFirstLoad = true;
+    documentStoreValues.error = null;
     settingsStoreValues.settings.interface.compactDocumentsView = false;
     settingsStoreValues.updateSettingsCategory.mockClear();
     mobileShellState.enabled = false;
@@ -276,6 +281,21 @@ describe("DocumentsView grid mode", () => {
     expect(screen.getAllByText("Machine Learning Guide").length).toBeGreaterThan(0);
     expect(screen.getAllByText("Physics Notes").length).toBeGreaterThan(0);
     expect(screen.getAllByText("YouTube Lecture: Calculus").length).toBeGreaterThan(0);
+  });
+
+  it("keeps the library loading until the active collection has completed its first load", () => {
+    settingsStoreValues.settings.interface.compactDocumentsView = false;
+    documentStoreValues.documents = [];
+    documentStoreValues.isLoading = false;
+    documentStoreValues.hasCompletedFirstLoad = false;
+
+    const view = render(<DocumentsView enableYouTubeImport={false} />);
+    expect(screen.getByText("common.loading")).toBeInTheDocument();
+    expect(screen.queryByTestId("empty-documents")).not.toBeInTheDocument();
+
+    documentStoreValues.hasCompletedFirstLoad = true;
+    view.rerender(<DocumentsView enableYouTubeImport={false} />);
+    expect(screen.queryByText("common.loading")).not.toBeInTheDocument();
   });
 
   it("shows file type badges on grid cards", () => {

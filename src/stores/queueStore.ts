@@ -382,6 +382,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
         set({
           items,
           isLoading: false,
+          hasCompletedFirstLoad: true,
           // A fresh listing is server truth; clear the focus-reconcile flag.
           hasLocalDeltas: false,
           // ...and the rows it replaces, so a stale selection can't outlive them.
@@ -430,6 +431,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
         set({
           items,
           isLoading: false,
+          hasCompletedFirstLoad: true,
           selectedIds: new Set<string>(),
           lastSelectedId: null,
           selectionBase: new Set<string>(),
@@ -460,6 +462,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
         set({
           items,
           isLoading: false,
+          hasCompletedFirstLoad: true,
           selectedIds: new Set<string>(),
           lastSelectedId: null,
           selectionBase: new Set<string>(),
@@ -615,7 +618,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     if (existing.length > items.length && items.length <= 50) {
       return;
     }
-    set({ items, filteredItems: items, isLoading: false, error: null });
+    set({ items, filteredItems: items, isLoading: false, error: null, hasCompletedFirstLoad: true });
     get().applyFilters();
   },
 

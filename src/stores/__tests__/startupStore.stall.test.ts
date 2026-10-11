@@ -1,13 +1,11 @@
 /**
- * Cold-start IPC stall regression tests for the startup coordinator.
+ * Legacy/browser startup watchdog regression tests for the startup coordinator.
  *
- * On a cold Android WebView the first invoke round-trip can stall ~30s
- * inside the bridge (see the retrying readiness gate in lib/tauri.ts). A
- * hung `get_startup_snapshot` used to pin the inflight coalescing entry:
+ * A hung `get_startup_snapshot` used to pin the inflight coalescing entry:
  * every later `ensureStartup` with the same key shared the dead promise, so
- * the queue stayed empty until the user navigated away and back. The
- * watchdog must resolve null, free the inflight slot, and let the next call
- * issue a fresh request.
+ * the queue stayed empty until the user navigated away and back. Android now
+ * retries inside the shared coordinator; this suite keeps the legacy path
+ * deterministic and verifies its watchdog still frees the inflight slot.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,6 +13,11 @@ const getStartupSnapshot = vi.fn();
 
 vi.mock("../../api/startup", () => ({
   getStartupSnapshot: (...args: unknown[]) => getStartupSnapshot(...args),
+}));
+
+vi.mock("../../lib/tauri", () => ({
+  isNativeAndroid: () => false,
+  waitForBackendReady: vi.fn(),
 }));
 
 vi.mock("../../lib/sync/syncTelemetry", () => ({

@@ -7,19 +7,25 @@
  * pass that raced backend setup (resolve → null) left the queue empty with
  * the key claiming "loaded", and every later activation skipped the reload.
  */
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import React from "react";
 
 const ensureStartup = vi.fn();
 const setLoadedQueryKey = vi.fn();
 let loadedQueryKey: string | null = null;
+const queueViewState = vi.hoisted(() => ({
+  items: [] as unknown[],
+  isLoading: true,
+  error: null as string | null,
+  hasCompletedFirstLoad: false,
+}));
 
 vi.mock("../../../stores/queueStore", () => ({
   useQueueStore: Object.assign(
     (selector) =>
       selector({
-        items: [],
+        ...queueViewState,
         loadedQueryKey,
         setLoadedQueryKey: (key: string | null) => {
           loadedQueryKey = key;
@@ -30,7 +36,7 @@ vi.mock("../../../stores/queueStore", () => ({
         filters: {},
       }),
     { getState: () => ({
-      items: [],
+      ...queueViewState,
       loadedQueryKey,
       setLoadedQueryKey: (key: string | null) => {
         loadedQueryKey = key;
@@ -112,11 +118,18 @@ describe("MobileQueueView first-load gating", () => {
     ensureStartup.mockReset();
     setLoadedQueryKey.mockReset();
     loadedQueryKey = null;
+    queueViewState.items = [];
+    queueViewState.isLoading = true;
+    queueViewState.error = null;
+    queueViewState.hasCompletedFirstLoad = false;
   });
 
   it("does not mark the filter loaded when the startup snapshot fails (fresh-install race)", async () => {
     ensureStartup.mockResolvedValue(null);
     render(React.createElement(MobileQueueView));
+
+    expect(screen.getByText("mobileQueue.loading")).toBeInTheDocument();
+    expect(screen.queryByText("mobileQueue.noDocumentsReady")).not.toBeInTheDocument();
 
     await waitFor(() => expect(ensureStartup).toHaveBeenCalled());
     // Give the .then a tick to (wrongly) mark loaded.
@@ -126,29 +139,26 @@ describe("MobileQueueView first-load gating", () => {
 
   it("marks the filter loaded only after a successful snapshot", async () => {
     ensureStartup.mockResolvedValue({ queue: { items: [] }, documents: { items: [] } });
-    render(React.createElement(MobileQueueView));
+    const view = render(React.createElement(MobileQueueView));
 
     await waitFor(() => expect(setLoadedQueryKey).toHaveBeenCalledWith("mobile:today"));
+    queueViewState.isLoading = false;
+    queueViewState.hasCompletedFirstLoad = true;
+    view.rerender(React.createElement(MobileQueueView));
+    expect(screen.getByText("mobileQueue.noDocumentsReady")).toBeInTheDocument();
+    expect(screen.queryByText("mobileQueue.loading")).not.toBeInTheDocument();
   });
 
-  it("retries a stalled first pass on its own and marks loaded once a retry succeeds", async () => {
-    vi.useFakeTimers();
-    try {
-      ensureStartup
-        .mockResolvedValueOnce(null)
-        .mockResolvedValue({ queue: { items: [] }, documents: { items: [] } });
-      render(React.createElement(MobileQueueView));
+  it("leaves retries to the shared coordinator and marks loaded after its eventual success", async () => {
+    let resolveStartup!: (value: { queue: { items: unknown[] }; documents: { items: unknown[] } }) => void;
+    ensureStartup.mockReturnValueOnce(new Promise((resolve) => { resolveStartup = resolve; }));
+    render(React.createElement(MobileQueueView));
 
-      // First attempt resolves null — nothing may be marked loaded.
-      await vi.advanceTimersByTimeAsync(10);
-      expect(setLoadedQueryKey).not.toHaveBeenCalled();
+    await waitFor(() => expect(ensureStartup).toHaveBeenCalledTimes(1));
+    expect(setLoadedQueryKey).not.toHaveBeenCalled();
 
-      // The 3s retry timer fires the second attempt, which succeeds.
-      await vi.advanceTimersByTimeAsync(3_000);
-      expect(ensureStartup).toHaveBeenCalledTimes(2);
-      expect(setLoadedQueryKey).toHaveBeenCalledWith("mobile:today");
-    } finally {
-      vi.useRealTimers();
-    }
+    resolveStartup({ queue: { items: [] }, documents: { items: [] } });
+    await waitFor(() => expect(setLoadedQueryKey).toHaveBeenCalledWith("mobile:today"));
+    expect(ensureStartup).toHaveBeenCalledTimes(1);
   });
 });
