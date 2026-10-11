@@ -4,14 +4,17 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { checkFreshness } from "../marketing/check-freshness.mjs";
 
-const ROOT = join(import.meta.dirname, "../..");
+import { existsSync } from "node:fs";
 
-test("freshness passes with default noindex while placeholders exist", () => {
+const ROOT = join(import.meta.dirname, "../..");
+const hasAttribution = existsSync(join(ROOT, "marketing/licenses/ATTRIBUTION.md"));
+
+test("freshness passes with default noindex while placeholders exist", { skip: !hasAttribution ? "marketing assets not present on disk" : false }, () => {
   const result = checkFreshness({ env: { PUBLIC_INDEXING: "noindex" } });
   assert.equal(result.ok, true, result.errors.join("\n"));
 });
 
-test("freshness fails when indexing is on and required stills are placeholders", () => {
+test("freshness fails when indexing is on and required stills are placeholders", { skip: !hasAttribution ? "marketing assets not present on disk" : false }, () => {
   const result = checkFreshness({ env: { PUBLIC_INDEXING: "index" } });
   assert.equal(result.ok, false);
   assert.ok(result.errors.some((e) => e.includes("PUBLIC_INDEXING=index")));

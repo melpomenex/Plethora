@@ -56,7 +56,7 @@ describe("adaptive ranking on queue load", () => {
 
   it("structures due items under the knobs when ranking is enabled", async () => {
     useSettingsStore.getState().updateSettingsCategory("daqe", { rankingEnabled: true });
-    const spy = vi.fn(async () => {});
+    const spy = vi.fn(async (..._args: unknown[]) => {});
     useQueueStore.setState({ applyRankSnapshot: spy as never });
 
     await useQueueStore.getState().loadDueQueueItems();

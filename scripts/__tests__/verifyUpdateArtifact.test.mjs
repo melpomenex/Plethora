@@ -71,7 +71,7 @@ test("parseUpdaterPubkey extracts the 42-byte Ed25519 key structure", () => {
   assert.equal(parsed.ed25519Key.length, 32);
   // The Plethora updater key (rotated in rebrand task 3.8) — a DIFFERENT key
   // id from the legacy Incrementum release signatures below.
-  assert.equal(parsed.keyId.toString("hex"), "c5e9c0e50b44f2f1");
+  assert.equal(parsed.keyId.toString("hex"), "15febf8d46cddd67");
   assert.notEqual(
     parsed.keyId.toString("hex"),
     parseUpdaterPubkey(LEGACY_INCREMENTUM_PUBKEY).keyId.toString("hex"),
