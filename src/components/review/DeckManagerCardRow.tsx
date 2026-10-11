@@ -148,12 +148,26 @@ export const DeckManagerCardRow = memo(function DeckManagerCardRow({
     }
   }, []);
 
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (!isMobile || (e.key !== "Enter" && e.key !== " ")) return;
+      e.preventDefault();
+      onExpand(card.id);
+    },
+    [card.id, isMobile, onExpand]
+  );
+
   return (
     <div
-      className={`group flex items-center gap-2 px-3 ${isMobile ? "py-3" : "py-2"} border-b border-border/30 transition-colors cursor-pointer hover:bg-muted/40 text-sm ${
+      data-deck-manager-card={card.id}
+      className={`group flex items-center gap-2 px-3 ${isMobile ? "py-3" : "py-2"} border-b border-border/30 transition-colors cursor-pointer hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset text-sm ${
         isExpanded ? "bg-muted/30" : ""
       } ${card.is_suspended ? "opacity-50" : ""}`}
+      tabIndex={isMobile ? 0 : undefined}
+      role={isMobile ? "button" : undefined}
+      aria-expanded={isMobile ? isExpanded : undefined}
       onClick={() => onExpand(card.id)}
+      onKeyDown={handleKeyDown}
       onContextMenu={handleContextMenu}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}

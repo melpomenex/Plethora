@@ -20,6 +20,43 @@
   --overlay-sheet-z: 1051;
 }
 
+/* ===========================================================================
+   Mobile Deck Manager Card Details
+   =========================================================================== */
+
+.mobile-card-details-layer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--overlay-sheet-z);
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  min-height: 100dvh;
+  isolation: isolate;
+  overflow: hidden;
+  color: var(--color-popover-foreground);
+  background-color: var(--color-popover);
+}
+
+.mobile-card-details-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  min-height: 56px;
+  padding: max(4px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px)) 8px max(12px, env(safe-area-inset-left, 0px));
+  border-bottom: 1px solid var(--color-border);
+  background-color: var(--color-popover);
+}
+
+.mobile-card-details-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0 max(0px, env(safe-area-inset-right, 0px)) max(0px, env(safe-area-inset-bottom, 0px)) max(0px, env(safe-area-inset-left, 0px));
+  background-color: var(--color-popover);
+}
+
 /* ==========================================================================
    Mobile Reading Wrapper
    ========================================================================== */

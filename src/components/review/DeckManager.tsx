@@ -40,6 +40,7 @@ import { DeckManagerCardRow } from "./DeckManagerCardRow";
 import { deleteLearningItem } from "../../lib/database";
 // InlineCardEditor moved to CardPreviewPanel Edit tab
 import { CardPreviewPanel } from "./CardPreviewPanel";
+import { MobileCardDetailsSurface } from "./MobileCardDetailsSurface";
 import { useResizablePanels } from "./useResizablePanels";
 import { DeckStatsPanel } from "./DeckStatsPanel";
 import { useMobileShell } from "../../hooks/useMobileShell";
@@ -297,7 +298,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
 
   const handleExpandCard = useCallback(
     (id: string) => {
-      setPreviewCardId((prev) => (prev === id ? null : id));
+      setPreviewCardId((prev) => (isMobile ? id : prev === id ? null : id));
       if (isMobile) setMobileCardOpen(true);
     },
     [isMobile]
@@ -682,6 +683,10 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
       if (e.key === "Escape") {
         if (contextMenu) { setContextMenu(null); return; }
         if (renamingDeckId) { setRenamingDeckId(null); setRenameValue(""); return; }
+        if (isMobile && mobileCardOpen) {
+          setMobileCardOpen(false);
+          return;
+        }
         if (previewCardId) {
           setPreviewCardId(null);
         } else if (expandedDeckId) {
@@ -691,7 +696,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [previewCardId, expandedDeckId]);
+  }, [contextMenu, expandedDeckId, isMobile, mobileCardOpen, previewCardId, renamingDeckId]);
 
   const allDeckCards = expandedDeck ? getCardsForDeck(expandedDeck) : [];
 
@@ -774,46 +779,22 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
         </div>
       )}
 
-      {/* Mobile card preview overlay */}
-      {isMobile && mobileCardOpen && previewCard && (
-        <div className="fixed inset-0 z-50 bg-background flex flex-col">
-          <div className="flex items-center border-b border-border px-3 py-2 flex-shrink-0">
-            <button
-              onClick={() => setMobileCardOpen(false)}
-              className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              Back
-            </button>
-            <div className="flex items-center gap-1 ml-auto">
-              <button
-                onClick={() => setRightPanelView(rightPanelView === "preview" ? "stats" : "preview")}
-                className="text-xs px-2 py-1 text-muted-foreground hover:text-foreground"
-              >
-                {rightPanelView === "preview" ? "Stats" : "Card"}
-              </button>
-            </div>
-          </div>
-          <div className="flex-1 overflow-hidden">
-            {rightPanelView === "preview" ? (
-              <CardPreviewPanel
-                card={previewCard}
-                onCardUpdate={handleCardSave}
-                onEditInStudio={onEditInStudio}
-              />
-            ) : (
-              <div className="overflow-y-auto h-full">
-                <DeckStatsPanel
-                  cards={allDeckCards}
-                  deck={expandedDeck}
-                  onLeechClick={handleLeechFilter}
-                  onStudyNow={onStartReview ? handleStudyNow : undefined}
-                  onNewCard={handleNewCard}
-                />
-              </div>
-            )}
-          </div>
-        </div>
+      {/* Mobile card details surface */}
+      {isMobile && (
+        <MobileCardDetailsSurface
+          open={mobileCardOpen}
+          card={previewCard}
+          deckName={expandedDeck?.name}
+          onClose={() => setMobileCardOpen(false)}
+          onCardUpdate={handleCardSave}
+          onEditInStudio={onEditInStudio}
+          onSuspend={handleCardSuspend}
+          onUnsuspend={handleCardUnsuspend}
+          onDelete={handleCardDelete}
+          onDuplicate={handleCardDuplicate}
+          onMoveToDeck={handleCardMoveToDeck}
+          decks={deckOptions}
+        />
       )}
 
       {/* Main 3-column layout */}

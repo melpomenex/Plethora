@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   ChartBar,
   CircleNotch,
@@ -22,13 +22,18 @@ import {
 } from "../../api/learning-items";
 import { renderAnkiHtmlWithLatex } from "../../utils/ankiLatex";
 
+export type CardPreviewTab = "preview" | "edit" | "history";
+
 interface CardPreviewPanelProps {
   card: LearningItem | null;
   onCardUpdate?: (updated: LearningItem) => void;
   onEditInStudio?: (card: LearningItem) => void;
+  /** Controlled tab state for focused mobile card details surfaces. */
+  activeTab?: CardPreviewTab;
+  onActiveTabChange?: (tab: CardPreviewTab) => void;
+  /** Use larger, evenly distributed tab targets for mobile presentation. */
+  mobile?: boolean;
 }
-
-type Tab = "preview" | "edit" | "history";
 
 function formatRelativeDate(date?: string): string {
   if (!date) return "—";
@@ -54,8 +59,25 @@ export function CardPreviewPanel({
   card,
   onCardUpdate,
   onEditInStudio,
+  activeTab,
+  onActiveTabChange,
+  mobile = false,
 }: CardPreviewPanelProps) {
-  const [activeTab, setActiveTab] = useState<Tab>("preview");
+  const [internalActiveTab, setInternalActiveTab] = useState<CardPreviewTab>("preview");
+  const isControlled = activeTab !== undefined;
+  const selectedTab = activeTab ?? internalActiveTab;
+
+  useEffect(() => {
+    if (!isControlled) setInternalActiveTab("preview");
+  }, [card?.id, isControlled]);
+
+  const handleTabChange = useCallback(
+    (tab: CardPreviewTab) => {
+      if (!isControlled) setInternalActiveTab(tab);
+      onActiveTabChange?.(tab);
+    },
+    [isControlled, onActiveTabChange]
+  );
 
   if (!card) {
     return (
@@ -67,9 +89,15 @@ export function CardPreviewPanel({
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-h-0">
       {/* Tab bar */}
-      <div className="flex items-center border-b border-border px-1 flex-shrink-0">
+      <div
+        className={`flex items-center border-b border-border px-1 flex-shrink-0 ${
+          mobile ? "min-h-12" : ""
+        }`}
+        role="tablist"
+        aria-label="Card views"
+      >
         {(["preview", "edit", "history"] as const).map((tab) => {
           const icons = {
             preview: <Eye className="h-3 w-3" />,
@@ -77,12 +105,19 @@ export function CardPreviewPanel({
             history: <Clock className="h-3 w-3" />,
           };
           const labels = { preview: "Preview", edit: "Edit", history: "History" };
-          const isActive = activeTab === tab;
+          const isActive = selectedTab === tab;
           return (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`flex items-center gap-1.5 text-xs px-3 py-2 transition-colors border-b-2 ${
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => handleTabChange(tab)}
+              className={`flex items-center gap-1.5 transition-colors border-b-2 ${
+                mobile
+                  ? "min-h-11 flex-1 justify-center px-3 py-2 text-sm"
+                  : "text-xs px-3 py-2"
+              } ${
                 isActive
                   ? "border-primary text-primary font-medium"
                   : "border-transparent text-muted-foreground hover:text-foreground"
@@ -106,12 +141,12 @@ export function CardPreviewPanel({
       </div>
 
       {/* Tab content */}
-      <div className="flex-1 overflow-y-auto">
-        {activeTab === "preview" && <PreviewTab card={card} onEditInStudio={onEditInStudio} />}
-        {activeTab === "edit" && (
+      <div className="flex-1 min-h-0 overflow-y-auto">
+        {selectedTab === "preview" && <PreviewTab card={card} onEditInStudio={onEditInStudio} />}
+        {selectedTab === "edit" && (
           <EditTab card={card} onSave={onCardUpdate} />
         )}
-        {activeTab === "history" && <HistoryTab card={card} />}
+        {selectedTab === "history" && <HistoryTab card={card} />}
       </div>
 
       {/* Tags */}
