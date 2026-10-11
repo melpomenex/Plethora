@@ -20,7 +20,8 @@ const mocks = vi.hoisted(() => {
     settings: null,
     updateSettingsCategory: vi.fn(),
   };
-  return { queueState, tabsState, settingsState };
+  const deleteLearningItemUndoable = vi.fn(async () => {});
+  return { queueState, tabsState, settingsState, deleteLearningItemUndoable };
 });
 
 vi.mock("../../stores/queueStore", () => ({
@@ -188,7 +189,7 @@ vi.mock("../../api/undoable", () => ({
   useUndoableOperations: () => ({
     deleteDocument: vi.fn(),
     deleteExtract: vi.fn(),
-    deleteLearningItem: vi.fn(),
+    deleteLearningItem: mocks.deleteLearningItemUndoable,
   }),
 }));
 
@@ -399,6 +400,62 @@ describe("QueueScrollPage audio editions and in-queue editing", () => {
     await waitFor(() => {
       expect(screen.queryByTestId("inline-card-editor")).not.toBeInTheDocument();
       expect(screen.getAllByText("Updated Card Question").length).toBeGreaterThan(0);
+    });
+  });
+
+  it("deletes the active flashcard through the undoable flow and advances to the next queue item", async () => {
+    const card = makeCard("card-delete-test", "Card to Delete");
+    const nextCard = makeCard("card-after-delete", "Next Card Question");
+    api.getDueItems.mockResolvedValue([card, nextCard]);
+
+    mocks.tabsState.tabs[0].data = {
+      queueScrollMode: "queue-list",
+      customQueueItems: [
+        {
+          id: "flashcard-card-delete-test",
+          itemType: "learning-item",
+          learningItemId: "card-delete-test",
+          documentId: "doc-1",
+          documentTitle: "Card to Delete",
+          question: "Card to Delete",
+          answer: "Answer 42",
+          priority: 10,
+          estimatedTime: 2,
+          tags: ["books"],
+          progress: 0,
+        },
+        {
+          id: "flashcard-card-after-delete",
+          itemType: "learning-item",
+          learningItemId: "card-after-delete",
+          documentId: "doc-1",
+          documentTitle: "Next Card Question",
+          question: "Next Card Question",
+          answer: "Answer 42",
+          priority: 5,
+          estimatedTime: 2,
+          tags: ["books"],
+          progress: 0,
+        },
+      ],
+    };
+
+    render(<QueueScrollPage />);
+
+    await waitFor(() => {
+      expect(screen.getAllByText("Card to Delete").length).toBeGreaterThan(0);
+      expect(screen.getByRole("button", { name: "Delete Flashcard" })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Delete Flashcard" }));
+    });
+
+    expect(mocks.deleteLearningItemUndoable).toHaveBeenCalledWith("card-delete-test");
+    await waitFor(() => {
+      const activePrompt = screen.getByText("Question").parentElement?.textContent ?? "";
+      expect(activePrompt).toContain("Next Card Question");
+      expect(activePrompt).not.toContain("Card to Delete");
     });
   });
 

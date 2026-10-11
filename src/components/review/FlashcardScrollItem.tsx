@@ -8,6 +8,7 @@ import {
   Scissors,
   Sparkle,
   Star,
+  Trash,
   WarningCircle,
 } from "@phosphor-icons/react";
 import type { LearningItem } from "../../api/learning-items";
@@ -28,6 +29,7 @@ interface FlashcardScrollItemProps {
     learningItem: LearningItem;
     onRate: (rating: number, grade?: number) => void;
     onEdit?: () => void;
+    onDelete?: () => void;
     onCreateFlashcard?: (excerpt: string, extractId?: string, documentId?: string) => void;
     onCreateCloze?: (selectedText: string, range: [number, number]) => void;
     onCreateQA?: () => void;
@@ -45,6 +47,7 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
     learningItem, 
     onRate, 
     onEdit,
+    onDelete,
     onCreateFlashcard,
     onCreateCloze,
     onCreateQA,
@@ -59,6 +62,7 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
     // the review session.
     const ratingSchema = useRatingSchema();
     const useNativeGrades = ratingSchema.type === "six-grade";
+    const isClozeCard = learningItem.item_type?.toLowerCase() === "cloze";
     const isAnswerRevealedRef = useRef(isAnswerRevealed);
     isAnswerRevealedRef.current = isAnswerRevealed;
 
@@ -199,69 +203,79 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
     const answerHtml = useMemo(() => learningItem.answer ? renderAnkiHtmlWithLatex(learningItem.answer) : "", [learningItem.answer]);
 
     const renderClozeText = () => {
-        if (!learningItem.cloze_text) {
-            return <span dangerouslySetInnerHTML={{ __html: questionHtml }} />;
-        }
+        const text = learningItem.cloze_text || learningItem.question || "";
+        if (!text) return <span dangerouslySetInnerHTML={{ __html: questionHtml }} />;
+        // Marker syntax is the source of truth when present. Older cards can
+        // also store ranges against marker-free text, so only use ranges when
+        // every range is ordered, non-empty, and within that text.
+        const normalizedClozeText = normalizeClozeSyntax(text).replace(
+            /\[\[c(\d+)::([\s\S]*?)\]\]/g,
+            (_match, number: string, content: string) => `{{c${number}::${content}}}`,
+        );
+        const rawClozePattern = /\{\{c(\d+)::([\s\S]+?)(?:::(.+?))?\}\}/g;
+        const hasMarkerSyntax = rawClozePattern.test(normalizedClozeText);
+        rawClozePattern.lastIndex = 0;
 
-        // If cloze_ranges are available, use range-based rendering
-        if (learningItem.cloze_ranges) {
+        const rangeData: unknown = learningItem.cloze_ranges;
+        const hasWellFormedRanges = Array.isArray(rangeData) && rangeData.every((range) =>
+            Array.isArray(range) &&
+            range.length === 2 &&
+            Number.isInteger(range[0]) &&
+            Number.isInteger(range[1]),
+        );
+        const ranges = hasWellFormedRanges
+            ? (rangeData as [number, number][]).slice().sort(([a], [b]) => a - b)
+            : [];
+        const rangesAreUsable = ranges.length > 0 && ranges.every(([start, end], index) =>
+            Number.isInteger(start) &&
+            Number.isInteger(end) &&
+            start >= 0 &&
+            end > start &&
+            end <= text.length &&
+            (index === 0 || start >= ranges[index - 1][1]),
+        );
 
-        const text = learningItem.cloze_text;
-        const ranges = learningItem.cloze_ranges;
-        let lastIndex = 0;
-        const parts: React.ReactNode[] = [];
+        if (!hasMarkerSyntax && rangesAreUsable) {
+            let lastIndex = 0;
+            const parts: React.ReactNode[] = [];
 
-        ranges.forEach(([start, end], index) => {
-            // Add text before this cloze
-            if (start > lastIndex) {
-                parts.push(
-                    <span 
-                        key={`text-${index}`} 
-                        dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(text.slice(lastIndex, start)) }} 
-                    />
-                );
-            }
+            ranges.forEach(([start, end], index) => {
+                if (start > lastIndex) {
+                    parts.push(
+                        <span
+                            key={`text-${index}`}
+                            dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(text.slice(lastIndex, start)) }}
+                        />,
+                    );
+                }
 
-            // Add cloze blank or revealed answer
-            const clozeContent = text.slice(start, end);
-            if (isAnswerRevealed) {
-                parts.push(
+                const clozeContent = text.slice(start, end);
+                parts.push(isAnswerRevealed ? (
                     <span
                         key={`cloze-${index}`}
                         className="bg-green-500/20 text-green-400 px-2 py-0.5 rounded font-semibold"
                         dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(clozeContent) }}
                     />
-                );
-            } else {
-                parts.push(
-                    <span
-                        key={`cloze-${index}`}
-                        className="bg-primary/30 px-4 py-0.5 rounded mx-1"
-                    >
+                ) : (
+                    <span key={`cloze-${index}`} className="bg-primary/30 px-4 py-0.5 rounded mx-1">
                         [...]
                     </span>
+                ));
+                lastIndex = end;
+            });
+
+            if (lastIndex < text.length) {
+                parts.push(
+                    <span
+                        key="text-end"
+                        dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(text.slice(lastIndex)) }}
+                    />,
                 );
             }
 
-            lastIndex = end;
-        });
-
-        // Add remaining text
-        if (lastIndex < text.length) {
-            parts.push(
-                <span 
-                    key="text-end" 
-                    dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(text.slice(lastIndex)) }} 
-                />
-            );
+            return <span className="text-lg leading-relaxed">{parts}</span>;
         }
 
-        return <>{parts}</>;
-        }
-
-        const normalizedClozeText = normalizeClozeSyntax(learningItem.cloze_text);
-        // Fallback: parse {{cN::content}} or [[cN::content]] markers from cloze_text
-        const rawClozePattern = /\{\{c(\d+)::(.+?)(?:::(.+?))?\}\}/g;
         if (rawClozePattern.test(normalizedClozeText)) {
             rawClozePattern.lastIndex = 0;
             const parts: React.ReactNode[] = [];
@@ -295,40 +309,13 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
             return <span className="text-lg leading-relaxed">{parts}</span>;
         }
 
-        const parts = learningItem.cloze_text.split(/\[\[c(\d+)::(.*?)\]\]/g);
-        return (
-            <span className="text-lg leading-relaxed">
-                {parts.map((part, idx) => {
-                    if (idx % 3 === 1) return null; // Skip the cloze number
-                    if (idx % 3 === 2) {
-                        if (isAnswerRevealed) {
-                            return (
-                                <span
-                                    key={idx}
-                                    className="bg-green-500/20 text-green-400 px-2 py-0.5 rounded font-semibold"
-                                    dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(part) }}
-                                />
-                            );
-                        }
-                        return (
-                            <span
-                                key={idx}
-                                className="bg-primary/30 px-4 py-0.5 rounded mx-1"
-                            >
-                                [...]
-                            </span>
-                        );
-                    }
-                    return <span key={idx} dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(part) }} />;
-                })}
-            </span>
-        );
+        return <span className="text-lg leading-relaxed" dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(text) }} />;
     };
 
     const renderQuestionContent = () => {
+        if (isClozeCard) return renderClozeText();
+
         switch (learningItem.item_type) {
-            case "Cloze":
-                return renderClozeText();
             case "Flashcard":
             case "Qa":
             case "Basic":
@@ -338,7 +325,7 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
     };
 
     const renderAnswerContent = () => {
-        if (learningItem.item_type === "Cloze") {
+        if (isClozeCard) {
             return null; // Cloze shows answer inline
         }
         if (!learningItem.answer) return null;
@@ -373,17 +360,30 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
             </div>
 
             {/* Top Right Controls */}
-            {onEdit && (
+            {(onEdit || onDelete) && (
                 <div className="absolute top-6 right-6 flex items-center gap-2">
-                    <button
-                        onClick={onEdit}
-                        data-testid="review-card-edit"
-                        className="p-2 rounded-lg bg-card/80 border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shadow-sm"
-                        title="Edit Flashcard (Cmd+E / Ctrl+E)"
-                        aria-label="Edit Flashcard"
-                    >
-                        <Pencil className="w-4 h-4" />
-                    </button>
+                    {onEdit && (
+                        <button
+                            onClick={onEdit}
+                            data-testid="review-card-edit"
+                            className="p-2 rounded-lg bg-card/80 border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shadow-sm"
+                            title="Edit Flashcard (Cmd+E / Ctrl+E)"
+                            aria-label="Edit Flashcard"
+                        >
+                            <Pencil className="w-4 h-4" />
+                        </button>
+                    )}
+                    {onDelete && (
+                        <button
+                            onClick={onDelete}
+                            data-testid="review-card-delete"
+                            className="p-2 rounded-lg bg-card/80 border border-border hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shadow-sm"
+                            title="Delete Flashcard"
+                            aria-label="Delete Flashcard"
+                        >
+                            <Trash className="w-4 h-4" />
+                        </button>
+                    )}
                 </div>
             )}
 

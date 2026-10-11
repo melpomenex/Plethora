@@ -60,6 +60,125 @@ describe("FlashcardScrollItem", () => {
     expect(screen.queryByAltText("Flashcard visual 1")).not.toBeInTheDocument();
   });
 
+  it("masks simplified cloze markers when stored ranges are empty and reveals them in context", () => {
+    render(
+      <FlashcardScrollItem
+        learningItem={{
+          ...baseLearningItem,
+          item_type: "Cloze",
+          question: "Larger groups had {{military and economic advantages}}.",
+          cloze_text: "Larger groups had {{military and economic advantages}}.",
+          cloze_ranges: [],
+        }}
+        onRate={() => undefined}
+      />
+    );
+
+    expect(document.body.textContent).toContain("Larger groups had [...].");
+    expect(document.body.textContent).not.toContain("military and economic advantages");
+    expect(document.body.textContent).not.toContain("{{");
+
+    fireEvent.click(screen.getByRole("button", { name: /show answer/i }));
+
+    expect(document.body.textContent).toContain("Larger groups had military and economic advantages.");
+    expect(document.body.textContent).not.toContain("{{");
+  });
+
+  it("uses question text for lowercase cloze cards without cloze_text", () => {
+    render(
+      <FlashcardScrollItem
+        learningItem={{
+          ...baseLearningItem,
+          item_type: "cloze" as any,
+          question: "Larger groups had {{military and economic advantages}}.",
+          cloze_text: undefined,
+        }}
+        onRate={() => undefined}
+      />
+    );
+
+    expect(document.body.textContent).toContain("Larger groups had [...].");
+    expect(document.body.textContent).not.toContain("military and economic advantages");
+    fireEvent.click(screen.getByRole("button", { name: /show answer/i }));
+    expect(document.body.textContent).toContain("Larger groups had military and economic advantages.");
+  });
+
+  it("falls back to marker parsing when stored cloze ranges are out of bounds", () => {
+    render(
+      <FlashcardScrollItem
+        learningItem={{
+          ...baseLearningItem,
+          item_type: "Cloze",
+          question: "The {{c1::sun}} rises in the east.",
+          cloze_text: "The {{c1::sun}} rises in the east.",
+          cloze_ranges: [[100, 120]],
+        }}
+        onRate={() => undefined}
+      />
+    );
+
+    expect(document.body.textContent).toContain("The [...] rises in the east.");
+    expect(document.body.textContent).not.toContain("sun");
+  });
+
+  it("uses hints for numbered clozes and supports legacy bracket markers", () => {
+    const { unmount } = render(
+      <FlashcardScrollItem
+        learningItem={{
+          ...baseLearningItem,
+          item_type: "Cloze",
+          question: "Cell organelles",
+          cloze_text: "{{c1::mitochondria::cell organelle}} produce energy.",
+        }}
+        onRate={() => undefined}
+      />
+    );
+
+    expect(document.body.textContent).toContain("cell organelle");
+    expect(document.body.textContent).not.toContain("mitochondria");
+    fireEvent.click(screen.getByRole("button", { name: /show answer/i }));
+    expect(document.body.textContent).toContain("mitochondria produce energy.");
+    expect(document.body.textContent).not.toContain("{{");
+
+    unmount();
+    render(
+      <FlashcardScrollItem
+        learningItem={{
+          ...baseLearningItem,
+          item_type: "Cloze",
+          question: "The [[c2::spleen]] filters blood.",
+          cloze_text: "The [[c2::spleen]] filters blood.",
+        }}
+        onRate={() => undefined}
+      />
+    );
+
+    expect(document.body.textContent).toContain("The [...] filters blood.");
+    expect(document.body.textContent).not.toContain("spleen");
+    expect(document.body.textContent).not.toContain("[[c2::");
+    fireEvent.click(screen.getByRole("button", { name: /show answer/i }));
+    expect(document.body.textContent).toContain("The spleen filters blood.");
+    expect(document.body.textContent).not.toContain("[[c2::");
+  });
+
+  it("continues to render range-based clozes when marker syntax is absent", () => {
+    render(
+      <FlashcardScrollItem
+        learningItem={{
+          ...baseLearningItem,
+          item_type: "Cloze",
+          question: "The mitochondria produce energy.",
+          cloze_text: "The mitochondria produce energy.",
+          cloze_ranges: [[4, 16]],
+        }}
+        onRate={() => undefined}
+      />
+    );
+
+    expect(document.body.textContent).toContain("The [...] produce energy.");
+    expect(document.body.textContent).not.toContain("mitochondria");
+  });
+
   it("renders LaTeX in question and answer content", () => {
     render(
       <FlashcardScrollItem
@@ -212,6 +331,26 @@ describe("FlashcardScrollItem", () => {
     expect(editBtn).toBeInTheDocument();
     fireEvent.click(editBtn);
     expect(onEdit).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders an accessible delete button beside the edit button and triggers its callback", () => {
+    const onEdit = vi.fn();
+    const onDelete = vi.fn();
+    render(
+      <FlashcardScrollItem
+        learningItem={baseLearningItem}
+        onRate={() => undefined}
+        onEdit={onEdit}
+        onDelete={onDelete}
+      />
+    );
+
+    const editButton = screen.getByRole("button", { name: "Edit Flashcard" });
+    const deleteButton = screen.getByRole("button", { name: "Delete Flashcard" });
+    expect(editButton.parentElement).toBe(deleteButton.parentElement);
+    expect(editButton.parentElement?.className).toContain("top-6 right-6");
+    fireEvent.click(deleteButton);
+    expect(onDelete).toHaveBeenCalledTimes(1);
   });
 
   it("does not render edit button when onEdit is not provided", () => {

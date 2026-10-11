@@ -2681,6 +2681,12 @@ export function QueueScrollPage() {
     void loadQueue();
   }, [currentItem, deleteDocumentUndoable, deleteExtractUndoable, deleteLearningItemUndoable, advanceAfterRemoval, loadQueue]);
 
+  const handleFlashcardDelete = useCallback(async (queueItemId: string, learningItemId: string) => {
+    await deleteLearningItemUndoable(learningItemId);
+    advanceAfterRemoval(queueItemId);
+    void loadQueue();
+  }, [deleteLearningItemUndoable, advanceAfterRemoval, loadQueue]);
+
   // --- AI Summary (Optimal Queue) ---------------------------------------------------
   // Mirrors the RSS Scroll Mode summary experience but operates on whichever item
   // is currently rendered: a document (using its loaded text content) or an RSS
@@ -4178,6 +4184,9 @@ export function QueueScrollPage() {
               onRate={handleRating}
               onRevealChange={handleFlashcardReveal}
               onEdit={() => setEditingLearningItem(renderedItem.learningItem!)}
+              onDelete={() => {
+                void handleFlashcardDelete(renderedItem.id, renderedItem.learningItem!.id);
+              }}
               onCreateFlashcard={(excerpt, extractId, documentId) => setFlashcardStudioSeed({
                 key: `scroll-${extractId || renderedItem.learningItem!.id}-${Date.now()}`,
                 excerpt,
