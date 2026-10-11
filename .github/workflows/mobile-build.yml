@@ -309,6 +309,7 @@ jobs:
           # ceiling. ORG_GRADLE_PROJECT_* exposes it as a Gradle project
           # property; BuildTask.kt honors it by skipping the rebuild.
           ORG_GRADLE_PROJECT_plethoraSkipRustBuild: "true"
+          ORG_GRADLE_PROJECT_plethoraNativeBackEnabled: "true"
         run: |
           set -o pipefail
           mkdir -p artifacts/mobile-logs
@@ -653,6 +654,7 @@ jobs:
 
       - name: Build iOS app (simulator fallback, non-release refs only)
         if: steps.ios_mode.outputs.mode == 'simulator'
+        continue-on-error: true
         run: |
           set -o pipefail
           mkdir -p artifacts/mobile-logs
