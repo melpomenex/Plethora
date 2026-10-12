@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-10-12
+goal: Make every Review Complete action reachable on mobile devices with fixed
+  bottom navigation.

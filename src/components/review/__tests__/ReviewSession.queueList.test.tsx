@@ -13,6 +13,7 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 
 const { getDueItems } = vi.hoisted(() => ({ getDueItems: vi.fn() }));
 
@@ -104,6 +105,29 @@ function seedSession() {
   });
 }
 
+function seedCompletedSession() {
+  const sessionStartedAt = Date.now() - 30_000;
+  useReviewStore.setState({
+    queue: [],
+    currentIndex: 2,
+    currentCard: null,
+    isLoading: false,
+    isAnswerShown: false,
+    isSubmitting: false,
+    error: null,
+    sessionId: "session-1",
+    sessionStartTime: sessionStartedAt,
+    sessionStartedAt,
+    reviewsCompleted: 2,
+    correctCount: 2,
+    averageTimePerCard: 0,
+    pendingArenaReview: null,
+    previewIntervals: null,
+    streak: null,
+    canUndoLastReview: false,
+  });
+}
+
 /**
  * The queue-list panel.
  *
@@ -150,6 +174,23 @@ beforeEach(() => {
 });
 
 describe("ReviewSession — queue list stays within the viewport", () => {
+  it("keeps the trailing completion action inside the scrollable viewport", () => {
+    seedCompletedSession();
+    render(
+      <MemoryRouter>
+        <ReviewSession onExit={vi.fn()} />
+      </MemoryRouter>,
+    );
+
+    const viewport = document.querySelector("[data-review-completion-viewport]");
+    expect(viewport).toHaveClass("overflow-y-auto");
+    expect(
+      within(viewport as HTMLElement).getByRole("button", {
+        name: "Back to Review Home",
+      }),
+    ).toBeInTheDocument();
+  });
+
   it("anchors the list to the viewport on a phone", async () => {
     isMobileMock.mockReturnValue(true);
     await openQueueList();

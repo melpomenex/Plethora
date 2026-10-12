@@ -15,6 +15,7 @@ import { ReviewCard } from "./ReviewCard";
 import { RatingButtons } from "./RatingButtons";
 import { ReviewProgress } from "./ReviewProgress";
 import { ReviewComplete } from "./ReviewComplete";
+import { ReviewCompletionViewport } from "./ReviewCompletionViewport";
 import { ReviewTransparencyPanel } from "./ReviewTransparencyPanel";
 import { QueueNavigationControls } from "../queue/QueueNavigationControls";
 import { ReviewFeedback } from "./ReviewFeedback";
@@ -795,7 +796,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
 
   if (!currentCard) {
     return (
-      <div ref={containerRef} className="flex flex-col items-center justify-center h-full p-6 gap-6">
+      <ReviewCompletionViewport containerRef={containerRef}>
         <ReviewComplete
           reviewsCompleted={reviewsCompleted}
           correctCount={correctCount}
@@ -810,7 +811,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
         >
           {t("review.backToHome")}
         </button>
-      </div>
+      </ReviewCompletionViewport>
     );
   }
 

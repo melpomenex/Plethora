@@ -5,6 +5,7 @@ import { ReviewCard } from "../components/review/ReviewCard";
 import { RatingButtons } from "../components/review/RatingButtons";
 import { ReviewProgress } from "../components/review/ReviewProgress";
 import { ReviewComplete } from "../components/review/ReviewComplete";
+import { ReviewCompletionViewport } from "../components/review/ReviewCompletionViewport";
 import { ArrowCounterClockwise, WarningCircle } from "@phosphor-icons/react";
 import { ReviewRating } from "../api/review";
 import {
@@ -386,7 +387,7 @@ export function Review() {
 
   if (!currentCard) {
     return (
-      <div className="flex items-center justify-center h-full p-6">
+      <ReviewCompletionViewport>
         <ReviewComplete
           reviewsCompleted={reviewsCompleted}
           correctCount={correctCount}
@@ -394,7 +395,7 @@ export function Review() {
           sessionStartedAt={sessionStartedAt}
           streak={streak || undefined}
         />
-      </div>
+      </ReviewCompletionViewport>
     );
   }
 
