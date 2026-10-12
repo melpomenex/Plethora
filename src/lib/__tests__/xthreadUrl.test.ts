@@ -21,13 +21,23 @@ describe("xthreadUrl — X status URL normalization", () => {
     }
   });
 
-  it("handles /i/status/, trailing slashes, query strings, and photo suffixes", () => {
+  it("handles /i/status/, /i/web/status/, trailing slashes, query strings, and photo suffixes", () => {
     expect(extractXStatusId("https://x.com/i/status/111222333")).toBe("111222333");
+    expect(extractXStatusId("https://twitter.com/i/web/status/111222333")).toBe("111222333");
     expect(extractXStatusId("https://x.com/u/status/42/")).toBe("42");
     expect(extractXStatusId("https://x.com/u/status/42/?s=20")).toBe("42");
     expect(extractXStatusId("https://x.com/u/status/42/photo/1")).toBe("42");
     expect(extractXStatusId("https://x.com/u/STATUS/99")).toBe("99");
     expect(extractXStatusId("https://x.com/u/status/42#frag")).toBe("42");
+  });
+
+  it("handles trailing punctuation, brackets, and quotes around URLs", () => {
+    expect(extractXStatusId("(https://x.com/user/status/1234567890)")).toBe("1234567890");
+    expect(extractXStatusId("https://x.com/user/status/1234567890.")).toBe("1234567890");
+    expect(extractXStatusId("https://x.com/user/status/1234567890,")).toBe("1234567890");
+    expect(extractXStatusId("\"https://x.com/user/status/1234567890\"")).toBe("1234567890");
+    expect(extractXStatusId("<https://x.com/user/status/1234567890>")).toBe("1234567890");
+    expect(extractXScreenName("(https://x.com/karpathy/status/1234567890)")).toBe("karpathy");
   });
 
   it("rejects non-X hosts and malformed ids", () => {

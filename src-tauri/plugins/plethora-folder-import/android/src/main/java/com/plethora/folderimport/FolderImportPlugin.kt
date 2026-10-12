@@ -100,12 +100,30 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
       }
     }
 
+    private val URL_REGEX = Regex("""https?://[^\s<>"'{}|\\^`]+""")
+
+    fun sanitizeExtractedUrl(rawUrl: String): String {
+      return rawUrl.trimEnd('.', ',', ';', ':', '!', '?', ')', ']', '}', '"', '\'')
+    }
+
+    private fun isWebUri(uri: Uri?): Boolean {
+      if (uri == null) return false
+      val scheme = uri.scheme ?: return false
+      return scheme.equals("http", ignoreCase = true) || scheme.equals("https", ignoreCase = true)
+    }
+
+    private fun isStreamUri(uri: Uri?): Boolean {
+      if (uri == null) return false
+      val scheme = uri.scheme ?: return false
+      return scheme.equals("content", ignoreCase = true) || scheme.equals("file", ignoreCase = true)
+    }
+
     fun handleSharedUrl(url: String) {
       val view = webView
       if (view != null && isFrontendReady) {
         view.post {
-          val escapedUrl = url.replace("'", "\\'")
-          view.evaluateJavascript("window.dispatchEvent(new CustomEvent('android-shared-url', { detail: '$escapedUrl' }));", null)
+          val quotedUrl = org.json.JSONObject.quote(url)
+          view.evaluateJavascript("window.dispatchEvent(new CustomEvent('android-shared-url', { detail: $quotedUrl }));", null)
         }
       } else {
         pendingUrl = url
@@ -125,14 +143,33 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
         ?: intent.getStringExtra(Intent.EXTRA_TITLE)
 
       if (action == Intent.ACTION_SEND) {
-        val streamUri: Uri? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val streamCandidate: Uri? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
           intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
         } else {
           @Suppress("DEPRECATION")
           intent.getParcelableExtra(Intent.EXTRA_STREAM)
-        } ?: intent.data
+        } ?: intent.clipData?.let { clip ->
+          if (clip.itemCount > 0) clip.getItemAt(0).uri else null
+        }
 
-        val rawText = intent.getStringExtra(Intent.EXTRA_TEXT)
+        val intentDataUri: Uri? = intent.data
+        val streamUri = if (isStreamUri(streamCandidate)) streamCandidate
+          else if (isStreamUri(intentDataUri)) intentDataUri
+          else null
+
+        val rawText: String? = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+          ?: intent.getStringExtra(Intent.EXTRA_TEXT)
+          ?: intent.clipData?.let { clip ->
+            if (clip.itemCount > 0) clip.getItemAt(0).text?.toString() else null
+          }
+
+        val directWebUrl: String? = if (isWebUri(intentDataUri)) {
+          sanitizeExtractedUrl(intentDataUri.toString())
+        } else if (isWebUri(streamCandidate)) {
+          sanitizeExtractedUrl(streamCandidate.toString())
+        } else {
+          null
+        }
 
         if (streamUri != null) {
           val mimeType = intent.type ?: context.contentResolver.getType(streamUri) ?: "application/octet-stream"
@@ -150,19 +187,27 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
             if (fileObj.exists()) item.put("fileSize", fileObj.length())
             items.add(item)
           }
+        } else if (directWebUrl != null) {
+          val item = JSObject()
+          item.put("type", "url")
+          item.put("url", directWebUrl)
+          if (title != null) item.put("title", title)
+          if (rawText != null && rawText.isNotBlank() && !rawText.contains(directWebUrl)) {
+            item.put("text", rawText.trim())
+          }
+          items.add(item)
         } else if (rawText != null) {
-          val urlRegex = Regex("""https?://[^\s]+""")
-          val match = urlRegex.find(rawText)
+          val match = URL_REGEX.find(rawText)
           if (match != null) {
-            val url = match.value
+            val rawUrl = match.value
+            val url = sanitizeExtractedUrl(rawUrl)
             val item = JSObject()
             item.put("type", "url")
             item.put("url", url)
             if (title != null) item.put("title", title)
-            val note = rawText.replace(url, "").trim()
+            val note = rawText.replace(rawUrl, "").trim()
             if (note.isNotEmpty()) item.put("text", note)
             items.add(item)
-            handleSharedUrl(url)
           } else {
             val item = JSObject()
             item.put("type", "text")
@@ -178,10 +223,12 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
           @Suppress("DEPRECATION")
           intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
         }
-        val rawText = intent.getStringExtra(Intent.EXTRA_TEXT)
+        val rawText: String? = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
+          ?: intent.getStringExtra(Intent.EXTRA_TEXT)
 
         if (streamUris != null) {
           for (uri in streamUris) {
+            if (!isStreamUri(uri)) continue
             val mimeType = context.contentResolver.getType(uri) ?: "application/octet-stream"
             val fileName = queryDisplayName(context, uri) ?: "shared_${System.currentTimeMillis()}"
             val staged = stageFileByUri(context, uri, fileName, fileName, importRoot)
@@ -202,14 +249,14 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
       } else if (action == Intent.ACTION_VIEW) {
         val viewUri = intent.data
         if (viewUri != null) {
-          if (viewUri.scheme == "http" || viewUri.scheme == "https") {
-            val url = viewUri.toString()
+          if (isWebUri(viewUri)) {
+            val url = sanitizeExtractedUrl(viewUri.toString())
             val item = JSObject()
             item.put("type", "url")
             item.put("url", url)
+            if (title != null) item.put("title", title)
             items.add(item)
-            handleSharedUrl(url)
-          } else {
+          } else if (isStreamUri(viewUri)) {
             val mimeType = intent.type ?: context.contentResolver.getType(viewUri) ?: "application/octet-stream"
             val fileName = queryDisplayName(context, viewUri) ?: "view_${System.currentTimeMillis()}"
             val staged = stageFileByUri(context, viewUri, fileName, fileName, importRoot)
@@ -239,11 +286,10 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
         val view = webView
         if (view != null && isFrontendReady) {
           view.post {
-            val jsonStr = batch.toString().replace("'", "\\'")
-            // Must match the listener in src/lib/shareTarget.ts
-            // ('plethora-native-share'). The legacy 'android-shared-url'
-            // URL-only path in handleSharedUrl is kept for old clients.
-            view.evaluateJavascript("window.dispatchEvent(new CustomEvent('plethora-native-share', { detail: JSON.parse('$jsonStr') }));", null)
+            val jsonStr = batch.toString()
+            val quotedJson = org.json.JSONObject.quote(jsonStr)
+            // Must match the listener in src/lib/shareTarget.ts ('plethora-native-share')
+            view.evaluateJavascript("window.dispatchEvent(new CustomEvent('plethora-native-share', { detail: JSON.parse($quotedJson) }));", null)
           }
         } else {
           synchronized(pendingBatches) {

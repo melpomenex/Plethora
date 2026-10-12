@@ -173,6 +173,28 @@ describe("shareTarget utilities", () => {
       expect(onBatch).not.toHaveBeenCalled();
       unsubscribe();
     });
+
+    it("deduplicates dual event delivery across modern and legacy events", () => {
+      const onBatch = vi.fn();
+      const unsubscribe = registerShareListener(onBatch);
+
+      window.dispatchEvent(
+        new CustomEvent("plethora-native-share", {
+          detail: {
+            items: [{ type: "url", url: "https://x.com/user/status/123" }],
+          },
+        })
+      );
+
+      window.dispatchEvent(
+        new CustomEvent("android-shared-url", {
+          detail: "https://x.com/user/status/123",
+        })
+      );
+
+      expect(onBatch).toHaveBeenCalledTimes(1);
+      unsubscribe();
+    });
   });
 
   describe("stagedManifestToBatch (staged-manifest → SharedBatch contract)", () => {

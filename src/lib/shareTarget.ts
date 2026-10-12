@@ -274,9 +274,33 @@ export async function retryPendingShares(ids: string[]): Promise<void> {
 export function registerShareListener(
   onBatch: (batch: SharedBatch) => void
 ): () => void {
+  // Deduplicate recently dispatched batches/urls to protect against dual-event delivery
+  // from both legacy 'android-shared-url' and modern 'plethora-native-share'.
+  const recentDispatches = new Map<string, number>();
+  const DEDUPE_WINDOW_MS = 2500;
+
+  const shouldDispatch = (batch: SharedBatch): boolean => {
+    const key = batch.id || batch.items.map((i) => i.url || i.filePath || i.text || "").join("::");
+    if (!key) return true;
+    const now = Date.now();
+    const last = recentDispatches.get(key);
+    if (last && now - last < DEDUPE_WINDOW_MS) {
+      return false;
+    }
+    recentDispatches.set(key, now);
+    if (recentDispatches.size > 50) {
+      for (const [k, timestamp] of recentDispatches.entries()) {
+        if (now - timestamp > DEDUPE_WINDOW_MS) {
+          recentDispatches.delete(k);
+        }
+      }
+    }
+    return true;
+  };
+
   const handleNativeShare = (event: CustomEvent) => {
     const batch = normalizeSharedBatch(event.detail);
-    if (batch) {
+    if (batch && shouldDispatch(batch)) {
       onBatch(batch);
     }
   };
@@ -285,7 +309,7 @@ export function registerShareListener(
     const rawUrl = event.detail;
     if (typeof rawUrl === "string" && rawUrl.length > 0) {
       const batch = normalizeSharedBatch(rawUrl);
-      if (batch) {
+      if (batch && shouldDispatch(batch)) {
         onBatch(batch);
       }
     }
@@ -310,13 +334,13 @@ export function registerShareListener(
         if (res?.batches && Array.isArray(res.batches)) {
           for (const rawBatch of res.batches) {
             const batch = normalizeSharedBatch(rawBatch);
-            if (batch) {
+            if (batch && shouldDispatch(batch)) {
               onBatch(batch);
             }
           }
         } else if (res?.url) {
           const batch = normalizeSharedBatch(res.url);
-          if (batch) {
+          if (batch && shouldDispatch(batch)) {
             onBatch(batch);
           }
         }

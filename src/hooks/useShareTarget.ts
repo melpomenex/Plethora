@@ -12,17 +12,56 @@ import {
   registerShareListener,
   retryPendingShares,
 } from "../lib/shareTarget";
-import { processSharedBatch } from "../lib/importRouting";
+import { processSharedBatch, type ProcessSharedBatchResult } from "../lib/importRouting";
+import { extractXStatusId } from "../lib/xthreadUrl";
 import { useDocumentStore } from "../stores/documentStore";
 import { useTabsStore } from "../stores/tabsStore";
 import { useToast } from "../components/common/Toast";
 import { useI18n } from "../lib/i18n";
 import type { SharedBatch, SharedItem } from "../types/share";
 
+function getItemDedupeKey(item: SharedItem): string {
+  if (item.type === "url" && item.url) {
+    const statusId = extractXStatusId(item.url);
+    if (statusId) {
+      return `x-status-${statusId}`;
+    }
+    try {
+      const parsed = new URL(item.url);
+      const searchParams = new URLSearchParams(parsed.search);
+      for (const param of Array.from(searchParams.keys())) {
+        if (/^(utm_|ref|fbclid|gclid)/i.test(param)) {
+          searchParams.delete(param);
+        }
+      }
+      parsed.search = searchParams.toString();
+      parsed.hash = "";
+      return `url-${parsed.toString().replace(/\/$/, "")}`;
+    } catch {
+      return `url-${item.url.trim().replace(/\/$/, "")}`;
+    }
+  }
+  if (item.type === "file" && item.filePath) {
+    return `file-${item.filePath}`;
+  }
+  if (item.type === "text" && item.text) {
+    return `text-${item.text.trim()}`;
+  }
+  return `item-${Math.random()}`;
+}
+
+function getBatchDedupeKey(batch: SharedBatch): string {
+  if (!batch.items || batch.items.length === 0) return "";
+  return batch.items.map(getItemDedupeKey).sort().join("|");
+}
+
 export function useShareTarget() {
   const toast = useToast();
   const { t } = useI18n();
-  const isProcessingRef = useRef(false);
+  const queueRef = useRef<Promise<unknown>>(Promise.resolve());
+  const inFlightBatchesRef = useRef<Map<string, Promise<ProcessSharedBatchResult>>>(new Map());
+  const recentBatchesRef = useRef<Map<string, ProcessSharedBatchResult>>(new Map());
+  const recentTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   useEffect(() => {
     const deps = {
@@ -36,15 +75,60 @@ export function useShareTarget() {
       },
     };
 
-    const handleBatch = async (batch: SharedBatch) => {
-      if (!batch.items || batch.items.length === 0) return { imported: 0, failed: 0 };
-      if (isProcessingRef.current) return { imported: 0, failed: 0 };
-      isProcessingRef.current = true;
-      try {
-        return await processSharedBatch(batch, deps);
-      } finally {
-        isProcessingRef.current = false;
+    const handleBatch = (batch: SharedBatch): Promise<ProcessSharedBatchResult> => {
+      if (!batch.items || batch.items.length === 0) {
+        return Promise.resolve({ imported: 0, failed: 0 });
       }
+
+      const batchKey = getBatchDedupeKey(batch);
+      if (batchKey) {
+        const inFlight = inFlightBatchesRef.current.get(batchKey);
+        if (inFlight) {
+          return inFlight;
+        }
+
+        const recent = recentBatchesRef.current.get(batchKey);
+        if (recent) {
+          return Promise.resolve(recent);
+        }
+      }
+
+      let resolvePromise!: (result: ProcessSharedBatchResult) => void;
+      let rejectPromise!: (err: unknown) => void;
+      const batchPromise = new Promise<ProcessSharedBatchResult>((resolve, reject) => {
+        resolvePromise = resolve;
+        rejectPromise = reject;
+      });
+
+      if (batchKey) {
+        inFlightBatchesRef.current.set(batchKey, batchPromise);
+      }
+
+      const execute = async (): Promise<ProcessSharedBatchResult> => {
+        try {
+          const result = await processSharedBatch(batch, deps);
+          if (batchKey) {
+            recentBatchesRef.current.set(batchKey, result);
+            const timer = setTimeout(() => {
+              recentBatchesRef.current.delete(batchKey);
+              recentTimersRef.current.delete(batchKey);
+            }, 2500);
+            recentTimersRef.current.set(batchKey, timer);
+          }
+          resolvePromise(result);
+          return result;
+        } catch (err) {
+          rejectPromise(err);
+          throw err;
+        } finally {
+          if (batchKey) {
+            inFlightBatchesRef.current.delete(batchKey);
+          }
+        }
+      };
+
+      queueRef.current = queueRef.current.then(execute, execute);
+      return batchPromise;
     };
 
     // Check PWA query parameter in hash route: #/?shared_url=... or #/?shared_text=...
@@ -97,6 +181,10 @@ export function useShareTarget() {
 
     return () => {
       unsubscribe();
+      recentTimersRef.current.forEach((timer) => clearTimeout(timer));
+      recentTimersRef.current.clear();
+      inFlightBatchesRef.current.clear();
+      recentBatchesRef.current.clear();
     };
   }, [t, toast]);
 }

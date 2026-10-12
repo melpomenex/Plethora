@@ -2,14 +2,12 @@
  * Shared import routing for share targets and external-open events.
  */
 
-import React from "react";
-import { TextT } from "@phosphor-icons/react";
 import { createDocument, updateDocument } from "../api/documents";
-import { DocumentViewer } from "../components/viewer/DocumentViewer";
 import type { useToast } from "../components/common/Toast";
 import { ArticleImportError } from "../utils/articleImport/errors";
 import { urlDetectorUtils } from "../hooks/useURLDetector";
 import { mapManifestToProvenance } from "./shareTarget";
+import { openDocumentAtLocation } from "../utils/openDocumentAtLocation";
 import type { SharedBatch } from "../types/share";
 import type { useDocumentStore } from "../stores/documentStore";
 import type { useTabsStore } from "../stores/tabsStore";
@@ -60,6 +58,7 @@ export async function processSharedBatch(
   const importedDocs: Array<{ id: string; title?: string }> = [];
   let typedUrlFailures = 0;
   let failedCount = 0;
+  let hasXThreadError = false;
 
   try {
     const urlItems = batch.items.filter((i) => i.type === "url" && i.url);
@@ -68,7 +67,19 @@ export async function processSharedBatch(
       try {
         if (urlDetectorUtils.isTwitterURL(item.url)) {
           const doc = await openTwitterThread(item.url);
-          importedDocs.push(doc);
+          if (doc?.metadata?.xThreadError) {
+            failedCount += 1;
+            hasXThreadError = true;
+            console.warn("[ImportRouting] X thread import returned error metadata:", doc.metadata.xThreadError);
+            if (doc.id) {
+              openDocumentAtLocation(doc.id, {}, addTab);
+            }
+          } else if (doc) {
+            importedDocs.push(doc);
+            if (doc.id) {
+              openDocumentAtLocation(doc.id, {}, addTab);
+            }
+          }
         } else {
           const doc = await importFromUrl(item.url);
           importedDocs.push(doc);
@@ -162,22 +173,13 @@ export async function processSharedBatch(
           action: {
             label: t("mainLayout.open"),
             onClick: () => {
-              addTab({
-                title: firstDoc.title,
-                icon: React.createElement(TextT, {
-                  className: "w-4 h-4 text-muted-foreground",
-                }),
-                type: "document-viewer",
-                content: DocumentViewer,
-                closable: true,
-                data: { documentId: firstDoc.id },
-              });
+              openDocumentAtLocation(firstDoc.id, {}, addTab);
             },
           },
         },
       );
       void loadDocuments();
-    } else if (typedUrlFailures === 0) {
+    } else if (typedUrlFailures === 0 && !hasXThreadError) {
       toast.error(t("mainLayout.importFailed"), "Could not process shared content");
     }
   } catch (err) {

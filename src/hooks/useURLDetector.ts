@@ -4,6 +4,7 @@
  */
 
 import { useMemo } from "react";
+import { extractXScreenName, extractXStatusId } from "../lib/xthreadUrl";
 
 /**
  * URL type classification
@@ -86,29 +87,21 @@ function extractPlaylistID(url: string): string | null {
  * Extract the numeric tweet/status id from a Twitter/X URL
  */
 function extractTwitterStatusID(url: string): string | null {
-  for (const pattern of TWITTER_PATTERNS) {
-    const match = url.match(pattern);
-    if (match && match[2]) return match[2];
-  }
-  return null;
+  return extractXStatusId(url);
 }
 
 /**
  * Extract the username/handle from a Twitter/X URL
  */
 function extractTwitterUsername(url: string): string | null {
-  for (const pattern of TWITTER_PATTERNS) {
-    const match = url.match(pattern);
-    if (match && match[1]) return match[1];
-  }
-  return null;
+  return extractXScreenName(url);
 }
 
 /**
  * Detect if URL is a Twitter / X post URL
  */
 function isTwitterURL(url: string): boolean {
-  return TWITTER_PATTERNS.some(pattern => pattern.test(url));
+  return extractXStatusId(url) !== null;
 }
 
 /**
@@ -130,13 +123,15 @@ function isYouTubeURL(url: string): boolean {
  * Detect URL type from input string
  */
 function detectURL(input: string): URLDetectionResult {
-  const trimmed = input.trim();
+  let trimmed = input.trim();
+  // Strip outer enclosing brackets, quotes, or trailing sentence punctuation
+  trimmed = trimmed.replace(/^[<(\[{'"]+/, "").replace(/[>)}\]',.;:!?'"]+$/, "");
 
   if (!VALID_URL_PATTERN.test(trimmed)) {
     return {
       isURL: false,
       type: URLType.Unknown,
-      url: trimmed,
+      url: input.trim(),
     };
   }
 

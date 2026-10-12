@@ -16,7 +16,7 @@ import type { XThreadPostProvenance, TextSelectionContext } from "../../types/se
 import { cn } from "../../utils";
 import { openExternal } from "../../lib/tauri";
 import { useToast } from "../common/Toast";
-import { useDocumentStore } from "../../stores";
+import { useDocumentStore, useTabsStore } from "../../stores";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { resolveTwitterThreadAssistantContext } from "../../utils/assistantContext";
 import { answerPassage, keyTermsPassage, summarizePassage } from "../../lib/ai/passageAI";
@@ -387,7 +387,11 @@ export function XThreadViewer({ document: doc, onCreateFlashcard, onExtractCreat
         >
           {isMobile && (
             <button
-              onClick={() => window.history.back()}
+              onClick={() => {
+                if (!useTabsStore.getState().goToPreviousTab()) {
+                  window.history.back();
+                }
+              }}
               aria-label="Back"
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
             >

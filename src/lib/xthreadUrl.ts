@@ -18,21 +18,32 @@ function isXHost(part: string): boolean {
   return lower === "x.com" || lower === "twitter.com" || lower.endsWith(".x.com") || lower.endsWith(".twitter.com");
 }
 
+/** Clean surrounding punctuation, parentheses, brackets, or quotes around a URL. */
+export function sanitizeXUrlInput(input: string | null | undefined): string | null {
+  if (!input) return null;
+  const trimmed = input.trim();
+  const cleaned = trimmed.replace(/^[<(\[{'"]+/, "").replace(/[>)}\]',.;:!?'"]+$/, "");
+  return cleaned.length > 0 ? cleaned : null;
+}
+
 /**
  * Extract the numeric status id from an x.com/twitter.com URL
  * (`https://x.com/user/status/123?s=20` → `"123"`). Accepts optional scheme,
- * www/mobile subdomains, `/i/status/`, query strings, trailing slashes, and
- * photo/analytics suffixes. Returns `null` when no id is present or the URL is
- * not an x.com/twitter.com status link.
+ * www/mobile subdomains, `/i/status/`, `/i/web/status/`, query strings, trailing slashes,
+ * trailing punctuation, and photo/analytics suffixes. Returns `null` when no id is present
+ * or the URL is not an x.com/twitter.com status link.
  */
 export function extractXStatusId(input: string | null | undefined): string | null {
-  if (!input) return null;
-  const noQuery = (input.trim().split("?")[0] ?? "").split("#")[0] ?? "";
+  const sanitized = sanitizeXUrlInput(input);
+  if (!sanitized) return null;
+  const noQuery = (sanitized.split("?")[0] ?? "").split("#")[0] ?? "";
   const parts = noQuery.replace(/\/+$/, "").split("/");
   if (!parts.some((p) => isXHost(p))) return null;
   const idx = parts.findIndex((p) => p.toLowerCase() === STATUS_SEGMENT);
   if (idx < 0) return null;
-  const id = parts[idx + 1];
+  let id = parts[idx + 1];
+  if (!id) return null;
+  id = id.replace(/[^\d]+$/g, "");
   if (!id || !/^\d+$/.test(id)) return null;
   return id;
 }
@@ -40,13 +51,14 @@ export function extractXStatusId(input: string | null | undefined): string | nul
 /**
  * Extract the @handle segment from a status URL
  * (`https://x.com/handle/status/123` → `"handle"`). Returns `null` for the
- * generic `/i/status/` redirect format and the bare-host `x.com/status/…`
- * form (neither carries a real handle). Mirrors
+ * generic `/i/status/` and `/i/web/status/` redirect formats and the bare-host
+ * `x.com/status/…` form (neither carries a real handle). Mirrors
  * `extract_screen_name_from_url` in the Rust backend.
  */
 export function extractXScreenName(input: string | null | undefined): string | null {
-  if (!input) return null;
-  const noQuery = input.trim().split("?")[0] ?? "";
+  const sanitized = sanitizeXUrlInput(input);
+  if (!sanitized) return null;
+  const noQuery = sanitized.split("?")[0] ?? "";
   const parts = noQuery.replace(/\/+$/, "").split("/");
   const idx = parts.findIndex((p) => p.toLowerCase() === STATUS_SEGMENT);
   if (idx <= 0) return null;
@@ -54,6 +66,7 @@ export function extractXScreenName(input: string | null | undefined): string | n
   if (
     !handle ||
     handle === "i" ||
+    handle === "web" ||
     handle.toLowerCase() === "x.com" ||
     handle.toLowerCase() === "twitter.com" ||
     handle.length > 64 ||

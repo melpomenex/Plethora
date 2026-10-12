@@ -125,7 +125,7 @@ export function openDocumentAtLocation(
   }
 
   // Document might not be in cache yet (just imported) — reload and retry.
-  void useDocumentStore.getState().loadDocuments().then(() => {
+  void Promise.resolve(useDocumentStore.getState().loadDocuments?.()).then(() => {
     const freshDoc = useDocumentStore.getState().documents.find((d) => d.id === documentId);
     if (freshDoc) {
       addTab(buildTabPayload(freshDoc, options, jumpRequestId, returnContext));

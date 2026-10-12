@@ -12,6 +12,7 @@ const summarizePassageMock = vi.fn();
 const keyTermsPassageMock = vi.fn();
 const answerPassageMock = vi.fn();
 const importTwitterThreadMock = vi.fn();
+const goToPreviousTabMock = vi.fn().mockReturnValue(true);
 const isMobileMock = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock("../../../lib/tauri", () => ({
@@ -38,6 +39,11 @@ vi.mock("../../../stores", () => ({
     (selector as (s: { openTwitterThread: typeof openTwitterThreadMock }) => unknown)({
       openTwitterThread: openTwitterThreadMock,
     }),
+  useTabsStore: {
+    getState: () => ({
+      goToPreviousTab: goToPreviousTabMock,
+    }),
+  },
 }));
 vi.mock("../../common/Toast", () => ({
   useToast: () => ({
@@ -131,6 +137,8 @@ beforeEach(() => {
   keyTermsPassageMock.mockReset();
   answerPassageMock.mockReset();
   importTwitterThreadMock.mockReset();
+  goToPreviousTabMock.mockReset();
+  goToPreviousTabMock.mockReturnValue(true);
   isMobileMock.mockReturnValue(false);
 });
 
@@ -315,5 +323,74 @@ describe("XThreadViewer", () => {
     expect(screen.queryByTestId("x-thread-sheet")).not.toBeInTheDocument();
     // The thread content is still rendered (no unmount).
     expect(screen.getAllByText("Jane Researcher").length).toBeGreaterThan(0);
+  });
+
+  it("navigates to previous tab on mobile back button click, falling back to window.history.back", () => {
+    isMobileMock.mockReturnValue(true);
+    const historyBackSpy = vi.spyOn(window.history, "back").mockImplementation(() => {});
+
+    // Case 1: goToPreviousTab succeeds (returns true) -> history.back NOT called
+    goToPreviousTabMock.mockReturnValue(true);
+    const { unmount } = renderThread();
+    const backBtn = screen.getByRole("button", { name: "Back" });
+    fireEvent.click(backBtn);
+    expect(goToPreviousTabMock).toHaveBeenCalledTimes(1);
+    expect(historyBackSpy).not.toHaveBeenCalled();
+
+    unmount();
+
+    // Case 2: goToPreviousTab fails (returns false) -> history.back called
+    goToPreviousTabMock.mockReset();
+    goToPreviousTabMock.mockReturnValue(false);
+    renderThread();
+    const backBtn2 = screen.getByRole("button", { name: "Back" });
+    fireEvent.click(backBtn2);
+    expect(goToPreviousTabMock).toHaveBeenCalledTimes(1);
+    expect(historyBackSpy).toHaveBeenCalledTimes(1);
+
+    historyBackSpy.mockRestore();
+  });
+
+  it("triggers post extract from the overflow menu", async () => {
+    createExtractMock.mockResolvedValue({ id: "ext-1" });
+    renderThread();
+
+    const postActions = screen.getAllByRole("button", { name: "Post actions" });
+    fireEvent.click(postActions[0]);
+
+    const extractBtn = screen.getByRole("menuitem", { name: "Extract Post" });
+    fireEvent.click(extractBtn);
+
+    await vi.waitFor(() => {
+      expect(createExtractMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          document_id: "x-thread-1001",
+          content: "First post text.\n\nSecond paragraph.",
+          source_url: "https://x.com/janeresearch/status/1001",
+        })
+      );
+    });
+  });
+
+  it("triggers onCreateFlashcard callback from the overflow menu", () => {
+    const onCreateFlashcardMock = vi.fn();
+    const thread = makeThread([makePost()]);
+    const doc = makeDoc({ xThread: thread });
+
+    render(<XThreadViewer document={doc} onCreateFlashcard={onCreateFlashcardMock} />);
+
+    const postActions = screen.getByRole("button", { name: "Post actions" });
+    fireEvent.click(postActions);
+
+    const flashcardBtn = screen.getByRole("menuitem", { name: "Create Flashcard" });
+    fireEvent.click(flashcardBtn);
+
+    expect(onCreateFlashcardMock).toHaveBeenCalledWith(
+      "First post text.\n\nSecond paragraph.",
+      expect.objectContaining({
+        rootId: "1001",
+        postId: "1001",
+      })
+    );
   });
 });

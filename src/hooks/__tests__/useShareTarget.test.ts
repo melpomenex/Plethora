@@ -126,4 +126,91 @@ describe("useShareTarget", () => {
     });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
   });
+
+  it("processes concurrent shares with different URLs sequentially via FIFO queue without dropping any", async () => {
+    let capturedHandler: ((batch: any) => Promise<any>) | null = null;
+    vi.spyOn(shareTargetLib, "registerShareListener").mockImplementation((handler: any) => {
+      capturedHandler = handler;
+      return () => {};
+    });
+    vi.spyOn(shareTargetLib, "fetchPendingShares").mockResolvedValue([]);
+
+    const executionOrder: string[] = [];
+    const openTwitterThreadMock = vi.fn().mockImplementation(async (url: string) => {
+      executionOrder.push(`start-${url}`);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      executionOrder.push(`end-${url}`);
+      return { id: `doc-${url}`, title: "Thread" };
+    });
+
+    useDocumentStore.setState({
+      openTwitterThread: openTwitterThreadMock,
+      loadDocuments: vi.fn(),
+    } as any);
+
+    renderHook(() => useShareTarget());
+
+    const promise1 = capturedHandler!({
+      timestamp: Date.now(),
+      items: [{ type: "url", url: "https://x.com/user/status/111" }],
+    });
+    const promise2 = capturedHandler!({
+      timestamp: Date.now(),
+      items: [{ type: "url", url: "https://x.com/user/status/222" }],
+    });
+
+    await Promise.all([promise1, promise2]);
+
+    expect(openTwitterThreadMock).toHaveBeenCalledTimes(2);
+    expect(openTwitterThreadMock).toHaveBeenCalledWith("https://x.com/user/status/111");
+    expect(openTwitterThreadMock).toHaveBeenCalledWith("https://x.com/user/status/222");
+    expect(executionOrder).toEqual([
+      "start-https://x.com/user/status/111",
+      "end-https://x.com/user/status/111",
+      "start-https://x.com/user/status/222",
+      "end-https://x.com/user/status/222",
+    ]);
+  });
+
+  it("coalesces duplicate rapid shares for the same status URL into one import", async () => {
+    let capturedHandler: ((batch: any) => Promise<any>) | null = null;
+    vi.spyOn(shareTargetLib, "registerShareListener").mockImplementation((handler: any) => {
+      capturedHandler = handler;
+      return () => {};
+    });
+    vi.spyOn(shareTargetLib, "fetchPendingShares").mockResolvedValue([]);
+
+    let resolveFirstThread: (val: any) => void = () => {};
+    const openTwitterThreadMock = vi.fn().mockImplementation(() => {
+      return new Promise((resolve) => {
+        resolveFirstThread = resolve;
+      });
+    });
+
+    useDocumentStore.setState({
+      openTwitterThread: openTwitterThreadMock,
+      loadDocuments: vi.fn(),
+    } as any);
+
+    renderHook(() => useShareTarget());
+
+    const promise1 = capturedHandler!({
+      timestamp: Date.now(),
+      items: [{ type: "url", url: "https://x.com/user/status/12345?s=20" }],
+    });
+    const promise2 = capturedHandler!({
+      timestamp: Date.now(),
+      items: [{ type: "url", url: "https://twitter.com/user/status/12345" }],
+    });
+
+    await vi.waitFor(() => {
+      expect(openTwitterThreadMock).toHaveBeenCalledTimes(1);
+    });
+    resolveFirstThread({ id: "doc-12345", title: "Thread 12345" });
+    const [res1, res2] = await Promise.all([promise1, promise2]);
+
+    expect(openTwitterThreadMock).toHaveBeenCalledTimes(1);
+    expect(res1.imported).toBe(1);
+    expect(res2.imported).toBe(1);
+  });
 });
