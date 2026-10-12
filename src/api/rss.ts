@@ -1,3 +1,10 @@
+import {
+  normalizeRssPreferences,
+  resolveRssPreferences,
+  RSS_FONTS,
+  type RssUserPreference,
+  type RssUserPreferenceUpdate,
+} from "../types/rssCustomization";
 /**
  * RSS and Atom feed parser and management
  */
@@ -1086,6 +1093,9 @@ interface BackendRssFeed {
 }
 
 interface BackendRssArticle {
+  categories?: string[];
+  full_content?: string | null;
+  full_content_fetched_at?: string | null;
   id: string;
   feed_id: string;
   url: string;
@@ -1116,6 +1126,9 @@ interface TauriRssFeed {
 }
 
 interface TauriRssArticle {
+  categories?: string[];
+  full_content?: string | null;
+  full_content_fetched_at?: string | null;
   id: string;
   feed_id: string;
   url: string;
@@ -1160,7 +1173,9 @@ function backendFeedToFrontend(
       link: item.url,
       pubDate: item.published_date || item.date_added,
       author: item.author || undefined,
-      categories: [],
+      categories: item.categories || [],
+      fullContent: item.full_content || undefined,
+      fullContentFetchedAt: item.full_content_fetched_at || undefined,
       guid: item.guid || undefined,
       read: item.is_read,
       favorite: item.is_queued,
@@ -1195,7 +1210,9 @@ function tauriFeedToFrontend(feed: TauriRssFeed, items: TauriRssArticle[] = []):
       link: item.url,
       pubDate: item.published_date || item.date_added,
       author: item.author || undefined,
-      categories: [],
+      categories: item.categories || [],
+      fullContent: item.full_content || undefined,
+      fullContentFetchedAt: item.full_content_fetched_at || undefined,
       guid: item.guid || undefined,
       read: item.is_read,
       favorite: item.is_queued,
@@ -1301,6 +1318,7 @@ async function createArticlesViaTauri(feedId: string, items: FeedItem[]): Promis
 
   const bulkPayload = items.map((item) => ({
     feed_id: feedId,
+    categories: item.categories,
     url: item.link,
     guid: item.guid || null,
     title: item.title,
@@ -1321,6 +1339,7 @@ async function createArticlesViaTauri(feedId: string, items: FeedItem[]): Promis
           invokeCommand("create_rss_article", {
             feedId,
             feed_id: feedId,
+            categories: item.categories,
             url: item.link,
             guid: item.guid || null,
             title: item.title,
@@ -1508,61 +1527,7 @@ export async function exportOpmlViaHttp(): Promise<string> {
 /**
  * RSS User Preference types
  */
-export interface RssUserPreference {
-  id: string;
-  user_id?: string;
-  feed_id?: string;
-  keyword_include?: string | null;
-  keyword_exclude?: string | null;
-  author_whitelist?: string | null;
-  author_blacklist?: string | null;
-  category_filter?: string | null;
-  view_mode?: string | null;
-  theme_mode?: string | null;
-  density?: string | null;
-  column_count?: number | null;
-  show_thumbnails?: boolean | null;
-  excerpt_length?: number | null;
-  show_author?: boolean | null;
-  show_date?: boolean | null;
-  show_feed_icon?: boolean | null;
-  sort_by?: string | null;
-  sort_order?: string | null;
-  // Reader preferences
-  font_family?: string | null;
-  font_size?: number | null;
-  line_height?: number | null;
-  content_width?: number | null;
-  text_align?: string | null;
-  date_created: string;
-  date_modified: string;
-}
-
-export interface RssUserPreferenceUpdate {
-  keyword_include?: string | null;
-  keyword_exclude?: string | null;
-  author_whitelist?: string | null;
-  author_blacklist?: string | null;
-  category_filter?: string | null;
-  view_mode?: string | null;
-  theme_mode?: string | null;
-  density?: string | null;
-  column_count?: number | null;
-  show_thumbnails?: boolean | null;
-  excerpt_length?: number | null;
-  show_author?: boolean | null;
-  show_date?: boolean | null;
-  show_feed_icon?: boolean | null;
-  sort_by?: string | null;
-  sort_order?: string | null;
-  // Reader preferences
-  font_family?: string | null;
-  font_size?: number | null;
-  line_height?: number | null;
-  content_width?: number | null;
-  text_align?: string | null;
-}
-
+export type { RssUserPreference, RssUserPreferenceUpdate } from "../types/rssCustomization";
 /**
  * Get RSS user preferences via HTTP API
  */
@@ -1610,72 +1575,65 @@ export async function getRssPreferencesAuto(feedId?: string): Promise<RssUserPre
     return await getRssPreferencesViaHttp(feedId);
   }
 
-  const defaults: RssUserPreference = {
+  migrateLegacyRssReaderPreferences();
+  const now = new Date().toISOString();
+  return {
+    ...resolveRssPreferences(
+      readRssPreferenceRecord("rss_prefs_global"),
+      feedId ? readRssPreferenceRecord(`rss_prefs_${feedId}`) : {}
+    ),
     id: "default",
     feed_id: feedId,
-    view_mode: "card",
-    theme_mode: "system",
-    density: "normal",
-    column_count: 2,
-    show_thumbnails: true,
-    excerpt_length: 150,
-    show_author: true,
-    show_date: true,
-    show_feed_icon: true,
-    sort_by: "date",
-    sort_order: "desc",
-    font_family: '"Iowan Old Style", "Charter", "Source Serif 4", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif',
-    font_size: 16,
-    line_height: 1.6,
-    content_width: 65,
-    text_align: "left",
-    date_created: new Date().toISOString(),
-    date_modified: new Date().toISOString(),
+    date_created: now,
+    date_modified: now,
   };
-
-  try {
-    const key = feedId ? `rss_prefs_${feedId}` : "rss_prefs_global";
-    const data = localStorage.getItem(key);
-    if (data) {
-      return { ...defaults, ...JSON.parse(data) };
-    }
-
-    if (feedId) {
-      // Fallback to global preferences if feed-specific ones do not exist
-      const globalData = localStorage.getItem("rss_prefs_global");
-      if (globalData) {
-        return { ...defaults, ...JSON.parse(globalData), feed_id: feedId };
-      }
-    }
-  } catch (error) {
-    console.error("Failed to load preferences from localStorage:", error);
-  }
-
-  return defaults;
 }
 
-/**
- * Unified setRssPreferences - works in both Tauri and Web mode
- */
+function readRssPreferenceRecord(key: string): RssUserPreferenceUpdate {
+  let record: RssUserPreferenceUpdate = {};
+  try {
+    const stored = localStorage.getItem(key);
+    if (stored) record = JSON.parse(stored);
+  } catch { /* A damaged record falls back to inherited defaults. */ }
+  return normalizeRssPreferences(record ?? {});
+}
+
+export function migrateLegacyRssReaderPreferences(): void {
+  if (localStorage.getItem("rss_reader_migrated")) return;
+  const existing = readRssPreferenceRecord("rss_prefs_global");
+  const legacy: RssUserPreferenceUpdate = {};
+  const font = localStorage.getItem("reader_font_family");
+  if (font && font in RSS_FONTS) legacy.font_family = RSS_FONTS[font as keyof typeof RSS_FONTS];
+  const theme = localStorage.getItem("reader_theme");
+  if (theme) legacy.theme_mode = theme;
+  const size = localStorage.getItem("reader_font_size");
+  if (size) legacy.font_size = Number(size);
+  const height = localStorage.getItem("reader_line_height");
+  if (height)
+    legacy.line_height = ({ normal: 1.5, relaxed: 1.6, loose: 2 } as Record<string, number>)[
+      height
+    ];
+  const width = localStorage.getItem("reader_max_width");
+  if (width)
+    legacy.content_width = ({ narrow: 50, normal: 65, wide: 90 } as Record<string, number>)[width];
+  localStorage.setItem(
+    "rss_prefs_global",
+    JSON.stringify({ ...normalizeRssPreferences(legacy), ...existing })
+  );
+  localStorage.setItem("rss_reader_migrated", "1");
+}
+
 export async function setRssPreferencesAuto(
   preferences: RssUserPreferenceUpdate,
   feedId?: string
 ): Promise<RssUserPreference> {
-  if (shouldUseHttpBackend()) {
-    return await setRssPreferencesViaHttp(preferences, feedId);
-  }
-  // In Tauri mode, save to localStorage for now
-  // TODO: Integrate with Tauri command once implemented
+  const patch = normalizeRssPreferences(preferences);
+  if (shouldUseHttpBackend()) return setRssPreferencesViaHttp(patch, feedId);
+  migrateLegacyRssReaderPreferences();
   const key = feedId ? `rss_prefs_${feedId}` : "rss_prefs_global";
-  localStorage.setItem(key, JSON.stringify(preferences));
-
-  return {
-    id: "default",
-    feed_id: feedId,
-    ...preferences,
-    date_created: new Date().toISOString(),
-    date_modified: new Date().toISOString(),
-  } as RssUserPreference;
+  const merged = { ...readRssPreferenceRecord(key), ...patch };
+  localStorage.setItem(key, JSON.stringify(merged));
+  return getRssPreferencesAuto(feedId);
 }
 
 /**

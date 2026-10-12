@@ -1,4 +1,10 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import {
+  rssReadingStyle,
+  resolveRssPreferences,
+  RSS_FONTS,
+  type RssUserPreferenceUpdate,
+} from "../../types/rssCustomization";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   ArrowsClockwise,
   ArrowSquareOut,
@@ -9,7 +15,6 @@ import {
   Minus,
   Plus,
   Sparkle,
-  TextAa,
   WarningCircle,
 } from "@phosphor-icons/react";
 import {
@@ -17,6 +22,8 @@ import {
   getArticleFullContent,
   isContentStale,
   type FeedItem,
+  type Feed,
+  formatFeedDate,
   type FullContentResponse,
 } from "../../api/rss";
 import { sanitizeHtml } from "../common/RichContentRenderer";
@@ -25,24 +32,37 @@ import { useRssSelectionMenu } from "./useRssSelectionMenu";
 
 interface RSSFullContentViewProps {
   item: FeedItem;
+  feed?: Feed | null;
+  preferences?: RssUserPreferenceUpdate | null;
+  onSavePreferences?: (patch: RssUserPreferenceUpdate) => Promise<void>;
 }
 
-function SafeHTML({ html, fontFamily, lineHeight, fontSize }: { html: string; fontFamily: 'sans' | 'serif' | 'mono'; lineHeight: 'normal' | 'relaxed' | 'loose'; fontSize: number }) {
+function SafeHTML({
+  html,
+  fontFamily,
+  lineHeight,
+  fontSize,
+}: {
+  html: string;
+  fontFamily: "sans" | "serif" | "mono";
+  lineHeight: "normal" | "relaxed" | "loose";
+  fontSize: number;
+}) {
   const fontClasses = {
     sans: "font-sans",
     serif: "font-serif",
-    mono: "font-mono"
+    mono: "font-mono",
   };
 
   const heightClasses = {
     normal: "leading-normal",
     relaxed: "leading-relaxed",
-    loose: "leading-loose"
+    loose: "leading-loose",
   };
 
   return (
     <div
-      className={`prose prose-slate dark:prose-invert max-w-none transition-all duration-150
+      className={`rss-reading-prose prose prose-slate dark:prose-invert max-w-none transition-all duration-150
         ${fontClasses[fontFamily]} 
         ${heightClasses[lineHeight]}
         prose-headings:font-bold prose-headings:text-current
@@ -57,6 +77,40 @@ function SafeHTML({ html, fontFamily, lineHeight, fontSize }: { html: string; fo
       dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }}
     />
   );
+}
+
+function inlineReaderValues(preferences?: RssUserPreferenceUpdate | null) {
+  const effective = resolveRssPreferences(preferences ?? {});
+  return {
+    effective,
+    fontFamily:
+      effective.font_family === RSS_FONTS.mono
+        ? ("mono" as const)
+        : effective.font_family === RSS_FONTS.sans
+          ? ("sans" as const)
+          : ("serif" as const),
+    fontSize: effective.font_size ?? 16,
+    maxWidth:
+      (effective.content_width ?? 65) < 60
+        ? "narrow"
+        : (effective.content_width ?? 65) > 80
+          ? "wide"
+          : "normal",
+    lineHeight:
+      (effective.line_height ?? 1.6) <= 1.5
+        ? ("normal" as const)
+        : (effective.line_height ?? 1.6) >= 2
+          ? ("loose" as const)
+          : ("relaxed" as const),
+  };
+}
+function readerPalette(
+  theme: string | null | undefined,
+  globalTheme: string
+): "light" | "sepia" | "slate" | "oled" {
+  if (theme === "system") return globalTheme === "light" ? "light" : "slate";
+  if (theme === "light" || theme === "sepia" || theme === "oled") return theme;
+  return "slate";
 }
 
 /**
@@ -129,7 +183,12 @@ export function cleanArticleHtml(rawHtml: string): string {
  * RSS Full Content View Component
  * Displays extracted full article content with fetching, caching, and error states
  */
-export function RSSFullContentView({ item }: RSSFullContentViewProps) {
+export function RSSFullContentView({
+  item,
+  feed,
+  preferences,
+  onSavePreferences,
+}: RSSFullContentViewProps) {
   // Text-selection menu with the same actions as document viewing.
   // No feed is available here; the article title backs document creation.
   const selection = useRssSelectionMenu(null, item);
@@ -143,21 +202,22 @@ export function RSSFullContentView({ item }: RSSFullContentViewProps) {
   const globalTheme = useUIStore((state) => state.theme);
 
   // Reader Customization States (with localStorage persistence)
-  const [theme, setTheme] = useState<'system' | 'light' | 'sepia' | 'slate' | 'oled'>(() => {
-    return (localStorage.getItem("reader_theme") as any) || "system";
-  });
-  const [fontFamily, setFontFamily] = useState<'serif' | 'sans' | 'mono'>(() => {
-    return (localStorage.getItem("reader_font_family") as any) || "serif";
-  });
-  const [fontSize, setFontSize] = useState<number>(() => {
-    return Number(localStorage.getItem("reader_font_size")) || 16;
-  });
-  const [maxWidth, setMaxWidth] = useState<'narrow' | 'normal' | 'wide'>(() => {
-    return (localStorage.getItem("reader_max_width") as any) || "normal";
-  });
-  const [lineHeight, setLineHeight] = useState<'normal' | 'relaxed' | 'loose'>(() => {
-    return (localStorage.getItem("reader_line_height") as any) || "relaxed";
-  });
+  const { effective, fontFamily, fontSize, maxWidth, lineHeight } = inlineReaderValues(preferences);
+  const savePreference = (patch: RssUserPreferenceUpdate) => {
+    void onSavePreferences?.(patch).catch(() =>
+      setError("Could not save reader settings. Try again.")
+    );
+  };
+  const theme = effective.theme_mode;
+  const setTheme = (value: string) => savePreference({ theme_mode: value });
+  const setFontFamily = (font: keyof typeof RSS_FONTS) =>
+    savePreference({ font_family: RSS_FONTS[font] });
+  const setFontSize = (update: (value: number) => number) =>
+    savePreference({ font_size: update(fontSize) });
+  const setMaxWidth = (width: "narrow" | "normal" | "wide") =>
+    savePreference({ content_width: { narrow: 50, normal: 65, wide: 90 }[width] });
+  const setLineHeight = (height: "normal" | "relaxed" | "loose") =>
+    savePreference({ line_height: { normal: 1.5, relaxed: 1.6, loose: 2 }[height] });
   const [isCleanMode, setIsCleanMode] = useState<boolean>(() => {
     return localStorage.getItem("reader_clean_mode") !== "false";
   });
@@ -165,12 +225,10 @@ export function RSSFullContentView({ item }: RSSFullContentViewProps) {
   const [scrollProgress, setScrollProgress] = useState(0);
 
   // Sync controls to localStorage
-  useEffect(() => { localStorage.setItem("reader_theme", theme); }, [theme]);
-  useEffect(() => { localStorage.setItem("reader_font_family", fontFamily); }, [fontFamily]);
-  useEffect(() => { localStorage.setItem("reader_font_size", String(fontSize)); }, [fontSize]);
-  useEffect(() => { localStorage.setItem("reader_max_width", maxWidth); }, [maxWidth]);
-  useEffect(() => { localStorage.setItem("reader_line_height", lineHeight); }, [lineHeight]);
-  useEffect(() => { localStorage.setItem("reader_clean_mode", String(isCleanMode)); }, [isCleanMode]);
+
+  useEffect(() => {
+    localStorage.setItem("reader_clean_mode", String(isCleanMode));
+  }, [isCleanMode]);
 
   useEffect(() => {
     const loadCachedContent = async () => {
@@ -248,19 +306,14 @@ export function RSSFullContentView({ item }: RSSFullContentViewProps) {
   }, [content]);
 
   // Resolve the active theme to apply
-  const activeTheme = useMemo(() => {
-    if (theme === "system") {
-      return globalTheme === "light" ? "light" : "slate";
-    }
-    return theme;
-  }, [theme, globalTheme]);
+  const activeTheme = readerPalette(theme, globalTheme);
 
   // Color theme classes for viewport
   const themeClasses = {
     light: "bg-[#fdfdfd] text-[#1e293b] border-gray-200",
     sepia: "bg-[#fbf6ec] text-[#433422] border-[#e8dfcf]",
     slate: "bg-slate-950 text-slate-100 border-slate-900",
-    oled: "bg-black text-gray-200 border-gray-900"
+    oled: "bg-black text-gray-200 border-gray-900",
   };
 
   // Color theme classes for sticky header
@@ -268,13 +321,7 @@ export function RSSFullContentView({ item }: RSSFullContentViewProps) {
     light: "bg-[#fdfdfd]/80 border-gray-200 text-[#1e293b]",
     sepia: "bg-[#fbf6ec]/80 border-[#e8dfcf] text-[#433422]",
     slate: "bg-slate-950/80 border-slate-900 text-slate-100",
-    oled: "bg-black/80 border-gray-900 text-gray-200"
-  };
-
-  const widthClasses = {
-    narrow: "max-w-[620px]",
-    normal: "max-w-[780px]",
-    wide: "max-w-[980px]"
+    oled: "bg-black/80 border-gray-900 text-gray-200",
   };
 
   if (isLoading) {
@@ -436,7 +483,7 @@ export function RSSFullContentView({ item }: RSSFullContentViewProps) {
                 </button>
                 <span className="text-xs font-bold">{fontSize}px</span>
                 <button
-                  onClick={() => setFontSize((s) => Math.min(28, s + 1))}
+                  onClick={() => setFontSize((s) => Math.min(32, s + 1))}
                   className="p-1 rounded-md hover:bg-white dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400 transition-colors"
                 >
                   <Plus className="w-4 h-4" />
@@ -563,7 +610,17 @@ export function RSSFullContentView({ item }: RSSFullContentViewProps) {
         onScroll={handleScroll}
         onContextMenu={selection.handleContextMenu}
       >
-        <div className={`mx-auto ${widthClasses[maxWidth]} transition-all duration-150`}>
+        <div
+          className="rss-reading-width transition-all duration-150"
+          style={rssReadingStyle(preferences)}
+        >
+          <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground mb-4">
+            {effective.show_feed_icon && feed && (feed.icon || feed.imageUrl) && (
+              <img src={feed.icon || feed.imageUrl} alt="" className="w-4 h-4 rounded-sm" />
+            )}
+            {effective.show_author && item.author && <span>by {item.author}</span>}
+            {effective.show_date && <span>{formatFeedDate(item.pubDate)}</span>}
+          </div>
           {content ? (
             <SafeHTML 
               html={cleanedHtml} 
@@ -572,7 +629,7 @@ export function RSSFullContentView({ item }: RSSFullContentViewProps) {
               fontSize={fontSize} 
             />
           ) : (
-            <div className="prose prose-slate dark:prose-invert max-w-none">
+            <div className="rss-reading-prose prose prose-slate dark:prose-invert max-w-none">
               {/* Show original RSS content as fallback */}
               <div
                 dangerouslySetInnerHTML={{

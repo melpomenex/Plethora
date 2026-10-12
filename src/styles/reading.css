@@ -138,3 +138,35 @@
 .reading-prose a:hover {
   color: var(--color-primary-700);
 }
+
+/* Apply settings to the prose node itself, above typography utility defaults. */
+.rss-reading-prose {
+  font-family: var(--reading-font-family) !important;
+  font-size: var(--reading-font-size) !important;
+  line-height: var(--reading-line-height) !important;
+  text-align: var(--reading-text-align) !important;
+  color: var(--color-foreground);
+}
+.rss-reading-prose :where(p, li, blockquote, td, th) {
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+.rss-reading-width { width: 100%; max-width: min(100%, var(--reading-max-width)); margin-inline: auto; }
+
+.rss-article-grid {
+  display: grid;
+  grid-template-columns: repeat(min(var(--rss-columns, 2), 2), minmax(0, 1fr));
+  align-items: start;
+}
+@media (min-width: 1024px) {
+  .rss-article-grid { grid-template-columns: repeat(var(--rss-columns, 2), minmax(0, 1fr)); }
+}
+@media (max-width: 599px) {
+  .rss-article-grid { grid-template-columns: minmax(0, 1fr); }
+}
+
+.rss-magazine { display: block; column-count: min(var(--rss-columns, 2), 2); column-gap: 1rem; }
+.rss-magazine > article { break-inside: avoid; margin-bottom: 1rem; }
+@media (min-width: 1024px) { .rss-magazine { column-count: var(--rss-columns, 2); } }
+@media (max-width: 599px) { .rss-magazine { column-count: 1; } }

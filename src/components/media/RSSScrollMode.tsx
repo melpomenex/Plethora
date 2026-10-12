@@ -1,3 +1,10 @@
+import { getRssPreferencesAuto } from "../../api/rss";
+import {
+  rssReadingStyle,
+  filterRssArticles,
+  sortRssArticles,
+  type RssUserPreferenceUpdate,
+} from "../../types/rssCustomization";
 import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 /**
  * RSS Scroll Mode - TikTok-style vertical scrolling through RSS articles
@@ -79,7 +86,12 @@ import { AssistantPanel, type AssistantContext } from "../assistant/AssistantPan
 import { ArticleContextOverlay } from "./ArticleContextOverlay";
 import { ModernSummaryPanel, SummaryBadge, SummaryActions } from "./summary";
 import { useSummaryCache } from "../../utils/rssSummary";
-import { SUMMARY_LENGTH_CONFIG, SUMMARY_LOADING_STAGES, type SummaryLength, type SummaryFocus } from "../../types/rssSummary";
+import {
+  SUMMARY_LENGTH_CONFIG,
+  SUMMARY_LOADING_STAGES,
+  type SummaryLength,
+  type SummaryFocus,
+} from "../../types/rssSummary";
 import { TrainingMenu } from "./TrainingMenu";
 import { useClassifiersStore, getTrainedSentiment } from "../../stores/classifiersStore";
 import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation";
@@ -91,6 +103,7 @@ interface RSSScrollItem {
 }
 
 interface RSSScrollModeProps {
+  preferences?: RssUserPreferenceUpdate | null;
   onExit?: () => void;
   initialFeedId?: string | null;
   /**
@@ -217,7 +230,28 @@ async function resolveScopeFeedIds(scope: ScrollFeedScope, allSubscribed: Feed[]
   }
 }
 
-export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }: RSSScrollModeProps) {
+export function RSSScrollMode({
+  onExit,
+  initialFeedId,
+  scope = ALL_FEEDS_SCOPE,
+  preferences: suppliedPreferences,
+}: RSSScrollModeProps) {
+  const [loadedPreferences, setLoadedPreferences] = useState<RssUserPreferenceUpdate | null>(null);
+  const preferences = suppliedPreferences ?? loadedPreferences;
+  useEffect(() => {
+    if (suppliedPreferences) return;
+    let cancelled = false;
+    const feedId =
+      scope.kind === "feeds" && scope.feedIds.length === 1 ? scope.feedIds[0] : undefined;
+    getRssPreferencesAuto(feedId)
+      .then((value) => {
+        if (!cancelled) setLoadedPreferences(value);
+      })
+      .catch((error) => console.error("Failed to load RSS scroll preferences", error));
+    return () => {
+      cancelled = true;
+    };
+  }, [suppliedPreferences, scope]);
   const { t } = useI18n();
   const { documents, addDocument, updateDocument } = useDocumentStore();
   const { settings } = useSettingsStore();
@@ -397,8 +431,10 @@ export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }
   );
 
   useEffect(() => {
+    let cancelled = false;
     const loadFeeds = async () => {
       const allSubscribed = await getSubscribedFeedsAuto();
+      if (cancelled) return;
 
       // Resolve the scope to the set of feeds this session should cover.
       // Stale ids (a feed that was unsubscribed) are dropped silently here,
@@ -432,7 +468,9 @@ export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }
       allItems.sort((a, b) => calculateEngagementScore(b) - calculateEngagementScore(a));
 
       // Apply variety mixing (interleave different feeds)
-      const interleaved = interleaveFeedItems(allItems);
+      const interleaved = preferences
+        ? sortRssArticles(filterRssArticles(allItems, preferences), preferences)
+        : interleaveFeedItems(allItems);
 
       setScrollItems(interleaved);
 
@@ -447,9 +485,11 @@ export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }
       }
     };
 
-    loadFeeds();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [initialFeedId, scope]);
+    void loadFeeds().catch((error) => console.error("Failed to load RSS scroll feeds", error));
+    return () => {
+      cancelled = true;
+    };
+  }, [initialFeedId, scope, preferences]);
 
   useEffect(() => {
     sessionStorage.setItem(RSS_SCROLL_POSITION_KEY, String(currentIndex));
@@ -2033,6 +2073,7 @@ export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }
         {/* Article content */}
         {renderedItem && (
           <article
+            style={rssReadingStyle(preferences)}
             key={`${renderedItem.feed.id}-${renderedItem.item.id}`}
             className={cn(
               "h-full w-full max-w-4xl mx-auto overflow-hidden transition-all duration-300",
@@ -2047,24 +2088,27 @@ export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }
                     {/* Feed source indicator */}
                     <div className="flex flex-wrap items-center gap-1.5 mb-1.5 md:mb-3 text-[11px] md:text-sm">
                       <div className="flex items-center gap-1.5 min-w-0 max-w-[75%] md:max-w-none px-2 py-0.5 md:px-3 md:py-1 bg-muted/70 rounded-md md:rounded-full">
-                        {getFeedIcon(renderedItem.feed) ? (
-                          <img
-                            src={getFeedIcon(renderedItem.feed)}
-                            alt=""
-                            className="w-3.5 h-3.5 md:w-4 md:h-4 rounded object-cover"
-                          />
-                        ) : (
-                          <Rss className="w-3.5 h-3.5 md:w-4 md:h-4 text-orange-500" />
-                        )}
+                        {preferences?.show_feed_icon !== false &&
+                          (getFeedIcon(renderedItem.feed) ? (
+                            <img
+                              src={getFeedIcon(renderedItem.feed)}
+                              alt=""
+                              className="w-3.5 h-3.5 md:w-4 md:h-4 rounded object-cover"
+                            />
+                          ) : (
+                            <Rss className="w-3.5 h-3.5 md:w-4 md:h-4 text-orange-500" />
+                          ))}
                         <span className="font-medium text-foreground truncate">
                           {renderedItem.feed.title}
                         </span>
                       </div>
-                      <div className="flex items-center gap-1 text-muted-foreground">
-                        <Clock className="w-3.5 h-3.5 md:w-4 md:h-4" />
-                        {formatFeedDate(renderedItem.item.pubDate)}
-                      </div>
-                      {renderedItem.item.author && (
+                      {preferences?.show_date !== false && (
+                        <div className="flex items-center gap-1 text-muted-foreground">
+                          <Clock className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                          {formatFeedDate(renderedItem.item.pubDate)}
+                        </div>
+                      )}
+                      {preferences?.show_author !== false && renderedItem.item.author && (
                         <span className="text-muted-foreground hidden sm:inline">
                           by {renderedItem.item.author}
                         </span>
@@ -2224,7 +2268,8 @@ export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }
               ) : (
                 <div
                   ref={contentRef}
-                  className="flex-1 min-h-0 overflow-y-auto rss-article-content prose prose-base md:prose-lg max-w-none dark:prose-invert select-text pb-2"
+                  style={rssReadingStyle(preferences)}
+                  className="rss-reading-prose rss-reading-width flex-1 min-h-0 overflow-y-auto rss-article-content prose prose-base md:prose-lg max-w-none dark:prose-invert select-text pb-2"
                   onClick={(e) => {
                     const target = e.target as HTMLElement;
                     const link = target.closest("a[href]") as HTMLAnchorElement | null;
@@ -2236,8 +2281,12 @@ export function RSSScrollMode({ onExit, initialFeedId, scope = ALL_FEEDS_SCOPE }
                   dangerouslySetInnerHTML={{
                     __html: sanitizeHtml(
                       showFullContent
-                        ? cleanArticleHtml(fullContentMap.get(renderedItem.item.id) || renderedItem.item.fullContent || "")
-                        : (renderedItem.item.content || renderedItem.item.description || "")
+                        ? cleanArticleHtml(
+                            fullContentMap.get(renderedItem.item.id) ||
+                              renderedItem.item.fullContent ||
+                              ""
+                          )
+                        : renderedItem.item.content || renderedItem.item.description || ""
                     ),
                   }}
                 />

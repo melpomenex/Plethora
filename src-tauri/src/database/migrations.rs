@@ -4138,6 +4138,19 @@ pub const MIGRATIONS: &[Migration] = &[
             ON chatterbox_voice_profiles(created_at DESC);
         "#,
     ),
+    Migration::new(
+        "120_rss_customization",
+        r#"
+        ALTER TABLE rss_articles ADD COLUMN categories TEXT NOT NULL DEFAULT '[]';
+        ALTER TABLE rss_user_preferences ADD COLUMN font_family TEXT;
+        ALTER TABLE rss_user_preferences ADD COLUMN font_size INTEGER;
+        ALTER TABLE rss_user_preferences ADD COLUMN line_height REAL;
+        ALTER TABLE rss_user_preferences ADD COLUMN content_width INTEGER;
+        ALTER TABLE rss_user_preferences ADD COLUMN text_align TEXT;
+        ALTER TABLE rss_user_preferences ADD COLUMN thumbnail_size TEXT;
+        ALTER TABLE rss_user_preferences ADD COLUMN card_height TEXT;
+    "#,
+    ),
 ];
 
 /// Get the migrations directory path

@@ -27,6 +27,8 @@ pub struct RssFeed {
 /// RSS article model
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RssArticle {
+    #[serde(default)]
+    pub categories: Vec<String>,
     pub id: String,
     pub feed_id: String,
     pub url: String,
@@ -68,29 +70,206 @@ pub struct RssUserPreference {
     pub show_feed_icon: Option<bool>,
     pub sort_by: Option<String>, // 'date', 'title', 'read_status', 'reading_time'
     pub sort_order: Option<String>, // 'asc', 'desc'
+    pub font_family: Option<String>,
+    pub font_size: Option<i32>,
+    pub line_height: Option<f64>,
+    pub content_width: Option<i32>,
+    pub text_align: Option<String>,
+    pub thumbnail_size: Option<String>,
+    pub card_height: Option<String>,
     pub date_created: String,
     pub date_modified: String,
 }
 
-/// Update request for RSS user preferences
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Update request: outer Option tracks presence, inner Option permits explicit clearing.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct RssUserPreferenceUpdate {
-    pub keyword_include: Option<String>,
-    pub keyword_exclude: Option<String>,
-    pub author_whitelist: Option<String>,
-    pub author_blacklist: Option<String>,
-    pub category_filter: Option<String>,
-    pub view_mode: Option<String>,
-    pub theme_mode: Option<String>,
-    pub density: Option<String>,
-    pub column_count: Option<i32>,
-    pub show_thumbnails: Option<bool>,
-    pub excerpt_length: Option<i32>,
-    pub show_author: Option<bool>,
-    pub show_date: Option<bool>,
-    pub show_feed_icon: Option<bool>,
-    pub sort_by: Option<String>,
-    pub sort_order: Option<String>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub keyword_include: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub keyword_exclude: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub author_whitelist: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub author_blacklist: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub category_filter: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub view_mode: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub theme_mode: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub density: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub column_count: Option<Option<i32>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub show_thumbnails: Option<Option<bool>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub excerpt_length: Option<Option<i32>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub show_author: Option<Option<bool>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub show_date: Option<Option<bool>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub show_feed_icon: Option<Option<bool>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub sort_by: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub sort_order: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub font_family: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub font_size: Option<Option<i32>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub line_height: Option<Option<f64>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub content_width: Option<Option<i32>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub text_align: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub thumbnail_size: Option<Option<String>>,
+    #[serde(
+        default,
+        deserialize_with = "present_rss_field",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub card_height: Option<Option<String>>,
+}
+
+fn present_rss_field<'de, D, T>(deserializer: D) -> std::result::Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+impl RssUserPreferenceUpdate {
+    pub fn validate(&self) -> std::result::Result<(), String> {
+        let values = serde_json::to_value(self).map_err(|e| e.to_string())?;
+        let enums: &[(&str, &[&str])] = &[
+            ("view_mode", &["card", "list", "compact"]),
+            (
+                "theme_mode",
+                &["system", "light", "dark", "sepia", "slate", "oled"],
+            ),
+            ("density", &["compact", "normal", "comfortable"]),
+            ("sort_by", &["date", "title", "read_status", "reading_time"]),
+            ("sort_order", &["asc", "desc"]),
+            ("text_align", &["left", "justify"]),
+            ("thumbnail_size", &["small", "large"]),
+            ("card_height", &["compact", "normal", "tall"]),
+        ];
+        for (key, allowed) in enums {
+            if let Some(value) = values[key].as_str() {
+                if !allowed.contains(&value) {
+                    return Err(format!("Invalid {key}"));
+                }
+            }
+        }
+        for (key, min, max) in [
+            ("font_size", 12., 32.),
+            ("line_height", 1., 2.5),
+            ("content_width", 40., 100.),
+            ("column_count", 1., 6.),
+            ("excerpt_length", 50., 500.),
+        ] {
+            if let Some(value) = values[key].as_f64() {
+                if !value.is_finite() || value < min || value > max {
+                    return Err(format!("Invalid {key}"));
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 fn decode_optional_text(row: &SqliteRow, column: &str) -> Option<String> {
@@ -327,6 +506,8 @@ pub async fn delete_rss_feed(id: String, repo: State<'_, Repository>) -> Result<
 /// during feed sync (previously `Promise.all(items.map(invoke))`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RssArticleInput {
+    #[serde(default)]
+    pub categories: Vec<String>,
     pub feed_id: String,
     pub url: String,
     pub guid: Option<String>,
@@ -344,6 +525,7 @@ pub struct RssArticleInput {
 async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> Result<RssArticle> {
     let now = Utc::now().to_rfc3339();
     let RssArticleInput {
+        categories,
         feed_id,
         url,
         guid,
@@ -397,7 +579,8 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
                 content = ?,
                 summary = ?,
                 image_url = ?,
-                guid = COALESCE(?, guid)
+                guid = COALESCE(?, guid),
+                categories = ?
             WHERE id = ?
             "#,
         )
@@ -409,6 +592,7 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
         .bind(&summary)
         .bind(&image_url)
         .bind(&guid)
+        .bind(serde_json::to_string(&categories).unwrap_or_else(|_| "[]".into()))
         .bind(&id)
         .execute(pool)
         .await
@@ -427,7 +611,8 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
                 content = ?,
                 summary = ?,
                 image_url = ?,
-                guid = COALESCE(?, guid)
+                guid = COALESCE(?, guid),
+                categories = ?
             WHERE id = ?
             "#,
         )
@@ -439,6 +624,7 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
         .bind(&summary)
         .bind(&image_url)
         .bind(&guid)
+        .bind(serde_json::to_string(&categories).unwrap_or_else(|_| "[]".into()))
         .bind(&id)
         .execute(pool)
         .await
@@ -449,8 +635,8 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
         let id = uuid::Uuid::new_v4().to_string();
         sqlx::query(
             r#"
-            INSERT INTO rss_articles (id, feed_id, url, guid, title, author, published_date, content, summary, image_url, is_queued, is_read, date_added)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+            INSERT INTO rss_articles (id, feed_id, url, guid, title, author, published_date, content, summary, image_url, is_queued, is_read, date_added, categories)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
             "#,
         )
         .bind(&id)
@@ -466,6 +652,7 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
         .bind(false)
         .bind(false)
         .bind(&now)
+        .bind(serde_json::to_string(&categories).unwrap_or_else(|_| "[]".into()))
         .execute(pool)
         .await
         .map_err(|e| crate::error::PlethoraError::Internal(format!("Failed to create RSS article: {}", e)))?;
@@ -510,6 +697,11 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
     };
 
     Ok(RssArticle {
+        categories: serde_json::from_str(
+            &row.try_get::<String, _>("categories")
+                .unwrap_or_else(|_| "[]".into()),
+        )
+        .unwrap_or_default(),
         id: row.get("id"),
         feed_id: row.get("feed_id"),
         url: row.get("url"),
@@ -542,11 +734,13 @@ pub async fn create_rss_article(
     content: Option<String>,
     summary: Option<String>,
     image_url: Option<String>,
+    categories: Option<Vec<String>>,
     repo: State<'_, Repository>,
 ) -> Result<RssArticle> {
     upsert_rss_article(
         repo.pool(),
         RssArticleInput {
+            categories: categories.unwrap_or_default(),
             feed_id,
             url,
             guid,
@@ -607,6 +801,11 @@ pub async fn get_rss_articles(
     let mut articles = Vec::new();
     for row in rows {
         articles.push(RssArticle {
+            categories: serde_json::from_str(
+                &row.try_get::<String, _>("categories")
+                    .unwrap_or_else(|_| "[]".into()),
+            )
+            .unwrap_or_default(),
             id: row.get("id"),
             feed_id: row.get("feed_id"),
             url: row.get("url"),
@@ -1409,6 +1608,11 @@ pub async fn get_rss_articles_http(
     let mut articles = Vec::new();
     for row in rows {
         articles.push(RssArticle {
+            categories: serde_json::from_str(
+                &row.try_get::<String, _>("categories")
+                    .unwrap_or_else(|_| "[]".into()),
+            )
+            .unwrap_or_default(),
             id: row.get("id"),
             feed_id: row.get("feed_id"),
             url: row.get("url"),
@@ -1656,4 +1860,48 @@ pub async fn get_article_full_content(
         let fetched_at: Option<String> = row.get("full_content_fetched_at");
         (content.unwrap_or_default(), fetched_at.unwrap_or_default())
     }))
+}
+
+#[cfg(test)]
+mod customization_tests {
+    use super::*;
+    #[test]
+    fn rss_customization_update_retains_presence() {
+        let update: RssUserPreferenceUpdate =
+            serde_json::from_str(r#"{"font_size":null,"line_height":1.7}"#).unwrap();
+        assert_eq!(update.font_size, Some(None));
+        assert_eq!(update.line_height, Some(Some(1.7)));
+        assert_eq!(update.content_width, None);
+        assert!(update.validate().is_ok());
+        let invalid: RssUserPreferenceUpdate =
+            serde_json::from_str(r#"{"view_mode":"invalid"}"#).unwrap();
+        assert!(invalid.validate().is_err());
+    }
+    #[tokio::test]
+    async fn rss_customization_categories_survive_reload() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE rss_articles (id TEXT PRIMARY KEY, feed_id TEXT, url TEXT, guid TEXT, title TEXT, author TEXT, published_date TEXT, content TEXT, summary TEXT, image_url TEXT, is_queued INTEGER, is_read INTEGER, date_added TEXT, full_content TEXT, full_content_fetched_at TEXT, intelligence_score REAL, categories TEXT)")
+            .execute(&pool).await.unwrap();
+        let input: RssArticleInput = serde_json::from_value(serde_json::json!({"feed_id":"feed", "url":"https://example.com", "title":"Science", "categories":["science","tech"]})).unwrap();
+        let stored = upsert_rss_article(&pool, input.clone()).await.unwrap();
+        assert_eq!(stored.categories, vec!["science", "tech"]);
+        let repo = Repository::new(pool);
+        let reloaded = get_rss_articles_http(Some("feed"), None, &repo)
+            .await
+            .unwrap();
+        assert_eq!(reloaded[0].categories, stored.categories);
+        let mut updated = input;
+        updated.categories = vec!["news".to_string()];
+        assert_eq!(
+            upsert_rss_article(repo.pool(), updated)
+                .await
+                .unwrap()
+                .categories,
+            vec!["news"]
+        );
+    }
 }

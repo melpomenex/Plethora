@@ -5720,32 +5720,13 @@ impl Repository {
         feed_id: Option<&str>,
         user_id: Option<&str>,
     ) -> Result<Option<crate::commands::rss::RssUserPreference>> {
-        let row = match (feed_id, user_id) {
-            (Some(fid), Some(uid)) => sqlx::query(
-                "SELECT * FROM rss_user_preferences WHERE feed_id = ?1 AND user_id = ?2 LIMIT 1",
-            )
-            .bind(fid)
-            .bind(uid)
-            .fetch_optional(&self.pool)
-            .await?,
-            (Some(fid), None) => {
-                sqlx::query("SELECT * FROM rss_user_preferences WHERE feed_id = ?1 LIMIT 1")
-                    .bind(fid)
-                    .fetch_optional(&self.pool)
-                    .await?
-            }
-            (None, Some(uid)) => {
-                sqlx::query("SELECT * FROM rss_user_preferences WHERE user_id = ?1 LIMIT 1")
-                    .bind(uid)
-                    .fetch_optional(&self.pool)
-                    .await?
-            }
-            (None, None) => {
-                sqlx::query("SELECT * FROM rss_user_preferences LIMIT 1")
-                    .fetch_optional(&self.pool)
-                    .await?
-            }
-        };
+        let row = sqlx::query(
+            "SELECT * FROM rss_user_preferences WHERE feed_id IS ?1 AND user_id IS ?2 LIMIT 1",
+        )
+        .bind(feed_id)
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
 
         Ok(row.map(|r| self.row_to_rss_user_preference(r)))
     }
@@ -5757,111 +5738,45 @@ impl Repository {
         user_id: Option<&str>,
         prefs: crate::commands::rss::RssUserPreferenceUpdate,
     ) -> Result<crate::commands::rss::RssUserPreference> {
+        prefs.validate().map_err(PlethoraError::InvalidInput)?;
         let now = Utc::now().to_rfc3339();
 
         let existing = self.get_rss_user_preferences(feed_id, user_id).await?;
-
-        let pref = if let Some(existing) = existing {
-            let id = existing.id;
-            sqlx::query(
-                r#"
-                UPDATE rss_user_preferences SET
-                    keyword_include = COALESCE(?1, keyword_include),
-                    keyword_exclude = COALESCE(?2, keyword_exclude),
-                    author_whitelist = COALESCE(?3, author_whitelist),
-                    author_blacklist = COALESCE(?4, author_blacklist),
-                    category_filter = COALESCE(?5, category_filter),
-                    view_mode = COALESCE(?6, view_mode),
-                    theme_mode = COALESCE(?7, theme_mode),
-                    density = COALESCE(?8, density),
-                    column_count = COALESCE(?9, column_count),
-                    show_thumbnails = COALESCE(?10, show_thumbnails),
-                    excerpt_length = COALESCE(?11, excerpt_length),
-                    show_author = COALESCE(?12, show_author),
-                    show_date = COALESCE(?13, show_date),
-                    show_feed_icon = COALESCE(?14, show_feed_icon),
-                    sort_by = COALESCE(?15, sort_by),
-                    sort_order = COALESCE(?16, sort_order),
-                    date_modified = ?17
-                WHERE id = ?18
-                "#,
-            )
-            .bind(&prefs.keyword_include)
-            .bind(&prefs.keyword_exclude)
-            .bind(&prefs.author_whitelist)
-            .bind(&prefs.author_blacklist)
-            .bind(&prefs.category_filter)
-            .bind(&prefs.view_mode)
-            .bind(&prefs.theme_mode)
-            .bind(&prefs.density)
-            .bind(prefs.column_count)
-            .bind(prefs.show_thumbnails)
-            .bind(prefs.excerpt_length)
-            .bind(prefs.show_author)
-            .bind(prefs.show_date)
-            .bind(prefs.show_feed_icon)
-            .bind(&prefs.sort_by)
-            .bind(&prefs.sort_order)
-            .bind(&now)
-            .bind(&id)
-            .execute(&self.pool)
-            .await?;
-
-            self.get_rss_user_preferences_by_id(&id)
-                .await?
-                .ok_or_else(|| {
-                    PlethoraError::Internal(
-                        "failed to read back rss_user_preferences after update".into(),
-                    )
-                })?
-        } else {
-            let id = uuid::Uuid::new_v4().to_string();
-            sqlx::query(
-                r#"
-                INSERT INTO rss_user_preferences (
-                    id, user_id, feed_id,
-                    keyword_include, keyword_exclude, author_whitelist, author_blacklist, category_filter,
-                    view_mode, theme_mode, density, column_count,
-                    show_thumbnails, excerpt_length, show_author, show_date, show_feed_icon,
-                    sort_by, sort_order,
-                    date_created, date_modified
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)
-                "#,
-            )
-            .bind(&id)
-            .bind(user_id)
-            .bind(feed_id)
-            .bind(&prefs.keyword_include)
-            .bind(&prefs.keyword_exclude)
-            .bind(&prefs.author_whitelist)
-            .bind(&prefs.author_blacklist)
-            .bind(&prefs.category_filter)
-            .bind(&prefs.view_mode)
-            .bind(&prefs.theme_mode)
-            .bind(&prefs.density)
-            .bind(prefs.column_count)
-            .bind(prefs.show_thumbnails)
-            .bind(prefs.excerpt_length)
-            .bind(prefs.show_author)
-            .bind(prefs.show_date)
-            .bind(prefs.show_feed_icon)
-            .bind(&prefs.sort_by)
-            .bind(&prefs.sort_order)
-            .bind(&now)
-            .bind(&now)
-            .execute(&self.pool)
-            .await?;
-
-            self.get_rss_user_preferences_by_id(&id)
-                .await?
-                .ok_or_else(|| {
-                    PlethoraError::Internal(
-                        "failed to read back rss_user_preferences after insert".into(),
-                    )
-                })?
-        };
-
-        Ok(pref)
+        let id = existing
+            .as_ref()
+            .map(|p| p.id.clone())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let mut tx = self.pool.begin().await?;
+        if existing.is_none() {
+            sqlx::query("INSERT INTO rss_user_preferences (id, user_id, feed_id, date_created, date_modified) VALUES (?1, ?2, ?3, ?4, ?4)")
+                .bind(&id).bind(user_id).bind(feed_id).bind(&now).execute(&mut *tx).await?;
+            // Historical schema defaults must not turn a partial feed patch into full overrides.
+            sqlx::query("UPDATE rss_user_preferences SET keyword_include = NULL, keyword_exclude = NULL, author_whitelist = NULL, author_blacklist = NULL, category_filter = NULL, view_mode = NULL, theme_mode = NULL, density = NULL, column_count = NULL, show_thumbnails = NULL, excerpt_length = NULL, show_author = NULL, show_date = NULL, show_feed_icon = NULL, sort_by = NULL, sort_order = NULL, font_family = NULL, font_size = NULL, line_height = NULL, content_width = NULL, text_align = NULL, thumbnail_size = NULL, card_height = NULL WHERE id = ?1")
+                .bind(&id).execute(&mut *tx).await?;
+        }
+        let mut query = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+            "UPDATE rss_user_preferences SET date_modified = ",
+        );
+        query.push_bind(&now);
+        // Keys come exclusively from the typed request model, never arbitrary input.
+        let patch =
+            serde_json::to_value(&prefs).map_err(|e| PlethoraError::Internal(e.to_string()))?;
+        if let Some(fields) = patch.as_object() {
+            for (column, value) in fields {
+                query
+                    .push(", ")
+                    .push(column)
+                    .push(" = json_extract(")
+                    .push_bind(value.to_string())
+                    .push(", '$')");
+            }
+        }
+        query.push(" WHERE id = ").push_bind(&id);
+        query.build().execute(&mut *tx).await?;
+        tx.commit().await?;
+        self.get_rss_user_preferences_by_id(&id)
+            .await?
+            .ok_or_else(|| PlethoraError::Internal("Failed to read RSS preferences".into()))
     }
 
     /// Get RSS user preferences by ID
@@ -5900,24 +5815,76 @@ impl Repository {
     ) -> crate::commands::rss::RssUserPreference {
         crate::commands::rss::RssUserPreference {
             id: row.get("id"),
-            user_id: row.try_get("user_id").ok(),
-            feed_id: row.try_get("feed_id").ok(),
-            keyword_include: row.try_get("keyword_include").ok(),
-            keyword_exclude: row.try_get("keyword_exclude").ok(),
-            author_whitelist: row.try_get("author_whitelist").ok(),
-            author_blacklist: row.try_get("author_blacklist").ok(),
-            category_filter: row.try_get("category_filter").ok(),
-            view_mode: row.try_get("view_mode").ok(),
-            theme_mode: row.try_get("theme_mode").ok(),
-            density: row.try_get("density").ok(),
-            column_count: row.try_get("column_count").ok(),
-            show_thumbnails: row.try_get("show_thumbnails").ok(),
-            excerpt_length: row.try_get("excerpt_length").ok(),
-            show_author: row.try_get("show_author").ok(),
-            show_date: row.try_get("show_date").ok(),
-            show_feed_icon: row.try_get("show_feed_icon").ok(),
-            sort_by: row.try_get("sort_by").ok(),
-            sort_order: row.try_get("sort_order").ok(),
+            user_id: row.try_get::<Option<String>, _>("user_id").ok().flatten(),
+            feed_id: row.try_get::<Option<String>, _>("feed_id").ok().flatten(),
+            keyword_include: row
+                .try_get::<Option<String>, _>("keyword_include")
+                .ok()
+                .flatten(),
+            keyword_exclude: row
+                .try_get::<Option<String>, _>("keyword_exclude")
+                .ok()
+                .flatten(),
+            author_whitelist: row
+                .try_get::<Option<String>, _>("author_whitelist")
+                .ok()
+                .flatten(),
+            author_blacklist: row
+                .try_get::<Option<String>, _>("author_blacklist")
+                .ok()
+                .flatten(),
+            category_filter: row
+                .try_get::<Option<String>, _>("category_filter")
+                .ok()
+                .flatten(),
+            view_mode: row.try_get::<Option<String>, _>("view_mode").ok().flatten(),
+            theme_mode: row
+                .try_get::<Option<String>, _>("theme_mode")
+                .ok()
+                .flatten(),
+            density: row.try_get::<Option<String>, _>("density").ok().flatten(),
+            column_count: row.try_get::<Option<i32>, _>("column_count").ok().flatten(),
+            show_thumbnails: row
+                .try_get::<Option<bool>, _>("show_thumbnails")
+                .ok()
+                .flatten(),
+            excerpt_length: row
+                .try_get::<Option<i32>, _>("excerpt_length")
+                .ok()
+                .flatten(),
+            show_author: row.try_get::<Option<bool>, _>("show_author").ok().flatten(),
+            show_date: row.try_get::<Option<bool>, _>("show_date").ok().flatten(),
+            show_feed_icon: row
+                .try_get::<Option<bool>, _>("show_feed_icon")
+                .ok()
+                .flatten(),
+            sort_by: row.try_get::<Option<String>, _>("sort_by").ok().flatten(),
+            sort_order: row
+                .try_get::<Option<String>, _>("sort_order")
+                .ok()
+                .flatten(),
+            font_family: row
+                .try_get::<Option<String>, _>("font_family")
+                .ok()
+                .flatten(),
+            font_size: row.try_get::<Option<i32>, _>("font_size").ok().flatten(),
+            line_height: row.try_get::<Option<f64>, _>("line_height").ok().flatten(),
+            content_width: row
+                .try_get::<Option<i32>, _>("content_width")
+                .ok()
+                .flatten(),
+            text_align: row
+                .try_get::<Option<String>, _>("text_align")
+                .ok()
+                .flatten(),
+            thumbnail_size: row
+                .try_get::<Option<String>, _>("thumbnail_size")
+                .ok()
+                .flatten(),
+            card_height: row
+                .try_get::<Option<String>, _>("card_height")
+                .ok()
+                .flatten(),
             date_created: row.get("date_created"),
             date_modified: row.get("date_modified"),
         }
@@ -8793,6 +8760,63 @@ mod tests {
         let db = Database::new(PathBuf::from(":memory:")).await.expect("db");
         db.migrate().await.expect("migrate");
         Repository::new(db.pool().clone())
+    }
+
+    #[tokio::test]
+    async fn rss_customization_roundtrip_and_scope() {
+        let repo = setup_repo().await;
+        let parse = |value| {
+            serde_json::from_value::<crate::commands::rss::RssUserPreferenceUpdate>(value).unwrap()
+        };
+        let global = repo
+            .set_rss_user_preferences(
+                None,
+                None,
+                parse(serde_json::json!({"font_size":24,"show_author":false,"line_height":1.7})),
+            )
+            .await
+            .unwrap();
+        assert_eq!(global.font_size, Some(24));
+        assert_eq!(global.line_height, Some(1.7));
+        let scoped = repo.set_rss_user_preferences(Some("a"), None, parse(serde_json::json!({"keyword_include":"AI","content_width":80,"thumbnail_size":"large","card_height":"tall","font_family":"Georgia","text_align":"justify"}))).await.unwrap();
+        assert_eq!(scoped.font_size, None);
+        assert_eq!(scoped.content_width, Some(80));
+        assert_eq!(scoped.thumbnail_size.as_deref(), Some("large"));
+        assert_eq!(scoped.card_height.as_deref(), Some("tall"));
+        assert_eq!(scoped.text_align.as_deref(), Some("justify"));
+        let updated = repo
+            .set_rss_user_preferences(
+                Some("a"),
+                None,
+                parse(serde_json::json!({"keyword_include":"","content_width":null})),
+            )
+            .await
+            .unwrap();
+        assert_eq!(updated.keyword_include.as_deref(), Some(""));
+        assert_eq!(updated.content_width, None);
+        assert_eq!(updated.thumbnail_size.as_deref(), Some("large"));
+        assert_eq!(
+            repo.get_rss_user_preferences(None, None)
+                .await
+                .unwrap()
+                .unwrap()
+                .font_size,
+            Some(24)
+        );
+        assert!(repo
+            .get_rss_user_preferences(Some("b"), None)
+            .await
+            .unwrap()
+            .is_none());
+        assert!(repo
+            .get_rss_user_preferences(None, Some("another-user"))
+            .await
+            .unwrap()
+            .is_none());
+        assert!(repo
+            .set_rss_user_preferences(None, None, parse(serde_json::json!({"line_height":9})))
+            .await
+            .is_err());
     }
 
     #[tokio::test]

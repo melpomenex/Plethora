@@ -1,3 +1,4 @@
+import { rssReadingStyle, filterRssArticles, sortRssArticles } from "../../types/rssCustomization";
 import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
@@ -472,23 +473,16 @@ export function RSSReader() {
 
   // Apply preferences when saved
   const handleSavePreferences = async (newPreferences: RSSUserPreferenceUpdate) => {
-    try {
-      const saved = await setRssPreferencesAuto(newPreferences, selectedFeed?.id);
-      setPreferences(saved);
-    } catch (error) {
-      console.error("Failed to save preferences:", error);
-    }
+    const saved = await setRssPreferencesAuto(newPreferences, selectedFeed?.id);
+    setPreferences(saved);
   };
 
   useEffect(() => {
-    (async () => {
-      try {
-        const loaded = await getRssPreferencesAuto(selectedFeed?.id);
-        setPreferences(loaded);
-      } catch (error) {
-        console.error("Failed to load preferences:", error);
-      }
-    })();
+    let cancelled = false;
+    setPreferences(null);
+    getRssPreferencesAuto(selectedFeed?.id).then(loaded => { if (!cancelled) setPreferences(loaded); })
+      .catch(error => console.error("Failed to load preferences:", error));
+    return () => { cancelled = true; };
   }, [selectedFeed?.id]);
 
   const activeCollectionId = useCollectionStore((s) => s.activeCollectionId);
@@ -498,104 +492,10 @@ export function RSSReader() {
     })();
   }, [activeCollectionId]);
 
-  // Helper to filter articles by customization preferences
-  const applyFilterPreferences = useCallback((list: Array<{ feed: Feed; item: FeedItem }>) => {
-    if (!preferences) return list;
-
-    return list.filter(({ item }) => {
-      // 1. Keyword Include
-      if (preferences.keyword_include) {
-        const keywords = preferences.keyword_include.split(",").map(k => k.trim().toLowerCase()).filter(Boolean);
-        if (keywords.length > 0) {
-          const title = (item.title || "").toLowerCase();
-          const description = (item.description || "").toLowerCase();
-          const content = (item.content || "").toLowerCase();
-          const matches = keywords.some(kw => title.includes(kw) || description.includes(kw) || content.includes(kw));
-          if (!matches) return false;
-        }
-      }
-
-      // 2. Keyword Exclude
-      if (preferences.keyword_exclude) {
-        const keywords = preferences.keyword_exclude.split(",").map(k => k.trim().toLowerCase()).filter(Boolean);
-        if (keywords.length > 0) {
-          const title = (item.title || "").toLowerCase();
-          const description = (item.description || "").toLowerCase();
-          const content = (item.content || "").toLowerCase();
-          const matches = keywords.some(kw => title.includes(kw) || description.includes(kw) || content.includes(kw));
-          if (matches) return false;
-        }
-      }
-
-      // 3. Author Whitelist
-      if (preferences.author_whitelist) {
-        const authors = preferences.author_whitelist.split(",").map(a => a.trim().toLowerCase()).filter(Boolean);
-        if (authors.length > 0) {
-          const author = (item.author || "").toLowerCase();
-          const matches = authors.some(auth => author.includes(auth));
-          if (!matches) return false;
-        }
-      }
-
-      // 4. Author Blacklist
-      if (preferences.author_blacklist) {
-        const authors = preferences.author_blacklist.split(",").map(a => a.trim().toLowerCase()).filter(Boolean);
-        if (authors.length > 0) {
-          const author = (item.author || "").toLowerCase();
-          const matches = authors.some(auth => author.includes(auth));
-          if (matches) return false;
-        }
-      }
-
-      // 5. Category Filter
-      if (preferences.category_filter) {
-        const categories = preferences.category_filter.split(",").map(c => c.trim().toLowerCase()).filter(Boolean);
-        if (categories.length > 0) {
-          const itemCats = (item.categories || []).map(c => c.toLowerCase());
-          const matches = categories.some(cat => itemCats.some(itemCat => itemCat.includes(cat) || cat.includes(itemCat)));
-          if (!matches) return false;
-        }
-      }
-
-      return true;
-    });
-  }, [preferences]);
-
-  // Helper to sort articles by customization preferences
-  const applySortingPreferences = useCallback((list: Array<{ feed: Feed; item: FeedItem }>) => {
-    const sortBy = preferences?.sort_by || "date";
-    const sortOrder = preferences?.sort_order || "desc";
-
-    const sorted = [...list].sort((a, b) => {
-      let comparison = 0;
-
-      if (sortBy === "date") {
-        comparison = new Date(a.item.pubDate).getTime() - new Date(b.item.pubDate).getTime();
-      } else if (sortBy === "title") {
-        comparison = (a.item.title || "").localeCompare(b.item.title || "");
-      } else if (sortBy === "read_status") {
-        const readA = a.item.read ? 1 : 0;
-        const readB = b.item.read ? 1 : 0;
-        comparison = readA - readB;
-        if (comparison === 0) {
-          comparison = new Date(a.item.pubDate).getTime() - new Date(b.item.pubDate).getTime();
-        }
-      } else if (sortBy === "reading_time") {
-        const getWordCount = (item: FeedItem) => {
-          const text = item.content || item.description || "";
-          return text.split(/\s+/).filter(Boolean).length;
-        };
-        comparison = getWordCount(a.item) - getWordCount(b.item);
-        if (comparison === 0) {
-          comparison = new Date(a.item.pubDate).getTime() - new Date(b.item.pubDate).getTime();
-        }
-      }
-
-      return sortOrder === "desc" ? -comparison : comparison;
-    });
-
-    return sorted;
-  }, [preferences]);
+  const applyFilterPreferences = useCallback((list: Array<{ feed: Feed; item: FeedItem }>) =>
+    filterRssArticles(list, preferences ?? {}), [preferences]);
+  const applySortingPreferences = useCallback((list: Array<{ feed: Feed; item: FeedItem }>) =>
+    sortRssArticles(list, preferences ?? {}), [preferences]);
   useEffect(() => {
     const allFeedItems = feeds.flatMap((feed) => feed.items.map((item) => ({ feed, item })));
 
@@ -1854,39 +1754,7 @@ export function RSSReader() {
     articleMenu.handleRowKeyDown(e, () => buildArticleMenuItems(feed, item));
   };
 
-  const readingStyles = useMemo(() => {
-    if (!preferences) return {};
-    const styles: React.CSSProperties = {
-      "--reading-font-family": preferences.font_family || undefined,
-      "--reading-font-size": preferences.font_size ? `${preferences.font_size}px` : undefined,
-      "--reading-line-height": preferences.line_height || undefined,
-      "--reading-max-width": preferences.content_width
-        ? `${preferences.content_width}ch`
-        : undefined,
-      "--reading-text-align": preferences.text_align || undefined,
-    } as any;
-
-    // Apply local theme override for article reading
-    if (preferences.theme_mode === "light") {
-      styles.backgroundColor = "#ffffff";
-      styles.color = "#0f172a";
-      (styles as any)["--color-foreground"] = "#0f172a";
-      (styles as any)["--color-muted-foreground"] = "#475569";
-      (styles as any)["--color-muted"] = "#f1f5f9";
-      (styles as any)["--color-primary-600"] = "#2563eb";
-      (styles as any)["--color-primary-700"] = "#1d4ed8";
-    } else if (preferences.theme_mode === "dark") {
-      styles.backgroundColor = "#0f172a";
-      styles.color = "#f8fafc";
-      (styles as any)["--color-foreground"] = "#f8fafc";
-      (styles as any)["--color-muted-foreground"] = "#94a3b8";
-      (styles as any)["--color-muted"] = "#1e293b";
-      (styles as any)["--color-primary-600"] = "#3b82f6";
-      (styles as any)["--color-primary-700"] = "#60a5fa";
-    }
-
-    return styles;
-  }, [preferences]);
+  const readingStyles = useMemo(() => rssReadingStyle(preferences), [preferences]);
 
   const rssVirtualizer = useVirtualizer({
     count: items.length,
@@ -1917,6 +1785,7 @@ export function RSSReader() {
         }}
         initialFeedId={selectedFeed?.id}
         scope={scrollScope}
+        preferences={preferences}
       />
     );
   }
@@ -2926,6 +2795,7 @@ export function RSSReader() {
               ) : articleLayout === "magazine" ? (
                 <div className="flex-1 overflow-y-auto transition-all duration-300">
                   <MagazineLayout
+                    preferences={preferences}
                     items={items}
                     onSelect={(feed, item) => handleItemClick(feed, item)}
                     onToggleFavorite={handleToggleFavorite}
@@ -2941,6 +2811,7 @@ export function RSSReader() {
               ) : articleLayout === "grid" ? (
                 <div className="flex-1 overflow-y-auto transition-all duration-300">
                   <GridLayout
+                    preferences={preferences}
                     items={items}
                     onSelect={(feed, item) => handleItemClick(feed, item)}
                     onContextMenuEntry={openArticleMenu}
@@ -2958,12 +2829,14 @@ export function RSSReader() {
                       const entry = items[virtualRow.index];
                       if (!entry) return null;
                       const { feed, item } = entry;
-                      const imageUrl = item.enclosure?.type?.startsWith("image/") ? item.enclosure.url : undefined;
+                      const imageUrl = item.thumbnail || (item.enclosure?.type?.startsWith("image/") ? item.enclosure.url : undefined);
                       const viewModePref = preferences?.view_mode || "card";
                       const isCompactView = viewModePref === "compact";
                       const density = preferences?.density || "normal";
-                      const paddingClass = isCompactView ? "px-3 py-1.5" : density === "compact" ? "px-3 py-2" : density === "comfortable" ? "px-5 py-4" : "px-4 py-3";
+                      const paddingClass = density === "compact" ? "px-3 py-2" : density === "comfortable" ? "px-5 py-4" : isCompactView ? "px-3 py-1.5" : "px-4 py-3";
                       const excerptLen = preferences?.excerpt_length ?? 150;
+                      const height = preferences?.card_height || "normal";
+                      const largeImage = preferences?.thumbnail_size === "large" && viewModePref === "card";
                       return (
                         <div
                           key={`${feed.id}-${item.id}`}
@@ -2977,20 +2850,20 @@ export function RSSReader() {
                             onContextMenu={(e) => openArticleMenu(feed, item, e)}
                             className={`group border-b border-border/60 hover:bg-muted/40 cursor-pointer transition-all ${paddingClass} ${selectedItem?.id === item.id ? "bg-muted/50 border-l-2 border-primary" : "border-l-2 border-transparent"}`}
                           >
-                            <div className="flex items-start gap-3">
+                            <div className={`flex gap-3 ${viewModePref === "card" ? "flex-wrap" : "items-start"}`}>
                               <div className={`${isCompactView ? "mt-1" : "mt-2"} flex items-center gap-1.5 flex-shrink-0`}>
                                 <div className={`h-2 w-2 rounded-full ${item.read ? "bg-muted" : "bg-orange-500"}`} />
                                 <IntelligenceIndicator score={item.intelligenceScore} />
                               </div>
                               {!isCompactView && (preferences?.show_thumbnails ?? true) && imageUrl && (
-                                <div className="w-16 h-12 rounded-md overflow-hidden bg-muted/70 flex-shrink-0 border border-border/60">
+                                <div className={`${largeImage ? "w-full h-40 order-first" : viewModePref === "card" ? "w-24 h-16" : "w-16 h-12"} rounded-md overflow-hidden bg-muted/70 flex-shrink-0 border border-border/60`}>
                                   <img src={imageUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
                                 </div>
                               )}
                               <div className="flex-1 min-w-0">
                                 <h3 className={`text-sm font-semibold ${isCompactView ? "" : "mb-1"} ${item.read ? "text-muted-foreground" : "text-foreground"}`}>{item.title}</h3>
-                                {!isCompactView && (item.fullContent || item.description) && (
-                                  <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
+                                {!isCompactView && height !== "compact" && (item.fullContent || item.description) && (
+                                  <p className={`text-xs text-muted-foreground mb-2 ${height === "tall" ? "line-clamp-6" : "line-clamp-2"}`}>
                                     {item.fullContent ? generateArticleExcerpt(item.fullContent, excerptLen) : generateArticleExcerpt(item.description || "", excerptLen)}
                                   </p>
                                 )}
@@ -3193,7 +3066,7 @@ export function RSSReader() {
                       >
                         {/* Conditional view rendering based on storyViewMode */}
                         {storyViewMode === "original" && selectedItem.link ? (
-                          <OriginalView item={selectedItem} />
+                          <><p className="px-4 py-2 text-sm text-muted-foreground">{t("rssCustomization.originalHint")}</p><OriginalView item={selectedItem} /></>
                         ) : storyViewMode === "story" && selectedItemFeed ? (
                           <StoryView
                             item={selectedItem}
@@ -3207,14 +3080,19 @@ export function RSSReader() {
                               }
                             }}
                             onToggleFavorite={handleToggleFavorite}
+                            preferences={preferences}
                           />
                         ) : showFullContent ? (
                           <RSSFullContentView
                             item={selectedItem}
+                            feed={selectedItemFeed}
+                            preferences={preferences}
+                            onSavePreferences={handleSavePreferences}
                           />
                         ) : (
                           <div className="reading-surface" style={readingStyles}>
-                            <div className="flex items-center gap-3 text-sm text-muted-foreground mb-4 reading-meta">
+                            <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground mb-4 reading-meta">
+                              {(preferences?.show_feed_icon ?? true) && selectedItemFeed && getFeedIcon(selectedItemFeed) && <img src={getFeedIcon(selectedItemFeed)} alt="" className="w-4 h-4 rounded-sm"/>}
                               {(preferences?.show_date ?? true) && (
                                 <span>{formatFeedDate(selectedItem.pubDate)}</span>
                               )}
@@ -3224,7 +3102,7 @@ export function RSSReader() {
                             </div>
                             <div
                               ref={rssSelection.contentRef}
-                              className="prose prose-sm max-w-none text-foreground dark:prose-invert reading-prose"
+                              className="prose prose-sm max-w-none text-foreground dark:prose-invert reading-prose rss-reading-prose"
                               onContextMenu={rssSelection.handleContextMenu}
                               onClick={(e) => {
                                 const target = e.target as HTMLElement;
@@ -3359,6 +3237,7 @@ export function RSSReader() {
         {/* Customization Panel */}
         <RSSCustomizationPanel
           feedId={selectedFeed?.id}
+          currentPreferences={preferences}
           isOpen={showCustomization}
           onClose={() => setShowCustomization(false)}
           onSave={handleSavePreferences}

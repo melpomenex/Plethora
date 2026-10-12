@@ -1,3 +1,4 @@
+import { rssReadingStyle, type RssUserPreferenceUpdate } from "../../types/rssCustomization";
 /**
  * StoryView
  * Single-article focused reading with minimal chrome, next/prev navigation
@@ -23,6 +24,7 @@ import { sanitizeHtml } from "../common/RichContentRenderer";
 import { IntelligenceIndicator } from "./IntelligenceIndicator";
 
 interface StoryViewProps {
+  preferences?: RssUserPreferenceUpdate | null;
   item: FeedItem;
   feed: Feed;
   items: FeedItem[];
@@ -30,7 +32,14 @@ interface StoryViewProps {
   onToggleFavorite: (feed: Feed, item: FeedItem) => void;
 }
 
-export function StoryView({ item, feed, items, onSelectItem, onToggleFavorite }: StoryViewProps) {
+export function StoryView({
+  item,
+  feed,
+  items,
+  onSelectItem,
+  onToggleFavorite,
+  preferences,
+}: StoryViewProps) {
   const toast = useToast();
   // Text-selection menu with the same actions as document viewing.
   const selection = useRssSelectionMenu(feed, item);
@@ -55,7 +64,7 @@ export function StoryView({ item, feed, items, onSelectItem, onToggleFavorite }:
   }, [item.link, item.guid, toast]);
 
   return (
-    <div className="h-full flex flex-col bg-background">
+    <div className="h-full flex flex-col bg-background" style={rssReadingStyle(preferences)}>
       {/* Minimal toolbar */}
       <div className="flex items-center justify-between px-6 py-2 border-b border-border/50">
         <button
@@ -79,31 +88,36 @@ export function StoryView({ item, feed, items, onSelectItem, onToggleFavorite }:
 
       {/* Article content */}
       <div className="flex-1 overflow-auto">
-        <article className="max-w-2xl mx-auto px-8 py-10">
+        <article className="rss-reading-width px-4 sm:px-8 py-10">
           <header className="mb-8">
             <div className="flex items-center gap-2 text-sm text-muted-foreground mb-4">
+              {preferences?.show_feed_icon !== false && (feed.icon || feed.imageUrl) && (
+                <img src={feed.icon || feed.imageUrl} alt="" className="w-4 h-4 rounded-sm" />
+              )}
               <span className="font-medium">{feed.title}</span>
               <IntelligenceIndicator />
             </div>
             <h1 className="text-2xl font-bold text-foreground leading-tight mb-4">{item.title}</h1>
             <div className="flex items-center gap-4 text-sm text-muted-foreground">
-              {item.author && (
+              {preferences?.show_author !== false && item.author && (
                 <span className="flex items-center gap-1">
                   <User className="w-3.5 h-3.5" />
                   {item.author}
                 </span>
               )}
-              <span className="flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5" />
-                {formatFeedDate(item.pubDate)}
-              </span>
+              {preferences?.show_date !== false && (
+                <span className="flex items-center gap-1">
+                  <Clock className="w-3.5 h-3.5" />
+                  {formatFeedDate(item.pubDate)}
+                </span>
+              )}
             </div>
           </header>
 
           {/* Content */}
           <div
             ref={selection.contentRef}
-            className="prose prose-sm dark:prose-invert max-w-none leading-relaxed"
+            className="rss-reading-prose prose prose-sm dark:prose-invert max-w-none leading-relaxed"
             onContextMenu={selection.handleContextMenu}
             dangerouslySetInnerHTML={{
               __html: sanitizeHtml(item.fullContent || item.description || item.content),

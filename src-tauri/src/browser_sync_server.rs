@@ -12,8 +12,7 @@ use crate::commands::review::apply_review;
 use crate::commands::rss::{
     create_rss_feed_http, delete_rss_feed_http, fetch_rss_feed_url, get_rss_articles_http,
     get_rss_feed_http, get_rss_feeds_http, mark_rss_article_read_http,
-    toggle_rss_article_queued_http, update_rss_feed_http, RssFeed, RssUserPreference,
-    RssUserPreferenceUpdate,
+    toggle_rss_article_queued_http, update_rss_feed_http, RssFeed, RssUserPreferenceUpdate,
 };
 use crate::commands::rss_features::{
     add_rss_classifier_http, add_tag_http, compute_story_clusters_http, create_annotation_http,
@@ -3960,6 +3959,83 @@ pub struct GetPreferencesRequest {
     pub user_id: Option<String>,
 }
 
+async fn effective_rss_preferences(
+    repo: &Repository,
+    feed_id: Option<&str>,
+    user_id: Option<&str>,
+) -> crate::error::Result<serde_json::Value> {
+    let mut result = serde_json::json!({
+        "id": "default", "user_id": user_id, "feed_id": feed_id,
+        "keyword_include": "", "keyword_exclude": "", "author_whitelist": "", "author_blacklist": "", "category_filter": "",
+        "view_mode": "card", "theme_mode": "system", "density": "normal", "column_count": 2,
+        "show_thumbnails": true, "thumbnail_size": "small", "card_height": "normal", "excerpt_length": 150,
+        "show_author": true, "show_date": true, "show_feed_icon": true,
+        "sort_by": "date", "sort_order": "desc", "font_family": "\"Iowan Old Style\", \"Charter\", \"Source Serif 4\", \"Palatino Linotype\", Palatino, Georgia, \"Times New Roman\", serif", "font_size": 16,
+        "line_height": 1.6, "content_width": 65, "text_align": "left",
+        "date_created": chrono::Utc::now().to_rfc3339(), "date_modified": chrono::Utc::now().to_rfc3339()
+    });
+    let global = repo.get_rss_user_preferences(None, user_id).await?;
+    let scoped = if feed_id.is_some() {
+        repo.get_rss_user_preferences(feed_id, user_id).await?
+    } else {
+        None
+    };
+    for prefs in global.into_iter().chain(scoped) {
+        let value = serde_json::to_value(prefs)
+            .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
+        if let Some(fields) = value.as_object() {
+            for (key, value) in fields {
+                if !value.is_null() {
+                    result[key] = value.clone();
+                }
+            }
+        }
+    }
+    result["feed_id"] = serde_json::json!(feed_id);
+    result["user_id"] = serde_json::json!(user_id);
+    Ok(result)
+}
+
+#[cfg(test)]
+mod rss_customization_http_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn rss_customization_http_effective_roundtrip() {
+        let db = crate::database::Database::new(std::path::PathBuf::from(":memory:"))
+            .await.unwrap();
+        db.migrate().await.unwrap();
+        let repo = Repository::new(db.pool().clone());
+        let expected = serde_json::json!({
+            "keyword_include":"science", "keyword_exclude":"ads", "author_whitelist":"Jane",
+            "author_blacklist":"Spam", "category_filter":"tech", "view_mode":"list",
+            "theme_mode":"dark", "density":"comfortable", "column_count":4,
+            "show_thumbnails":false, "thumbnail_size":"large", "card_height":"tall",
+            "excerpt_length":250, "show_author":false, "show_date":false, "show_feed_icon":false,
+            "sort_by":"reading_time", "sort_order":"asc", "font_family":"monospace",
+            "font_size":24, "line_height":1.7, "content_width":80, "text_align":"justify"
+        });
+        repo.set_rss_user_preferences(None, None, serde_json::from_value(expected.clone()).unwrap())
+            .await.unwrap();
+        let response = effective_rss_preferences(&repo, Some("feed"), None).await.unwrap();
+        for (key, value) in expected.as_object().unwrap() {
+            assert_eq!(&response[key], value, "HTTP effective field {key}");
+        }
+        repo.set_rss_user_preferences(Some("feed"), None,
+            serde_json::from_value(serde_json::json!({"font_size":30,"keyword_include":""})).unwrap())
+            .await.unwrap();
+        let response = effective_rss_preferences(&repo, Some("feed"), None).await.unwrap();
+        assert_eq!(response["font_size"], 30);
+        assert_eq!(response["line_height"], 1.7);
+        assert_eq!(response["keyword_include"], "");
+        repo.set_rss_user_preferences(Some("feed"), None,
+            serde_json::from_value(serde_json::json!({"font_size":null})).unwrap())
+            .await.unwrap();
+        assert_eq!(effective_rss_preferences(&repo, Some("feed"), None).await.unwrap()["font_size"], 24);
+        assert_eq!(effective_rss_preferences(&repo, Some("other"), None).await.unwrap()["keyword_include"], "science");
+    }
+}
+
 /// Handle getting RSS user preferences
 async fn handle_get_preferences(
     State(state): State<ServerState>,
@@ -3968,38 +4044,9 @@ async fn handle_get_preferences(
     let feed_id = params.feed_id.as_deref();
     let user_id = params.user_id.as_deref();
 
-    match state.repo.get_rss_user_preferences(feed_id, user_id).await {
-        Ok(Some(prefs)) => (StatusCode::OK, Json(prefs)).into_response(),
-        Ok(None) => {
-            let defaults = RssUserPreference {
-                id: uuid::Uuid::new_v4().to_string(),
-                user_id: user_id.map(|s| s.to_string()),
-                feed_id: feed_id.map(|s| s.to_string()),
-                keyword_include: None,
-                keyword_exclude: None,
-                author_whitelist: None,
-                author_blacklist: None,
-                category_filter: None,
-                view_mode: Some("card".to_string()),
-                theme_mode: Some("system".to_string()),
-                density: Some("normal".to_string()),
-                column_count: Some(2),
-                show_thumbnails: Some(true),
-                excerpt_length: Some(150),
-                show_author: Some(true),
-                show_date: Some(true),
-                show_feed_icon: Some(true),
-                sort_by: Some("date".to_string()),
-                sort_order: Some("desc".to_string()),
-                date_created: chrono::Utc::now().to_rfc3339(),
-                date_modified: chrono::Utc::now().to_rfc3339(),
-            };
-            (StatusCode::OK, Json(defaults)).into_response()
-        }
-        Err(e) => {
-            error!("Failed to get RSS preferences: {}", e);
-            error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string())
-        }
+    match effective_rss_preferences(&state.repo, feed_id, user_id).await {
+        Ok(prefs) => (StatusCode::OK, Json(prefs)).into_response(),
+        Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
     }
 }
 
@@ -4012,12 +4059,18 @@ async fn handle_set_preferences(
     let feed_id = params.feed_id.as_deref();
     let user_id = params.user_id.as_deref();
 
+    if let Err(message) = prefs.validate() {
+        return error_response(StatusCode::BAD_REQUEST, &message);
+    }
     match state
         .repo
         .set_rss_user_preferences(feed_id, user_id, prefs)
         .await
     {
-        Ok(updated_prefs) => (StatusCode::OK, Json(updated_prefs)).into_response(),
+        Ok(_) => match effective_rss_preferences(&state.repo, feed_id, user_id).await {
+            Ok(prefs) => (StatusCode::OK, Json(prefs)).into_response(),
+            Err(e) => error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string()),
+        },
         Err(e) => {
             error!("Failed to set RSS preferences: {}", e);
             error_response(StatusCode::INTERNAL_SERVER_ERROR, &e.to_string())
