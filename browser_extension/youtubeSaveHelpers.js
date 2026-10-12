@@ -20,8 +20,12 @@
   function getWatchActionsContainer(metadata) {
     if (!metadata || typeof metadata.querySelector !== 'function') return null;
     return (
-      metadata.querySelector('#actions-inner') ||
-      metadata.querySelector('#actions') ||
+      // YouTube now hydrates #actions-inner as a column and adds the actual
+      // action row below #menu. Returning the outer column causes a fallback
+      // insertion to render as a full-width row below the native controls.
+      metadata.querySelector('#menu > ytd-menu-renderer') ||
+      metadata.querySelector('#actions-inner > ytd-menu-renderer') ||
+      metadata.querySelector('#top-level-buttons-computed') ||
       metadata.querySelector('#top-level-buttons')
     );
   }
@@ -34,7 +38,7 @@
   function isValidButtonPlacement(button, metadata, actions) {
     if (!button || !metadata || !actions) return false;
     if (!button.isConnected) return false;
-    return metadata.contains(button) && actions.contains(button);
+    return metadata.contains(button) && button.parentElement === actions;
   }
 
   /**

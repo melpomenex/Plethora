@@ -3201,11 +3201,13 @@
           isWatchPagePath: (p) => p.startsWith('/watch'),
           getWatchMetadataRoot: (doc) => doc.querySelector('ytd-watch-metadata'),
           getWatchActionsContainer: (metadata) =>
-            metadata?.querySelector('#actions-inner, #actions, #top-level-buttons') ?? null,
+            metadata?.querySelector(
+              '#menu > ytd-menu-renderer, #actions-inner > ytd-menu-renderer, #top-level-buttons-computed, #top-level-buttons'
+            ) ?? null,
           getWatchTitleElement: (metadata) =>
             metadata?.querySelector('#title h1 yt-formatted-string, h1 yt-formatted-string') ?? null,
           isValidButtonPlacement: (btn, metadata, actions) =>
-            btn?.isConnected && metadata?.contains(btn) && actions?.contains(btn),
+            btn?.isConnected && metadata?.contains(btn) && btn.parentElement === actions,
           needsSaveButtonInjection: () => true,
         };
 
@@ -3244,6 +3246,11 @@
         font-weight: 500;
         cursor: pointer;
         transition: all 0.2s ease;
+        flex: 0 0 auto !important;
+        width: auto !important;
+        max-width: max-content;
+        white-space: nowrap;
+        align-self: center;
         z-index: 1000;
         margin-left: 8px;
         box-shadow: 0 2px 4px rgba(0,0,0,0.1);
@@ -3482,16 +3489,22 @@
     }
 
     function insertYouTubeSaveButton(saveButton, actionsContainer) {
-      const likeButton = actionsContainer.querySelector('button[aria-label*="like"], button[title*="like"], #like-button');
-      const shareButton = actionsContainer.querySelector('button[aria-label*="Share"], button[title*="Share"], #share-button');
+      const nativeButton = actionsContainer.querySelector(
+        '[aria-label*="Save" i], [title*="Save" i], [aria-label*="Share" i], [title*="Share" i], [aria-label*="like" i], [title*="like" i], #like-button, #share-button'
+      );
 
-      if (likeButton && likeButton.parentNode) {
-        likeButton.parentNode.insertBefore(saveButton, likeButton.nextSibling);
-      } else if (shareButton && shareButton.parentNode) {
-        shareButton.parentNode.insertBefore(saveButton, shareButton.nextSibling);
-      } else {
-        actionsContainer.appendChild(saveButton);
+      // Insert next to a native action at the action-row level. YouTube's
+      // buttons have several internal wrapper elements; inserting into the
+      // wrapper around the button can make our control stretch or drift.
+      if (!nativeButton) return false;
+      let actionItem = nativeButton;
+      while (actionItem.parentElement && actionItem.parentElement !== actionsContainer) {
+        actionItem = actionItem.parentElement;
       }
+
+      if (actionItem.parentElement !== actionsContainer) return false;
+      actionsContainer.insertBefore(saveButton, actionItem.nextSibling);
+      return true;
     }
 
     function ensureYouTubeSaveButton() {
@@ -3519,7 +3532,12 @@
       }
 
       const saveButton = buildYouTubeSaveButton();
-      insertYouTubeSaveButton(saveButton, actionsContainer);
+      if (!insertYouTubeSaveButton(saveButton, actionsContainer)) {
+        // Keep waiting for YouTube's native action controls to hydrate. The
+        // mutation observer will schedule another attempt without ever
+        // placing a fallback button in the wrong container.
+        saveButton.remove();
+      }
     }
 
     function scheduleEnsureYouTubeSaveButton() {

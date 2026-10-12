@@ -22,22 +22,39 @@ test('isWatchPagePath matches watch URLs only', () => {
   assert.equal(isWatchPagePath('/feed'), false);
 });
 
-test('getWatchActionsContainer scopes to metadata', () => {
+test('getWatchActionsContainer returns the hydrated action row', () => {
   const doc = makeDoc(`
     <div id="actions">decoy</div>
     <ytd-watch-metadata>
-      <div id="actions-inner">real</div>
+      <div id="actions-inner">
+        <div id="menu">
+          <ytd-menu-renderer>real</ytd-menu-renderer>
+        </div>
+      </div>
     </ytd-watch-metadata>
   `);
   const metadata = getWatchMetadataRoot(doc);
   const actions = getWatchActionsContainer(metadata);
-  assert.equal(actions?.id, 'actions-inner');
+  assert.equal(actions?.tagName, 'YTD-MENU-RENDERER');
 });
 
-test('isValidButtonPlacement requires connected button in metadata actions', () => {
+test('getWatchActionsContainer waits for native controls to hydrate', () => {
   const doc = makeDoc(`
     <ytd-watch-metadata>
-      <div id="actions-inner"><button id="btn"></button></div>
+      <div id="actions-inner"></div>
+    </ytd-watch-metadata>
+  `);
+  assert.equal(getWatchActionsContainer(getWatchMetadataRoot(doc)), null);
+});
+
+test('isValidButtonPlacement requires a direct child of the action row', () => {
+  const doc = makeDoc(`
+    <ytd-watch-metadata>
+      <div id="actions-inner">
+        <div id="menu">
+          <ytd-menu-renderer><button id="btn"></button></ytd-menu-renderer>
+        </div>
+      </div>
     </ytd-watch-metadata>
   `);
   const metadata = getWatchMetadataRoot(doc);
@@ -50,7 +67,7 @@ test('needsSaveButtonInjection true when watch page lacks button', () => {
   const doc = makeDoc(`
     <ytd-watch-metadata>
       <div id="title"><h1><yt-formatted-string>Title</yt-formatted-string></h1></div>
-      <div id="actions-inner"></div>
+      <div id="actions-inner"><div id="menu"><ytd-menu-renderer></ytd-menu-renderer></div></div>
     </ytd-watch-metadata>
   `);
   assert.equal(needsSaveButtonInjection(doc, '/watch?v=1'), true);
@@ -60,7 +77,11 @@ test('needsSaveButtonInjection false when valid button exists', () => {
   const doc = makeDoc(`
     <ytd-watch-metadata>
       <div id="title"><h1><yt-formatted-string>Title</yt-formatted-string></h1></div>
-      <div id="actions-inner"><button id="${BUTTON_ID}"></button></div>
+      <div id="actions-inner">
+        <div id="menu">
+          <ytd-menu-renderer><button id="${BUTTON_ID}"></button></ytd-menu-renderer>
+        </div>
+      </div>
     </ytd-watch-metadata>
   `);
   assert.equal(needsSaveButtonInjection(doc, '/watch?v=1'), false);
