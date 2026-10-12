@@ -178,24 +178,48 @@ export function patchThemesInsertRuleGuard(rendition: unknown): void {
  * Detect whether an EPUB section represents a cover page based on spine index,
  * file naming conventions, EPUB metadata, and DOM structure.
  */
-export function isEpubCoverSection(contents: any): boolean {
+export function isEpubCoverSection(contents: any, context?: any): boolean {
   if (!contents) return false;
-  const section = contents.section;
   const doc = contents.document as globalThis.Document | undefined;
-  const href = String(section?.href ?? "").toLowerCase();
-  const idref = String(section?.idref ?? "").toLowerCase();
-  const index = Number(section?.index ?? -1);
+  const sectionIndex = Number(contents.section?.index ?? contents.sectionIndex ?? -1);
+
+  // Attempt to resolve spine item if contents.section is not populated by epub.js
+  const spine =
+    context?.book?.spine ??
+    context?.spine ??
+    contents.book?.spine ??
+    (contents.window as any)?.book?.spine;
+  const section =
+    contents.section ??
+    (spine && sectionIndex >= 0 ? spine.get(sectionIndex) : undefined);
+
+  const href = String(
+    section?.href ??
+    doc?.querySelector?.('link[rel="canonical"]')?.getAttribute("href") ??
+    doc?.querySelector?.("base")?.getAttribute("href") ??
+    ""
+  ).toLowerCase();
+
+  const idref = String(
+    section?.idref ??
+    doc?.querySelector?.('meta[name="dc.identifier"]')?.getAttribute("content") ??
+    ""
+  ).toLowerCase();
+
+  const index = Number(section?.index ?? sectionIndex ?? -1);
   const properties = section?.properties;
 
   const hasExplicitCoverMeta = !!(
     doc?.querySelector?.('meta[name="calibre:cover"]') ||
-    doc?.querySelector?.('meta[name="cover"]')
+    doc?.querySelector?.('meta[name="cover"]') ||
+    doc?.querySelector?.('meta[name="dc.identifier"][content*="cover" i]') ||
+    doc?.querySelector?.('link[rel="canonical"][href*="cover" i]')
   );
   if (hasExplicitCoverMeta) return true;
 
   const hasCoverProperty = Array.isArray(properties)
-    ? properties.some((p: string) => typeof p === "string" && p.includes("cover"))
-    : typeof properties === "string" && properties.includes("cover");
+    ? properties.some((p: string) => typeof p === "string" && p.toLowerCase().includes("cover"))
+    : typeof properties === "string" && properties.toLowerCase().includes("cover");
   if (hasCoverProperty) return true;
 
   const matchesCoverName =
@@ -223,10 +247,14 @@ export function isEpubCoverSection(contents: any): boolean {
     if (textLength === 0 && (body?.querySelectorAll("img, svg").length ?? 0) === 1) {
       return true;
     }
+    if (index === 0 && (body?.querySelectorAll("img, svg").length ?? 0) === 1 && textLength < 250) {
+      return true;
+    }
   }
 
   return false;
 }
+
 
 /**
  * Normalizes SVG elements inside an EPUB content document so they scale
@@ -832,7 +860,7 @@ export function EPUBViewer({
       : rawBgColor;
 
     const { height: vHeight, width: vWidth } = getViewerDimensions(viewerRef.current);
-    const isCover = isEpubCoverSection(contents);
+    const isCover = isEpubCoverSection(contents, renditionRef.current || rendition || book);
 
     normalizeEpubSvgElements(doc);
 
@@ -911,19 +939,26 @@ export function EPUBViewer({
         align-items: center !important;
         justify-content: center !important;
       }
+      body.epub-cover-page *,
       body.epub-cover-page div,
+      body.epub-cover-page p,
       body.epub-cover-page section,
-      body.epub-cover-page main {
+      body.epub-cover-page main,
+      body.epub-cover-page figure,
+      body.epub-cover-page a {
         margin: 0 !important;
         padding: 0 !important;
         max-width: 100% !important;
         max-height: 100% !important;
         width: 100% !important;
         height: 100% !important;
+        min-width: 0 !important;
+        min-height: 0 !important;
         display: flex !important;
         align-items: center !important;
         justify-content: center !important;
         background: transparent !important;
+        overflow: hidden !important;
       }
       body.epub-cover-page img {
         max-width: 100% !important;
@@ -933,6 +968,7 @@ export function EPUBViewer({
         object-fit: contain !important;
         margin: auto !important;
         display: block !important;
+        flex-shrink: 1 !important;
       }
       body.epub-cover-page svg {
         max-width: 100% !important;
@@ -941,6 +977,7 @@ export function EPUBViewer({
         height: auto !important;
         margin: auto !important;
         display: block !important;
+        flex-shrink: 1 !important;
       }
       body *:not(.epub-persisted-highlight):not(.epub-search-highlight):not(.epub-search-highlight-active):not(.epub-sync-highlight) {
         color: ${textColor} !important;
@@ -1082,8 +1119,55 @@ export function EPUBViewer({
         if (isCover) {
           bodyEl.style.setProperty("margin", "0px", "important");
           bodyEl.style.setProperty("padding", "0px", "important");
+          bodyEl.style.setProperty("width", "100%", "important");
+          bodyEl.style.setProperty("max-width", "100%", "important");
           bodyEl.style.setProperty("height", `${vHeight}px`, "important");
           bodyEl.style.setProperty("max-height", `${vHeight}px`, "important");
+          bodyEl.style.setProperty("display", "flex", "important");
+          bodyEl.style.setProperty("flex-direction", "column", "important");
+          bodyEl.style.setProperty("align-items", "center", "important");
+          bodyEl.style.setProperty("justify-content", "center", "important");
+          bodyEl.style.setProperty("overflow", "hidden", "important");
+
+          const imgs = doc.querySelectorAll("img");
+          imgs.forEach((img) => {
+            img.style.setProperty("max-width", "100%", "important");
+            img.style.setProperty("max-height", `${vHeight}px`, "important");
+            img.style.setProperty("width", "auto", "important");
+            img.style.setProperty("height", "auto", "important");
+            img.style.setProperty("object-fit", "contain", "important");
+            img.style.setProperty("display", "block", "important");
+            img.style.setProperty("margin", "auto", "important");
+            img.style.setProperty("flex-shrink", "1", "important");
+          });
+
+          const svgs = doc.querySelectorAll("svg");
+          svgs.forEach((svg) => {
+            svg.style.setProperty("max-width", "100%", "important");
+            svg.style.setProperty("max-height", `${vHeight}px`, "important");
+            svg.style.setProperty("width", "auto", "important");
+            svg.style.setProperty("height", "auto", "important");
+            svg.style.setProperty("display", "block", "important");
+            svg.style.setProperty("margin", "auto", "important");
+            svg.style.setProperty("flex-shrink", "1", "important");
+          });
+
+          const wrappers = doc.querySelectorAll("body.epub-cover-page p, body.epub-cover-page div, body.epub-cover-page figure, body.epub-cover-page section, body.epub-cover-page main, body.epub-cover-page a");
+          wrappers.forEach((w) => {
+            const el = w as HTMLElement;
+            el.style.setProperty("margin", "0", "important");
+            el.style.setProperty("padding", "0", "important");
+            el.style.setProperty("max-width", "100%", "important");
+            el.style.setProperty("max-height", "100%", "important");
+            el.style.setProperty("width", "100%", "important");
+            el.style.setProperty("height", "100%", "important");
+            el.style.setProperty("min-width", "0", "important");
+            el.style.setProperty("min-height", "0", "important");
+            el.style.setProperty("display", "flex", "important");
+            el.style.setProperty("align-items", "center", "important");
+            el.style.setProperty("justify-content", "center", "important");
+            el.style.setProperty("overflow", "hidden", "important");
+          });
         }
       }
     } catch { /* ignore */ }
@@ -1258,6 +1342,14 @@ export function EPUBViewer({
                 if (body?.classList?.contains("epub-cover-page")) {
                   body.style.setProperty("height", `${height}px`, "important");
                   body.style.setProperty("max-height", `${height}px`, "important");
+                  const imgs = c?.document?.querySelectorAll?.("img");
+                  imgs?.forEach?.((img: any) => {
+                    img.style?.setProperty?.("max-height", `${height}px`, "important");
+                  });
+                  const svgs = c?.document?.querySelectorAll?.("svg");
+                  svgs?.forEach?.((svg: any) => {
+                    svg.style?.setProperty?.("max-height", `${height}px`, "important");
+                  });
                 }
               });
             }
@@ -1572,8 +1664,9 @@ export function EPUBViewer({
 
             // Stamp stable section identity on the iframe body so DocumentViewer
             // can route TTS highlights by href instead of text fingerprint.
-            const spineIndex = Number(contents.section?.index ?? -1);
-            const href = String(contents.section?.href ?? "");
+            const spineIndex = Number(contents.section?.index ?? contents.sectionIndex ?? -1);
+            const spineSection = contents.section ?? (epubBook?.spine && spineIndex >= 0 ? epubBook.spine.get(spineIndex) : undefined);
+            const href = String(spineSection?.href ?? contents.section?.href ?? "");
             if (contents.document?.body && spineIndex >= 0 && href) {
               contents.document.body.dataset.epubSpineIndex = String(spineIndex);
               contents.document.body.dataset.epubHref = href;

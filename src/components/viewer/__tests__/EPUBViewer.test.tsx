@@ -978,6 +978,31 @@ describe("isEpubCoverSection", () => {
     const contents = { section: { index: 0, href: "ch01.xhtml" }, document: doc };
     expect(isEpubCoverSection(contents)).toBe(false);
   });
+
+  it("detects cover section when contents only has sectionIndex and context spine provides href/idref", () => {
+    const doc = makeDoc('<!DOCTYPE html><html><body><p><img src="images/cover.jpg"/></p></body></html>');
+    const contents = { sectionIndex: 0, document: doc };
+    const context = {
+      book: {
+        spine: {
+          get: (idx: number) => (idx === 0 ? { index: 0, href: "cover.xhtml", idref: "cover" } : null),
+        },
+      },
+    };
+    expect(isEpubCoverSection(contents, context)).toBe(true);
+  });
+
+  it("detects cover section via canonical link fallback when section is missing", () => {
+    const doc = makeDoc('<!DOCTYPE html><html><head><link rel="canonical" href="/OEBPS/cover.xhtml"/></head><body><p><img src="c.jpg"/></p></body></html>');
+    const contents = { sectionIndex: 0, document: doc };
+    expect(isEpubCoverSection(contents)).toBe(true);
+  });
+
+  it("detects cover section via Dublin Core identifier fallback", () => {
+    const doc = makeDoc('<!DOCTYPE html><html><head><meta name="dc.identifier" content="cover"/></head><body><img src="c.jpg"/></body></html>');
+    const contents = { sectionIndex: 0, document: doc };
+    expect(isEpubCoverSection(contents)).toBe(true);
+  });
 });
 
 describe("normalizeEpubSvgElements", () => {
@@ -1097,4 +1122,56 @@ describe("EPUB reader cover and media scaling in viewer", () => {
     expect(doc.body.style.getPropertyValue("padding")).toBe("0px");
     expect(doc.body.style.getPropertyValue("margin")).toBe("0px");
   });
+
+  it("paragraph-wrapped cover image receives containment styling and inline dimension clamping", async () => {
+    render(
+      <EPUBViewer
+        documentId="doc-epub-precipice"
+        doc={{ id: "doc-epub-precipice", title: "The Precipice" } as any}
+        fileName="precipice.epub"
+        fileUrl="precipice.epub"
+      />
+    );
+    await waitFor(() => expect(mockRendition.themes.default).toHaveBeenCalled());
+    const hook = mockRendition.hooks.content.register.mock.calls.at(-1)?.[0];
+    expect(hook).toBeTypeOf("function");
+
+    const doc = new DOMParser().parseFromString(
+      `<!DOCTYPE html><html><head><title>The Precipice</title></head>
+      <body style="margin:0.00em; text-align:center;">
+        <p style="text-align:center;"><img alt="image" src="9780316484893.jpg" style="height: 100%;"/></p>
+      </body></html>`,
+      "text/html"
+    );
+    const contents = {
+      document: doc,
+      window: window,
+      sectionIndex: 0,
+      section: { index: 0, href: "cover.xhtml", idref: "cover" },
+      cfiFromRange: vi.fn(),
+    };
+
+    await act(async () => {
+      hook(contents);
+    });
+
+    const img = doc.querySelector("img")!;
+    const p = doc.querySelector("p")!;
+
+    // Image is clamped inline with !important
+    expect(img.style.getPropertyValue("max-width")).toBe("100%");
+    expect(img.style.getPropertyValue("object-fit")).toBe("contain");
+    expect(img.style.getPropertyValue("height")).toBe("auto");
+
+    // Wrapper <p> has width: 100%, min-width: 0, and display: flex to prevent intrinsic expansion
+    expect(p.style.getPropertyValue("width")).toBe("100%");
+    expect(p.style.getPropertyValue("min-width")).toBe("0");
+    expect(p.style.getPropertyValue("display")).toBe("flex");
+
+    // Stylesheet contains wrapper containment
+    const override = doc.getElementById("epub-override-styles");
+    expect(override!.textContent).toContain("body.epub-cover-page p");
+    expect(override!.textContent).toContain("min-width: 0 !important");
+  });
 });
+

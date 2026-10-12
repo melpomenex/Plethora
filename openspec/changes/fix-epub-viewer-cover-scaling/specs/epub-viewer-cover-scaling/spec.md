@@ -41,6 +41,16 @@ The reader SHALL detect EPUB cover sections and remove excessive body padding (s
 - **THEN** the cover section container SHALL center the cover image
 - **AND** the reader SHALL eliminate intrusive bottom reading padding so the cover fits cleanly within the screen
 
+#### Scenario: Cover image wrapped in paragraph or nested container
+- **WHEN** an EPUB cover image is wrapped inside a `<p>`, `<figure>`, `<div>`, or `<a>` container with inline styling
+- **THEN** the reader SHALL constrain the wrapper element with zero margin, zero padding, and flexible centering bounds
+- **AND** the wrapper SHALL NOT expand beyond the reader viewport width or height
+
+#### Scenario: Contents object provides sectionIndex without explicit section property
+- **WHEN** an EPUB section is loaded where epub.js provides `contents.sectionIndex` rather than `contents.section`
+- **THEN** the reader SHALL resolve the section metadata via the book spine and document metadata
+- **AND** the cover section SHALL be correctly recognized and styled as a cover page
+
 ### Requirement: In-reader images respect viewport boundaries on container resize
 
 The reader SHALL propagate reader container dimensions to the EPUB iframe documents and update viewport constraints whenever the reader window or container is resized.
@@ -49,3 +59,4 @@ The reader SHALL propagate reader container dimensions to the EPUB iframe docume
 - **WHEN** the reader window is resized while an EPUB cover is displayed
 - **THEN** the reader viewport dimension CSS variables SHALL update to match the new container height and width
 - **AND** the displayed cover SHALL adapt smoothly to the new dimensions without overflowing
+
