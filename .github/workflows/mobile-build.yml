@@ -12,6 +12,10 @@ on:
         type: string
         required: false
         default: ""
+      startup_trace:
+        description: "Capture bounded, content-free Android startup thread stacks in the signed diagnostic APK"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -32,6 +36,7 @@ jobs:
     timeout-minutes: 360
     env:
       SKIP_NOTEBOOKLM_SIDECAR: "1"
+      ORG_GRADLE_PROJECT_plethoraStartupTraceStacks: ${{ inputs.startup_trace && 'true' || 'false' }}
     permissions:
       contents: write
     steps:
@@ -155,6 +160,17 @@ jobs:
             [ "$i" -lt 3 ] || exit 1
             sleep 10
           done
+
+      - name: Preserve 3.2.0 console forwarding in the startup trace baseline
+        if: inputs.startup_trace
+        run: |
+          set -euo pipefail
+          # Keep the suspected forwarding behavior unchanged while observing
+          # it through the independent WebView console channel.
+          git fetch --depth=1 --no-tags origin refs/tags/v3.2.0
+          test "$(git rev-parse 'FETCH_HEAD^{commit}')" = "4f363f8ff59dc8fb55be9faaab3c3fcd48434f48"
+          git show FETCH_HEAD:src/lib/consoleLogcatBridge.ts > src/lib/consoleLogcatBridge.ts
+          sha256sum src/lib/consoleLogcatBridge.ts
 
       - name: Build frontend assets
         run: npm run build
