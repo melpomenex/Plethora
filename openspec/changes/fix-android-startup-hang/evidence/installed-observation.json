@@ -1,0 +1,98 @@
+{
+  "method": "Recent installed-app logcat observation; activity epoch and native handler entry are unavailable. This is not a benchmark sample.",
+  "package": "com.plethora.app",
+  "apkSha256": "3bd0ea67d4ed40dae0d7b68eed343257f490548fd697b278cc9ff006be20c0e1",
+  "version": "3.2.0",
+  "android": "17",
+  "webview": "Current WebView package (name, version): (app.vanadium.webview, 155.0.8059.39.0)",
+  "markers": [
+    {
+      "logMonotonicMs": 145549212,
+      "phase": "backend-ready-failed",
+      "durationMs": 40036,
+      "outcome": "error"
+    },
+    {
+      "logMonotonicMs": 145549229,
+      "phase": "snapshot-retry",
+      "surface": "queue",
+      "outcome": "retrying",
+      "attempt": 1,
+      "failureKind": "timeout"
+    },
+    {
+      "logMonotonicMs": 145549230,
+      "phase": "snapshot-retry",
+      "surface": "startup",
+      "outcome": "retrying",
+      "attempt": 1,
+      "failureKind": "timeout"
+    },
+    {
+      "logMonotonicMs": 145550236,
+      "phase": "backend-ready-start"
+    },
+    {
+      "logMonotonicMs": 145585351,
+      "phase": "backend-ready-complete",
+      "durationMs": 35119,
+      "outcome": "success"
+    },
+    {
+      "logMonotonicMs": 145585354,
+      "phase": "snapshot-request-start",
+      "surface": "queue"
+    },
+    {
+      "logMonotonicMs": 145585357,
+      "phase": "snapshot-request-start",
+      "surface": "startup"
+    },
+    {
+      "logMonotonicMs": 145586574,
+      "phase": "snapshot-request-complete",
+      "surface": "queue",
+      "durationMs": 1220,
+      "outcome": "populated",
+      "documents": 50,
+      "queueItems": 50,
+      "dueCount": 5
+    },
+    {
+      "logMonotonicMs": 145586581,
+      "phase": "snapshot-hydrated",
+      "surface": "queue",
+      "outcome": "populated",
+      "documents": 50,
+      "queueItems": 50,
+      "dueCount": 5
+    },
+    {
+      "logMonotonicMs": 145586646,
+      "phase": "surface-ready",
+      "surface": "queue",
+      "outcome": "populated",
+      "queueItems": 50
+    },
+    {
+      "logMonotonicMs": 145586810,
+      "phase": "snapshot-request-complete",
+      "surface": "startup",
+      "durationMs": 1454,
+      "outcome": "populated",
+      "documents": 50,
+      "queueItems": 0,
+      "dueCount": 5
+    },
+    {
+      "logMonotonicMs": 145586813,
+      "phase": "snapshot-hydrated",
+      "surface": "startup",
+      "outcome": "populated",
+      "documents": 50,
+      "queueItems": 0,
+      "dueCount": 5
+    }
+  ],
+  "externalStackCapture": "debuggerd -b and -j denied: root is required"
+}

@@ -1,0 +1,2575 @@
+{
+  "identity": {
+    "directory": "/tmp/plethora-startup-source-fNCUGf",
+    "sha": "f90721315a280ec830563d0806001bea7333dda8",
+    "sourceHash": "966349c28f2e6dffbe9efe78db08be8d8cda72c60825a6d5ea465a8423c4d908",
+    "buildId": "3.2.0+f90721315a28+966349c28f2e6dff",
+    "variant": "native-back-enabled",
+    "package": "com.plethora.app.startupbench",
+    "nativeBackOverride": "true",
+    "optimization": {
+      "lto": "false",
+      "codegenUnits": 16,
+      "optLevel": "0"
+    },
+    "apkSha256": "38addc172bd2941d92bb8bd5ebb277222a2cbdd1dba5b3fd176bdfb6620a40e9",
+    "fixture": {
+      "documents": 1000,
+      "learningItems": 5000
+    },
+    "baselineSourceHash": "966349c28f2e6dffbe9efe78db08be8d8cda72c60825a6d5ea465a8423c4d908",
+    "repackagedFromApkSha256": "7173f074b627ccb1931fe4710c9db0db76794d30e745f3b99f13fcc2de2e5122",
+    "nativeLibrarySha256": "b6035741c7c8874ee3de4eea7583024eac7fabce9af83b22cc3f6f6e2fce19d0"
+  },
+  "device": {
+    "model": "Pixel 9 Pro XL",
+    "android": "17",
+    "webview": "Current WebView package (name, version): (app.vanadium.webview, 155.0.8059.39.0)"
+  },
+  "warmup": {
+    "status": "usable",
+    "usableMs": 15990,
+    "readinessRequests": 1,
+    "snapshotRequests": 2,
+    "markers": [
+      {
+        "phase": "activity-create",
+        "elapsedMs": 0,
+        "clock": "activity",
+        "android": "17",
+        "webview": "155.0.8059.39.0",
+        "debug": false,
+        "thread": "main",
+        "logMonotonicMs": 149238621,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "activity-created",
+        "elapsedMs": 14,
+        "clock": "activity",
+        "android": "17",
+        "webview": "155.0.8059.39.0",
+        "debug": false,
+        "thread": "main",
+        "logMonotonicMs": 149238636,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 0,
+        "phase": "native-entry",
+        "thread": "unnamed",
+        "version": "3.2.0",
+        "logMonotonicMs": 149238636,
+        "logPid": 23076,
+        "logTid": 23104
+      },
+      {
+        "phase": "stalled-jvm-thread",
+        "clock": "activity",
+        "elapsedMs": 10002,
+        "thread": "main",
+        "state": "RUNNABLE",
+        "frames": [
+          "android.os.MessageQueue.nativePollOnce(Native Method)",
+          "android.os.MessageQueue.nextLegacy(MessageQueue.java:871)",
+          "android.os.MessageQueue.next(MessageQueue.java:773)",
+          "android.os.Looper.loopOnce(Looper.java:232)",
+          "android.os.Looper.loop(Looper.java:397)",
+          "android.app.ActivityThread.main(ActivityThread.java:9569)",
+          "java.lang.reflect.Method.invoke(Native Method)",
+          "com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:575)",
+          "com.android.internal.os.ZygoteInit.main(ZygoteInit.java:975)"
+        ],
+        "logMonotonicMs": 149248623,
+        "logPid": 23076,
+        "logTid": 23102
+      },
+      {
+        "phase": "wry-version-wait-start",
+        "clock": "wry",
+        "elapsedMs": 0,
+        "logMonotonicMs": 149248767,
+        "logPid": 23076,
+        "logTid": 23104
+      },
+      {
+        "phase": "wry-version-handler-entry",
+        "clock": "wry",
+        "elapsedMs": 0,
+        "logMonotonicMs": 149248768,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "wry-version-wait-response",
+        "clock": "wry",
+        "elapsedMs": 3,
+        "logMonotonicMs": 149248770,
+        "logPid": 23076,
+        "logTid": 23104
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 10536,
+        "phase": "setup-entry",
+        "thread": "unnamed",
+        "version": "3.2.0",
+        "logMonotonicMs": 149249172,
+        "logPid": 23076,
+        "logTid": 23104
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 10586,
+        "phase": "auth-init-start",
+        "thread": "unnamed",
+        "version": "3.2.0",
+        "logMonotonicMs": 149249221,
+        "logPid": 23076,
+        "logTid": 23104
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 10586,
+        "phase": "auth-init-complete",
+        "thread": "unnamed",
+        "version": "3.2.0",
+        "logMonotonicMs": 149249222,
+        "logPid": 23076,
+        "logTid": 23104
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 10588,
+        "phase": "sync-scheduler-initialized",
+        "thread": "unnamed",
+        "version": "3.2.0",
+        "logMonotonicMs": 149249223,
+        "logPid": 23076,
+        "logTid": 23104
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 10588,
+        "phase": "ocr-init-start",
+        "thread": "unnamed",
+        "version": "3.2.0",
+        "logMonotonicMs": 149249223,
+        "logPid": 23076,
+        "logTid": 23104
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 10588,
+        "phase": "ocr-init-complete",
+        "thread": "unnamed",
+        "version": "3.2.0",
+        "logMonotonicMs": 149249223,
+        "logPid": 23076,
+        "logTid": 23104
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 10709,
+        "phase": "database-open-complete",
+        "thread": "unnamed",
+        "version": "3.2.0",
+        "logMonotonicMs": 149249344,
+        "logPid": 23076,
+        "logTid": 23104
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 10709,
+        "phase": "migrations-start",
+        "thread": "unnamed",
+        "version": "3.2.0",
+        "logMonotonicMs": 149249345,
+        "logPid": 23076,
+        "logTid": 23104
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 10720,
+        "phase": "migrations-complete",
+        "thread": "unnamed",
+        "version": "3.2.0",
+        "logMonotonicMs": 149249355,
+        "logPid": 23076,
+        "logTid": 23104
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 10765,
+        "phase": "fixture-1000-5000-verified",
+        "thread": "unnamed",
+        "version": "3.2.0",
+        "logMonotonicMs": 149249400,
+        "logPid": 23076,
+        "logTid": 23104
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 12280,
+        "phase": "native-ready",
+        "thread": "unnamed",
+        "version": "3.2.0",
+        "logMonotonicMs": 149250917,
+        "logPid": 23076,
+        "logTid": 23104
+      },
+      {
+        "phase": "bootstrap-entry",
+        "sequence": 1,
+        "elapsedMs": 126,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "activityElapsedMs": 12954,
+        "clock": "frontend",
+        "logMonotonicMs": 149251575,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "main-import-start",
+        "sequence": 2,
+        "elapsedMs": 135,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "activityElapsedMs": 12962,
+        "clock": "frontend",
+        "logMonotonicMs": 149251583,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "main-import-complete",
+        "sequence": 3,
+        "elapsedMs": 377,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "outcome": "success",
+        "activityElapsedMs": 13206,
+        "clock": "frontend",
+        "logMonotonicMs": 149251826,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 13254,
+        "phase": "readiness-handler-entry",
+        "thread": "tokio-rt-worker",
+        "version": "3.2.0",
+        "logMonotonicMs": 149251889,
+        "logPid": 23076,
+        "logTid": 23161
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 13254,
+        "phase": "readiness-handler-complete",
+        "thread": "tokio-rt-worker",
+        "version": "3.2.0",
+        "logMonotonicMs": 149251890,
+        "logPid": 23076,
+        "logTid": 23161
+      },
+      {
+        "phase": "backend-ready-start",
+        "sequence": 4,
+        "elapsedMs": 439,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "activityElapsedMs": 13338,
+        "clock": "frontend",
+        "logMonotonicMs": 149251959,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "command-dispatch",
+        "sequence": 5,
+        "elapsedMs": 439,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "command": "wait_for_backend_ready",
+        "request": 1,
+        "activityElapsedMs": 13338,
+        "clock": "frontend",
+        "logMonotonicMs": 149251959,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "command-response",
+        "sequence": 6,
+        "elapsedMs": 541,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "command": "wait_for_backend_ready",
+        "request": 1,
+        "durationMs": 102,
+        "outcome": "success",
+        "activityElapsedMs": 13367,
+        "clock": "frontend",
+        "logMonotonicMs": 149251988,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "backend-ready-complete",
+        "sequence": 7,
+        "elapsedMs": 542,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "durationMs": 103,
+        "outcome": "success",
+        "activityElapsedMs": 13367,
+        "clock": "frontend",
+        "logMonotonicMs": 149251988,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "snapshot-request-start",
+        "sequence": 8,
+        "elapsedMs": 726,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "surface": "startup",
+        "activityElapsedMs": 13552,
+        "clock": "frontend",
+        "logMonotonicMs": 149252173,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "command-dispatch",
+        "sequence": 9,
+        "elapsedMs": 726,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "command": "get_startup_snapshot",
+        "request": 2,
+        "activityElapsedMs": 13552,
+        "clock": "frontend",
+        "logMonotonicMs": 149252173,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 13540,
+        "phase": "snapshot-handler-entry",
+        "thread": "tokio-rt-worker",
+        "version": "3.2.0",
+        "logMonotonicMs": 149252176,
+        "logPid": 23076,
+        "logTid": 23156
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 13666,
+        "phase": "snapshot-handler-complete",
+        "thread": "tokio-rt-worker",
+        "version": "3.2.0",
+        "logMonotonicMs": 149252302,
+        "logPid": 23076,
+        "logTid": 23161
+      },
+      {
+        "phase": "command-response",
+        "sequence": 10,
+        "elapsedMs": 935,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "command": "get_startup_snapshot",
+        "request": 2,
+        "durationMs": 209,
+        "outcome": "success",
+        "activityElapsedMs": 13761,
+        "clock": "frontend",
+        "logMonotonicMs": 149252382,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "snapshot-request-complete",
+        "sequence": 11,
+        "elapsedMs": 936,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "surface": "startup",
+        "durationMs": 210,
+        "outcome": "populated",
+        "documents": 50,
+        "queueItems": 0,
+        "dueCount": 5000,
+        "activityElapsedMs": 13762,
+        "clock": "frontend",
+        "logMonotonicMs": 149252383,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "snapshot-hydrated",
+        "sequence": 12,
+        "elapsedMs": 937,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "surface": "startup",
+        "outcome": "populated",
+        "documents": 50,
+        "queueItems": 0,
+        "dueCount": 5000,
+        "activityElapsedMs": 13763,
+        "clock": "frontend",
+        "logMonotonicMs": 149252384,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "snapshot-request-start",
+        "sequence": 13,
+        "elapsedMs": 1209,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "surface": "queue",
+        "activityElapsedMs": 14035,
+        "clock": "frontend",
+        "logMonotonicMs": 149252656,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "command-dispatch",
+        "sequence": 14,
+        "elapsedMs": 1267,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "command": "get_startup_snapshot",
+        "request": 3,
+        "activityElapsedMs": 14093,
+        "clock": "frontend",
+        "logMonotonicMs": 149252714,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 14082,
+        "phase": "snapshot-handler-entry",
+        "thread": "tokio-rt-worker",
+        "version": "3.2.0",
+        "logMonotonicMs": 149252718,
+        "logPid": 23076,
+        "logTid": 23157
+      },
+      {
+        "clock": "rust",
+        "elapsedMs": 14425,
+        "phase": "snapshot-handler-complete",
+        "thread": "tokio-rt-worker",
+        "version": "3.2.0",
+        "logMonotonicMs": 149253060,
+        "logPid": 23076,
+        "logTid": 23156
+      },
+      {
+        "phase": "command-response",
+        "sequence": 15,
+        "elapsedMs": 1769,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "command": "get_startup_snapshot",
+        "request": 3,
+        "durationMs": 502,
+        "outcome": "success",
+        "activityElapsedMs": 14595,
+        "clock": "frontend",
+        "logMonotonicMs": 149253216,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "snapshot-request-complete",
+        "sequence": 16,
+        "elapsedMs": 1770,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "surface": "queue",
+        "durationMs": 561,
+        "outcome": "populated",
+        "documents": 50,
+        "queueItems": 50,
+        "dueCount": 5000,
+        "activityElapsedMs": 14596,
+        "clock": "frontend",
+        "logMonotonicMs": 149253217,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "snapshot-hydrated",
+        "sequence": 17,
+        "elapsedMs": 1771,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "surface": "queue",
+        "outcome": "populated",
+        "documents": 50,
+        "queueItems": 50,
+        "dueCount": 5000,
+        "activityElapsedMs": 14596,
+        "clock": "frontend",
+        "logMonotonicMs": 149253217,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "surface-ready",
+        "sequence": 18,
+        "elapsedMs": 1871,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "surface": "queue",
+        "outcome": "populated",
+        "queueItems": 50,
+        "activityElapsedMs": 14846,
+        "clock": "frontend",
+        "logMonotonicMs": 149253467,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "surface-ready",
+        "sequence": 19,
+        "elapsedMs": 3124,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "surface": "queue",
+        "outcome": "populated",
+        "queueItems": 6000,
+        "activityElapsedMs": 15951,
+        "clock": "frontend",
+        "logMonotonicMs": 149254572,
+        "logPid": 23076,
+        "logTid": 23076
+      },
+      {
+        "phase": "interaction-ready",
+        "sequence": 20,
+        "elapsedMs": 3163,
+        "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+        "surface": "queue",
+        "outcome": "populated",
+        "queueItems": 6000,
+        "activityElapsedMs": 15990,
+        "clock": "frontend",
+        "logMonotonicMs": 149254611,
+        "logPid": 23076,
+        "logTid": 23076
+      }
+    ],
+    "frontendClockPairs": [
+      {
+        "sequence": 1,
+        "frontendElapsedMs": 126,
+        "activityReceiptMs": 12954
+      },
+      {
+        "sequence": 2,
+        "frontendElapsedMs": 135,
+        "activityReceiptMs": 12962
+      },
+      {
+        "sequence": 3,
+        "frontendElapsedMs": 377,
+        "activityReceiptMs": 13206
+      },
+      {
+        "sequence": 4,
+        "frontendElapsedMs": 439,
+        "activityReceiptMs": 13338
+      },
+      {
+        "sequence": 5,
+        "frontendElapsedMs": 439,
+        "activityReceiptMs": 13338
+      },
+      {
+        "sequence": 6,
+        "frontendElapsedMs": 541,
+        "activityReceiptMs": 13367
+      },
+      {
+        "sequence": 7,
+        "frontendElapsedMs": 542,
+        "activityReceiptMs": 13367
+      },
+      {
+        "sequence": 8,
+        "frontendElapsedMs": 726,
+        "activityReceiptMs": 13552
+      },
+      {
+        "sequence": 9,
+        "frontendElapsedMs": 726,
+        "activityReceiptMs": 13552
+      },
+      {
+        "sequence": 10,
+        "frontendElapsedMs": 935,
+        "activityReceiptMs": 13761
+      },
+      {
+        "sequence": 11,
+        "frontendElapsedMs": 936,
+        "activityReceiptMs": 13762
+      },
+      {
+        "sequence": 12,
+        "frontendElapsedMs": 937,
+        "activityReceiptMs": 13763
+      },
+      {
+        "sequence": 13,
+        "frontendElapsedMs": 1209,
+        "activityReceiptMs": 14035
+      },
+      {
+        "sequence": 14,
+        "frontendElapsedMs": 1267,
+        "activityReceiptMs": 14093
+      },
+      {
+        "sequence": 15,
+        "frontendElapsedMs": 1769,
+        "activityReceiptMs": 14595
+      },
+      {
+        "sequence": 16,
+        "frontendElapsedMs": 1770,
+        "activityReceiptMs": 14596
+      },
+      {
+        "sequence": 17,
+        "frontendElapsedMs": 1771,
+        "activityReceiptMs": 14596
+      },
+      {
+        "sequence": 18,
+        "frontendElapsedMs": 1871,
+        "activityReceiptMs": 14846
+      },
+      {
+        "sequence": 19,
+        "frontendElapsedMs": 3124,
+        "activityReceiptMs": 15951
+      },
+      {
+        "sequence": 20,
+        "frontendElapsedMs": 3163,
+        "activityReceiptMs": 15990
+      }
+    ]
+  },
+  "samples": [
+    {
+      "sample": 1,
+      "status": "usable",
+      "usableMs": 16016,
+      "readinessRequests": 1,
+      "snapshotRequests": 2,
+      "markers": [
+        {
+          "phase": "activity-create",
+          "elapsedMs": 0,
+          "clock": "activity",
+          "android": "17",
+          "webview": "155.0.8059.39.0",
+          "debug": false,
+          "thread": "main",
+          "logMonotonicMs": 149256124,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 0,
+          "phase": "native-entry",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149256137,
+          "logPid": 23300,
+          "logTid": 23348
+        },
+        {
+          "phase": "activity-created",
+          "elapsedMs": 13,
+          "clock": "activity",
+          "android": "17",
+          "webview": "155.0.8059.39.0",
+          "debug": false,
+          "thread": "main",
+          "logMonotonicMs": 149256138,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "stalled-jvm-thread",
+          "clock": "activity",
+          "elapsedMs": 10004,
+          "thread": "main",
+          "state": "RUNNABLE",
+          "frames": [
+            "android.os.MessageQueue.nativePollOnce(Native Method)",
+            "android.os.MessageQueue.nextLegacy(MessageQueue.java:871)",
+            "android.os.MessageQueue.next(MessageQueue.java:773)",
+            "android.os.Looper.loopOnce(Looper.java:232)",
+            "android.os.Looper.loop(Looper.java:397)",
+            "android.app.ActivityThread.main(ActivityThread.java:9569)",
+            "java.lang.reflect.Method.invoke(Native Method)",
+            "com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:575)",
+            "com.android.internal.os.ZygoteInit.main(ZygoteInit.java:975)"
+          ],
+          "logMonotonicMs": 149266128,
+          "logPid": 23300,
+          "logTid": 23335
+        },
+        {
+          "phase": "wry-version-wait-start",
+          "clock": "wry",
+          "elapsedMs": 0,
+          "logMonotonicMs": 149266167,
+          "logPid": 23300,
+          "logTid": 23348
+        },
+        {
+          "phase": "wry-version-handler-entry",
+          "clock": "wry",
+          "elapsedMs": 0,
+          "logMonotonicMs": 149266168,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "wry-version-wait-response",
+          "clock": "wry",
+          "elapsedMs": 3,
+          "logMonotonicMs": 149266170,
+          "logPid": 23300,
+          "logTid": 23348
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10424,
+          "phase": "setup-entry",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149266562,
+          "logPid": 23300,
+          "logTid": 23348
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10475,
+          "phase": "auth-init-start",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149266612,
+          "logPid": 23300,
+          "logTid": 23348
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10475,
+          "phase": "auth-init-complete",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149266612,
+          "logPid": 23300,
+          "logTid": 23348
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10476,
+          "phase": "sync-scheduler-initialized",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149266613,
+          "logPid": 23300,
+          "logTid": 23348
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10476,
+          "phase": "ocr-init-start",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149266613,
+          "logPid": 23300,
+          "logTid": 23348
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10476,
+          "phase": "ocr-init-complete",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149266614,
+          "logPid": 23300,
+          "logTid": 23348
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10574,
+          "phase": "database-open-complete",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149266712,
+          "logPid": 23300,
+          "logTid": 23348
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10575,
+          "phase": "migrations-start",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149266712,
+          "logPid": 23300,
+          "logTid": 23348
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10610,
+          "phase": "migrations-complete",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149266747,
+          "logPid": 23300,
+          "logTid": 23348
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10622,
+          "phase": "fixture-1000-5000-verified",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149266760,
+          "logPid": 23300,
+          "logTid": 23348
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 12130,
+          "phase": "native-ready",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149268267,
+          "logPid": 23300,
+          "logTid": 23348
+        },
+        {
+          "phase": "bootstrap-entry",
+          "sequence": 1,
+          "elapsedMs": 87,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "activityElapsedMs": 12548,
+          "clock": "frontend",
+          "logMonotonicMs": 149268672,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "main-import-start",
+          "sequence": 2,
+          "elapsedMs": 94,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "activityElapsedMs": 12554,
+          "clock": "frontend",
+          "logMonotonicMs": 149268678,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "main-import-complete",
+          "sequence": 3,
+          "elapsedMs": 349,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "outcome": "success",
+          "activityElapsedMs": 12808,
+          "clock": "frontend",
+          "logMonotonicMs": 149268933,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 12880,
+          "phase": "readiness-handler-entry",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149269018,
+          "logPid": 23300,
+          "logTid": 23396
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 12881,
+          "phase": "readiness-handler-complete",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149269018,
+          "logPid": 23300,
+          "logTid": 23396
+        },
+        {
+          "phase": "backend-ready-start",
+          "sequence": 4,
+          "elapsedMs": 423,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "activityElapsedMs": 12963,
+          "clock": "frontend",
+          "logMonotonicMs": 149269087,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "command-dispatch",
+          "sequence": 5,
+          "elapsedMs": 424,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "wait_for_backend_ready",
+          "request": 1,
+          "activityElapsedMs": 12964,
+          "clock": "frontend",
+          "logMonotonicMs": 149269088,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "command-response",
+          "sequence": 6,
+          "elapsedMs": 531,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "wait_for_backend_ready",
+          "request": 1,
+          "durationMs": 108,
+          "outcome": "success",
+          "activityElapsedMs": 12991,
+          "clock": "frontend",
+          "logMonotonicMs": 149269115,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "backend-ready-complete",
+          "sequence": 7,
+          "elapsedMs": 532,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "durationMs": 109,
+          "outcome": "success",
+          "activityElapsedMs": 12991,
+          "clock": "frontend",
+          "logMonotonicMs": 149269115,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "snapshot-request-start",
+          "sequence": 8,
+          "elapsedMs": 730,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "startup",
+          "activityElapsedMs": 13189,
+          "clock": "frontend",
+          "logMonotonicMs": 149269313,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "command-dispatch",
+          "sequence": 9,
+          "elapsedMs": 730,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "get_startup_snapshot",
+          "request": 2,
+          "activityElapsedMs": 13190,
+          "clock": "frontend",
+          "logMonotonicMs": 149269314,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 13178,
+          "phase": "snapshot-handler-entry",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149269316,
+          "logPid": 23300,
+          "logTid": 23399
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 13345,
+          "phase": "snapshot-handler-complete",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149269483,
+          "logPid": 23300,
+          "logTid": 23398
+        },
+        {
+          "phase": "command-response",
+          "sequence": 10,
+          "elapsedMs": 936,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "get_startup_snapshot",
+          "request": 2,
+          "durationMs": 207,
+          "outcome": "success",
+          "activityElapsedMs": 13395,
+          "clock": "frontend",
+          "logMonotonicMs": 149269519,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "snapshot-request-complete",
+          "sequence": 11,
+          "elapsedMs": 937,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "startup",
+          "durationMs": 208,
+          "outcome": "populated",
+          "documents": 50,
+          "queueItems": 0,
+          "dueCount": 5000,
+          "activityElapsedMs": 13397,
+          "clock": "frontend",
+          "logMonotonicMs": 149269521,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "snapshot-hydrated",
+          "sequence": 12,
+          "elapsedMs": 938,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "startup",
+          "outcome": "populated",
+          "documents": 50,
+          "queueItems": 0,
+          "dueCount": 5000,
+          "activityElapsedMs": 13397,
+          "clock": "frontend",
+          "logMonotonicMs": 149269521,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "snapshot-request-start",
+          "sequence": 13,
+          "elapsedMs": 1195,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "activityElapsedMs": 13654,
+          "clock": "frontend",
+          "logMonotonicMs": 149269778,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "command-dispatch",
+          "sequence": 14,
+          "elapsedMs": 1228,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "get_startup_snapshot",
+          "request": 3,
+          "activityElapsedMs": 13687,
+          "clock": "frontend",
+          "logMonotonicMs": 149269811,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 13675,
+          "phase": "snapshot-handler-entry",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149269812,
+          "logPid": 23300,
+          "logTid": 23396
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 14069,
+          "phase": "snapshot-handler-complete",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149270208,
+          "logPid": 23300,
+          "logTid": 23398
+        },
+        {
+          "phase": "command-response",
+          "sequence": 15,
+          "elapsedMs": 1706,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "get_startup_snapshot",
+          "request": 3,
+          "durationMs": 479,
+          "outcome": "success",
+          "activityElapsedMs": 14166,
+          "clock": "frontend",
+          "logMonotonicMs": 149270290,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "snapshot-request-complete",
+          "sequence": 16,
+          "elapsedMs": 1708,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "durationMs": 513,
+          "outcome": "populated",
+          "documents": 50,
+          "queueItems": 50,
+          "dueCount": 5000,
+          "activityElapsedMs": 14167,
+          "clock": "frontend",
+          "logMonotonicMs": 149270291,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "snapshot-hydrated",
+          "sequence": 17,
+          "elapsedMs": 1708,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "outcome": "populated",
+          "documents": 50,
+          "queueItems": 50,
+          "dueCount": 5000,
+          "activityElapsedMs": 14167,
+          "clock": "frontend",
+          "logMonotonicMs": 149270291,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "surface-ready",
+          "sequence": 18,
+          "elapsedMs": 1774,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "outcome": "populated",
+          "queueItems": 50,
+          "activityElapsedMs": 14233,
+          "clock": "frontend",
+          "logMonotonicMs": 149270357,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "surface-ready",
+          "sequence": 19,
+          "elapsedMs": 3517,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "outcome": "populated",
+          "queueItems": 6000,
+          "activityElapsedMs": 15977,
+          "clock": "frontend",
+          "logMonotonicMs": 149272101,
+          "logPid": 23300,
+          "logTid": 23300
+        },
+        {
+          "phase": "interaction-ready",
+          "sequence": 20,
+          "elapsedMs": 3557,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "outcome": "populated",
+          "queueItems": 6000,
+          "activityElapsedMs": 16016,
+          "clock": "frontend",
+          "logMonotonicMs": 149272140,
+          "logPid": 23300,
+          "logTid": 23300
+        }
+      ],
+      "frontendClockPairs": [
+        {
+          "sequence": 1,
+          "frontendElapsedMs": 87,
+          "activityReceiptMs": 12548
+        },
+        {
+          "sequence": 2,
+          "frontendElapsedMs": 94,
+          "activityReceiptMs": 12554
+        },
+        {
+          "sequence": 3,
+          "frontendElapsedMs": 349,
+          "activityReceiptMs": 12808
+        },
+        {
+          "sequence": 4,
+          "frontendElapsedMs": 423,
+          "activityReceiptMs": 12963
+        },
+        {
+          "sequence": 5,
+          "frontendElapsedMs": 424,
+          "activityReceiptMs": 12964
+        },
+        {
+          "sequence": 6,
+          "frontendElapsedMs": 531,
+          "activityReceiptMs": 12991
+        },
+        {
+          "sequence": 7,
+          "frontendElapsedMs": 532,
+          "activityReceiptMs": 12991
+        },
+        {
+          "sequence": 8,
+          "frontendElapsedMs": 730,
+          "activityReceiptMs": 13189
+        },
+        {
+          "sequence": 9,
+          "frontendElapsedMs": 730,
+          "activityReceiptMs": 13190
+        },
+        {
+          "sequence": 10,
+          "frontendElapsedMs": 936,
+          "activityReceiptMs": 13395
+        },
+        {
+          "sequence": 11,
+          "frontendElapsedMs": 937,
+          "activityReceiptMs": 13397
+        },
+        {
+          "sequence": 12,
+          "frontendElapsedMs": 938,
+          "activityReceiptMs": 13397
+        },
+        {
+          "sequence": 13,
+          "frontendElapsedMs": 1195,
+          "activityReceiptMs": 13654
+        },
+        {
+          "sequence": 14,
+          "frontendElapsedMs": 1228,
+          "activityReceiptMs": 13687
+        },
+        {
+          "sequence": 15,
+          "frontendElapsedMs": 1706,
+          "activityReceiptMs": 14166
+        },
+        {
+          "sequence": 16,
+          "frontendElapsedMs": 1708,
+          "activityReceiptMs": 14167
+        },
+        {
+          "sequence": 17,
+          "frontendElapsedMs": 1708,
+          "activityReceiptMs": 14167
+        },
+        {
+          "sequence": 18,
+          "frontendElapsedMs": 1774,
+          "activityReceiptMs": 14233
+        },
+        {
+          "sequence": 19,
+          "frontendElapsedMs": 3517,
+          "activityReceiptMs": 15977
+        },
+        {
+          "sequence": 20,
+          "frontendElapsedMs": 3557,
+          "activityReceiptMs": 16016
+        }
+      ]
+    },
+    {
+      "sample": 2,
+      "status": "usable",
+      "usableMs": 15990,
+      "readinessRequests": 1,
+      "snapshotRequests": 2,
+      "markers": [
+        {
+          "phase": "activity-create",
+          "elapsedMs": 0,
+          "clock": "activity",
+          "android": "17",
+          "webview": "155.0.8059.39.0",
+          "debug": false,
+          "thread": "main",
+          "logMonotonicMs": 149273681,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 0,
+          "phase": "native-entry",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149273695,
+          "logPid": 23539,
+          "logTid": 23581
+        },
+        {
+          "phase": "activity-created",
+          "elapsedMs": 15,
+          "clock": "activity",
+          "android": "17",
+          "webview": "155.0.8059.39.0",
+          "debug": false,
+          "thread": "main",
+          "logMonotonicMs": 149273696,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "wry-version-wait-start",
+          "clock": "wry",
+          "elapsedMs": 0,
+          "logMonotonicMs": 149283668,
+          "logPid": 23539,
+          "logTid": 23581
+        },
+        {
+          "phase": "wry-version-handler-entry",
+          "clock": "wry",
+          "elapsedMs": 0,
+          "logMonotonicMs": 149283669,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "wry-version-wait-response",
+          "clock": "wry",
+          "elapsedMs": 4,
+          "logMonotonicMs": 149283673,
+          "logPid": 23539,
+          "logTid": 23581
+        },
+        {
+          "phase": "stalled-jvm-thread",
+          "clock": "activity",
+          "elapsedMs": 10004,
+          "thread": "main",
+          "state": "RUNNABLE",
+          "frames": [
+            "android.os.MessageQueue.nativePollOnce(Native Method)",
+            "android.os.MessageQueue.nextLegacy(MessageQueue.java:871)",
+            "android.os.MessageQueue.next(MessageQueue.java:773)",
+            "android.os.Looper.loopOnce(Looper.java:232)",
+            "android.os.Looper.loop(Looper.java:397)",
+            "android.app.ActivityThread.main(ActivityThread.java:9569)",
+            "java.lang.reflect.Method.invoke(Native Method)",
+            "com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:575)",
+            "com.android.internal.os.ZygoteInit.main(ZygoteInit.java:975)"
+          ],
+          "logMonotonicMs": 149283684,
+          "logPid": 23539,
+          "logTid": 23576
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10420,
+          "phase": "setup-entry",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149284115,
+          "logPid": 23539,
+          "logTid": 23581
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10472,
+          "phase": "auth-init-start",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149284168,
+          "logPid": 23539,
+          "logTid": 23581
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10472,
+          "phase": "auth-init-complete",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149284168,
+          "logPid": 23539,
+          "logTid": 23581
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10473,
+          "phase": "sync-scheduler-initialized",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149284168,
+          "logPid": 23539,
+          "logTid": 23581
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10473,
+          "phase": "ocr-init-start",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149284169,
+          "logPid": 23539,
+          "logTid": 23581
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10473,
+          "phase": "ocr-init-complete",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149284169,
+          "logPid": 23539,
+          "logTid": 23581
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10598,
+          "phase": "database-open-complete",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149284293,
+          "logPid": 23539,
+          "logTid": 23581
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10598,
+          "phase": "migrations-start",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149284293,
+          "logPid": 23539,
+          "logTid": 23581
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10612,
+          "phase": "migrations-complete",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149284307,
+          "logPid": 23539,
+          "logTid": 23581
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10623,
+          "phase": "fixture-1000-5000-verified",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149284319,
+          "logPid": 23539,
+          "logTid": 23581
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 11891,
+          "phase": "native-ready",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149285587,
+          "logPid": 23539,
+          "logTid": 23581
+        },
+        {
+          "phase": "bootstrap-entry",
+          "sequence": 1,
+          "elapsedMs": 114,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "activityElapsedMs": 12556,
+          "clock": "frontend",
+          "logMonotonicMs": 149286237,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "main-import-start",
+          "sequence": 2,
+          "elapsedMs": 119,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "activityElapsedMs": 12560,
+          "clock": "frontend",
+          "logMonotonicMs": 149286241,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "main-import-complete",
+          "sequence": 3,
+          "elapsedMs": 376,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "outcome": "success",
+          "activityElapsedMs": 12827,
+          "clock": "frontend",
+          "logMonotonicMs": 149286508,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 12881,
+          "phase": "readiness-handler-entry",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149286576,
+          "logPid": 23539,
+          "logTid": 23630
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 12881,
+          "phase": "readiness-handler-complete",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149286577,
+          "logPid": 23539,
+          "logTid": 23630
+        },
+        {
+          "phase": "backend-ready-start",
+          "sequence": 4,
+          "elapsedMs": 451,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "activityElapsedMs": 12966,
+          "clock": "frontend",
+          "logMonotonicMs": 149286647,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "command-dispatch",
+          "sequence": 5,
+          "elapsedMs": 452,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "wait_for_backend_ready",
+          "request": 1,
+          "activityElapsedMs": 12966,
+          "clock": "frontend",
+          "logMonotonicMs": 149286647,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "command-response",
+          "sequence": 6,
+          "elapsedMs": 553,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "wait_for_backend_ready",
+          "request": 1,
+          "durationMs": 101,
+          "outcome": "success",
+          "activityElapsedMs": 12994,
+          "clock": "frontend",
+          "logMonotonicMs": 149286675,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "backend-ready-complete",
+          "sequence": 7,
+          "elapsedMs": 553,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "durationMs": 102,
+          "outcome": "success",
+          "activityElapsedMs": 12994,
+          "clock": "frontend",
+          "logMonotonicMs": 149286675,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "snapshot-request-start",
+          "sequence": 8,
+          "elapsedMs": 731,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "startup",
+          "activityElapsedMs": 13171,
+          "clock": "frontend",
+          "logMonotonicMs": 149286851,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "command-dispatch",
+          "sequence": 9,
+          "elapsedMs": 731,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "get_startup_snapshot",
+          "request": 2,
+          "activityElapsedMs": 13172,
+          "clock": "frontend",
+          "logMonotonicMs": 149286853,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 13159,
+          "phase": "snapshot-handler-entry",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149286854,
+          "logPid": 23539,
+          "logTid": 23636
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 13263,
+          "phase": "snapshot-handler-complete",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149286958,
+          "logPid": 23539,
+          "logTid": 23636
+        },
+        {
+          "phase": "command-response",
+          "sequence": 10,
+          "elapsedMs": 927,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "get_startup_snapshot",
+          "request": 2,
+          "durationMs": 196,
+          "outcome": "success",
+          "activityElapsedMs": 13367,
+          "clock": "frontend",
+          "logMonotonicMs": 149287048,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "snapshot-request-complete",
+          "sequence": 11,
+          "elapsedMs": 928,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "startup",
+          "durationMs": 197,
+          "outcome": "populated",
+          "documents": 50,
+          "queueItems": 0,
+          "dueCount": 5000,
+          "activityElapsedMs": 13368,
+          "clock": "frontend",
+          "logMonotonicMs": 149287048,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "snapshot-hydrated",
+          "sequence": 12,
+          "elapsedMs": 929,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "startup",
+          "outcome": "populated",
+          "documents": 50,
+          "queueItems": 0,
+          "dueCount": 5000,
+          "activityElapsedMs": 13369,
+          "clock": "frontend",
+          "logMonotonicMs": 149287049,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "snapshot-request-start",
+          "sequence": 13,
+          "elapsedMs": 1171,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "activityElapsedMs": 13611,
+          "clock": "frontend",
+          "logMonotonicMs": 149287292,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "command-dispatch",
+          "sequence": 14,
+          "elapsedMs": 1197,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "get_startup_snapshot",
+          "request": 3,
+          "activityElapsedMs": 13638,
+          "clock": "frontend",
+          "logMonotonicMs": 149287319,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 13624,
+          "phase": "snapshot-handler-entry",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149287320,
+          "logPid": 23539,
+          "logTid": 23633
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 14002,
+          "phase": "snapshot-handler-complete",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149287697,
+          "logPid": 23539,
+          "logTid": 23636
+        },
+        {
+          "phase": "command-response",
+          "sequence": 15,
+          "elapsedMs": 1719,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "get_startup_snapshot",
+          "request": 3,
+          "durationMs": 522,
+          "outcome": "success",
+          "activityElapsedMs": 14159,
+          "clock": "frontend",
+          "logMonotonicMs": 149287840,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "snapshot-request-complete",
+          "sequence": 16,
+          "elapsedMs": 1720,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "durationMs": 549,
+          "outcome": "populated",
+          "documents": 50,
+          "queueItems": 50,
+          "dueCount": 5000,
+          "activityElapsedMs": 14160,
+          "clock": "frontend",
+          "logMonotonicMs": 149287841,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "snapshot-hydrated",
+          "sequence": 17,
+          "elapsedMs": 1721,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "outcome": "populated",
+          "documents": 50,
+          "queueItems": 50,
+          "dueCount": 5000,
+          "activityElapsedMs": 14162,
+          "clock": "frontend",
+          "logMonotonicMs": 149287842,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "surface-ready",
+          "sequence": 18,
+          "elapsedMs": 1827,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "outcome": "populated",
+          "queueItems": 50,
+          "activityElapsedMs": 14267,
+          "clock": "frontend",
+          "logMonotonicMs": 149287948,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "surface-ready",
+          "sequence": 19,
+          "elapsedMs": 3503,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "outcome": "populated",
+          "queueItems": 6000,
+          "activityElapsedMs": 15943,
+          "clock": "frontend",
+          "logMonotonicMs": 149289624,
+          "logPid": 23539,
+          "logTid": 23539
+        },
+        {
+          "phase": "interaction-ready",
+          "sequence": 20,
+          "elapsedMs": 3550,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "outcome": "populated",
+          "queueItems": 6000,
+          "activityElapsedMs": 15990,
+          "clock": "frontend",
+          "logMonotonicMs": 149289671,
+          "logPid": 23539,
+          "logTid": 23539
+        }
+      ],
+      "frontendClockPairs": [
+        {
+          "sequence": 1,
+          "frontendElapsedMs": 114,
+          "activityReceiptMs": 12556
+        },
+        {
+          "sequence": 2,
+          "frontendElapsedMs": 119,
+          "activityReceiptMs": 12560
+        },
+        {
+          "sequence": 3,
+          "frontendElapsedMs": 376,
+          "activityReceiptMs": 12827
+        },
+        {
+          "sequence": 4,
+          "frontendElapsedMs": 451,
+          "activityReceiptMs": 12966
+        },
+        {
+          "sequence": 5,
+          "frontendElapsedMs": 452,
+          "activityReceiptMs": 12966
+        },
+        {
+          "sequence": 6,
+          "frontendElapsedMs": 553,
+          "activityReceiptMs": 12994
+        },
+        {
+          "sequence": 7,
+          "frontendElapsedMs": 553,
+          "activityReceiptMs": 12994
+        },
+        {
+          "sequence": 8,
+          "frontendElapsedMs": 731,
+          "activityReceiptMs": 13171
+        },
+        {
+          "sequence": 9,
+          "frontendElapsedMs": 731,
+          "activityReceiptMs": 13172
+        },
+        {
+          "sequence": 10,
+          "frontendElapsedMs": 927,
+          "activityReceiptMs": 13367
+        },
+        {
+          "sequence": 11,
+          "frontendElapsedMs": 928,
+          "activityReceiptMs": 13368
+        },
+        {
+          "sequence": 12,
+          "frontendElapsedMs": 929,
+          "activityReceiptMs": 13369
+        },
+        {
+          "sequence": 13,
+          "frontendElapsedMs": 1171,
+          "activityReceiptMs": 13611
+        },
+        {
+          "sequence": 14,
+          "frontendElapsedMs": 1197,
+          "activityReceiptMs": 13638
+        },
+        {
+          "sequence": 15,
+          "frontendElapsedMs": 1719,
+          "activityReceiptMs": 14159
+        },
+        {
+          "sequence": 16,
+          "frontendElapsedMs": 1720,
+          "activityReceiptMs": 14160
+        },
+        {
+          "sequence": 17,
+          "frontendElapsedMs": 1721,
+          "activityReceiptMs": 14162
+        },
+        {
+          "sequence": 18,
+          "frontendElapsedMs": 1827,
+          "activityReceiptMs": 14267
+        },
+        {
+          "sequence": 19,
+          "frontendElapsedMs": 3503,
+          "activityReceiptMs": 15943
+        },
+        {
+          "sequence": 20,
+          "frontendElapsedMs": 3550,
+          "activityReceiptMs": 15990
+        }
+      ]
+    },
+    {
+      "sample": 3,
+      "status": "usable",
+      "usableMs": 15892,
+      "readinessRequests": 1,
+      "snapshotRequests": 2,
+      "markers": [
+        {
+          "phase": "activity-create",
+          "elapsedMs": 0,
+          "clock": "activity",
+          "android": "17",
+          "webview": "155.0.8059.39.0",
+          "debug": false,
+          "thread": "main",
+          "logMonotonicMs": 149291170,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 0,
+          "phase": "native-entry",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149291184,
+          "logPid": 23776,
+          "logTid": 23803
+        },
+        {
+          "phase": "activity-created",
+          "elapsedMs": 14,
+          "clock": "activity",
+          "android": "17",
+          "webview": "155.0.8059.39.0",
+          "debug": false,
+          "thread": "main",
+          "logMonotonicMs": 149291184,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "stalled-jvm-thread",
+          "clock": "activity",
+          "elapsedMs": 10004,
+          "thread": "main",
+          "state": "RUNNABLE",
+          "frames": [
+            "android.os.MessageQueue.nativePollOnce(Native Method)",
+            "android.os.MessageQueue.nextLegacy(MessageQueue.java:871)",
+            "android.os.MessageQueue.next(MessageQueue.java:773)",
+            "android.os.Looper.loopOnce(Looper.java:232)",
+            "android.os.Looper.loop(Looper.java:397)",
+            "android.app.ActivityThread.main(ActivityThread.java:9569)",
+            "java.lang.reflect.Method.invoke(Native Method)",
+            "com.android.internal.os.RuntimeInit$MethodAndArgsCaller.run(RuntimeInit.java:575)",
+            "com.android.internal.os.ZygoteInit.main(ZygoteInit.java:975)"
+          ],
+          "logMonotonicMs": 149301174,
+          "logPid": 23776,
+          "logTid": 23798
+        },
+        {
+          "phase": "wry-version-wait-start",
+          "clock": "wry",
+          "elapsedMs": 0,
+          "logMonotonicMs": 149301211,
+          "logPid": 23776,
+          "logTid": 23803
+        },
+        {
+          "phase": "wry-version-handler-entry",
+          "clock": "wry",
+          "elapsedMs": 0,
+          "logMonotonicMs": 149301211,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "wry-version-wait-response",
+          "clock": "wry",
+          "elapsedMs": 2,
+          "logMonotonicMs": 149301213,
+          "logPid": 23776,
+          "logTid": 23803
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10389,
+          "phase": "setup-entry",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149301573,
+          "logPid": 23776,
+          "logTid": 23803
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10397,
+          "phase": "auth-init-start",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149301581,
+          "logPid": 23776,
+          "logTid": 23803
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10397,
+          "phase": "auth-init-complete",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149301581,
+          "logPid": 23776,
+          "logTid": 23803
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10397,
+          "phase": "sync-scheduler-initialized",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149301582,
+          "logPid": 23776,
+          "logTid": 23803
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10397,
+          "phase": "ocr-init-start",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149301582,
+          "logPid": 23776,
+          "logTid": 23803
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10398,
+          "phase": "ocr-init-complete",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149301582,
+          "logPid": 23776,
+          "logTid": 23803
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10565,
+          "phase": "database-open-complete",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149301749,
+          "logPid": 23776,
+          "logTid": 23803
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10565,
+          "phase": "migrations-start",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149301750,
+          "logPid": 23776,
+          "logTid": 23803
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10574,
+          "phase": "migrations-complete",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149301759,
+          "logPid": 23776,
+          "logTid": 23803
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 10615,
+          "phase": "fixture-1000-5000-verified",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149301799,
+          "logPid": 23776,
+          "logTid": 23803
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 11883,
+          "phase": "native-ready",
+          "thread": "unnamed",
+          "version": "3.2.0",
+          "logMonotonicMs": 149303067,
+          "logPid": 23776,
+          "logTid": 23803
+        },
+        {
+          "phase": "bootstrap-entry",
+          "sequence": 1,
+          "elapsedMs": 140,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "activityElapsedMs": 12504,
+          "clock": "frontend",
+          "logMonotonicMs": 149303674,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "main-import-start",
+          "sequence": 2,
+          "elapsedMs": 146,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "activityElapsedMs": 12510,
+          "clock": "frontend",
+          "logMonotonicMs": 149303680,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "main-import-complete",
+          "sequence": 3,
+          "elapsedMs": 388,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "outcome": "success",
+          "activityElapsedMs": 12755,
+          "clock": "frontend",
+          "logMonotonicMs": 149303925,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 12796,
+          "phase": "readiness-handler-entry",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149303980,
+          "logPid": 23776,
+          "logTid": 23856
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 12796,
+          "phase": "readiness-handler-complete",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149303980,
+          "logPid": 23776,
+          "logTid": 23856
+        },
+        {
+          "phase": "backend-ready-start",
+          "sequence": 4,
+          "elapsedMs": 445,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "activityElapsedMs": 12879,
+          "clock": "frontend",
+          "logMonotonicMs": 149304049,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "command-dispatch",
+          "sequence": 5,
+          "elapsedMs": 445,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "wait_for_backend_ready",
+          "request": 1,
+          "activityElapsedMs": 12879,
+          "clock": "frontend",
+          "logMonotonicMs": 149304049,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "command-response",
+          "sequence": 6,
+          "elapsedMs": 542,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "wait_for_backend_ready",
+          "request": 1,
+          "durationMs": 97,
+          "outcome": "success",
+          "activityElapsedMs": 12904,
+          "clock": "frontend",
+          "logMonotonicMs": 149304074,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "backend-ready-complete",
+          "sequence": 7,
+          "elapsedMs": 543,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "durationMs": 98,
+          "outcome": "success",
+          "activityElapsedMs": 12905,
+          "clock": "frontend",
+          "logMonotonicMs": 149304075,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "snapshot-request-start",
+          "sequence": 8,
+          "elapsedMs": 712,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "startup",
+          "activityElapsedMs": 13074,
+          "clock": "frontend",
+          "logMonotonicMs": 149304244,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "command-dispatch",
+          "sequence": 9,
+          "elapsedMs": 712,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "get_startup_snapshot",
+          "request": 2,
+          "activityElapsedMs": 13074,
+          "clock": "frontend",
+          "logMonotonicMs": 149304244,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 13061,
+          "phase": "snapshot-handler-entry",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149304246,
+          "logPid": 23776,
+          "logTid": 23855
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 13179,
+          "phase": "snapshot-handler-complete",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149304363,
+          "logPid": 23776,
+          "logTid": 23856
+        },
+        {
+          "phase": "command-response",
+          "sequence": 10,
+          "elapsedMs": 913,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "get_startup_snapshot",
+          "request": 2,
+          "durationMs": 200,
+          "outcome": "success",
+          "activityElapsedMs": 13275,
+          "clock": "frontend",
+          "logMonotonicMs": 149304445,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "snapshot-request-complete",
+          "sequence": 11,
+          "elapsedMs": 916,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "startup",
+          "durationMs": 204,
+          "outcome": "populated",
+          "documents": 50,
+          "queueItems": 0,
+          "dueCount": 5000,
+          "activityElapsedMs": 13278,
+          "clock": "frontend",
+          "logMonotonicMs": 149304448,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "snapshot-hydrated",
+          "sequence": 12,
+          "elapsedMs": 917,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "startup",
+          "outcome": "populated",
+          "documents": 50,
+          "queueItems": 0,
+          "dueCount": 5000,
+          "activityElapsedMs": 13279,
+          "clock": "frontend",
+          "logMonotonicMs": 149304449,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "snapshot-request-start",
+          "sequence": 13,
+          "elapsedMs": 1219,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "activityElapsedMs": 13581,
+          "clock": "frontend",
+          "logMonotonicMs": 149304752,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "command-dispatch",
+          "sequence": 14,
+          "elapsedMs": 1281,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "get_startup_snapshot",
+          "request": 3,
+          "activityElapsedMs": 13644,
+          "clock": "frontend",
+          "logMonotonicMs": 149304814,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 13631,
+          "phase": "snapshot-handler-entry",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149304815,
+          "logPid": 23776,
+          "logTid": 23856
+        },
+        {
+          "clock": "rust",
+          "elapsedMs": 13964,
+          "phase": "snapshot-handler-complete",
+          "thread": "tokio-rt-worker",
+          "version": "3.2.0",
+          "logMonotonicMs": 149305149,
+          "logPid": 23776,
+          "logTid": 23855
+        },
+        {
+          "phase": "command-response",
+          "sequence": 15,
+          "elapsedMs": 1758,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "command": "get_startup_snapshot",
+          "request": 3,
+          "durationMs": 477,
+          "outcome": "success",
+          "activityElapsedMs": 14120,
+          "clock": "frontend",
+          "logMonotonicMs": 149305290,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "snapshot-request-complete",
+          "sequence": 16,
+          "elapsedMs": 1759,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "durationMs": 541,
+          "outcome": "populated",
+          "documents": 50,
+          "queueItems": 50,
+          "dueCount": 5000,
+          "activityElapsedMs": 14121,
+          "clock": "frontend",
+          "logMonotonicMs": 149305291,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "snapshot-hydrated",
+          "sequence": 17,
+          "elapsedMs": 1761,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "outcome": "populated",
+          "documents": 50,
+          "queueItems": 50,
+          "dueCount": 5000,
+          "activityElapsedMs": 14123,
+          "clock": "frontend",
+          "logMonotonicMs": 149305293,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "surface-ready",
+          "sequence": 18,
+          "elapsedMs": 1883,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "outcome": "populated",
+          "queueItems": 50,
+          "activityElapsedMs": 14388,
+          "clock": "frontend",
+          "logMonotonicMs": 149305558,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "surface-ready",
+          "sequence": 19,
+          "elapsedMs": 3490,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "outcome": "populated",
+          "queueItems": 6000,
+          "activityElapsedMs": 15853,
+          "clock": "frontend",
+          "logMonotonicMs": 149307023,
+          "logPid": 23776,
+          "logTid": 23776
+        },
+        {
+          "phase": "interaction-ready",
+          "sequence": 20,
+          "elapsedMs": 3529,
+          "build": "3.2.0+f90721315a28+966349c28f2e6dff",
+          "surface": "queue",
+          "outcome": "populated",
+          "queueItems": 6000,
+          "activityElapsedMs": 15892,
+          "clock": "frontend",
+          "logMonotonicMs": 149307062,
+          "logPid": 23776,
+          "logTid": 23776
+        }
+      ],
+      "frontendClockPairs": [
+        {
+          "sequence": 1,
+          "frontendElapsedMs": 140,
+          "activityReceiptMs": 12504
+        },
+        {
+          "sequence": 2,
+          "frontendElapsedMs": 146,
+          "activityReceiptMs": 12510
+        },
+        {
+          "sequence": 3,
+          "frontendElapsedMs": 388,
+          "activityReceiptMs": 12755
+        },
+        {
+          "sequence": 4,
+          "frontendElapsedMs": 445,
+          "activityReceiptMs": 12879
+        },
+        {
+          "sequence": 5,
+          "frontendElapsedMs": 445,
+          "activityReceiptMs": 12879
+        },
+        {
+          "sequence": 6,
+          "frontendElapsedMs": 542,
+          "activityReceiptMs": 12904
+        },
+        {
+          "sequence": 7,
+          "frontendElapsedMs": 543,
+          "activityReceiptMs": 12905
+        },
+        {
+          "sequence": 8,
+          "frontendElapsedMs": 712,
+          "activityReceiptMs": 13074
+        },
+        {
+          "sequence": 9,
+          "frontendElapsedMs": 712,
+          "activityReceiptMs": 13074
+        },
+        {
+          "sequence": 10,
+          "frontendElapsedMs": 913,
+          "activityReceiptMs": 13275
+        },
+        {
+          "sequence": 11,
+          "frontendElapsedMs": 916,
+          "activityReceiptMs": 13278
+        },
+        {
+          "sequence": 12,
+          "frontendElapsedMs": 917,
+          "activityReceiptMs": 13279
+        },
+        {
+          "sequence": 13,
+          "frontendElapsedMs": 1219,
+          "activityReceiptMs": 13581
+        },
+        {
+          "sequence": 14,
+          "frontendElapsedMs": 1281,
+          "activityReceiptMs": 13644
+        },
+        {
+          "sequence": 15,
+          "frontendElapsedMs": 1758,
+          "activityReceiptMs": 14120
+        },
+        {
+          "sequence": 16,
+          "frontendElapsedMs": 1759,
+          "activityReceiptMs": 14121
+        },
+        {
+          "sequence": 17,
+          "frontendElapsedMs": 1761,
+          "activityReceiptMs": 14123
+        },
+        {
+          "sequence": 18,
+          "frontendElapsedMs": 1883,
+          "activityReceiptMs": 14388
+        },
+        {
+          "sequence": 19,
+          "frontendElapsedMs": 3490,
+          "activityReceiptMs": 15853
+        },
+        {
+          "sequence": 20,
+          "frontendElapsedMs": 3529,
+          "activityReceiptMs": 15892
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "total": 3,
+    "usable": 3,
+    "failed": 0,
+    "medianMs": 15990,
+    "p95Ms": 16016,
+    "passed": false,
+    "referenceProfile": false
+  }
+}

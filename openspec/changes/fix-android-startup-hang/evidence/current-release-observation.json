@@ -1,0 +1,30 @@
+{
+  "method": "Existing release markers; no activity epoch, native thread or handler timeline. User reports cold-launch hang.",
+  "package": "com.plethora.app",
+  "apkSha256": "ed5f5c626afb82d19957431235e8195be52a26742d317bb725ff0ee29033000a",
+  "pid": 21607,
+  "markers": [
+    {
+      "phase": "backend-ready-failed",
+      "durationMs": 40035,
+      "outcome": "error"
+    },
+    {
+      "phase": "snapshot-retry",
+      "surface": "startup",
+      "attempt": 1,
+      "outcome": "retrying",
+      "failureKind": "timeout"
+    },
+    {
+      "phase": "snapshot-retry",
+      "surface": "queue",
+      "attempt": 1,
+      "outcome": "retrying",
+      "failureKind": "timeout"
+    },
+    {
+      "phase": "backend-ready-start"
+    }
+  ]
+}

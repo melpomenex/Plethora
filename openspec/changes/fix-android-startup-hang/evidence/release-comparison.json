@@ -1,0 +1,73 @@
+{
+  "recordedAt": "2026-10-12T13:07:54.623511+00:00",
+  "releaseUrl": "https://github.com/melpomenex/Plethora/releases/tag/v3.2.0",
+  "tagCommit": "4f363f8ff59dc8fb55be9faaab3c3fcd48434f48",
+  "certificateSha256": "7e5df003dd45df3adf373296616bdb15eec4ad577736d805b3e9c3429a711266",
+  "apks": {
+    "installed": {
+      "sha256": "3bd0ea67d4ed40dae0d7b68eed343257f490548fd697b278cc9ff006be20c0e1",
+      "bytes": 69501451,
+      "embeddedCrateVersions": [
+        "tauri-2.11.5",
+        "tauri-runtime-wry-2.11.4",
+        "wry-0.55.1"
+      ]
+    },
+    "release": {
+      "sha256": "ed5f5c626afb82d19957431235e8195be52a26742d317bb725ff0ee29033000a",
+      "bytes": 71844938,
+      "embeddedCrateVersions": [
+        "tauri-2.11.5",
+        "tauri-runtime-wry-2.11.4",
+        "wry-0.55.1"
+      ]
+    }
+  },
+  "limitations": [
+    "Tauri embeds frontend assets in the differing native library; APK member comparison does not establish frontend or native source equivalence.",
+    "Embedded crate version strings identify versions, not the exact compiled source or all transitive dependencies."
+  ],
+  "differentMembers": [
+    {
+      "path": "assets/dexopt/baseline.prof",
+      "installedSha256": "5e47fb46b09060a5a9060c4d6dc8149ba20edd57f578a832261b941e8f526486",
+      "releaseSha256": "2fcf4598f0b178dad1000a95c96c4bf8da6452ec5a5980b726024919a9d199dc"
+    },
+    {
+      "path": "assets/dexopt/baseline.profm",
+      "installedSha256": "fd3419ed5912117c88c1d2643123ca5a09b98d8ac3845da0dd18324ec4087d91",
+      "releaseSha256": "cb1fafd99ea041f1d35d09dc1692bb878ca855d574770724a29902701aa89a31"
+    },
+    {
+      "path": "assets/tauri.conf.json",
+      "installedSha256": "26355b11b324a8fa42a41fd66fa90cac2a69a591b82c777d9efe6687bffe6842",
+      "releaseSha256": "d82489ada0b1eb772a0646e08fd2d0bab146939ed0467a6040b7ffec386b18e1"
+    },
+    {
+      "path": "classes.dex",
+      "installedSha256": "b823b7f869f51ba4659b99931e8833992a55eb4c8adeca789305063f43993310",
+      "releaseSha256": "d816542b7bc04a68445dc5428c12588d1e57ba7a1ebb430c31bccac1121061a8"
+    },
+    {
+      "path": "lib/arm64-v8a/libplethora_tauri_lib.so",
+      "installedSha256": "68daa0f090d42c0f8d98176bac14852201ea721391fc8ca01b3e4ad5327e3f74",
+      "releaseSha256": "10d1b82d581fda2c1f21c8f0dbe9ab7ad50cc3536166eb9033fd5f339fb33814"
+    }
+  ],
+  "installedOnly": [],
+  "releaseOnly": [],
+  "releaseBuild": {
+    "workflowRun": "https://github.com/melpomenex/Plethora/actions/runs/38134394797",
+    "headCommit": "7981e1aef1f72a9fe02c042b0078a0a22d7fda17",
+    "releaseTagDiff": "CI-only: enable plethoraNativeBackEnabled; iOS simulator fallback continue-on-error",
+    "nativeBackEnabled": true
+  },
+  "productionUpdate": {
+    "recordedAt": "2026-10-12T13:13:08.375441+00:00",
+    "method": "adb install -r: in-place update with matching package/versionCode/certificate",
+    "result": "Success",
+    "dataReset": false,
+    "uninstalled": false,
+    "launchOutcome": "User confirms cold launch still hangs; independent existing release markers record a 40,035ms failed readiness cycle."
+  }
+}
