@@ -1,7 +1,15 @@
 import React from "react";
 import { afterEach, describe, expect, it, vi, beforeEach } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import { EPUBViewer, patchContentsInsertRuleGuard, patchThemesInsertRuleGuard, serializeEpubRules } from "../EPUBViewer";
+import {
+  EPUBViewer,
+  patchContentsInsertRuleGuard,
+  patchThemesInsertRuleGuard,
+  serializeEpubRules,
+  isEpubCoverSection,
+  normalizeEpubSvgElements,
+  getViewerDimensions,
+} from "../EPUBViewer";
 import ePub from "epubjs";
 
 // Guarantee unmount between tests so leaked components cannot re-register
@@ -924,5 +932,169 @@ describe("EPUB reader theme layers", () => {
 
     expect(getComputedStyle(doc.body).backgroundColor).toBe("rgb(255, 255, 255)");
     expect(getComputedStyle(doc.body).color).toBe("rgb(31, 41, 55)");
+  });
+});
+
+describe("isEpubCoverSection", () => {
+  function makeDoc(html: string): Document {
+    return new DOMParser().parseFromString(html, "text/html");
+  }
+
+  it("detects cover section via meta[name='calibre:cover']", () => {
+    const doc = makeDoc('<!DOCTYPE html><html><head><meta name="calibre:cover" content="true"/></head><body><div><img src="cover.jpg"/></div></body></html>');
+    const contents = { section: { index: 1, href: "section001.xhtml" }, document: doc };
+    expect(isEpubCoverSection(contents)).toBe(true);
+  });
+
+  it("detects cover section via section properties", () => {
+    const doc = makeDoc('<!DOCTYPE html><html><body><img src="cover.jpg"/></body></html>');
+    const contents = { section: { index: 0, href: "page.xhtml", properties: ["cover-image"] }, document: doc };
+    expect(isEpubCoverSection(contents)).toBe(true);
+  });
+
+  it("detects cover section via href matching cover or titlepage with an image", () => {
+    const doc = makeDoc('<!DOCTYPE html><html><body><img src="cover.jpg"/></body></html>');
+    const contents1 = { section: { index: 2, href: "text/cover.xhtml" }, document: doc };
+    const contents2 = { section: { index: 0, href: "titlepage.xhtml" }, document: doc };
+    expect(isEpubCoverSection(contents1)).toBe(true);
+    expect(isEpubCoverSection(contents2)).toBe(true);
+  });
+
+  it("detects cover section at index 0 when page contains an image and negligible text", () => {
+    const doc = makeDoc('<!DOCTYPE html><html><body><p>Book Title</p><img src="cover.jpg"/></body></html>');
+    const contents = { section: { index: 0, href: "ch01.xhtml" }, document: doc };
+    expect(isEpubCoverSection(contents)).toBe(true);
+  });
+
+  it("detects cover section when body has zero text and a single svg", () => {
+    const doc = makeDoc('<!DOCTYPE html><html><body><svg width="100%" height="100%"><image href="c.jpg"/></svg></body></html>');
+    const contents = { section: { index: 4, href: "plate.xhtml" }, document: doc };
+    expect(isEpubCoverSection(contents)).toBe(true);
+  });
+
+  it("does not classify regular text chapters as cover sections", () => {
+    const text = "A".repeat(500);
+    const doc = makeDoc(`<!DOCTYPE html><html><body><h1>Chapter 1</h1><p>${text}</p><img src="fig1.jpg"/></body></html>`);
+    const contents = { section: { index: 0, href: "ch01.xhtml" }, document: doc };
+    expect(isEpubCoverSection(contents)).toBe(false);
+  });
+});
+
+describe("normalizeEpubSvgElements", () => {
+  it("synthesizes viewBox from width and height attributes when viewBox is missing", () => {
+    const doc = new DOMParser().parseFromString(
+      '<!DOCTYPE html><html><body><svg width="600" height="900"><image href="cover.jpg"/></svg></body></html>',
+      "text/html"
+    );
+    normalizeEpubSvgElements(doc);
+    const svg = doc.querySelector("svg");
+    expect(svg?.getAttribute("viewBox")).toBe("0 0 600 900");
+    expect(svg?.getAttribute("preserveAspectRatio")).toBe("xMidYMid meet");
+  });
+
+  it("preserves existing viewBox and adds preserveAspectRatio if missing", () => {
+    const doc = new DOMParser().parseFromString(
+      '<!DOCTYPE html><html><body><svg viewBox="0 0 1200 1600"><image href="cover.jpg"/></svg></body></html>',
+      "text/html"
+    );
+    normalizeEpubSvgElements(doc);
+    const svg = doc.querySelector("svg");
+    expect(svg?.getAttribute("viewBox")).toBe("0 0 1200 1600");
+    expect(svg?.getAttribute("preserveAspectRatio")).toBe("xMidYMid meet");
+  });
+});
+
+describe("getViewerDimensions", () => {
+  it("resolves positive element dimensions", () => {
+    const fakeEl = { clientHeight: 750, clientWidth: 1024 } as unknown as HTMLElement;
+    const dims = getViewerDimensions(fakeEl);
+    expect(dims.height).toBe(750);
+    expect(dims.width).toBe(1024);
+  });
+
+  it("falls back to window or default when element is null or 0", () => {
+    const dims = getViewerDimensions(null);
+    expect(dims.height).toBeGreaterThan(0);
+    expect(dims.width).toBeGreaterThan(0);
+  });
+});
+
+describe("EPUB reader cover and media scaling in viewer", () => {
+  function makeCoverDocument(): Document {
+    return new DOMParser().parseFromString(
+      `<!DOCTYPE html><html><head>
+        <meta name="calibre:cover" content="true"/>
+        <link rel="stylesheet" href="publisher.css">
+      </head><body>
+        <div><svg width="800" height="1200"><image href="cover.jpeg"/></svg></div>
+      </body></html>`,
+      "text/html"
+    );
+  }
+
+  function makeFakeContents(doc: Document, index = 0, href = "cover.xhtml") {
+    return {
+      document: doc,
+      window,
+      section: { index, href },
+      cfiFromRange: vi.fn(() => `epubcfi(/6/${index})`),
+    };
+  }
+
+  it("cover section applies epub-cover-page class, sets viewport variables, and bounds cover image", async () => {
+    const darkTheme = {
+      id: "test-dark",
+      variant: "dark",
+      colors: {
+        primary: "#38bdf8",
+        background: "#0d1926",
+        onBackground: "#d4e8f8",
+        text: "#d4e8f8",
+      },
+    };
+    render(
+      <EPUBViewer
+        documentId="doc-epub-cover"
+        doc={{ id: "doc-epub-cover", title: "Test Book" } as any}
+        fileName="test.epub"
+        fileUrl="mock-epub-path.epub"
+      />
+    );
+    await waitFor(() => expect(mockRendition.themes.default).toHaveBeenCalled());
+    const hook = mockRendition.hooks.content.register.mock.calls.at(-1)?.[0];
+    expect(hook).toBeTypeOf("function");
+
+    const doc = makeCoverDocument();
+    const contents = makeFakeContents(doc, 0, "cover.xhtml");
+    contentState.docs = [contents];
+
+    await act(async () => {
+      hook(contents);
+    });
+
+    // 1. Cover class is stamped on documentElement and body
+    expect(doc.body.classList.contains("epub-cover-page")).toBe(true);
+    expect(doc.documentElement.classList.contains("epub-cover-page")).toBe(true);
+
+    // 2. Viewport variables are set on root element
+    expect(doc.documentElement.style.getPropertyValue("--epub-viewport-height")).toBeTruthy();
+    expect(doc.documentElement.style.getPropertyValue("--epub-viewport-width")).toBeTruthy();
+
+    // 3. SVG is normalized with viewBox and preserveAspectRatio
+    const svg = doc.querySelector("svg");
+    expect(svg?.getAttribute("viewBox")).toBe("0 0 800 1200");
+    expect(svg?.getAttribute("preserveAspectRatio")).toBe("xMidYMid meet");
+
+    // 4. Override stylesheet contains cover page and media containment rules
+    const override = doc.getElementById("epub-override-styles");
+    expect(override).not.toBeNull();
+    const css = override!.textContent!;
+    expect(css).toContain("body.epub-cover-page");
+    expect(css).toContain("object-fit: contain !important");
+    expect(css).toContain("--epub-viewport-height");
+
+    // 5. Layer 3 inline styles eliminate padding and margin on the cover body
+    expect(doc.body.style.getPropertyValue("padding")).toBe("0px");
+    expect(doc.body.style.getPropertyValue("margin")).toBe("0px");
   });
 });
