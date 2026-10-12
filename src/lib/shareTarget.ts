@@ -331,14 +331,15 @@ export function registerShareListener(
       "plugin:plethora-folder-import|register_share_listener"
     )
       .then((res) => {
-        if (res?.batches && Array.isArray(res.batches)) {
+        if (res?.batches && Array.isArray(res.batches) && res.batches.length > 0) {
           for (const rawBatch of res.batches) {
             const batch = normalizeSharedBatch(rawBatch);
             if (batch && shouldDispatch(batch)) {
               onBatch(batch);
             }
           }
-        } else if (res?.url) {
+        }
+        if (res?.url) {
           const batch = normalizeSharedBatch(res.url);
           if (batch && shouldDispatch(batch)) {
             onBatch(batch);

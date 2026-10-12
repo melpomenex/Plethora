@@ -195,6 +195,49 @@ describe("shareTarget utilities", () => {
       expect(onBatch).toHaveBeenCalledTimes(1);
       unsubscribe();
     });
+
+    it("normalizes and delivers shared X post permalinks and t.co links", () => {
+      const onBatch = vi.fn();
+      const unsubscribe = registerShareListener(onBatch);
+
+      window.dispatchEvent(
+        new CustomEvent("plethora-native-share", {
+          detail: {
+            items: [{ type: "url", url: "https://x.com/karpathy/status/2109361546505966046" }],
+          },
+        })
+      );
+
+      expect(onBatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          items: [
+            expect.objectContaining({
+              type: "url",
+              url: "https://x.com/karpathy/status/2109361546505966046",
+            }),
+          ],
+        })
+      );
+
+      window.dispatchEvent(
+        new CustomEvent("android-shared-url", {
+          detail: "https://t.co/xyz987",
+        })
+      );
+
+      expect(onBatch).toHaveBeenCalledWith(
+        expect.objectContaining({
+          items: [
+            expect.objectContaining({
+              type: "url",
+              url: "https://t.co/xyz987",
+            }),
+          ],
+        })
+      );
+
+      unsubscribe();
+    });
   });
 
   describe("stagedManifestToBatch (staged-manifest → SharedBatch contract)", () => {

@@ -106,6 +106,12 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
       return rawUrl.trimEnd('.', ',', ';', ':', '!', '?', ')', ']', '}', '"', '\'')
     }
 
+    fun isXUrl(url: String): Boolean {
+      val clean = sanitizeExtractedUrl(url).split("?")[0].split("#")[0].trimEnd('/')
+      return clean.matches(Regex("""^https?://(?:www\.|mobile\.)?(?:twitter\.com|x\.com)/(?:[^/]+/status|i/status|i/web/status)/\d+.*""", RegexOption.IGNORE_CASE))
+        || clean.matches(Regex("""^https?://t\.co/[a-zA-Z0-9]+.*""", RegexOption.IGNORE_CASE))
+    }
+
     private fun isWebUri(uri: Uri?): Boolean {
       if (uri == null) return false
       val scheme = uri.scheme ?: return false
@@ -149,7 +155,15 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
           @Suppress("DEPRECATION")
           intent.getParcelableExtra(Intent.EXTRA_STREAM)
         } ?: intent.clipData?.let { clip ->
-          if (clip.itemCount > 0) clip.getItemAt(0).uri else null
+          var foundUri: Uri? = null
+          for (i in 0 until clip.itemCount) {
+            val u = clip.getItemAt(i).uri
+            if (u != null) {
+              foundUri = u
+              break
+            }
+          }
+          foundUri
         }
 
         val intentDataUri: Uri? = intent.data
@@ -157,22 +171,99 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
           else if (isStreamUri(intentDataUri)) intentDataUri
           else null
 
-        val rawText: String? = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
-          ?: intent.getStringExtra(Intent.EXTRA_TEXT)
-          ?: intent.clipData?.let { clip ->
-            if (clip.itemCount > 0) clip.getItemAt(0).text?.toString() else null
+        val textCandidates = mutableListOf<String>()
+        intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()?.takeIf { it.isNotBlank() }?.let { textCandidates.add(it) }
+        intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() && !textCandidates.contains(it) }?.let { textCandidates.add(it) }
+        intent.clipData?.let { clip ->
+          for (i in 0 until clip.itemCount) {
+            clip.getItemAt(i).text?.toString()?.takeIf { it.isNotBlank() && !textCandidates.contains(it) }?.let { textCandidates.add(it) }
           }
+        }
+        val rawText: String? = textCandidates.firstOrNull()
 
-        val directWebUrl: String? = if (isWebUri(intentDataUri)) {
-          sanitizeExtractedUrl(intentDataUri.toString())
-        } else if (isWebUri(streamCandidate)) {
-          sanitizeExtractedUrl(streamCandidate.toString())
-        } else {
-          null
+        val extractedUrls = mutableListOf<String>()
+        if (isWebUri(intentDataUri)) {
+          extractedUrls.add(sanitizeExtractedUrl(intentDataUri.toString()))
+        }
+        if (isWebUri(streamCandidate)) {
+          extractedUrls.add(sanitizeExtractedUrl(streamCandidate.toString()))
+        }
+        intent.clipData?.let { clip ->
+          for (i in 0 until clip.itemCount) {
+            val u = clip.getItemAt(i).uri
+            if (isWebUri(u)) {
+              extractedUrls.add(sanitizeExtractedUrl(u.toString()))
+            }
+          }
+        }
+        for (txt in textCandidates) {
+          for (m in URL_REGEX.findAll(txt)) {
+            extractedUrls.add(sanitizeExtractedUrl(m.value))
+          }
         }
 
-        if (streamUri != null) {
-          val mimeType = intent.type ?: context.contentResolver.getType(streamUri) ?: "application/octet-stream"
+        val targetXUrl = extractedUrls.findLast { isXUrl(it) }
+
+        val mimeType = if (streamUri != null) {
+          intent.type ?: context.contentResolver.getType(streamUri) ?: "application/octet-stream"
+        } else {
+          ""
+        }
+        val isImage = mimeType.startsWith("image/", ignoreCase = true)
+
+        if (targetXUrl != null) {
+          val item = JSObject()
+          item.put("type", "url")
+          item.put("url", targetXUrl)
+          if (title != null) item.put("title", title)
+          items.add(item)
+          handleSharedUrl(targetXUrl)
+
+          // If streamUri is a non-image file (e.g. document attached alongside), stage it as well.
+          // Preview thumbnails/images accompanying an X post are skipped to avoid junk library documents.
+          if (streamUri != null && !isImage) {
+            val fileName = queryDisplayName(context, streamUri) ?: "shared_${System.currentTimeMillis()}"
+            val staged = stageFileByUri(context, streamUri, fileName, fileName, importRoot)
+            if (staged != null) {
+              val fileItem = JSObject()
+              fileItem.put("type", "file")
+              fileItem.put("filePath", staged.path)
+              fileItem.put("fileName", staged.fileName)
+              fileItem.put("mimeType", mimeType)
+              if (title != null) fileItem.put("title", title)
+              val fileObj = File(staged.path)
+              if (fileObj.exists()) fileItem.put("fileSize", fileObj.length())
+              items.add(fileItem)
+            }
+          }
+        } else if (extractedUrls.isNotEmpty()) {
+          // General web URL share
+          for (url in extractedUrls.distinct()) {
+            val item = JSObject()
+            item.put("type", "url")
+            item.put("url", url)
+            if (title != null) item.put("title", title)
+            items.add(item)
+            handleSharedUrl(url)
+          }
+
+          if (streamUri != null && !isImage) {
+            val fileName = queryDisplayName(context, streamUri) ?: "shared_${System.currentTimeMillis()}"
+            val staged = stageFileByUri(context, streamUri, fileName, fileName, importRoot)
+            if (staged != null) {
+              val fileItem = JSObject()
+              fileItem.put("type", "file")
+              fileItem.put("filePath", staged.path)
+              fileItem.put("fileName", staged.fileName)
+              fileItem.put("mimeType", mimeType)
+              if (title != null) fileItem.put("title", title)
+              val fileObj = File(staged.path)
+              if (fileObj.exists()) fileItem.put("fileSize", fileObj.length())
+              items.add(fileItem)
+            }
+          }
+        } else if (streamUri != null) {
+          // Direct file share without web URLs
           val fileName = queryDisplayName(context, streamUri) ?: "shared_${System.currentTimeMillis()}"
           val staged = stageFileByUri(context, streamUri, fileName, fileName, importRoot)
           if (staged != null) {
@@ -187,34 +278,13 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
             if (fileObj.exists()) item.put("fileSize", fileObj.length())
             items.add(item)
           }
-        } else if (directWebUrl != null) {
+        } else if (rawText != null && rawText.isNotBlank()) {
+          // Pure text share
           val item = JSObject()
-          item.put("type", "url")
-          item.put("url", directWebUrl)
+          item.put("type", "text")
+          item.put("text", rawText)
           if (title != null) item.put("title", title)
-          if (rawText != null && rawText.isNotBlank() && !rawText.contains(directWebUrl)) {
-            item.put("text", rawText.trim())
-          }
           items.add(item)
-        } else if (rawText != null) {
-          val match = URL_REGEX.find(rawText)
-          if (match != null) {
-            val rawUrl = match.value
-            val url = sanitizeExtractedUrl(rawUrl)
-            val item = JSObject()
-            item.put("type", "url")
-            item.put("url", url)
-            if (title != null) item.put("title", title)
-            val note = rawText.replace(rawUrl, "").trim()
-            if (note.isNotEmpty()) item.put("text", note)
-            items.add(item)
-          } else {
-            val item = JSObject()
-            item.put("type", "text")
-            item.put("text", rawText)
-            if (title != null) item.put("title", title)
-            items.add(item)
-          }
         }
       } else if (action == Intent.ACTION_SEND_MULTIPLE) {
         val streamUris: ArrayList<Uri>? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -223,8 +293,39 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
           @Suppress("DEPRECATION")
           intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
         }
-        val rawText: String? = intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()
-          ?: intent.getStringExtra(Intent.EXTRA_TEXT)
+        val textCandidates = mutableListOf<String>()
+        intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.toString()?.takeIf { it.isNotBlank() }?.let { textCandidates.add(it) }
+        intent.getStringExtra(Intent.EXTRA_TEXT)?.takeIf { it.isNotBlank() && !textCandidates.contains(it) }?.let { textCandidates.add(it) }
+        intent.clipData?.let { clip ->
+          for (i in 0 until clip.itemCount) {
+            clip.getItemAt(i).text?.toString()?.takeIf { it.isNotBlank() && !textCandidates.contains(it) }?.let { textCandidates.add(it) }
+          }
+        }
+        val rawText: String? = textCandidates.firstOrNull()
+
+        val extractedUrls = mutableListOf<String>()
+        intent.clipData?.let { clip ->
+          for (i in 0 until clip.itemCount) {
+            val u = clip.getItemAt(i).uri
+            if (isWebUri(u)) {
+              extractedUrls.add(sanitizeExtractedUrl(u.toString()))
+            }
+          }
+        }
+        for (txt in textCandidates) {
+          for (m in URL_REGEX.findAll(txt)) {
+            extractedUrls.add(sanitizeExtractedUrl(m.value))
+          }
+        }
+        val targetXUrl = extractedUrls.findLast { isXUrl(it) }
+        if (targetXUrl != null) {
+          val item = JSObject()
+          item.put("type", "url")
+          item.put("url", targetXUrl)
+          if (title != null) item.put("title", title)
+          items.add(item)
+          handleSharedUrl(targetXUrl)
+        }
 
         if (streamUris != null) {
           for (uri in streamUris) {
@@ -256,6 +357,7 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
             item.put("url", url)
             if (title != null) item.put("title", title)
             items.add(item)
+            handleSharedUrl(url)
           } else if (isStreamUri(viewUri)) {
             val mimeType = intent.type ?: context.contentResolver.getType(viewUri) ?: "application/octet-stream"
             val fileName = queryDisplayName(context, viewUri) ?: "view_${System.currentTimeMillis()}"

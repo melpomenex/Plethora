@@ -3,6 +3,7 @@ import {
   buildCanonicalStatusUrl,
   extractXScreenName,
   extractXStatusId,
+  isXOrTwitterUrl,
   isXStatusUrl,
 } from "../xthreadUrl";
 
@@ -72,5 +73,16 @@ describe("xthreadUrl — X status URL normalization", () => {
     );
     expect(isXStatusUrl("https://twitter.com/u/status/123")).toBe(true);
     expect(isXStatusUrl("https://example.com/status/123")).toBe(false);
+  });
+
+  it("recognizes X/Twitter URLs including t.co short links via isXOrTwitterUrl", () => {
+    expect(isXOrTwitterUrl("https://x.com/karpathy/status/2109361546505966046")).toBe(true);
+    expect(isXOrTwitterUrl("https://twitter.com/u/status/123456?s=20")).toBe(true);
+    expect(isXOrTwitterUrl("https://t.co/abcXYZ123")).toBe(true);
+    expect(isXOrTwitterUrl("http://t.co/foo")).toBe(true);
+    expect(isXOrTwitterUrl("t.co/bar")).toBe(true);
+    expect(isXOrTwitterUrl("https://example.com/article")).toBe(false);
+    expect(isXOrTwitterUrl("")).toBe(false);
+    expect(isXOrTwitterUrl(null)).toBe(false);
   });
 });

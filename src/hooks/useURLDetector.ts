@@ -4,7 +4,7 @@
  */
 
 import { useMemo } from "react";
-import { extractXScreenName, extractXStatusId } from "../lib/xthreadUrl";
+import { extractXScreenName, extractXStatusId, isXOrTwitterUrl } from "../lib/xthreadUrl";
 
 /**
  * URL type classification
@@ -101,7 +101,7 @@ function extractTwitterUsername(url: string): string | null {
  * Detect if URL is a Twitter / X post URL
  */
 function isTwitterURL(url: string): boolean {
-  return extractXStatusId(url) !== null;
+  return isXOrTwitterUrl(url);
 }
 
 /**

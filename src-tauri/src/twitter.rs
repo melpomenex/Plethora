@@ -219,25 +219,29 @@ fn is_x_host(part: &str) -> bool {
 /// scheme, `www.`/`mobile.` subdomains, `/i/status/`, query strings, and
 /// trailing slashes; rejects non-X hosts and non-numeric ids.
 pub fn extract_tweet_id(input: &str) -> Result<String, String> {
-    let trimmed = input.trim();
+    let trimmed = input
+        .trim()
+        .trim_start_matches(|c: char| matches!(c, '<' | '(' | '[' | '{' | '\'' | '"'))
+        .trim_end_matches(|c: char| matches!(c, '>' | ')' | ']' | '}' | '\'' | '"' | '.' | ',' | ';' | ':' | '!' | '?'));
     let no_query = trimmed.split(['?', '#']).next().unwrap_or(trimmed);
     let parts: Vec<&str> = no_query.trim_end_matches('/').split('/').collect();
     let idx = parts
         .iter()
         .position(|p| p.eq_ignore_ascii_case("status"))
         .ok_or_else(|| "Could not find a tweet id in the URL".to_string())?;
-    let id = parts
+    let raw_id = parts
         .get(idx + 1)
         .ok_or_else(|| "Could not find a tweet id in the URL".to_string())?;
+    let id = raw_id.trim_end_matches(|c: char| !c.is_ascii_digit());
     if id.is_empty() || !id.chars().all(|c| c.is_ascii_digit()) {
-        return Err(format!("Invalid tweet id: {}", id));
+        return Err(format!("Invalid tweet id: {}", raw_id));
     }
     // The URL must actually be an X/Twitter status link — a random
     // `example.com/status/123` must not invoke any provider.
     if !parts.iter().any(|p| is_x_host(p)) {
         return Err("URL is not an x.com/twitter.com status link".to_string());
     }
-    Ok((*id).to_string())
+    Ok(id.to_string())
 }
 
 /// Obtain (and cache) an anonymous guest token.
@@ -1178,8 +1182,11 @@ fn build_thread(author: &TwitterAuthor, mut posts: Vec<TwitterPost>, source_kind
 /// even when the tweet payload is restricted and carries no parseable user —
 /// so the single-post fallback can always show a real @handle.
 pub fn extract_screen_name_from_url(input: &str) -> Option<String> {
-    let trimmed = input.trim();
-    let no_query = trimmed.split('?').next().unwrap_or(trimmed);
+    let trimmed = input
+        .trim()
+        .trim_start_matches(|c: char| matches!(c, '<' | '(' | '[' | '{' | '\'' | '"'))
+        .trim_end_matches(|c: char| matches!(c, '>' | ')' | ']' | '}' | '\'' | '"' | '.' | ',' | ';' | ':' | '!' | '?'));
+    let no_query = trimmed.split(['?', '#']).next().unwrap_or(trimmed);
     let parts: Vec<&str> = no_query.trim_end_matches('/').split('/').collect();
     let idx = parts.iter().position(|p| p.eq_ignore_ascii_case("status"))?;
     let handle = parts.get(idx.wrapping_sub(1))?;
@@ -1342,6 +1349,23 @@ fn combine_failures(tra: ThreadError, single: String) -> ThreadError {
 /// Pipeline (ThreadReaderApp-first):
 /// 1. `ping` the status id → canonical thread root id (any in-thread URL
 ///    resolves to the root);
+fn is_redirect_host(url: &str) -> bool {
+    let lower = url.trim().to_ascii_lowercase();
+    lower.starts_with("https://t.co/")
+        || lower.starts_with("http://t.co/")
+        || lower.starts_with("t.co/")
+}
+
+async fn resolve_url_redirect(url: &str) -> Option<String> {
+    let target = if !url.starts_with("http://") && !url.starts_with("https://") {
+        format!("https://{}", url)
+    } else {
+        url.to_string()
+    };
+    let resp = HTTP.get(&target).send().await.ok()?;
+    Some(resp.url().to_string())
+}
+
 /// 2. unroll via TRA (JSON compat probe, then the server-rendered HTML page);
 /// 3. normalize into a `TwitterThread` (ordered, deduped, no third-party
 ///    replies);
@@ -1353,10 +1377,25 @@ pub async fn resolve_twitter_thread_with(
     source: &dyn TweetResultSource,
     url: &str,
 ) -> Result<TwitterThread, ThreadError> {
-    let tweet_id = extract_tweet_id(url).map_err(|e| ThreadError::InvalidUrl(e))?;
+    let (effective_url, tweet_id) = match extract_tweet_id(url) {
+        Ok(id) => (url.to_string(), id),
+        Err(orig_err) => {
+            if is_redirect_host(url) {
+                match resolve_url_redirect(url).await {
+                    Some(final_url) => match extract_tweet_id(&final_url) {
+                        Ok(id) => (final_url, id),
+                        Err(_) => return Err(ThreadError::InvalidUrl(orig_err)),
+                    },
+                    None => return Err(ThreadError::InvalidUrl(orig_err)),
+                }
+            } else {
+                return Err(ThreadError::InvalidUrl(orig_err));
+            }
+        }
+    };
     // The URL handle is the last-resort author identity for the single-post
     // fallback (payloads without a parseable user).
-    let url_handle = extract_screen_name_from_url(url);
+    let url_handle = extract_screen_name_from_url(&effective_url);
 
     // 1. Ping → canonical root id (or the id itself when TRA has no thread).
     let root_id = match ping_thread(http, &tweet_id).await {

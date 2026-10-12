@@ -27,6 +27,23 @@ export function sanitizeXUrlInput(input: string | null | undefined): string | nu
 }
 
 /**
+ * Detect whether an input URL is an X/Twitter URL (status link or t.co short link).
+ */
+export function isXOrTwitterUrl(input: string | null | undefined): boolean {
+  if (!input) return false;
+  if (extractXStatusId(input) !== null) return true;
+  const sanitized = sanitizeXUrlInput(input);
+  if (!sanitized) return false;
+  try {
+    const parsed = new URL(sanitized.startsWith("http") ? sanitized : `https://${sanitized}`);
+    const host = parsed.hostname.toLowerCase();
+    return host === "t.co" || host.endsWith(".t.co");
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Extract the numeric status id from an x.com/twitter.com URL
  * (`https://x.com/user/status/123?s=20` → `"123"`). Accepts optional scheme,
  * www/mobile subdomains, `/i/status/`, `/i/web/status/`, query strings, trailing slashes,
