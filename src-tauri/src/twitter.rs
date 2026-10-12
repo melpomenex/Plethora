@@ -2001,6 +2001,10 @@ mod tests {
             ("https://x.com/u/status/42/photo/1", "42"),
             // Uppercase path segment.
             ("https://x.com/u/STATUS/99", "99"),
+            // Trailing punctuation, parentheses, brackets, or quotes.
+            ("https://x.com/karpathy/status/2109361546505966046.", "2109361546505966046"),
+            ("(https://x.com/karpathy/status/2109361546505966046)", "2109361546505966046"),
+            ("\"https://x.com/karpathy/status/2109361546505966046\"", "2109361546505966046"),
         ];
         for (url, expected) in cases {
             assert_eq!(
