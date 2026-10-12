@@ -214,4 +214,17 @@ describe("ScrollOverlayControls neural review", () => {
     const dismissBtn = screen.getByTitle("Dismiss");
     fireEvent.pointerDown(dismissBtn);
   });
+
+  it("emits queue.closed tactile click feedback on pointer down and exit button click", async () => {
+    const orchestrator = await import("../../../lib/feedback/orchestrator");
+    const spy = vi.spyOn(orchestrator, "emitUserInteraction");
+    const onExit = vi.fn();
+    render(<ScrollOverlayControls {...defaultProps} onExit={onExit} />);
+    const exitBtn = screen.getByTitle("Exit scroll mode");
+    fireEvent.pointerDown(exitBtn);
+    expect(spy).toHaveBeenCalledWith("queue.closed");
+    fireEvent.click(exitBtn);
+    expect(onExit).toHaveBeenCalledTimes(1);
+    spy.mockRestore();
+  });
 });

@@ -6,6 +6,7 @@ import { getTabIcon } from "../../tabs/TabIcons";
 import { useI18n } from "../../../lib/i18n";
 import { LinuxWindowControls } from "./LinuxWindowControls";
 import { handleWindowDragRequest } from "../../../lib/windowDrag";
+import { emitUserInteraction } from "../../../lib/feedback/orchestrator";
 
 interface TabBarProps {
   tabs: Tab[];
@@ -404,6 +405,9 @@ function TabBarImpl({
                   if (e.button === 1 && tab.closable) {
                     e.preventDefault();
                     e.stopPropagation();
+                    if (tab.type === "queue" || tab.type === "queue-scroll") {
+                      emitUserInteraction("queue.closed");
+                    }
                     onTabClose(tab.id);
                   }
                 }}
@@ -459,7 +463,15 @@ function TabBarImpl({
                   <button
                     onClick={(e) => {
                        e.stopPropagation();
+                       if (tab.type === "queue" || tab.type === "queue-scroll") {
+                         emitUserInteraction("queue.closed");
+                       }
                        onTabClose(tab.id);
+                    }}
+                    onPointerDown={(e) => {
+                       if (tab.type === "queue" || tab.type === "queue-scroll") {
+                         emitUserInteraction("queue.closed");
+                       }
                     }}
                     className={`
                       flex items-center justify-center flex-shrink-0

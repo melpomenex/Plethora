@@ -25,6 +25,7 @@ import { useDocumentStore } from "../../stores/documentStore";
 import { useTabsStore } from "../../stores/tabsStore";
 import { formatAudioDuration } from "../../utils/audioEditionEstimation";
 import { cn } from "../../utils";
+import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 import { createElement } from "react";
 import { BookOpen, TextT } from "@phosphor-icons/react";
 
@@ -97,7 +98,11 @@ export function ListenLaterQueue({ isOpen, onClose }: { isOpen: boolean; onClose
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={() => {
+              emitUserInteraction("queue.closed");
+              onClose();
+            }}
+            onPointerDown={() => emitUserInteraction("queue.closed")}
             className="text-muted-foreground hover:text-foreground p-1.5 rounded-lg hover:bg-muted transition-colors"
             aria-label="Close queue"
           >

@@ -26,7 +26,7 @@ import {
   ArrowDown,
 } from "@phosphor-icons/react";
 import { cn } from "../../utils";
-import { emitInteractionFeedback } from "../../lib/feedback/orchestrator";
+import { emitInteractionFeedback, emitUserInteraction } from "../../lib/feedback/orchestrator";
 
 interface ScrollOverlayControlsProps {
   showControls: boolean;
@@ -378,7 +378,15 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
       <div className="absolute top-0 left-0 right-0 pt-[calc(16px+env(safe-area-inset-top,0px))] px-4 pb-4 bg-gradient-to-b from-black/50 to-transparent pointer-events-none">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           <div className="flex items-center gap-3 pointer-events-auto">
-            <button onClick={onExit} className="p-2 rounded-lg bg-black/40 backdrop-blur-sm hover:bg-black/60 transition-colors" title={labels?.exit ?? "Exit scroll mode"}>
+            <button
+              onClick={() => {
+                emitUserInteraction("queue.closed");
+                onExit();
+              }}
+              onPointerDown={() => emitUserInteraction("queue.closed")}
+              className="p-2 rounded-lg bg-black/40 backdrop-blur-sm hover:bg-black/60 transition-colors"
+              title={labels?.exit ?? "Exit scroll mode"}
+            >
               <X className="w-5 h-5 text-white" />
             </button>
             {isNeuralMode ? (

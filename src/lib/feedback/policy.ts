@@ -212,6 +212,7 @@ export const FEEDBACK_POLICY_REGISTRY: Record<FeedbackEventId, FeedbackPolicy> =
   "navigation.back-completed": interaction("selection", 100, 0),
   "navigation.destination-opened": interaction("activation", 250, 10),
   "interaction.sheet-committed": interaction("activation", 250, 10),
+  "queue.closed": interaction("activation", 150, 10),
   "queue.orb-pressed": interaction("selection", 50, 0),
   "queue.orbs-docked": interaction("activation", 150, 10),
   "queue.orbs-drag-threshold": interaction("threshold", 80, 10),

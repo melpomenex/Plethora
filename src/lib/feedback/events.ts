@@ -45,6 +45,7 @@ export const FEEDBACK_EVENT_IDS = [
   "interaction.sheet-committed",
 
   // Reminders / queue
+  "queue.closed",
   "queue.document-rated",
   "queue.due-count-changed",
   "queue.orb-pressed",
@@ -130,6 +131,7 @@ export interface FeedbackEventPayloads {
   "navigation.destination-opened": Record<string, never>;
   "interaction.sheet-committed": Record<string, never>;
 
+  "queue.closed": Record<string, never>;
   "queue.document-rated": {
     rating: number;
     grade?: number;

@@ -188,4 +188,32 @@ describe("TabBar wheel scrolling", () => {
     strip.dispatchEvent(evt);
     expect(evt.defaultPrevented).toBe(false);
   });
+
+  it("emits queue.closed tactile click feedback when closing a queue tab", async () => {
+    const orchestrator = await import("../../../../lib/feedback/orchestrator");
+    const spy = vi.spyOn(orchestrator, "emitUserInteraction");
+    const onTabClose = vi.fn();
+    const queueTab: Tab = {
+      id: "q-1",
+      title: "Queue",
+      icon: null,
+      type: "queue",
+      content: () => <div>Queue</div>,
+      closable: true,
+    };
+    const { container } = render(
+      <TabBar tabs={[queueTab]} activeTabId="q-1" onTabClick={noop} onTabClose={onTabClose} />
+    );
+    const closeBtn = container.querySelector("button[aria-label*='Close']") as HTMLElement;
+    expect(closeBtn).toBeTruthy();
+
+    fireEvent.pointerDown(closeBtn);
+    expect(spy).toHaveBeenCalledWith("queue.closed");
+
+    fireEvent.click(closeBtn);
+    expect(onTabClose).toHaveBeenCalledWith("q-1");
+
+    spy.mockRestore();
+  });
 });
+
