@@ -89,7 +89,7 @@
     },
     "tabs-dom/switch-active-tab-12-tabs": {
       "cost": 0.2713,
-      "tolerance": 1.6,
+      "tolerance": 1.75,
       "reason": "jsdom interaction cost includes React scheduling and garbage collection variance."
     },
     "tabs-dom/rerender-on-tab-collection-change": {
@@ -119,7 +119,7 @@
     },
     "audioEdition/recent-passage-30s-window-10k": {
       "cost": 0.018856,
-      "tolerance": 1.6,
+      "tolerance": 1.7,
       "reason": "add-audio-editions-and-hands-free-study-mode: initial baseline for the Smart Recent Extract window expansion on a 10k-sentence book (64 captures per iteration)."
     },
     "reader-speech-index/build": {

@@ -20,6 +20,7 @@ import { generateLearningItemsFromExtract } from "../../api/learning-items";
 import { bulkGenerateCards } from "../../api/extract-bulk";
 import { useUndoableOperations } from "../../api/undoable";
 import { cn } from "../../utils";
+import { ResponsiveBulkActionBar, type BulkActionItem } from "../common/ResponsiveBulkActionBar";
 import { hasMarkdownMarkup } from "../../utils/markdown";
 
 import { sanitizeHtml, RichContentRenderer } from "../common/RichContentRenderer";
@@ -506,57 +507,48 @@ export function ExtractsList({
       )}
 
       {/* Bulk Action Bar */}
-      {selectedIds.size > 0 && (
-        <div className="sticky top-0 z-10 p-3 bg-card border border-border rounded-lg shadow-lg">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-foreground">
-              {t("extracts.extractSelected", { count: selectedIds.size })}
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={handleBulkGenerateCards}
-                disabled={bulkOperationLoading}
-                className="px-3 py-1.5 bg-primary text-primary-foreground rounded-md hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-1.5 text-sm"
-              >
-                {bulkOperationLoading ? (
-                  <>
-                    <CircleNotch className="w-3.5 h-3.5 animate-spin" />
-                    {t("common.processing")}
-                  </>
-                ) : (
-                  <>
-                    <Sparkle className="w-3.5 h-3.5" />
-                    {t("extracts.generateCards")}
-                  </>
-                )}
-              </button>
-              <button
-                onClick={handleBulkDelete}
-                disabled={bulkOperationLoading}
-                className="px-3 py-1.5 bg-destructive text-destructive-foreground rounded-md hover:opacity-90 transition-opacity disabled:opacity-50 flex items-center gap-1.5 text-sm"
-              >
-                {bulkOperationLoading ? (
-                  <>
-                    <CircleNotch className="w-3.5 h-3.5 animate-spin" />
-                    {t("extracts.deleting")}
-                  </>
-                ) : (
-                  <>
-                    <Trash className="w-3.5 h-3.5" />
-                    {t("common.delete")}
-                  </>
-                )}
-              </button>
-              <button
-                onClick={clearSelection}
-                className="px-3 py-1.5 bg-muted text-muted-foreground rounded-md hover:bg-muted/80 transition-colors"
-              >
-                {t("common.clear")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {selectedIds.size > 0 && (() => {
+        const extractBulkActions: BulkActionItem[] = [
+          {
+            id: "generate-cards",
+            label: bulkOperationLoading
+              ? t("common.processing")
+              : t("extracts.generateCards"),
+            icon: bulkOperationLoading ? (
+              <CircleNotch className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Sparkle className="w-3.5 h-3.5" />
+            ),
+            variant: "primary",
+            disabled: bulkOperationLoading,
+            onClick: handleBulkGenerateCards,
+          },
+          {
+            id: "delete",
+            label: bulkOperationLoading
+              ? t("extracts.deleting")
+              : t("common.delete"),
+            icon: bulkOperationLoading ? (
+              <CircleNotch className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Trash className="w-3.5 h-3.5" />
+            ),
+            variant: "destructive",
+            disabled: bulkOperationLoading,
+            onClick: handleBulkDelete,
+          },
+        ];
+
+        return (
+          <ResponsiveBulkActionBar
+            selectedCount={selectedIds.size}
+            selectedCountLabel={t("extracts.extractSelected", { count: selectedIds.size })}
+            onClearSelection={clearSelection}
+            actions={extractBulkActions}
+            className="sticky top-0 z-10"
+          />
+        );
+      })()}
 
       {/* Select All Header */}
       <div className="flex items-center gap-2 p-2 bg-muted/30 rounded-md">

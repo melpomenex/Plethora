@@ -109,13 +109,13 @@ export function BulkActionBar({
       .filter(Boolean);
 
   const button =
-    "flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-card text-sm transition-colors hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed";
+    "flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border bg-card text-sm transition-colors hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed shrink-0 whitespace-nowrap";
 
   return (
     <div
       role="toolbar"
       aria-label={t("bulkAction.toolbar")}
-      className="fixed bottom-6 left-1/2 z-50 w-[min(56rem,calc(100vw-2rem))] -translate-x-1/2"
+      className="bulk-action-bar-container fixed bottom-6 left-1/2 z-50 w-[min(56rem,calc(100vw-2rem))] -translate-x-1/2"
     >
       {/* Popover panels sit above the bar so they never cover the queue rows. */}
       {panel === "priority" && (
@@ -267,19 +267,19 @@ export function BulkActionBar({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card/90 p-3 shadow-2xl backdrop-blur-md">
-        <span className="rounded-full bg-primary/15 px-3 py-1 text-sm font-semibold text-primary">
+      <div className="flex items-center gap-2 rounded-xl border border-border bg-card/90 p-2.5 shadow-2xl backdrop-blur-md">
+        <span className="shrink-0 rounded-full bg-primary/15 px-3 py-1 text-sm font-semibold text-primary">
           {t("queue.selectedCount", { count: selectedCount })}
         </span>
 
         {isLoading && (
-          <span className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
             <CircleNotch className="h-4 w-4 animate-spin" />
             {t("common.processing")}
           </span>
         )}
 
-        <div className="flex flex-1 flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-1 items-center gap-2 overflow-x-auto no-scrollbar touch-pan-x flex-nowrap shrink min-w-0 md:flex-wrap md:justify-end">
           <button
             className={button}
             disabled={isLoading}
@@ -364,7 +364,7 @@ export function BulkActionBar({
           </button>
 
           <button
-            className="flex items-center gap-1.5 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40"
+            className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-sm text-destructive transition-colors hover:bg-destructive/20 disabled:opacity-40"
             disabled={isLoading}
             onClick={onDelete}
             title={t("bulkAction.deleteSelected")}
@@ -374,7 +374,7 @@ export function BulkActionBar({
           </button>
 
           <button
-            className="rounded-md p-2 transition-colors hover:bg-muted"
+            className="shrink-0 rounded-md p-2 transition-colors hover:bg-muted"
             onClick={onClearSelection}
             title={t("bulkAction.clearSelection")}
             aria-label={t("bulkAction.clearSelection")}

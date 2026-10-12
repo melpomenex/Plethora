@@ -1078,29 +1078,31 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
 
                   {/* Bulk action toolbar */}
                   {selectedIds.size > 0 && (
-                    <div className="px-3 py-1 border-b border-border/50 bg-primary/5 flex items-center gap-1.5 flex-shrink-0">
-                      <span className="text-xs text-primary font-medium tabular-nums">
+                    <div className="px-3 py-1.5 border-b border-border/50 bg-primary/5 flex items-center gap-1.5 overflow-x-auto no-scrollbar touch-pan-x flex-nowrap shrink-0">
+                      <span className="text-xs text-primary font-semibold tabular-nums shrink-0 whitespace-nowrap">
                         {selectedIds.size} selected
                       </span>
                       <button
                         onClick={handleBulkSuspend}
-                        className="flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-border hover:bg-muted"
+                        className="flex shrink-0 whitespace-nowrap items-center gap-1 text-xs px-2.5 py-1.5 rounded border border-border bg-background hover:bg-muted min-h-[32px] sm:min-h-0"
                       >
-                        <Prohibit className="h-2.5 w-2.5" /> Suspend
+                        <Prohibit className="h-3 w-3" /> Suspend
                       </button>
                       <button
                         onClick={handleBulkUnsuspend}
-                        className="flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-border hover:bg-muted"
+                        className="flex shrink-0 whitespace-nowrap items-center gap-1 text-xs px-2.5 py-1.5 rounded border border-border bg-background hover:bg-muted min-h-[32px] sm:min-h-0"
                       >
-                        <Play className="h-2.5 w-2.5" /> Unsuspend
+                        <Play className="h-3 w-3" /> Unsuspend
                       </button>
                       <button
                         onClick={() => setShowDeleteConfirm(true)}
-                        className="flex items-center gap-1 text-xs px-2 py-0.5 rounded border border-destructive/30 text-destructive hover:bg-destructive/10"
+                        className="flex shrink-0 whitespace-nowrap items-center gap-1 text-xs px-2.5 py-1.5 rounded border border-destructive/30 bg-destructive/10 text-destructive hover:bg-destructive/20 min-h-[32px] sm:min-h-0"
                       >
-                        <Trash className="h-2.5 w-2.5" /> Delete
+                        <Trash className="h-3 w-3" /> Delete
                       </button>
-                      <RetagPopover onRetag={handleBulkRetag} />
+                      <div className="shrink-0">
+                        <RetagPopover onRetag={handleBulkRetag} />
+                      </div>
                     </div>
                   )}
 

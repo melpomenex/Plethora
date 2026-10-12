@@ -49,6 +49,7 @@ import {
   type DaqePresetId,
   type QueueStrategyPresetId,
 } from "../../lib/daqe/presets";
+import { ResponsiveBulkActionBar, type BulkActionItem } from "../common/ResponsiveBulkActionBar";
 import { defaultDaqeKnobs } from "../../lib/daqe/knobs";
 import {
   applyFilters,
@@ -1558,36 +1559,41 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
             );
           })()}
 
-          {selectedIds.size > 0 && (
-            <div className="p-3 bg-primary/10 border border-primary/20 rounded-lg flex items-center justify-between">
-              <span className="text-sm text-primary">
-                {t("queue.selectedCount", { count: selectedIds.size })}
-              </span>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleBulkSuspend}
-                  disabled={bulkOperationLoading}
-                  className="px-3 py-1.5 bg-background border border-border rounded text-sm"
-                >
-                  {t("queue.suspend")}
-                </button>
-                <button
-                  onClick={handleBulkUnsuspend}
-                  disabled={bulkOperationLoading}
-                  className="px-3 py-1.5 bg-background border border-border rounded text-sm"
-                >
-                  {t("queue.unsuspend")}
-                </button>
-                <button
-                  onClick={handleBulkDelete}
-                  disabled={bulkOperationLoading}
-                  className="px-3 py-1.5 bg-destructive text-destructive-foreground rounded text-sm"
-                >
-                  {t("queue.delete")}
-                </button>
-              </div>
-            </div>
-          )}
+          {selectedIds.size > 0 && (() => {
+            const reviewBulkActions: BulkActionItem[] = [
+              {
+                id: "suspend",
+                label: t("queue.suspend"),
+                icon: <Pause className="w-3.5 h-3.5" />,
+                disabled: bulkOperationLoading,
+                onClick: handleBulkSuspend,
+              },
+              {
+                id: "unsuspend",
+                label: t("queue.unsuspend"),
+                icon: <Play className="w-3.5 h-3.5" />,
+                disabled: bulkOperationLoading,
+                onClick: handleBulkUnsuspend,
+              },
+              {
+                id: "delete",
+                label: t("queue.delete"),
+                icon: <Trash className="w-3.5 h-3.5" />,
+                variant: "destructive",
+                disabled: bulkOperationLoading,
+                onClick: handleBulkDelete,
+              },
+            ];
+
+            return (
+              <ResponsiveBulkActionBar
+                selectedCount={selectedIds.size}
+                selectedCountLabel={t("queue.selectedCount", { count: selectedIds.size })}
+                onClearSelection={clearSelection}
+                actions={reviewBulkActions}
+              />
+            );
+          })()}
 
           {customSubset && (
             <div className="mb-4 p-4 rounded-xl border border-blue-500/20 bg-gradient-to-r from-blue-500/5 to-indigo-500/5 dark:from-blue-500/10 dark:to-indigo-500/10 flex items-center justify-between shadow-sm animate-fadeIn">

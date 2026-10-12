@@ -3,6 +3,7 @@ import { Fragment, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useM
 import { createPortal } from "react-dom";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
+  Archive,
   BookmarkSimple,
   BookOpen,
   CaretLeft,
@@ -31,6 +32,7 @@ import {
   Sparkle,
   SpeakerHigh,
   Stack,
+  Tag,
   TextT,
   Trash,
   WarningCircle,
@@ -67,6 +69,8 @@ import { DocumentCardSkeleton, DocumentGridSkeleton } from "../common/Skeleton";
 import { DragDropUpload } from "../common/DragDropUpload";
 import { CompactTagEditor } from "../common/CompactTagEditor";
 import { ItemTagEditor } from "../common/ItemTagEditor";
+import { ResponsiveBulkActionBar, type BulkActionItem } from "../common/ResponsiveBulkActionBar";
+import { cn } from "../../utils/cn";
 import type { MarkdownBundle } from "../../utils/markdownBundleImport";
 import { useMarkdownBundleImport } from "../../hooks/useMarkdownBundleImport";
 import type { Document } from "../../types/document";
@@ -1587,82 +1591,85 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
           </div>
         )}
 
-        {selectedIds.size > 0 && (
-          <div className="mx-4 mt-4 p-3 bg-primary/10 border border-primary/20 rounded-md flex items-center justify-between">
-            <span className="text-sm text-primary">
-              {t("documentsView.selectedCount", { count: selectedIds.size })}
-            </span>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  const visibleIds = sortedDocuments.map((doc) => doc.id);
-                  const allSelected =
-                    visibleIds.length > 0 &&
-                    visibleIds.every((id) => selectedIds.has(id));
-                  if (allSelected) {
-                    clearDocumentSelection();
-                  } else {
-                    setSelectedIds(new Set(visibleIds));
-                    setSelectionAnchorId(null);
-                    setSelectionToggledIds(new Set());
-                  }
-                }}
-                className="px-3 py-1.5 bg-background border border-border rounded text-sm text-foreground hover:bg-muted"
-              >
-                {(() => {
-                  const visibleIds = sortedDocuments.map((doc) => doc.id);
-                  const allSelected =
-                    visibleIds.length > 0 &&
-                    visibleIds.every((id) => selectedIds.has(id));
-                  return allSelected
-                    ? t("documentsView.clearSelection")
-                    : t("documentsView.selectAll");
-                })()}
-              </button>
-              <button
-                onClick={handleBulkTag}
-                className="px-3 py-1.5 bg-background border border-border rounded text-sm text-foreground hover:bg-muted"
-              >
-                {t("documentsView.tag")}
-              </button>
-              <button
-                onClick={handleBulkMoveCollection}
-                className="px-3 py-1.5 bg-background border border-border rounded text-sm text-foreground hover:bg-muted"
-              >
-                {t("documentsView.move")}
-              </button>
-              <button
-                onClick={handleBulkReprioritize}
-                className="px-3 py-1.5 bg-background border border-border rounded text-sm text-foreground hover:bg-muted"
-              >
-                {t("documentsView.reprioritize")}
-              </button>
-              <button
-                onClick={() => void handleBulkSuspend()}
-                className="px-3 py-1.5 bg-background border border-border rounded text-sm text-foreground hover:bg-muted flex items-center gap-1"
-              >
-                <Pause className="w-3 h-3" />
-                {t("documentsView.suspend")}
-              </button>
-              <button
-                onClick={handleBulkArchive}
-                className="px-3 py-1.5 bg-muted text-foreground rounded text-sm hover:bg-muted/80"
-              >
-                {t("documentsView.archive")}
-              </button>
-              <button
-                onClick={handleBulkDelete}
-                className="px-3 py-1.5 bg-destructive text-destructive-foreground rounded text-sm hover:opacity-90 flex items-center gap-1"
-              >
-                <Trash className="w-3 h-3" />
-                {t("documentsView.delete")}
-              </button>
-            </div>
-          </div>
-        )}
+        {selectedIds.size > 0 && (() => {
+          const visibleIds = sortedDocuments.map((doc) => doc.id);
+          const allSelected =
+            visibleIds.length > 0 &&
+            visibleIds.every((id) => selectedIds.has(id));
+
+          const documentBulkActions: BulkActionItem[] = [
+            {
+              id: "select-all",
+              label: allSelected
+                ? t("documentsView.clearSelection")
+                : t("documentsView.selectAll"),
+              icon: <Check className="w-3.5 h-3.5" />,
+              onClick: () => {
+                if (allSelected) {
+                  clearDocumentSelection();
+                } else {
+                  setSelectedIds(new Set(visibleIds));
+                  setSelectionAnchorId(null);
+                  setSelectionToggledIds(new Set());
+                }
+              },
+            },
+            {
+              id: "tag",
+              label: t("documentsView.tag"),
+              icon: <Tag className="w-3.5 h-3.5" />,
+              onClick: handleBulkTag,
+            },
+            {
+              id: "move",
+              label: t("documentsView.move"),
+              icon: <FolderOpen className="w-3.5 h-3.5" />,
+              onClick: handleBulkMoveCollection,
+            },
+            {
+              id: "reprioritize",
+              label: t("documentsView.reprioritize"),
+              icon: <Flag className="w-3.5 h-3.5" />,
+              onClick: handleBulkReprioritize,
+            },
+            {
+              id: "suspend",
+              label: t("documentsView.suspend"),
+              icon: <Pause className="w-3.5 h-3.5" />,
+              onClick: () => void handleBulkSuspend(),
+            },
+            {
+              id: "archive",
+              label: t("documentsView.archive"),
+              icon: <Archive className="w-3.5 h-3.5" />,
+              variant: "muted",
+              onClick: handleBulkArchive,
+            },
+            {
+              id: "delete",
+              label: t("documentsView.delete"),
+              icon: <Trash className="w-3.5 h-3.5" />,
+              variant: "destructive",
+              onClick: handleBulkDelete,
+            },
+          ];
+
+          return (
+            <ResponsiveBulkActionBar
+              selectedCount={selectedIds.size}
+              selectedCountLabel={t("documentsView.selectedCount", { count: selectedIds.size })}
+              onClearSelection={clearDocumentSelection}
+              actions={documentBulkActions}
+              className="mx-4 mt-4"
+            />
+          );
+        })()}
 
         <div className="flex-1 flex overflow-hidden documents-layout">
-          <div ref={documentsScrollRef} className="flex-1 overflow-auto p-4 documents-content">
+          <div
+            ref={documentsScrollRef}
+            className={cn("flex-1 overflow-auto p-4 documents-content", selectedIds.size > 0 && "pb-28")}
+          >
             {!compactDocumentsView && error && hasCompletedFirstLoad && (
               <div className="mb-3 flex items-center justify-center gap-3 border-b border-border px-4 py-3 text-sm text-muted-foreground" role="status">
                 <span>{t("common.error")}</span>

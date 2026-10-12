@@ -1856,6 +1856,10 @@
 :root[data-presentation="phone"] .vimium-container,
 :root[data-presentation="tablet"] .vimium-container,
 :root[data-presentation="phone"] .import-progress-container,
-:root[data-presentation="tablet"] .import-progress-container {
+:root[data-presentation="tablet"] .import-progress-container,
+:root[data-presentation="phone"] .responsive-bulk-action-bar,
+:root[data-presentation="tablet"] .responsive-bulk-action-bar,
+:root[data-presentation="phone"] .bulk-action-bar-container,
+:root[data-presentation="tablet"] .bulk-action-bar-container {
   bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px)) !important;
 }
