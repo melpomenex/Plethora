@@ -6,7 +6,9 @@
  */
 
 import { useState, useCallback, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
+  ArrowLeft,
   ArrowsClockwise,
   ArrowSquareOut,
   BookOpen,
@@ -18,6 +20,7 @@ import {
   Globe,
   Link,
   ShieldWarning,
+  SlidersHorizontal,
   Sparkle,
   TextT,
   WarningCircle,
@@ -26,6 +29,7 @@ import {
 import { cn } from "../../utils";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useMobileShell } from "../../hooks/useMobileShell";
 import { useToast } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
 import type { Document } from "../../types/document";
@@ -83,6 +87,9 @@ export function WebArticleImportDialog({ isOpen, onClose, onOpenDocument }: WebA
   const [typedError, setTypedError] = useState<ArticleImportError | null>(null);
   const importAbortRef = useRef<AbortController | null>(null);
 
+  const isMobileShell = useMobileShell();
+  const [mobileTab, setMobileTab] = useState<'preview' | 'options'>('options');
+
   const { importFromUrl, importRawPageFromUrl, loadDocuments } = useDocumentStore();
   const { success: showSuccess, error: showError } = useToast();
 
@@ -116,6 +123,7 @@ export function WebArticleImportDialog({ isOpen, onClose, onOpenDocument }: WebA
       setImportFormat('html');
       setPipelineStage(null);
       setTypedError(null);
+      setMobileTab('options');
     }
   }, [isOpen]);
 
@@ -384,6 +392,7 @@ export function WebArticleImportDialog({ isOpen, onClose, onOpenDocument }: WebA
           siteName: extractSiteName(processedUrl),
           fetchMethod: 'direct',
         });
+        setMobileTab('preview');
         return;
       }
 
@@ -436,6 +445,7 @@ export function WebArticleImportDialog({ isOpen, onClose, onOpenDocument }: WebA
         favicon,
         fetchMethod,
       });
+      setMobileTab('preview');
 
       // Show CORS warning if we had to use a proxy
       if (fetchMethod === 'proxy' && !isTauri()) {
@@ -604,516 +614,642 @@ export function WebArticleImportDialog({ isOpen, onClose, onOpenDocument }: WebA
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="relative flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-background shadow-2xl">
+  const renderOptionsContent = () => (
+    <>
+      {/* URL Input */}
+      <div className="mb-6">
+        <label className="mb-2 block text-sm font-medium text-foreground">
+          {t("webImport.articleUrl")}
+        </label>
+        <div className="flex gap-2">
+          <div className="relative flex-1">
+            <Link className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={t("webImport.urlPlaceholder")}
+              className="w-full rounded-lg border border-border bg-background pl-10 pr-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+            />
+          </div>
+          <button
+            onClick={handleFetch}
+            disabled={isLoading || !url.trim()}
+            className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-2 shrink-0 min-h-[44px]"
+          >
+            {isLoading ? (
+              <CircleNotch className="h-4 w-4 animate-spin" />
+            ) : (
+              <Sparkle className="h-4 w-4" />
+            )}
+            {t("webImport.fetch")}
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          {t("webImport.fetchHelp")}
+        </p>
+      </div>
+
+      {/* PDF Format Switcher */}
+      {isPdf && (
+        <div className="mb-6 p-4 rounded-xl border border-primary/20 bg-primary/5 shadow-inner animate-in fade-in slide-in-from-top-2 duration-300">
+          <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-primary">
+            {t("webImport.importFormat")}
+          </label>
+          <div className="grid grid-cols-2 gap-2 p-1 rounded-lg bg-muted/60 border border-border">
+            <button
+              type="button"
+              onClick={() => setImportFormat('pdf')}
+              className={cn(
+                "rounded-md py-2 px-3 text-xs font-medium transition-all duration-200 min-h-[36px]",
+                importFormat === 'pdf'
+                  ? "bg-background text-foreground shadow-sm font-semibold border border-primary/10"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+              )}
+            >
+              {t("webImport.pdfDetected")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setImportFormat('html')}
+              className={cn(
+                "rounded-md py-2 px-3 text-xs font-medium transition-all duration-200 min-h-[36px]",
+                importFormat === 'html'
+                  ? "bg-background text-foreground shadow-sm font-semibold border border-primary/10"
+                  : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
+              )}
+            >
+              {t("webImport.formatHtml")}
+            </button>
+          </div>
+          <p className="mt-2.5 text-xs text-muted-foreground leading-normal">
+            {importFormat === 'pdf' 
+              ? t("webImport.formatPdfDesc")
+              : t("webImport.formatHtmlDesc")}
+          </p>
+        </div>
+      )}
+
+      {/* CORS Warning */}
+      {showCorsWarning && (
+        <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950">
+          <div className="flex items-start gap-2">
+            <ShieldWarning className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+            <div className="text-xs text-amber-800 dark:text-amber-200">
+              <strong>{t("webImport.corsProxyUsed")}</strong>
+              <p className="mt-0.5">
+                {t("webImport.corsProxyDesc")}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Tags */}
+      <div className="mb-6">
+        <label className="mb-2 block text-sm font-medium text-foreground">
+          {t("videoExtract.tags")}
+        </label>
+        <div className="flex flex-wrap gap-2 mb-3">
+          {tags.map((tag) => (
+            <span
+              key={tag}
+              className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"
+            >
+              {tag}
+              <button
+                type="button"
+                onClick={() => handleRemoveTag(tag)}
+                className="hover:text-primary/70 p-0.5"
+                aria-label={`Remove tag ${tag}`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={newTag}
+            onChange={(e) => setNewTag(e.target.value)}
+            onKeyDown={handleTagKeyDown}
+            placeholder={t("webImport.addTag")}
+            className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+          />
+          <button
+            type="button"
+            onClick={handleAddTag}
+            disabled={!newTag.trim()}
+            className="rounded-lg bg-muted px-3.5 py-2 text-sm font-medium text-foreground hover:bg-muted/80 disabled:opacity-50 min-h-[40px]"
+          >
+            {t("videoExtract.addBtn")}
+          </button>
+        </div>
+      </div>
+
+      {/* Quick tags */}
+      <div className="mb-6">
+        <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
+          {t("webImport.quickTags")}
+        </label>
+        <div className="flex flex-wrap gap-2">
+          {["article", "blog", "tutorial", "research", "news", "video"].map((tag) => (
+            <button
+              key={tag}
+              type="button"
+              onClick={() => {
+                if (!tags.includes(tag)) {
+                  setTags([...tags, tag]);
+                }
+              }}
+              disabled={tags.includes(tag)}
+              className="rounded-full border border-border bg-background px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors min-h-[32px]"
+            >
+              + {tag}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Error */}
+      {error && !isImporting && (
+        <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3">
+          <div className="flex items-start gap-2">
+            <WarningCircle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm text-destructive font-medium">{error}</p>
+              {errorDetails && (
+                <p className="text-xs text-destructive/80 mt-1">{errorDetails}</p>
+              )}
+              {typedError?.causeDetail && (
+                <p className="mt-1 font-mono text-[10px] text-destructive/60 break-all">
+                  {typedError.causeDetail}
+                </p>
+              )}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleImport}
+            disabled={isImporting || !preview}
+            className="mt-2 flex items-center gap-1 text-xs text-destructive hover:underline disabled:opacity-50"
+          >
+            <ArrowsClockwise className="h-3 w-3" />
+            {t("common.retry")}
+          </button>
+
+          {/* Explicit raw-page escape hatch */}
+          {typedError && importFormat !== 'pdf' && (
+            <div className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 p-2.5 dark:border-amber-700 dark:bg-amber-950">
+              <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
+                {t("webImport.importFullPage")}
+              </p>
+              <p className="mt-0.5 text-[11px] leading-snug text-amber-700/90 dark:text-amber-300/90">
+                {t("webImport.importFullPageDesc")}
+              </p>
+              <button
+                type="button"
+                onClick={handleImportRawPage}
+                disabled={isImporting}
+                className="mt-1.5 rounded-md border border-amber-400/70 bg-amber-100/60 px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-600 dark:bg-amber-900/60 dark:text-amber-100 dark:hover:bg-amber-900"
+              >
+                {t("webImport.importFullPage")}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+    </>
+  );
+
+  const renderImportButton = () => (
+    <button
+      type="button"
+      onClick={handleImport}
+      disabled={isImporting}
+      className={cn(
+        "w-full rounded-lg py-2.5 px-4 text-sm font-medium transition-all flex items-center justify-center gap-2 min-h-[44px]",
+        importSuccess
+          ? "bg-green-500 text-white"
+          : "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
+      )}
+    >
+      {isImporting ? (
+        <>
+          <CircleNotch className="h-4 w-4 animate-spin" />
+          {t("review.importing")}
+        </>
+      ) : importSuccess ? (
+        <>
+          <CheckCircle className="h-4 w-4" />
+          {t("webImport.importedSuccessfully")}
+        </>
+      ) : (
+        <>
+          <BookOpen className="h-4 w-4" />
+          {t("webImport.importToLibrary")}
+        </>
+      )}
+    </button>
+  );
+
+  const renderPreviewContent = () => {
+    if (isLoading || (isImporting && pipelineStage)) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center p-6 text-center">
+          <CircleNotch className="h-8 w-8 animate-spin text-primary mb-4" />
+          <p className="text-sm text-muted-foreground">
+            {stageLabel(pipelineStage) ?? t("webImport.fetchingArticle")}
+          </p>
+          <p className="text-xs text-muted-foreground mt-2">
+            {t("webImport.fetchingHelp")}
+          </p>
+        </div>
+      );
+    }
+
+    if (!preview) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center p-8 text-center">
+          <div className="mb-4 rounded-full bg-muted p-4">
+            <Globe className="h-8 w-8 text-muted-foreground" />
+          </div>
+          <h3 className="mb-2 text-lg font-medium text-foreground">
+            {t("webImport.emptyTitle")}
+          </h3>
+          <p className="max-w-sm text-sm text-muted-foreground">
+            {t("webImport.emptyDesc")}
+          </p>
+          <div className="mt-6 flex flex-wrap justify-center gap-2 text-xs text-muted-foreground">
+            <span className="rounded bg-muted px-2 py-1">Medium</span>
+            <span className="rounded bg-muted px-2 py-1">Substack</span>
+            <span className="rounded bg-muted px-2 py-1">Wikipedia</span>
+            <span className="rounded bg-muted px-2 py-1">{t("webImport.moreExamples")}</span>
+          </div>
+          {!isTauri() && (
+            <div className="mt-4 text-xs text-amber-600 dark:text-amber-400 max-w-sm">
+              <strong>{t("webImport.note")}</strong> {t("webImport.browserModeNote")}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    return (
+      <div className="flex flex-col h-full overflow-hidden min-h-0">
+        {/* Preview header */}
+        <div className="border-b border-border bg-card p-4 sm:p-5 shrink-0">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1 min-w-0">
+              <input
+                type="text"
+                value={preview.title}
+                onChange={(e) => setPreview(prev => prev ? { ...prev, title: e.target.value } : null)}
+                className="w-full bg-transparent border-b border-transparent hover:border-border focus:border-primary focus:outline-none text-lg sm:text-xl font-semibold text-foreground py-0.5 transition-colors mb-1"
+                placeholder="Document Title"
+              />
+              {preview.author && (
+                <p className="mb-2 text-xs sm:text-sm text-muted-foreground">
+                  {t("webImport.byAuthor", { author: preview.author })}
+                </p>
+              )}
+              <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-xs text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <Globe className="h-3 w-3" />
+                  {preview.siteName}
+                </span>
+                {importFormat !== 'pdf' && (
+                  <>
+                    <span>•</span>
+                    <span className="flex items-center gap-1">
+                      <TextT className="h-3 w-3" />
+                      {t("webImport.wordCount", { count: preview.wordCount.toLocaleString() })}
+                    </span>
+                    <span>•</span>
+                    <span className="flex items-center gap-1">
+                      <Clock className="h-3 w-3" />
+                      {t("webImport.minRead", { count: preview.readingTime })}
+                    </span>
+                  </>
+                )}
+                {preview.fetchMethod === 'proxy' && (
+                  <>
+                    <span>•</span>
+                    <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                      <ShieldWarning className="h-3 w-3" />
+                      {t("webImport.viaProxy")}
+                    </span>
+                  </>
+                )}
+              </div>
+            </div>
+            <a
+              href={preview.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-lg border border-border p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors shrink-0 min-h-[40px] min-w-[40px] flex items-center justify-center"
+              title={t("webImport.openOriginal")}
+              aria-label={t("webImport.openOriginal")}
+            >
+              <ArrowSquareOut className="h-4 w-4" />
+            </a>
+          </div>
+
+          {preview.description && (
+            <p className="mt-3 text-xs sm:text-sm text-muted-foreground line-clamp-3">
+              {preview.description}
+            </p>
+          )}
+
+          {/* Tags preview */}
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            {tags.map((tag) => (
+              <span
+                key={tag}
+                className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+
+          {/* Preview mode toggle */}
+          {importFormat !== 'pdf' && (
+            <div className="mt-3 sm:mt-4 flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">{t("webImport.previewMode")}</span>
+              <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
+                <button
+                  type="button"
+                  onClick={() => setPreviewMode('rendered')}
+                  className={cn(
+                    "flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors min-h-[28px]",
+                    previewMode === 'rendered' 
+                      ? "bg-card text-foreground shadow-sm font-semibold" 
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Eye className="h-3 w-3" />
+                  {t("webImport.rendered")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewMode('text')}
+                  className={cn(
+                    "flex items-center gap-1 px-2.5 py-1 rounded text-xs transition-colors min-h-[28px]",
+                    previewMode === 'text' 
+                      ? "bg-card text-foreground shadow-sm font-semibold" 
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <Code className="h-3 w-3" />
+                  {t("webImport.text")}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Content preview */}
+        <div className="flex-1 overflow-hidden min-h-0 bg-card">
+          {importFormat === 'pdf' ? (
+            <div className="flex h-full overflow-y-auto flex-col items-center justify-start sm:justify-center p-5 sm:p-8 text-center bg-gradient-to-br from-card/30 to-card">
+              <div className="relative mb-6 group">
+                <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-red-600 to-pink-600 opacity-25 blur-xl transition duration-1000 group-hover:opacity-40 group-hover:duration-200" />
+                <div className="relative flex h-24 w-20 flex-col items-center justify-between rounded-xl border border-red-500/20 bg-card p-3 shadow-2xl transition-transform duration-300 group-hover:scale-105">
+                  <div className="self-start text-[10px] font-extrabold text-red-500 tracking-wider">PDF</div>
+                  <TextT className="h-10 w-10 text-red-500" />
+                  <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                    <div className="h-full w-2/3 bg-red-500 rounded-full animate-pulse" />
+                  </div>
+                </div>
+              </div>
+
+              <h4 className="mb-2 text-lg font-bold text-foreground tracking-tight">
+                {t("webImport.pdfPreview")}
+              </h4>
+              <p className="max-w-sm text-sm text-muted-foreground leading-relaxed mb-6">
+                {t("webImport.pdfDetectedDesc")}
+              </p>
+
+              <div className="w-full max-w-md rounded-xl border border-border bg-card/60 backdrop-blur-sm p-4 text-left shadow-lg space-y-3">
+                <div className="flex items-center justify-between text-xs text-muted-foreground pb-2 border-b border-border">
+                  <span>Format</span>
+                  <span className="font-semibold text-red-500 uppercase">Acrobat PDF</span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-muted-foreground pb-2 border-b border-border">
+                  <span>Source</span>
+                  <a
+                    href={preview.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-primary hover:underline truncate max-w-[250px] inline-flex items-center gap-1"
+                  >
+                    {preview.siteName}
+                    <ArrowSquareOut className="h-3 w-3 inline" />
+                  </a>
+                </div>
+                
+                <div className="pt-2">
+                  <div className="text-xs font-semibold text-foreground mb-2">High-Fidelity Reader Advantages:</div>
+                  <ul className="space-y-1.5 text-xs text-muted-foreground">
+                    <li className="flex items-center gap-2">
+                      <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                      Preserves mathematical equations (LaTeX) & layout
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                      High-quality vector chart & image scaling
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                      Offline local file persistence
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
+                      Direct support for integrated PDF reader annotations
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          ) : previewMode === 'rendered' && preview.processedHtml ? (
+            <iframe
+              ref={iframeRef}
+              srcDoc={preview.processedHtml}
+              className="w-full h-full border-0 bg-card"
+              sandbox="allow-same-origin allow-scripts"
+              title={t("webImport.articlePreview")}
+            />
+          ) : (
+            <div className="h-full overflow-y-auto p-4 sm:p-5">
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                {preview.text ? (
+                  <div className="text-muted-foreground leading-relaxed whitespace-pre-wrap">
+                    {preview.text.substring(0, 5000)}
+                    {preview.text.length > 5000 && (
+                      <span className="text-muted-foreground/50">
+                        {`\n\n`}... {t("webImport.contentTruncated")}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-muted-foreground italic">
+                    {t("webImport.noTextPreview")}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  return createPortal(
+    <div
+      className={cn(
+        "fixed inset-0 z-50 flex flex-col",
+        isMobileShell
+          ? "bg-black/80 backdrop-blur-sm pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)]"
+          : "items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      )}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("webImport.title")}
+        className={cn(
+          "relative flex w-full flex-col overflow-hidden bg-card text-card-foreground border border-border modal-content shadow-2xl",
+          isMobileShell
+            ? "h-full rounded-none border-0"
+            : "h-[90vh] max-w-6xl rounded-xl"
+        )}
+      >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-border bg-card px-6 py-4">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10">
+        <div
+          className={cn(
+            "flex items-center justify-between border-b border-border bg-card shrink-0",
+            isMobileShell ? "px-4 py-3" : "px-6 py-4"
+          )}
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            {isMobileShell && (
+              <button
+                type="button"
+                onClick={onClose}
+                className="-ml-1 rounded-full p-2 text-foreground hover:bg-muted active:scale-95 transition min-h-[44px] min-w-[44px] flex items-center justify-center shrink-0"
+                aria-label={t("common.back") || "Back"}
+              >
+                <ArrowLeft className="h-5 w-5" />
+              </button>
+            )}
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-500/10 shrink-0">
               <Globe className="h-5 w-5 text-blue-500" />
             </div>
-            <div>
-              <h2 className="text-lg font-semibold text-foreground">{t("webImport.title")}</h2>
-              <p className="text-sm text-muted-foreground">
-                {t("webImport.subtitle")}
+            <div className="min-w-0">
+              <h2 className="text-base sm:text-lg font-semibold text-foreground truncate">
+                {t("webImport.title")}
+              </h2>
+              <p className="text-xs sm:text-sm text-muted-foreground truncate">
+                {isMobileShell && preview ? (preview.siteName || preview.title) : t("webImport.subtitle")}
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+            className="rounded-lg p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors min-h-[44px] min-w-[44px] flex items-center justify-center shrink-0"
+            aria-label={t("common.close") || "Close"}
           >
             <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Main content */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Left panel - URL input and options */}
-          <div className="flex w-96 flex-col border-r border-border bg-card/50">
-            <div className="flex-1 overflow-y-auto p-5">
-              {/* URL Input */}
-              <div className="mb-6">
-                <label className="mb-2 block text-sm font-medium text-foreground">
-                  {t("webImport.articleUrl")}
-                </label>
-                <div className="flex gap-2">
-                  <div className="relative flex-1">
-                    <Link className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <input
-                      type="text"
-                      value={url}
-                      onChange={(e) => setUrl(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      placeholder={t("webImport.urlPlaceholder")}
-                      className="w-full rounded-lg border border-border bg-background pl-10 pr-4 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                    />
-                  </div>
-                  <button
-                    onClick={handleFetch}
-                    disabled={isLoading || !url.trim()}
-                    className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity flex items-center gap-2"
-                  >
-                    {isLoading ? (
-                      <CircleNotch className="h-4 w-4 animate-spin" />
-                    ) : (
-                      <Sparkle className="h-4 w-4" />
-                    )}
-                    {t("webImport.fetch")}
-                  </button>
-                </div>
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {t("webImport.fetchHelp")}
-                </p>
-              </div>
-
-              {/* PDF Format Switcher */}
-              {isPdf && (
-                <div className="mb-6 p-4 rounded-xl border border-primary/20 bg-primary/5 shadow-inner animate-in fade-in slide-in-from-top-2 duration-300">
-                  <label className="mb-2 block text-xs font-semibold uppercase tracking-wider text-primary">
-                    {t("webImport.importFormat")}
-                  </label>
-                  <div className="grid grid-cols-2 gap-2 p-1 rounded-lg bg-muted/60 border border-border">
-                    <button
-                      type="button"
-                      onClick={() => setImportFormat('pdf')}
-                      className={cn(
-                        "rounded-md py-2 px-3 text-xs font-medium transition-all duration-200",
-                        importFormat === 'pdf'
-                          ? "bg-background text-foreground shadow-sm font-semibold border border-primary/10"
-                          : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-                      )}
-                    >
-                      {t("webImport.pdfDetected")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setImportFormat('html')}
-                      className={cn(
-                        "rounded-md py-2 px-3 text-xs font-medium transition-all duration-200",
-                        importFormat === 'html'
-                          ? "bg-background text-foreground shadow-sm font-semibold border border-primary/10"
-                          : "text-muted-foreground hover:text-foreground hover:bg-muted/40"
-                      )}
-                    >
-                      {t("webImport.formatHtml")}
-                    </button>
-                  </div>
-                  <p className="mt-2.5 text-xs text-muted-foreground leading-normal">
-                    {importFormat === 'pdf' 
-                      ? t("webImport.formatPdfDesc")
-                      : t("webImport.formatHtmlDesc")}
-                  </p>
-                </div>
-              )}
-
-              {/* CORS Warning */}
-              {showCorsWarning && (
-                <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950">
-                  <div className="flex items-start gap-2">
-                    <ShieldWarning className="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-                    <div className="text-xs text-amber-800 dark:text-amber-200">
-                      <strong>{t("webImport.corsProxyUsed")}</strong>
-                      <p className="mt-0.5">
-                        {t("webImport.corsProxyDesc")}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Tags */}
-              <div className="mb-6">
-                <label className="mb-2 block text-sm font-medium text-foreground">
-                  {t("videoExtract.tags")}
-                </label>
-                <div className="flex flex-wrap gap-2 mb-3">
-                  {tags.map((tag) => (
-                    <span
-                      key={tag}
-                      className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary"
-                    >
-                      {tag}
-                      <button
-                        onClick={() => handleRemoveTag(tag)}
-                        className="hover:text-primary/70"
-                      >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newTag}
-                    onChange={(e) => setNewTag(e.target.value)}
-                    onKeyDown={handleTagKeyDown}
-                    placeholder={t("webImport.addTag")}
-                    className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                  />
-                  <button
-                    onClick={handleAddTag}
-                    disabled={!newTag.trim()}
-                    className="rounded-lg bg-muted px-3 py-2 text-sm font-medium text-foreground hover:bg-muted/80 disabled:opacity-50"
-                  >
-                    {t("videoExtract.addBtn")}
-                  </button>
-                </div>
-              </div>
-
-              {/* Quick tags */}
-              <div className="mb-6">
-                <label className="mb-2 block text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  {t("webImport.quickTags")}
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {["article", "blog", "tutorial", "research", "news", "video"].map((tag) => (
-                    <button
-                      key={tag}
-                      onClick={() => {
-                        if (!tags.includes(tag)) {
-                          setTags([...tags, tag]);
-                        }
-                      }}
-                      disabled={tags.includes(tag)}
-                      className="rounded-full border border-border bg-background px-3 py-1 text-xs text-muted-foreground hover:bg-muted disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                      + {tag}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Error */}
-              {error && !isImporting && (
-                <div className="rounded-lg border border-destructive/20 bg-destructive/10 p-3">
-                  <div className="flex items-start gap-2">
-                    <WarningCircle className="h-4 w-4 text-destructive flex-shrink-0 mt-0.5" />
-                    <div className="flex-1">
-                      <p className="text-sm text-destructive font-medium">{error}</p>
-                      {errorDetails && (
-                        <p className="text-xs text-destructive/80 mt-1">{errorDetails}</p>
-                      )}
-                      {typedError?.causeDetail && (
-                        <p className="mt-1 font-mono text-[10px] text-destructive/60 break-all">
-                          {typedError.causeDetail}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <button
-                    onClick={handleImport}
-                    disabled={isImporting || !preview}
-                    className="mt-2 flex items-center gap-1 text-xs text-destructive hover:underline disabled:opacity-50"
-                  >
-                    <ArrowsClockwise className="h-3 w-3" />
-                    {t("common.retry")}
-                  </button>
-
-                  {/* Explicit raw-page escape hatch — offered only after a
-                      typed pipeline failure, never invoked automatically. */}
-                  {typedError && importFormat !== 'pdf' && (
-                    <div className="mt-3 rounded-lg border border-amber-300/60 bg-amber-50 p-2.5 dark:border-amber-700 dark:bg-amber-950">
-                      <p className="text-xs font-medium text-amber-800 dark:text-amber-200">
-                        {t("webImport.importFullPage")}
-                      </p>
-                      <p className="mt-0.5 text-[11px] leading-snug text-amber-700/90 dark:text-amber-300/90">
-                        {t("webImport.importFullPageDesc")}
-                      </p>
-                      <button
-                        onClick={handleImportRawPage}
-                        disabled={isImporting}
-                        className="mt-1.5 rounded-md border border-amber-400/70 bg-amber-100/60 px-2.5 py-1 text-[11px] font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50 dark:border-amber-600 dark:bg-amber-900/60 dark:text-amber-100 dark:hover:bg-amber-900"
-                      >
-                        {t("webImport.importFullPage")}
-                      </button>
-                    </div>
+        {/* Content: Mobile vs Desktop */}
+        {isMobileShell ? (
+          <div className="flex flex-1 flex-col overflow-hidden min-h-0 bg-card">
+            {/* Mobile Sub-Header when preview is active */}
+            {preview && !isLoading && !(isImporting && pipelineStage) && (
+              <div className="flex border-b border-border bg-muted/40 p-1.5 gap-1 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setMobileTab('preview')}
+                  className={cn(
+                    "flex-1 py-1.5 px-3 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1.5 min-h-[36px]",
+                    mobileTab === 'preview'
+                      ? "bg-card text-foreground shadow-sm font-semibold border border-border/50"
+                      : "text-muted-foreground hover:text-foreground"
                   )}
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                  <span>{t("webImport.preview")}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMobileTab('options')}
+                  className={cn(
+                    "flex-1 py-1.5 px-3 rounded-lg text-xs font-medium transition-colors flex items-center justify-center gap-1.5 min-h-[36px]",
+                    mobileTab === 'options'
+                      ? "bg-card text-foreground shadow-sm font-semibold border border-border/50"
+                      : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  <SlidersHorizontal className="h-3.5 w-3.5" />
+                  <span>{t("webImport.options") || "Settings"} ({tags.length})</span>
+                </button>
+              </div>
+            )}
+
+            {/* Mobile Body */}
+            <div className="flex-1 overflow-hidden flex flex-col min-h-0 bg-card">
+              {isLoading || (isImporting && pipelineStage) ? (
+                renderPreviewContent()
+              ) : !preview ? (
+                <div className="flex-1 overflow-y-auto p-4 space-y-5">
+                  {renderOptionsContent()}
+                </div>
+              ) : mobileTab === 'preview' ? (
+                <div className="flex-1 flex flex-col overflow-hidden min-h-0">
+                  {renderPreviewContent()}
+                </div>
+              ) : (
+                <div className="flex-1 overflow-y-auto p-4 space-y-5">
+                  {renderOptionsContent()}
                 </div>
               )}
             </div>
 
-            {/* Import button */}
-            {preview && (
-              <div className="border-t border-border p-5">
-                <button
-                  onClick={handleImport}
-                  disabled={isImporting}
-                  className={cn(
-                    "w-full rounded-lg py-2.5 text-sm font-medium transition-all flex items-center justify-center gap-2",
-                    importSuccess
-                      ? "bg-green-500 text-white"
-                      : "bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50"
-                  )}
-                >
-                  {isImporting ? (
-                    <>
-                      <CircleNotch className="h-4 w-4 animate-spin" />
-                      {t("review.importing")}
-                    </>
-                  ) : importSuccess ? (
-                    <>
-                      <CheckCircle className="h-4 w-4" />
-                      {t("webImport.importedSuccessfully")}
-                    </>
-                  ) : (
-                    <>
-                      <BookOpen className="h-4 w-4" />
-                      {t("webImport.importToLibrary")}
-                    </>
-                  )}
-                </button>
+            {/* Mobile Sticky Footer */}
+            {preview && !isLoading && !(isImporting && pipelineStage) && (
+              <div className="border-t border-border bg-card p-3 shrink-0">
+                {renderImportButton()}
               </div>
             )}
           </div>
-
-          {/* Right panel - Preview */}
-          <div className="flex flex-1 flex-col overflow-hidden bg-background">
-            {isLoading || (isImporting && pipelineStage) ? (
-              <div className="flex h-full flex-col items-center justify-center">
-                <CircleNotch className="h-8 w-8 animate-spin text-primary mb-4" />
-                <p className="text-sm text-muted-foreground">
-                  {stageLabel(pipelineStage) ?? t("webImport.fetchingArticle")}
-                </p>
-                <p className="text-xs text-muted-foreground mt-2">
-                  {t("webImport.fetchingHelp")}
-                </p>
+        ) : (
+          <div className="flex flex-1 overflow-hidden min-h-0">
+            {/* Desktop Left panel */}
+            <div className="flex w-96 shrink-0 flex-col border-r border-border bg-card/60">
+              <div className="flex-1 overflow-y-auto p-5">
+                {renderOptionsContent()}
               </div>
-            ) : !preview ? (
-              <div className="flex h-full flex-col items-center justify-center p-8 text-center">
-                <div className="mb-4 rounded-full bg-muted p-4">
-                  <Globe className="h-8 w-8 text-muted-foreground" />
+              {preview && (
+                <div className="border-t border-border p-5">
+                  {renderImportButton()}
                 </div>
-                <h3 className="mb-2 text-lg font-medium text-foreground">
-                  {t("webImport.emptyTitle")}
-                </h3>
-                <p className="max-w-sm text-sm text-muted-foreground">
-                  {t("webImport.emptyDesc")}
-                </p>
-                <div className="mt-6 flex flex-wrap justify-center gap-2 text-xs text-muted-foreground">
-                  <span className="rounded bg-muted px-2 py-1">Medium</span>
-                  <span className="rounded bg-muted px-2 py-1">Substack</span>
-                  <span className="rounded bg-muted px-2 py-1">Wikipedia</span>
-                  <span className="rounded bg-muted px-2 py-1">{t("webImport.moreExamples")}</span>
-                </div>
-                {!isTauri() && (
-                  <div className="mt-4 text-xs text-amber-600 dark:text-amber-400 max-w-sm">
-                    <strong>{t("webImport.note")}</strong> {t("webImport.browserModeNote")}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="flex flex-col h-full overflow-hidden">
-                {/* Preview header */}
-                <div className="border-b border-border bg-card p-5">
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="flex-1 min-w-0">
-                      <input
-                        type="text"
-                        value={preview.title}
-                        onChange={(e) => setPreview(prev => prev ? { ...prev, title: e.target.value } : null)}
-                        className="w-full bg-transparent border-b border-transparent hover:border-border focus:border-primary focus:outline-none text-xl font-semibold text-foreground py-0.5 transition-colors mb-1"
-                        placeholder="Document Title"
-                      />
-                      {preview.author && (
-                        <p className="mb-2 text-sm text-muted-foreground">
-                          {t("webImport.byAuthor", { author: preview.author })}
-                        </p>
-                      )}
-                      <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <Globe className="h-3 w-3" />
-                          {preview.siteName}
-                        </span>
-                        {importFormat !== 'pdf' && (
-                          <>
-                            <span>•</span>
-                            <span className="flex items-center gap-1">
-                              <TextT className="h-3 w-3" />
-                              {t("webImport.wordCount", { count: preview.wordCount.toLocaleString() })}
-                            </span>
-                            <span>•</span>
-                            <span className="flex items-center gap-1">
-                              <Clock className="h-3 w-3" />
-                              {t("webImport.minRead", { count: preview.readingTime })}
-                            </span>
-                          </>
-                        )}
-                        {preview.fetchMethod === 'proxy' && (
-                          <>
-                            <span>•</span>
-                            <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
-                              <ShieldWarning className="h-3 w-3" />
-                              {t("webImport.viaProxy")}
-                            </span>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                    <a
-                      href={preview.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="rounded-lg border border-border p-2 text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                      title={t("webImport.openOriginal")}
-                    >
-                      <ArrowSquareOut className="h-4 w-4" />
-                    </a>
-                  </div>
+              )}
+            </div>
 
-                  {preview.description && (
-                    <p className="mt-3 text-sm text-muted-foreground line-clamp-3">
-                      {preview.description}
-                    </p>
-                  )}
-
-                  {/* Tags preview */}
-                  <div className="mt-3 flex flex-wrap gap-1.5">
-                    {tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="rounded-full bg-primary/10 px-2 py-0.5 text-xs text-primary"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-
-                  {/* Preview mode toggle */}
-                  {importFormat !== 'pdf' && (
-                    <div className="mt-4 flex items-center gap-2">
-                      <span className="text-xs text-muted-foreground">{t("webImport.previewMode")}</span>
-                      <div className="flex items-center gap-1 bg-muted rounded-lg p-1">
-                        <button
-                          onClick={() => setPreviewMode('rendered')}
-                          className={cn(
-                            "flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors",
-                            previewMode === 'rendered' 
-                              ? "bg-background text-foreground shadow-sm" 
-                              : "text-muted-foreground hover:text-foreground"
-                          )}
-                        >
-                          <Eye className="h-3 w-3" />
-                          {t("webImport.rendered")}
-                        </button>
-                        <button
-                          onClick={() => setPreviewMode('text')}
-                          className={cn(
-                            "flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors",
-                            previewMode === 'text' 
-                              ? "bg-background text-foreground shadow-sm" 
-                              : "text-muted-foreground hover:text-foreground"
-                          )}
-                        >
-                          <Code className="h-3 w-3" />
-                          {t("webImport.text")}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Content preview */}
-                <div className="flex-1 overflow-hidden bg-background">
-                  {importFormat === 'pdf' ? (
-                    <div className="flex h-full flex-col items-center justify-center p-8 text-center bg-gradient-to-br from-card/30 to-background">
-                      <div className="relative mb-6 group">
-                        {/* Premium Glowing Crimson Effect */}
-                        <div className="absolute -inset-1 rounded-2xl bg-gradient-to-r from-red-600 to-pink-600 opacity-25 blur-xl transition duration-1000 group-hover:opacity-40 group-hover:duration-200" />
-                        <div className="relative flex h-24 w-20 flex-col items-center justify-between rounded-xl border border-red-500/20 bg-card p-3 shadow-2xl transition-transform duration-300 group-hover:scale-105">
-                          <div className="self-start text-[10px] font-extrabold text-red-500 tracking-wider">PDF</div>
-                          <TextT className="h-10 w-10 text-red-500" />
-                          <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                            <div className="h-full w-2/3 bg-red-500 rounded-full animate-pulse" />
-                          </div>
-                        </div>
-                      </div>
-
-                      <h4 className="mb-2 text-lg font-bold text-foreground tracking-tight">
-                        {t("webImport.pdfPreview")}
-                      </h4>
-                      <p className="max-w-sm text-sm text-muted-foreground leading-relaxed mb-6">
-                        {t("webImport.pdfDetectedDesc")}
-                      </p>
-
-                      {/* Direct link button / details */}
-                      <div className="w-full max-w-md rounded-xl border border-border bg-card/60 backdrop-blur-sm p-4 text-left shadow-lg space-y-3">
-                        <div className="flex items-center justify-between text-xs text-muted-foreground pb-2 border-b border-border">
-                          <span>Format</span>
-                          <span className="font-semibold text-red-500 uppercase">Acrobat PDF</span>
-                        </div>
-                        <div className="flex items-center justify-between text-xs text-muted-foreground pb-2 border-b border-border">
-                          <span>Source</span>
-                          <a
-                            href={preview.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="font-medium text-primary hover:underline truncate max-w-[250px] inline-flex items-center gap-1"
-                          >
-                            {preview.siteName}
-                            <ArrowSquareOut className="h-3 w-3 inline" />
-                          </a>
-                        </div>
-                        
-                        <div className="pt-2">
-                          <div className="text-xs font-semibold text-foreground mb-2">High-Fidelity Reader Advantages:</div>
-                          <ul className="space-y-1.5 text-xs text-muted-foreground">
-                            <li className="flex items-center gap-2">
-                              <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
-                              Preserves mathematical equations (LaTeX) & layout
-                            </li>
-                            <li className="flex items-center gap-2">
-                              <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
-                              High-quality vector chart & image scaling
-                            </li>
-                            <li className="flex items-center gap-2">
-                              <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
-                              Offline local file persistence
-                            </li>
-                            <li className="flex items-center gap-2">
-                              <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
-                              Direct support for integrated PDF reader annotations
-                            </li>
-                          </ul>
-                        </div>
-                      </div>
-                    </div>
-                  ) : previewMode === 'rendered' && preview.processedHtml ? (
-                    <iframe
-                      ref={iframeRef}
-                      srcDoc={preview.processedHtml}
-                      className="w-full h-full border-0"
-                      sandbox="allow-same-origin allow-scripts"
-                      title={t("webImport.articlePreview")}
-                    />
-                  ) : (
-                    <div className="h-full overflow-y-auto p-5">
-                      <div className="prose prose-sm dark:prose-invert max-w-none">
-                        {preview.text ? (
-                          <div className="text-muted-foreground leading-relaxed whitespace-pre-wrap">
-                            {preview.text.substring(0, 5000)}
-                            {preview.text.length > 5000 && (
-                              <span className="text-muted-foreground/50">
-                                {`\n\n`}... {t("webImport.contentTruncated")}
-                              </span>
-                            )}
-                          </div>
-                        ) : (
-                          <p className="text-muted-foreground italic">
-                            {t("webImport.noTextPreview")}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
+            {/* Desktop Right panel - Preview */}
+            <div className="flex flex-1 flex-col overflow-hidden bg-card/30 min-h-0">
+              {renderPreviewContent()}
+            </div>
           </div>
-        </div>
+        )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

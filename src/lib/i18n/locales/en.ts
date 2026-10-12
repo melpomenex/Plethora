@@ -4828,6 +4828,8 @@ export const en: Dict = {
     "This URL points directly to a PDF file. Select how you would like to import it.",
   "webImport.pdfPreview": "PDF Document Preview",
   "webImport.pdfSelectedTitle": "Importing: {filename}",
+  "webImport.preview": "Preview",
+  "webImport.options": "Settings",
   "mobileNav.closeMenu": "Close menu",
   "mobileNav.closeSettings": "Close settings",
   "mobileNav.appStatus": "App Status",
