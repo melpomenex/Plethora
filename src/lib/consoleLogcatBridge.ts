@@ -16,8 +16,10 @@
  */
 
 import { isNativeMobile } from "./tauri";
+import { ANDROID_STARTUP_TRACE_PREFIX } from "./startupDiagnostics";
 
 const installed = Symbol("plethora.consoleLogcatBridge.installed");
+let installing: Promise<boolean> | undefined;
 
 interface ConsoleWithFlag extends Console {
   [installed]?: boolean;
@@ -31,14 +33,24 @@ export async function installConsoleLogcatBridge(): Promise<boolean> {
   if (!isNativeMobile()) return false;
   const c = console as ConsoleWithFlag;
   if (c[installed]) return false;
+  if (installing) return installing;
+  installing = installForwarder(c).finally(() => { installing = undefined; });
+  return installing;
+}
 
+async function installForwarder(c: ConsoleWithFlag): Promise<boolean> {
   // Lazy-import so desktop builds never pull the plugin into the bundle.
   const log = await import("@tauri-apps/plugin-log");
 
+  let pending = false;
   const forward =
-    (level: "trace" | "debug" | "info" | "warn" | "error") =>
+    (level: "debug" | "info" | "warn" | "error", original: (...args: unknown[]) => void) =>
     (...args: unknown[]) => {
       try {
+        original(...args);
+        // A hung invoke retains at most one request, with no queue. Startup
+        // traces have their own native console channel and never re-enter IPC.
+        if (pending || String(args[0]).startsWith(ANDROID_STARTUP_TRACE_PREFIX)) return;
         // Coerce args to a single string. Objects are JSON-encoded when safe;
         // unstringifiable values fall back to String().
         const text = args
@@ -50,10 +62,12 @@ export async function installConsoleLogcatBridge(): Promise<boolean> {
               return String(a);
             }
           })
-          .join(" ");
+          .join(" ").slice(0, 4096);
         // Fire-and-forget; never await on the logging hot path.
-        void log[level](text).catch(() => {});
+        pending = true;
+        void log[level](text).catch(() => {}).finally(() => { pending = false; });
       } catch {
+        pending = false;
         // Swallow — logging must never throw.
       }
     };
@@ -66,22 +80,18 @@ export async function installConsoleLogcatBridge(): Promise<boolean> {
     debug: console.debug.bind(console),
   };
 
-  console.log = forward("info");
-  console.info = forward("info");
-  console.warn = forward("warn");
-  console.error = forward("error");
-  console.debug = forward("debug");
+  console.log = forward("info", orig.log);
+  console.info = forward("info", orig.info);
+  console.warn = forward("warn", orig.warn);
+  console.error = forward("error", orig.error);
+  console.debug = forward("debug", orig.debug);
 
   // Keep a reference for debugging / teardown if ever needed.
   (console as ConsoleWithFlag & { __plethoraOrigConsole?: typeof orig }).__plethoraOrigConsole = orig;
   c[installed] = true;
 
   // Emit a marker so it's easy to confirm the bridge is live in logcat.
-  try {
-    await log.info("[consoleLogcatBridge] installed — JS console now forwarding to logcat");
-  } catch {
-    /* ignore */
-  }
+  console.info("[consoleLogcatBridge] installed");
 
   return true;
 }

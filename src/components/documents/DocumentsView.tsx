@@ -106,7 +106,7 @@ import { useMobileShell } from "../../hooks/useMobileShell";
 import { useLongPress } from "../../hooks/useLongPress";
 import { useIsActiveTab } from "../common/Tabs";
 import { invokeCommand, isTauri, isNativeAndroid, isNativeMobile } from "../../lib/tauri";
-import { recordAndroidStartupDiagnostic } from "../../lib/startupDiagnostics";
+import { observeAndroidStartupSurface } from "../../lib/startupDiagnostics";
 import { renderPdfCover } from "../../lib/pdfCoverRender";
 import { importAnkiPackageFromPicker, inferAnkiDeckNames } from "../../utils/ankiImport";
 import { useI18n } from "../../lib/i18n";
@@ -366,7 +366,6 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
 
   const searchRef = useRef<HTMLInputElement>(null);
-  const reportedStartupCollectionRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isActiveTab) return;
@@ -379,18 +378,13 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   }, [isActiveTab, loadDocuments, activeCollectionId]);
 
   useEffect(() => {
-    if (!hasCompletedFirstLoad) {
-      reportedStartupCollectionRef.current = null;
-      return;
-    }
-    if (!isNativeAndroid() || reportedStartupCollectionRef.current === activeCollectionId) return;
-    reportedStartupCollectionRef.current = activeCollectionId;
-    recordAndroidStartupDiagnostic("surface-ready", {
+    if (!hasCompletedFirstLoad || isLoading || error || !isNativeAndroid() || !isActiveTab) return;
+    return observeAndroidStartupSurface({
       surface: "documents",
       outcome: documents.length > 0 ? "populated" : "empty",
       documents: documents.length,
     });
-  }, [activeCollectionId, documents.length, hasCompletedFirstLoad]);
+  }, [activeCollectionId, hasCompletedFirstLoad, isActiveTab, isLoading, error]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {

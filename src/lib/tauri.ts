@@ -30,6 +30,28 @@ let tauriApiLoadPromise: Promise<void> | null = null;
 let backendReadyPromise: Promise<void> | null = null;
 let androidBackendReadyStartedAt: number | null = null;
 let androidBackendReadyReported = false;
+let startupCommandRequest = 0;
+
+async function invokeWithStartupTrace(command: string, args?: Record<string, unknown>): Promise<unknown> {
+  if (!isNativeAndroid() || (command !== "wait_for_backend_ready" && command !== "get_startup_snapshot")) {
+    return args === undefined ? tauriInvoke!(command) : tauriInvoke!(command, args);
+  }
+  const request = ++startupCommandRequest;
+  const startedAt = performance.now();
+  recordAndroidStartupDiagnostic("command-dispatch", { command, request });
+  try {
+    const result = await (args === undefined ? tauriInvoke!(command) : tauriInvoke!(command, args));
+    recordAndroidStartupDiagnostic("command-response", {
+      command, request, durationMs: performance.now() - startedAt, outcome: "success",
+    });
+    return result;
+  } catch (error) {
+    recordAndroidStartupDiagnostic("command-response", {
+      command, request, durationMs: performance.now() - startedAt, outcome: "error",
+    });
+    throw error;
+  }
+}
 
 // Cold-start Android: the first IPC round-trip can stall ~30s inside the
 // WebView bridge (the JavaBridge thread that services window.ipc messages
@@ -57,7 +79,7 @@ function probeBackendReady(): Promise<void> {
     // gate gained retry behavior.
     void (async () => {
       try {
-        await tauriInvoke!("wait_for_backend_ready");
+        await invokeWithStartupTrace("wait_for_backend_ready");
         clearTimeout(timer);
         resolve();
       } catch (error) {
@@ -390,7 +412,7 @@ export async function invokeCommand<T>(command: string, args?: Record<string, un
       if (command !== "wait_for_backend_ready") {
         await waitForBackendReady();
       }
-      return await tauriInvoke(command, args) as T;
+      return await invokeWithStartupTrace(command, args) as T;
     } catch (error) {
       console.error(`Tauri command "${command}" failed:`, error);
       // Tauri frequently rejects with a plain structured object. Preserve the

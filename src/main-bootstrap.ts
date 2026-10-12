@@ -5,6 +5,10 @@ import { installPromiseCompat } from "./utils/promiseCompat";
 import { installUint8ArrayCompat } from "./utils/uint8ArrayCompat";
 import React from "react";
 import ReactDOM, { type Root } from "react-dom/client";
+import { recordAndroidStartupDiagnostic } from "./lib/startupDiagnostics";
+
+const traceAndroid = /Android/i.test(navigator.userAgent);
+if (traceAndroid) recordAndroidStartupDiagnostic("bootstrap-entry");
 
 type BootstrapWindow = Window & {
   __plethoraReactRoot?: Root;
@@ -108,8 +112,10 @@ window.setTimeout(() => {
 const loadMain = () => import("./main");
 
 const attempt = (retriesLeft: number): void => {
+  if (traceAndroid) recordAndroidStartupDiagnostic("main-import-start");
   loadMain()
     .then(() => {
+      if (traceAndroid) recordAndroidStartupDiagnostic("main-import-complete", { outcome: "success" });
       settled = true;
       window.clearInterval(heartbeat);
       // Startup succeeded — remove the status overlay so it cannot cover the
@@ -117,6 +123,7 @@ const attempt = (retriesLeft: number): void => {
       hideStatus();
     })
     .catch((error: unknown) => {
+      if (traceAndroid) recordAndroidStartupDiagnostic("main-import-failed", { outcome: "error" });
       // One automatic retry: a transient WebKit/proxy hiccup during the large
       // graph fetch must not surface as a fatal startup error.
       if (retriesLeft > 0 && !settled) {

@@ -51,7 +51,7 @@ import {
 import { useStartupStore } from "../../stores/startupStore";
 import { DynamicVirtualList } from "../common/VirtualList";
 import { isNativeAndroid } from "../../lib/tauri";
-import { recordAndroidStartupDiagnostic } from "../../lib/startupDiagnostics";
+import { observeAndroidStartupSurface } from "../../lib/startupDiagnostics";
 
 /**
  * Above this many filtered items the mobile queue list windows its rows
@@ -310,20 +310,14 @@ export function MobileQueueView({
     return orderQueueItems(result, queueStrategyPreset);
   }, [items, activeTab, searchQuery, queueStrategyPreset]);
 
-  const hasReportedStartupSurface = useRef(false);
   useEffect(() => {
-    if (!hasCompletedFirstLoad) {
-      hasReportedStartupSurface.current = false;
-      return;
-    }
-    if (!isNativeAndroid() || hasReportedStartupSurface.current) return;
-    hasReportedStartupSurface.current = true;
-    recordAndroidStartupDiagnostic("surface-ready", {
+    if (!hasCompletedFirstLoad || isLoading || error || !isNativeAndroid() || !isActiveTab) return;
+    return observeAndroidStartupSurface({
       surface: "queue",
       outcome: items.length > 0 ? "populated" : "empty",
       queueItems: items.length,
     });
-  }, [hasCompletedFirstLoad, items.length]);
+  }, [hasCompletedFirstLoad, isActiveTab, isLoading, error]);
 
   useEffect(() => {
     if (isLoading || !scrollAnchorRef.current) return;
