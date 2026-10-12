@@ -340,34 +340,23 @@ impl Database {
         // Close the pool if any subsequent step fails so we don't leave a
         // half-initialized connection pool around after returning an error.
         //
-        // `quick_check` (not `integrity_check`) on purpose: it verifies the
-        // same structural integrity that matters for deciding whether the DB
-        // is safe to open — b-tree page structure, page counts, freelist —
-        // but skips the expensive cross-check that every table row also
-        // appears in its indexes. On a ~100MB DB that cross-check dominates
-        // (a full integrity_check took >1s here and blocked the main thread,
-        // since this runs inside block_on in the setup hook). quick_check
-        // detects the same corruption that triggers quarantine below.
-        let integrity = sqlx::query_as::<_, (String,)>("PRAGMA quick_check")
+        // NOTE: We deliberately do NOT run `PRAGMA quick_check` on the startup
+        // hot path. On mobile storage with large document libraries (e.g. 500+
+        // books/PDFs/extracts), scanning all b-tree pages took 46+ seconds,
+        // which caused frontend watchdogs to time out and froze the app.
+        // SQLite in WAL mode guarantees crash consistency; corruption is detected
+        // on connection open or when queries fail with SQLITE_CORRUPT.
+        // We run a sub-millisecond canary check (PRAGMA schema_version) to
+        // verify connection aliveness and page 1 header integrity.
+        let canary = sqlx::query_scalar::<_, i64>("PRAGMA schema_version")
             .fetch_one(&pool)
             .await;
-        match integrity {
-            Ok((check,)) if check == "ok" => Ok(Self { pool }),
-            Ok((check,)) => {
-                // SQLite gave a verdict and it isn't "ok" — the file really is
-                // damaged. Only this branch may lead to quarantine.
-                tracing::error!("Database integrity check failed: {}", check);
-                pool.close().await;
-                Err(OpenFailure::Corrupt(check))
-            }
+        match canary {
+            Ok(_) => Ok(Self { pool }),
             Err(e) => {
-                // The check could not even run (lock, timeout, IO). That is not
-                // a corruption verdict and must not cost the user their data.
+                tracing::warn!("Database schema canary check failed: {}", e);
                 pool.close().await;
-                Err(OpenFailure::Transient(PlethoraError::Internal(format!(
-                    "Database integrity check could not run: {}",
-                    e
-                ))))
+                Err(classify_connect_error(&e))
             }
         }
     }
@@ -426,6 +415,19 @@ impl Database {
     /// Run migrations on the database
     pub async fn migrate(&self) -> Result<()> {
         crate::database::migrations::run_migrations(self.pool()).await
+    }
+
+    /// Run a deep structural integrity check (`PRAGMA quick_check`).
+    ///
+    /// Scans database b-tree pages and returns the integrity verdict (e.g. "ok").
+    /// On large libraries on mobile flash storage, this can take tens of seconds,
+    /// so it must be run off the startup hot path.
+    pub async fn quick_check(&self) -> Result<String> {
+        let (verdict,) = sqlx::query_as::<_, (String,)>("PRAGMA quick_check")
+            .fetch_one(self.pool())
+            .await
+            .map_err(|e| PlethoraError::Internal(format!("Failed to run quick_check: {e}")))?;
+        Ok(verdict)
     }
 
     /// Close the database connection
