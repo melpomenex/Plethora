@@ -29,6 +29,12 @@ android {
         buildConfigField("boolean", "NATIVE_BACK_ENABLED", nativeBackOverride.orElse("false").get())
         manifestPlaceholders["usesCleartextTraffic"] = "false"
         applicationId = "com.plethora.app"
+        // Disposable release measurement profile. Never install/seed over the
+        // production package; JNI classes keep the original namespace.
+        val startupBench = providers.gradleProperty("plethoraStartupBench").orElse("false").get().toBoolean()
+        if (startupBench) applicationIdSuffix = ".startupbench"
+        buildConfigField("boolean", "STARTUP_BENCH", startupBench.toString())
+        buildConfigField("boolean", "STARTUP_TRACE_STACKS", providers.gradleProperty("plethoraStartupTraceStacks").orElse("false").get().toBoolean().toString())
         // ML Kit GenAI libs (genai-image-description, genai-summarization,
         // genai-prompt, genai-speech-recognition) require minSdk 26.
         minSdk = 26

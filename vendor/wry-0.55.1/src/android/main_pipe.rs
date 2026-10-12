@@ -378,6 +378,7 @@ impl<'a> MainPipe<'a> {
           }
         }
         WebViewMessage::GetWebViewVersion(tx) => {
+          super::startup_wait_trace("wry-version-handler-entry", 0);
           if let Some(activity) = activity_proxy(activity_id).map(|p| p.activity.clone()) {
             match self
               .env

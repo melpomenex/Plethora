@@ -77,6 +77,7 @@ pub async fn get_startup_snapshot(
     progress_limit: Option<u32>,
     repo: State<'_, Repository>,
 ) -> Result<StartupSnapshot, String> {
+    crate::startup_trace::mark("snapshot-handler-entry");
     let document_limit = document_limit
         .unwrap_or(DEFAULT_DOCUMENT_LIMIT)
         .clamp(1, DEFAULT_DOCUMENT_LIMIT);
@@ -135,6 +136,7 @@ pub async fn get_startup_snapshot(
         )
         .collect::<Vec<_>>();
 
+    crate::startup_trace::mark("snapshot-handler-complete");
     Ok(StartupSnapshot {
         version: STARTUP_VERSION,
         collections,

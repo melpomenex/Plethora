@@ -9,9 +9,11 @@ import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.view.KeyEvent
+import android.view.WindowManager
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import android.webkit.ConsoleMessage
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -20,6 +22,7 @@ import com.plethora.app.BuildConfig
 import com.plethora.navigation.NavigationBackController
 
 class MainActivity : TauriActivity() {
+    private val startupTrace = StartupTrace()
 
     // Holds the WebView's pending media permission request while we wait for
     // the OS-level permission dialog. Android WebView has a TWO-layer model:
@@ -49,6 +52,7 @@ class MainActivity : TauriActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        startupTrace.begin()
         // Enable edge-to-edge display - this configures the window to:
         // 1. Draw content behind system bars (status bar, navigation bar)
         // 2. Set transparent colors for system bars
@@ -67,6 +71,10 @@ class MainActivity : TauriActivity() {
         PluginManager.onActivityCreate(this)
 
         super.onCreate(savedInstanceState)
+        if (BuildConfig.STARTUP_BENCH || BuildConfig.STARTUP_TRACE_STACKS) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+        startupTrace.mark("activity-created")
         // Register one Activity-scoped OS Back callback after Tauri installs
         // its callbacks so this application controller has first precedence.
         if (BuildConfig.NATIVE_BACK_ENABLED) NavigationBackController.install(this)
@@ -86,6 +94,14 @@ class MainActivity : TauriActivity() {
             NavigationBackController.install(this)
         }
         hookWebViewPermissions()
+    }
+
+    override fun onWebViewCreate(webView: WebView) {
+        super.onWebViewCreate(webView)
+        // Capture bootstrap messages before the posted/resume permission hook.
+        // Wry installs its client after this callback returns. Queue ours
+        // before Wry's loadUrl post so bootstrap console messages are observed.
+        webView.post { hookWebViewPermissions(webView) }
     }
 
     override fun onPause() {
@@ -110,8 +126,8 @@ class MainActivity : TauriActivity() {
      * (this is a podcast/reading app; forcing that mode would disrupt media
      * playback).
      */
-    private fun hookWebViewPermissions() {
-        val wv = findWebView(window.decorView.rootView) ?: return
+    private fun hookWebViewPermissions(webView: WebView? = null) {
+        val wv = webView ?: findWebView(window.decorView.rootView) ?: return
         if (BuildConfig.NATIVE_BACK_ENABLED) NavigationBackController.install(this)
         wv.settings.mediaPlaybackRequiresUserGesture = false
         // Chrome DevTools remote debugging instrumentation adds non-trivial
@@ -123,6 +139,10 @@ class MainActivity : TauriActivity() {
             WebView.setWebContentsDebuggingEnabled(true)
         }
         wv.webChromeClient = object : WebChromeClient() {
+            override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                return startupTrace.console(message)
+            }
+
             override fun onPermissionRequest(request: PermissionRequest) {
                 runOnUiThread {
                     val supported = request.resources.toSet()

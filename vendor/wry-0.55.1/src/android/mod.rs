@@ -485,6 +485,8 @@ impl JniHandle {
 }
 
 pub fn platform_webview_version() -> Result<String> {
+  let started = std::time::Instant::now();
+  startup_wait_trace("wry-version-wait-start", 0);
   let (tx, rx) = bounded(1);
   let activity_id = loop {
     match first_activity_id() {
@@ -495,7 +497,26 @@ pub fn platform_webview_version() -> Result<String> {
     }
   };
   MainPipe::send(activity_id, WebViewMessage::GetWebViewVersion(tx));
-  rx.recv_timeout(MAIN_PIPE_TIMEOUT)?
+  let response = rx.recv_timeout(MAIN_PIPE_TIMEOUT);
+  startup_wait_trace(
+    if response.is_ok() { "wry-version-wait-response" } else { "wry-version-wait-timeout" },
+    started.elapsed().as_millis(),
+  );
+  response?
+}
+
+// Temporary bounded Android diagnosis, independent of IPC and plugin logging.
+// Phases are static labels and timings; no URLs, payloads, or identifiers.
+pub(super) fn startup_wait_trace(phase: &'static str, elapsed_ms: u128) {
+  use std::sync::atomic::{AtomicUsize, Ordering};
+  static COUNT: AtomicUsize = AtomicUsize::new(0);
+  if COUNT.fetch_add(1, Ordering::Relaxed) >= 16 { return; }
+  #[link(name = "log")]
+  extern "C" {
+    fn __android_log_write(priority: i32, tag: *const std::ffi::c_char, text: *const std::ffi::c_char) -> i32;
+  }
+  let text = std::ffi::CString::new(format!("{{\"phase\":\"{phase}\",\"clock\":\"wry\",\"elapsedMs\":{elapsed_ms}}}")).unwrap();
+  unsafe { __android_log_write(4, b"PlethoraStartup\0".as_ptr().cast(), text.as_ptr()); }
 }
 
 /// Finds a class in the project scope.

@@ -89,6 +89,9 @@ use std::sync::{
 use tauri::{Emitter, Manager};
 use tokio::sync::Notify;
 use url::Url;
+mod startup_trace;
+#[cfg(feature = "startup-bench")]
+mod startup_fixture;
 
 // Global state for the database
 struct AppState {
@@ -378,7 +381,9 @@ fn greet(name: &str) -> String {
 
 #[tauri::command]
 async fn wait_for_backend_ready(state: tauri::State<'_, BackendReadyState>) -> Result<(), String> {
+    startup_trace::mark("readiness-handler-entry");
     state.wait().await;
+    startup_trace::mark("readiness-handler-complete");
     Ok(())
 }
 
@@ -713,6 +718,7 @@ fn apply_window_icons(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    startup_trace::mark("native-entry");
     // Install the rustls crypto provider as the very first thing. reqwest's
     // `rustls-tls` feature compiles rustls 0.23 in `*-no-provider` mode, so no
     // provider is auto-registered. On Android the first TLS Client build (which
@@ -844,6 +850,7 @@ pub fn run() {
         }
     }
 
+    startup_trace::mark("builder-construction-start");
     let mut builder = tauri::Builder::default();
 
     // Single-instance must register before every other plugin (upstream requirement).
@@ -1140,6 +1147,7 @@ pub fn run() {
             let app_handle = app.handle().clone();
             install_panic_hook(app_handle.clone());
             log_startup(&app_handle, "startup: begin");
+            startup_trace::mark("setup-entry");
 
             // Dev runs are unbundled binaries; give them the rounded Dock
             // icon that bundled .app builds get from their icns.
@@ -1213,22 +1221,30 @@ pub fn run() {
                 app.manage(commands::podcast::OnDeviceSttJobs::default());
                 app.manage(Arc::new(entitlements::EntitlementCache::new()));
                 app.manage(Arc::new(plethora_auth::AuthManager::new()));
+                startup_trace::mark("auth-init-start");
                 plethora_auth::init(app.handle().clone());
+                startup_trace::mark("auth-init-complete");
                 app.manage(Arc::new(plethora_cloud::CloudJobService::new()));
                 app.manage(Arc::new(sync::SyncEngine::new()));
                 sync::scheduler::init(app.handle().clone());
+                startup_trace::mark("sync-scheduler-initialized");
 
                 // Initialize the OCR processor with defaults before any IPC
                 // can arrive: cold-start OCR commands used to fail with
                 // "OCR processor not initialized" (issue #44 bug 04). The
                 // user's persisted settings replace the defaults when the
                 // settings UI loads/saves via update_ocr_config.
+                startup_trace::mark("ocr-init-start");
                 commands::ocr::ensure_processor_initialized().await;
+                startup_trace::mark("ocr-init-complete");
 
                 let app_dir = app
                     .path()
                     .app_data_dir()
                     .context("Failed to get app data dir")?;
+
+                #[cfg(feature = "startup-bench")]
+                startup_fixture::validate_dir(&app_dir)?;
 
                 log_startup(
                     &app_handle,
@@ -1345,6 +1361,7 @@ pub fn run() {
                 *app_state.db.lock().expect("app state mutex poisoned") = Some(db);
 
                 log_startup(&app_handle, "startup: database initialized");
+                startup_trace::mark("database-open-complete");
 
                 // Register the real repository immediately so early mobile IPC
                 // can resolve State<Repository>. invokeCommand waits on
@@ -1355,11 +1372,16 @@ pub fn run() {
                     anyhow::bail!("Repository state was already managed before database setup");
                 }
 
+                startup_trace::mark("migrations-start");
                 crate::database::migrations::run_migrations(&pool)
                     .await
                     .context("Failed to run migrations")?;
 
                 log_startup(&app_handle, "startup: migrations complete");
+                startup_trace::mark("migrations-complete");
+
+                #[cfg(feature = "startup-bench")]
+                startup_fixture::prepare(&app_dir, &pool).await?;
 
                 migrations::fsrs7_migration::spawn_fsrs7_migration(pool.clone());
 
@@ -1650,6 +1672,7 @@ pub fn run() {
                 }
 
                 app.state::<BackendReadyState>().mark_ready();
+                startup_trace::mark("native-ready");
                 log_startup(&app_handle, "startup: backend ready");
 
                 Ok(())
@@ -2507,7 +2530,12 @@ pub fn run() {
             sync::sync_upload_blob,
             sync::sync_has_master_key,
         ])
-        .build(tauri::generate_context!())
+        .build({
+            startup_trace::mark("context-construction-start");
+            let context = tauri::generate_context!();
+            startup_trace::mark("context-construction-complete");
+            context
+        })
         .expect("error while running tauri application")
         .run(|app_handle, event| {
             external_open::on_run_event(&app_handle, &event);
