@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Calendar,
   ChartBar,
@@ -30,6 +31,7 @@ import { ItemTagEditor } from "./ItemTagEditor";
 import { ItemCategoryEditor } from "./ItemCategoryEditor";
 import { ItemStatsSummaryBlock } from "./ItemStatsSummary";
 import { useItemStats } from "../../hooks/useItemStats";
+import { useMobileShell } from "../../hooks/useMobileShell";
 
 // Lazily imported so neither the modal nor the charting it pulls in lands in
 // the entry chunk. The import starts when the user asks for full stats, not
@@ -286,10 +288,36 @@ export function ItemDetailsPopover({
     };
   }, [isOpen, targetKey, target]);
 
+  const isMobile = useMobileShell();
+  const openAtRef = useRef<number>(0);
+  const OPEN_TAP_GUARD_MS = 300;
+
+  useEffect(() => {
+    if (isOpen) {
+      openAtRef.current = Date.now();
+    }
+  }, [isOpen]);
+
+  const handleScrimClick = () => {
+    if (Date.now() - openAtRef.current < OPEN_TAP_GUARD_MS) return;
+    setIsOpen(false);
+  };
+
+  // Lock body scroll while the mobile sheet is open
+  useEffect(() => {
+    if (!isOpen || !isMobile) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen, isMobile]);
+
   useEffect(() => {
     if (!isOpen) return;
 
     const handleClickOutside = (event: MouseEvent) => {
+      if (isMobile) return;
       if (!wrapperRef.current) return;
       if (event.target instanceof Node && wrapperRef.current.contains(event.target)) return;
       setIsOpen(false);
@@ -309,7 +337,7 @@ export function ItemDetailsPopover({
       window.removeEventListener("mousedown", handleClickOutside);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [isOpen]);
+  }, [isOpen, isMobile]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -446,355 +474,456 @@ export function ItemDetailsPopover({
     }
   };
 
+  const contentBody = (
+    <div className="flex-1 overflow-y-auto overscroll-contain px-4 py-3 space-y-3 text-sm">
+      <div>
+        <div className="text-xs text-muted-foreground">{t("common.title")}</div>
+        <div className="font-semibold text-foreground truncate">{target.title}</div>
+        <div className="text-xs text-muted-foreground capitalize">{t(`itemDetails.type.${target.type.replace("-", "")}`)}</div>
+        {target.type === "rss" && target.source && (
+          <div className="text-xs text-muted-foreground">{t("itemDetails.source")}: {target.source}</div>
+        )}
+      </div>
+
+      {/* Change C task 1.4: per-document Local-Only shield control */}
+      {target.type === "document" && (
+        <LocalOnlyShieldToggle
+          documentId={target.id}
+          baseDocument={details.raw as unknown as import("../../types/document").Document | null}
+          onChanged={(next) => {
+            setDetails((prev) =>
+              prev.raw
+                ? { ...prev, raw: { ...prev.raw, isLocalOnly: next } }
+                : prev
+            );
+          }}
+        />
+      )}
+
+      {(editorTags.length > 0 || target.category || canEditTags) && (
+        <div className="space-y-1">
+          {canEditTags && target.type === "document" ? (
+            // Inline category editor (pattern: ItemTagEditor) — the
+            // category used to be read-only here, one of the two
+            // surfaces the reporter expected to edit it from.
+            <ItemCategoryEditor
+              documentId={target.id}
+              category={target.category}
+              baseDocument={details.raw}
+              onCategoryPersisted={(nextCategory) => {
+                setDetails((prev) =>
+                  prev.raw
+                    ? { ...prev, raw: { ...prev.raw, category: nextCategory ?? undefined } }
+                    : prev
+                );
+              }}
+            />
+          ) : (
+            target.category && (
+              <div className="text-xs text-foreground/80">
+                {t("itemDetails.category")}: {target.category}
+              </div>
+            )
+          )}
+          {canEditTags && (
+            <ItemTagEditor
+              target={{
+                type: target.type,
+                id: target.id,
+                tags: editorTags,
+                smartTagDetails: (details.raw as { metadata?: { smartTagDetails?: import("../../types/document").SmartTagDetail[] } })?.metadata?.smartTagDetails,
+              }}
+              onTagClick={handleTagClick}
+              onTagsPersisted={(tags) => {
+                // Keep the popover's raw snapshot in sync so a later
+                // re-open shows the persisted list, not the stale seed.
+                setDetails((prev) =>
+                  prev.raw ? { ...prev, raw: { ...prev.raw, tags } } : prev
+                );
+              }}
+            />
+          )}
+        </div>
+      )}
+
+      {statsItemId && (
+        <ItemStatsSummaryBlock
+          summary={statsSummary}
+          isLoading={isSummaryLoading}
+          error={summaryError}
+        />
+      )}
+
+      <div className="border-t border-border pt-3 space-y-2">
+        <div className="text-xs text-muted-foreground">
+          {t("itemDetails.scheduling")} / {schedulerLabel(
+            normalizeSchedulerId(
+              details.algorithmType && details.algorithmType !== "fsrs"
+                ? details.algorithmType
+                : settings.learning.algorithm,
+            ),
+          )}
+        </div>
+        {isLoading ? (
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <CircleNotch className="h-3.5 w-3.5 animate-spin" />
+            {t("itemDetails.loadingScheduling")}
+          </div>
+        ) : error ? (
+          <div className="text-xs text-destructive">{error}</div>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <div className="text-muted-foreground">{t("itemDetails.stability")}</div>
+                <div className="font-semibold text-foreground">{formatMaybeNumber(details.stability)}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">{t("itemDetails.difficulty")}</div>
+                <div className="font-semibold text-foreground">{formatMaybeNumber(details.difficulty)}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">{t("itemDetails.retrievability")}</div>
+                <div className="font-semibold text-foreground">{formatMaybeNumber(details.retrievability)}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">{t("itemDetails.nextInterval")}</div>
+                <div className="font-semibold text-foreground">
+                  {details.nextIntervalDays === null || details.nextIntervalDays === undefined
+                    ? t("itemDetails.notAvailable")
+                    : t("itemDetails.daysValue", { count: details.nextIntervalDays })}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">{t("itemDetails.dueDate")}</div>
+                <div className="font-semibold text-foreground">{formatDate(details.dueDate)}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">{t("itemDetails.reps")}</div>
+                <div className="font-semibold text-foreground">{formatMaybeNumber(details.reps)}</div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">{t("itemDetails.lapses")}</div>
+                <div className="font-semibold text-foreground">{formatMaybeNumber(details.lapses)}</div>
+              </div>
+            </div>
+
+            {target.type === "document" && details.intervalModifier != null && (
+              <div className="space-y-1.5">
+                <div className="text-xs text-muted-foreground">Interval Modifier</div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0.1"
+                    max="5.0"
+                    step="0.1"
+                    value={localModifier}
+                    onChange={(e) => setLocalModifier(e.target.value)}
+                    onBlur={() => void handleSaveModifier()}
+                    onKeyDown={(e) => { if (e.key === "Enter") void handleSaveModifier(); }}
+                    disabled={isSavingModifier}
+                    className="w-20 px-2 py-1 text-xs rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
+                  />
+                  <span className="text-xs text-muted-foreground">x</span>
+                  {isSavingModifier && <CircleNotch className="w-3 h-3 animate-spin text-muted-foreground" />}
+                  {parseFloat(localModifier) !== 1.0 && (
+                    <button
+                      type="button"
+                      onClick={() => { setLocalModifier("1.0"); void handleSaveModifier(1.0); }}
+                      className="text-[10px] text-muted-foreground hover:text-foreground underline"
+                    >
+                      Reset
+                    </button>
+                  )}
+                </div>
+                {(() => {
+                  const v = parseFloat(localModifier);
+                  if (!Number.isNaN(v) && (v <= 0.3 || v >= 3.0)) {
+                    return <div className="text-[10px] text-amber-500">Extreme value — intervals will be significantly {v < 1 ? "shorter" : "longer"}</div>;
+                  }
+                  return null;
+                })()}
+              </div>
+            )}
+
+            {details.firstReviewedAt && (
+              <div className="text-xs">
+                <div className="text-muted-foreground">First Reviewed</div>
+                <div className="font-semibold text-foreground">{formatDate(details.firstReviewedAt)}</div>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <div className="text-xs text-muted-foreground">{t("itemDetails.previewIntervals")}</div>
+              {details.previewIntervals ? (
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {([
+                    ["again", t("queue.again")],
+                    ["hard", t("queue.hard")],
+                    ["good", t("queue.good")],
+                    ["easy", t("queue.easy")],
+                  ] as const).map(([key, label]) => (
+                    <div key={key} className="rounded-md bg-muted/60 p-2">
+                      <div className="text-muted-foreground">{label}</div>
+                      <div className="font-semibold text-foreground">
+                        {formatInterval(details.previewIntervals[key])}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-xs text-muted-foreground">{t("itemDetails.unavailable")}</div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+
+      {details.raw && (
+        <div className="border-t border-border pt-3">
+          <button
+            onClick={() => setShowRaw((prev) => !prev)}
+            className="text-xs text-muted-foreground hover:text-foreground"
+          >
+            {showRaw ? t("itemDetails.hideRawData") : t("itemDetails.showRawData")}
+          </button>
+          {showRaw && (
+            <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-border bg-popover p-2 text-[10px] text-foreground">
+{JSON.stringify(details.raw, null, 2)}
+            </pre>
+          )}
+        </div>
+      )}
+
+      {/* Common actions: dismiss (documents), postpone, delete */}
+      {(target.type === "document" || onPostpone || onDelete) && (
+        <div className="border-t border-border pt-3 space-y-2">
+          <div className="text-xs text-muted-foreground">{t("itemDetails.commonActions")}</div>
+          <div className="flex flex-col gap-2">
+            {statsItemId && (
+              <button
+                ref={fullStatsButtonRef}
+                type="button"
+                onClick={() => setIsStatsModalOpen(true)}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
+              >
+                <ChartBar className="w-4 h-4" />
+                {t("itemStats.fullStats")}
+              </button>
+            )}
+
+            {target.type === "document" && (
+              <button
+                onClick={handleDismissToggle}
+                disabled={isUpdatingDismiss}
+                className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
+                  details.isDismissed
+                    ? "bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20"
+                    : "bg-slate-500/10 text-slate-600 hover:bg-slate-500/20"
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
+              >
+                {isUpdatingDismiss ? (
+                  <CircleNotch className="w-4 h-4 animate-spin" />
+                ) : details.isDismissed ? (
+                  <>
+                    <Eye className="w-4 h-4" />
+                    {t("itemDetails.undismiss")}
+                  </>
+                ) : (
+                  <>
+                    <EyeSlash className="w-4 h-4" />
+                    {t("itemDetails.dismiss")}
+                  </>
+                )}
+              </button>
+            )}
+
+            {onPostpone && (
+              <button
+                onClick={() => void handlePostpone()}
+                disabled={isPostponing}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isPostponing ? (
+                  <CircleNotch className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Calendar className="w-4 h-4" />
+                )}
+                {t("delete.postpone")}
+              </button>
+            )}
+
+            {onDelete && (
+              <button
+                onClick={() => void handleDelete()}
+                disabled={isDeleting}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-destructive/10 text-destructive hover:bg-destructive/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              >
+                {isDeleting ? (
+                  <CircleNotch className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Trash className="w-4 h-4" />
+                )}
+                {t("common.delete")}
+              </button>
+            )}
+          </div>
+          {target.type === "document" && (
+            <p className="text-xs text-muted-foreground text-center">
+              {details.isDismissed
+                ? t("itemDetails.hiddenButSearchable")
+                : t("itemDetails.dismissedRemainSearchable")}
+            </p>
+          )}
+        </div>
+      )}
+
+      {isMobile && (
+        <div className="pt-2">
+          <button
+            type="button"
+            onClick={() => setIsOpen(false)}
+            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium border border-border bg-muted/40 hover:bg-muted text-foreground transition-colors"
+          >
+            {t("common.close")}
+          </button>
+        </div>
+      )}
+
+      {/* Safe-area spacer at the bottom of the scrollable body on mobile */}
+      {isMobile && (
+        <div style={{ paddingBottom: "max(16px, env(safe-area-inset-bottom, 0px))" }} />
+      )}
+    </div>
+  );
+
+  const mobileSheet = (
+    <div
+      className="fixed inset-0 z-[90] flex flex-col justify-end"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("queue.itemDetails")}
+    >
+      {/* Tap-to-dismiss dimmed scrim */}
+      <div
+        className="absolute inset-0 bg-black/60 backdrop-blur-xs transition-opacity duration-200"
+        onClick={handleScrimClick}
+        aria-hidden="true"
+      />
+
+      {/* Sheet panel */}
+      <div
+        className="relative flex flex-col w-full max-h-[85vh] rounded-t-2xl border-t border-border bg-popover text-popover-foreground shadow-2xl overflow-hidden animate-in slide-in-from-bottom duration-200 ease-out"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Drag handle */}
+        <div className="flex justify-center pt-2.5 pb-1 flex-shrink-0 bg-popover">
+          <div className="h-1 w-10 rounded-full bg-muted-foreground/30" />
+        </div>
+
+        {rankBreakdown ? (
+          <div className="border-b border-border px-4 py-3 flex-shrink-0 bg-popover">
+            <DaqeScoreBreakdown
+              breakdown={rankBreakdown}
+              configuredEnergyTarget={configuredEnergyTarget}
+            />
+          </div>
+        ) : null}
+
+        {/* Pinned header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0 bg-popover">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Info className="h-4 w-4" />
+            {t("queue.itemDetails")}
+          </div>
+          <button
+            onClick={() => setIsOpen(false)}
+            className="p-1 -mr-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+            aria-label={t("itemDetails.closeDetails")}
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {contentBody}
+      </div>
+    </div>
+  );
+
+  const desktopPopover = (
+    <div
+      className={cn(
+        "absolute top-full mt-2 w-96 z-50 rounded-xl border border-border bg-popover text-popover-foreground shadow-xl flex flex-col max-h-[calc(100vh-6rem)] overflow-hidden",
+        align === "right" ? "right-0 left-auto" : "left-0 right-auto"
+      )}
+      role="dialog"
+      aria-modal="false"
+      aria-label={t("queue.itemDetails")}
+    >
+      {rankBreakdown ? (
+        <div className="border-b border-border px-4 py-3 flex-shrink-0 bg-popover">
+          <DaqeScoreBreakdown
+            breakdown={rankBreakdown}
+            configuredEnergyTarget={configuredEnergyTarget}
+          />
+        </div>
+      ) : null}
+
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-shrink-0 bg-popover">
+        <div className="flex items-center gap-2 text-sm font-semibold">
+          <Info className="h-4 w-4" />
+          {t("queue.itemDetails")}
+        </div>
+        <button
+          onClick={() => setIsOpen(false)}
+          className="text-muted-foreground hover:text-foreground"
+          aria-label={t("itemDetails.closeDetails")}
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      {contentBody}
+    </div>
+  );
+
+  const canPortal = typeof document !== "undefined";
+
   return (
     <div ref={wrapperRef} className={cn("relative inline-flex", className)}>
       {renderTrigger({ onClick: handleToggle, isOpen })}
       {isOpen && (
-        <div
-          className={cn(
-            "fixed inset-x-4 bottom-4 max-w-lg mx-auto md:absolute md:inset-x-auto md:bottom-auto md:top-full md:mt-2 md:w-96 md:max-w-none md:mx-0 z-50 rounded-xl border border-border bg-popover text-popover-foreground shadow-xl",
-            align === "right" ? "md:right-0 md:left-auto" : "md:left-0 md:right-auto"
-          )}
-        >
-          {rankBreakdown ? (
-            <div className="border-b border-border px-4 py-3">
-              <DaqeScoreBreakdown
-                breakdown={rankBreakdown}
-                configuredEnergyTarget={configuredEnergyTarget}
-              />
-            </div>
-          ) : null}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-            <div className="flex items-center gap-2 text-sm font-semibold">
-              <Info className="h-4 w-4" />
-              {t("queue.itemDetails")}
-            </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="text-muted-foreground hover:text-foreground"
-              aria-label={t("itemDetails.closeDetails")}
-            >
-              <X className="h-4 w-4" />
-            </button>
-          </div>
-
-          <div className="px-4 py-3 space-y-3 text-sm">
-            <div>
-              <div className="text-xs text-muted-foreground">{t("common.title")}</div>
-              <div className="font-semibold text-foreground truncate">{target.title}</div>
-              <div className="text-xs text-muted-foreground capitalize">{t(`itemDetails.type.${target.type.replace("-", "")}`)}</div>
-              {target.type === "rss" && target.source && (
-                <div className="text-xs text-muted-foreground">{t("itemDetails.source")}: {target.source}</div>
-              )}
-            </div>
-
-            {/* Change C task 1.4: per-document Local-Only shield control */}
-            {target.type === "document" && (
-              <LocalOnlyShieldToggle
-                documentId={target.id}
-                baseDocument={details.raw as unknown as import("../../types/document").Document | null}
-                onChanged={(next) => {
-                  setDetails((prev) =>
-                    prev.raw
-                      ? { ...prev, raw: { ...prev.raw, isLocalOnly: next } }
-                      : prev
-                  );
-                }}
-              />
-            )}
-
-            {(editorTags.length > 0 || target.category || canEditTags) && (
-              <div className="space-y-1">
-                {canEditTags && target.type === "document" ? (
-                  // Inline category editor (pattern: ItemTagEditor) — the
-                  // category used to be read-only here, one of the two
-                  // surfaces the reporter expected to edit it from.
-                  <ItemCategoryEditor
-                    documentId={target.id}
-                    category={target.category}
-                    baseDocument={details.raw}
-                    onCategoryPersisted={(nextCategory) => {
-                      setDetails((prev) =>
-                        prev.raw
-                          ? { ...prev, raw: { ...prev.raw, category: nextCategory ?? undefined } }
-                          : prev
-                      );
-                    }}
-                  />
-                ) : (
-                  target.category && (
-                    <div className="text-xs text-foreground/80">
-                      {t("itemDetails.category")}: {target.category}
-                    </div>
-                  )
-                )}
-                {canEditTags && (
-                  <ItemTagEditor
-                    target={{
-                      type: target.type,
-                      id: target.id,
-                      tags: editorTags,
-                      smartTagDetails: (details.raw as { metadata?: { smartTagDetails?: import("../../types/document").SmartTagDetail[] } })?.metadata?.smartTagDetails,
-                    }}
-                    onTagClick={handleTagClick}
-                    onTagsPersisted={(tags) => {
-                      // Keep the popover's raw snapshot in sync so a later
-                      // re-open shows the persisted list, not the stale seed.
-                      setDetails((prev) =>
-                        prev.raw ? { ...prev, raw: { ...prev.raw, tags } } : prev
-                      );
-                    }}
-                  />
-                )}
-              </div>
-            )}
-
-            {statsItemId && (
-              <ItemStatsSummaryBlock
-                summary={statsSummary}
-                isLoading={isSummaryLoading}
-                error={summaryError}
-              />
-            )}
-
-            <div className="border-t border-border pt-3 space-y-2">
-              <div className="text-xs text-muted-foreground">
-                {t("itemDetails.scheduling")} / {schedulerLabel(
-                  normalizeSchedulerId(
-                    details.algorithmType && details.algorithmType !== "fsrs"
-                      ? details.algorithmType
-                      : settings.learning.algorithm,
-                  ),
-                )}
-              </div>
-              {isLoading ? (
-                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                  <CircleNotch className="h-3.5 w-3.5 animate-spin" />
-                  {t("itemDetails.loadingScheduling")}
-                </div>
-              ) : error ? (
-                <div className="text-xs text-destructive">{error}</div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 gap-2 text-xs">
-                    <div>
-                      <div className="text-muted-foreground">{t("itemDetails.stability")}</div>
-                      <div className="font-semibold text-foreground">{formatMaybeNumber(details.stability)}</div>
-                    </div>
-                    <div>
-                      <div className="text-muted-foreground">{t("itemDetails.difficulty")}</div>
-                      <div className="font-semibold text-foreground">{formatMaybeNumber(details.difficulty)}</div>
-                    </div>
-                    <div>
-                      <div className="text-muted-foreground">{t("itemDetails.retrievability")}</div>
-                      <div className="font-semibold text-foreground">{formatMaybeNumber(details.retrievability)}</div>
-                    </div>
-                    <div>
-                      <div className="text-muted-foreground">{t("itemDetails.nextInterval")}</div>
-                      <div className="font-semibold text-foreground">
-                        {details.nextIntervalDays === null || details.nextIntervalDays === undefined
-                          ? t("itemDetails.notAvailable")
-                          : t("itemDetails.daysValue", { count: details.nextIntervalDays })}
-                      </div>
-                    </div>
-                    <div>
-                      <div className="text-muted-foreground">{t("itemDetails.dueDate")}</div>
-                      <div className="font-semibold text-foreground">{formatDate(details.dueDate)}</div>
-                    </div>
-                    <div>
-                      <div className="text-muted-foreground">{t("itemDetails.reps")}</div>
-                      <div className="font-semibold text-foreground">{formatMaybeNumber(details.reps)}</div>
-                    </div>
-                    <div>
-                      <div className="text-muted-foreground">{t("itemDetails.lapses")}</div>
-                      <div className="font-semibold text-foreground">{formatMaybeNumber(details.lapses)}</div>
-                    </div>
-                  </div>
-
-                  {target.type === "document" && details.intervalModifier != null && (
-                    <div className="space-y-1.5">
-                      <div className="text-xs text-muted-foreground">Interval Modifier</div>
-                      <div className="flex items-center gap-2">
-                        <input
-                          type="number"
-                          min="0.1"
-                          max="5.0"
-                          step="0.1"
-                          value={localModifier}
-                          onChange={(e) => setLocalModifier(e.target.value)}
-                          onBlur={() => void handleSaveModifier()}
-                          onKeyDown={(e) => { if (e.key === "Enter") void handleSaveModifier(); }}
-                          disabled={isSavingModifier}
-                          className="w-20 px-2 py-1 text-xs rounded border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50"
-                        />
-                        <span className="text-xs text-muted-foreground">x</span>
-                        {isSavingModifier && <CircleNotch className="w-3 h-3 animate-spin text-muted-foreground" />}
-                        {parseFloat(localModifier) !== 1.0 && (
-                          <button
-                            type="button"
-                            onClick={() => { setLocalModifier("1.0"); void handleSaveModifier(1.0); }}
-                            className="text-[10px] text-muted-foreground hover:text-foreground underline"
-                          >
-                            Reset
-                          </button>
-                        )}
-                      </div>
-                      {(() => {
-                        const v = parseFloat(localModifier);
-                        if (!Number.isNaN(v) && (v <= 0.3 || v >= 3.0)) {
-                          return <div className="text-[10px] text-amber-500">Extreme value — intervals will be significantly {v < 1 ? "shorter" : "longer"}</div>;
-                        }
-                        return null;
-                      })()}
-                    </div>
-                  )}
-
-                  {details.firstReviewedAt && (
-                    <div className="text-xs">
-                      <div className="text-muted-foreground">First Reviewed</div>
-                      <div className="font-semibold text-foreground">{formatDate(details.firstReviewedAt)}</div>
-                    </div>
-                  )}
-
-                  <div className="space-y-2">
-                    <div className="text-xs text-muted-foreground">{t("itemDetails.previewIntervals")}</div>
-                    {details.previewIntervals ? (
-                      <div className="grid grid-cols-2 gap-2 text-xs">
-                        {([
-                          ["again", t("queue.again")],
-                          ["hard", t("queue.hard")],
-                          ["good", t("queue.good")],
-                          ["easy", t("queue.easy")],
-                        ] as const).map(([key, label]) => (
-                          <div key={key} className="rounded-md bg-muted/60 p-2">
-                            <div className="text-muted-foreground">{label}</div>
-                            <div className="font-semibold text-foreground">
-                              {formatInterval(details.previewIntervals[key])}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <div className="text-xs text-muted-foreground">{t("itemDetails.unavailable")}</div>
-                    )}
-                  </div>
-                </>
-              )}
-            </div>
-
-            {details.raw && (
-              <div className="border-t border-border pt-3">
-                <button
-                  onClick={() => setShowRaw((prev) => !prev)}
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                >
-                  {showRaw ? t("itemDetails.hideRawData") : t("itemDetails.showRawData")}
-                </button>
-                {showRaw && (
-                  <pre className="mt-2 max-h-40 overflow-auto rounded-md border border-border bg-popover p-2 text-[10px] text-foreground">
-{JSON.stringify(details.raw, null, 2)}
-                  </pre>
-                )}
-              </div>
-            )}
-
-            {/* Common actions: dismiss (documents), postpone, delete */}
-            {(target.type === "document" || onPostpone || onDelete) && (
-              <div className="border-t border-border pt-3 space-y-2">
-                <div className="text-xs text-muted-foreground">{t("itemDetails.commonActions")}</div>
-                <div className="flex flex-col gap-2">
-                  {statsItemId && (
-                    <button
-                      ref={fullStatsButtonRef}
-                      type="button"
-                      onClick={() => setIsStatsModalOpen(true)}
-                      className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-primary/10 text-primary hover:bg-primary/20 transition-colors"
-                    >
-                      <ChartBar className="w-4 h-4" />
-                      {t("itemStats.fullStats")}
-                    </button>
-                  )}
-
-                  {target.type === "document" && (
-                    <button
-                      onClick={handleDismissToggle}
-                      disabled={isUpdatingDismiss}
-                      className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                        details.isDismissed
-                          ? "bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20"
-                          : "bg-slate-500/10 text-slate-600 hover:bg-slate-500/20"
-                      } disabled:opacity-50 disabled:cursor-not-allowed`}
-                    >
-                      {isUpdatingDismiss ? (
-                        <CircleNotch className="w-4 h-4 animate-spin" />
-                      ) : details.isDismissed ? (
-                        <>
-                          <Eye className="w-4 h-4" />
-                          {t("itemDetails.undismiss")}
-                        </>
-                      ) : (
-                        <>
-                          <EyeSlash className="w-4 h-4" />
-                          {t("itemDetails.dismiss")}
-                        </>
-                      )}
-                    </button>
-                  )}
-
-                  {onPostpone && (
-                    <button
-                      onClick={() => void handlePostpone()}
-                      disabled={isPostponing}
-                      className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-blue-500/10 text-blue-600 hover:bg-blue-500/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {isPostponing ? (
-                        <CircleNotch className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Calendar className="w-4 h-4" />
-                      )}
-                      {t("delete.postpone")}
-                    </button>
-                  )}
-
-                  {onDelete && (
-                    <button
-                      onClick={() => void handleDelete()}
-                      disabled={isDeleting}
-                      className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm font-medium bg-destructive/10 text-destructive hover:bg-destructive/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {isDeleting ? (
-                        <CircleNotch className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <Trash className="w-4 h-4" />
-                      )}
-                      {t("common.delete")}
-                    </button>
-                  )}
-                </div>
-                {target.type === "document" && (
-                  <p className="text-xs text-muted-foreground text-center">
-                    {details.isDismissed
-                      ? t("itemDetails.hiddenButSearchable")
-                      : t("itemDetails.dismissedRemainSearchable")}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
+        isMobile && canPortal
+          ? createPortal(mobileSheet, document.body)
+          : desktopPopover
       )}
 
       {isStatsModalOpen && statsItemId && (
         <Suspense fallback={null}>
-          <ItemStatsModal
-            itemType={target.type}
-            itemId={statsItemId}
-            title={target.title}
-            onClose={() => {
-              setIsStatsModalOpen(false);
-              fullStatsButtonRef.current?.focus();
-            }}
-          />
+          {canPortal ? (
+            createPortal(
+              <ItemStatsModal
+                itemType={target.type}
+                itemId={statsItemId}
+                title={target.title}
+                onClose={() => {
+                  setIsStatsModalOpen(false);
+                  fullStatsButtonRef.current?.focus();
+                }}
+              />,
+              document.body
+            )
+          ) : (
+            <ItemStatsModal
+              itemType={target.type}
+              itemId={statsItemId}
+              title={target.title}
+              onClose={() => {
+                setIsStatsModalOpen(false);
+                fullStatsButtonRef.current?.focus();
+              }}
+            />
+          )}
         </Suspense>
       )}
     </div>
