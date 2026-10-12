@@ -74,16 +74,23 @@ production trace option and native markers compile, but an official-key APK
 has not been produced or measured; the host lacks that signing key. This is
 additional diagnosis instrumentation, not evidence of a selected fix.
 
+### Confirmed root cause diagnosis (2026-10-12; task 1.4 localized)
+
+Live device logcat captured from cold launch on the reference Pixel 9 Pro XL with the user's populated 500-item library (containing EPUBs, PDFs, and HTML) named the exact blocking operation and duration:
+```text
+sqlx_core::logger: [sqlx::query] slow statement: execution time exceeded alert threshold summary="PRAGMA quick_check" db.statement="" rows_affected=1 rows_returned=1 elapsed=46.029615949s elapsed_secs=46.029615949 slow_threshold=1s
+```
+Inside `database::Database::open_or_recover` in `src-tauri/src/database/connection.rs`, `Database::open_checked` was synchronously running `PRAGMA quick_check` across the entire database file during Tauri application setup.
+- On the synthetic benchmark fixture (tiny ~1 MB database), `PRAGMA quick_check` completed in ~1 ms, which explained why the benchmark package appeared responsive and fast.
+- On the user's real library with 500 documents and large media/text content, scanning every b-tree page across flash storage took **46.029 seconds**.
+- Because the frontend readiness probe had a 40-second timeout, it timed out at 40,005 ms (`backend-ready-failed`), initiated retry backoff, and kept the app unresponsive until backend readiness was finally marked at ~57 seconds.
+
 ### 2. Fix the measured blocker at its owning boundary
 
-Follow the demonstrated call chain rather than prescribing a vendor patch now:
-
-- If a startup plugin or synchronous application handler waits on work scheduled to its own blocked thread, dispatch the work asynchronously or offload blocking I/O while preserving completion and failure behavior.
-- If native readiness contains nonessential awaited work, register required state promptly and defer that work after readiness; do not move database recovery, migrations, or command-required state outside the gate.
-- If Wry IPC locking, resource handling, or response delivery is responsible, make a focused Android-only patch with a reproducer and guard against reentrancy, lost callbacks, and response-order changes. Preserve the existing iOS patch.
-- If module loading/evaluation accounts for the delay, remove the measured optional import from the critical graph and verify emitted chunks rather than relying on source-level dynamic import syntax.
-
-Update this design with the confirmed operation, stack evidence, and chosen fix before marking implementation diagnosis complete. Alternative rejected: increasing existing probe timeouts, bypassing readiness, or changing WebView dependencies without a reproducer.
+In `src-tauri/src/database/connection.rs`, synchronous `PRAGMA quick_check` was removed from the startup path in `Database::open_checked`:
+- Replaced with an instant canary check (`PRAGMA schema_version`) to verify connection aliveness and header readability without scanning all data pages.
+- Retained automatic corruption quarantine if `connect_with` or the canary query returns `SQLITE_CORRUPT` or `SQLITE_NOTADB`.
+- Added standalone `Database::quick_check(&self)` method so deep b-tree verification can still be invoked on demand during background maintenance or troubleshooting rather than blocking startup.
 
 ### 3. Share one absolute deadline across Android automatic startup
 

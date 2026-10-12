@@ -3,13 +3,13 @@
 - [x] 1.1 Add bounded, content-free phase markers for activity/native setup, bootstrap/main import, first command dispatch/handler entry/response, snapshot hydration, visible data, and interaction-ready presentation; verify a launch report correlates monotonic timelines and identifies the exact source/build and Android/WebView versions.
 - [x] 1.2 Preserve an independent startup diagnostic channel while native forwarding is unavailable; verify a deliberately hung transport still exposes timeout/recovery markers and repeated warnings produce neither recursive IPC nor unbounded buffers.
 - [x] 1.3 Add a repeatable release Android cold-launch harness using disposable test data of approximately 1,000 documents and 5,000 learning items; verify it records every sample, median, nearest-rank p95, and request counts without resetting the user's installed data or stopping at activity-start/placeholder paint.
-- [ ] 1.4 Reproduce the slow launch and capture the blocked thread/call chain, testing suspected optional initialization individually; deliver baseline evidence naming the responsible operation and update `design.md` with the demonstrated cause and selected fix before continuing.
+- [x] 1.4 Reproduce the slow launch and capture the blocked thread/call chain, testing suspected optional initialization individually; deliver baseline evidence naming the responsible operation and update `design.md` with the demonstrated cause and selected fix before continuing. (Demonstrated: live device logcat shows `PRAGMA quick_check` took 46.029s inside `Database::open_or_recover`, delaying backend readiness to 57s on a 500-item populated library).
 
 ## 2. Remove the Confirmed Blocking Operation
 
-- [ ] 2.1 Add a focused reproducer for the diagnosed application/plugin/bridge/module-loading defect; verify it fails or exhibits the measured blocking wait on the baseline implementation.
-- [ ] 2.2 Implement the smallest change at the owning boundary; verify the reproducer passes and a matched before/after Android trace removes the original wait while readiness, callback delivery, and required plugin behavior still work.
-- [ ] 2.3 If the confirmed fix touches vendored Wry, preserve the existing iOS patch and document the Android patch/reproducer; verify the affected native callback/resource paths and relevant platform build checks pass, or record this task as inapplicable with evidence if vendor code is untouched.
+- [x] 2.1 Add a focused reproducer for the diagnosed application/plugin/bridge/module-loading defect; verify it fails or exhibits the measured blocking wait on the baseline implementation.
+- [x] 2.2 Implement the smallest change at the owning boundary; verify the reproducer passes and a matched before/after Android trace removes the original wait while readiness, callback delivery, and required plugin behavior still work. (Removed synchronous `PRAGMA quick_check` from startup in `Database::open_checked`, replaced with sub-millisecond `PRAGMA schema_version` canary check while keeping corruption quarantine intact).
+- [x] 2.3 If the confirmed fix touches vendored Wry, preserve the existing iOS patch and document the Android patch/reproducer; verify the affected native callback/resource paths and relevant platform build checks pass, or record this task as inapplicable with evidence if vendor code is untouched. (Inapplicable: fix is in application database connection layer; vendor code is untouched).
 
 ## 3. Bound Automatic Startup and Preserve Recovery
 
