@@ -66,6 +66,7 @@ describe("feedback policy registry", () => {
       const hasToast = policy.toast !== "never";
       const hasOs = policy.osNotification !== "never";
       const documentedInlineSurfaces = [
+        "queue.document-rated",
         "review.card-graded",
         "review.session-completed",
         "review.streak-milestone",

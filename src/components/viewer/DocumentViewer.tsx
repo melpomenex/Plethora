@@ -1,4 +1,4 @@
-import { emitUserInteraction } from "../../lib/feedback/orchestrator";
+import { emitUserInteraction, emitInteractionFeedback } from "../../lib/feedback/orchestrator";
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -5304,6 +5304,10 @@ export function DocumentViewer({
       const timeTaken = Math.round((Date.now() - startTimeRef.current) / 1000);
 
       await rateDocumentEngaging(documentId, rating, timeTaken);
+      emitInteractionFeedback("queue.document-rated", { rating, documentId }, {
+        interactionId: `queue:rate:${documentId}:${rating}:${Date.now()}`,
+        origin: "user",
+      });
 
       // Mark as rated in session
       markItemViewed(documentId, true);
@@ -5346,6 +5350,10 @@ export function DocumentViewer({
   const handleDismiss = async () => {
     try {
       await documentsApi.dismissDocument(documentId, true);
+      emitInteractionFeedback("action.committed", {}, {
+        interactionId: `queue:dismiss:${documentId}:${Date.now()}`,
+        origin: "user",
+      });
       markItemViewed(documentId, false);
       toast.success(t("queueScroll.documentDismissed"), t("queueScroll.documentDismissedDesc"));
     } catch (error) {
@@ -8447,6 +8455,7 @@ export function DocumentViewer({
             {!hasDocumentHistory ? (
               <button
                 type="button"
+                onPointerDown={() => emitInteractionFeedback("queue.orb-pressed", { orbType: "good" }, { interactionId: `queue:orb-press:good:${Date.now()}`, origin: "user" })}
                 onClick={() => handleRating(3)}
                 className="group relative p-4 rounded-full bg-orange-500/80 backdrop-blur-sm hover:bg-orange-500 hover:scale-110 transition-all shadow-lg active:scale-95"
                 title={t("queueScroll.markAsReadGood")}
@@ -8460,8 +8469,9 @@ export function DocumentViewer({
               <>
                 <button
                   type="button"
+                  onPointerDown={() => emitInteractionFeedback("queue.orb-pressed", { orbType: "again" }, { interactionId: `queue:orb-press:again:${Date.now()}`, origin: "user" })}
                   onClick={() => handleRating(1)}
-                  className="group p-3 rounded-full bg-red-500/80 backdrop-blur-sm hover:bg-red-500 hover:scale-110 transition-all shadow-lg"
+                  className="group p-3 rounded-full bg-red-500/80 backdrop-blur-sm hover:bg-red-500 hover:scale-110 transition-all shadow-lg active:scale-95"
                   title={t("queueScroll.againTitle")}
                 >
                   <WarningCircle className="w-6 h-6 text-white" />
@@ -8472,8 +8482,9 @@ export function DocumentViewer({
 
                 <button
                   type="button"
+                  onPointerDown={() => emitInteractionFeedback("queue.orb-pressed", { orbType: "hard" }, { interactionId: `queue:orb-press:hard:${Date.now()}`, origin: "user" })}
                   onClick={() => handleRating(2)}
-                  className="group p-3 rounded-full bg-orange-500/80 backdrop-blur-sm hover:bg-orange-500 hover:scale-110 transition-all shadow-lg"
+                  className="group p-3 rounded-full bg-orange-500/80 backdrop-blur-sm hover:bg-orange-500 hover:scale-110 transition-all shadow-lg active:scale-95"
                   title={t("queueScroll.hardTitle")}
                 >
                   <Star className="w-6 h-6 text-white" />
@@ -8484,8 +8495,9 @@ export function DocumentViewer({
 
                 <button
                   type="button"
+                  onPointerDown={() => emitInteractionFeedback("queue.orb-pressed", { orbType: "good" }, { interactionId: `queue:orb-press:good:${Date.now()}`, origin: "user" })}
                   onClick={() => handleRating(3)}
-                  className="group p-3 rounded-full bg-blue-500/80 backdrop-blur-sm hover:bg-blue-500 hover:scale-110 transition-all shadow-lg"
+                  className="group p-3 rounded-full bg-blue-500/80 backdrop-blur-sm hover:bg-blue-500 hover:scale-110 transition-all shadow-lg active:scale-95"
                   title={t("queueScroll.goodTitle")}
                 >
                   <CheckCircle className="w-6 h-6 text-white" />
@@ -8496,8 +8508,9 @@ export function DocumentViewer({
 
                 <button
                   type="button"
+                  onPointerDown={() => emitInteractionFeedback("queue.orb-pressed", { orbType: "easy" }, { interactionId: `queue:orb-press:easy:${Date.now()}`, origin: "user" })}
                   onClick={() => handleRating(4)}
-                  className="group p-3 rounded-full bg-green-500/80 backdrop-blur-sm hover:bg-green-500 hover:scale-110 transition-all shadow-lg"
+                  className="group p-3 rounded-full bg-green-500/80 backdrop-blur-sm hover:bg-green-500 hover:scale-110 transition-all shadow-lg active:scale-95"
                   title={t("queueScroll.easyTitle")}
                 >
                   <Sparkle className="w-6 h-6 text-white" />
@@ -8509,8 +8522,9 @@ export function DocumentViewer({
                 {/* Dismiss */}
                 <button
                   type="button"
+                  onPointerDown={() => emitInteractionFeedback("queue.orb-pressed", { orbType: "dismiss" }, { interactionId: `queue:orb-press:dismiss:${Date.now()}`, origin: "user" })}
                   onClick={handleDismiss}
-                  className="group p-3 rounded-full bg-slate-500/80 backdrop-blur-sm hover:bg-slate-500 hover:scale-110 transition-all shadow-lg mt-2"
+                  className="group p-3 rounded-full bg-slate-500/80 backdrop-blur-sm hover:bg-slate-500 hover:scale-110 transition-all shadow-lg active:scale-95 mt-2"
                   title={t("queueScroll.dismissTitle")}
                 >
                   <EyeSlash className="w-6 h-6 text-white" />

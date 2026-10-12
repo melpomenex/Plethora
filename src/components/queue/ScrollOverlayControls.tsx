@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   Brain,
   CaretDown,
@@ -26,6 +26,7 @@ import {
   ArrowDown,
 } from "@phosphor-icons/react";
 import { cn } from "../../utils";
+import { emitInteractionFeedback } from "../../lib/feedback/orchestrator";
 
 interface ScrollOverlayControlsProps {
   showControls: boolean;
@@ -216,8 +217,10 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   const [dragPos, setDragPos] = useState<{ x: number; y: number } | null>(null);
   const [dragOffset, setDragOffset] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [isDragTriggered, setIsDragTriggered] = useState(false);
+  const lastSnapQuadrantRef = useRef<"left" | "right" | "top" | "bottom">(ratingOrbsPosition);
 
   const startDrag = (clientX: number, clientY: number, currentTarget: HTMLElement) => {
+    lastSnapQuadrantRef.current = ratingOrbsPosition;
     const rect = currentTarget.getBoundingClientRect();
     setDragOffset({
       x: clientX - rect.left,
@@ -240,6 +243,32 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
         x: clientX - dragOffset.x,
         y: clientY - dragOffset.y,
       });
+
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const x = clientX;
+      const y = clientY;
+
+      const distLeft = x;
+      const distRight = viewportWidth - x;
+      const distTop = y;
+      const distBottom = viewportHeight - y;
+
+      const minDist = Math.min(distLeft, distRight, distTop, distBottom);
+      let targetPosition: "left" | "right" | "top" | "bottom" = "right";
+      
+      if (minDist === distLeft) targetPosition = "left";
+      else if (minDist === distRight) targetPosition = "right";
+      else if (minDist === distTop) targetPosition = "top";
+      else if (minDist === distBottom) targetPosition = "bottom";
+
+      if (targetPosition !== lastSnapQuadrantRef.current) {
+        lastSnapQuadrantRef.current = targetPosition;
+        emitInteractionFeedback("queue.orbs-drag-threshold", { position: targetPosition }, {
+          interactionId: `queue:orb-threshold:${targetPosition}:${Date.now()}`,
+          origin: "user",
+        });
+      }
     };
 
     const handleUp = (e: MouseEvent | TouchEvent) => {
@@ -278,6 +307,10 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
       if (onUpdateRatingOrbsPosition) {
         onUpdateRatingOrbsPosition(newPosition);
       }
+      emitInteractionFeedback("queue.orbs-docked", { position: newPosition }, {
+        interactionId: `queue:orb-docked:${newPosition}:${Date.now()}`,
+        origin: "user",
+      });
       setDragPos(null);
     };
 
@@ -591,14 +624,21 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
                   ratingOrbsPosition === "bottom" && "bottom-full mb-2 left-1/2 -translate-x-1/2 flex-row"
                 )}
               >
-                <button onClick={() => { onUpdateRatingOrbsPosition?.("left"); setShowPositionMenu(false); }} className={cn("p-1.5 rounded-md hover:bg-white/10 text-white/70 hover:text-white transition-colors", ratingOrbsPosition === "left" && "bg-white/20 text-white")} title="Move Left"><ArrowLeft className="w-4 h-4" /></button>
-                <button onClick={() => { onUpdateRatingOrbsPosition?.("top"); setShowPositionMenu(false); }} className={cn("p-1.5 rounded-md hover:bg-white/10 text-white/70 hover:text-white transition-colors", ratingOrbsPosition === "top" && "bg-white/20 text-white")} title="Move Top"><ArrowUp className="w-4 h-4" /></button>
-                <button onClick={() => { onUpdateRatingOrbsPosition?.("bottom"); setShowPositionMenu(false); }} className={cn("p-1.5 rounded-md hover:bg-white/10 text-white/70 hover:text-white transition-colors", ratingOrbsPosition === "bottom" && "bg-white/20 text-white")} title="Move Bottom"><ArrowDown className="w-4 h-4" /></button>
-                <button onClick={() => { onUpdateRatingOrbsPosition?.("right"); setShowPositionMenu(false); }} className={cn("p-1.5 rounded-md hover:bg-white/10 text-white/70 hover:text-white transition-colors", ratingOrbsPosition === "right" && "bg-white/20 text-white")} title="Move Right"><ArrowRight className="w-4 h-4" /></button>
+                <button onClick={() => { onUpdateRatingOrbsPosition?.("left"); setShowPositionMenu(false); emitInteractionFeedback("queue.orbs-docked", { position: "left" }, { interactionId: `queue:orb-docked:left:${Date.now()}`, origin: "user" }); }} className={cn("p-1.5 rounded-md hover:bg-white/10 text-white/70 hover:text-white transition-colors", ratingOrbsPosition === "left" && "bg-white/20 text-white")} title="Move Left"><ArrowLeft className="w-4 h-4" /></button>
+                <button onClick={() => { onUpdateRatingOrbsPosition?.("top"); setShowPositionMenu(false); emitInteractionFeedback("queue.orbs-docked", { position: "top" }, { interactionId: `queue:orb-docked:top:${Date.now()}`, origin: "user" }); }} className={cn("p-1.5 rounded-md hover:bg-white/10 text-white/70 hover:text-white transition-colors", ratingOrbsPosition === "top" && "bg-white/20 text-white")} title="Move Top"><ArrowUp className="w-4 h-4" /></button>
+                <button onClick={() => { onUpdateRatingOrbsPosition?.("bottom"); setShowPositionMenu(false); emitInteractionFeedback("queue.orbs-docked", { position: "bottom" }, { interactionId: `queue:orb-docked:bottom:${Date.now()}`, origin: "user" }); }} className={cn("p-1.5 rounded-md hover:bg-white/10 text-white/70 hover:text-white transition-colors", ratingOrbsPosition === "bottom" && "bg-white/20 text-white")} title="Move Bottom"><ArrowDown className="w-4 h-4" /></button>
+                <button onClick={() => { onUpdateRatingOrbsPosition?.("right"); setShowPositionMenu(false); emitInteractionFeedback("queue.orbs-docked", { position: "right" }, { interactionId: `queue:orb-docked:right:${Date.now()}`, origin: "user" }); }} className={cn("p-1.5 rounded-md hover:bg-white/10 text-white/70 hover:text-white transition-colors", ratingOrbsPosition === "right" && "bg-white/20 text-white")} title="Move Right"><ArrowRight className="w-4 h-4" /></button>
               </div>
             )}
           </div>
         );
+
+        const handleOrbPointerDown = (orbType: "again" | "hard" | "good" | "easy" | "dismiss") => {
+          emitInteractionFeedback("queue.orb-pressed", { orbType }, {
+            interactionId: `queue:orb-press:${orbType}:${Date.now()}`,
+            origin: "user",
+          });
+        };
 
         const getOrbClass = (colorFromTo: string, glowColor: string, hoverColors: string) => {
           return cn(
@@ -637,6 +677,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
               {itemType === "flashcard" || itemType === "extract" ? (
                 <button
                   type="button"
+                  onPointerDown={() => handleOrbPointerDown("dismiss")}
                   onClick={onDismiss}
                   disabled={isRating}
                   className={getOrbClass("from-slate-500/80 to-slate-600/80", "rgba(148,163,184,0.3)", "from-slate-400 to-slate-500")}
@@ -650,6 +691,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
                 <>
                   <button
                     type="button"
+                    onPointerDown={() => handleOrbPointerDown("again")}
                     onClick={() => onRate(1)}
                     disabled={isRating}
                     className={getOrbClass("from-red-500/85 to-red-600/85", "rgba(239,68,68,0.4)", "from-red-400 to-red-500")}
@@ -661,6 +703,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
                   </button>
                   <button
                     type="button"
+                    onPointerDown={() => handleOrbPointerDown("hard")}
                     onClick={() => onRate(2)}
                     disabled={isRating}
                     className={getOrbClass("from-orange-500/85 to-orange-600/85", "rgba(249,115,22,0.4)", "from-orange-400 to-orange-500")}
@@ -672,6 +715,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
                   </button>
                   <button
                     type="button"
+                    onPointerDown={() => handleOrbPointerDown("good")}
                     onClick={() => onRate(3)}
                     disabled={isRating}
                     className={getOrbClass("from-blue-500/85 to-blue-600/85", "rgba(59,130,246,0.4)", "from-blue-400 to-blue-500")}
@@ -683,6 +727,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
                   </button>
                   <button
                     type="button"
+                    onPointerDown={() => handleOrbPointerDown("easy")}
                     onClick={() => onRate(4)}
                     disabled={isRating}
                     className={getOrbClass("from-green-500/85 to-green-600/85", "rgba(34,197,94,0.4)", "from-green-400 to-green-500")}
@@ -695,6 +740,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
                   {itemType === "document" && (
                     <button
                       type="button"
+                      onPointerDown={() => handleOrbPointerDown("dismiss")}
                       onClick={onDismiss}
                       disabled={isRating}
                       className={getOrbClass("from-slate-500/80 to-slate-600/80", "rgba(148,163,184,0.3)", "from-slate-400 to-slate-500")}
@@ -710,6 +756,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
                 <>
                   <button
                     type="button"
+                    onPointerDown={() => handleOrbPointerDown("good")}
                     onClick={() => onRate(3)}
                     disabled={isRating}
                     className={getOrbClass("from-orange-500/85 to-orange-600/85", "rgba(249,115,22,0.4)", "from-orange-400 to-orange-500")}
@@ -724,6 +771,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
                   {itemType === "document" && (
                     <button
                       type="button"
+                      onPointerDown={() => handleOrbPointerDown("dismiss")}
                       onClick={onDismiss}
                       disabled={isRating}
                       className={getOrbClass("from-slate-500/80 to-slate-600/80", "rgba(148,163,184,0.3)", "from-slate-400 to-slate-500")}

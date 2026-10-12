@@ -3339,6 +3339,15 @@ export function QueueScrollPage() {
 
         // Use the engaging FSRS-6 scheduler!
         const result = await rateDocumentEngaging(currentItem.documentId, rating, timeTaken);
+        emitInteractionFeedback("queue.document-rated", {
+          rating,
+          grade,
+          documentId: currentItem.documentId,
+          sessionOffset: itemsReviewedThisSession + 1,
+        }, {
+          interactionId: createFeedbackInteractionId(),
+          origin: "user",
+        });
 
         // Track rated document to prevent immediate re-appearance
         setRatedDocumentIds(prev => {
@@ -3348,7 +3357,28 @@ export function QueueScrollPage() {
         });
 
         // Track items reviewed this session
-        setItemsReviewedThisSession(prev => prev + 1);
+        const nextSessionCount = itemsReviewedThisSession + 1;
+        setItemsReviewedThisSession(nextSessionCount);
+
+        // Milestone celebrations: multiples of 5 in session
+        if (nextSessionCount > 0 && nextSessionCount % 5 === 0) {
+          emitInteractionFeedback("review.progress-milestone", { completedCount: nextSessionCount }, {
+            interactionId: createFeedbackInteractionId(),
+            origin: "user",
+          });
+        }
+
+        // Session completion when last item is reviewed
+        if (scrollItems.length <= 1) {
+          emitInteractionFeedback("review.session-completed", {
+            reviewsCompleted: nextSessionCount,
+            correctCount: nextSessionCount,
+            durationMs: 0,
+          }, {
+            interactionId: createFeedbackInteractionId(),
+            origin: "user",
+          });
+        }
 
         advanceAfterRemoval(ratedItemId);
       } else if (currentItem.type === "flashcard" && currentItem.learningItem) {
@@ -3460,6 +3490,11 @@ export function QueueScrollPage() {
     const dismissedItemId = currentItem.id;
 
     try {
+      emitInteractionFeedback("action.committed", {}, {
+        interactionId: createFeedbackInteractionId(),
+        origin: "user",
+      });
+
       if (currentItem.type === "document" && currentItem.documentId) {
 
         // Call API to dismiss document

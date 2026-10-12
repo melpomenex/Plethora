@@ -204,4 +204,14 @@ describe("ScrollOverlayControls neural review", () => {
     fireEvent.click(screen.getByTitle("Exit"));
     expect(onExitNeural).toHaveBeenCalledTimes(1);
   });
+
+  it("emits queue.orb-pressed haptic feedback on pointer down of rating orbs", () => {
+    render(<ScrollOverlayControls {...defaultProps} isNewDocument={false} />);
+    const againBtn = screen.getByTitle("Again");
+    fireEvent.pointerDown(againBtn);
+    const goodBtn = screen.getByTitle("Good");
+    fireEvent.pointerDown(goodBtn);
+    const dismissBtn = screen.getByTitle("Dismiss");
+    fireEvent.pointerDown(dismissBtn);
+  });
 });

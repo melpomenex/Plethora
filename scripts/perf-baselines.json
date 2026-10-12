@@ -17,6 +17,7 @@
     },
     "kp-timeline/sample-sweep-phone": {
       "cost": 0.0776,
+      "tolerance": 1.4,
       "reason": "knowledge-peck-startup-animation: initial baseline for the phone (2-fragment) sampleTimeline sweep; ~half the desktop cost, matching the smaller element count."
     },
     "article-import-static-small-40p": {
@@ -170,7 +171,9 @@
       "reason": "digestText128 cost calibration for local TTS text normalization and hashing pipeline."
     },
     "digestJson128": {
-      "cost": 0.2832
+      "cost": 0.2832,
+      "tolerance": 1.4,
+      "reason": "digestJson128 JSON serialization and hashing tolerance calibration matching digestText128."
     },
     "makeTTSCacheKeyV2": {
       "cost": 0.3884

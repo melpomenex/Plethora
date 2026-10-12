@@ -271,4 +271,60 @@ describe("emitFeedback", () => {
     expect(result.channels).toContain("haptic");
     expect(result.channels).not.toContain("sound");
   });
+
+  describe("queue document rating and orb haptics", () => {
+    beforeEach(() => {
+      Object.assign(mocks.hapticsSnapshot, { configured: true, enabled: true, capabilities: { hardware: "available" } });
+      mocks.settingsState.settings.haptics.enabled = true;
+    });
+
+    it.each([
+      [1, "warning"],
+      [2, "commit"],
+      [3, "success"],
+      [4, "celebration"],
+    ] as const)("delivers grade-differentiated haptic effect '%s' -> '%s' for queue.document-rated", (rating, expectedEffect) => {
+      const interactionId = `queue:rate:doc-1:${rating}:${Date.now()}`;
+      const result = emitInteractionFeedback("queue.document-rated", { rating, documentId: "doc-1" }, {
+        interactionId,
+        origin: "user",
+      });
+
+      expect(result.channels).toEqual(["haptic"]);
+      expect(mocks.performAdmittedHaptic).toHaveBeenCalledWith(expectedEffect, interactionId);
+    });
+
+    it("delivers selection tick on queue.orb-pressed", () => {
+      const interactionId = `queue:orb-press:again:${Date.now()}`;
+      const result = emitInteractionFeedback("queue.orb-pressed", { orbType: "again" }, {
+        interactionId,
+        origin: "user",
+      });
+
+      expect(result.channels).toEqual(["haptic"]);
+      expect(mocks.performAdmittedHaptic).toHaveBeenCalledWith("selection", interactionId);
+    });
+
+    it("delivers activation click on queue.orbs-docked", () => {
+      const interactionId = `queue:orb-dock:right:${Date.now()}`;
+      const result = emitInteractionFeedback("queue.orbs-docked", { position: "right" }, {
+        interactionId,
+        origin: "user",
+      });
+
+      expect(result.channels).toEqual(["haptic"]);
+      expect(mocks.performAdmittedHaptic).toHaveBeenCalledWith("activation", interactionId);
+    });
+
+    it("delivers threshold detent on queue.orbs-drag-threshold", () => {
+      const interactionId = `queue:orb-drag:top:${Date.now()}`;
+      const result = emitInteractionFeedback("queue.orbs-drag-threshold", { position: "top" }, {
+        interactionId,
+        origin: "user",
+      });
+
+      expect(result.channels).toEqual(["haptic"]);
+      expect(mocks.performAdmittedHaptic).toHaveBeenCalledWith("threshold", interactionId);
+    });
+  });
 });

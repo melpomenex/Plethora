@@ -402,12 +402,21 @@ function hapticSuppression(eventId: FeedbackEventId, reason: FeedbackSuppression
   return { channels: [], suppressedBy: reason };
 }
 
+function resolveQueueDocumentRatingHaptic(rating?: number) {
+  if (rating === 1) return { effect: "warning" as const, cooldownMs: 150, priority: 30 };
+  if (rating === 2) return { effect: "commit" as const, cooldownMs: 100, priority: 20 };
+  if (rating === 4) return { effect: "celebration" as const, cooldownMs: 250, priority: 40 };
+  return { effect: "success" as const, cooldownMs: 100, priority: 20 };
+}
+
 function reserveHaptic(eventId: FeedbackEventId, interactionId: string, origin: "user" | "system", payload?: FeedbackEventPayloads[FeedbackEventId]): FeedbackResolution {
   const policy = FEEDBACK_POLICY_REGISTRY[eventId];
   const haptic = eventId === "import.completed" && (payload as FeedbackEventPayloads["import.completed"] | undefined)?.partial
     ? FEEDBACK_POLICY_REGISTRY["feedback.warning"].hapticEffect
     : eventId === "review.card-action" && (payload as FeedbackEventPayloads["review.card-action"] | undefined)?.succeeded === false
     ? FEEDBACK_POLICY_REGISTRY["action.failed"].hapticEffect
+    : eventId === "queue.document-rated"
+    ? resolveQueueDocumentRatingHaptic((payload as FeedbackEventPayloads["queue.document-rated"] | undefined)?.rating)
     : policy?.hapticEffect;
   if (eventId === "import.completed" && (payload as FeedbackEventPayloads["import.completed"] | undefined)?.documentCount === 0) return hapticSuppression(eventId, "policy");
   if (!policy?.haptic || !haptic || eventId === "diagnostic.haptic-smoke-test" && !import.meta.env.DEV) return hapticSuppression(eventId, "policy");

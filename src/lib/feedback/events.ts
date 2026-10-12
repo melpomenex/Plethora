@@ -45,10 +45,14 @@ export const FEEDBACK_EVENT_IDS = [
   "interaction.sheet-committed",
 
   // Reminders / queue
-  "queue.selection-mode-entered",
-  "queue.selection-changed",
-  "queue.refresh-armed",
+  "queue.document-rated",
   "queue.due-count-changed",
+  "queue.orb-pressed",
+  "queue.orbs-docked",
+  "queue.orbs-drag-threshold",
+  "queue.refresh-armed",
+  "queue.selection-changed",
+  "queue.selection-mode-entered",
   "reminder.reviews-due",
 
   // Committed actions and library outcomes
@@ -126,6 +130,15 @@ export interface FeedbackEventPayloads {
   "navigation.destination-opened": Record<string, never>;
   "interaction.sheet-committed": Record<string, never>;
 
+  "queue.document-rated": {
+    rating: number;
+    grade?: number;
+    documentId?: string;
+    sessionOffset?: number;
+  };
+  "queue.orb-pressed": { orbType: "again" | "hard" | "good" | "easy" | "dismiss" };
+  "queue.orbs-docked": { position: "left" | "right" | "top" | "bottom" };
+  "queue.orbs-drag-threshold": { position: "left" | "right" | "top" | "bottom" };
   "queue.selection-mode-entered": Record<string, never>;
   "queue.selection-changed": Record<string, never>;
   "queue.refresh-armed": Record<string, never>;
