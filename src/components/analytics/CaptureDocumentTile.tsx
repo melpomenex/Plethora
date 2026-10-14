@@ -1,6 +1,6 @@
 import { useId, useState } from "react";
 import { ArrowRight, ArrowSquareOut, BookOpen, FileText, Headphones, ImageSquare, PlayCircle } from "@phosphor-icons/react";
-import type { BrowserCaptureDocument } from "../../api/capture-activity";
+import type { CaptureDocument, CaptureListingSource } from "../../api/capture-activity";
 import { useI18n } from "../../lib/i18n";
 import { extractYouTubeVideoId } from "../../utils/youtubeEmbed";
 import { getYouTubeThumbnail } from "../../api/youtube";
@@ -8,10 +8,10 @@ import { formatLocalizedRelativeTime } from "../../utils/relativeTime";
 import { validCaptureUrl } from "../../utils/captureSource";
 import "./captureActivity.css";
 
-function coverUrl(document: BrowserCaptureDocument): string | null {
+function coverUrl(document: CaptureDocument): string | null {
   const cover = document.coverImageUrl?.trim();
   if (cover && (validCaptureUrl(cover) || /^(data:image\/(png|jpe?g|webp|gif|avif);base64,|blob:|asset:\/\/localhost\/|\/api\/documents\/)/i.test(cover))) return cover;
-  const videoId = document.fileType === "youtube" ? extractYouTubeVideoId(document.sourceUrl) : null;
+  const videoId = document.fileType === "youtube" && document.sourceUrl ? extractYouTubeVideoId(document.sourceUrl) : null;
   return videoId ? getYouTubeThumbnail(videoId) : null;
 }
 
@@ -24,25 +24,30 @@ const TYPES = {
 } as const;
 
 export interface CaptureDocumentTileProps {
-  document: BrowserCaptureDocument;
-  onOpen: (document: BrowserCaptureDocument) => void;
-  onOpenOriginal: (document: BrowserCaptureDocument) => void;
+  document: CaptureDocument;
+  source?: CaptureListingSource;
+  onOpen: (document: CaptureDocument) => void;
+  onOpenOriginal: (document: CaptureDocument) => void;
 }
 
-export function CaptureDocumentTile({ document, onOpen, onOpenOriginal }: CaptureDocumentTileProps) {
+export function CaptureDocumentTile({ document, source = "browser-extension", onOpen, onOpenOriginal }: CaptureDocumentTileProps) {
   const { t, locale } = useI18n();
   const metadataId = useId();
   const imageUrl = coverUrl(document);
+  const sourceUrl = validCaptureUrl(document.sourceUrl);
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const title = document.title.trim() || t("dashboardTab.untitled");
-  const host = new URL(document.sourceUrl).hostname.replace(/^www\./, "");
+  const host = sourceUrl
+    ? new URL(sourceUrl).hostname.replace(/^www\./, "")
+    : t(source === "share-target" ? "dashboard.sharedCaptures.filterChip" : "dashboard.captureSource.browserExtension");
+  const copy = source === "share-target" ? "dashboard.sharedCaptures" : "dashboard.browserSaves";
   const { label, icon: TypeIcon } = TYPES[document.fileType];
   const date = new Date(document.dateAdded);
   const absoluteTime = new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(date);
 
   return (
     <li className="capture-document-tile">
-      <button className="capture-document-primary" onClick={() => onOpen(document)} aria-label={t("dashboard.browserSaves.openSaved", { title })} aria-describedby={metadataId}>
+      <button className="capture-document-primary" onClick={() => onOpen(document)} aria-label={t(`${copy}.openSaved`, { title })} aria-describedby={metadataId}>
         <div className="capture-document-media">
           {imageUrl && imageUrl !== failedUrl ? (
             <img src={imageUrl} alt="" loading="lazy" decoding="async" referrerPolicy="no-referrer"
@@ -64,12 +69,12 @@ export function CaptureDocumentTile({ document, onOpen, onOpenOriginal }: Captur
           </div>
         </div>
       <div className="capture-document-actions">
-        <span className="capture-document-read" aria-hidden="true">{t("dashboard.browserSaves.read")}<ArrowRight /></span>
+        <span className="capture-document-read" aria-hidden="true">{t(`${copy}.read`)}<ArrowRight /></span>
       </div>
       </button>
-        <button className="capture-document-original" onClick={() => onOpenOriginal(document)} aria-label={t("dashboard.browserSaves.openOriginal", { title })}>
-          {t("dashboard.browserSaves.original")}<ArrowSquareOut aria-hidden="true" />
-        </button>
+        {sourceUrl && <button className="capture-document-original" onClick={() => onOpenOriginal(document)} aria-label={t(`${copy}.openOriginal`, { title })}>
+          {t(`${copy}.original`)}<ArrowSquareOut aria-hidden="true" />
+        </button>}
     </li>
   );
 }

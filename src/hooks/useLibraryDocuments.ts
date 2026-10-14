@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getDocuments } from "../api/documents";
 import type { Document } from "../types/document";
+import type { CaptureListingSource } from "../api/capture-activity";
 
 /** All-library views own their summaries, so they cannot overwrite another collection's cache. */
-export function useLibraryDocuments(enabled: boolean, source: "browser-extension" | undefined, isActive: boolean) {
+export function useLibraryDocuments(enabled: boolean, source: CaptureListingSource | undefined, isActive: boolean) {
   const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoading, setLoading] = useState(false);
   const [hasCompletedFirstLoad, setCompleted] = useState(false);

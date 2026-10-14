@@ -66,6 +66,23 @@ describe("browser backend get_documents collection filter", () => {
     expect(library.some(doc => doc.id === "saved-7")).toBe(true);
   });
 
+  it("filters share captures across the persisted library and rejects unsupported sources", async () => {
+    const shared = Array.from({ length: 8 }, (_, index) => ({ id: `share-${index}`, title: `Shared ${index}`, file_type: index % 2 ? "pdf" : "markdown", file_path: `/private/shared-${index}`, date_added: `2026-10-${String(index + 1).padStart(2, "0")}T10:00:00Z`, metadata: { shareProvenance: { source: "android_share" } } }));
+    vi.mocked(db.getDocuments).mockResolvedValue([
+      ...shared,
+      { ...shared[0], id: "manual", metadata: { source: "manual" } },
+      { ...shared[0], id: "archived", is_archived: true },
+    ] as any);
+    const all = await browserInvoke<any[]>("get_documents", { captureSource: "share-target", collectionId: null });
+    expect(all).toHaveLength(8);
+    expect(all[0].id).toBe("share-7");
+    const page = await browserInvoke<any>("get_capture_documents", { source: "share-target", limit: 6, offset: 0 });
+    expect(page.total_count).toBe(8);
+    expect(page.items[0]).toMatchObject({ document_id: "share-7", source_url: null });
+    await expect(browserInvoke("get_capture_documents", { source: "whole-library" })).rejects.toThrow("Unsupported capture source");
+    await expect(browserInvoke("get_documents", { captureSource: "whole-library" })).rejects.toThrow("Unsupported capture source");
+  });
+
   it("returns document progress timestamps as Unix seconds", async () => {
     const dateModified = "2026-07-16T12:00:00.000Z";
     const dateAdded = "2026-07-14T12:00:00.000Z";

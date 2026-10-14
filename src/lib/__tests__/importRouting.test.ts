@@ -9,8 +9,12 @@ vi.mock("../../utils/openDocumentAtLocation", () => ({
 
 vi.mock("../../api/documents", () => ({
   createDocument: vi.fn().mockResolvedValue({ id: "doc-note-1", title: "Note", metadata: {} }),
-  updateDocument: vi.fn().mockImplementation((_id, d) => Promise.resolve(d)),
+  mergeDocumentMetadata: vi.fn().mockImplementation((id, updates) => Promise.resolve({ id, title: id, metadata: updates })),
+  updateDocumentContent: vi.fn().mockImplementation((id, content) => Promise.resolve({ id, title: "Note", content, metadata: {} })),
 }));
+
+import { mergeDocumentMetadata } from "../../api/documents";
+import { ArticleImportError } from "../../utils/articleImport/errors";
 
 describe("processSharedBatch", () => {
   let mockToast: any;
@@ -143,5 +147,103 @@ describe("processSharedBatch", () => {
       {},
       mockTabsStore.addTab
     );
+  });
+
+  it("attributes each saved URL, file, and text result before success and invalidation", async () => {
+    const urlDoc = { id: "doc-url", title: "Article", metadata: { originalUrl: "https://example.org/article" } };
+    const videoDoc = { id: "doc-video", title: "Video", fileType: "youtube", metadata: { originalUrl: "https://youtube.com/watch?v=abc12345678" } };
+    const fileDoc = { id: "doc-file", title: "Paper", metadata: {} };
+    mockDocStore.importFromUrl.mockResolvedValueOnce(urlDoc).mockResolvedValueOnce(videoDoc);
+    mockDocStore.importFromFiles.mockResolvedValue([fileDoc]);
+    const invalidated = vi.fn();
+    window.addEventListener("plethora:capture-invalidated", invalidated);
+    const batch: SharedBatch = {
+      id: "batch-mixed",
+      timestamp: 1724200000000,
+      sourceApp: "com.example.sender",
+      items: [
+        { type: "url", url: "https://example.org/article" },
+        { type: "url", url: "https://youtube.com/watch?v=abc12345678" },
+        { type: "file", filePath: "/imports/paper.pdf", fileName: "paper.pdf" },
+        { type: "text", text: "A note", title: "Note" },
+      ],
+    };
+
+    const result = await processSharedBatch(batch, deps, { origin: "share_extension", sourceApp: "com.example.sender" });
+
+    expect(result).toEqual({ imported: 4, failed: 0 });
+    expect(mergeDocumentMetadata).toHaveBeenCalledTimes(4);
+    const patches = vi.mocked(mergeDocumentMetadata).mock.calls.map(([, patch]) => patch.shareProvenance);
+    expect(patches).toEqual(expect.arrayContaining([
+      expect.objectContaining({ source: "share_extension", sourceUrl: "https://example.org/article", batchId: "batch-mixed", sourceApp: "com.example.sender" }),
+      expect.objectContaining({ source: "share_extension", sourceUrl: "https://youtube.com/watch?v=abc12345678", batchId: "batch-mixed", sourceApp: "com.example.sender" }),
+      expect.objectContaining({ source: "share_extension", batchId: "batch-mixed" }),
+    ]));
+    expect(patches[2]?.sourceUrl).toBeUndefined();
+    expect(invalidated).toHaveBeenCalledOnce();
+    expect(invalidated.mock.calls[0][0].detail).toEqual({ source: "share-target", documentIds: expect.arrayContaining(["doc-url", "doc-video", "doc-file", "doc-note-1"]) });
+    expect(mockToast.success).toHaveBeenCalledOnce();
+    window.removeEventListener("plethora:capture-invalidated", invalidated);
+  });
+
+  it("attributes and invalidates a saved URL failure placeholder without counting it as imported", async () => {
+    const placeholder = { id: "doc-placeholder", title: "Shared URL", metadata: { captureFailed: { reason: "network_failed" } } };
+    mockDocStore.importFromUrl.mockRejectedValue(new ArticleImportError("network_failed"));
+    mockDocStore.persistWebArticleFailure.mockResolvedValue(placeholder);
+    const invalidated = vi.fn();
+    window.addEventListener("plethora:capture-invalidated", invalidated);
+
+    const result = await processSharedBatch({ timestamp: 1724200000000, items: [{ type: "url", url: "https://example.org/offline" }] }, deps, { origin: "android_share" });
+
+    expect(result).toEqual({ imported: 0, failed: 0 });
+    expect(mockDocStore.persistWebArticleFailure).toHaveBeenCalledWith("https://example.org/offline", "network_failed");
+    expect(mergeDocumentMetadata).toHaveBeenCalledWith("doc-placeholder", expect.objectContaining({ shareProvenance: expect.objectContaining({ source: "android_share", sourceUrl: "https://example.org/offline" }) }));
+    expect(invalidated.mock.calls[0][0].detail.documentIds).toEqual(["doc-placeholder"]);
+    expect(mockToast.success).not.toHaveBeenCalled();
+    window.removeEventListener("plethora:capture-invalidated", invalidated);
+  });
+
+  it("does not add share provenance for desktop external-open routing", async () => {
+    mockDocStore.importFromUrl.mockResolvedValue({ id: "external-doc", title: "Opened file", metadata: {} });
+    const result = await processSharedBatch({ timestamp: Date.now(), items: [{ type: "url", url: "https://example.org/opened" }] }, deps);
+    expect(result).toEqual({ imported: 1, failed: 0 });
+    expect(mergeDocumentMetadata).not.toHaveBeenCalled();
+  });
+
+  it("attributes a specialized X thread while preserving its established browser provenance", async () => {
+    mockDocStore.openTwitterThread.mockResolvedValue({
+      id: "dedup-x-thread", title: "Existing X thread", metadata: {
+        source: "browser_extension", originalUrl: "https://x.com/user/status/123",
+      },
+    });
+    await processSharedBatch({ timestamp: 1724200000002, items: [{ type: "url", url: "https://x.com/user/status/123" }] }, deps, { origin: "android_share" });
+    expect(mergeDocumentMetadata).toHaveBeenCalledWith("dedup-x-thread", expect.objectContaining({
+      captureProvenance: expect.objectContaining({ source: "browser_extension", sourceUrl: "https://x.com/user/status/123" }),
+      shareProvenance: expect.objectContaining({ source: "android_share", sourceUrl: "https://x.com/user/status/123" }),
+    }));
+  });
+
+  it("retries attribution against the saved document without importing it again", async () => {
+    const saved = { id: "retry-doc", title: "Saved once", metadata: {} };
+    mockDocStore.importFromUrl.mockResolvedValue(saved);
+    vi.mocked(mergeDocumentMetadata)
+      .mockRejectedValueOnce(new Error("database offline"))
+      .mockRejectedValueOnce(new Error("database offline"));
+    const batch = { id: "retry-batch", timestamp: 1724200000001, items: [{ type: "url" as const, url: "https://example.org/retry" }] };
+    const invalidated = vi.fn();
+    window.addEventListener("plethora:capture-invalidated", invalidated);
+
+    const first = await processSharedBatch(batch, deps, { origin: "share_extension" });
+    expect(first).toEqual({ imported: 0, failed: 1 });
+    expect(mockDocStore.importFromUrl).toHaveBeenCalledOnce();
+    expect(invalidated).not.toHaveBeenCalled();
+
+    const second = await processSharedBatch(batch, deps, { origin: "share_extension" });
+    expect(second).toEqual({ imported: 1, failed: 0 });
+    expect(mockDocStore.importFromUrl).toHaveBeenCalledOnce();
+    expect(mergeDocumentMetadata).toHaveBeenCalledTimes(3);
+    expect(mockToast.success).toHaveBeenCalledOnce();
+    expect(invalidated).toHaveBeenCalledOnce();
+    window.removeEventListener("plethora:capture-invalidated", invalidated);
   });
 });

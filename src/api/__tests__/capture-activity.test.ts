@@ -7,11 +7,13 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   invokeCommand: vi.fn(),
+  isNativeMobile: vi.fn(() => false),
 }));
 
 vi.mock("../../lib/tauri", () => ({
   invokeCommand: mocks.invokeCommand,
   isTauri: () => true,
+  isNativeMobile: mocks.isNativeMobile,
 }));
 
 import {
@@ -19,6 +21,9 @@ import {
   normalizeCaptureActivity,
   getBrowserCaptureDocuments,
   normalizeBrowserCapturePage,
+  getCaptureDocuments,
+  getCaptureListingSource,
+  normalizeCapturePage,
 } from "../capture-activity";
 
 describe("normalizeCaptureActivity", () => {
@@ -122,6 +127,44 @@ describe("browser capture metadata", () => {
     const page = await getBrowserCaptureDocuments(999, -10);
     expect(mocks.invokeCommand).toHaveBeenLastCalledWith("get_browser_capture_documents", { limit: 100, offset: 0 });
     expect(page.totalCount).toBe(12);
+  });
+});
+
+describe("source-selected capture pages", () => {
+  const local = { document_id: "local-note", title: "A note", file_type: "markdown", source_url: null, date_added: "2026-10-14T10:00:00Z", cover_image_url: null };
+
+  it("selects native shares and desktop browser captures independent of width", () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 320 });
+    mocks.isNativeMobile.mockReturnValue(true);
+    expect(getCaptureListingSource()).toBe("share-target");
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1600 });
+    expect(getCaptureListingSource()).toBe("share-target");
+    mocks.isNativeMobile.mockReturnValue(false);
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 320 });
+    expect(getCaptureListingSource()).toBe("browser-extension");
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1600 });
+    expect(getCaptureListingSource()).toBe("browser-extension");
+  });
+
+  it("keeps valid URL-less items, sanitizes bad URLs, and rejects invalid identities or dates", () => {
+    const page = normalizeCapturePage({ items: [
+      local,
+      { ...local, document_id: "url", source_url: "javascript:alert(1)" },
+      { ...local, document_id: "bad-date", date_added: "never" },
+      { ...local, document_id: "", date_added: "2026-10-14T10:00:00Z" },
+      local,
+    ], total_count: 8, limit: 6, offset: 0 });
+    expect(page.items.map(item => item.documentId)).toEqual(["local-note", "url"]);
+    expect(page.items[0].sourceUrl).toBeNull();
+    expect(page.items[1].sourceUrl).toBeNull();
+    expect(page.totalCount).toBe(8);
+  });
+
+  it("invokes the source-selected query with bounded inputs", async () => {
+    mocks.invokeCommand.mockResolvedValue({ items: [local], total_count: 1, limit: 6, offset: 0 });
+    const page = await getCaptureDocuments("share-target", 0, -20);
+    expect(mocks.invokeCommand).toHaveBeenLastCalledWith("get_capture_documents", { source: "share-target", limit: 1, offset: 0 });
+    expect(page.items[0].sourceUrl).toBeNull();
   });
 });
 

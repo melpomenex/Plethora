@@ -107,6 +107,7 @@ import { useMobileShell } from "../../hooks/useMobileShell";
 import { useLongPress } from "../../hooks/useLongPress";
 import { useIsActiveTab } from "../common/Tabs";
 import { invokeCommand, isTauri, isNativeAndroid, isNativeMobile } from "../../lib/tauri";
+import type { CaptureListingSource } from "../../api/capture-activity";
 import { observeAndroidStartupSurface } from "../../lib/startupDiagnostics";
 import { renderPdfCover } from "../../lib/pdfCoverRender";
 import { importAnkiPackageFromPicker, inferAnkiDeckNames } from "../../utils/ankiImport";
@@ -222,7 +223,7 @@ interface DocumentsViewProps {
   onViewExtracts?: (doc: Document) => void;
   onReadAlong?: (audioDoc: Document, epubDoc: Document) => void;
   enableYouTubeImport?: boolean;
-  initialCaptureSource?: "browser-extension";
+  initialCaptureSource?: CaptureListingSource;
   allLibraryScope?: boolean;
   captureViewRequest?: number;
 }
@@ -1403,8 +1404,8 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
 
           {allLibraryScope && (
             <div className="mb-3 flex flex-wrap items-center gap-2">
-              {captureSource && <button onClick={() => setCaptureSource(undefined)} aria-label={t("dashboard.browserSaves.clearFilter")} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-primary-container px-3 text-sm text-on-primary-container">
-                {t("dashboard.captureSource.browserExtension")}<X className="h-4 w-4" aria-hidden="true" />
+              {captureSource && <button onClick={() => setCaptureSource(undefined)} aria-label={t(captureSource === "share-target" ? "dashboard.sharedCaptures.clearFilter" : "dashboard.browserSaves.clearFilter")} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-primary-container px-3 text-sm text-on-primary-container">
+                {t(captureSource === "share-target" ? "dashboard.sharedCaptures.filterChip" : "dashboard.captureSource.browserExtension")}<X className="h-4 w-4" aria-hidden="true" />
               </button>}
               <span className="text-sm text-muted-foreground">{t("dashboard.browserSaves.allLibrary")}</span>
             </div>

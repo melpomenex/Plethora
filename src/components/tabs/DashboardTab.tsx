@@ -23,7 +23,7 @@ import {
   ImportNeedsReviewTab,
 } from "./TabRegistry";
 import { getDashboardStats, type DashboardStats } from "../../api/analytics";
-import type { BrowserCaptureDocument } from "../../api/capture-activity";
+import { getCaptureListingSource, type CaptureDocument } from "../../api/capture-activity";
 import { useCaptureActivity } from "../../hooks/useCaptureActivity";
 import { openDocumentAtLocation } from "../../utils/openDocumentAtLocation";
 import { openExternal } from "../../lib/tauri";
@@ -76,7 +76,8 @@ export function DashboardTab() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const isActiveTab = useIsActiveTab();
-  const { activity, browserSaves, reload: reloadCaptureActivity } = useCaptureActivity(isActiveTab);
+  const captureSource = getCaptureListingSource();
+  const { activity, captures, reload: reloadCaptureActivity } = useCaptureActivity(isActiveTab, captureSource);
   const toast = useToast();
   const ensureStartup = useStartupStore((state) => state.ensureStartup);
   const startupLoadedForCollection = useRef<string | null>(null);
@@ -117,21 +118,21 @@ export function DashboardTab() {
     }
   };
 
-  const openCapture = async (document: BrowserCaptureDocument) => {
+  const openCapture = async (document: CaptureDocument) => {
     if (!await openDocumentAtLocation(document.documentId, { ensureExists: true }, addTab)) {
-      toast.error(t("dashboard.browserSaves.openFailed"));
-      void browserSaves.reload();
+      toast.error(t(captureSource === "share-target" ? "dashboard.sharedCaptures.openFailed" : "dashboard.browserSaves.openFailed"));
+      void captures.reload();
     }
   };
 
-  const openCaptureOriginal = async (document: BrowserCaptureDocument) => {
+  const openCaptureOriginal = async (document: CaptureDocument) => {
     const url = validCaptureUrl(document.sourceUrl);
     if (!url) return;
-    try { await openExternal(url); } catch { toast.error(t("dashboard.browserSaves.originalFailed")); }
+    try { await openExternal(url); } catch { toast.error(t(captureSource === "share-target" ? "dashboard.sharedCaptures.originalFailed" : "dashboard.browserSaves.originalFailed")); }
   };
 
-  const openBrowserSaves = () => {
-    const data = { initialCaptureSource: "browser-extension", libraryScope: "all", captureViewRequest: Date.now() };
+  const openCaptureLibrary = () => {
+    const data = { initialCaptureSource: captureSource, libraryScope: "all", captureViewRequest: Date.now() };
     const existing = useTabsStore.getState().tabs.find(tab => tab.type === "documents" && tab.data?.libraryScope === "all");
     if (existing) useTabsStore.getState().updateTab(existing.id, { data });
     addTab({ title: t("nav.documents"), icon: null, type: "documents", content: DocumentsTab, closable: true, data });
@@ -484,7 +485,7 @@ export function DashboardTab() {
             isLoading={activity.isLoading}
             error={activity.error}
             onRetry={reloadCaptureActivity}
-            browserSaves={{ ...browserSaves, onRetry: browserSaves.reload, onOpen: document => void openCapture(document), onOpenOriginal: document => void openCaptureOriginal(document), onViewAll: openBrowserSaves }}
+            captureShelf={{ ...captures, source: captureSource, onRetry: captures.reload, onOpen: document => void openCapture(document), onOpenOriginal: document => void openCaptureOriginal(document), onViewAll: openCaptureLibrary }}
             onOpenNeedsReview={openImportNeedsReview}
           />
         </div>

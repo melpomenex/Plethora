@@ -2,15 +2,24 @@
  * Shared import routing for share targets and external-open events.
  */
 
-import { createDocument, updateDocument } from "../api/documents";
+import { createDocument, mergeDocumentMetadata, updateDocumentContent } from "../api/documents";
 import type { useToast } from "../components/common/Toast";
 import { ArticleImportError } from "../utils/articleImport/errors";
 import { urlDetectorUtils } from "../hooks/useURLDetector";
-import { mapManifestToProvenance } from "./shareTarget";
+import { mapShareItemToProvenance, mergeShareAttribution } from "./shareTarget";
+import { emitCaptureInvalidation } from "./captureInvalidation";
 import { openDocumentAtLocation } from "../utils/openDocumentAtLocation";
-import type { SharedBatch } from "../types/share";
+import type { SharedBatch, SharedItem } from "../types/share";
 import type { useDocumentStore } from "../stores/documentStore";
 import type { useTabsStore } from "../stores/tabsStore";
+import type { Document } from "../types/document";
+
+export interface NativeShareIngressContext {
+  origin: "share_extension" | "android_share";
+  sourceApp?: string;
+}
+
+const pendingShareAttributions = new Map<string, Document>();
 
 type DocumentStore = ReturnType<typeof useDocumentStore.getState>;
 type TabsStore = ReturnType<typeof useTabsStore.getState>;
@@ -28,12 +37,18 @@ export interface ProcessSharedBatchResult {
   failed: number;
 }
 
+function shareItemKey(batch: SharedBatch, item: SharedItem, ingress: NativeShareIngressContext): string {
+  const identity = item.url ?? item.filePath ?? item.fileName ?? item.text ?? item.title ?? "unknown";
+  return `${batch.id ?? batch.timestamp}:${ingress.origin}:${item.type}:${identity}`;
+}
+
 /**
  * Route a normalized share/external batch through the existing import pipeline.
  */
 export async function processSharedBatch(
   batch: SharedBatch,
   deps: ProcessSharedBatchDeps,
+  shareIngress?: NativeShareIngressContext,
 ): Promise<ProcessSharedBatchResult> {
   if (!batch.items?.length) {
     return { imported: 0, failed: 0 };
@@ -56,9 +71,54 @@ export async function processSharedBatch(
   );
 
   const importedDocs: Array<{ id: string; title?: string }> = [];
+  const savedDocumentIds = new Set<string>();
   let typedUrlFailures = 0;
   let failedCount = 0;
+  let attributionFailed = false;
   let hasXThreadError = false;
+
+  const saveAndAttribute = async (
+    item: SharedItem,
+    save: () => Promise<Document | null | undefined>,
+  ): Promise<Document> => {
+    const key = shareIngress ? shareItemKey(batch, item, shareIngress) : undefined;
+    let document = key ? pendingShareAttributions.get(key) : undefined;
+    if (!document) {
+      document = (await save()) ?? undefined;
+    }
+    if (!document?.id) throw new Error("Import did not return a saved document");
+    if (!shareIngress) return document;
+
+    try {
+      const update = mapShareItemToProvenance(
+        { ...batch, sourceApp: batch.sourceApp ?? shareIngress.sourceApp },
+        item,
+        shareIngress.origin,
+      );
+      const merged = mergeShareAttribution(document.metadata, update);
+      const patch = {
+        shareProvenance: merged.shareProvenance,
+        ...(document.metadata?.captureProvenance ? {} : merged.captureProvenance
+          ? { captureProvenance: merged.captureProvenance }
+          : {}),
+      };
+      await mergeDocumentMetadata(document.id, patch);
+      if (key) pendingShareAttributions.delete(key);
+      savedDocumentIds.add(document.id);
+      return { ...document, metadata: { ...document.metadata, ...merged } };
+    } catch (error) {
+      if (key) pendingShareAttributions.set(key, document);
+      throw new Error(`Share attribution could not be saved for ${document.id}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  };
+
+  const retryAttribution = async (action: () => Promise<Document>): Promise<Document> => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try { return await action(); } catch (error) { lastError = error; }
+    }
+    throw lastError;
+  };
 
   try {
     const urlItems = batch.items.filter((i) => i.type === "url" && i.url);
@@ -66,7 +126,7 @@ export async function processSharedBatch(
       if (!item.url) continue;
       try {
         if (urlDetectorUtils.isTwitterURL(item.url)) {
-          const doc = await openTwitterThread(item.url);
+          const doc = await retryAttribution(() => saveAndAttribute(item, () => openTwitterThread(item.url as string)));
           if (doc?.metadata?.xThreadError) {
             failedCount += 1;
             hasXThreadError = true;
@@ -81,18 +141,28 @@ export async function processSharedBatch(
             }
           }
         } else {
-          const doc = await importFromUrl(item.url);
+          const doc = await retryAttribution(() => saveAndAttribute(item, () => importFromUrl(item.url as string)));
           importedDocs.push(doc);
         }
       } catch (e) {
         failedCount += 1;
+        if (shareIngress && !(e instanceof ArticleImportError)) attributionFailed = true;
         console.error("[ImportRouting] Failed to import URL:", item.url, e);
         // FR-15: a failed capture must not lose the saved URL — preserve it
         // as a minimal library source (marked capture-failed) so the user
         // can retry from the reader. Malformed URLs cannot become sources.
         if (e instanceof ArticleImportError && e.code !== "invalid_url") {
           typedUrlFailures += 1;
-          void persistWebArticleFailure(item.url, e.code);
+          try {
+            const placeholder = await persistWebArticleFailure(item.url, e.code);
+            if (placeholder) {
+              await retryAttribution(() => saveAndAttribute(item, async () => placeholder));
+              failedCount = Math.max(0, failedCount - 1);
+            }
+          } catch (persistErr) {
+            if (shareIngress) attributionFailed = true;
+            console.error("[ImportRouting] Failed to save/attribute URL placeholder:", item.url, persistErr);
+          }
           const reason = t(`shareImport.error.${e.code}`);
           toast.error(t("mainLayout.importFailed"), reason, {
             duration: 12000,
@@ -121,7 +191,18 @@ export async function processSharedBatch(
       const paths = fileItems.map((f) => f.filePath as string);
       try {
         const docs = await importFromFiles(paths);
-        importedDocs.push(...docs);
+        for (const [index, doc] of docs.entries()) {
+          const item = fileItems[index];
+          if (!item) continue;
+          try {
+            const attributed = await retryAttribution(() => saveAndAttribute(item, async () => doc));
+            importedDocs.push(attributed);
+          } catch (error) {
+            failedCount += 1;
+            attributionFailed = true;
+            console.error("[ImportRouting] Failed to persist file share attribution:", item.filePath, error);
+          }
+        }
       } catch (e) {
         failedCount += fileItems.length;
         console.error("[ImportRouting] Failed to import files:", paths, e);
@@ -133,35 +214,21 @@ export async function processSharedBatch(
       if (!item.text) continue;
       try {
         const title = item.title || item.text.slice(0, 50).trim() || "Shared Note";
-        const doc = await createDocument(title, `note://${Date.now()}`, "markdown");
-        if (batch.id) {
-          try {
-            const provenance = mapManifestToProvenance(
-              {
-                id: batch.id,
-                receivedAt: batch.timestamp,
-                items: [{ kind: "text", text: item.text, title }],
-              },
-              "share_extension",
-            );
-            await updateDocument(doc.id, {
-              ...doc,
-              metadata: { ...doc.metadata, ...provenance },
-            } as Parameters<typeof updateDocument>[1]);
-          } catch (metaErr) {
-            console.warn("[ImportRouting] Failed to persist share provenance:", metaErr);
-          }
-        }
+        const doc = await retryAttribution(() => saveAndAttribute(item, async () => {
+          const created = await createDocument(title, `note://${Date.now()}`, "markdown");
+          return updateDocumentContent(created.id, item.text as string);
+        }));
         importedDocs.push(doc);
       } catch (e) {
         failedCount += 1;
+        if (shareIngress) attributionFailed = true;
         console.error("[ImportRouting] Failed to create note from text:", e);
       }
     }
 
     toast.dismiss(toastId);
 
-    if (importedDocs.length > 0) {
+    if (importedDocs.length > 0 && !attributionFailed) {
       const firstDoc = importedDocs[0];
       toast.success(
         t("mainLayout.importedSuccessfully"),
@@ -179,6 +246,14 @@ export async function processSharedBatch(
         },
       );
       void loadDocuments();
+    } else if (attributionFailed) {
+      toast.error(t("mainLayout.importFailed"), t("shareTarget.pendingSharesMessage"), {
+        duration: 12000,
+        action: {
+          label: t("common.retry"),
+          onClick: () => { void processSharedBatch(batch, deps, shareIngress); },
+        },
+      });
     } else if (typedUrlFailures === 0 && !hasXThreadError) {
       toast.error(t("mainLayout.importFailed"), "Could not process shared content");
     }
@@ -192,5 +267,8 @@ export async function processSharedBatch(
     );
   }
 
+  if (shareIngress && savedDocumentIds.size > 0) {
+    emitCaptureInvalidation({ source: "share-target", documentIds: [...savedDocumentIds] });
+  }
   return { imported: importedDocs.length, failed: failedCount };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { browserCaptureSourceUrl, validCaptureUrl } from "../captureSource";
+import { browserCaptureSourceUrl, hasShareCaptureEvidence, shareCaptureSourceUrl, validCaptureUrl } from "../captureSource";
 import { formatLocalizedRelativeTime } from "../relativeTime";
 
 describe("durable browser source rules", () => {
@@ -19,5 +19,36 @@ describe("durable browser source rules", () => {
     expect(formatLocalizedRelativeTime(now - 120000, "en", now)).toContain("2 min");
     expect(formatLocalizedRelativeTime(now - 120000, "ja", now)).toContain("2 分前");
     expect(formatLocalizedRelativeTime(now + 1000, "en", now)).toBe("now");
+  });
+});
+
+describe("durable share source rules", () => {
+  it("accepts explicit native origin and persisted share records, but not tags or URL presence", () => {
+    for (const metadata of [
+      { captureProvenance: { source: "share_extension" } },
+      { captureProvenance: { source: "android_share" } },
+      { shareProvenance: { source: "android_share" } },
+      { shareProvenance: {} },
+      { source: "share_extension" },
+      JSON.stringify({ shareProvenance: {} }),
+    ]) expect(hasShareCaptureEvidence(metadata)).toBe(true);
+    for (const metadata of [
+      { source: "manual", tags: ["share_extension"] },
+      { source: "rss", url: "https://example.org" },
+      { shareProvenance: null },
+      "not JSON",
+      [],
+    ]) expect(hasShareCaptureEvidence(metadata)).toBe(false);
+  });
+
+  it("resolves only optional HTTP(S) originals and falls through invalid candidates", () => {
+    expect(shareCaptureSourceUrl({
+      shareProvenance: { sourceUrl: "javascript:bad" },
+      captureProvenance: { sourceUrl: "file:///private/document.pdf" },
+      originalUrl: "https://example.org/original",
+    }, "file:///private/document.pdf")).toBe("https://example.org/original");
+    expect(shareCaptureSourceUrl({ url: "note://local" }, "file:///private/document.pdf")).toBeNull();
+    expect(shareCaptureSourceUrl({ browserCaptureContext: { sourceUrl: "https://example.org/context" }, originalUrl: "https://example.org/original" }, "https://example.org/path")).toBe("https://example.org/context");
+    expect(shareCaptureSourceUrl("not JSON", "https://example.org")).toBeNull();
   });
 });

@@ -29,6 +29,10 @@ export interface SharedBatch {
   id?: string;
   /** Timestamp when the share intent was captured. */
   timestamp: number;
+  /** Native share entry point that delivered this batch, when known. */
+  origin?: "share_extension" | "android_share";
+  /** Bundle/package identifier of the app that sent the share, when known. */
+  sourceApp?: string;
   /** Array of shared items in this intent. */
   items: SharedItem[];
 }
@@ -87,5 +91,7 @@ export interface ShareCaptureProvenance {
   receivedAt: number;
   /** Staged batch id (iOS) for traceability. */
   batchId?: string;
+  /** Original HTTP(S) URL associated with this specific shared item. */
+  sourceUrl?: string;
   schemaVersion: 1;
 }

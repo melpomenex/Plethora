@@ -2,11 +2,12 @@ import { DocumentsView } from "../documents/DocumentsView";
 import { useTabsStore } from "../../stores";
 import { DocumentExtractsTab, DocumentViewer } from "./TabRegistry";
 import type { Document } from "../../types/document";
+import type { CaptureListingSource } from "../../api/capture-activity";
 import { BookOpen, ImageSquare, TextT, YoutubeLogo } from "@phosphor-icons/react";
 import { AudiobookEpubSyncView } from "../viewer/AudiobookEpubSyncView";
 
 export interface DocumentsTabProps {
-  initialCaptureSource?: "browser-extension";
+  initialCaptureSource?: CaptureListingSource;
   libraryScope?: "all";
   captureViewRequest?: number;
 }

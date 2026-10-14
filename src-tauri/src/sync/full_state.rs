@@ -21,6 +21,7 @@ pub const LEARNING_ITEM_GROUPS: &[&str] = &[
 pub const DOCUMENT_GROUPS: &[&str] = &[
     "collection",
     "content",
+    "metadata",
     "tags",
     "position",
     "flags",
@@ -1010,6 +1011,21 @@ pub async fn apply_document_groups(
         .bind(&target_id)
         .execute(&mut **tx)
         .await?;
+    }
+    if groups.iter().any(|group| group == "metadata") {
+        let metadata = document
+            .metadata
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| {
+                PlethoraError::Internal(format!("Sync document metadata encode failed: {e}"))
+            })?;
+        sqlx::query("UPDATE documents SET metadata = ?1 WHERE id = ?2")
+            .bind(metadata)
+            .bind(&target_id)
+            .execute(&mut **tx)
+            .await?;
     }
     if groups.iter().any(|group| group == "tags") {
         let tags = serde_json::to_string(&document.tags).map_err(|e| {

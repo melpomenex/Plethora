@@ -3,6 +3,7 @@ import { BrowserCaptureShelf, type BrowserCaptureShelfProps } from "./BrowserCap
 import { useI18n } from "../../lib/i18n";
 import type {
   CaptureActivity,
+  CaptureListingSource,
   CaptureSource,
 } from "../../api/capture-activity";
 import {
@@ -31,12 +32,14 @@ export interface CaptureActivityCardProps {
   error: string | null;
   onRetry: () => void;
   onOpenNeedsReview: () => void;
+  captureShelf?: BrowserCaptureShelfProps;
+  /** @deprecated Kept for existing embedded callers during migration. */
   browserSaves?: BrowserCaptureShelfProps;
 }
 
 function CaptureActivitySummary({
-  data, isLoading, error, onRetry, onOpenNeedsReview,
-}: Omit<CaptureActivityCardProps, "browserSaves">) {
+  data, isLoading, error, onRetry, onOpenNeedsReview, source,
+}: Omit<CaptureActivityCardProps, "browserSaves" | "captureShelf"> & { source: CaptureListingSource }) {
   const { t } = useI18n();
   const total = data?.perDay.reduce((sum, day) => sum + day.count, 0) ?? 0;
   const maxCount = useMemo(() => Math.max(1, ...(data?.perDay.map(day => day.count) ?? [1])), [data]);
@@ -74,7 +77,7 @@ function CaptureActivitySummary({
       ) : !data || total === 0 ? (
         <div className="flex items-center gap-3 py-4 text-muted-foreground">
           <Tray className="w-8 h-8 opacity-50 shrink-0" />
-          <p className="text-sm">{t("dashboard.captureActivityEmpty")}</p>
+          <p className="text-sm">{t(source === "share-target" ? "dashboard.sharedCaptures.emptyBody" : "dashboard.captureActivityEmpty")}</p>
         </div>
       ) : (
         <>
@@ -147,14 +150,15 @@ function CaptureActivitySummary({
 
 export function CaptureActivityCard(props: CaptureActivityCardProps) {
   const { t } = useI18n();
+  const source = (props.captureShelf ?? props.browserSaves)?.source ?? "browser-extension";
   return (
     <div className="capture-activity border border-border rounded-xl p-4 md:p-6">
       <div className="mb-4 flex items-center gap-2">
         <Browsers className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
         <h2 className="text-base font-semibold text-foreground md:text-lg">{t("dashboard.captureActivity")}</h2>
       </div>
-      {props.browserSaves && <BrowserCaptureShelf {...props.browserSaves} />}
-      <CaptureActivitySummary {...props} />
+      {(props.captureShelf ?? props.browserSaves) && <BrowserCaptureShelf {...(props.captureShelf ?? props.browserSaves)!} />}
+      <CaptureActivitySummary {...props} source={source} />
     </div>
   );
 }

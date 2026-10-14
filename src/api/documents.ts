@@ -60,12 +60,24 @@ export function mapDocuments(docs: Document[]): Document[] {
   return docs.map((d) => mapDocument(d)).filter((d): d is Document => d !== null);
 }
 
-export async function getDocuments(collectionId?: string, captureSource?: "browser-extension"): Promise<Document[]> {
+export async function getDocuments(collectionId?: string, captureSource?: "browser-extension" | "share-target"): Promise<Document[]> {
   const args = { collectionId: collectionId ?? null, ...(captureSource ? { captureSource } : {}) };
   const result = isWebMode()
     ? await browserInvoke<Document[]>("get_documents", args)
     : await invokeCommand<Document[]>("get_documents", args);
   return mapDocuments(result);
+}
+
+/** Merge a small metadata patch without replacing document content or stale fields. */
+export async function mergeDocumentMetadata(
+  id: string,
+  updates: Partial<NonNullable<Document["metadata"]>>,
+): Promise<void> {
+  if (isWebMode()) {
+    await browserInvoke<void>("merge_document_metadata", { id, updates });
+  } else {
+    await invokeCommand<void>("merge_document_metadata", { id, updates });
+  }
 }
 
 export async function getDocument(id: string): Promise<Document | null> {

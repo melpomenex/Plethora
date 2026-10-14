@@ -17,6 +17,12 @@ describe("tab-local all-library documents", () => {
     rerender({ source: undefined });
     await waitFor(() => expect(getDocuments).toHaveBeenLastCalledWith(undefined, undefined));
   });
+  it("replaces the all-library list with share-target filtering", async () => {
+    getDocuments.mockResolvedValue([{ id: "share-note", title: "A shared note" } as Document]);
+    const { result } = renderHook(() => useLibraryDocuments(true, "share-target", true));
+    await waitFor(() => expect(result.current.documents).toHaveLength(1));
+    expect(getDocuments).toHaveBeenCalledWith(undefined, "share-target");
+  });
   it("leaves ordinary collection list fetching alone", () => {
     renderHook(() => useLibraryDocuments(false, undefined, true));
     expect(getDocuments).not.toHaveBeenCalled();

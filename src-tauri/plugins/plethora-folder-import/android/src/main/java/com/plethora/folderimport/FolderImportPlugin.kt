@@ -379,6 +379,10 @@ class FolderImportPlugin(private val activity: Activity) : Plugin(activity) {
       if (items.isNotEmpty()) {
         val batch = JSObject()
         batch.put("timestamp", System.currentTimeMillis())
+        batch.put("origin", "android_share")
+        intent.getStringExtra(Intent.EXTRA_REFERRER_NAME)
+          ?.takeIf { it.isNotBlank() }
+          ?.let { batch.put("sourceApp", it) }
         val arr = JSArray()
         for (it in items) {
           arr.put(it)

@@ -5,6 +5,8 @@ import {
   fetchPendingShares,
   stagedManifestToBatch,
   mapManifestToProvenance,
+  mapShareItemToProvenance,
+  mergeShareAttribution,
 } from "../shareTarget";
 import type { StagedShareManifest } from "../../types/share";
 import * as tauriLib from "../tauri";
@@ -258,6 +260,8 @@ describe("shareTarget utilities", () => {
       expect(batch).not.toBeNull();
       expect(batch!.id).toBe("staged-uuid-1");
       expect(batch!.timestamp).toBe(1724200000000);
+      expect(batch!.origin).toBe("share_extension");
+      expect(batch!.sourceApp).toBe("com.apple.Safari");
       expect(batch!.items).toEqual([
         { type: "url", url: "https://example.com/article", title: undefined },
         { type: "text", text: "quote from chapter 4", title: "Note" },
@@ -318,6 +322,41 @@ describe("shareTarget utilities", () => {
       });
       expect(badUrl.url).toBe("not a url");
       expect(badUrl.siteName).toBeUndefined();
+    });
+  });
+
+  describe("per-result share attribution", () => {
+    it("associates a URL only with its matching item and retains browser identity and content metadata", () => {
+      const batch = { id: "batch-1", timestamp: 1724200000000, sourceApp: "com.apple.Safari" };
+      const update = mapShareItemToProvenance(batch, { type: "url", url: "https://example.org/article" }, "share_extension");
+      const existing = {
+        source: "browser_extension",
+        originalUrl: "https://example.org/original",
+        articleHtml: "saved article body",
+        fetchedAt: new Date(1724100000000).toISOString(),
+      };
+      const merged = mergeShareAttribution(existing, update);
+      expect(merged.captureProvenance).toMatchObject({ source: "browser_extension", sourceUrl: "https://example.org/original" });
+      expect(merged.shareProvenance).toMatchObject({ source: "share_extension", sourceApp: "com.apple.Safari", batchId: "batch-1", sourceUrl: "https://example.org/article" });
+      expect(merged.articleHtml).toBe("saved article body");
+      expect(merged.originalUrl).toBe("https://example.org/original");
+
+      const file = mapShareItemToProvenance(batch, { type: "file", filePath: "/imports/paper.pdf" }, "share_extension");
+      expect(file.shareProvenance?.sourceUrl).toBeUndefined();
+    });
+
+    it("does not promote an explicit native origin to browser provenance", () => {
+      const merged = mergeShareAttribution({
+        source: "browser_extension",
+        captureProvenance: {
+          source: "android_share",
+          itemType: "page",
+          capturedAt: "2026-10-14T10:00:00Z",
+          schemaVersion: 1,
+        } as any,
+      }, mapShareItemToProvenance({ timestamp: 1000 }, { type: "text", text: "note" }, "android_share"));
+      expect(merged.captureProvenance?.source).toBe("android_share");
+      expect(merged.shareProvenance?.source).toBe("android_share");
     });
   });
 

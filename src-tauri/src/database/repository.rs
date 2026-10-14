@@ -1670,6 +1670,105 @@ impl Repository {
         Ok(updated)
     }
 
+    /// Merge a small metadata patch into the latest persisted document state.
+    /// This keeps share attribution from replacing imported content or fields
+    /// written by another import stage.
+    pub async fn merge_document_metadata(
+        &self,
+        id: &str,
+        updates: serde_json::Value,
+    ) -> Result<Document> {
+        let Some(updates) = updates.as_object() else {
+            return Err(PlethoraError::InvalidInput(
+                "Document metadata patch must be an object".to_string(),
+            ));
+        };
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query("SELECT metadata, date_added FROM documents WHERE id = ?1")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| PlethoraError::NotFound(format!("Document {id}")))?;
+        let raw: Option<String> = row.try_get("metadata")?;
+        let date_added: chrono::DateTime<Utc> = row.try_get("date_added")?;
+        let mut metadata = match raw {
+            Some(raw) => serde_json::from_str::<serde_json::Value>(&raw).map_err(|e| {
+                PlethoraError::InvalidInput(format!("Cannot merge malformed document metadata: {e}"))
+            })?,
+            None => serde_json::json!({}),
+        };
+        let Some(object) = metadata.as_object_mut() else {
+            return Err(PlethoraError::InvalidInput(
+                "Stored document metadata is not an object".to_string(),
+            ));
+        };
+
+        if updates.contains_key("shareProvenance") {
+            let explicit_source = object
+                .get("captureProvenance")
+                .and_then(|value| value.get("source"))
+                .and_then(serde_json::Value::as_str);
+            let has_explicit_capture = object
+                .get("captureProvenance")
+                .is_some_and(|value| !value.is_null());
+            if explicit_source.is_none()
+                && !has_explicit_capture
+                && object.get("source").and_then(serde_json::Value::as_str)
+                    == Some("browser_extension")
+            {
+                let source_url = [
+                    object.get("browserCaptureContext").and_then(|value| value.get("sourceUrl")).and_then(serde_json::Value::as_str),
+                    object.get("originalUrl").and_then(serde_json::Value::as_str),
+                    object.get("url").and_then(serde_json::Value::as_str),
+                ]
+                .into_iter()
+                .flatten()
+                .find(|candidate| {
+                    url::Url::parse(candidate.trim()).is_ok_and(|url| {
+                        matches!(url.scheme(), "http" | "https") && url.host_str().is_some()
+                    })
+                });
+                let mut browser = serde_json::json!({
+                    "source": "browser_extension",
+                    "itemType": "page",
+                    "capturedAt": object.get("fetchedAt").and_then(serde_json::Value::as_str)
+                        .filter(|value| chrono::DateTime::parse_from_rfc3339(value).is_ok())
+                        .map(str::to_string)
+                        .unwrap_or_else(|| date_added.to_rfc3339()),
+                    "schemaVersion": 1,
+                });
+                if let (Some(source_url), Some(browser)) = (source_url, browser.as_object_mut()) {
+                    browser.insert("sourceUrl".into(), serde_json::Value::String(source_url.to_string()));
+                }
+                object.insert("captureProvenance".into(), browser);
+            }
+        }
+
+        for (key, value) in updates {
+            if key == "shareProvenance" {
+                if let (Some(existing), Some(incoming)) = (object.get_mut(key), value.as_object()) {
+                    if let Some(existing) = existing.as_object_mut() {
+                        for (field, value) in incoming {
+                            existing.insert(field.clone(), value.clone());
+                        }
+                        continue;
+                    }
+                }
+            }
+            object.insert(key.clone(), value.clone());
+        }
+        let metadata_json = serde_json::to_string(&metadata)?;
+        sqlx::query("UPDATE documents SET metadata = ?1 WHERE id = ?2")
+            .bind(metadata_json)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+        let updated = Self::journal_document_fields(&mut tx, id, &["metadata"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(updated)
+    }
+
     pub async fn clear_document_category(&self, id: &str) -> Result<Document> {
         let mut tx = self.pool.begin().await?;
         let rows =
@@ -8760,6 +8859,44 @@ mod tests {
         let db = Database::new(PathBuf::from(":memory:")).await.expect("db");
         db.migrate().await.expect("migrate");
         Repository::new(db.pool().clone())
+    }
+
+    #[tokio::test]
+    async fn share_metadata_merge_preserves_browser_origin_content_and_dates() {
+        let repo = setup_repo().await;
+        let doc = Document::new(
+            "Browser article".into(),
+            "https://example.org/article".into(),
+            FileType::Html,
+        );
+        let id = doc.id.clone();
+        repo.create_document(&doc).await.unwrap();
+        sqlx::query("UPDATE documents SET content = 'saved body', metadata = ?1 WHERE id = ?2")
+            .bind(r#"{"source":"browser_extension","originalUrl":"https://example.org/article","fetchedAt":"2025-01-02T03:04:05Z","browserCaptureContext":{"sourceUrl":"https://example.org/article"},"articleHtml":"preserve me"}"#)
+            .bind(&id)
+            .execute(repo.pool())
+            .await
+            .unwrap();
+        let before: chrono::DateTime<Utc> = sqlx::query_scalar("SELECT date_added FROM documents WHERE id = ?1")
+            .bind(&id).fetch_one(repo.pool()).await.unwrap();
+
+        repo.merge_document_metadata(&id, serde_json::json!({
+            "shareProvenance": {"source": "android_share", "batchId": "batch-1", "sourceUrl": "https://example.org/article"}
+        })).await.unwrap();
+
+        let row = sqlx::query("SELECT content, date_added, metadata FROM documents WHERE id = ?1")
+            .bind(&id).fetch_one(repo.pool()).await.unwrap();
+        let content: String = row.try_get("content").unwrap();
+        let after: chrono::DateTime<Utc> = row.try_get("date_added").unwrap();
+        let raw: String = row.try_get("metadata").unwrap();
+        let metadata: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(content, "saved body");
+        assert_eq!(after, before);
+        assert_eq!(metadata["articleHtml"], "preserve me");
+        assert_eq!(metadata["originalUrl"], "https://example.org/article");
+        assert_eq!(metadata["captureProvenance"]["source"], "browser_extension");
+        assert_eq!(metadata["captureProvenance"]["sourceUrl"], "https://example.org/article");
+        assert_eq!(metadata["shareProvenance"]["batchId"], "batch-1");
     }
 
     #[tokio::test]

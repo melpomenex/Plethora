@@ -13,6 +13,7 @@ import type {
   StagedShareManifest,
 } from "../types/share";
 import type { DocumentMetadata } from "../types/document";
+import { validCaptureUrl } from "../utils/captureSource";
 
 /**
  * Normalizes an untyped share event or payload into a structured SharedBatch.
@@ -44,6 +45,8 @@ export function normalizeSharedBatch(raw: any): SharedBatch | null {
         // Staged-batch id (iOS App Group manifests); undefined for warm-start.
         id: typeof raw.id === "string" ? raw.id : undefined,
         timestamp: typeof raw.timestamp === "number" ? raw.timestamp : Date.now(),
+        origin: raw.origin === "share_extension" || raw.origin === "android_share" ? raw.origin : undefined,
+        sourceApp: typeof raw.sourceApp === "string" ? raw.sourceApp : undefined,
         items,
       };
     }
@@ -71,6 +74,8 @@ export function normalizeSharedBatch(raw: any): SharedBatch | null {
     if (raw.url) {
       return {
         timestamp: Date.now(),
+        origin: raw.origin === "share_extension" || raw.origin === "android_share" ? raw.origin : undefined,
+        sourceApp: typeof raw.sourceApp === "string" ? raw.sourceApp : undefined,
         items: [
           {
             type: "url",
@@ -84,6 +89,8 @@ export function normalizeSharedBatch(raw: any): SharedBatch | null {
     if (raw.filePath) {
       return {
         timestamp: Date.now(),
+        origin: raw.origin === "share_extension" || raw.origin === "android_share" ? raw.origin : undefined,
+        sourceApp: typeof raw.sourceApp === "string" ? raw.sourceApp : undefined,
         items: [
           {
             type: "file",
@@ -98,6 +105,8 @@ export function normalizeSharedBatch(raw: any): SharedBatch | null {
     if (raw.text) {
       return {
         timestamp: Date.now(),
+        origin: raw.origin === "share_extension" || raw.origin === "android_share" ? raw.origin : undefined,
+        sourceApp: typeof raw.sourceApp === "string" ? raw.sourceApp : undefined,
         items: [
           {
             type: "text",
@@ -165,6 +174,8 @@ export function stagedManifestToBatch(
     id: manifest.id,
     timestamp:
       typeof manifest.receivedAt === "number" ? manifest.receivedAt : Date.now(),
+    origin: "share_extension",
+    sourceApp: typeof manifest.sourceApp === "string" ? manifest.sourceApp : undefined,
     items,
   };
 }
@@ -200,6 +211,60 @@ export function mapManifestToProvenance(
       batchId: manifest.id,
       schemaVersion: 1,
     },
+  };
+}
+
+/** Build per-document share evidence without assigning a batch URL to other items. */
+export function mapShareItemToProvenance(
+  batch: Pick<SharedBatch, "id" | "timestamp" | "sourceApp">,
+  item: SharedItem,
+  platform: "share_extension" | "android_share",
+): Partial<DocumentMetadata> {
+  const sourceUrl = item.type === "url" ? validCaptureUrl(item.url) : null;
+  return {
+    shareProvenance: {
+      source: platform,
+      sourceApp: batch.sourceApp,
+      receivedAt: batch.timestamp,
+      batchId: batch.id,
+      sourceUrl: sourceUrl ?? undefined,
+      schemaVersion: 1,
+    },
+  };
+}
+
+/** Merge attribution while retaining content metadata and browser analytics identity. */
+export function mergeShareAttribution(
+  current: DocumentMetadata | undefined,
+  update: Partial<DocumentMetadata>,
+): DocumentMetadata {
+  const existing = current ?? {};
+  const incomingShare = update.shareProvenance;
+  const currentShare = existing.shareProvenance;
+  const explicitOrigin = existing.captureProvenance?.source;
+  const preserveBrowserOrigin = explicitOrigin === "browser_extension" ||
+    (!explicitOrigin && existing.source === "browser_extension");
+  const captureProvenance = existing.captureProvenance ?? (preserveBrowserOrigin
+    ? {
+        source: "browser_extension" as const,
+        itemType: "page" as const,
+        sourceUrl: validCaptureUrl(existing.browserCaptureContext?.sourceUrl)
+          ?? validCaptureUrl(existing.originalUrl)
+          ?? validCaptureUrl(existing.url)
+          ?? undefined,
+        capturedAt: typeof existing.fetchedAt === "string" && Number.isFinite(Date.parse(existing.fetchedAt))
+          ? existing.fetchedAt
+          : new Date().toISOString(),
+        schemaVersion: 1,
+      }
+    : undefined);
+  return {
+    ...existing,
+    ...update,
+    ...(captureProvenance ? { captureProvenance } : {}),
+    ...(incomingShare
+      ? { shareProvenance: { ...currentShare, ...incomingShare } }
+      : currentShare ? { shareProvenance: currentShare } : {}),
   };
 }
 

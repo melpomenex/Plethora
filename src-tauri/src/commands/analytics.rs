@@ -816,6 +816,20 @@ pub async fn get_browser_capture_documents(
         .await
 }
 
+/// Recent persisted captures selected by runtime source. Share results allow
+/// local documents without an original web URL; browser results preserve the
+/// existing strict URL eligibility rules.
+#[tauri::command]
+pub async fn get_capture_documents(
+    source: String,
+    limit: Option<i64>,
+    offset: Option<i64>,
+    repo: State<'_, Repository>,
+) -> crate::error::Result<crate::database::capture_repository::CapturePage> {
+    crate::database::capture_repository::capture_documents(repo.pool(), &source, limit, offset)
+        .await
+}
+
 /// Pure query body of [`get_capture_activity`], separated so the aggregation
 /// is unit-testable without a Tauri app handle.
 async fn capture_activity(

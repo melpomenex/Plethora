@@ -2,7 +2,10 @@
 
 use crate::database::Repository;
 use crate::error::Result;
-use crate::models::{capture::browser_capture_url, Document};
+use crate::models::{
+    capture::{browser_capture_url, share_capture_eligible, share_capture_url},
+    Document,
+};
 use chrono::{DateTime, Utc};
 use futures::TryStreamExt;
 use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool};
@@ -10,13 +13,79 @@ use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool};
 // A coarse SQL prefilter only: the shared Rust classifier remains authoritative.
 // Removing article payloads here prevents rich HTML/images from crossing the query boundary.
 const CAPTURE_ROWS: &str = "SELECT id, title, file_type, file_path, date_added, cover_image_url, cover_image_source,
-    CASE WHEN json_valid(metadata) THEN json_remove(metadata, '$.articleHtml', '$.extractedImages', '$.structuredContent') ELSE NULL END AS capture_metadata
+    CASE WHEN json_valid(metadata) THEN json_object(
+      'source', json_extract(metadata, '$.source'),
+      'captureProvenance', json_extract(metadata, '$.captureProvenance'),
+      'shareProvenance', json_extract(metadata, '$.shareProvenance'),
+      'browserCaptureContext', json_extract(metadata, '$.browserCaptureContext'),
+      'originalUrl', json_extract(metadata, '$.originalUrl'),
+      'url', json_extract(metadata, '$.url'),
+      'webArticle', json_object('originalUrl', json_extract(metadata, '$.webArticle.originalUrl'))
+    ) ELSE NULL END AS capture_metadata
     FROM documents WHERE is_archived = 0 AND COALESCE(is_dismissed, 0) = 0
     AND CASE WHEN json_valid(metadata) THEN
       json_extract(metadata, '$.source') = 'browser_extension'
       OR json_extract(metadata, '$.captureProvenance.source') = 'browser_extension'
+      OR json_extract(metadata, '$.source') IN ('share_extension', 'android_share')
+      OR json_extract(metadata, '$.captureProvenance.source') IN ('share_extension', 'android_share')
+      OR json_extract(metadata, '$.shareProvenance') IS NOT NULL
     ELSE 0 END
     ORDER BY date_added DESC, id DESC";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureListingSource {
+    BrowserExtension,
+    ShareTarget,
+}
+
+impl TryFrom<&str> for CaptureListingSource {
+    type Error = crate::error::PlethoraError;
+
+    fn try_from(source: &str) -> std::result::Result<Self, Self::Error> {
+        match source {
+            "browser-extension" => Ok(Self::BrowserExtension),
+            "share-target" => Ok(Self::ShareTarget),
+            other => Err(crate::error::PlethoraError::InvalidInput(format!(
+                "Unsupported capture source: {other}"
+            ))),
+        }
+    }
+}
+
+impl CaptureListingSource {
+    fn eligible(self, metadata: Option<&str>, file_path: &str) -> bool {
+        match self {
+            Self::BrowserExtension => browser_capture_url(metadata, file_path).is_some(),
+            Self::ShareTarget => share_capture_eligible(metadata),
+        }
+    }
+
+    fn source_url(self, metadata: Option<&str>, file_path: &str) -> Option<String> {
+        match self {
+            Self::BrowserExtension => browser_capture_url(metadata, file_path),
+            Self::ShareTarget => share_capture_url(metadata, file_path),
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct CaptureDocument {
+    pub document_id: String,
+    pub title: String,
+    pub file_type: String,
+    pub source_url: Option<String>,
+    pub date_added: DateTime<Utc>,
+    pub cover_image_url: Option<String>,
+    pub cover_image_source: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct CapturePage {
+    pub items: Vec<CaptureDocument>,
+    pub total_count: usize,
+    pub limit: i64,
+    pub offset: i64,
+}
 
 #[derive(Debug, serde::Serialize)]
 pub struct BrowserCaptureDocument {
@@ -42,9 +111,46 @@ pub async fn browser_capture_documents(
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<BrowserCapturePage> {
+    let page = capture_documents(
+        pool,
+        "browser-extension",
+        limit,
+        offset,
+    )
+    .await?;
+    let items = page
+        .items
+        .into_iter()
+        .filter_map(|item| {
+            Some(BrowserCaptureDocument {
+                document_id: item.document_id,
+                title: item.title,
+                file_type: item.file_type,
+                source_url: item.source_url?,
+                date_added: item.date_added,
+                cover_image_url: item.cover_image_url,
+                cover_image_source: item.cover_image_source,
+            })
+        })
+        .collect();
+    Ok(BrowserCapturePage {
+        items,
+        total_count: page.total_count,
+        limit: page.limit,
+        offset: page.offset,
+    })
+}
+
+pub async fn capture_documents(
+    pool: &SqlitePool,
+    source: &str,
+    limit: Option<i64>,
+    offset: Option<i64>,
+) -> Result<CapturePage> {
+    let source = CaptureListingSource::try_from(source)?;
     let limit = limit.unwrap_or(6).clamp(1, 100);
     let offset = offset.unwrap_or(0).max(0);
-    let mut result = BrowserCapturePage {
+    let mut result = CapturePage {
         items: Vec::new(),
         total_count: 0,
         limit,
@@ -54,9 +160,10 @@ pub async fn browser_capture_documents(
     while let Some(row) = rows.try_next().await? {
         let metadata: Option<String> = row.try_get("capture_metadata")?;
         let path: String = row.try_get("file_path")?;
-        let Some(source_url) = browser_capture_url(metadata.as_deref(), &path) else {
+        if !source.eligible(metadata.as_deref(), &path) {
             continue;
-        };
+        }
+        let source_url = source.source_url(metadata.as_deref(), &path);
         let Ok(date_added) = row.try_get::<DateTime<Utc>, _>("date_added") else {
             continue;
         };
@@ -65,7 +172,7 @@ pub async fn browser_capture_documents(
         if index < offset as usize || result.items.len() >= limit as usize {
             continue;
         }
-        result.items.push(BrowserCaptureDocument {
+        result.items.push(CaptureDocument {
             document_id: row.try_get("id")?,
             title: row.try_get("title")?,
             file_type: row.try_get("file_type")?,
@@ -80,13 +187,14 @@ pub async fn browser_capture_documents(
 
 impl Repository {
     /// Existing Library summary contract, filtered in persisted data and without article bodies.
-    pub async fn list_browser_capture_summaries(&self) -> Result<Vec<Document>> {
+    pub async fn list_capture_summaries(&self, source: &str) -> Result<Vec<Document>> {
+        let source = CaptureListingSource::try_from(source)?;
         let mut ids = Vec::<String>::new();
         let mut rows = sqlx::query(CAPTURE_ROWS).fetch(self.pool());
         while let Some(row) = rows.try_next().await? {
             let metadata: Option<String> = row.try_get("capture_metadata")?;
             let path: String = row.try_get("file_path")?;
-            if browser_capture_url(metadata.as_deref(), &path).is_some()
+            if source.eligible(metadata.as_deref(), &path)
                 && row.try_get::<DateTime<Utc>, _>("date_added").is_ok()
             {
                 ids.push(row.try_get("id")?);
@@ -106,6 +214,10 @@ impl Repository {
             }
         }
         Ok(documents)
+    }
+
+    pub async fn list_browser_capture_summaries(&self) -> Result<Vec<Document>> {
+        self.list_capture_summaries("browser-extension").await
     }
 }
 
@@ -186,6 +298,40 @@ mod tests {
             .unwrap();
         assert_eq!((bounded.limit, bounded.offset), (100, 0));
         assert_eq!(bounded.items.len(), 12);
+    }
+
+    #[tokio::test]
+    async fn share_captures_keep_local_items_and_count_only_valid_live_rows() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE documents (id TEXT, title TEXT, file_type TEXT, file_path TEXT, date_added TEXT, cover_image_url TEXT, cover_image_source TEXT, metadata TEXT, is_archived INTEGER, is_dismissed INTEGER, collection_id TEXT)")
+            .execute(&pool).await.unwrap();
+        for (id, path, date, metadata, archived, dismissed) in [
+            ("share-a", "/private/a.pdf", "2025-01-01T00:00:00Z", r#"{"shareProvenance":{"source":"share_extension"}}"#, 0, 0),
+            ("share-b", "/private/b.png", "2025-01-01T00:00:00Z", r#"{"captureProvenance":{"source":"android_share"}}"#, 0, 0),
+            ("share-text", "note://local", "2024-01-01T00:00:00Z", r#"{"shareProvenance":{}}"#, 0, 0),
+            ("bad-date", "/private/bad", "not-a-date", r#"{"source":"share_extension"}"#, 0, 0),
+            ("manual", "https://example.org/manual", "2026-01-01T00:00:00Z", r#"{"source":"manual","url":"https://example.org/manual"}"#, 0, 0),
+            ("archived", "/private/archived", "2026-02-01T00:00:00Z", r#"{"source":"share_extension"}"#, 1, 0),
+            ("dismissed", "/private/dismissed", "2026-03-01T00:00:00Z", r#"{"source":"android_share"}"#, 0, 1),
+        ] {
+            sqlx::query("INSERT INTO documents VALUES (?, ?, 'pdf', ?, ?, NULL, NULL, ?, ?, ?, ?)")
+                .bind(id).bind(id).bind(path).bind(date).bind(metadata).bind(archived).bind(dismissed)
+                .bind(if id == "share-a" { "collection-a" } else { "collection-b" })
+                .execute(&pool).await.unwrap();
+        }
+
+        let page = capture_documents(&pool, "share-target", Some(2), Some(0)).await.unwrap();
+        assert_eq!(page.total_count, 3);
+        assert_eq!(page.items.iter().map(|item| item.document_id.as_str()).collect::<Vec<_>>(), ["share-b", "share-a"]);
+        assert!(page.items.iter().all(|item| item.source_url.is_none()));
+        let later = capture_documents(&pool, "share-target", Some(1), Some(1)).await.unwrap();
+        assert_eq!(later.total_count, 3);
+        assert_eq!(later.items[0].document_id, "share-a");
+        assert!(capture_documents(&pool, "everything", None, None).await.is_err());
     }
     #[tokio::test]
     async fn filtered_library_uses_all_collections_and_omits_article_bodies() {

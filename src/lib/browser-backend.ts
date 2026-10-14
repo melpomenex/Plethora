@@ -4,7 +4,7 @@
  */
 
 import * as db from './database.js';
-import { browserCaptureSourceUrl } from '../utils/captureSource';
+import { browserCaptureSourceUrl, hasShareCaptureEvidence, shareCaptureSourceUrl } from '../utils/captureSource';
 import { DEFAULT_COLLECTION_ID } from '../types/collection';
 import { ARENA_MODEL_LABEL_ORDER } from "./schedulerCatalog";
 import {
@@ -1608,6 +1608,12 @@ const commandHandlers: Record<string, CommandHandler> = {
         const collectionId = args?.collectionId as string | null | undefined;
         if (args?.captureSource === "browser-extension") {
             docs = docs.filter(doc => !doc.is_archived && !doc.is_dismissed && browserCaptureSourceUrl(doc.metadata, doc.file_path));
+            docs.sort((a, b) => Date.parse(b.date_added) - Date.parse(a.date_added) || b.id.localeCompare(a.id));
+        } else if (args?.captureSource === "share-target") {
+            docs = docs.filter(doc => !doc.is_archived && !doc.is_dismissed && hasShareCaptureEvidence(doc.metadata));
+            docs.sort((a, b) => Date.parse(b.date_added) - Date.parse(a.date_added) || b.id.localeCompare(a.id));
+        } else if (args?.captureSource != null) {
+            throw new Error(`Unsupported capture source: ${String(args.captureSource)}`);
         }
         if (collectionId) {
             // Collections aren't modeled in the browser backend, so documents are
@@ -1636,6 +1642,57 @@ const commandHandlers: Record<string, CommandHandler> = {
                     cover_image_url: doc.cover_image_url ?? null, cover_image_source: doc.cover_image_source ?? null }];
             }).sort((a, b) => Date.parse(b.date_added) - Date.parse(a.date_added) || b.document_id.localeCompare(a.document_id));
         return { items: items.slice(offset, offset + limit), total_count: items.length, limit, offset };
+    },
+
+    get_capture_documents: async (args) => {
+        const source = args?.source;
+        if (source !== "browser-extension" && source !== "share-target") {
+            throw new Error(`Unsupported capture source: ${String(source)}`);
+        }
+        const limit = Math.max(1, Math.min(100, Math.floor(Number(args?.limit) || 6)));
+        const offset = Math.max(0, Math.floor(Number(args?.offset) || 0));
+        const documents = await db.getDocuments();
+        const items = documents.filter(doc => !doc.is_archived && !doc.is_dismissed)
+            .flatMap(doc => {
+                if (!Number.isFinite(Date.parse(doc.date_added))) return [];
+                const sourceUrl = source === "browser-extension"
+                    ? browserCaptureSourceUrl(doc.metadata, doc.file_path)
+                    : hasShareCaptureEvidence(doc.metadata) ? shareCaptureSourceUrl(doc.metadata, doc.file_path) : null;
+                if (source === "browser-extension" && !sourceUrl) return [];
+                if (source === "share-target" && !hasShareCaptureEvidence(doc.metadata)) return [];
+                return [{ document_id: doc.id, title: doc.title, file_type: doc.file_type,
+                    source_url: sourceUrl, date_added: doc.date_added,
+                    cover_image_url: doc.cover_image_url ?? null, cover_image_source: doc.cover_image_source ?? null }];
+            }).sort((a, b) => Date.parse(b.date_added) - Date.parse(a.date_added) || b.document_id.localeCompare(a.document_id));
+        return { items: items.slice(offset, offset + limit), total_count: items.length, limit, offset };
+    },
+
+    merge_document_metadata: async (args) => {
+        const id = String(args?.id ?? "");
+        const updates = args?.updates;
+        if (!id || !updates || typeof updates !== "object" || Array.isArray(updates)) {
+            throw new Error("Document metadata patch must be an object");
+        }
+        const current = await db.getDocument(id);
+        if (!current) throw new Error(`Document ${id} not found`);
+        const existing = current.metadata ?? {};
+        const incoming = updates as Record<string, unknown>;
+        const capture = existing.captureProvenance as Record<string, unknown> | undefined;
+        const legacyBrowser = !capture && existing.source === "browser_extension";
+        const captureProvenance = capture ?? (legacyBrowser ? {
+            source: "browser_extension", itemType: "page",
+            sourceUrl: browserCaptureSourceUrl(existing, current.file_path) ?? undefined,
+            capturedAt: current.date_added, schemaVersion: 1,
+        } : undefined);
+        const shareCurrent = existing.shareProvenance as Record<string, unknown> | null | undefined;
+        const shareIncoming = incoming.shareProvenance as Record<string, unknown> | undefined;
+        const metadata = {
+            ...existing,
+            ...incoming,
+            ...(captureProvenance ? { captureProvenance } : {}),
+            ...(shareIncoming ? { shareProvenance: { ...(shareCurrent ?? {}), ...shareIncoming } } : {}),
+        };
+        await db.updateDocument(id, { metadata });
     },
 
     get_document: async (args) => {

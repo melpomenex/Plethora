@@ -164,6 +164,17 @@ describe("DocumentsView", () => {
     await waitFor(() => expect(documentsApiMock.getDocuments).toHaveBeenLastCalledWith(undefined, undefined));
     expect(mockStore.documents[0].id).toBe("doc-1");
   });
+  it("opens a tab-local share-filtered all-library list and removes its source chip", async () => {
+    documentsApiMock.getDocuments.mockResolvedValue([{ ...mockStore.documents[0], id: "shared-outside", title: "Shared from another collection" }]);
+    render(<DocumentsView enableYouTubeImport={false} allLibraryScope initialCaptureSource="share-target" captureViewRequest={2} />);
+    await waitFor(() => expect(screen.getAllByText("Shared from another collection").length).toBeGreaterThan(0));
+    expect(documentsApiMock.getDocuments).toHaveBeenCalledWith(undefined, "share-target");
+    expect(screen.getByRole("button", { name: "Remove Shared to Plethora filter" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Shared to Plethora filter" }));
+    await waitFor(() => expect(documentsApiMock.getDocuments).toHaveBeenLastCalledWith(undefined, undefined));
+    expect(mockStore.documents[0].id).toBe("doc-1");
+    expect(collectionsMock.switchCollection).not.toHaveBeenCalled();
+  });
   it("restores list mode from storage", () => {
     window.localStorage.setItem("documentsViewMode", "list");
     render(<DocumentsView enableYouTubeImport={false} />);

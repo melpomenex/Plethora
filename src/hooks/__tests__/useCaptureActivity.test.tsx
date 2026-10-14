@@ -1,8 +1,8 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ activity: vi.fn(), saves: vi.fn(), listen: vi.fn(), stop: vi.fn(), handler: undefined as (() => void) | undefined }));
-vi.mock("../../api/capture-activity", () => ({ getCaptureActivity: mocks.activity, getBrowserCaptureDocuments: mocks.saves }));
+const mocks = vi.hoisted(() => ({ activity: vi.fn(), saves: vi.fn(), source: vi.fn(() => "browser-extension"), listen: vi.fn(), stop: vi.fn(), handler: undefined as (() => void) | undefined }));
+vi.mock("../../api/capture-activity", () => ({ getCaptureActivity: mocks.activity, getCaptureDocuments: mocks.saves, getCaptureListingSource: mocks.source }));
 vi.mock("../../lib/tauri", () => ({ isTauri: () => true, listen: mocks.listen }));
 import { useCaptureActivity } from "../useCaptureActivity";
 
@@ -65,5 +65,14 @@ describe("capture refresh lifecycle", () => {
     unmount();
     await act(async () => { pending.resolve(mocks.stop); });
     expect(mocks.stop).toHaveBeenCalledOnce();
+  });
+
+  it("loads the selected source and ignores invalidations for the other source", async () => {
+    const { result } = renderHook(() => useCaptureActivity(true, "share-target"));
+    await waitFor(() => expect(result.current.captures.data).toEqual(saves));
+    expect(mocks.saves).toHaveBeenCalledWith("share-target", 6);
+    window.dispatchEvent(new CustomEvent("plethora:capture-invalidated", { detail: { source: "browser-extension", documentIds: ["browser"] } }));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 550)); });
+    expect(mocks.saves).toHaveBeenCalledTimes(1);
   });
 });

@@ -62,4 +62,25 @@ describe("browser-save shelf", () => {
     expect(screen.getByText("Your browser saves will appear here")).toBeTruthy();
     expect(screen.getByText("Share Target")).toBeTruthy();
   });
+
+  it("shows URL-less PDF, image, audio, and text captures without original-page actions", () => {
+    const localCaptures = ["pdf", "image", "audio", "markdown"].map((fileType, index) => ({
+      documentId: `local-${index}`, title: `${fileType} capture`, fileType, sourceUrl: null,
+      dateAdded: "2026-10-14T10:00:00Z", coverImageUrl: null,
+    }));
+    const callbacks = props({ source: "share-target", data: { items: localCaptures as any, totalCount: 4, limit: 6, offset: 0 } });
+    render(<BrowserCaptureShelf {...callbacks} />);
+    for (const capture of localCaptures) {
+      expect(screen.getByRole("button", { name: `Open ${capture.title} in Plethora` })).toBeTruthy();
+      expect(screen.queryByRole("button", { name: `Open original page for ${capture.title}` })).toBeNull();
+    }
+    expect(screen.getByText("Recently shared to Plethora")).toBeTruthy();
+  });
+
+  it("uses share guidance for the empty activity summary on native surfaces", () => {
+    const shareShelf = props({ source: "share-target", data: { items: [], totalCount: 0, limit: 6, offset: 0 } });
+    render(<CaptureActivityCard data={{ windowDays: 30, perDay: [], bySource: [], needsAttention: 0 }} isLoading={false} error={null} onRetry={vi.fn()} onOpenNeedsReview={vi.fn()} captureShelf={shareShelf} />);
+    expect(screen.getAllByText("Use Share in another app and choose Plethora to save a link, file, or text.")).toHaveLength(2);
+    expect(screen.queryByText(/browser extension/i)).toBeNull();
+  });
 });

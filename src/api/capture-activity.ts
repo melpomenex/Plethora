@@ -1,4 +1,4 @@
-import { invokeCommand } from "../lib/tauri";
+import { invokeCommand, isNativeMobile } from "../lib/tauri";
 import type { Document } from "../types/document";
 import { validCaptureUrl } from "../utils/captureSource";
 
@@ -12,6 +12,14 @@ export type CaptureSource =
   | "share-target"
   | "rss"
   | "manual";
+
+/** Listing channels are deliberately narrower than the analytics buckets. */
+export type CaptureListingSource = "browser-extension" | "share-target";
+
+/** Resolve content mode from the runtime platform, never from viewport size. */
+export function getCaptureListingSource(): CaptureListingSource {
+  return isNativeMobile() ? "share-target" : "browser-extension";
+}
 
 /** Raw shape returned by the `get_capture_activity` Tauri command. */
 interface RawCaptureActivity {
@@ -122,21 +130,30 @@ export async function getCaptureActivity(days: number = 30): Promise<CaptureActi
   return normalizeCaptureActivity(raw);
 }
 
-export interface BrowserCaptureDocument {
+export interface CaptureDocument {
   documentId: string;
   title: string;
   fileType: Document["fileType"];
-  sourceUrl: string;
+  sourceUrl: string | null;
   dateAdded: string;
   coverImageUrl: string | null;
   coverImageSource: string | null;
 }
 
-export interface BrowserCapturePage {
-  items: BrowserCaptureDocument[];
+export interface CapturePage {
+  items: CaptureDocument[];
   totalCount: number;
   limit: number;
   offset: number;
+}
+
+/** Browser listing retains its historical guarantee that each result has a URL. */
+export interface BrowserCaptureDocument extends CaptureDocument {
+  sourceUrl: string;
+}
+
+export interface BrowserCapturePage extends Omit<CapturePage, "items"> {
+  items: BrowserCaptureDocument[];
 }
 
 const FILE_TYPES: Document["fileType"][] = ["pdf", "epub", "markdown", "html", "youtube", "audio", "video", "image", "other"];
@@ -144,18 +161,43 @@ const stringOrNull = (value: unknown): string | null => typeof value === "string
 const boundedInteger = (value: unknown, fallback: number, min: number, max: number): number =>
   typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, Math.floor(value))) : fallback;
 
-function normalizeBrowserCapture(entry: unknown): BrowserCaptureDocument | null {
+function normalizeCapture(entry: unknown): CaptureDocument | null {
   if (!isRecord(entry)) return null;
   const sourceUrl = validCaptureUrl(entry.source_url);
   const documentId = stringOrNull(entry.document_id);
   const dateAdded = stringOrNull(entry.date_added);
-  if (!documentId || !sourceUrl || !dateAdded || !Number.isFinite(Date.parse(dateAdded))) return null;
+  if (!documentId || !dateAdded || !Number.isFinite(Date.parse(dateAdded))) return null;
   return {
     documentId, sourceUrl, dateAdded,
     title: typeof entry.title === "string" ? entry.title : "",
     fileType: FILE_TYPES.includes(entry.file_type as Document["fileType"]) ? entry.file_type as Document["fileType"] : "other",
     coverImageUrl: stringOrNull(entry.cover_image_url),
     coverImageSource: stringOrNull(entry.cover_image_source),
+  };
+}
+
+function normalizeBrowserCapture(entry: unknown): BrowserCaptureDocument | null {
+  const capture = normalizeCapture(entry);
+  return capture?.sourceUrl ? capture as BrowserCaptureDocument : null;
+}
+
+/** General source-selected page normalization. URL-less share documents remain valid. */
+export function normalizeCapturePage(raw: unknown): CapturePage {
+  const source = isRecord(raw) ? raw : {};
+  const limit = boundedInteger(source.limit, 6, 1, 100);
+  const seen = new Set<string>();
+  const items = (Array.isArray(source.items) ? source.items : [])
+    .map(normalizeCapture)
+    .filter((item): item is CaptureDocument => {
+      if (!item || seen.has(item.documentId)) return false;
+      seen.add(item.documentId);
+      return true;
+    }).slice(0, limit);
+  return {
+    items,
+    limit,
+    offset: boundedInteger(source.offset, 0, 0, Number.MAX_SAFE_INTEGER),
+    totalCount: Math.max(items.length, boundedInteger(source.total_count, 0, 0, Number.MAX_SAFE_INTEGER)),
   };
 }
 
@@ -183,4 +225,17 @@ export async function getBrowserCaptureDocuments(limit = 6, offset = 0): Promise
     offset: boundedInteger(offset, 0, 0, Number.MAX_SAFE_INTEGER),
   });
   return normalizeBrowserCapturePage(raw);
+}
+
+export async function getCaptureDocuments(
+  source: CaptureListingSource,
+  limit = 6,
+  offset = 0,
+): Promise<CapturePage> {
+  const raw = await invokeCommand("get_capture_documents", {
+    source,
+    limit: boundedInteger(limit, 6, 1, 100),
+    offset: boundedInteger(offset, 0, 0, Number.MAX_SAFE_INTEGER),
+  });
+  return normalizeCapturePage(raw);
 }

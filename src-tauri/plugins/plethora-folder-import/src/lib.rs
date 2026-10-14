@@ -351,6 +351,12 @@ mod commands {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub id: Option<String>,
         pub timestamp: u64,
+        /// Entry point/source-app fields are additive and optional for older
+        /// Android payloads and staged-share records.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub origin: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        pub source_app: Option<String>,
         pub items: Vec<SharedPayloadItem>,
     }
 
@@ -609,6 +615,8 @@ fn staged_batch(
     commands::SharedBatch {
         id: Some(manifest.id.clone()),
         timestamp: manifest.received_at,
+        origin: Some("share_extension".to_string()),
+        source_app: manifest.source_app.clone(),
         items,
     }
 }

@@ -710,8 +710,16 @@ pub async fn get_documents(
     capture_source: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<Document>> {
-    if capture_source.as_deref() == Some("browser-extension") {
-        return repo.list_browser_capture_summaries().await;
+    match capture_source.as_deref() {
+        Some(source @ ("browser-extension" | "share-target")) => {
+            return repo.list_capture_summaries(source).await;
+        }
+        Some(source) => {
+            return Err(PlethoraError::InvalidInput(format!(
+                "Unsupported capture source: {source}"
+            )));
+        }
+        None => {}
     }
     // The library/list UI never renders full document text, so use the summary
     // accessors that NULL out the large content/content_hash/metadata columns
@@ -722,6 +730,16 @@ pub async fn get_documents(
         None => repo.list_documents_summary().await?,
     };
     Ok(docs)
+}
+
+#[tauri::command]
+pub async fn merge_document_metadata(
+    id: String,
+    updates: serde_json::Value,
+    repo: State<'_, Repository>,
+) -> Result<()> {
+    repo.merge_document_metadata(&id, updates).await?;
+    Ok(())
 }
 
 #[tauri::command]

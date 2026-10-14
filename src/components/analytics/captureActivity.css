@@ -47,6 +47,9 @@
   .capture-shelf-skeleton { min-height: 8.5rem; padding-bottom: 0; }
   .capture-shelf-skeleton::before { width: 6.25rem; }
 }
+@media (pointer: coarse) {
+  .capture-shelf-header button, .capture-document-primary, .capture-document-original { min-height: 48px; }
+}
 @container (max-width: 18rem) {
   .capture-document-read { max-width: 100%; }
   .capture-document-original { position: static; margin-inline-start: calc(28% + .75rem); }

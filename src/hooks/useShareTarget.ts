@@ -18,6 +18,7 @@ import { useDocumentStore } from "../stores/documentStore";
 import { useTabsStore } from "../stores/tabsStore";
 import { useToast } from "../components/common/Toast";
 import { useI18n } from "../lib/i18n";
+import { isNativeMobile, nativePlatform } from "../lib/tauri";
 import type { SharedBatch, SharedItem } from "../types/share";
 
 function getItemDedupeKey(item: SharedItem): string {
@@ -106,8 +107,15 @@ export function useShareTarget() {
 
       const execute = async (): Promise<ProcessSharedBatchResult> => {
         try {
-          const result = await processSharedBatch(batch, deps);
-          if (batchKey) {
+          const platform = nativePlatform()?.toLowerCase();
+          const shareIngress = isNativeMobile()
+            ? {
+                origin: platform === "ios" ? "share_extension" as const : "android_share" as const,
+                sourceApp: batch.sourceApp,
+              }
+            : undefined;
+          const result = await processSharedBatch(batch, deps, shareIngress);
+          if (batchKey && result.failed === 0) {
             recentBatchesRef.current.set(batchKey, result);
             const timer = setTimeout(() => {
               recentBatchesRef.current.delete(batchKey);

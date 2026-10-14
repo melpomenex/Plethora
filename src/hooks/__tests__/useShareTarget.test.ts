@@ -4,6 +4,17 @@ import { useShareTarget } from "../useShareTarget";
 import { useDocumentStore } from "../../stores/documentStore";
 import * as shareTargetLib from "../../lib/shareTarget";
 
+const nativePlatform = vi.hoisted(() => ({ value: "ios" }));
+vi.mock("../../lib/tauri", async importOriginal => {
+  const actual = await importOriginal<typeof import("../../lib/tauri")>();
+  return {
+    ...actual,
+    isNativeMobile: () => true,
+    nativePlatform: () => nativePlatform.value,
+    listen: () => Promise.resolve(() => {}),
+  };
+});
+
 vi.mock("../../lib/i18n", () => ({
   useI18n: () => ({
     t: (key: string) => key,
@@ -24,13 +35,16 @@ vi.mock("../../components/common/Toast", () => ({
 vi.mock("../../api/documents", () => ({
   createDocument: vi.fn().mockResolvedValue({ id: "doc-note", title: "note", metadata: {} }),
   updateDocument: vi.fn().mockImplementation((_id, doc) => Promise.resolve(doc)),
+  updateDocumentContent: vi.fn().mockImplementation((id, content) => Promise.resolve({ id, title: "note", content, metadata: {} })),
+  mergeDocumentMetadata: vi.fn().mockImplementation((id, updates) => Promise.resolve({ id, title: id, metadata: updates })),
 }));
 
-import { createDocument, updateDocument } from "../../api/documents";
+import { createDocument, mergeDocumentMetadata, updateDocument } from "../../api/documents";
 
 describe("useShareTarget", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    nativePlatform.value = "ios";
     useDocumentStore.setState({
       importFromUrl: vi.fn(),
       openTwitterThread: vi.fn(),
@@ -125,6 +139,43 @@ describe("useShareTarget", () => {
       expect(importFromUrlMock).toHaveBeenCalledWith("https://example.com/cold-start");
     });
     expect(fetchSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("persists iOS share attribution before acknowledging a staged batch", async () => {
+    let releaseAttribution!: (doc: any) => void;
+    const attribution = new Promise(resolve => { releaseAttribution = resolve; });
+    vi.mocked(mergeDocumentMetadata).mockReturnValueOnce(attribution as any);
+    vi.spyOn(shareTargetLib, "registerShareListener").mockImplementation(() => () => {});
+    vi.spyOn(shareTargetLib, "fetchPendingShares").mockResolvedValue([{
+      id: "staged-ios", timestamp: 1724200000000,
+      items: [{ type: "url", url: "https://example.com/staged-ios" }],
+    }]);
+    const complete = vi.spyOn(shareTargetLib, "completePendingShares").mockResolvedValue(undefined);
+    const importFromUrlMock = vi.fn().mockResolvedValue({ id: "ios-doc", title: "Saved", metadata: {} });
+    useDocumentStore.setState({ importFromUrl: importFromUrlMock } as any);
+
+    renderHook(() => useShareTarget());
+    await vi.waitFor(() => expect(mergeDocumentMetadata).toHaveBeenCalledWith("ios-doc", expect.objectContaining({
+      shareProvenance: expect.objectContaining({ source: "share_extension", batchId: "staged-ios" }),
+    })));
+    expect(complete).not.toHaveBeenCalled();
+    releaseAttribution({ id: "ios-doc", title: "Saved", metadata: {} });
+    await vi.waitFor(() => expect(complete).toHaveBeenCalledWith(["staged-ios"]));
+  });
+
+  it("attributes a warm Android share with the Android native origin", async () => {
+    nativePlatform.value = "android";
+    let capturedHandler: ((batch: any) => Promise<any>) | null = null;
+    vi.spyOn(shareTargetLib, "registerShareListener").mockImplementation((handler: any) => { capturedHandler = handler; return () => {}; });
+    vi.spyOn(shareTargetLib, "fetchPendingShares").mockResolvedValue([]);
+    useDocumentStore.setState({ importFromUrl: vi.fn().mockResolvedValue({ id: "android-doc", title: "Android", metadata: {} }) } as any);
+
+    renderHook(() => useShareTarget());
+    await capturedHandler!({ timestamp: 1724200000001, items: [{ type: "url", url: "https://example.com/android" }] });
+
+    expect(mergeDocumentMetadata).toHaveBeenCalledWith("android-doc", expect.objectContaining({
+      shareProvenance: expect.objectContaining({ source: "android_share", sourceUrl: "https://example.com/android" }),
+    }));
   });
 
   it("processes concurrent shares with different URLs sequentially via FIFO queue without dropping any", async () => {
