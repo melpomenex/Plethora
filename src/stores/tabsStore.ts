@@ -621,6 +621,11 @@ export function tabDataKey(data?: Record<string, unknown>): string {
 }
 
 function findReusableTab(state: TabsState, tab: Omit<Tab, "id">): Tab | undefined {
+  // All-library capture views are local to their tab; the ordinary scoped Library stays intact.
+  if (tab.type === "documents") {
+    return state.tabs.find(existing => existing.type === "documents" &&
+      (existing.data?.libraryScope ?? "collection") === (tab.data?.libraryScope ?? "collection"));
+  }
   if (SINGLE_INSTANCE_TAB_TYPES.has(tab.type)) {
     return state.tabs.find((existingTab) => existingTab.type === tab.type);
   }

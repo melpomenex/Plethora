@@ -1413,6 +1413,24 @@ fn build_browser_import_metadata(payload: &ExtensionRequest) -> crate::models::D
     }
 }
 
+/// Complete forward-path provenance without replacing media/import metadata.
+fn stamp_browser_document_provenance(
+    doc: &mut crate::models::Document,
+    payload: &ExtensionRequest,
+) {
+    let captured = build_browser_import_metadata(payload);
+    let metadata = doc.metadata.get_or_insert_with(Default::default);
+    metadata.source = captured.source;
+    metadata.capture_provenance = captured.capture_provenance;
+    metadata.browser_capture_context = captured.browser_capture_context;
+    if metadata.site_name.is_none() {
+        metadata.site_name = captured.site_name;
+    }
+    if metadata.organization.is_none() {
+        metadata.organization = captured.organization;
+    }
+}
+
 fn build_browser_import_metadata_with_article(
     payload: &ExtensionRequest,
     article_html: Option<String>,
@@ -1619,7 +1637,9 @@ async fn handle_import_request(
         _ => None,
     };
 
-    if let Some(doc) = existing {
+    if let Some(mut doc) = existing {
+        stamp_browser_document_provenance(&mut doc, payload);
+        state.repo.update_document(&doc.id, &doc).await?;
         let existing_missing_text = doc
             .content
             .as_deref()
@@ -1694,7 +1714,9 @@ async fn handle_import_request(
         )
         .await
         {
-            Ok(created) => {
+            Ok(mut created) => {
+                stamp_browser_document_provenance(&mut created, payload);
+                let created = state.repo.update_document(&created.id, &created).await?;
                 let _ = state.app_handle.emit(
                     "browser-sync://document-saved",
                     DocumentSavedEvent {
@@ -6480,6 +6502,33 @@ mod tests {
             "/api/image-registry/ingest",
             &axum::http::Method::GET
         ));
+    }
+
+    #[test]
+    fn browser_document_provenance_preserves_media_metadata_and_original_save_time() {
+        let payload: ExtensionRequest = serde_json::from_value(serde_json::json!({
+            "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "title": "Video", "type": "video"
+        }))
+        .unwrap();
+        let mut doc = crate::models::Document::new(
+            payload.title.clone(),
+            payload.url.clone(),
+            FileType::Youtube,
+        );
+        let added = doc.date_added;
+        doc.metadata = Some(crate::models::DocumentMetadata {
+            author: Some("Original author".into()),
+            ..Default::default()
+        });
+        stamp_browser_document_provenance(&mut doc, &payload);
+        let metadata = doc.metadata.as_ref().unwrap();
+        assert_eq!(metadata.author.as_deref(), Some("Original author"));
+        assert_eq!(doc.date_added, added);
+        assert!(crate::models::capture::browser_capture_url(
+            Some(&serde_json::to_string(metadata).unwrap()),
+            &doc.file_path
+        )
+        .is_some());
     }
 
     #[test]

@@ -1,4 +1,6 @@
 import { invokeCommand } from "../lib/tauri";
+import type { Document } from "../types/document";
+import { validCaptureUrl } from "../utils/captureSource";
 
 /**
  * Capture source buckets shown in the Dashboard capture-activity widget.
@@ -118,4 +120,67 @@ export function normalizeCaptureActivity(raw: unknown): CaptureActivity {
 export async function getCaptureActivity(days: number = 30): Promise<CaptureActivity> {
   const raw = await invokeCommand<RawCaptureActivity | null>("get_capture_activity", { days });
   return normalizeCaptureActivity(raw);
+}
+
+export interface BrowserCaptureDocument {
+  documentId: string;
+  title: string;
+  fileType: Document["fileType"];
+  sourceUrl: string;
+  dateAdded: string;
+  coverImageUrl: string | null;
+  coverImageSource: string | null;
+}
+
+export interface BrowserCapturePage {
+  items: BrowserCaptureDocument[];
+  totalCount: number;
+  limit: number;
+  offset: number;
+}
+
+const FILE_TYPES: Document["fileType"][] = ["pdf", "epub", "markdown", "html", "youtube", "audio", "video", "image", "other"];
+const stringOrNull = (value: unknown): string | null => typeof value === "string" && value.trim() ? value : null;
+const boundedInteger = (value: unknown, fallback: number, min: number, max: number): number =>
+  typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, Math.floor(value))) : fallback;
+
+function normalizeBrowserCapture(entry: unknown): BrowserCaptureDocument | null {
+  if (!isRecord(entry)) return null;
+  const sourceUrl = validCaptureUrl(entry.source_url);
+  const documentId = stringOrNull(entry.document_id);
+  const dateAdded = stringOrNull(entry.date_added);
+  if (!documentId || !sourceUrl || !dateAdded || !Number.isFinite(Date.parse(dateAdded))) return null;
+  return {
+    documentId, sourceUrl, dateAdded,
+    title: typeof entry.title === "string" ? entry.title : "",
+    fileType: FILE_TYPES.includes(entry.file_type as Document["fileType"]) ? entry.file_type as Document["fileType"] : "other",
+    coverImageUrl: stringOrNull(entry.cover_image_url),
+    coverImageSource: stringOrNull(entry.cover_image_source),
+  };
+}
+
+export function normalizeBrowserCapturePage(raw: unknown): BrowserCapturePage {
+  const source = isRecord(raw) ? raw : {};
+  const limit = boundedInteger(source.limit, 6, 1, 100);
+  const seen = new Set<string>();
+  const items = (Array.isArray(source.items) ? source.items : [])
+    .map(normalizeBrowserCapture)
+    .filter((item): item is BrowserCaptureDocument => {
+      if (!item || seen.has(item.documentId)) return false;
+      seen.add(item.documentId);
+      return true;
+    }).slice(0, limit);
+  return {
+    items, limit,
+    offset: boundedInteger(source.offset, 0, 0, Number.MAX_SAFE_INTEGER),
+    totalCount: Math.max(items.length, boundedInteger(source.total_count, 0, 0, Number.MAX_SAFE_INTEGER)),
+  };
+}
+
+export async function getBrowserCaptureDocuments(limit = 6, offset = 0): Promise<BrowserCapturePage> {
+  const raw = await invokeCommand("get_browser_capture_documents", {
+    limit: boundedInteger(limit, 6, 1, 100),
+    offset: boundedInteger(offset, 0, 0, Number.MAX_SAFE_INTEGER),
+  });
+  return normalizeBrowserCapturePage(raw);
 }

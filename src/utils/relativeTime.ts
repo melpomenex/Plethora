@@ -1,5 +1,14 @@
 const UNIX_SECONDS_THRESHOLD = 1_000_000_000_000;
 
+/** Capture dates follow the active locale instead of the compact English reader labels. */
+export function formatLocalizedRelativeTime(timestampMs: number, locale: string, nowMs = Date.now()): string {
+  const seconds = Math.max(0, (nowMs - timestampMs) / 1000);
+  const formatter = new Intl.RelativeTimeFormat(locale, { numeric: "auto", style: "short" });
+  const unit = seconds < 60 ? "second" : seconds < 3600 ? "minute" : seconds < 86400 ? "hour" : seconds < 604800 ? "day" : seconds < 2592000 ? "week" : seconds < 31536000 ? "month" : "year";
+  const divisor = { second: 1, minute: 60, hour: 3600, day: 86400, week: 604800, month: 2592000, year: 31536000 }[unit];
+  return formatter.format(-Math.floor(seconds / divisor), unit);
+}
+
 /**
  * Normalize a Unix timestamp to the JavaScript-millisecond unit used by the UI.
  * Values below the threshold are treated as Unix seconds for compatibility with

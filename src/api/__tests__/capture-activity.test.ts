@@ -17,6 +17,8 @@ vi.mock("../../lib/tauri", () => ({
 import {
   getCaptureActivity,
   normalizeCaptureActivity,
+  getBrowserCaptureDocuments,
+  normalizeBrowserCapturePage,
 } from "../capture-activity";
 
 describe("normalizeCaptureActivity", () => {
@@ -101,6 +103,25 @@ describe("normalizeCaptureActivity", () => {
 
     expect(activity.windowDays).toBe(30);
     expect(activity.needsAttention).toBe(0);
+  });
+});
+
+describe("browser capture metadata", () => {
+  const row = { document_id: "saved", title: "Saved page", file_type: "html", source_url: "https://example.org/article", date_added: "2026-10-14T10:00:00Z", cover_image_url: null };
+
+  it("normalizes bounded metadata and drops malformed or unsupported source rows", () => {
+    const page = normalizeBrowserCapturePage({ items: [row, row, null, { ...row, document_id: "bad-date", date_added: "never" }, { ...row, document_id: "unsafe", source_url: "javascript:alert(1)" }], total_count: Infinity, limit: -1, offset: -5 });
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]).toMatchObject({ documentId: "saved", fileType: "html", sourceUrl: row.source_url, coverImageUrl: null });
+    expect(page).toMatchObject({ limit: 1, offset: 0, totalCount: 1 });
+    expect(normalizeBrowserCapturePage(null).items).toEqual([]);
+  });
+
+  it("bounds command inputs and preserves aggregate isolation", async () => {
+    mocks.invokeCommand.mockResolvedValue({ items: [row], total_count: 12, limit: 100, offset: 0 });
+    const page = await getBrowserCaptureDocuments(999, -10);
+    expect(mocks.invokeCommand).toHaveBeenLastCalledWith("get_browser_capture_documents", { limit: 100, offset: 0 });
+    expect(page.totalCount).toBe(12);
   });
 });
 

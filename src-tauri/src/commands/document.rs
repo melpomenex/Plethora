@@ -707,8 +707,12 @@ pub async fn import_pdf_highlights_as_extracts(
 #[tauri::command]
 pub async fn get_documents(
     collection_id: Option<String>,
+    capture_source: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<Document>> {
+    if capture_source.as_deref() == Some("browser-extension") {
+        return repo.list_browser_capture_summaries().await;
+    }
     // The library/list UI never renders full document text, so use the summary
     // accessors that NULL out the large content/content_hash/metadata columns
     // to avoid shipping them across IPC. Callers needing the body should use

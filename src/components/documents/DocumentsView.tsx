@@ -41,6 +41,7 @@ import {
   YoutubeLogo,
 } from "@phosphor-icons/react";
 import { useDocumentStore } from "../../stores/documentStore";
+import { useLibraryDocuments } from "../../hooks/useLibraryDocuments";
 import { useAudioEditionGenerationStore } from "../../stores/audioEditionGenerationStore";
 import { formatDuration } from "../../api/audiobooks";
 import {
@@ -221,28 +222,31 @@ interface DocumentsViewProps {
   onViewExtracts?: (doc: Document) => void;
   onReadAlong?: (audioDoc: Document, epubDoc: Document) => void;
   enableYouTubeImport?: boolean;
+  initialCaptureSource?: "browser-extension";
+  allLibraryScope?: boolean;
+  captureViewRequest?: number;
 }
 
-export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, enableYouTubeImport = true }: DocumentsViewProps) {
+export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, enableYouTubeImport = true, initialCaptureSource, allLibraryScope = false, captureViewRequest }: DocumentsViewProps) {
   const { t } = useI18n();
   const { settings, updateSettingsCategory } = useSettingsStore();
   const compactDocumentsView = settings.interface?.compactDocumentsView ?? false;
   const {
-    documents,
-    isLoading,
-    hasCompletedFirstLoad,
+    documents: cachedDocuments,
+    isLoading: collectionLoading,
+    hasCompletedFirstLoad: collectionCompleted,
     isImporting,
     isSegmenting,
     importProgress,
-    error,
-    loadDocuments,
+    error: collectionError,
+    loadDocuments: reloadCollection,
     loadDocumentsPage,
     openFilePickerAndImport,
     importFromFiles,
     importFromFolder,
-    updateDocument,
-    deleteDocument,
-    bulkDelete,
+    updateDocument: updateCachedDocument,
+    deleteDocument: deleteStoredDocument,
+    bulkDelete: bulkDeleteStoredDocuments,
     segmentDocument,
   } = useDocumentStore(useShallow(s => ({
     documents: s.documents,
@@ -278,7 +282,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   // non-empty search and cached for the life of the view. null = not yet
   // fetched; once fetched (even on failure) we hold an array.
   const [learningItems, setLearningItems] = useState<LearningItem[] | null>(null);
-  const [sortKey, setSortKey] = useState<DocumentSortKey>("priority");
+  const [sortKey, setSortKey] = useState<DocumentSortKey>(allLibraryScope ? "added" : "priority");
   const [sortDirection, setSortDirection] = useState<DocumentSortDirection>("desc");
   const [showNextAction, setShowNextAction] = useState(true);
   const [selectedFileType, setSelectedFileType] = useState<string>("all");
@@ -325,6 +329,37 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   const [listPairSearch, setListPairSearch] = useState("");
   const [audioEditionDoc, setAudioEditionDoc] = useState<Document | null>(null);
 
+  const isActiveTab = useIsActiveTab();
+  const [captureSource, setCaptureSource] = useState(initialCaptureSource);
+  const library = useLibraryDocuments(allLibraryScope, captureSource, isActiveTab);
+  const documents = allLibraryScope ? library.documents : cachedDocuments;
+  const isLoading = allLibraryScope ? library.isLoading : collectionLoading;
+  const hasCompletedFirstLoad = allLibraryScope ? library.hasCompletedFirstLoad : collectionCompleted;
+  const error = allLibraryScope ? library.error : collectionError;
+  const loadDocuments = allLibraryScope ? library.reload : reloadCollection;
+  const updateDocument = useCallback((id: string, updates: Partial<Document>) => {
+    updateCachedDocument(id, updates);
+    if (allLibraryScope) library.patch(id, updates);
+  }, [allLibraryScope, library.patch, updateCachedDocument]);
+  const deleteDocument = useCallback(async (id: string) => {
+    await deleteStoredDocument(id);
+    if (allLibraryScope) await library.reload();
+  }, [allLibraryScope, deleteStoredDocument, library.reload]);
+  const bulkDelete = useCallback(async (ids: string[]) => {
+    const result = await bulkDeleteStoredDocuments(ids);
+    if (allLibraryScope) await library.reload();
+    return result;
+  }, [allLibraryScope, bulkDeleteStoredDocuments, library.reload]);
+  useEffect(() => {
+    if (!allLibraryScope) return;
+    setCaptureSource(initialCaptureSource);
+    setSearchInput(""); setDebouncedSearch("");
+    setSelectedFileType("all"); setSelectedCategory("all"); setCompactFilter("all");
+    setSortKey("added"); setSortDirection("desc");
+    setSelectedIds(new Set()); setActiveViewId(null);
+  }, [allLibraryScope, initialCaptureSource, captureViewRequest]);
+
+
   // Confirmation dialog for destructive actions
   const confirmDialog = useConfirmDialog();
   const toast = useToast();
@@ -332,7 +367,6 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   const priorityPopup = usePriorityPopup({ updateDocument });
 
   const isMobile = useMobileShell();
-  const isActiveTab = useIsActiveTab();
   const [isInspectorOpen, setInspectorOpen] = useState(() => !isMobile);
   const [_collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
 
@@ -368,14 +402,14 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!isActiveTab) return;
+    if (!isActiveTab || allLibraryScope) return;
     void loadDocuments();
     // activeCollectionId is a load dependency, not just a store read inside
     // loadDocuments: first activation can race the startup snapshot (the id
     // is still the pre-hydration placeholder), and without it here nothing
     // re-triggers when hydration lands the real collection id — the view
     // stayed empty until the user cycled tabs.
-  }, [isActiveTab, loadDocuments, activeCollectionId]);
+  }, [isActiveTab, loadDocuments, activeCollectionId, allLibraryScope]);
 
   useEffect(() => {
     if (!hasCompletedFirstLoad || isLoading || error || !isNativeAndroid() || !isActiveTab) return;
@@ -1340,6 +1374,15 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
               { id: "folder", label: t("documentsView.importFolder"), icon: <FolderOpen className="h-4 w-4" />, onSelect: handleImportFolder, disabled: isImporting },
             ]}
           />
+
+          {allLibraryScope && (
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              {captureSource && <button onClick={() => setCaptureSource(undefined)} aria-label={t("dashboard.browserSaves.clearFilter")} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-border bg-primary-container px-3 text-sm text-on-primary-container">
+                {t("dashboard.captureSource.browserExtension")}<X className="h-4 w-4" aria-hidden="true" />
+              </button>}
+              <span className="text-sm text-muted-foreground">{t("dashboard.browserSaves.allLibrary")}</span>
+            </div>
+          )}
 
           {/* Controls Bar */}
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">

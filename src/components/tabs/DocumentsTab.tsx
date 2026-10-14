@@ -5,7 +5,13 @@ import type { Document } from "../../types/document";
 import { BookOpen, ImageSquare, TextT, YoutubeLogo } from "@phosphor-icons/react";
 import { AudiobookEpubSyncView } from "../viewer/AudiobookEpubSyncView";
 
-export function DocumentsTab() {
+export interface DocumentsTabProps {
+  initialCaptureSource?: "browser-extension";
+  libraryScope?: "all";
+  captureViewRequest?: number;
+}
+
+export function DocumentsTab({ initialCaptureSource, libraryScope, captureViewRequest }: DocumentsTabProps = {}) {
   const { addTab } = useTabsStore();
 
   const handleOpenDocument = (doc: Document) => {
@@ -51,6 +57,9 @@ export function DocumentsTab() {
       onViewExtracts={handleViewExtracts}
       onReadAlong={handleReadAlong}
       enableYouTubeImport
+      initialCaptureSource={initialCaptureSource}
+      allLibraryScope={libraryScope === "all"}
+      captureViewRequest={captureViewRequest}
     />
   );
 }

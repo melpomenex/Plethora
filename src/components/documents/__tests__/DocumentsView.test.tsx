@@ -14,6 +14,7 @@ const modalMock = vi.hoisted(() => ({
 }));
 
 const documentsApiMock = vi.hoisted(() => ({
+  getDocuments: vi.fn(),
   bulkMoveDocumentsToCollection: vi.fn(),
   updateDocumentPriority: vi.fn(),
   bulkSetDocumentPriority: vi.fn(async () => ({ succeeded: [], failed: [], errors: [] })),
@@ -90,6 +91,7 @@ vi.mock("../../common/Modal", async (importOriginal) => ({
 
 vi.mock("../../../api/documents", async (importOriginal) => ({
   ...(await importOriginal<Record<string, unknown>>()),
+  getDocuments: documentsApiMock.getDocuments,
   bulkMoveDocumentsToCollection: documentsApiMock.bulkMoveDocumentsToCollection,
   updateDocumentPriority: documentsApiMock.updateDocumentPriority,
   bulkSetDocumentPriority: documentsApiMock.bulkSetDocumentPriority,
@@ -149,6 +151,19 @@ beforeEach(() => {
 });
 
 describe("DocumentsView", () => {
+  it("opens a tab-local browser-filtered all-library list and clears the source chip", async () => {
+    documentsApiMock.getDocuments.mockResolvedValue([{ ...mockStore.documents[0], id: "outside", title: "Outside collection save" }]);
+    const reloads = mockStore.loadDocuments.mock.calls.length;
+    render(<DocumentsView enableYouTubeImport={false} allLibraryScope initialCaptureSource="browser-extension" captureViewRequest={1} />);
+    await waitFor(() => expect(screen.getAllByText("Outside collection save").length).toBeGreaterThan(0));
+    expect(documentsApiMock.getDocuments).toHaveBeenCalledWith(undefined, "browser-extension");
+    expect(mockStore.loadDocuments.mock.calls.length).toBe(reloads);
+    expect(collectionsMock.switchCollection).not.toHaveBeenCalled();
+    expect(screen.getByText("All library")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Remove Browser Extension filter" }));
+    await waitFor(() => expect(documentsApiMock.getDocuments).toHaveBeenLastCalledWith(undefined, undefined));
+    expect(mockStore.documents[0].id).toBe("doc-1");
+  });
   it("restores list mode from storage", () => {
     window.localStorage.setItem("documentsViewMode", "list");
     render(<DocumentsView enableYouTubeImport={false} />);

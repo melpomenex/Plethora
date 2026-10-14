@@ -2003,6 +2003,7 @@ pub fn run() {
             commands::update_memory_from_chat,
             commands::get_dashboard_stats,
             commands::get_capture_activity,
+            commands::get_browser_capture_documents,
             commands::get_memory_stats,
             commands::get_activity_data,
             commands::get_category_stats,

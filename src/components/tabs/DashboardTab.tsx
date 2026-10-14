@@ -23,10 +23,12 @@ import {
   ImportNeedsReviewTab,
 } from "./TabRegistry";
 import { getDashboardStats, type DashboardStats } from "../../api/analytics";
-import {
-  getCaptureActivity,
-  type CaptureActivity as CaptureActivityData,
-} from "../../api/capture-activity";
+import type { BrowserCaptureDocument } from "../../api/capture-activity";
+import { useCaptureActivity } from "../../hooks/useCaptureActivity";
+import { openDocumentAtLocation } from "../../utils/openDocumentAtLocation";
+import { openExternal } from "../../lib/tauri";
+import { validCaptureUrl } from "../../utils/captureSource";
+import { useToast } from "../common/Toast";
 import { CaptureActivityCard } from "../analytics/CaptureActivityCard";
 import { QuickReviewWidget } from "../review/QuickReviewWidget";
 import { ActionButton, FocusPanel, SummarySection } from "../common/UI";
@@ -73,12 +75,9 @@ export function DashboardTab() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // Capture-activity widget state is deliberately independent of the main
-  // stats error so a failed capture query cannot blank the Dashboard.
-  const [captureActivity, setCaptureActivity] = useState<CaptureActivityData | null>(null);
-  const [captureActivityLoading, setCaptureActivityLoading] = useState(true);
-  const [captureActivityError, setCaptureActivityError] = useState<string | null>(null);
   const isActiveTab = useIsActiveTab();
+  const { activity, browserSaves, reload: reloadCaptureActivity } = useCaptureActivity(isActiveTab);
+  const toast = useToast();
   const ensureStartup = useStartupStore((state) => state.ensureStartup);
   const startupLoadedForCollection = useRef<string | null>(null);
   const startupProgress = useStartupStore(
@@ -104,16 +103,6 @@ export function DashboardTab() {
   }, [activeCollectionId, ensureStartup, isActiveTab]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
 
-  // Capture activity refreshes on every activation (not gated by the one-shot
-  // startup guard): a link saved via the browser extension since the last
-  // dashboard visit must show up without an app restart.
-  useEffect(() => {
-    if (!isActiveTab) return;
-    void loadCaptureActivity();
-  }, [isActiveTab]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-
-
   const loadStats = async () => {
     try {
       setError(null);
@@ -128,20 +117,24 @@ export function DashboardTab() {
     }
   };
 
-  const loadCaptureActivity = async () => {
-    try {
-      setCaptureActivityError(null);
-      setCaptureActivityLoading(true);
-      const data = await getCaptureActivity(30);
-      setCaptureActivity(data);
-    } catch (error) {
-      console.error("Failed to load capture activity:", error);
-      setCaptureActivityError(
-        error instanceof Error ? error.message : String(error),
-      );
-    } finally {
-      setCaptureActivityLoading(false);
+  const openCapture = async (document: BrowserCaptureDocument) => {
+    if (!await openDocumentAtLocation(document.documentId, { ensureExists: true }, addTab)) {
+      toast.error(t("dashboard.browserSaves.openFailed"));
+      void browserSaves.reload();
     }
+  };
+
+  const openCaptureOriginal = async (document: BrowserCaptureDocument) => {
+    const url = validCaptureUrl(document.sourceUrl);
+    if (!url) return;
+    try { await openExternal(url); } catch { toast.error(t("dashboard.browserSaves.originalFailed")); }
+  };
+
+  const openBrowserSaves = () => {
+    const data = { initialCaptureSource: "browser-extension", libraryScope: "all", captureViewRequest: Date.now() };
+    const existing = useTabsStore.getState().tabs.find(tab => tab.type === "documents" && tab.data?.libraryScope === "all");
+    if (existing) useTabsStore.getState().updateTab(existing.id, { data });
+    addTab({ title: t("nav.documents"), icon: null, type: "documents", content: DocumentsTab, closable: true, data });
   };
 
   const openImportNeedsReview = () => {
@@ -487,10 +480,11 @@ export function DashboardTab() {
         {/* Capture Activity Section (card renders its own header) */}
         <div className="mb-6 md:mb-8">
           <CaptureActivityCard
-            data={captureActivity}
-            isLoading={captureActivityLoading}
-            error={captureActivityError}
-            onRetry={() => void loadCaptureActivity()}
+            data={activity.data}
+            isLoading={activity.isLoading}
+            error={activity.error}
+            onRetry={reloadCaptureActivity}
+            browserSaves={{ ...browserSaves, onRetry: browserSaves.reload, onOpen: document => void openCapture(document), onOpenOriginal: document => void openCaptureOriginal(document), onViewAll: openBrowserSaves }}
             onOpenNeedsReview={openImportNeedsReview}
           />
         </div>

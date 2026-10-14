@@ -686,19 +686,7 @@ pub async fn get_workload_day_details(
     }
 }
 
-/// Capture source buckets for the Dashboard capture-activity widget.
-/// Wire values are kebab-case to match the dashboard-capture-activity spec.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
-pub enum CaptureSource {
-    #[serde(rename = "browser-extension")]
-    BrowserExtension,
-    #[serde(rename = "share-target")]
-    ShareTarget,
-    #[serde(rename = "rss")]
-    Rss,
-    #[serde(rename = "manual")]
-    Manual,
-}
+use crate::models::capture::{classify_capture, CaptureSource};
 
 /// Per-day capture count (zero-filled across the requested window).
 #[derive(Debug, Clone, serde::Serialize)]
@@ -726,55 +714,6 @@ pub struct CaptureActivity {
 /// Largest lookback window [`get_capture_activity`] accepts; bounds query cost
 /// regardless of the caller-supplied `days`.
 pub const CAPTURE_ACTIVITY_MAX_WINDOW_DAYS: i32 = 90;
-
-/// Classification priority: explicit capture provenance first, then share
-/// provenance, then source markers, else `manual`. Documents that predate
-/// provenance tracking carry none of these markers and land in `manual` —
-/// they are counted, never dropped.
-///
-/// Persistence facts confirmed when this was wired up:
-/// - Browser-extension saves stamp `metadata.source = "browser_extension"`
-///   and `metadata.captureProvenance.source = "browser_extension"`
-///   (browser_sync_server.rs `build_browser_import_metadata` /
-///   `build_extension_selection_context`).
-/// - Share-target captures stamp `metadata.shareProvenance` (values
-///   `share_extension` | `android_share`) via `mapManifestToProvenance` in
-///   src/lib/shareTarget.ts. The field only survives persistence because
-///   `DocumentMetadata` carries the matching serde field added alongside
-///   this feature; older share documents were stripped by the typed
-///   metadata round-trip and classify as `manual`.
-/// - Queued RSS articles never become documents (`toggle_rss_article_queued`
-///   only flips `rss_articles.is_queued`), so the `rss` bucket stays empty
-///   until an RSS→library import path stamps a marker; such captures fall
-///   through to `manual` (design D3 fallback).
-fn classify_capture(metadata_json: Option<&str>) -> CaptureSource {
-    let Some(meta) = metadata_json.and_then(|json| serde_json::from_str::<serde_json::Value>(json).ok()) else {
-        return CaptureSource::Manual;
-    };
-    let Some(obj) = meta.as_object() else {
-        return CaptureSource::Manual;
-    };
-
-    if let Some(provenance_source) = obj
-        .get("captureProvenance")
-        .and_then(|v| v.get("source"))
-        .and_then(|v| v.as_str())
-    {
-        match provenance_source {
-            "browser_extension" => return CaptureSource::BrowserExtension,
-            "share_extension" | "android_share" => return CaptureSource::ShareTarget,
-            _ => {}
-        }
-    }
-    if obj.get("shareProvenance").is_some() {
-        return CaptureSource::ShareTarget;
-    }
-    match obj.get("source").and_then(|v| v.as_str()) {
-        Some("browser_extension") => CaptureSource::BrowserExtension,
-        Some("rss") => CaptureSource::Rss,
-        _ => CaptureSource::Manual,
-    }
-}
 
 fn organization_needs_attention(metadata_json: Option<&str>) -> bool {
     metadata_json
@@ -863,6 +802,18 @@ pub async fn get_capture_activity(
     repo: State<'_, Repository>,
 ) -> Result<CaptureActivity, String> {
     capture_activity(repo.pool(), days).await
+}
+
+
+/// Recent saved links, independent of the aggregate reporting window.
+#[tauri::command]
+pub async fn get_browser_capture_documents(
+    limit: Option<i64>,
+    offset: Option<i64>,
+    repo: State<'_, Repository>,
+) -> crate::error::Result<crate::database::capture_repository::BrowserCapturePage> {
+    crate::database::capture_repository::browser_capture_documents(repo.pool(), limit, offset)
+        .await
 }
 
 /// Pure query body of [`get_capture_activity`], separated so the aggregation

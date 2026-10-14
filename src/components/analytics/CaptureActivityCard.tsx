@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { BrowserCaptureShelf, type BrowserCaptureShelfProps } from "./BrowserCaptureShelf";
 import { useI18n } from "../../lib/i18n";
 import type {
   CaptureActivity,
@@ -30,43 +31,24 @@ export interface CaptureActivityCardProps {
   error: string | null;
   onRetry: () => void;
   onOpenNeedsReview: () => void;
+  browserSaves?: BrowserCaptureShelfProps;
 }
 
-export function CaptureActivityCard({
-  data,
-  isLoading,
-  error,
-  onRetry,
-  onOpenNeedsReview,
-}: CaptureActivityCardProps) {
+function CaptureActivitySummary({
+  data, isLoading, error, onRetry, onOpenNeedsReview,
+}: Omit<CaptureActivityCardProps, "browserSaves">) {
   const { t } = useI18n();
-
   const total = data?.perDay.reduce((sum, day) => sum + day.count, 0) ?? 0;
-  const maxCount = useMemo(
-    () => Math.max(1, ...(data?.perDay.map((day) => day.count) ?? [1])),
-    [data],
-  );
-
+  const maxCount = useMemo(() => Math.max(1, ...(data?.perDay.map(day => day.count) ?? [1])), [data]);
   return (
-    <div className="border border-border rounded-xl p-4 md:p-6">
-      <div className="flex items-center justify-between mb-3 md:mb-4">
-        <div className="flex items-center gap-2">
-          <Browsers className="w-5 h-5 text-muted-foreground" />
-          <h2 className="text-base md:text-lg font-semibold text-foreground">
-            {t("dashboard.captureActivity")}
-          </h2>
-        </div>
-        {data && total > 0 && (
-          <span className="text-xs text-muted-foreground">
-            {t("dashboard.captureActivityWindow", {
-              count: total,
-              days: data.windowDays,
-            })}
-          </span>
-        )}
+    <>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4 text-xs text-muted-foreground">
+        <span>{t("dashboard.browserSaves.reportingWindow", { days: data?.windowDays ?? 30 })}</span>
+        {data && <span>{t("dashboard.captureActivityWindow", { count: total, days: data.windowDays })}</span>}
       </div>
+      {data && error && <p className="mb-2 text-sm text-muted-foreground" role="status">{t("dashboard.captureActivityError")} <button className="min-h-11 rounded-lg px-2 text-primary" onClick={onRetry}>{t("dashboard.captureActivityRetry")}</button></p>}
 
-      {isLoading ? (
+      {isLoading && !data ? (
         <div className="animate-pulse space-y-3" aria-busy="true">
           <div className="h-16 flex items-end gap-0.5">
             {Array.from({ length: 30 }).map((_, i) => (
@@ -75,7 +57,7 @@ export function CaptureActivityCard({
           </div>
           <div className="h-4 w-2/3 bg-muted rounded" />
         </div>
-      ) : error ? (
+      ) : error && !data ? (
         <div className="flex flex-col gap-2">
           <p className="text-sm text-destructive">
             {t("dashboard.captureActivityError")}
@@ -98,7 +80,7 @@ export function CaptureActivityCard({
         <>
           {/* Captures-per-day sparkline (dependency-free, like ActivityChart) */}
           <div
-            className="h-14 md:h-16 flex items-end gap-[2px] mb-4"
+            className="h-8 flex items-end gap-0.5 mb-3"
             role="img"
             aria-label={t("dashboard.captureActivityWindow", {
               count: total,
@@ -108,7 +90,7 @@ export function CaptureActivityCard({
             {data.perDay.map((day) => (
               <div
                 key={day.date}
-                className="flex-1 flex flex-col justify-end min-w-0"
+                className="h-full flex-1 flex flex-col justify-end min-w-0"
                 title={`${day.date}: ${day.count}`}
               >
                 <div
@@ -159,6 +141,20 @@ export function CaptureActivityCard({
           )}
         </>
       )}
+    </>
+  );
+}
+
+export function CaptureActivityCard(props: CaptureActivityCardProps) {
+  const { t } = useI18n();
+  return (
+    <div className="capture-activity border border-border rounded-xl p-4 md:p-6">
+      <div className="mb-4 flex items-center gap-2">
+        <Browsers className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+        <h2 className="text-base font-semibold text-foreground md:text-lg">{t("dashboard.captureActivity")}</h2>
+      </div>
+      {props.browserSaves && <BrowserCaptureShelf {...props.browserSaves} />}
+      <CaptureActivitySummary {...props} />
     </div>
   );
 }

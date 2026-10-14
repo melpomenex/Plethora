@@ -2,6 +2,7 @@
 
 pub mod audio_edition;
 pub mod category;
+pub mod capture;
 pub mod collection;
 pub mod daqe;
 pub mod document;

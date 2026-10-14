@@ -4,6 +4,7 @@
  */
 
 import * as db from './database.js';
+import { browserCaptureSourceUrl } from '../utils/captureSource';
 import { DEFAULT_COLLECTION_ID } from '../types/collection';
 import { ARENA_MODEL_LABEL_ORDER } from "./schedulerCatalog";
 import {
@@ -1605,6 +1606,9 @@ const commandHandlers: Record<string, CommandHandler> = {
     get_documents: async (args) => {
         let docs = await db.getDocuments();
         const collectionId = args?.collectionId as string | null | undefined;
+        if (args?.captureSource === "browser-extension") {
+            docs = docs.filter(doc => !doc.is_archived && !doc.is_dismissed && browserCaptureSourceUrl(doc.metadata, doc.file_path));
+        }
         if (collectionId) {
             // Collections aren't modeled in the browser backend, so documents are
             // created without a collection_id. Treat such documents as members of
@@ -1617,6 +1621,21 @@ const commandHandlers: Record<string, CommandHandler> = {
             });
         }
         return toCamelCase(docs);
+    },
+
+    get_browser_capture_documents: async (args) => {
+        const limit = Math.max(1, Math.min(100, Math.floor(Number(args?.limit) || 6)));
+        const offset = Math.max(0, Math.floor(Number(args?.offset) || 0));
+        const documents = await db.getDocuments();
+        const items = documents.filter(doc => !doc.is_archived && !doc.is_dismissed)
+            .flatMap(doc => {
+                const sourceUrl = browserCaptureSourceUrl(doc.metadata, doc.file_path);
+                if (!sourceUrl || !Number.isFinite(Date.parse(doc.date_added))) return [];
+                return [{ document_id: doc.id, title: doc.title, file_type: doc.file_type,
+                    source_url: sourceUrl, date_added: doc.date_added,
+                    cover_image_url: doc.cover_image_url ?? null, cover_image_source: doc.cover_image_source ?? null }];
+            }).sort((a, b) => Date.parse(b.date_added) - Date.parse(a.date_added) || b.document_id.localeCompare(a.document_id));
+        return { items: items.slice(offset, offset + limit), total_count: items.length, limit, offset };
     },
 
     get_document: async (args) => {

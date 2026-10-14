@@ -60,10 +60,11 @@ export function mapDocuments(docs: Document[]): Document[] {
   return docs.map((d) => mapDocument(d)).filter((d): d is Document => d !== null);
 }
 
-export async function getDocuments(collectionId?: string): Promise<Document[]> {
+export async function getDocuments(collectionId?: string, captureSource?: "browser-extension"): Promise<Document[]> {
+  const args = { collectionId: collectionId ?? null, ...(captureSource ? { captureSource } : {}) };
   const result = isWebMode()
-    ? await browserInvoke<Document[]>("get_documents", { collectionId: collectionId ?? null })
-    : await invokeCommand<Document[]>("get_documents", { collectionId: collectionId ?? null });
+    ? await browserInvoke<Document[]>("get_documents", args)
+    : await invokeCommand<Document[]>("get_documents", args);
   return mapDocuments(result);
 }
 

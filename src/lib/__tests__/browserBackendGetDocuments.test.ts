@@ -50,6 +50,22 @@ describe("browser backend get_documents collection filter", () => {
     expect(docs.map((d) => d.id)).toEqual(["d1", "d2"]);
   });
 
+  it("filters persisted browser provenance before paging and across collections", async () => {
+    const saved = Array.from({ length: 9 }, (_, index) => ({ id: `saved-${index}`, title: `Save ${index}`, file_type: "html", file_path: "https://example.org/page", date_added: `2026-10-${String(index + 1).padStart(2, "0")}T10:00:00Z`, collection_id: index % 2 ? "other" : "default", metadata: { source: "browser_extension" } }));
+    vi.mocked(db.getDocuments).mockResolvedValue([
+      { ...saved[0], id: "manual", metadata: {} },
+      { ...saved[0], id: "archived", is_archived: true },
+      { ...saved[0], id: "bad", metadata: { source: "browser_extension", shareProvenance: {} } },
+      ...saved,
+    ] as any);
+    const page = await browserInvoke<any>("get_browser_capture_documents", { limit: 6, offset: 0 });
+    expect(page.total_count).toBe(9);
+    expect(page.items.map((item: any) => item.document_id)).toEqual(["saved-8", "saved-7", "saved-6", "saved-5", "saved-4", "saved-3"]);
+    const library = await browserInvoke<any[]>("get_documents", { captureSource: "browser-extension", collectionId: null });
+    expect(library).toHaveLength(9);
+    expect(library.some(doc => doc.id === "saved-7")).toBe(true);
+  });
+
   it("returns document progress timestamps as Unix seconds", async () => {
     const dateModified = "2026-07-16T12:00:00.000Z";
     const dateAdded = "2026-07-14T12:00:00.000Z";

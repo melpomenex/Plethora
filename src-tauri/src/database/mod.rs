@@ -2,6 +2,7 @@
 
 pub mod ai_provenance_repository;
 pub mod audio_edition_repository;
+pub mod capture_repository;
 pub mod concept_repository;
 pub mod connection;
 pub mod daqe_model_cache_repository;

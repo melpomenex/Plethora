@@ -11,11 +11,12 @@
  * - a fresh `jumpRequestId` per navigation, so activating a second source for
  *   the same document re-triggers the jump/highlight in `DocumentViewer`;
  * - `autoPlay` set for time-based (youtube/audio) jumps;
- * - when the document is not in the cache yet (e.g. just imported), reload the
- *   document list once and retry.
+ * - when the document is not in the cache yet (e.g. just imported), fetch that
+ *   document directly by ID without replacing a collection list.
  */
 
 import { createElement } from "react";
+import { getDocument } from "../api/documents";
 import { BookOpen, ImageSquare, TextT, YoutubeLogo } from "@phosphor-icons/react";
 import { useDocumentStore } from "../stores/documentStore";
 import { useTabsStore, type TabsState } from "../stores/tabsStore";
@@ -26,6 +27,8 @@ import type { ExactSearchHitLocation } from "../types/searchHit";
 export interface OpenDocumentAtLocationOptions {
   highlightQuery?: string;
   initialJump?: ExactSearchHitLocation;
+  /** Capture previews can outlive a deleted persisted record, including a cached one. */
+  ensureExists?: boolean;
 }
 
 /**
@@ -93,42 +96,36 @@ function buildTabPayload(
  * `returnContext` marks jumps that originated from flashcard review so the
  * reader can offer the way back.
  */
-export function openDocumentAtLocation(
+export async function openDocumentAtLocation(
   documentId: string,
   options: OpenDocumentAtLocationOptions,
   addTab: TabsState["addTab"],
   returnContext?: ReviewReturnContext
-): void {
-  const doc = useDocumentStore.getState().documents.find((d) => d.id === documentId);
+): Promise<boolean> {
+  let doc = useDocumentStore.getState().documents.find((d) => d.id === documentId);
+  if (!doc || options.ensureExists) {
+    try { doc = (await getDocument(documentId)) ?? undefined; } catch { return false; }
+  }
+  if (!doc) return false;
   const jumpRequestId = makeJumpRequestId(Boolean(options.initialJump));
 
-  if (doc) {
-    // Prefer re-targeting an existing tab for this document over stacking a
-    // duplicate (e.g. repeated jumps to a book already open behind review).
-    const workspace = useTabsStore.getState().getWorkspaceTabs();
-    const existing = workspace.find(
-      (entry) => entry.tab.type === "document-viewer" && entry.tab.data?.documentId === documentId
-    );
-    if (existing) {
-      useTabsStore
-        .getState()
-        .updateTab(existing.tab.id, {
-          data: buildTabPayload(doc, options, jumpRequestId, returnContext).data,
-        });
-      if (existing.paneId) {
-        useTabsStore.getState().setActiveTab(existing.paneId, existing.tab.id);
-      }
-      return;
+  // Prefer re-targeting an existing tab for this document over stacking a
+  // duplicate (e.g. repeated jumps to a book already open behind review).
+  const workspace = useTabsStore.getState().getWorkspaceTabs();
+  const existing = workspace.find(
+    (entry) => entry.tab.type === "document-viewer" && entry.tab.data?.documentId === documentId
+  );
+  if (existing) {
+    useTabsStore
+      .getState()
+      .updateTab(existing.tab.id, {
+        data: buildTabPayload(doc, options, jumpRequestId, returnContext).data,
+      });
+    if (existing.paneId) {
+      useTabsStore.getState().setActiveTab(existing.paneId, existing.tab.id);
     }
-    addTab(buildTabPayload(doc, options, jumpRequestId, returnContext));
-    return;
+    return true;
   }
-
-  // Document might not be in cache yet (just imported) — reload and retry.
-  void Promise.resolve(useDocumentStore.getState().loadDocuments?.()).then(() => {
-    const freshDoc = useDocumentStore.getState().documents.find((d) => d.id === documentId);
-    if (freshDoc) {
-      addTab(buildTabPayload(freshDoc, options, jumpRequestId, returnContext));
-    }
-  });
+  addTab(buildTabPayload(doc, options, jumpRequestId, returnContext));
+  return true;
 }
