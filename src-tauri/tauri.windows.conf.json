@@ -6,6 +6,9 @@
       "bin/onnxruntime.dll": "onnxruntime.dll",
       "bin/onnxruntime_providers_shared.dll": "onnxruntime_providers_shared.dll",
       "bin/onnxruntime.placeholder.dll": "bin/onnxruntime.placeholder.dll",
+      "bin/sherpa-directml/*": "bin/sherpa-directml/",
+      "bin/whisper-vulkan.exe": "bin/whisper-vulkan.exe",
+      "bin/whisper-vulkan-manifest.json": "bin/whisper-vulkan-manifest.json",
       "bin/notebooklm-runtime": "bin/notebooklm-runtime",
       "windows/sparse/out/PlethoraIdentity.msix": "PlethoraIdentity.msix"
     }

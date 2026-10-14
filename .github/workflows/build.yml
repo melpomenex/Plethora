@@ -23,6 +23,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Install Vulkan SDK for Windows Whisper sidecar
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/install-windows-vulkan-sdk.ps1
+
       - name: Rust setup
         uses: dtolnay/rust-toolchain@stable
         with:
@@ -142,6 +147,11 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      - name: Install Vulkan SDK for Windows Whisper sidecar
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: ./scripts/install-windows-vulkan-sdk.ps1
 
       - name: Install dependencies (Ubuntu only)
         if: matrix.os == 'linux'

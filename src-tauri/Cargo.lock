@@ -6633,6 +6633,7 @@ dependencies = [
  "uuid",
  "walkdir",
  "window-vibrancy",
+ "windows 0.61.3",
  "x25519-dalek",
  "xcap",
  "zip 0.6.6",

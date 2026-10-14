@@ -259,6 +259,9 @@ objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage"] }
 objc2-foundation = { version = "0.3", features = ["NSData"] }
 
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Graphics_Dxgi"] }
+
 [features]
 startup-bench = []
 # Disable custom-protocol to use http://localhost instead of tauri://

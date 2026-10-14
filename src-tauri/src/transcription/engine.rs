@@ -116,6 +116,25 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
     /// (manifest-checked, so existence == usable), run its binary; otherwise
     /// fall back to the bundled CPU sidecar with the usual pre-flight guard.
     fn resolve_sherpa_spawn(&self, binary: &str, provider: &str) -> Result<SherpaSpawnTarget> {
+        #[cfg(target_os = "windows")]
+        if provider == "directml" {
+            let runtime_dir = crate::transcription::compute_backend::directml_runtime_dir(
+                self.sidecar_bin_dir().as_deref(),
+            )
+            .ok_or_else(|| anyhow!("The bundled DirectML runtime is missing or incomplete"))?;
+            let path = runtime_dir.join(format!("{binary}.exe"));
+            if !path.is_file() {
+                return Err(anyhow!(
+                    "DirectML sidecar is missing: {}",
+                    path.display()
+                ));
+            }
+            return Ok(SherpaSpawnTarget {
+                path,
+                prefer_lib_dirs: vec![runtime_dir],
+            });
+        }
+
         if provider != "cpu" {
             if let Some(bin) =
                 crate::transcription::gpu_runtime::runtime_bin(&self.app_handle, binary)
@@ -224,10 +243,20 @@ fn apply_sidecar_loader_env(
     }
     #[cfg(target_os = "windows")]
     {
-        let _ = target;
-        if let Some(dir) = bin_dir.and_then(|d| d.to_str()) {
+        let mut dirs: Vec<String> = target
+            .prefer_lib_dirs
+            .iter()
+            .map(|d| d.to_string_lossy().into_owned())
+            .collect();
+        if dirs.is_empty() {
+            if let Some(dir) = bin_dir.and_then(|d| d.to_str()) {
+                dirs.push(dir.to_string());
+            }
+        }
+        if !dirs.is_empty() {
             let existing = std::env::var("PATH").unwrap_or_default();
-            cmd.env("PATH", format!("{};{}", dir, existing));
+            dirs.push(existing);
+            cmd.env("PATH", dirs.join(";"));
         }
     }
 }
@@ -489,38 +518,203 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
             ));
         }
 
+        #[cfg(target_os = "windows")]
+        {
+            use crate::transcription::compute_backend as compute;
+
+            let hardware = compute::detect_hardware();
+            let gpu = crate::transcription::gpu_runtime::evaluate(&self.app_handle);
+            let runtime = compute::probe_runtime_capabilities(
+                self.sidecar_bin_dir().as_deref(),
+                Some(&gpu),
+            );
+            let model = compute::ModelCapabilities {
+                model_id: "whisper-local".to_string(),
+                supported_backends: vec![compute::ComputeBackend::Vulkan, compute::ComputeBackend::Cpu],
+                min_vram_bytes: Some(1024 * 1024 * 1024),
+            };
+            let health = compute::get_health_cache();
+            let (mode, _) = self.current_compute_preferences().await;
+            let selection = compute::ComputeBackendSelector::select_backend(
+                mode,
+                &hardware,
+                &runtime,
+                &model,
+                &health,
+                // DXGI and ggml's Vulkan device indexes have separate
+                // enumeration orders. Let whisper.cpp select its default
+                // Vulkan device rather than applying a possibly wrong index.
+                None,
+            );
+            let use_vulkan = selection.primary.backend == compute::ComputeBackend::Vulkan;
+
+            if !use_vulkan {
+                let _ = self.app_handle.emit(
+                    "transcription://phase",
+                    PhasePayload {
+                        phase: "transcribing-cpu".to_string(),
+                    },
+                );
+            } else {
+                let _ = self.app_handle.emit(
+                    "transcription://phase",
+                    PhasePayload {
+                        phase: "initializing-gpu".to_string(),
+                    },
+                );
+            }
+            if let Some(ref cb) = on_progress {
+                cb(5);
+            }
+
+            let segments = match self
+                .run_whisper_attempt(
+                    audio_path,
+                    model_path,
+                    language,
+                    use_vulkan,
+                    !use_vulkan,
+                    None,
+                    on_progress.as_deref(),
+                )
+                .await
+            {
+                Ok(segments) => segments,
+                Err(err) if use_vulkan => {
+                    tracing::warn!(
+                        backend = "Vulkan",
+                        model = "whisper-local",
+                        error = %err,
+                        "accelerator failed for Whisper; retrying the complete job on CPU"
+                    );
+                    health.mark_model_degraded(
+                        compute::ComputeBackend::Vulkan,
+                        "whisper-local",
+                        err.to_string(),
+                    );
+                    let _ = self.app_handle.emit(
+                        "transcription://backend-fallback",
+                        BackendFallbackPayload {
+                            from: "Vulkan".to_string(),
+                            to: "CPU".to_string(),
+                            message: "GPU unavailable — continuing on CPU".to_string(),
+                        },
+                    );
+                    let _ = self.app_handle.emit(
+                        "transcription://phase",
+                        PhasePayload {
+                            phase: "transcribing-cpu".to_string(),
+                        },
+                    );
+                    if let Some(ref cb) = on_progress {
+                        cb(5);
+                    }
+                    self.run_whisper_attempt(
+                        audio_path,
+                        model_path,
+                        language,
+                        false,
+                        true,
+                        None,
+                        on_progress.as_deref(),
+                    )
+                    .await?
+                }
+                Err(err) => return Err(err),
+            };
+
+            for segment in segments {
+                on_segment(segment);
+            }
+            if let Some(ref cb) = on_progress {
+                cb(100);
+            }
+            Ok(())
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            let segments = self
+                .run_whisper_attempt(
+                    audio_path,
+                    model_path,
+                    language,
+                    false,
+                    false,
+                    None,
+                    on_progress.as_deref(),
+                )
+                .await?;
+            for segment in segments {
+                on_segment(segment);
+            }
+            if let Some(ref cb) = on_progress {
+                cb(100);
+            }
+            Ok(())
+        }
+    }
+
+    async fn run_whisper_attempt(
+        &self,
+        audio_path: &Path,
+        model_path: &Path,
+        language: &str,
+        require_vulkan: bool,
+        force_cpu: bool,
+        device_id: Option<u32>,
+        on_progress: Option<&(dyn Fn(i32) + Send + Sync)>,
+    ) -> Result<Vec<TranscriptSegment>> {
         let mut args = vec![
             "-m".to_string(),
             model_path.to_string_lossy().to_string(),
             "-f".to_string(),
             audio_path.to_string_lossy().to_string(),
-            "-ojf".to_string(), // output json full
+            "-ojf".to_string(),
             "--print-progress".to_string(),
         ];
-
         if !language.eq_ignore_ascii_case("auto") {
             args.push("-l".to_string());
             args.push(language.to_string());
         }
+        if force_cpu {
+            args.push("--no-gpu".to_string());
+        }
+        if require_vulkan {
+            if let Some(id) = device_id {
+                args.push("--device".to_string());
+                args.push(id.to_string());
+            }
+        }
 
-        // Guard against a missing or 0-byte placeholder sidecar before spawning,
-        // so the user gets an actionable message instead of a bare "failed".
         if let Some(reason) = self.check_sidecar_usable("whisper") {
             return Err(anyhow!(reason));
         }
-
-        // Use the bundled sidecar binary ("whisper").
-        let mut cmd = self
-            .app_handle
-            .shell()
-            .sidecar("whisper")
-            .map_err(|e| anyhow!("Whisper sidecar not found: {}", e))?;
-
-        // Set library path so whisper can find libwhisper, libggml, etc.
+        let json_path = audio_path.with_extension("wav.json");
+        let _ = std::fs::remove_file(&json_path);
+        let mut cmd = if require_vulkan {
+            let vulkan_sidecar = self
+                .sidecar_bin_dir()
+                .ok_or_else(|| anyhow!("Whisper sidecar directory is missing"))?
+                .join("whisper-vulkan.exe");
+            if !vulkan_sidecar.is_file() {
+                return Err(anyhow!(
+                    "Vulkan-enabled Whisper sidecar is missing: {}",
+                    vulkan_sidecar.display()
+                ));
+            }
+            self.app_handle
+                .shell()
+                .command(vulkan_sidecar.as_os_str())
+        } else {
+            self.app_handle
+                .shell()
+                .sidecar("whisper")
+                .map_err(|e| anyhow!("Whisper sidecar not found: {}", e))?
+        };
         if let Some(bin_dir) = self.sidecar_bin_dir() {
             set_sidecar_env!(cmd, &bin_dir);
         }
-
         let (mut rx, _) = cmd
             .args(args)
             .spawn()
@@ -530,10 +724,9 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
         let mut stdout_buf = String::new();
         let mut stderr_buf = String::new();
         let mut stderr_line_buf = String::new();
-        // Whether the startup banner told us which backend whisper actually
-        // runs on. Reported once; the neutral (no-phase) UI state is kept
-        // until the truth is known instead of guessing from library presence.
         let mut backend_reported = false;
+        let mut vulkan_backend_confirmed = false;
+        let mut vulkan_no_devices = false;
         while let Some(event) = rx.recv().await {
             match event {
                 CommandEvent::Stdout(line) => {
@@ -545,20 +738,25 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
                 CommandEvent::Stderr(line) => {
                     let line_str = String::from_utf8_lossy(&line);
                     stderr_line_buf.push_str(&line_str);
-
                     while let Some(newline_idx) = stderr_line_buf.find('\n') {
                         let line = stderr_line_buf[..newline_idx].trim().to_string();
                         stderr_line_buf = stderr_line_buf[newline_idx + 1..].to_string();
 
-                        // Ground-truth compute telemetry: whisper.cpp prints its
-                        // backend choice on stderr at startup — "use gpu = 1"
-                        // plus a ggml_<backend>_init line (metal/cuda/vulkan),
-                        // or "use gpu = 0" when CPU-only.
+                        if line.contains("ggml_vk_init(") {
+                            vulkan_backend_confirmed = true;
+                        }
+                        if line.contains("ggml_vulkan: No devices found") {
+                            vulkan_no_devices = true;
+                        }
                         if !backend_reported {
-                            let gpu_active = line.contains("use gpu = 1")
-                                || line.contains("ggml_metal_device_init")
-                                || line.contains("ggml_cuda_init")
-                                || line.contains("ggml_vulkan_init");
+                            let gpu_active = if require_vulkan {
+                                vulkan_backend_confirmed
+                            } else {
+                                line.contains("use gpu = 1")
+                                    || line.contains("ggml_metal_device_init")
+                                    || line.contains("ggml_cuda_init")
+                                    || line.contains("ggml_vulkan_init")
+                            };
                             let cpu_active = line.contains("use gpu = 0");
                             if gpu_active || cpu_active {
                                 backend_reported = true;
@@ -575,15 +773,11 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
                             }
                         }
 
-                        // Parse progress: "progress = 5%"
                         if let Some(idx) = line.find("progress =") {
                             let rest = &line[idx + 10..];
                             if let Some(end) = rest.find('%') {
-                                if let Ok(p) = rest[..end].trim().parse::<i32>() {
-                                    // If the build never printed a backend banner,
-                                    // report the conservative default once progress
-                                    // starts so the UI is never left without a phase.
-                                    if !backend_reported {
+                                if let Ok(progress) = rest[..end].trim().parse::<i32>() {
+                                    if !backend_reported && !require_vulkan {
                                         backend_reported = true;
                                         let _ = self.app_handle.emit(
                                             "transcription://phase",
@@ -594,16 +788,15 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
                                     }
                                     let _ = self.app_handle.emit(
                                         "transcription://progress",
-                                        ProgressPayload { progress: p },
+                                        ProgressPayload { progress },
                                     );
-                                    if let Some(ref cb) = on_progress {
-                                        cb(p);
+                                    if let Some(cb) = on_progress {
+                                        cb(progress);
                                     }
                                 }
                             }
                         }
                     }
-
                     if stderr_buf.len() < 4000 {
                         stderr_buf.push_str(&line_str);
                     }
@@ -620,8 +813,7 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
             let stderr_clean = stderr_buf.trim();
             let stdout_clean = stdout_buf.trim();
             let msg = if !stderr_clean.is_empty() {
-                if stderr_clean.contains("libwhisper.so") || stderr_clean.contains("Shared library")
-                {
+                if stderr_clean.contains("libwhisper.so") || stderr_clean.contains("Shared library") {
                     format!("Whisper binary missing dependencies. Please run: ./fix-whisper.sh\nDetails: {}", stderr_clean)
                 } else {
                     format!("Whisper transcription failed: {}", stderr_clean)
@@ -629,49 +821,40 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
             } else if !stdout_clean.is_empty() {
                 format!("Whisper transcription failed (stdout): {}", stdout_clean)
             } else {
-                // No output at all almost always means the sidecar was killed by
-                // the OS before producing anything — typically a dyld library-load
-                // failure or, on Apple Silicon, an invalid code signature.
-                "Whisper sidecar exited without output. This usually means it was \
-                 killed on launch — a shared library (libwhisper/libggml) could not \
-                 be loaded, or on Apple Silicon the code signature is invalid. \
-                 Rebuild the app (build.rs patches the rpath and re-signs the sidecar) \
-                 or try a different transcription provider."
-                    .to_string()
+                "Whisper sidecar exited without output. This usually means it was killed on launch — a shared library could not be loaded, or the binary could not initialize the GPU runtime. Rebuild the app or try a different transcription provider.".to_string()
             };
             return Err(anyhow!(msg));
         }
+        if require_vulkan && (!vulkan_backend_confirmed || vulkan_no_devices) {
+            return Err(anyhow!(
+                "whisper.cpp did not confirm Vulkan device initialization"
+            ));
+        }
 
-        // After completion, whisper.cpp usually creates a .wav.json file (due to -ojf)
-        let json_path = audio_path.with_extension("wav.json");
         if !json_path.exists() {
             return Err(anyhow!(
                 "Whisper completed without producing output: {}",
                 json_path.display()
             ));
         }
-
         let json_content = std::fs::read_to_string(&json_path)?;
         let data: serde_json::Value = serde_json::from_str(&json_content)?;
-
+        let mut segments = Vec::new();
         if let Some(transcription) = data.get("transcription") {
-            if let Some(segments) = transcription.as_array() {
-                for seg in segments {
-                    let segment = TranscriptSegment {
-                        start_ms: (seg["offsets"]["from"].as_i64().unwrap_or(0)),
-                        end_ms: (seg["offsets"]["to"].as_i64().unwrap_or(0)),
+            if let Some(items) = transcription.as_array() {
+                for seg in items {
+                    segments.push(TranscriptSegment {
+                        start_ms: seg["offsets"]["from"].as_i64().unwrap_or(0),
+                        end_ms: seg["offsets"]["to"].as_i64().unwrap_or(0),
                         text: seg["text"].as_str().unwrap_or("").to_string(),
                         confidence: 1.0,
                         words_json: None,
-                    };
-                    on_segment(segment);
+                    });
                 }
             }
         }
-
         let _ = std::fs::remove_file(json_path);
-
-        Ok(())
+        Ok(segments)
     }
 
     /// Transcribe audio using a Parakeet model via the sherpa-onnx sidecar.
@@ -988,6 +1171,31 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
             .unwrap_or_default())
     }
 
+    async fn current_compute_preferences(
+        &self,
+    ) -> (
+        crate::transcription::compute_backend::TranscriptionComputeMode,
+        Option<u32>,
+    ) {
+        use crate::transcription::compute_backend::TranscriptionComputeMode;
+
+        match self.app_handle.try_state::<crate::database::Repository>() {
+            Some(repo) => {
+                let config = crate::commands::transcription_config::read_transcription_config(&repo)
+                    .await;
+                (
+                    config
+                        .as_ref()
+                        .and_then(|c| c.compute_mode.as_deref())
+                        .map(TranscriptionComputeMode::from_str)
+                        .unwrap_or_default(),
+                    config.as_ref().and_then(|c| c.device_id),
+                )
+            }
+            None => (TranscriptionComputeMode::default(), None),
+        }
+    }
+
     /// Transcribe audio using Cactus Whistle via the needle sidecar.
     ///
     /// Slices WAV audio into 30s windows when longer than 30 seconds,
@@ -1221,6 +1429,8 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
         on_segment: impl Fn(TranscriptSegment),
         on_progress: Option<Box<dyn Fn(i32) + Send + Sync>>,
     ) -> Result<()> {
+        use crate::transcription::compute_backend as compute;
+
         if !model_dir.exists() {
             return Err(anyhow!(
                 "Model directory not found: {}",
@@ -1228,72 +1438,190 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
             ));
         }
 
-        // The streaming (Nemotron) family takes a dedicated whole-file path:
-        // the online sidecar loads the model once and processes the entire WAV
-        // in one persistent session (measured ~0.19 RTF with flat ~2.1 GB RSS
-        // on an 11-minute file). The 30 s chunk loop below would only add a
-        // ~2.1 s model reload + session reset per chunk — exactly the overhead
-        // the persistent-session architecture removes — and streaming output
-        // would lose cross-chunk endpointing context at every boundary.
+        // Nemotron uses one persistent online session and has its own GPU path.
         if matches!(family, SherpaFamily::NemotronTransducer) {
             return self
                 .transcribe_nemotron_streaming(files, audio_path, language, on_segment, on_progress)
                 .await;
         }
 
+        let model_id = match family {
+            SherpaFamily::Parakeet => "parakeet-tdt-ctc-110m",
+            SherpaFamily::SenseVoice => "sense-voice-small",
+            SherpaFamily::Zipformer => "sherpa-zipformer",
+            SherpaFamily::Paraformer => "sherpa-paraformer",
+            SherpaFamily::NemotronTransducer => unreachable!(),
+        };
+        let hardware = compute::detect_hardware();
+        let gpu = crate::transcription::gpu_runtime::evaluate(&self.app_handle);
+        let runtime = compute::probe_runtime_capabilities(
+            self.sidecar_bin_dir().as_deref(),
+            Some(&gpu),
+        );
+        let supported_backends = if cfg!(target_os = "windows") {
+            vec![compute::ComputeBackend::DirectMl, compute::ComputeBackend::Cpu]
+        } else {
+            vec![compute::ComputeBackend::Cpu]
+        };
+        let model = compute::ModelCapabilities {
+            model_id: model_id.to_string(),
+            supported_backends,
+            min_vram_bytes: None,
+        };
+        let health = compute::get_health_cache();
+        let (mode, preferred_device) = self.current_compute_preferences().await;
+        let selection = compute::ComputeBackendSelector::select_backend(
+            mode,
+            &hardware,
+            &runtime,
+            &model,
+            &health,
+            preferred_device,
+        );
+        let provider = if selection.primary.backend == compute::ComputeBackend::DirectMl {
+            "directml"
+        } else {
+            "cpu"
+        };
+        let device_id = if provider == "cpu" {
+            None
+        } else {
+            selection.primary.device_id
+        };
+
         let _ = self.app_handle.emit(
             "transcription://phase",
             PhasePayload {
-                phase: "transcribing-cpu".to_string(),
+                phase: if provider == "cpu" {
+                    "transcribing-cpu".to_string()
+                } else {
+                    "initializing-gpu".to_string()
+                },
             },
         );
-
         if let Some(ref cb) = on_progress {
             cb(5);
         }
 
-        // Read + parse the prepared WAV to chunk it. Fall back to a single
-        // whole-file pass if the WAV can't be parsed (short/garbled input).
-        let wav_data =
-            std::fs::read(audio_path).map_err(|e| anyhow!("Failed to read WAV file: {}", e))?;
+        let segments = match self
+            .transcribe_sherpa_offline_attempt(
+                family,
+                files.clone(),
+                audio_path,
+                language,
+                provider,
+                device_id,
+                on_progress.as_deref(),
+            )
+            .await
+        {
+            Ok(segments) => segments,
+            Err(err) if provider != "cpu" => {
+                tracing::warn!(
+                    backend = %selection.primary.backend,
+                    model = model_id,
+                    error = %err,
+                    "accelerator failed for offline Sherpa model; retrying the complete job on CPU"
+                );
+                health.mark_model_degraded(
+                    selection.primary.backend,
+                    model_id,
+                    err.to_string(),
+                );
+                let _ = self.app_handle.emit(
+                    "transcription://backend-fallback",
+                    BackendFallbackPayload {
+                        from: selection.primary.backend.to_string(),
+                        to: "CPU".to_string(),
+                        message: "GPU unavailable — continuing on CPU".to_string(),
+                    },
+                );
+                let _ = self.app_handle.emit(
+                    "transcription://phase",
+                    PhasePayload {
+                        phase: "transcribing-cpu".to_string(),
+                    },
+                );
+                if let Some(ref cb) = on_progress {
+                    cb(5);
+                }
+                self.transcribe_sherpa_offline_attempt(
+                    family,
+                    files,
+                    audio_path,
+                    language,
+                    "cpu",
+                    None,
+                    on_progress.as_deref(),
+                )
+                .await?
+            }
+            Err(err) => return Err(err),
+        };
 
+        for segment in segments {
+            on_segment(segment);
+        }
+        if let Some(ref cb) = on_progress {
+            cb(100);
+        }
+        Ok(())
+    }
+
+    /// Run one complete offline Sherpa transcription attempt and keep every
+    /// chunk's segments private until all GPU chunks have succeeded. This
+    /// makes retrying the whole audio on CPU safe after a mid-job GPU failure.
+    async fn transcribe_sherpa_offline_attempt(
+        &self,
+        family: SherpaFamily,
+        files: SherpaModelFiles,
+        audio_path: &Path,
+        language: &str,
+        provider: &str,
+        device_id: Option<u32>,
+        on_progress: Option<&(dyn Fn(i32) + Send + Sync)>,
+    ) -> Result<Vec<TranscriptSegment>> {
+        let mut segments = Vec::new();
+        let wav_data = std::fs::read(audio_path)
+            .map_err(|e| anyhow!("Failed to read WAV file: {}", e))?;
         let chunk_duration_ms: i64 = 30_000;
         let total_duration_ms = get_wav_duration_ms(audio_path).unwrap_or(chunk_duration_ms);
 
-        // Single-pass fast path: short audio (≤ one chunk) → one sidecar call,
-        // one segment. Avoids chunk-WAV bookkeeping for the common short case.
         if total_duration_ms <= chunk_duration_ms {
             let raw = self
-                .run_sherpa_sidecar(family, files, audio_path, language, "cpu", None, 0, None)
+                .run_sherpa_sidecar(
+                    family,
+                    files,
+                    audio_path,
+                    language,
+                    provider,
+                    device_id,
+                    0,
+                    None,
+                )
                 .await?;
-            if let Some(ref cb) = on_progress {
-                cb(100);
-            }
-            for segment in Self::segments_from_sidecar_output(
+            segments.extend(Self::segments_from_sidecar_output(
                 family,
                 &raw,
                 0,
-                total_duration_ms as i64,
-            ) {
-                on_segment(segment);
-            }
-            return Ok(());
+                total_duration_ms,
+            ));
+            return Ok(segments);
         }
 
-        // Long-audio path: chunk into 30s windows. Parse the WAV header to find
-        // the data chunk, then build a minimal WAV per window and transcribe it.
+        if wav_data.len() < 44 {
+            return Err(anyhow!("Failed to parse WAV header for chunked Sherpa transcription"));
+        }
         let channels = u16::from_le_bytes([wav_data[22], wav_data[23]]) as u64;
         let sample_rate =
             u32::from_le_bytes([wav_data[24], wav_data[25], wav_data[26], wav_data[27]]) as u64;
         let bits_per_sample = u16::from_le_bytes([wav_data[34], wav_data[35]]) as u64;
-        let bytes_per_sample = bits_per_sample / 8;
-
+        let bytes_per_sample = (bits_per_sample / 8).max(1);
         let (data_offset, data_size) = find_wav_data_chunk(&wav_data)
             .ok_or_else(|| anyhow!("Failed to parse WAV data chunk"))?;
-
-        let total_samples = data_size / (channels * bytes_per_sample);
+        let total_samples = data_size / (channels * bytes_per_sample).max(1);
         let chunk_samples = (sample_rate * chunk_duration_ms as u64) / 1000;
-        let num_chunks = ((total_samples + chunk_samples - 1) / chunk_samples) as usize;
+        let num_chunks = ((total_samples + chunk_samples - 1) / chunk_samples.max(1)) as usize;
 
         let mut chunk_idx = 0usize;
         while (chunk_idx as u64 * chunk_samples) < total_samples {
@@ -1301,7 +1629,6 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
             let end_sample = std::cmp::min(start_sample + chunk_samples, total_samples);
             let chunk_byte_offset = data_offset as u64 + start_sample * channels * bytes_per_sample;
             let chunk_byte_count = (end_sample - start_sample) * channels * bytes_per_sample;
-
             if chunk_byte_offset as usize >= wav_data.len() {
                 break;
             }
@@ -1309,12 +1636,8 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
                 (chunk_byte_offset + chunk_byte_count) as usize,
                 wav_data.len(),
             );
-            let chunk_bytes = &wav_data[chunk_byte_offset as usize..end_byte];
-
-            // Build a minimal 44-byte-header WAV for this chunk and write it
-            // next to the source (same temp-dir convention as prepare_audio).
             let chunk_wav = build_wav_chunk(
-                chunk_bytes,
+                &wav_data[chunk_byte_offset as usize..end_byte],
                 sample_rate as u32,
                 channels as u16,
                 bits_per_sample as u16,
@@ -1323,52 +1646,43 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
             std::fs::write(&chunk_path, &chunk_wav)
                 .map_err(|e| anyhow!("Failed to write chunk WAV: {}", e))?;
 
-            let chunk_start_ms = (start_sample * 1000) / sample_rate;
-            let chunk_end_ms = (end_sample * 1000) / sample_rate;
-
-            // Per-chunk transcription. A failed chunk shouldn't abort the whole
-            // file — log and continue with an empty segment (matches the legacy
-            // moonshine behavior).
-            let raw = match self
+            let chunk_start_ms = (start_sample * 1000) / sample_rate.max(1);
+            let chunk_end_ms = (end_sample * 1000) / sample_rate.max(1);
+            let attempt = self
                 .run_sherpa_sidecar(
                     family,
                     files.clone(),
                     &chunk_path,
                     language,
-                    "cpu",
-                    None,
+                    provider,
+                    device_id,
                     0,
                     None,
                 )
-                .await
-            {
-                Ok(t) => t,
-                Err(e) => {
-                    tracing::warn!("sherpa chunk {} failed, continuing: {}", chunk_idx, e);
+                .await;
+            let _ = std::fs::remove_file(&chunk_path);
+
+            let raw = match attempt {
+                Ok(raw) => raw,
+                Err(err) if provider != "cpu" => return Err(err),
+                Err(err) => {
+                    tracing::warn!("sherpa CPU chunk {} failed, continuing: {}", chunk_idx, err);
                     String::new()
                 }
             };
-            let _ = std::fs::remove_file(&chunk_path);
-
-            for segment in Self::segments_from_sidecar_output(
+            segments.extend(Self::segments_from_sidecar_output(
                 family,
                 &raw,
                 chunk_start_ms as i64,
                 chunk_end_ms as i64,
-            ) {
-                on_segment(segment);
-            }
+            ));
 
             chunk_idx += 1;
-            if let Some(ref cb) = on_progress {
+            if let Some(cb) = on_progress {
                 cb(std::cmp::min(95, 5 + ((chunk_idx * 90) / num_chunks.max(1))) as i32);
             }
         }
-
-        if let Some(ref cb) = on_progress {
-            cb(100);
-        }
-        Ok(())
+        Ok(segments)
     }
 
     /// Swap the int8 transducer files for the fp32 set from the provisioned
@@ -1459,23 +1773,7 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
         let health = compute::get_health_cache();
 
         // User policy comes from the settings mirror; absent → Auto.
-        let (mode, preferred_device) =
-            match self.app_handle.try_state::<crate::database::Repository>() {
-                Some(repo) => {
-                    let config =
-                        crate::commands::transcription_config::read_transcription_config(&repo)
-                            .await;
-                    (
-                        config
-                            .as_ref()
-                            .and_then(|c| c.compute_mode.as_deref())
-                            .map(compute::TranscriptionComputeMode::from_str)
-                            .unwrap_or_default(),
-                        config.as_ref().and_then(|c| c.device_id),
-                    )
-                }
-                None => (compute::TranscriptionComputeMode::default(), None),
-            };
+        let (mode, preferred_device) = self.current_compute_preferences().await;
 
         let selection = compute::ComputeBackendSelector::select_backend(
             mode,
@@ -1512,10 +1810,12 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
             selection.primary.device_id
         };
 
+        // Do not show the GPU badge until the sidecar has initialized its
+        // requested provider and reports it in the model-session config.
         let phase = if provider == "cpu" {
             "transcribing-cpu"
         } else {
-            "transcribing-gpu"
+            "initializing-gpu"
         };
         let _ = self.app_handle.emit(
             "transcription://phase",
@@ -1562,7 +1862,11 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
                     error = %err,
                     "accelerator failed for Nemotron; continuing on CPU"
                 );
-                health.mark_degraded(selection.primary.backend, err.to_string());
+                health.mark_model_degraded(
+                    selection.primary.backend,
+                    "nemotron-3.5-asr-0.6b",
+                    err.to_string(),
+                );
                 let _ = self.app_handle.emit(
                     "transcription://backend-fallback",
                     BackendFallbackPayload {
@@ -1735,6 +2039,12 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
                 args.push(format!("--paraformer-model={}", files.model.to_string_lossy()));
             }
         }
+        if !matches!(family, SherpaFamily::NemotronTransducer) && provider != "cpu" {
+            args.push(format!("--provider={provider}"));
+            if let Some(id) = device_id {
+                args.push(format!("--device={id}"));
+            }
+        }
         args.push(wav_path.to_string_lossy().to_string());
 
         // Absolute-path spawn (see SherpaSpawnTarget): supports both the
@@ -1828,34 +2138,20 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
 
                 if provider != "cpu"
                     && !silent_cpu_fallback
-                    && complete_line.contains("Fallback to cpu")
+                    && (complete_line.contains("Fallback to cpu")
+                        || complete_line.contains("provider=\"cpu\""))
                 {
                     silent_cpu_fallback = true;
-                    let backend = match provider {
-                        "cuda" => Some(crate::transcription::compute_backend::ComputeBackend::Cuda),
-                        "coreml" => Some(crate::transcription::compute_backend::ComputeBackend::CoreMl),
-                        "directml" => Some(crate::transcription::compute_backend::ComputeBackend::DirectMl),
-                        _ => None,
-                    };
-                    if let Some(backend) = backend {
-                        crate::transcription::compute_backend::get_health_cache()
-                            .mark_degraded(
-                                backend,
-                                "sherpa runtime lacks this execution provider".to_string(),
-                            );
-                    }
+                }
+
+                if provider != "cpu"
+                    && !silent_cpu_fallback
+                    && complete_line.contains(&format!("provider=\"{provider}\""))
+                {
                     let _ = self.app_handle.emit(
                         "transcription://phase",
                         PhasePayload {
-                            phase: "transcribing-cpu".to_string(),
-                        },
-                    );
-                    let _ = self.app_handle.emit(
-                        "transcription://backend-fallback",
-                        BackendFallbackPayload {
-                            from: provider.to_string(),
-                            to: "CPU".to_string(),
-                            message: "GPU unavailable — continuing on CPU".to_string(),
+                            phase: "transcribing-gpu".to_string(),
                         },
                     );
                 }
@@ -1904,6 +2200,14 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
                     .to_string()
             };
             return Err(anyhow!(msg));
+        }
+
+        if provider != "cpu"
+            && (silent_cpu_fallback || !stderr_buf.contains(&format!("provider=\"{provider}\"")))
+        {
+            return Err(anyhow!(
+                "sherpa-onnx did not confirm execution with the requested {provider} provider"
+            ));
         }
 
         // Return the raw stderr: offline families extract the single JSON

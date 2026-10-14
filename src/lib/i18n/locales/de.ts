@@ -2764,7 +2764,11 @@ export const de: Dict = {
   "settings.audioGpuIntelMac": "Intel Mac: Nur CPU (kein Metal auf Intel)",
   "settings.audioGpuLinux":
     "Linux + NVIDIA: CUDA-Beschleunigung aktiviert, wenn Treiber installiert",
-  "settings.audioGpuWindows": "Windows: Nur CPU (GPU-Unterstützung kommt bald)",
+  "settings.audioGpuWindows": "Windows: DirectML unterstützt Sherpa-ASR und Nemotron; Vulkan unterstützt Whisper. Needle bleibt CPU-basiert.",
+  "settings.audioGpuAvailableForModel": "Für dieses Modell verfügbare Beschleuniger: {backends} — bei einem Fehler wird lokal auf die CPU zurückgegriffen.",
+  "settings.audioGpuUnavailableForModel": "Für dieses Modell ist kein GPU-Beschleuniger verfügbar — die lokale Transkription läuft auf der CPU.",
+  "settings.audioGpuDetectedAdapter": "Erkannter Grafikadapter: {devices}",
+  "settings.audioGpuVulkanDefaultDevice": "Whisper verwendet die von Vulkan standardmäßig ausgewählte GPU.",
   "settings.audioGroqApiKey": "Groq API-Schlüssel",
   "settings.audioGroqCloud": "Groq Cloud",
   "settings.audioGroqCloudDesc": "Verwendet Groqs schnelle Cloud-basierte Whisper API",

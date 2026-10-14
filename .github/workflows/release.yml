@@ -60,6 +60,11 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && (inputs.build_ref || inputs.version_tag) || github.ref }}
           submodules: recursive
 
+      - name: Install Vulkan SDK for Windows Whisper sidecar
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: ./scripts/install-windows-vulkan-sdk.ps1
+
       - name: Free disk space (Linux)
         if: matrix.os == 'linux'
         run: |

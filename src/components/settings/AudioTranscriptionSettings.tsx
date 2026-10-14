@@ -128,15 +128,41 @@ export function AudioTranscriptionSettings() {
   const isNemotronSelected = isNemotronModelId(audioSettings.sttModel);
   const isWhistleSelected = isWhistleModelId(audioSettings.sttModel);
 
-  // Accelerator availability from the backend probe (excludes plain CPU).
+  const selectedComputeModelId =
+    audioSettings.sttModel && audioSettings.sttModel !== "automatic"
+      ? audioSettings.sttModel
+      : audioSettings.preferredModelId ?? "distil-small.en";
+  const selectedModelCompatibility = computeDiagnostics?.model_compatibilities.find(
+    (model) => model.model_id === selectedComputeModelId,
+  );
+  // Windows Whisper variants share one engine health entry because the engine
+  // selects the Vulkan/CPU backend independently of the ggml model filename.
+  const selectedModelHealthId = selectedModelCompatibility?.supported_backends.includes("vulkan")
+    ? "whisper-local"
+    : selectedComputeModelId;
+  const selectedModelDegradedBackends = Object.keys(
+    computeDiagnostics?.health_degraded_models?.[selectedModelHealthId] ?? {},
+  );
+
+  // Show only accelerators this model can use and the backend has provisioned.
   const usableAccelerators = useMemo(() => {
-    if (!computeDiagnostics) return [] as string[];
+    if (!computeDiagnostics || !selectedModelCompatibility) return [] as string[];
     return Object.entries(computeDiagnostics.runtime.providers)
-      .filter(([name, status]) => name !== "cpu" && status.runtime_usable)
+      .filter(([name, status]) =>
+        name !== "cpu"
+        && status.runtime_usable
+        && selectedModelCompatibility.supported_backends.includes(name)
+        && !selectedModelDegradedBackends.includes(name),
+      )
       .map(([name]) => name);
-  }, [computeDiagnostics]);
+  }, [computeDiagnostics, selectedModelCompatibility, selectedModelDegradedBackends]);
   const gpuDevices = computeDiagnostics?.hardware.devices ?? [];
-  const degradedBackends = Object.keys(computeDiagnostics?.health_degraded_backends ?? {});
+  const degradedBackends = [
+    ...new Set([
+      ...Object.keys(computeDiagnostics?.health_degraded_backends ?? {}),
+      ...selectedModelDegradedBackends,
+    ]),
+  ];
 
   const handleUpdateSettings = (updates: Partial<typeof audioSettings>) => {
     updateSettings({ audioTranscription: { ...audioSettings, ...updates } });
@@ -424,7 +450,7 @@ export function AudioTranscriptionSettings() {
                   <option value="cpu">CPU only</option>
                 </select>
               </label>
-              {gpuDevices.length > 1 && (
+              {usableAccelerators.some((backend) => backend !== "vulkan") && gpuDevices.length > 1 && (
                 <label className="space-y-1.5 sm:flex-1">
                   <span className="text-xs font-medium text-muted-foreground">GPU override</span>
                   <select
@@ -452,11 +478,23 @@ export function AudioTranscriptionSettings() {
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
               <Lightning className="h-3.5 w-3.5 shrink-0" />
               {usableAccelerators.length > 0
-                ? `Accelerators available: ${usableAccelerators
-                    .map(backendLabel)
-                    .join(", ")} — local jobs fall back to CPU on accelerator failure.`
-                : "No hardware accelerator detected — local transcription runs on CPU."}
+                ? t("settings.audioGpuAvailableForModel", {
+                    backends: usableAccelerators.map(backendLabel).join(", "),
+                  })
+                : t("settings.audioGpuUnavailableForModel")}
             </p>
+            {gpuDevices.length > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {t("settings.audioGpuDetectedAdapter", {
+                  devices: gpuDevices.map((device) => device.name).join(", "),
+                })}
+              </p>
+            )}
+            {usableAccelerators.includes("vulkan") && gpuDevices.length > 1 && (
+              <p className="text-xs text-muted-foreground">
+                {t("settings.audioGpuVulkanDefaultDevice")}
+              </p>
+            )}
             {degradedBackends.length > 0 && (
               <p className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400">
                 <Warning className="h-3.5 w-3.5 shrink-0" />
@@ -981,7 +1019,9 @@ export function AudioTranscriptionSettings() {
                     <span>{t("settings.audioGpuLinux")}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full ${usableAccelerators.includes("direct_ml") ? "bg-green-500" : "bg-amber-500"}`}
+                    ></span>
                     <span>{t("settings.audioGpuWindows")}</span>
                   </div>
                   <div className="flex items-center gap-2">

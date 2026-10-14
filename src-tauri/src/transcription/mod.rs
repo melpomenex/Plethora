@@ -766,29 +766,68 @@ pub async fn transcription_compute_diagnostics(
     let bin_dir = engine.sidecar_bin_dir();
     let runtime = probe_runtime_capabilities(bin_dir.as_deref(), Some(&gpu));
 
-    // Sample default model capabilities for Nemotron & Whisper
-    let model_compatibilities = vec![
+    let nemotron_backends = if cfg!(target_os = "windows") {
+        vec![ComputeBackend::DirectMl, ComputeBackend::Cpu]
+    } else {
+        vec![
+            ComputeBackend::Cuda,
+            ComputeBackend::CoreMl,
+            ComputeBackend::Cpu,
+        ]
+    };
+    let whisper_backends = if cfg!(target_os = "windows") {
+        vec![ComputeBackend::Vulkan, ComputeBackend::Cpu]
+    } else {
+        vec![
+            ComputeBackend::Cuda,
+            ComputeBackend::Metal,
+            ComputeBackend::Vulkan,
+            ComputeBackend::Cpu,
+        ]
+    };
+    let sherpa_backends = if cfg!(target_os = "windows") {
+        vec![ComputeBackend::DirectMl, ComputeBackend::Cpu]
+    } else {
+        vec![ComputeBackend::Cpu]
+    };
+    let mut model_compatibilities = vec![
         ModelCapabilities {
             model_id: "nemotron-3.5-asr-0.6b".to_string(),
-            supported_backends: vec![
-                ComputeBackend::Cuda,
-                ComputeBackend::CoreMl,
-                ComputeBackend::DirectMl,
-                ComputeBackend::Cpu,
-            ],
+            supported_backends: nemotron_backends,
             min_vram_bytes: Some(1500 * 1024 * 1024),
         },
         ModelCapabilities {
-            model_id: "whisper-base".to_string(),
-            supported_backends: vec![
-                ComputeBackend::Cuda,
-                ComputeBackend::Metal,
-                ComputeBackend::Vulkan,
-                ComputeBackend::Cpu,
-            ],
+            model_id: "whisper-local".to_string(),
+            supported_backends: whisper_backends.clone(),
             min_vram_bytes: Some(1024 * 1024 * 1024),
         },
     ];
+    for model_id in ["distil-small.en", "base", "small"] {
+        model_compatibilities.push(ModelCapabilities {
+            model_id: model_id.to_string(),
+            supported_backends: whisper_backends.clone(),
+            min_vram_bytes: Some(1024 * 1024 * 1024),
+        });
+    }
+    for model_id in ["parakeet-tdt-ctc-110m", "sense-voice-small"] {
+        model_compatibilities.push(ModelCapabilities {
+            model_id: model_id.to_string(),
+            supported_backends: sherpa_backends.clone(),
+            min_vram_bytes: None,
+        });
+    }
+    for model_id in ["sherpa-zipformer", "sherpa-paraformer"] {
+        model_compatibilities.push(ModelCapabilities {
+            model_id: model_id.to_string(),
+            supported_backends: sherpa_backends.clone(),
+            min_vram_bytes: None,
+        });
+    }
+    model_compatibilities.push(ModelCapabilities {
+        model_id: "cactus-whistle".to_string(),
+        supported_backends: vec![ComputeBackend::Cpu],
+        min_vram_bytes: None,
+    });
 
     let health = get_health_cache();
     let mut health_degraded_backends = std::collections::HashMap::new();
@@ -810,6 +849,7 @@ pub async fn transcription_compute_diagnostics(
         active_compute_mode: TranscriptionComputeMode::Auto,
         model_compatibilities,
         health_degraded_backends,
+        health_degraded_models: health.degraded_models(),
     })
 }
 

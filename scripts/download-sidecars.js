@@ -1,7 +1,7 @@
 import fs from 'fs';
 import os from 'os';
 import path, { dirname } from "path";
-import { execSync } from 'child_process';
+import { execFileSync, execSync } from 'child_process';
 import { createHash } from 'crypto';
 import { fileURLToPath } from 'url';
 
@@ -309,6 +309,221 @@ function ensureSherpaSidecar(targetTriple) {
     }
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+function ensureWindowsDirectMlRuntime(targetTriple) {
+  if (!targetTriple.includes('windows')) return;
+
+  const runtimeDir = path.join(BIN_DIR, 'sherpa-directml');
+  const manifestPath = path.join(runtimeDir, 'runtime-manifest.json');
+  if (targetTriple !== 'x86_64-pc-windows-msvc') {
+    fs.mkdirSync(runtimeDir, { recursive: true });
+    for (const entry of fs.readdirSync(runtimeDir, { withFileTypes: true })) {
+      fs.rmSync(path.join(runtimeDir, entry.name), { recursive: true, force: true });
+    }
+    fs.writeFileSync(manifestPath, JSON.stringify({
+      schema: 1,
+      provider: 'cpu-only',
+      sherpa_version: SHERPA_ONNX_VERSION,
+    }), 'utf8');
+    console.log(`DirectML runtime is not built for ${targetTriple}; CPU sidecars remain available.`);
+    return;
+  }
+
+  const requiredFiles = [
+    'sherpa-online.exe',
+    'sherpa-onnx.exe',
+    'onnxruntime.dll',
+    'DirectML.dll',
+  ];
+  try {
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+    if (
+      manifest.schema === 1
+      && manifest.provider === 'directml'
+      && manifest.sherpa_version === SHERPA_ONNX_VERSION
+      && requiredFiles.every((name) => isUsableSidecar(path.join(runtimeDir, name)))
+    ) {
+      return;
+    }
+  } catch {
+    // Build or leave a CPU-only marker below.
+  }
+
+  fs.mkdirSync(runtimeDir, { recursive: true });
+  const cpuOnlyManifest = JSON.stringify({
+    schema: 1,
+    provider: 'cpu-only',
+    sherpa_version: SHERPA_ONNX_VERSION,
+  });
+  fs.writeFileSync(manifestPath, cpuOnlyManifest, 'utf8');
+
+  if (process.platform !== 'win32') {
+    console.warn(`⚠️  Cannot build the Windows DirectML runtime on ${process.platform}; CPU sidecars remain available.`);
+    return;
+  }
+
+  const scriptPath = path.join(__dirname, 'build-windows-directml-runtime.ps1');
+  try {
+    execFileSync('powershell.exe', [
+      '-NoProfile',
+      '-ExecutionPolicy',
+      'Bypass',
+      '-File',
+      scriptPath,
+      '-BinDir',
+      BIN_DIR,
+      '-SherpaVersion',
+      SHERPA_ONNX_VERSION,
+    ], { stdio: 'inherit' });
+  } catch (err) {
+    console.warn(`⚠️  Windows DirectML runtime build failed: ${err.message}`);
+    if (process.env.CI) throw err;
+  }
+}
+
+function getWhisperSourceRevision() {
+  if (!fs.existsSync(path.join('whisper.cpp', 'CMakeLists.txt'))) return null;
+  try {
+    return execFileSync('git', ['-C', 'whisper.cpp', 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  } catch {
+    return null;
+  }
+}
+
+function readJsonFile(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function windowsGpuSidecarsReady(targetTriple) {
+  if (targetTriple !== 'x86_64-pc-windows-msvc') return !targetTriple.includes('windows');
+
+  const directmlDir = path.join(BIN_DIR, 'sherpa-directml');
+  const directml = readJsonFile(path.join(directmlDir, 'runtime-manifest.json'));
+  const directmlFilesReady = ['sherpa-online.exe', 'sherpa-onnx.exe', 'onnxruntime.dll', 'DirectML.dll']
+    .every((name) => isUsableSidecar(path.join(directmlDir, name)));
+  const directmlReady = directml?.schema === 1
+    && directml?.sherpa_version === SHERPA_ONNX_VERSION
+    && ((directml.provider === 'directml' && directmlFilesReady)
+      || (!process.env.CI && directml.provider === 'cpu-only'));
+
+  const whisperManifestPath = path.join(BIN_DIR, 'whisper-vulkan-manifest.json');
+  const whisper = readJsonFile(whisperManifestPath);
+  const whisperRevision = getWhisperSourceRevision();
+  const whisperBinaryReady = isUsableSidecar(path.join(BIN_DIR, sidecarExecutableName('whisper', targetTriple)));
+  const whisperVulkanBinaryReady = isUsableSidecar(path.join(BIN_DIR, 'whisper-vulkan.exe'));
+  const whisperReady = whisperBinaryReady
+    && whisper?.schema === 1
+    && whisper?.whisper_revision === whisperRevision
+    && ((whisper.provider === 'vulkan' && whisper.vulkan_enabled === true && whisperVulkanBinaryReady)
+      || (!process.env.CI && whisper.provider === 'cpu-only' && !process.env.VULKAN_SDK));
+
+  return directmlReady && whisperReady;
+}
+
+function writeWindowsWhisperManifest(manifest) {
+  fs.writeFileSync(
+    path.join(BIN_DIR, 'whisper-vulkan-manifest.json'),
+    JSON.stringify(manifest),
+    'utf8',
+  );
+}
+
+function ensureWindowsWhisperVulkanRuntime(targetTriple) {
+  if (!targetTriple.includes('windows')) return;
+
+  try {
+    ensureWhisperSource();
+  } catch (err) {
+    fs.rmSync(path.join(BIN_DIR, 'whisper-vulkan.exe'), { force: true });
+    writeWindowsWhisperManifest({
+      schema: 1,
+      provider: 'cpu-only',
+      vulkan_enabled: false,
+      whisper_revision: null,
+    });
+    console.warn(`⚠️  Whisper source is unavailable for the Windows Vulkan build: ${err.message}`);
+    if (process.env.CI) throw err;
+    return;
+  }
+  const whisperRevision = getWhisperSourceRevision();
+  const manifestPath = path.join(BIN_DIR, 'whisper-vulkan-manifest.json');
+  const manifest = readJsonFile(manifestPath);
+  const whisperPath = path.join(BIN_DIR, 'whisper-vulkan.exe');
+  if (
+    targetTriple === 'x86_64-pc-windows-msvc'
+    && isUsableSidecar(whisperPath)
+    && manifest?.schema === 1
+    && manifest?.provider === 'vulkan'
+    && manifest?.vulkan_enabled === true
+    && manifest?.whisper_revision === whisperRevision
+  ) {
+    return;
+  }
+
+  const cpuOnlyManifest = {
+    schema: 1,
+    provider: 'cpu-only',
+    vulkan_enabled: false,
+    whisper_revision: whisperRevision,
+  };
+  writeWindowsWhisperManifest(cpuOnlyManifest);
+  fs.rmSync(whisperPath, { force: true });
+
+  if (targetTriple !== 'x86_64-pc-windows-msvc') {
+    console.log(`Whisper Vulkan runtime is not built for ${targetTriple}; CPU execution remains available.`);
+    return;
+  }
+  if (process.platform !== 'win32') {
+    console.warn(`⚠️  Cannot build the Windows Vulkan Whisper sidecar on ${process.platform}; CPU execution remains available.`);
+    return;
+  }
+  if (!process.env.VULKAN_SDK || !fs.existsSync(path.join(process.env.VULKAN_SDK, 'Bin', 'glslc.exe'))) {
+    const message = 'The Vulkan SDK is required to build the Windows Whisper GPU sidecar.';
+    if (process.env.CI) throw new Error(message);
+    console.warn(`⚠️  ${message} Building/keeping Whisper CPU-only.`);
+    return;
+  }
+
+  try {
+    const buildDir = path.join('whisper.cpp', 'build-vulkan-windows');
+    execFileSync('cmake', [
+      '-S', 'whisper.cpp',
+      '-B', buildDir,
+      '-DBUILD_SHARED_LIBS=OFF',
+      '-DGGML_BLAS=OFF',
+      '-DGGML_VULKAN=ON',
+      '-DGGML_VULKAN_DEBUG=ON',
+    ], { stdio: 'inherit' });
+    execFileSync('cmake', ['--build', buildDir, '--config', 'Release', '--parallel'], { stdio: 'inherit' });
+
+    const candidates = [
+      path.join(buildDir, 'bin', 'Release', 'whisper-cli.exe'),
+      path.join(buildDir, 'bin', 'whisper-cli.exe'),
+    ];
+    const binaryPath = candidates.find((candidate) => fs.existsSync(candidate));
+    if (!binaryPath || !isUsableSidecar(binaryPath)) {
+      throw new Error('Vulkan build did not produce a usable whisper-cli.exe.');
+    }
+
+    fs.copyFileSync(binaryPath, whisperPath);
+    writeWindowsWhisperManifest({
+      schema: 1,
+      provider: 'vulkan',
+      vulkan_enabled: true,
+      whisper_revision: whisperRevision,
+    });
+    console.log(`✅ Built Windows Whisper sidecar with Vulkan (${whisperRevision}).`);
+  } catch (err) {
+    fs.rmSync(whisperPath, { force: true });
+    writeWindowsWhisperManifest(cpuOnlyManifest);
+    console.warn(`⚠️  Windows Whisper Vulkan build failed: ${err.message}`);
+    if (process.env.CI) throw err;
   }
 }
 
@@ -1176,6 +1391,7 @@ async function main() {
     && isUsableSidecar(sherpaPath)
     && isUsableSidecar(sherpaOnlinePath)
     && isUsableSidecar(needlePath)
+    && windowsGpuSidecarsReady(targetTriple)
     && (!notebooklmMustExist || notebooklmSidecarPresent)
     && (!notebooklmRequired || notebooklmRuntimeReady)
   ) {
@@ -1206,7 +1422,9 @@ async function main() {
   // platform-specific Whisper build. A missing compiler must not prevent
   // Parakeet/SenseVoice from becoming usable.
   ensureSherpaSidecar(targetTriple);
+  ensureWindowsDirectMlRuntime(targetTriple);
   ensureNeedleSidecar(targetTriple);
+  ensureWindowsWhisperVulkanRuntime(targetTriple);
 
   if (platform === 'linux') {
     // Linux FFmpeg (vestigial: ffmpeg isn't a Tauri externalBin — it's resolved
@@ -1480,12 +1698,10 @@ async function main() {
 
   console.log('Sidecars ready:', fs.readdirSync(BIN_DIR));
 
-  // GPU note: the bundled sherpa-onnx sidecar is intentionally the CPU build
-  // for every platform — NVIDIA GPU acceleration is NOT provisioned here. On
-  // Linux x64 the app provisions a CUDA-enabled sherpa-onnx build + CUDA
-  // libraries into app data at runtime (see
-  // src-tauri/src/transcription/gpu_runtime.rs), keyed off the detected
-  // NVIDIA driver version. Nothing to do in this script for that.
+  // GPU note: Windows stages isolated DirectML Sherpa sidecars and a Vulkan
+  // Whisper sidecar. Linux x64 provisions CUDA into app data at runtime (see
+  // src-tauri/src/transcription/gpu_runtime.rs), keyed off the detected NVIDIA
+  // driver version.
   console.log('\n=== GPU Acceleration Status ===');
   if (platform === 'darwin') {
     if (process.arch === 'arm64') {
@@ -1496,7 +1712,14 @@ async function main() {
   } else if (platform === 'linux') {
     console.log('ℹ️  Bundled sidecars are CPU-only; NVIDIA CUDA support is runtime-provisioned by the app (gpu_runtime.rs).');
   } else if (platform === 'win32') {
-    console.log('⚠️  GPU: Windows builds are CPU-only (GPU support pending)');
+    const sherpaProvider = readJsonFile(path.join(BIN_DIR, 'sherpa-directml', 'runtime-manifest.json'))?.provider ?? 'cpu-only';
+    const whisperProvider = readJsonFile(path.join(BIN_DIR, 'whisper-vulkan-manifest.json'))?.provider ?? 'cpu-only';
+    console.log(sherpaProvider === 'directml'
+      ? '✅ DirectML runtime: packaged for Sherpa ASR models; CPU fallback retained.'
+      : 'ℹ️  DirectML runtime unavailable; Sherpa ASR remains CPU-capable.');
+    console.log(whisperProvider === 'vulkan'
+      ? '✅ Vulkan runtime: packaged for Whisper; CPU fallback retained.'
+      : 'ℹ️  Vulkan runtime unavailable; Whisper remains CPU-capable.');
   }
   console.log('================================\n');
 }

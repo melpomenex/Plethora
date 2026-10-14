@@ -4111,7 +4111,14 @@ export const en: Dict = {
   "settings.audioGpuApple":
     "Apple Silicon (M1/M2/M3): Metal GPU acceleration enabled automatically",
   "settings.audioGpuLinux": "Linux + NVIDIA: CUDA acceleration enabled if drivers installed",
-  "settings.audioGpuWindows": "Windows: CPU only (GPU support coming soon)",
+  "settings.audioGpuWindows":
+    "Windows: DirectML supports Sherpa ASR and Nemotron; Vulkan supports Whisper. Needle remains CPU-only.",
+  "settings.audioGpuAvailableForModel":
+    "Accelerators available for this model: {backends} — local jobs fall back to CPU on failure.",
+  "settings.audioGpuUnavailableForModel":
+    "No accelerator is available for this model — local transcription runs on CPU.",
+  "settings.audioGpuDetectedAdapter": "Detected adapter: {devices}",
+  "settings.audioGpuVulkanDefaultDevice": "Whisper uses the default GPU exposed by Vulkan.",
   "settings.audioGpuIntelMac": "Intel Mac: CPU only (no Metal on Intel)",
   "settings.audioFastCloud": "Fast Cloud Transcription",
   "settings.audioFastCloudDesc":

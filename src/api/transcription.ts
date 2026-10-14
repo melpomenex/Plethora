@@ -57,6 +57,7 @@ export interface ComputeDiagnosticsReport {
     min_vram_bytes?: number | null;
   }[];
   health_degraded_backends: Record<string, string>;
+  health_degraded_models: Record<string, Record<string, string>>;
 }
 
 export const getTranscriptionComputeDiagnostics = (): Promise<ComputeDiagnosticsReport | null> => {

@@ -3,6 +3,12 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::{Arc, Mutex, OnceLock};
 
+pub const DIRECTML_RUNTIME_DIR_NAME: &str = "sherpa-directml";
+const DIRECTML_SIDECAR_NAME: &str = "sherpa-online.exe";
+const DIRECTML_RUNTIME_MANIFEST: &str = "runtime-manifest.json";
+const SHERPA_ONNX_DIRECTML_VERSION: &str = "v1.13.6";
+const WHISPER_VULKAN_MANIFEST: &str = "whisper-vulkan-manifest.json";
+
 /// Target execution backend for speech-to-text inference.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -170,6 +176,7 @@ pub struct SelectedExecutionBackend {
 #[derive(Debug, Default)]
 pub struct BackendHealthCache {
     degraded_backends: Mutex<HashMap<ComputeBackend, String>>,
+    degraded_models: Mutex<HashMap<(ComputeBackend, String), String>>,
 }
 
 impl BackendHealthCache {
@@ -187,8 +194,50 @@ impl BackendHealthCache {
         self.degraded_backends.lock().ok()?.get(&backend).cloned()
     }
 
+    pub fn mark_model_degraded(
+        &self,
+        backend: ComputeBackend,
+        model_id: impl Into<String>,
+        reason: String,
+    ) {
+        if let Ok(mut map) = self.degraded_models.lock() {
+            map.insert((backend, model_id.into()), reason);
+        }
+    }
+
+    pub fn is_model_degraded(
+        &self,
+        backend: ComputeBackend,
+        model_id: &str,
+    ) -> Option<String> {
+        self.degraded_models
+            .lock()
+            .ok()?
+            .get(&(backend, model_id.to_string()))
+            .cloned()
+    }
+
+    pub fn degraded_models(&self) -> HashMap<String, HashMap<ComputeBackend, String>> {
+        self.degraded_models
+            .lock()
+            .map(|map| {
+                let mut degraded = HashMap::<String, HashMap<ComputeBackend, String>>::new();
+                for ((backend, model_id), reason) in map.iter() {
+                    degraded
+                        .entry(model_id.clone())
+                        .or_default()
+                        .insert(*backend, reason.clone());
+                }
+                degraded
+            })
+            .unwrap_or_default()
+    }
+
     pub fn clear(&self) {
         if let Ok(mut map) = self.degraded_backends.lock() {
+            map.clear();
+        }
+        if let Ok(mut map) = self.degraded_models.lock() {
             map.clear();
         }
     }
@@ -264,14 +313,7 @@ pub fn detect_hardware() -> HardwareCapabilities {
 
     #[cfg(target_os = "windows")]
     {
-        // Windows platform device detection placeholder
-        devices.push(DeviceInfo {
-            id: 0,
-            name: "Default Graphics Device".to_string(),
-            vendor: "unknown".to_string(),
-            vram_bytes: None,
-            free_vram_bytes: None,
-        });
+        devices = detect_windows_adapters();
     }
 
     HardwareCapabilities {
@@ -337,18 +379,196 @@ pub fn probe_runtime_capabilities(
         // Windows DirectML check
         #[cfg(target_os = "windows")]
         {
-            providers.insert(
-                ComputeBackend::DirectMl,
-                ProviderStatus {
-                    available: true,
-                    runtime_usable: true,
-                    reason_unavailable: None,
-                },
-            );
+            providers.insert(ComputeBackend::DirectMl, probe_directml_runtime(sidecar_bin_dir));
+            providers.insert(ComputeBackend::Vulkan, probe_whisper_vulkan_runtime(sidecar_bin_dir));
         }
     }
 
     RuntimeCapabilities { providers }
+}
+
+/// Resolve the isolated DirectML runtime only when its manifest and required
+/// runtime files are complete. It lives beside its own DLLs so Windows never
+/// loads the DirectML ONNX Runtime into the CPU sidecar's DLL search location.
+#[cfg(target_os = "windows")]
+pub fn directml_runtime_dir(sidecar_bin_dir: Option<&std::path::Path>) -> Option<std::path::PathBuf> {
+    let dir = sidecar_bin_dir?.join(DIRECTML_RUNTIME_DIR_NAME);
+    let manifest_path = dir.join(DIRECTML_RUNTIME_MANIFEST);
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(manifest_path).ok()?).ok()?;
+    if manifest.get("schema")?.as_u64()? != 1
+        || manifest.get("provider")?.as_str()? != "directml"
+        || manifest.get("sherpa_version")?.as_str()? != SHERPA_ONNX_DIRECTML_VERSION
+    {
+        return None;
+    }
+
+    [
+        DIRECTML_SIDECAR_NAME,
+        "sherpa-onnx.exe",
+        "onnxruntime.dll",
+        "DirectML.dll",
+    ]
+    .iter()
+    .all(|name| {
+        std::fs::metadata(dir.join(name))
+            .map(|metadata| metadata.is_file() && metadata.len() > 0)
+            .unwrap_or(false)
+    })
+    .then_some(dir)
+}
+
+#[cfg(target_os = "windows")]
+fn probe_whisper_vulkan_runtime(sidecar_bin_dir: Option<&std::path::Path>) -> ProviderStatus {
+    let Some(bin_dir) = sidecar_bin_dir else {
+        return ProviderStatus {
+            available: false,
+            runtime_usable: false,
+            reason_unavailable: Some("The Windows Whisper sidecar directory is missing".to_string()),
+        };
+    };
+    let manifest_path = bin_dir.join(WHISPER_VULKAN_MANIFEST);
+    let manifest: serde_json::Value = match std::fs::read(&manifest_path)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+    {
+        Some(manifest)
+            if manifest.get("schema").and_then(|v| v.as_u64()) == Some(1)
+                && manifest.get("provider").and_then(|v| v.as_str()) == Some("vulkan")
+                && manifest.get("vulkan_enabled").and_then(|v| v.as_bool()) == Some(true) =>
+        {
+            manifest
+        }
+        _ => {
+            return ProviderStatus {
+                available: false,
+                runtime_usable: false,
+                reason_unavailable: Some(
+                    "The bundled Whisper sidecar was not built with Vulkan".to_string(),
+                ),
+            };
+        }
+    };
+    let _ = manifest;
+
+    let whisper_sidecar_ready = bin_dir
+        .join("whisper-vulkan.exe")
+        .metadata()
+        .map(|metadata| metadata.is_file() && metadata.len() > 0)
+        .unwrap_or(false);
+    if !whisper_sidecar_ready {
+        return ProviderStatus {
+            available: false,
+            runtime_usable: false,
+            reason_unavailable: Some("The Vulkan-enabled Whisper sidecar is missing".to_string()),
+        };
+    }
+
+    let system_root = std::env::var_os("SystemRoot")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from(r"C:\Windows"));
+    if !system_root.join("System32").join("vulkan-1.dll").is_file() {
+        return ProviderStatus {
+            available: true,
+            runtime_usable: false,
+            reason_unavailable: Some(
+                "The Vulkan loader is missing; install or update the GPU driver".to_string(),
+            ),
+        };
+    }
+
+    if detect_windows_adapters().is_empty() {
+        return ProviderStatus {
+            available: true,
+            runtime_usable: false,
+            reason_unavailable: Some("No hardware graphics adapter was detected".to_string()),
+        };
+    }
+
+    ProviderStatus {
+        available: true,
+        runtime_usable: true,
+        reason_unavailable: None,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn probe_directml_runtime(sidecar_bin_dir: Option<&std::path::Path>) -> ProviderStatus {
+    if directml_runtime_dir(sidecar_bin_dir).is_none() {
+        return ProviderStatus {
+            available: false,
+            runtime_usable: false,
+            reason_unavailable: Some(
+                "The bundled DirectML runtime is missing or incomplete".to_string(),
+            ),
+        };
+    }
+
+    if detect_windows_adapters().is_empty() {
+        return ProviderStatus {
+            available: true,
+            runtime_usable: false,
+            reason_unavailable: Some("No hardware graphics adapter was detected".to_string()),
+        };
+    }
+
+    ProviderStatus {
+        available: true,
+        runtime_usable: true,
+        reason_unavailable: None,
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn detect_windows_adapters() -> Vec<DeviceInfo> {
+    use windows::Win32::Graphics::Dxgi::{
+        CreateDXGIFactory1, IDXGIFactory1, DXGI_ADAPTER_FLAG_SOFTWARE,
+    };
+
+    let Ok(factory) = (unsafe { CreateDXGIFactory1::<IDXGIFactory1>() }) else {
+        return Vec::new();
+    };
+
+    let mut devices = Vec::new();
+    for adapter_index in 0..u32::MAX {
+        let Ok(adapter) = (unsafe { factory.EnumAdapters1(adapter_index) }) else {
+            break;
+        };
+        let Ok(desc) = (unsafe { adapter.GetDesc1() }) else {
+            continue;
+        };
+        if desc.Flags & (DXGI_ADAPTER_FLAG_SOFTWARE.0 as u32) != 0 {
+            continue;
+        }
+
+        let name_end = desc
+            .Description
+            .iter()
+            .position(|unit| *unit == 0)
+            .unwrap_or(desc.Description.len());
+        let name = String::from_utf16_lossy(&desc.Description[..name_end]);
+        devices.push(DeviceInfo {
+            // Preserve DXGI's adapter index because DirectML uses that index
+            // when the sidecar receives its --device argument.
+            id: adapter_index,
+            name,
+            vendor: windows_vendor_name(desc.VendorId).to_string(),
+            vram_bytes: (desc.DedicatedVideoMemory > 0)
+                .then_some(desc.DedicatedVideoMemory as u64),
+            free_vram_bytes: None,
+        });
+    }
+    devices
+}
+
+#[cfg(target_os = "windows")]
+fn windows_vendor_name(vendor_id: u32) -> &'static str {
+    match vendor_id {
+        0x10DE => "nvidia",
+        0x1002 | 0x1022 => "amd",
+        0x8086 => "intel",
+        _ => "unknown",
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -560,7 +780,10 @@ impl ComputeBackendSelector {
             }
 
             // Check health cache
-            if let Some(reason) = health.is_degraded(backend) {
+            if let Some(reason) = health
+                .is_model_degraded(backend, &model.model_id)
+                .or_else(|| health.is_degraded(backend))
+            {
                 candidate_chain.push(BackendCandidate {
                     backend,
                     device_id: None,
@@ -640,6 +863,7 @@ pub struct ComputeDiagnosticsReport {
     pub active_compute_mode: TranscriptionComputeMode,
     pub model_compatibilities: Vec<ModelCapabilities>,
     pub health_degraded_backends: HashMap<String, String>,
+    pub health_degraded_models: HashMap<String, HashMap<ComputeBackend, String>>,
 }
 
 #[cfg(test)]

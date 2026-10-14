@@ -2723,7 +2723,11 @@ export const ja: Dict = {
   "settings.audioGpuIntelMac": "Intel Mac: CPU のみ（Intel では Metal 非対応）",
   "settings.audioGpuLinux":
     "Linux + NVIDIA: ドライバーがインストール済みの場合 CUDA アクセラレーションが有効",
-  "settings.audioGpuWindows": "Windows: CPU のみ（GPU サポートは近日対応）",
+  "settings.audioGpuWindows": "Windows: DirectMLはSherpa ASRとNemotron、VulkanはWhisperを高速化します。NeedleはCPUのみです。",
+  "settings.audioGpuAvailableForModel": "このモデルで利用できるアクセラレータ: {backends} — 失敗時はローカルでCPUに切り替えます。",
+  "settings.audioGpuUnavailableForModel": "このモデルで利用できるGPUアクセラレータはありません。ローカル文字起こしはCPUで実行されます。",
+  "settings.audioGpuDetectedAdapter": "検出されたGPU: {devices}",
+  "settings.audioGpuVulkanDefaultDevice": "WhisperはVulkanが選択する既定のGPUを使用します。",
   "settings.audioGroqApiKey": "Groq API キー",
   "settings.audioGroqCloud": "Groq Cloud",
   "settings.audioGroqCloudDesc": "Groq の高速クラウドベース Whisper API を使用",
