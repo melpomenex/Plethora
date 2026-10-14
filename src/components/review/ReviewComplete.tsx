@@ -7,7 +7,6 @@ import {
   House,
   Trophy,
 } from "@phosphor-icons/react";
-import { useNavigate } from "react-router-dom";
 import { useI18n } from "../../lib/i18n";
 import { emitFeedback } from "../../lib/feedback";
 import { formatArenaInterval } from "./arenaFormatters";
@@ -39,7 +38,6 @@ export function ReviewComplete({
   streak,
   lastReviewOutcome,
 }: ReviewCompleteProps) {
-  const navigate = useNavigate();
   const { t, locale } = useI18n();
   const didPlaySoundsRef = useRef(false);
   const accuracy = reviewsCompleted > 0
@@ -207,13 +205,13 @@ export function ReviewComplete({
           View connections
         </button>
         <button
-          onClick={() => navigate("/queue")}
+          onClick={() => window.dispatchEvent(new CustomEvent("navigate", { detail: "/queue" }))}
           className="px-6 py-3 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity font-medium"
         >
           {t("reviewComplete.backToQueue")}
         </button>
         <button
-          onClick={() => navigate("/")}
+          onClick={() => window.dispatchEvent(new CustomEvent("navigate", { detail: "/dashboard" }))}
           className="px-6 py-3 bg-card border border-border text-foreground rounded-lg hover:bg-muted transition-colors font-medium flex items-center justify-center gap-2"
         >
           <House className="w-4 h-4" />
