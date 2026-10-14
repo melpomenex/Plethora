@@ -20,25 +20,8 @@ const AskPlethoraModal = lazy(() =>
   import("../../features/help/AskPlethoraModal").then((m) => ({ default: m.AskPlethoraModal }))
 );
 
-import { Command, CommandCategory, getDefaultCommands, filterCommandsByPlatformAvailability } from "../common/CommandPalette";
 import { urlDetectorUtils } from "../../hooks/useURLDetector";
 import { useI18n } from "../../lib/i18n";
-import {
-  Books,
-  Brain,
-  ChartBar,
-  Clipboard,
-  Compass,
-  Gear,
-  Images,
-  ListChecks,
-  Moon,
-  Palette,
-  Play,
-  SquaresFour,
-  Sun,
-  XLogo,
-} from "@phosphor-icons/react";
 import type { Document, Extract } from "../../types/document";
 import type { StudyDeck } from "../../types/study-decks";
 import { fetchYouTubeTranscript } from "../../api/youtube";
@@ -49,7 +32,6 @@ import type { ExactSearchHitLocation, SearchHit } from "../../types/searchHit";
 import { registerCommandPaletteOpenEvents } from "../../utils/commandPaletteEvents";
 import { openDocumentAtLocation } from "../../utils/openDocumentAtLocation";
 import { getSubscribedFeedsAuto, type FeedItem } from "../../api/rss";
-import { searchArticlesAuto } from "../../api/rss-search";
 import { useRssStudyStore } from "../../stores/rssStudyStore";
 import { getSubscribedPodcasts, getPodcastEpisodes, getPodcastTranscript } from "../../api/podcast";
 import {
@@ -61,6 +43,48 @@ import {
   type ViewActionId,
 } from "../../commandPalette/contextualActions";
 import { dispatchPaletteAction, getLiveContext } from "../../commandPalette/paletteActionEvents";
+import { buildCommandCatalogue, navigateTo } from "../../commandPalette/catalogue";
+import { filterResultsByScope } from "../../commandPalette/facets";
+import {
+  buildResumeItem,
+  deriveExpandedExamples,
+  deriveResumeTopic,
+  deriveSuggestions,
+  isEligibleDocument,
+  selectRecentCandidate,
+  selectResumeCandidate,
+  type PaletteDocumentLike,
+} from "../../commandPalette/homeModel";
+import { getRecentOpens } from "../../commandPalette/recentOpens";
+import type {
+  PaletteActionInvocation,
+  PaletteContextualAction,
+  PaletteDueState,
+  PaletteHomeModel,
+  PaletteRecentItem,
+  PaletteResumeItem,
+  PaletteResumeState,
+} from "../../commandPalette/types";
+import { usePaletteNoteDraftStore, type PaletteNoteDraft } from "../../commandPalette/noteDraft";
+import { savePaletteNote } from "../../commandPalette/noteSaver";
+import { useLibraryAskHandoffStore } from "../../commandPalette/libraryAskHandoff";
+import type { PaletteHubController } from "./GlobalSearch";
+import { useCollectionStore } from "../../stores/collectionStore";
+import { useStartupStore } from "../../stores/startupStore";
+import { useAiAvailability } from "../../lib/ai/useAiAvailability";
+import { getDueItems as fetchDueItems } from "../../api/review";
+import { filterByDecks } from "../../utils/studyDecks";
+import { getAllLearningItems, type LearningItem } from "../../api/learning-items";
+import { getExtracts } from "../../api/extracts";
+import {
+  createDocument,
+  deleteDocument,
+  getDocument,
+  updateDocumentContent,
+} from "../../api/documents";
+import { useToast } from "../common/Toast";
+import { useReviewStore } from "../../stores/reviewStore";
+import type { StartupProgressItem } from "../../types/startup";
 
 const STOPWORDS = new Set([
   "a",
@@ -228,16 +252,146 @@ const selectCommandPaletteOpen = (state: { commandPaletteOpen: boolean }) => sta
 const selectSetCommandPaletteOpen = (state: { setCommandPaletteOpen: (open: boolean) => void }) => state.setCommandPaletteOpen;
 const selectDocuments = (state: { documents: Document[] }) => state.documents;
 const selectDocumentsLoading = (state: { isLoading: boolean }) => state.isLoading;
+const selectDocumentsLoaded = (state: { hasCompletedFirstLoad: boolean }) =>
+  state.hasCompletedFirstLoad;
 const selectLoadDocuments = (state: { loadDocuments: () => Promise<void> }) => state.loadDocuments;
 const selectDecks = (state: { decks: StudyDeck[] }) => state.decks;
 const selectExtracts = (state: { extracts: Extract[] }) => state.extracts;
 const selectExtractsLoading = (state: { isLoading: boolean }) => state.isLoading;
 const selectLoadExtracts = (state: { loadExtracts: (documentId?: string) => Promise<void> }) =>
   state.loadExtracts;
+const selectAddDocument = (state: { addDocument: (doc: Document) => void }) => state.addDocument;
+const selectUpdateDocument = (
+  state: { updateDocument: (id: string, updates: Partial<Document>) => void }
+) => state.updateDocument;
+const selectActiveCollectionId = (state: { activeCollectionId: string }) =>
+  state.activeCollectionId;
+const selectContinueReading = (
+  state: { snapshot: { continueReading: StartupProgressItem[] } | null }
+) => state.snapshot?.continueReading ?? null;
+
+/* ------------------------------------------------------------------------- */
+/* Hub controller helpers (revamp-command-palette)                            */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * Active view resolution shared by the hub home model and `handleSearch`.
+ * Uses the navigation pane's active tab (the palette's established rule), so
+ * the home's "Actions in this view" and typed results cannot disagree.
+ */
+function resolveActivePaletteView(documents: Document[]): {
+  view: ContextualViewType | null;
+  context: ActionContext;
+  documentTitle: string | null;
+} {
+  const state = useTabsStore.getState();
+  const paneIds = state.getTabPaneIds();
+  if (paneIds.length === 0) return { view: null, context: {}, documentTitle: null };
+  const pane = state.findPaneById(paneIds[0]);
+  if (!pane || pane.type !== "tabs" || !pane.activeTabId) {
+    return { view: null, context: {}, documentTitle: null };
+  }
+  const activeTab = state.tabs.find((t) => t.id === pane.activeTabId) ?? null;
+
+  const view: ContextualViewType | null =
+    activeTab?.type === "document-viewer" || activeTab?.type === "audiobook-epub-sync"
+      ? "document-viewer"
+      : activeTab?.type === "rss"
+        ? "rss"
+        : activeTab?.type === "podcast"
+          ? "podcast"
+          : activeTab?.type === "audiobook"
+            ? "audiobook"
+            : null;
+
+  const documentTitle =
+    activeTab?.type === "document-viewer" && activeTab.data?.documentId
+      ? documents.find((d) => d.id === activeTab.data!.documentId)?.title ?? null
+      : null;
+
+  const context: ActionContext = (() => {
+    if (view === "document-viewer" && activeTab?.data?.documentId) {
+      const doc = documents.find((d) => d.id === activeTab.data!.documentId);
+      const ft = (doc?.fileType || "").toLowerCase();
+      const viewerKind =
+        ft === "pdf"
+          ? "pdf"
+          : ft === "epub"
+            ? "epub"
+            : ft === "markdown"
+              ? "markdown"
+              : ft === "html"
+                ? "html"
+                : ft === "youtube"
+                  ? "youtube"
+                  : ft === "audio"
+                    ? "audio"
+                    : "other";
+      return { viewerKind, vimAvailable: true };
+    }
+    // For RSS/Podcast, target-item-dependent actions are shown by default;
+    // the listener hides them at runtime if there is no current item.
+    return { hasTargetItem: true };
+  })();
+
+  return { view, context, documentTitle };
+}
+
+/** Pure descriptors for the home's "Actions in this view" section. */
+function resolveContextualActionDescriptors(
+  view: ContextualViewType | null,
+  context: ActionContext
+): PaletteContextualAction[] {
+  if (!view) return [];
+  return getActionsForView(view, { ...context, ...getLiveContext(view) }).map((action) => ({
+    view: action.view,
+    actionId: action.id,
+    title: action.title,
+    subtitle: action.subtitle,
+    shortcutHint: action.shortcutHint,
+  }));
+}
+
+/** The document open in the navigation pane's reader, when one is active. */
+function getActiveReaderDocumentId(): string | null {
+  const workspace = useTabsStore.getState().getWorkspaceTabs();
+  const viewers = workspace.filter(
+    (entry) => entry.tab.type === "document-viewer" && entry.tab.data?.documentId
+  );
+  if (viewers.length === 0) return null;
+  const active = viewers.find((entry) => entry.isActive) ?? viewers[0];
+  return (active.tab.data?.documentId as string | undefined) ?? null;
+}
+
+/** Structural adapter into the pure home-model selectors. */
+function toPaletteDocumentLike(doc: Document): PaletteDocumentLike {
+  return {
+    id: doc.id,
+    title: doc.title,
+    fileType: doc.fileType,
+    collectionId: doc.collectionId ?? null,
+    isArchived: doc.isArchived,
+    isDismissed: doc.isDismissed,
+    progressPercent: doc.progressPercent ?? null,
+    dateModified: doc.dateModified ?? null,
+    coverImageUrl: doc.coverImageUrl ?? null,
+    totalPages: doc.totalPages ?? null,
+    currentPage: doc.currentPage ?? null,
+    currentScrollPercent: doc.currentScrollPercent ?? null,
+    currentCfi: doc.currentCfi ?? null,
+    currentViewState: doc.currentViewState,
+    positionJson: doc.positionJson ?? null,
+    category: doc.category ?? null,
+    tags: doc.tags ?? null,
+    filePath: doc.filePath ?? null,
+    metadata: doc.metadata ?? null,
+  };
+}
 
 export function CommandCenter() {
   const documents = useDocumentStore(selectDocuments);
   const documentsLoading = useDocumentStore(selectDocumentsLoading);
+  const documentsLoaded = useDocumentStore(selectDocumentsLoaded);
   const loadDocuments = useDocumentStore(selectLoadDocuments);
   const addTab = useTabsStore(selectAddTab);
   const decks = useStudyDeckStore(selectDecks);
@@ -267,11 +421,35 @@ export function CommandCenter() {
   const [askPlethoraModalOpen, setAskPlethoraModalOpen] = useState(false);
   const [askPlethoraInitialQuery, setAskPlethoraInitialQuery] = useState("");
 
+  /* ----------------------------------------------------------------------- */
+  /* Command hub controller state (revamp-command-palette)                   */
+  /* ----------------------------------------------------------------------- */
+
+  const addDocumentToStore = useDocumentStore(selectAddDocument);
+  const updateDocumentInStore = useDocumentStore(selectUpdateDocument);
+  const activeCollectionId = useCollectionStore(selectActiveCollectionId);
+  const continueReading = useStartupStore(selectContinueReading);
+  const assistantAvailability = useAiAvailability("prompt");
+  const requestLibraryAsk = useLibraryAskHandoffStore((state) => state.requestAsk);
+  const clearNoteDraft = usePaletteNoteDraftStore((state) => state.clearDraft);
+  const toast = useToast();
+
+  // Due-card state for the active collection/deck. Sourced from the same
+  // eligible set the review workflow uses (`getDueItems` + active-deck
+  // filter), so the badge and the Start-review target cannot disagree.
+  const [dueState, setDueState] = useState<PaletteDueState>({ status: "loading", dueCount: 0 });
+  const [enrichedResume, setEnrichedResume] = useState<PaletteResumeItem | null>(null);
+  const enrichmentRef = useRef<{ documentId: string; collectionId: string } | null>(null);
+  const learningItemsPromiseRef = useRef<Promise<LearningItem[]> | null>(null);
+
   useEffect(() => {
-    if (!documentsLoading && documents.length === 0) {
+    // Ensure the palette has documents once per mount, without re-fetching
+    // after every completed load: an empty library must not loop (each
+    // completion would otherwise re-trigger this effect forever).
+    if (!documentsLoading && !documentsLoaded && documents.length === 0) {
       void loadDocuments();
     }
-  }, [documents.length, documentsLoading, loadDocuments]);
+  }, [documents.length, documentsLoading, documentsLoaded, loadDocuments]);
 
   // Pre-fetch all RSS articles once when command palette opens in RSS view
   useEffect(() => {
@@ -339,9 +517,393 @@ export function CommandCenter() {
   );
   const shouldFilterByDeck = false;
 
+  const openDocumentInTab = useCallback(
+    (
+      documentId: string,
+      options?: { highlightQuery?: string; initialJump?: ExactSearchHitLocation }
+    ) => {
+      openDocumentAtLocation(documentId, options ?? {}, addTab);
+    },
+    [addTab]
+  );
+
+  /* ----------------------------------------------------------------------- */
+  /* Hub home model (bounded, honest data)                                   */
+  /* ----------------------------------------------------------------------- */
+
+  // Due-card fetch: only while the palette is open, cancelled on close and
+  // collection change so a stale collection's count can never render.
+  useEffect(() => {
+    if (!commandPaletteOpen) return;
+    let cancelled = false;
+    const collectionId = activeCollectionId;
+    setDueState({ status: "loading", dueCount: 0 });
+    void fetchDueItems(collectionId)
+      .then((items) => {
+        if (cancelled) return;
+        if (useCollectionStore.getState().activeCollectionId !== collectionId) return;
+        const { activeDeckIds: deckIds, decks: deckList } = useStudyDeckStore.getState();
+        const activeDecks = deckIds
+          .map((id) => deckList.find((deck) => deck.id === id))
+          .filter((deck): deck is StudyDeck => deck != null);
+        const scoped = activeDecks.length > 0 ? filterByDecks(items, activeDecks) : items;
+        setDueState({ status: "ready", dueCount: scoped.length });
+      })
+      .catch((error) => {
+        console.warn("[CommandCenter] Failed to load due cards for the palette", error);
+        if (!cancelled) setDueState({ status: "unavailable", dueCount: 0 });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [commandPaletteOpen, activeCollectionId, activeDeckIds, decks]);
+
+  const hubHome = useMemo<PaletteHomeModel>(() => {
+    const paletteDocs = (documents.length > 0 ? documents : documentsSnapshotRef.current).map(
+      toPaletteDocumentLike
+    );
+    const activeView = resolveActivePaletteView(documents);
+
+    const resumeCandidate = selectResumeCandidate({
+      continueReading,
+      documents: paletteDocs,
+      activeCollectionId,
+      activeReaderDocumentId: getActiveReaderDocumentId(),
+    });
+    const resumeDoc = resumeCandidate
+      ? paletteDocs.find((doc) => doc.id === resumeCandidate.documentId) ?? null
+      : null;
+    const resumeSource: PaletteDocumentLike | null = resumeCandidate
+      ? resumeDoc ?? {
+          id: resumeCandidate.documentId,
+          title: resumeCandidate.title,
+          fileType: resumeCandidate.fileType,
+          progressPercent: resumeCandidate.progressPercent,
+          dateModified:
+            resumeCandidate.dateModifiedMs != null
+              ? new Date(resumeCandidate.dateModifiedMs).toISOString()
+              : null,
+        }
+      : null;
+    const baseResume =
+      resumeCandidate && resumeSource
+        ? buildResumeItem({ candidate: resumeCandidate, document: resumeSource, translate: t })
+        : null;
+    const resumeItem =
+      enrichedResume && enrichedResume.documentId === baseResume?.documentId
+        ? enrichedResume
+        : baseResume;
+
+    const recentCandidate = selectRecentCandidate({
+      documents: paletteDocs,
+      activeCollectionId,
+      recentOpens: getRecentOpens(activeCollectionId),
+    });
+    const recentItem: PaletteRecentItem | null = recentCandidate
+      ? {
+          documentId: recentCandidate.documentId,
+          title: recentCandidate.title ?? t("palette.untitled"),
+          fileType: recentCandidate.fileType ?? "other",
+          openedAt: recentCandidate.openedAt,
+          source: recentCandidate.source,
+        }
+      : null;
+
+    const suggestions = deriveSuggestions({
+      resume: resumeItem,
+      topic: deriveResumeTopic(resumeDoc),
+      translate: t,
+    });
+
+    const resumeState: PaletteResumeState = {
+      status: resumeItem ? "ready" : documentsLoading ? "loading" : "none",
+      item: resumeItem,
+    };
+
+    return {
+      collectionId: activeCollectionId,
+      firstUse: !documentsLoading && documents.length === 0,
+      resume: resumeState,
+      recent: {
+        status: recentItem ? "ready" : documentsLoading ? "loading" : "none",
+        item: recentItem,
+      },
+      due: dueState,
+      assistant: assistantAvailability.available
+        ? { available: true }
+        : { available: false, unavailableReasonKey: "palette.assistant.unavailable" },
+      suggestions,
+      contextualActions: resolveContextualActionDescriptors(activeView.view, activeView.context),
+    };
+    // The model recomputes on palette open so the active view/reader are current.
+  }, [
+    activeCollectionId,
+    assistantAvailability.available,
+    commandPaletteOpen,
+    continueReading,
+    documents,
+    documentsLoading,
+    dueState,
+    enrichedResume,
+    t,
+  ]);
+
+  // Enrich exactly one resume document (cover/metadata/position/passage).
+  // Never runs for All/home browsing beyond this bounded item, and stale
+  // responses cannot replace a newer collection's resume.
+  const hubResumeDocumentId = hubHome.resume.item?.documentId ?? null;
+  useEffect(() => {
+    if (!commandPaletteOpen || !hubResumeDocumentId) return;
+    const collectionId = activeCollectionId;
+    const already = enrichmentRef.current;
+    if (already && already.documentId === hubResumeDocumentId && already.collectionId === collectionId) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const doc = await getDocument(hubResumeDocumentId);
+        if (!doc) return;
+        if (cancelled || useCollectionStore.getState().activeCollectionId !== collectionId) return;
+        if (!isEligibleDocument(toPaletteDocumentLike(doc))) return;
+
+        // A saved passage is shown only when a real extract sits at the
+        // persisted page — never arbitrary document text.
+        let passage: string | null = null;
+        if (
+          doc.fileType === "pdf" &&
+          typeof doc.currentPage === "number" &&
+          doc.currentPage > 0
+        ) {
+          try {
+            const extracts = await getExtracts(doc.id);
+            if (cancelled) return;
+            const atPage = extracts
+              .filter(
+                (extract) =>
+                  extract.page_number === doc.currentPage && Boolean(extract.content?.trim())
+              )
+              .sort((a, b) => (b.date_modified ?? "").localeCompare(a.date_modified ?? ""));
+            if (atPage.length > 0) passage = atPage[0].content.trim().slice(0, 280);
+          } catch (error) {
+            console.warn("[CommandCenter] Failed to load resume passage", error);
+          }
+        }
+        if (cancelled) return;
+
+        const item = buildResumeItem({
+          candidate: {
+            documentId: doc.id,
+            title: doc.title,
+            fileType: doc.fileType,
+            progressPercent: doc.progressPercent ?? null,
+            dateModifiedMs: doc.dateModified ? Date.parse(doc.dateModified) : null,
+            source: "active-reader",
+          },
+          document: toPaletteDocumentLike(doc),
+          translate: t,
+          passage,
+        });
+        enrichmentRef.current = { documentId: doc.id, collectionId };
+        setEnrichedResume(item);
+      } catch (error) {
+        // Enrichment failure keeps the bounded cached item with honest fallbacks.
+        console.warn("[CommandCenter] Resume enrichment failed", error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [commandPaletteOpen, hubResumeDocumentId, activeCollectionId, t]);
+
+  // A collection change invalidates the previous collection's enriched resume.
+  useEffect(() => {
+    enrichmentRef.current = null;
+    setEnrichedResume(null);
+    learningItemsPromiseRef.current = null;
+  }, [activeCollectionId]);
+
+  /* ----------------------------------------------------------------------- */
+  /* Shared hub executor                                                     */
+  /* ----------------------------------------------------------------------- */
+
+  const hubDocumentForAction = useCallback((documentId: string | undefined) => {
+    if (!documentId) return null;
+    return documentsRef.current.find((doc) => doc.id === documentId) ?? null;
+  }, []);
+
+  const executePaletteAction = useCallback(
+    (invocation: PaletteActionInvocation) => {
+      const { id, documentId, suggestion } = invocation;
+      const closePalette = () => useUIStore.getState().setCommandPaletteOpen(false);
+
+      switch (id) {
+        case "palette.resume": {
+          const target = documentId ?? hubHome.resume.item?.documentId;
+          if (!target) return;
+          closePalette();
+          // Canonical opener; a normal resume carries no search-hit highlight.
+          void openDocumentInTab(target);
+          return;
+        }
+        case "palette.openRecent": {
+          const target = documentId ?? hubHome.recent.item?.documentId;
+          if (!target) return;
+          closePalette();
+          void openDocumentInTab(target);
+          return;
+        }
+        case "palette.reviewDue": {
+          closePalette();
+          navigateTo("/review");
+          // The normal review-start flow: same queue load (collection + active
+          // deck) the Review tab's own Start review button runs.
+          void useReviewStore.getState().loadQueue();
+          return;
+        }
+        case "palette.openReviewOverview": {
+          closePalette();
+          useReviewStore.getState().setReviewTabMode("home");
+          navigateTo("/review");
+          return;
+        }
+        case "palette.askLibrary": {
+          closePalette();
+          requestLibraryAsk({
+            question: suggestion?.label ?? t("palette.suggest.themes"),
+            ...(suggestion?.documentId ? { documentId: suggestion.documentId } : {}),
+          });
+          return;
+        }
+        case "palette.openSettings":
+          closePalette();
+          navigateTo("/settings");
+          return;
+        case "palette.importDocument":
+          closePalette();
+          navigateTo("/documents");
+          window.setTimeout(() => {
+            window.dispatchEvent(new CustomEvent("import-document"));
+          }, 100);
+          return;
+        case "palette.openLibrary":
+          closePalette();
+          navigateTo("/documents");
+          return;
+        case "doc.viewInLibrary": {
+          const target = documentId ?? hubHome.resume.item?.documentId;
+          if (!target) return;
+          const doc = hubDocumentForAction(target);
+          closePalette();
+          navigateTo("/documents");
+          window.setTimeout(() => {
+            window.dispatchEvent(
+              new CustomEvent("plethora:reveal-document", {
+                detail: { documentId: target, title: doc?.title },
+              })
+            );
+          }, 100);
+          return;
+        }
+        case "doc.openDetails": {
+          const target = documentId ?? hubHome.resume.item?.documentId;
+          if (!target) return;
+          const doc = hubDocumentForAction(target);
+          closePalette();
+          navigateTo("/documents");
+          window.setTimeout(() => {
+            window.dispatchEvent(
+              new CustomEvent("plethora:reveal-document", {
+                detail: { documentId: target, title: doc?.title, openDetails: true },
+              })
+            );
+          }, 100);
+          return;
+        }
+        case "doc.copyTitle": {
+          const target = documentId ?? hubHome.resume.item?.documentId;
+          const title =
+            hubDocumentForAction(target)?.title ?? hubHome.resume.item?.title ?? null;
+          if (!title) return;
+          void navigator.clipboard
+            ?.writeText(title)
+            .then(() => toast.success(t("palette.copiedTitle"), title))
+            .catch(() => toast.error(t("palette.copyFailed")));
+          return;
+        }
+        case "doc.copySourceLink": {
+          const target = documentId ?? hubHome.resume.item?.documentId;
+          const filePath = hubDocumentForAction(target)?.filePath ?? null;
+          const sourceUrl =
+            filePath && /^https?:\/\//i.test(filePath)
+              ? filePath
+              : hubHome.resume.item?.sourceUrl ?? null;
+          if (!sourceUrl) return;
+          void navigator.clipboard
+            ?.writeText(sourceUrl)
+            .then(() => toast.success(t("palette.copiedSourceLink"), sourceUrl))
+            .catch(() => toast.error(t("palette.copyFailed")));
+          return;
+        }
+        default:
+          return;
+      }
+    },
+    [
+      hubDocumentForAction,
+      hubHome.recent.item?.documentId,
+      hubHome.resume.item?.documentId,
+      hubHome.resume.item?.sourceUrl,
+      hubHome.resume.item?.title,
+      openDocumentInTab,
+      requestLibraryAsk,
+      t,
+      toast,
+    ]
+  );
+
+  const saveNoteDraft = useCallback(
+    async (draft: PaletteNoteDraft): Promise<string | null> => {
+      const result = await savePaletteNote(draft, {
+        createDocument: (title, filePath, fileType) =>
+          createDocument(title, filePath, fileType, activeCollectionId),
+        updateDocumentContent,
+        deleteDocument,
+        addDocument: addDocumentToStore,
+        updateDocument: updateDocumentInStore,
+        refreshLibrary: () => {
+          void loadDocuments();
+        },
+        openDocument: (documentId) => {
+          useUIStore.getState().setCommandPaletteOpen(false);
+          void openDocumentInTab(documentId);
+        },
+        clearDraft: clearNoteDraft,
+        fallbackTitle: t("palette.note.untitled"),
+        onSaved: (title) => toast.success(t("palette.note.saved"), title),
+        onCleanupError: (cleanupError) =>
+          console.warn("[CommandCenter] Failed to clean up partial note", cleanupError),
+      });
+      return result.error ?? null;
+    },
+    [
+      activeCollectionId,
+      addDocumentToStore,
+      clearNoteDraft,
+      loadDocuments,
+      openDocumentInTab,
+      t,
+      toast,
+      updateDocumentInStore,
+    ]
+  );
+
   const handleSearch = useCallback(async (query: SearchQuery): Promise<SearchResult[]> => {
     const term = query.query.toLowerCase().trim();
     const results: SearchResult[] = [];
+    // Palette scope intent: enforced at the provider boundary so early RSS/
+    // podcast/help branches cannot leak unrelated kinds into a scope.
+    const paletteScope = query.paletteScope ?? "all";
 
     // Lazy-load extracts for content search (once per session)
     const queryTerms = extractSearchTerms(query.query)
@@ -476,173 +1038,7 @@ export function CommandCenter() {
       }
     }
 
-    // 1. Search Commands
-    const navigateTo = (path: string) => {
-      window.dispatchEvent(new CustomEvent("navigate", { detail: path }));
-    };
-
-    const navigationCommands: Command[] = [
-      {
-        id: "nav-dashboard",
-        label: "Go to Dashboard",
-        description: "Navigate to the dashboard",
-        icon: <SquaresFour className="w-4 h-4" />,
-        category: CommandCategory.Navigation,
-        action: () => navigateTo("/dashboard"),
-        keywords: ["home", "main"],
-      },
-      {
-        id: "nav-documents",
-        label: "Go to Documents",
-        description: "View all documents",
-        icon: <Books className="w-4 h-4" />,
-        category: CommandCategory.Navigation,
-        action: () => navigateTo("/documents"),
-        keywords: ["library", "files"],
-      },
-      {
-        id: "nav-queue",
-        label: "Go to Queue",
-        description: "View reading queue",
-        icon: <ListChecks className="w-4 h-4" />,
-        category: CommandCategory.Navigation,
-        action: () => navigateTo("/queue"),
-        keywords: ["list", "reading"],
-      },
-      {
-        id: "nav-analytics",
-        label: "Go to Statistics",
-        description: "View learning statistics",
-        icon: <ChartBar className="w-4 h-4" />,
-        category: CommandCategory.Navigation,
-        action: () => navigateTo("/analytics"),
-        keywords: ["stats", "progress"],
-      },
-      {
-        id: "nav-settings",
-        label: "Go to Settings",
-        description: "View application settings",
-        icon: <Gear className="w-4 h-4" />,
-        category: CommandCategory.Navigation,
-        action: () => navigateTo("/settings"),
-        keywords: ["config", "preferences"],
-      },
-      {
-        id: "nav-review",
-        label: "Start Review",
-        description: "Start a review session",
-        icon: <Brain className="w-4 h-4" />,
-        category: CommandCategory.Navigation,
-        action: () => navigateTo("/review"),
-        keywords: ["review", "study"],
-      },
-      {
-        id: "nav-image-registry",
-        label: "Image Registry",
-        description: "View and manage image registry",
-        icon: <Images className="w-4 h-4" />,
-        category: CommandCategory.Navigation,
-        action: () => navigateTo("/image-registry"),
-        keywords: ["images", "screenshots", "registry", "library", "flashcards"],
-      },
-      {
-        id: "nav-optimal-queue",
-        label: t("commandPalette.startOptimalSession"),
-        description: t("commandPalette.startOptimalSessionDesc"),
-        icon: <Play className="w-4 h-4" />,
-        category: CommandCategory.Navigation,
-        action: () => navigateTo("/queue-scroll"),
-        keywords: ["start", "session", "optimal", "queue", "scroll", "reading", "study", "learn", "tiktok"],
-      },
-    ];
-
-    const cycleTheme = (direction: 1 | -1) => {
-      if (!themes.length) return;
-      const currentIndex = themes.findIndex((item) => item.id === theme.id);
-      const startIndex = currentIndex >= 0 ? currentIndex : 0;
-      const nextIndex = (startIndex + direction + themes.length) % themes.length;
-      setTheme(themes[nextIndex].id);
-    };
-
-    const switchThemeVariant = (variant: "light" | "dark") => {
-      if (!themes.length) return;
-      const variantThemes = themes.filter((item) => item.variant === variant);
-      if (variantThemes.length === 0) return;
-      const activeVariantIndex = variantThemes.findIndex((item) => item.id === theme.id);
-      const next = variantThemes[(activeVariantIndex + 1 + variantThemes.length) % variantThemes.length];
-      setTheme(next.id);
-    };
-
-    const themeCommands: Command[] = [
-      {
-        id: "theme-toggle-variant",
-        label: "Toggle Theme Variant",
-        description: `Switch between light and dark themes (current: ${theme.variant})`,
-        icon: <Palette className="w-4 h-4" />,
-        category: CommandCategory.Gear,
-        action: () => {
-          const targetVariant = theme.variant === "dark" ? "light" : "dark";
-          switchThemeVariant(targetVariant);
-        },
-        keywords: ["theme", "appearance", "dark", "light", "mode", "toggle"],
-      },
-      {
-        id: "theme-set-light",
-        label: "Switch to Light Theme",
-        description: "Apply a light variant theme",
-        icon: <Sun className="w-4 h-4" />,
-        category: CommandCategory.Gear,
-        action: () => switchThemeVariant("light"),
-        keywords: ["theme", "appearance", "light", "day"],
-      },
-      {
-        id: "theme-set-dark",
-        label: "Switch to Dark Theme",
-        description: "Apply a dark variant theme",
-        icon: <Moon className="w-4 h-4" />,
-        category: CommandCategory.Gear,
-        action: () => switchThemeVariant("dark"),
-        keywords: ["theme", "appearance", "dark", "night"],
-      },
-      {
-        id: "theme-next",
-        label: "Next Theme",
-        description: `Cycle to the next theme (current: ${theme.name})`,
-        icon: <Palette className="w-4 h-4" />,
-        category: CommandCategory.Gear,
-        action: () => cycleTheme(1),
-        keywords: ["theme", "appearance", "next", "cycle"],
-      },
-      {
-        id: "theme-previous",
-        label: "Previous Theme",
-        description: `Cycle to the previous theme (current: ${theme.name})`,
-        icon: <Palette className="w-4 h-4" />,
-        category: CommandCategory.Gear,
-        action: () => cycleTheme(-1),
-        keywords: ["theme", "appearance", "previous", "cycle"],
-      },
-    ];
-
-    const themeSwitchCommands: Command[] = themes.map((item) => ({
-      id: `theme-switch-${item.id}`,
-      label: `Switch Theme: ${item.name}`,
-      description: `Apply ${item.variant} theme "${item.name}"`,
-      icon: <Palette className="w-4 h-4" />,
-      category: CommandCategory.Gear,
-      action: () => setTheme(item.id),
-      keywords: [
-        "theme",
-        "appearance",
-        "switch",
-        "set",
-        item.name.toLowerCase(),
-        item.id.toLowerCase(),
-        item.variant.toLowerCase(),
-      ],
-    }));
-
-    // Detect active document for contextual commands
+    // Active-view resolution (shared by contextual actions and the catalogue).
     const getActiveTab = () => {
       const state = useTabsStore.getState();
       const paneIds = state.getTabPaneIds();
@@ -731,71 +1127,17 @@ export function CommandCenter() {
     // don't run the term-dependent search below.
     if (!term) return results;
 
-    // §3.3: platform gating applied to the assembled command set (no-op on
-    // desktop/Android/web — only registry-unavailable commands drop).
-    const allCommands = filterCommandsByPlatformAvailability([
-      ...getDefaultCommands().filter((cmd) => ![
-        "go-documents",
-        "go-queue",
-        "go-analytics",
-        "go-image-registry",
-        "open-settings",
-        "start-review",
-        "start-optimal-session",
-      ].includes(cmd.id)),
-      // Paste Extract command
-      {
-        id: "paste-extract",
-        capabilityId: "core_extract",
-        label: "Paste Extract",
-        description: selectedDocumentTitle
-          ? `Save pasted content as an extract in "${selectedDocumentTitle}"`
-          : "Paste content from clipboard and save as an extract",
-        icon: <Clipboard className="w-4 h-4" />,
-        category: CommandCategory.Extracts,
-        action: () => {
-          const ui = useUIStore.getState();
-          ui.setCommandPaletteOpen(false);
-          ui.setPasteExtractDialogOpen(true);
-        },
-        keywords: ["clipboard", "paste", "save", "new", "extract", "import"],
-        shortcut: undefined,
-      },
-      // Import Twitter / X video command (Tauri-only — download needs the Rust backend)
-      ...(isWeb ? [] : [{
-        id: "import-twitter-video",
-        label: t("commandPalette.importTwitterVideo"),
-        description: "Download a video from an x.com or twitter.com link",
-        icon: <XLogo className="w-4 h-4" />,
-        category: CommandCategory.Documents,
-        action: () => {
-          const ui = useUIStore.getState();
-          ui.setCommandPaletteOpen(false);
-          ui.setTwitterImportDialogOpen(true);
-        },
-        keywords: ["twitter", "x.com", "tweet", "video", "import", "download"],
-        shortcut: undefined,
-      } as Command]),
-      ...navigationCommands,
-      ...themeCommands,
-      ...themeSwitchCommands,
-      // Start the guided tour. Dispatches a window event MainLayout listens
-      // for; the host opens the tour with progress reset (on-demand replay
-      // leaves launchCount/autoDisplayDisabled untouched per spec).
-      {
-        id: "start-guided-tour",
-        label: t("onboarding.tour.command"),
-        description: t("onboarding.tour.replayTour"),
-        icon: <Compass className="w-4 h-4" />,
-        category: CommandCategory.General,
-        action: () => {
-          useUIStore.getState().setCommandPaletteOpen(false);
-          window.dispatchEvent(new CustomEvent("tour-replay"));
-        },
-        keywords: ["tour", "onboarding", "guide", "tutorial", "help", "replay"],
-        shortcut: undefined,
-      } as Command,
-    ]);
+    // §3.3: platform gating applied to the single shared catalogue (registry
+    // actions, navigation, themes and palette-owned commands live in
+    // `commandPalette/catalogue`; the palette browses this same list).
+    const allCommands = buildCommandCatalogue({
+      translate: t,
+      theme,
+      themes,
+      setTheme,
+      isWeb,
+      selectedDocumentTitle,
+    });
 
     if (urlDetectorUtils.isTwitterURL(query.query.trim())) {
       const targetUrl = query.query.trim();
@@ -972,7 +1314,9 @@ export function CommandCenter() {
           });
         });
         
-        return matches.sort((a, b) => b.score - a.score).slice(0, maxResults);
+        return filterResultsByScope(matches, paletteScope)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, maxResults);
       } catch (err) {
         console.error("RSS Search error:", err);
       }
@@ -1114,7 +1458,9 @@ export function CommandCenter() {
           });
         });
         
-        return matches.sort((a, b) => b.score - a.score).slice(0, maxResults);
+        return filterResultsByScope(matches, paletteScope)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, maxResults);
       } catch (err) {
         console.error("Podcast search error:", err);
       }
@@ -1241,6 +1587,133 @@ export function CommandCenter() {
         },
       });
     });
+
+    /* --------------------------------------------------------------------- */
+    /* Scope enforcement (revamp-command-palette)                             */
+    /* --------------------------------------------------------------------- */
+
+    // Actions/Settings/Library are command/destination catalogues: everything
+    // needed is already assembled above (contextual actions, commands,
+    // sections, help). No document/extract/card content scan runs for them.
+    if (
+      paletteScope === "actions" ||
+      paletteScope === "settings" ||
+      paletteScope === "library"
+    ) {
+      return filterResultsByScope(results, paletteScope)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, maxResults);
+    }
+
+    // Cards: bounded lookup over real learning items plus extracts (which
+    // retain their source jump). Loaded only when Cards is actually searched —
+    // All/home never fetches all cards.
+    if (paletteScope === "cards") {
+      const matches: SearchResult[] = [];
+      const isCardDocumentEligible = (documentId: string | undefined | null): boolean => {
+        if (!documentId) return true;
+        const doc = docs.find((d) => d.id === documentId);
+        if (!doc) return true; // outside the bounded cache; still real user data
+        if (!isEligibleDocument(toPaletteDocumentLike(doc))) return false;
+        if (activeCollectionId && doc.collectionId && doc.collectionId !== activeCollectionId) {
+          return false;
+        }
+        return true;
+      };
+
+      try {
+        if (!learningItemsPromiseRef.current) {
+          learningItemsPromiseRef.current = getAllLearningItems().catch((error) => {
+            learningItemsPromiseRef.current = null;
+            console.warn("[CommandCenter] Failed to load learning items for Cards search", error);
+            return [] as LearningItem[];
+          });
+        }
+        const learningItems = await learningItemsPromiseRef.current;
+
+        let scannedCards = 0;
+        const maxCardScans = 5000;
+        for (const item of learningItems) {
+          if (scannedCards >= maxCardScans || matches.length >= maxResults) break;
+          scannedCards += 1;
+          if (item.is_suspended) continue;
+          if (!isCardDocumentEligible(item.document_id)) continue;
+
+          const question = (item.question ?? "").toLowerCase();
+          const answer = (item.answer ?? "").toLowerCase();
+          const cloze = (item.cloze_text ?? "").toLowerCase();
+          const questionMatch = matchesTerms(question, searchTerms);
+          const answerMatch = answer ? matchesTerms(answer, searchTerms) : false;
+          const clozeMatch = cloze ? matchesTerms(cloze, searchTerms) : false;
+          if (!questionMatch && !answerMatch && !clozeMatch) continue;
+
+          const { excerpt } = highlightSearchTerms(item.question ?? "", query.query, 200);
+          matches.push({
+            id: `card-${item.id}`,
+            type: SearchResultType.Flashcard,
+            title: item.question || t("palette.cardFallbackTitle"),
+            excerpt,
+            score: questionMatch ? 0.9 : clozeMatch ? 0.8 : 0.7,
+            metadata: {
+              resultKind: "learning-item",
+              cardId: item.id,
+              documentId: item.document_id,
+              category: "Flashcard",
+              scopes: ["cards"],
+            },
+          });
+        }
+      } catch (error) {
+        console.warn("[CommandCenter] Cards search failed", error);
+      }
+
+      let scannedExtracts = 0;
+      for (const extract of exts) {
+        if (scannedExtracts >= maxExtractsToScan || matches.length >= maxResults) break;
+        scannedExtracts += 1;
+        const content = extract.content ?? "";
+        if (!allowContentSearch || !matchesTerms(content.toLowerCase(), searchTerms)) continue;
+        const parentDoc = docs.find((d) => d.id === extract.documentId);
+        if (!parentDoc) continue;
+        if (!isEligibleDocument(toPaletteDocumentLike(parentDoc))) continue;
+        if (
+          activeCollectionId &&
+          parentDoc.collectionId &&
+          parentDoc.collectionId !== activeCollectionId
+        ) {
+          continue;
+        }
+
+        const { excerpt } = highlightSearchTerms(content, query.query, 200);
+        const pageNum = extract.pageNumber && extract.pageNumber > 0 ? extract.pageNumber : 1;
+        matches.push({
+          id: `extract-${extract.id}`,
+          type: SearchResultType.Extract,
+          title: parentDoc.title,
+          excerpt,
+          score: 0.75,
+          metadata: {
+            documentId: parentDoc.id,
+            resultKind: "extract",
+            highlightQuery: query.query,
+            primaryHit: {
+              id: `extract-hit-${extract.id}`,
+              location: {
+                kind: "pdf",
+                pageNumber: pageNum,
+                textQuote: query.query.trim() || undefined,
+              },
+              label: `Page ${pageNum}`,
+              excerptHtml: excerpt,
+            },
+            category: "Extract",
+            scopes: ["cards"],
+          },
+        });
+      }
+
+      return matches.sort((a, b) => b.score - a.score).slice(0, maxResults);
+    }
 
     // 2. Search Documents (grouped: one row per document)
     if (!query.types || query.types.includes(SearchResultType.Document)) {
@@ -1563,8 +2036,7 @@ export function CommandCenter() {
     });
 
     return results.sort((a, b) => b.score - a.score).slice(0, maxResults);
-  }, [loadExtracts, activeDeck, shouldFilterByDeck, theme.id, theme.name, theme.variant, themes, setTheme]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadExtracts, activeDeck, shouldFilterByDeck, theme.id, theme.name, theme.variant, themes, setTheme, activeCollectionId, t]);
 
   const handleResultClick = useCallback((result: SearchResult) => {
     if (result.metadata?.resultKind === "rss-article") {
@@ -1598,6 +2070,18 @@ export function CommandCenter() {
         // — e.g. to focus a search input or receive a highlight selection.
         useUIStore.getState().setCommandPaletteOpen(false);
         dispatchPaletteAction(view, actionId as ViewActionId);
+      }
+      return;
+    }
+
+    if (result.metadata?.resultKind === "learning-item") {
+      const cardId = result.metadata.cardId;
+      useUIStore.getState().setCommandPaletteOpen(false);
+      if (cardId) {
+        // Same pending-card handoff the assistant/chat card links use: the
+        // review tab opens Deck Manager with the real card selected.
+        sessionStorage.setItem("plethora:pending-flashcard-id", cardId);
+        window.dispatchEvent(new CustomEvent("plethora:open-flashcard", { detail: { cardId } }));
       }
       return;
     }
@@ -1636,11 +2120,6 @@ export function CommandCenter() {
       });
     }
   }, [addTab]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-
-  const openDocumentInTab = useCallback((documentId: string, options?: { highlightQuery?: string; initialJump?: ExactSearchHitLocation }) => {
-    openDocumentAtLocation(documentId, options ?? {}, addTab);
-  }, [addTab]);
 
   useEffect(() => {
     return registerCommandPaletteOpenEvents(
@@ -1648,6 +2127,44 @@ export function CommandCenter() {
       () => useUIStore.getState().commandPaletteOpen
     );
   }, [setCommandPaletteOpen]);
+
+  /* ----------------------------------------------------------------------- */
+  /* Hub controller handed to the palette shell                              */
+  /* ----------------------------------------------------------------------- */
+
+  const hubController = useMemo<PaletteHubController>(() => {
+    const selectedDocumentTitle = resolveActivePaletteView(documents).documentTitle;
+    const commands = buildCommandCatalogue({
+      translate: t,
+      theme,
+      themes,
+      setTheme,
+      isWeb: !isTauri(),
+      selectedDocumentTitle,
+    });
+    return {
+      home: hubHome,
+      commands,
+      expandedExamples: deriveExpandedExamples(t),
+      dispatch: executePaletteAction,
+      onContextualAction: (view, actionId) => {
+        // Close first so the newly uncovered view can take focus/deliver the
+        // highlight, then dispatch to the active view's existing handler.
+        useUIStore.getState().setCommandPaletteOpen(false);
+        dispatchPaletteAction(view, actionId);
+      },
+      saveNote: saveNoteDraft,
+    };
+  }, [
+    documents,
+    executePaletteAction,
+    hubHome,
+    saveNoteDraft,
+    setTheme,
+    t,
+    theme,
+    themes,
+  ]);
 
   return (
     <>
@@ -1658,6 +2175,7 @@ export function CommandCenter() {
         hideTrigger={true}
         isOpen={commandPaletteOpen}
         onOpenChange={setCommandPaletteOpen}
+        controller={hubController}
       />
       {helpViewerDocId && (
         <Suspense fallback={null}>

@@ -21,6 +21,7 @@ import { BookOpen, ImageSquare, TextT, YoutubeLogo } from "@phosphor-icons/react
 import { useDocumentStore } from "../stores/documentStore";
 import { useTabsStore, type TabsState } from "../stores/tabsStore";
 import { DocumentViewer } from "../components/tabs/TabRegistry";
+import { recordRecentOpen } from "../commandPalette/recentOpens";
 import type { Document } from "../types/document";
 import type { ExactSearchHitLocation } from "../types/searchHit";
 
@@ -107,6 +108,14 @@ export async function openDocumentAtLocation(
     try { doc = (await getDocument(documentId)) ?? undefined; } catch { return false; }
   }
   if (!doc) return false;
+  // Record the opening for the palette's "Open recent document" (collection
+  // keyed). This is the canonical document-open boundary; mere palette
+  // previews never call this helper, so a preview cannot fake reading history.
+  recordRecentOpen(doc.id, {
+    collectionId: doc.collectionId,
+    title: doc.title,
+    fileType: doc.fileType,
+  });
   const jumpRequestId = makeJumpRequestId(Boolean(options.initialJump));
 
   // Prefer re-targeting an existing tab for this document over stacking a

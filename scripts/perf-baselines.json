@@ -5,7 +5,7 @@
     "name": "noise-anchor",
     "iterations": 200000
   },
-  "recordedFrom": "Original cohort: https://github.com/melpomenex/Incrementum/actions/runs/31182419989. Tab-workspace additions and Precision runner-class correction: median of three calibrated Linux x86_64 / Node 22.22.1 runs on 2026-08-13. Anki import Node 24 correction: median of runs 31736712215 and attempts 1-2 of 31737723373. PDF-reflow hot paths (point/rect round trips, canonical anchor resolution): first add-pdf-reflow implementation session, local bench:check run. Canonical documentation and Ask Plethora help retrieval suite recorded locally.",
+  "recordedFrom": "Original cohort: https://github.com/melpomenex/Incrementum/actions/runs/31182419989. Tab-workspace additions and Precision runner-class correction: median of three calibrated Linux x86_64 / Node 22.22.1 runs on 2026-08-13. Anki import Node 24 correction: median of runs 31736712215 and attempts 1-2 of 31737723373. PDF-reflow hot paths (point/rect round trips, canonical anchor resolution): first add-pdf-reflow implementation session, local bench:check run. Canonical documentation and Ask Plethora help retrieval suite recorded locally. Command-palette hub selectors (resume/recent/scope filters): calibrated Linux x86_64 / Node 22.22.1 run on 2026-10-14.",
   "benchmarks": {
     "kp-timeline/build": {
       "cost": 0.0103,
@@ -224,6 +224,18 @@
     "haptic-policy-admission-512": {
       "cost": 0.4462,
       "reason": "native-mobile-haptics: initial baseline for deterministic admission of 512 seeded haptic interaction requests, including identity deduplication, per-event cooldowns, and global rate limits."
+    },
+    "commandPalette/resume-selection-3000-docs": {
+      "cost": 0.208,
+      "reason": "revamp-command-palette: initial baseline for selecting the resume candidate across a 3,000-document cache with 200 bounded startup-progress items (Map-indexed lookups) plus one buildResumeItem."
+    },
+    "commandPalette/recent-selection-3000-docs": {
+      "cost": 0.1539,
+      "reason": "revamp-command-palette: initial baseline for selecting the recent-open candidate over a 3,000-document cache with collection-keyed open history."
+    },
+    "commandPalette/scope-filter-2000-results": {
+      "cost": 0.1677,
+      "reason": "revamp-command-palette: initial baseline for filtering 2,000 provider results through all five non-all palette scopes (facet classification per result)."
     }
   }
 }

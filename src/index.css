@@ -3062,3 +3062,1610 @@
   border: 1px solid black;
   background: white;
 }
+
+/* ========================================================================== */
+/* Command hub (revamp-command-palette)                                       */
+/*                                                                            */
+/* Reference-matched black-and-gold palette shell. Strictly scoped to         */
+/* `[data-command-hub]` so no global theme, dialog, or reader style changes.  */
+/* Geometry targets come from the preserved 1586 × 992 reference: panel       */
+/* 838 × 738 at x ≈ 376, y ≈ 120; 60 px field; ~130 × 145 tiles; 802 px       */
+/* resume card (106 | auto | 233); 2 × 2 prompt grid.                         */
+/* ========================================================================== */
+
+.command-hub-layer,
+[data-command-hub] {
+  /* Palette-scoped semantic roles, derived from the active theme so the hub
+     wears the user's chosen theme. The reference governs composition,
+     geometry, and hierarchy; under a gold-on-black theme (e.g. Obsidian
+     Noir) these roles reproduce the preserved reference, and every other
+     theme yields its own surface/accent/outline set. Only the palette
+     consumes these tokens; the global theme is never modified. */
+  --ch-surface: var(--color-surface-container, var(--color-card));
+  --ch-surface-raised: var(--color-surface-container-high, var(--color-card));
+  --ch-surface-raised-hover: var(--color-surface-container-highest, var(--color-muted));
+  --ch-surface-inset: var(--color-surface-container-low, var(--color-muted));
+  --ch-field-bg: var(--color-surface-container-lowest, var(--color-input));
+  --ch-outline: var(--color-outline-variant, var(--color-border));
+  --ch-outline-strong: var(--color-outline, var(--color-border));
+  --ch-outline-focus: var(--color-primary);
+  --ch-text: var(--color-foreground);
+  --ch-text-muted: var(--color-muted-foreground);
+  --ch-text-faint: color-mix(in srgb, var(--color-muted-foreground) 78%, transparent);
+  --ch-accent: var(--color-primary);
+  --ch-accent-strong: var(--color-primary);
+  --ch-accent-soft: color-mix(in srgb, var(--color-primary) 14%, transparent);
+  --ch-accent-ink: var(--color-primary-foreground);
+  --ch-icon: var(--color-muted-foreground);
+  --ch-danger: var(--color-destructive, var(--color-error));
+  --ch-hover: color-mix(in srgb, var(--color-foreground) 6%, transparent);
+  --ch-scrim: color-mix(in srgb, var(--color-scrim, #000000) 62%, transparent);
+  --ch-shadow: var(--shadow-xl, 0 28px 90px rgba(0, 0, 0, 0.45));
+  --ch-radius-panel: 16px;
+  --ch-radius-field: 12px;
+  --ch-radius-tile: 12px;
+  --ch-font: var(
+    --font-family,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif
+  );
+}
+
+/* Accent emphasis follows the theme variant: brighten on dark themes,
+   deepen on light ones, so hover/emphasis states stay legible either way. */
+[data-command-hub] {
+  --ch-accent-strong: var(--color-primary);
+}
+
+:root[data-theme="dark"] [data-command-hub] {
+  --ch-accent-strong: color-mix(in srgb, var(--color-primary) 82%, #ffffff);
+}
+
+:root[data-theme="light"] [data-command-hub] {
+  --ch-accent-strong: color-mix(in srgb, var(--color-primary) 82%, #000000);
+}
+
+.command-hub-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  font-family: var(--ch-font);
+  color: var(--ch-text);
+}
+
+.command-hub-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  padding: 0;
+  background: var(--ch-scrim);
+  cursor: default;
+}
+
+.command-hub-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(838px, calc(100vw - 32px));
+  max-height: min(738px, calc(100dvh - 32px));
+  /* Reference panel sits ~7 px above the vertical centre. */
+  transform: translateY(-7px);
+  background: var(--ch-surface);
+  border: 1px solid var(--ch-outline);
+  border-radius: var(--ch-radius-panel);
+  box-shadow: var(--ch-shadow);
+  overflow: hidden;
+  outline: none;
+}
+
+.command-hub-panel:focus-visible {
+  border-color: var(--ch-outline-strong);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Search field (60 px, 12 px inset, sparkle + shortcut)                      */
+/* -------------------------------------------------------------------------- */
+
+.ch-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+  height: 60px;
+  margin: 12px 13px 0;
+  padding: 0 14px 0 16px;
+  background: var(--ch-field-bg);
+  border: 1px solid var(--ch-outline-strong);
+  border-radius: var(--ch-radius-field);
+}
+
+.command-hub-panel:focus-within .ch-field {
+  border-color: var(--ch-outline-focus);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ch-accent) 45%, transparent);
+}
+
+.ch-field-sparkle {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  color: var(--ch-accent-strong);
+}
+
+.ch-field-input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--ch-text);
+  font-family: inherit;
+  font-size: 19px;
+  line-height: 1.3;
+}
+
+.ch-field-input::placeholder {
+  color: var(--ch-text-faint);
+}
+
+.ch-field-clear,
+.ch-close {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ch-text-muted);
+  cursor: pointer;
+}
+
+.ch-field-glyph {
+  width: 16px;
+  height: 16px;
+}
+
+.ch-field-clear:hover,
+.ch-close:hover {
+  color: var(--ch-text);
+  background: var(--ch-hover);
+}
+
+/* The Close control is discreet at rest, visibly available on hover/focus,
+   and always visible for coarse pointers. */
+.ch-close {
+  opacity: 0.55;
+}
+
+.ch-close:hover,
+.ch-close:focus-visible {
+  opacity: 1;
+  border-color: var(--ch-outline);
+}
+
+.ch-kbd {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 6px;
+  border: 1px solid color-mix(in srgb, var(--color-foreground) 16%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--color-foreground) 24%, transparent);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--color-foreground) 5%, transparent);
+  color: var(--ch-text-muted);
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.ch-field-shortcut {
+  flex: none;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Scope row                                                                  */
+/* -------------------------------------------------------------------------- */
+
+.ch-scope-row {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  /* Reference: scope pills sit ~19 px below the field (y ≈ 212 at 1586 × 992). */
+  margin: 19px 18px 0;
+  min-height: 34px;
+}
+
+.ch-scope-tabs {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.ch-scope-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.ch-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  height: 32px;
+  padding: 0 13px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ch-text-muted);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.ch-scope:hover {
+  color: var(--ch-text);
+  background: var(--ch-hover);
+}
+
+.ch-scope[data-selected] {
+  background: var(--ch-accent);
+  border-color: var(--ch-accent);
+  color: var(--ch-accent-ink);
+}
+
+.ch-scope[data-selected] .ch-scope-icon {
+  color: var(--ch-accent-ink);
+}
+
+.ch-scope-icon {
+  width: 15px;
+  height: 15px;
+  color: inherit;
+}
+
+.ch-scope-trailing {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.ch-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ch-text-muted);
+  cursor: pointer;
+}
+
+.ch-icon-button:hover,
+.ch-icon-button[data-active] {
+  color: var(--ch-accent-strong);
+  border-color: var(--ch-outline);
+  background: var(--ch-accent-soft);
+}
+
+.ch-view-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ch-accent);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ch-view-all:hover,
+.ch-view-all--active {
+  color: var(--ch-accent-strong);
+  border-color: var(--ch-outline);
+  background: var(--ch-accent-soft);
+}
+
+.ch-view-all .ch-kbd {
+  font-size: 10px;
+  padding: 2px 5px;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Body                                                                       */
+/* -------------------------------------------------------------------------- */
+
+.ch-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* Reference home: Quick Actions heading ≈ 34 px below the scope row and a
+     ~22 px bottom inset, so the reference viewport shows all content. */
+  padding: 20px 18px 18px;
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-foreground) 16%, transparent) transparent;
+}
+
+.ch-body[data-mode="browse"],
+.ch-body[data-mode="search"] {
+  padding-top: 10px;
+}
+
+.ch-section + .ch-section {
+  margin-top: 18px;
+}
+
+.ch-section-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 24px;
+  margin-bottom: 10px;
+}
+
+.ch-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--ch-text);
+  font-size: 14px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.ch-section-glyph {
+  width: 15px;
+  height: 15px;
+  color: var(--ch-accent);
+}
+
+.ch-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  padding: 3px 4px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ch-accent);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.ch-link:hover {
+  color: var(--ch-accent-strong);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Contextual actions ("Actions in this view")                                */
+/* -------------------------------------------------------------------------- */
+
+.ch-contextual {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 14px;
+}
+
+.ch-action-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--ch-surface-raised);
+  color: var(--ch-text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ch-action-row:hover,
+.ch-action-row--selected {
+  border-color: var(--ch-outline);
+  background: var(--ch-surface-raised-hover);
+}
+
+.ch-action-row--selected {
+  outline: 1px solid var(--ch-outline-strong);
+  outline-offset: -1px;
+}
+
+.ch-action-row-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.ch-action-row-subtitle {
+  color: var(--ch-text-muted);
+  font-size: 12px;
+}
+
+.ch-action-row .ch-kbd {
+  margin-left: auto;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Quick action tiles                                                         */
+/* -------------------------------------------------------------------------- */
+
+.ch-tiles {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ch-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-height: 145px;
+  /* Reference tile row is y ≈ 299–444 at the 1586 × 992 viewport; the content
+     box must not exceed the 145 px reference height. */
+  padding: 12px 12px 10px;
+  border: 1px solid var(--ch-outline);
+  border-radius: var(--ch-radius-tile);
+  background: var(--ch-surface-raised);
+  color: var(--ch-text);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.ch-tile:hover {
+  background: var(--ch-surface-raised-hover);
+}
+
+.ch-tile--selected {
+  border-color: var(--ch-outline-focus);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ch-accent) 45%, transparent) inset;
+}
+
+.ch-tile--unavailable {
+  border-style: dashed;
+}
+
+.ch-tile-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 4px;
+  border: 1px solid var(--ch-outline);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--color-foreground) 4%, transparent);
+  color: var(--ch-icon);
+}
+
+.ch-tile-glyph {
+  width: 19px;
+  height: 19px;
+}
+
+.ch-tile-badge {
+  position: absolute;
+  top: 12px;
+  left: 58px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--ch-accent);
+  color: var(--ch-accent-ink);
+  font-size: 10.5px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ch-tile-title {
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.ch-tile-desc {
+  color: var(--ch-text-muted);
+  font-size: 11.5px;
+  line-height: 1.35;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Resume reading card                                                        */
+/* -------------------------------------------------------------------------- */
+
+.ch-resume {
+  display: grid;
+  grid-template-columns: 106px minmax(0, 1fr) 233px;
+  gap: 18px;
+  /* Reference card x ≈ 394 / cover x ≈ 414 (20 px inset) and inset x ≈ 949. */
+  padding: 16px 10px 16px 20px;
+  border: 1px solid var(--ch-outline);
+  border-radius: 12px;
+  background: var(--ch-surface-raised);
+}
+
+.ch-cover {
+  position: relative;
+  width: 106px;
+  height: 156px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--ch-field-bg);
+  border: 1px solid var(--ch-outline);
+}
+
+.ch-cover-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ch-cover-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  background: var(--ch-surface-inset);
+}
+
+.ch-cover-glyph {
+  width: 34px;
+  height: 34px;
+  color: var(--ch-icon);
+  opacity: 0.8;
+}
+
+.ch-resume-main {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.ch-resume-title {
+  margin: 0;
+  overflow: hidden;
+  color: var(--ch-text);
+  font-size: 15.5px;
+  font-weight: 650;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.ch-resume-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  color: var(--ch-text-muted);
+  font-size: 12px;
+}
+
+.ch-resume-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ch-resume-meta-label {
+  color: var(--ch-text-faint);
+}
+
+.ch-resume-meta-glyph {
+  width: 13px;
+  height: 13px;
+  color: var(--ch-icon);
+}
+
+.ch-resume-progress {
+  position: relative;
+  display: inline-block;
+  width: 34px;
+  height: 4px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-foreground) 15%, transparent);
+  overflow: hidden;
+}
+
+.ch-resume-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--ch-accent);
+}
+
+.ch-resume-desc {
+  margin: 0;
+  color: var(--ch-text-muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ch-resume-actions {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: auto;
+  padding-top: 6px;
+}
+
+.ch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 15px;
+  border: 1px solid var(--ch-outline);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ch-text);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 620;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.ch-btn:hover {
+  background: var(--ch-hover);
+}
+
+.ch-btn--primary {
+  border-color: var(--ch-accent);
+  background: var(--ch-accent);
+  color: var(--ch-accent-ink);
+}
+
+.ch-btn--primary:hover {
+  background: var(--ch-accent-strong);
+  border-color: var(--ch-accent-strong);
+}
+
+.ch-btn--icon {
+  width: 36px;
+  padding: 0;
+  justify-content: center;
+}
+
+.ch-btn-glyph {
+  width: 15px;
+  height: 15px;
+}
+
+.ch-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ch-overflow {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 5;
+  min-width: 210px;
+  padding: 5px;
+  border: 1px solid var(--ch-outline);
+  border-radius: 10px;
+  background: var(--color-popover, var(--ch-surface-raised));
+  box-shadow: var(--shadow-lg, 0 16px 44px rgba(0, 0, 0, 0.4));
+}
+
+.ch-overflow-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ch-text);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ch-overflow-item:hover,
+.ch-overflow-item:focus-visible {
+  background: var(--ch-hover);
+}
+
+.ch-overflow-glyph {
+  width: 14px;
+  height: 14px;
+  color: var(--ch-icon);
+}
+
+.ch-resume-inset {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 157px;
+  padding: 12px 14px;
+  border: 1px solid var(--ch-outline);
+  border-radius: 10px;
+  background: var(--ch-surface-inset);
+  min-width: 0;
+}
+
+.ch-inset-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ch-inset-lead {
+  color: var(--ch-text-faint);
+  font-size: 11.5px;
+}
+
+.ch-inset-location {
+  color: var(--ch-text-muted);
+  font-size: 11.5px;
+  text-align: right;
+}
+
+.ch-inset-passage {
+  position: relative;
+  margin: 0;
+  padding-left: 10px;
+  color: var(--ch-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 5;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ch-inset-passage::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--ch-accent);
+}
+
+.ch-inset-muted {
+  margin: 0;
+  color: var(--ch-text-faint);
+  font-size: 11.5px;
+  font-style: italic;
+}
+
+/* Empty / loading resume */
+
+.ch-resume--empty,
+.ch-resume--loading {
+  grid-template-columns: 106px minmax(0, 1fr);
+  align-items: center;
+}
+
+.ch-resume-empty-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 106px;
+  height: 156px;
+  border: 1px dashed var(--ch-outline);
+  border-radius: 8px;
+  color: var(--ch-icon);
+}
+
+.ch-resume-empty-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ch-resume-empty-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.ch-resume-empty-hint {
+  margin: 0;
+  color: var(--ch-text-muted);
+  font-size: 12.5px;
+}
+
+.ch-resume-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.ch-skeleton {
+  border-radius: 8px;
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--color-foreground) 6%, transparent) 30%,
+    color-mix(in srgb, var(--color-foreground) 13%, transparent) 50%,
+    color-mix(in srgb, var(--color-foreground) 6%, transparent) 70%
+  );
+  background-size: 220% 100%;
+  animation: ch-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes ch-shimmer {
+  0% {
+    background-position: 120% 0;
+  }
+  100% {
+    background-position: -80% 0;
+  }
+}
+
+.ch-skeleton-line {
+  height: 12px;
+}
+
+.ch-skeleton-title {
+  height: 18px;
+  width: 60%;
+}
+
+.ch-skeleton-short {
+  width: 40%;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Ask Plethora suggestions                                                   */
+/* -------------------------------------------------------------------------- */
+
+.ch-section-head--ask {
+  flex-wrap: wrap;
+  /* Reference: first prompt row ≈ 14 px below the Ask heading block. */
+  margin-bottom: 14px;
+}
+
+.ch-ask-helper {
+  color: var(--ch-text-muted);
+  font-size: 12px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.ch-suggestions,
+.ch-examples {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ch-examples {
+  margin-top: 10px;
+}
+
+.ch-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  min-height: 42px;
+  padding: 9px 14px;
+  border: 1px solid var(--ch-outline);
+  border-radius: 10px;
+  background: var(--ch-surface-raised);
+  color: var(--ch-text);
+  font-family: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ch-suggestion:hover,
+.ch-suggestion:focus-visible {
+  border-color: var(--ch-outline-strong);
+  background: var(--ch-surface-raised-hover);
+}
+
+.ch-suggestion-glyph {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--ch-icon);
+}
+
+.ch-suggestion-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ch-suggestion-arrow {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--ch-text-faint);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Results + browse catalogue                                                 */
+/* -------------------------------------------------------------------------- */
+
+.ch-results-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ch-results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ch-group {
+  padding: 10px 6px 4px;
+  color: var(--ch-text-faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.ch-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 10px 11px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.ch-result:hover {
+  background: var(--ch-hover);
+}
+
+.ch-result--selected {
+  background: var(--ch-accent-soft);
+  border-color: color-mix(in srgb, var(--ch-accent) 45%, transparent);
+}
+
+.ch-result-thumb {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 7px;
+  object-fit: cover;
+}
+
+.ch-result-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  border: 1px solid var(--ch-outline);
+  color: var(--ch-icon);
+  background: color-mix(in srgb, var(--color-foreground) 4%, transparent);
+}
+
+.ch-result-icon--document {
+  color: var(--ch-icon);
+}
+
+.ch-result-icon--extract {
+  color: var(--ch-icon);
+}
+
+.ch-result-icon--card {
+  color: var(--ch-icon);
+}
+
+.ch-result-icon--media {
+  color: var(--ch-icon);
+}
+
+.ch-result-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ch-result-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  min-width: 0;
+  color: var(--ch-text);
+  font-size: 13.5px;
+  font-weight: 620;
+}
+
+.ch-result-title-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ch-result-count {
+  flex: none;
+  color: var(--ch-text-faint);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.ch-result-excerpt {
+  margin: 0;
+  color: var(--ch-text-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.ch-result-excerpt mark {
+  background: color-mix(in srgb, var(--ch-accent) 28%, transparent);
+  color: var(--ch-text);
+  border-radius: 3px;
+  padding: 0 2px;
+}
+
+.ch-result-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.ch-result-tag {
+  padding: 1px 7px;
+  border: 1px solid var(--ch-outline);
+  border-radius: 999px;
+  color: var(--ch-text-muted);
+  font-size: 10.5px;
+}
+
+.ch-detail {
+  padding: 10px 12px;
+  border: 1px solid var(--ch-outline);
+  border-radius: 10px;
+  background: var(--ch-surface-inset);
+}
+
+.ch-detail-title {
+  margin: 0 0 6px;
+  color: var(--ch-text-faint);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.ch-detail-hits {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ch-detail-hit {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ch-text-muted);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ch-detail-hit:hover,
+.ch-detail-hit:focus-visible {
+  background: var(--ch-hover);
+  color: var(--ch-text);
+}
+
+.ch-detail-label {
+  flex: none;
+  color: var(--ch-icon);
+  font-size: 11px;
+}
+
+.ch-detail-excerpt {
+  min-width: 0;
+  font-size: 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ch-detail-excerpt mark {
+  background: color-mix(in srgb, var(--ch-accent) 28%, transparent);
+  color: var(--ch-text);
+  border-radius: 3px;
+}
+
+/* Empty / loading / error states */
+
+.ch-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 40px 20px;
+  text-align: center;
+}
+
+.ch-empty-glyph {
+  width: 30px;
+  height: 30px;
+  color: var(--ch-text-faint);
+}
+
+.ch-empty-title {
+  margin: 0;
+  color: var(--ch-text);
+  font-size: 14px;
+  font-weight: 620;
+}
+
+.ch-empty-hint {
+  margin: 0;
+  color: var(--ch-text-muted);
+  font-size: 12.5px;
+}
+
+.ch-empty-spinner {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  border: 2px solid color-mix(in srgb, var(--color-foreground) 14%, transparent);
+  border-top-color: var(--ch-accent);
+  animation: ch-spin 0.9s linear infinite;
+}
+
+@keyframes ch-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Advanced filters                                                           */
+/* -------------------------------------------------------------------------- */
+
+.ch-filters {
+  flex: none;
+  margin: 8px 18px 0;
+  padding: 10px 12px;
+  border: 1px solid var(--ch-outline);
+  border-radius: 10px;
+  background: var(--ch-surface-inset);
+}
+
+.ch-filters-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.ch-filters-title {
+  color: var(--ch-text);
+  font-size: 12.5px;
+  font-weight: 650;
+}
+
+.ch-filters .ch-link {
+  margin-left: 0;
+}
+
+.ch-filters-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ch-filter-chip {
+  padding: 5px 11px;
+  border: 1px solid var(--ch-outline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ch-text-muted);
+  font-family: inherit;
+  font-size: 11.5px;
+  text-transform: capitalize;
+  cursor: pointer;
+}
+
+.ch-filter-chip[data-selected] {
+  background: var(--ch-accent);
+  border-color: var(--ch-accent);
+  color: var(--ch-accent-ink);
+  font-weight: 650;
+}
+
+/* -------------------------------------------------------------------------- */
+/* URL import                                                                 */
+/* -------------------------------------------------------------------------- */
+
+.ch-url-section {
+  padding: 4px 2px;
+}
+
+.ch-url-section .adaptive-dialog-panel,
+.ch-url-section .glass-panel {
+  color: var(--ch-text);
+}
+
+/* -------------------------------------------------------------------------- */
+/* Note composer                                                              */
+/* -------------------------------------------------------------------------- */
+
+.ch-note {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+.ch-note-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.ch-note-draft {
+  color: var(--ch-text-faint);
+  font-size: 11.5px;
+}
+
+.ch-note-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ch-note-label {
+  color: var(--ch-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.ch-note-input,
+.ch-note-body {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--ch-outline);
+  border-radius: 10px;
+  background: var(--ch-field-bg);
+  color: var(--ch-text);
+  font-family: inherit;
+  font-size: 13.5px;
+  outline: none;
+}
+
+.ch-note-input:focus-visible,
+.ch-note-body:focus-visible {
+  border-color: var(--ch-outline-focus);
+}
+
+.ch-note-body {
+  min-height: 200px;
+  resize: vertical;
+  line-height: 1.55;
+}
+
+.ch-note-error {
+  margin: 0;
+  color: var(--ch-danger);
+  font-size: 12.5px;
+}
+
+.ch-note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+}
+
+/* The global form-control rule (`input { background-color: ... !important }`)
+   lives in `@layer base`; for `!important` declarations earlier layers win,
+   so the override must join the same layer with higher specificity. It stays
+   scoped to the palette, and the global rule is untouched. */
+@layer base {
+  [data-command-hub] .ch-field-input {
+    color: var(--ch-text) !important;
+    background-color: transparent !important;
+  }
+
+  [data-command-hub] .ch-note-input,
+  [data-command-hub] .ch-note-body {
+    color: var(--ch-text) !important;
+    background-color: var(--ch-field-bg) !important;
+  }
+
+  [data-command-hub] .ch-field-input::placeholder,
+  [data-command-hub] .ch-note-input::placeholder,
+  [data-command-hub] .ch-note-body::placeholder {
+    color: var(--ch-text-faint);
+  }
+}
+
+/* -------------------------------------------------------------------------- */
+/* Focus + accessibility                                                      */
+/* -------------------------------------------------------------------------- */
+
+[data-command-hub] :is(button, [role="option"], [role="tab"], input, textarea):focus-visible {
+  outline: 2px solid var(--ch-outline-focus);
+  outline-offset: 2px;
+}
+
+.command-hub-panel[data-reduced-transparency="true"] {
+  background: var(--ch-surface);
+  box-shadow: var(--ch-shadow);
+}
+
+/* Coarse pointers: at least 44 × 44 effective targets. */
+@media (pointer: coarse) {
+  .ch-scope,
+  .ch-icon-button,
+  .ch-view-all,
+  .ch-suggestion,
+  .ch-close,
+  .ch-field-clear {
+    min-height: 44px;
+  }
+
+  .ch-scope {
+    padding-inline: 16px;
+  }
+
+  .ch-tile {
+    min-height: 152px;
+  }
+
+  .ch-btn {
+    min-height: 44px;
+  }
+
+  .ch-detail-hit {
+    min-height: 44px;
+  }
+
+  .ch-close {
+    opacity: 1;
+  }
+}
+
+/* Short viewports: the body scrolls; text does not shrink. */
+@media (max-height: 700px) {
+  .command-hub-panel {
+    transform: none;
+    max-height: calc(100dvh - 24px);
+  }
+
+  .ch-tile {
+    min-height: 118px;
+  }
+
+  .ch-tile-icon {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* Tablet / narrow desktop: three tiles per row, stacked resume details. */
+@media (max-width: 900px) {
+  .ch-tiles {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .ch-resume {
+    grid-template-columns: 96px minmax(0, 1fr);
+  }
+
+  .ch-cover,
+  .ch-resume-empty-icon {
+    width: 96px;
+    height: 142px;
+  }
+
+  .ch-resume-inset {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Small tablets / large phones: two tiles per row. */
+@media (max-width: 640px) {
+  .command-hub-layer {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .command-hub-panel {
+    width: 100%;
+    max-height: calc(100dvh - env(safe-area-inset-top, 0px));
+    transform: none;
+    border-radius: 16px 16px 0 0;
+    border-bottom: none;
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+
+  .ch-field {
+    margin: 10px 10px 0;
+  }
+
+  .ch-scope-row {
+    margin-inline: 12px;
+  }
+
+  .ch-body {
+    padding: 12px 12px calc(16px + env(safe-area-inset-bottom, 0px));
+  }
+
+  .ch-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ch-resume {
+    grid-template-columns: 76px minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .ch-cover,
+  .ch-resume-empty-icon {
+    width: 76px;
+    height: 112px;
+  }
+
+  .ch-suggestions,
+  .ch-examples {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ch-ask-helper {
+    white-space: normal;
+  }
+}
+
+/* Reduced motion: the palette opens as a brief opacity transition only. */
+.command-hub-layer {
+  animation: ch-fade-in 120ms ease-out;
+}
+
+@keyframes ch-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .command-hub-layer,
+  .ch-skeleton,
+  .ch-empty-spinner {
+    animation: none;
+  }
+
+  .ch-scope,
+  .ch-tile {
+    transition: none;
+  }
+}
+
+/* Reduced transparency: solid surfaces. */
+@media (prefers-reduced-transparency: reduce) {
+  .command-hub-backdrop {
+    background: color-mix(in srgb, var(--color-scrim, #000000) 85%, transparent);
+    backdrop-filter: none;
+  }
+
+  .command-hub-panel {
+    background: var(--ch-surface);
+  }
+}
+
+/* Higher contrast: lift muted text and outlines. */
+@media (prefers-contrast: more) {
+  [data-command-hub] {
+    --ch-text-muted: var(--color-foreground);
+    --ch-text-faint: var(--color-muted-foreground);
+    --ch-outline: color-mix(in srgb, var(--color-foreground) 35%, transparent);
+    --ch-outline-strong: color-mix(in srgb, var(--color-foreground) 55%, transparent);
+  }
+}
+
+/* Monochrome / forced colors: hierarchy without gold. */
+@media (forced-colors: active) {
+  .command-hub-panel,
+  .ch-tile,
+  .ch-resume,
+  .ch-suggestion,
+  .ch-action-row,
+  .ch-result-icon,
+  .ch-btn,
+  .ch-scope {
+    forced-color-adjust: auto;
+  }
+
+  .ch-scope[data-selected],
+  .ch-btn--primary,
+  .ch-tile-badge,
+  .ch-filter-chip[data-selected] {
+    background: Highlight;
+    color: HighlightText;
+  }
+
+  .ch-tile--selected,
+  .ch-result--selected {
+    outline: 2px solid Highlight;
+  }
+}

@@ -709,6 +709,32 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
     }
   }, [importFromFolder, onOpenDocument]);
 
+  // Palette "View in Library" / "Open document details": reveal and select one
+  // document without touching its reading position. Filtering to its title
+  // guarantees visibility in a virtualized library; activeId supplies the
+  // selected row state.
+  useEffect(() => {
+    const handleRevealDocument = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{ documentId?: string; title?: string; openDetails?: boolean }>
+      ).detail;
+      if (!detail?.documentId) return;
+      if (detail.title) setSearchInput(detail.title);
+      setActiveId(detail.documentId);
+      if (detail.openDetails) {
+        const target = cachedDocuments.find((doc) => doc.id === detail.documentId);
+        if (target) setStatsDoc(target);
+      }
+      requestAnimationFrame(() => {
+        document
+          .querySelector(`[data-reveal-document="${detail.documentId}"]`)
+          ?.scrollIntoView({ block: "nearest" });
+      });
+    };
+    window.addEventListener("plethora:reveal-document", handleRevealDocument);
+    return () => window.removeEventListener("plethora:reveal-document", handleRevealDocument);
+  }, [cachedDocuments]);
+
   useEffect(() => {
     const handleImportShortcut = () => {
       void handleImport();
@@ -1845,6 +1871,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                     <div
                       key={doc.id}
                       data-index={virtualRow.index}
+                      data-reveal-document={doc.id}
                       ref={listModeVirtualizer.measureElement}
                       style={{
                         position: "absolute",
@@ -3291,6 +3318,7 @@ function VirtualizedDocumentTableBody({
           <div
             key={doc.id}
             data-index={virtualRow.index}
+            data-reveal-document={doc.id}
             ref={virtualizer.measureElement}
             style={{
               position: "absolute",

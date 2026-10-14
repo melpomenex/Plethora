@@ -21,6 +21,7 @@ import { useMobileShell } from "../../hooks/useMobileShell";
 const KeyboardShortcutsHelp = lazy(() => import("../common/KeyboardShortcutsHelp").then(({ KeyboardShortcutsHelp: help }) => ({ default: help })));
 const ImageSaveOverlay = lazy(() => import("../viewer/ImageSaveOverlay").then(({ ImageSaveOverlay: overlay }) => ({ default: overlay })));
 const OcclusionComposerHost = lazy(() => import("../occlusion/OcclusionComposerHost").then(({ OcclusionComposerHost: host }) => ({ default: host })));
+const LibraryAskHost = lazy(() => import("../search/palette/LibraryAskHost").then(({ LibraryAskHost: host }) => ({ default: host })));
 import { AppleIntelligenceHost } from "../apple/AppleIntelligenceHost";
 const LectureCaptureHost = lazy(() => import("../common/LectureCaptureHost").then(({ LectureCaptureHost: host }) => ({ default: host })));
 const WorkspaceSwitcher = lazy(() => import("./WorkspaceSwitcher").then(({ WorkspaceSwitcher: switcher }) => ({ default: switcher })));
@@ -1483,6 +1484,7 @@ export function MainLayout() {
           <ImageSaveOverlay />
           <OcclusionComposerHost />
           <AppleIntelligenceHost />
+          <LibraryAskHost />
           <LectureCaptureHost />
           <WorkspaceSwitcher isOpen={isWorkspaceSwitcherOpen} onClose={() => setIsWorkspaceSwitcherOpen(false)} />
           <PaywallModal />

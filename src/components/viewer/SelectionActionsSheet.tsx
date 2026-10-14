@@ -95,6 +95,17 @@ export interface SelectionActionsSheetProps {
    * long-press context menu in non-PDF viewers) and just need the result view.
    */
   initialAction?: SelectionAiAction;
+  /**
+   * Palette library handoff: open directly in the grounded library composer
+   * with this question prefilled and focused. Nothing is sent until the user
+   * presses Ask.
+   */
+  initialQuestion?: string;
+  /**
+   * Passage providing document context for a handoff when there is no
+   * selection text (e.g. a summary suggestion for the resume document).
+   */
+  initialContextPassage?: string;
   onClose: () => void;
   /** Omitted on surfaces with no extract path (e.g. transcripts). */
   onCreateExtract?: (text: string) => Promise<Extract | null> | Promise<void> | void;
@@ -248,6 +259,8 @@ export function SelectionActionsSheet({
   text,
   passage,
   initialAction,
+  initialQuestion,
+  initialContextPassage,
   onClose,
   onCreateExtract,
   onCreateExtractFromResult,
@@ -272,9 +285,11 @@ export function SelectionActionsSheet({
   const library = useAskLibrary();
   const { reset: resetLibrary } = library;
 
-  const [mode, setMode] = useState<"menu" | "asking" | "result" | "library" | "prerequisites">("menu");
+  const [mode, setMode] = useState<"menu" | "asking" | "result" | "library" | "prerequisites">(
+    initialQuestion ? "library" : "menu"
+  );
   const [action, setAction] = useState<SelectionAiAction>("explain");
-  const [question, setQuestion] = useState("");
+  const [question, setQuestion] = useState(initialQuestion ?? "");
   const [output, setOutput] = useState("");
   const [result, setResult] = useState<PassageResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -296,8 +311,9 @@ export function SelectionActionsSheet({
   const abortRef = useRef<AbortController | null>(null);
   // `||`, not `??`: a surface with no reachable surrounding text (EPUB/HTML
   // render in an iframe) passes an empty string, and an empty passage would
-  // make every adapter throw `invalid_argument`.
-  const sourcePassage = (passage || text).trim();
+  // make every adapter throw `invalid_argument`. A palette handoff may carry
+  // no selection at all and supplies its own document-context passage.
+  const sourcePassage = (passage || text || initialContextPassage || "").trim();
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -323,6 +339,15 @@ export function SelectionActionsSheet({
   useEffect(() => {
     if (!open) reset();
   }, [open, reset]);
+
+  // Palette handoff: open directly in the grounded library composer with the
+  // question prefilled and focused. The user still presses Ask; no request is
+  // started by the handoff itself.
+  useEffect(() => {
+    if (!open || !initialQuestion) return;
+    setMode("library");
+    setQuestion(initialQuestion);
+  }, [open, initialQuestion]);
 
   useEffect(() => () => abortRef.current?.abort(), []);
 
@@ -722,7 +747,9 @@ export function SelectionActionsSheet({
 
         {mode === "asking" && (
           <div className="px-4 pb-4 space-y-3">
-            <p className="text-[13px] leading-snug text-muted-foreground line-clamp-3">{preview}</p>
+            {preview && (
+              <p className="text-[13px] leading-snug text-muted-foreground line-clamp-3">{preview}</p>
+            )}
             <input
               autoFocus
               type="text"
@@ -782,7 +809,9 @@ export function SelectionActionsSheet({
               </span>
             </div>
 
-            <p className="text-[13px] leading-snug text-muted-foreground line-clamp-3">{preview}</p>
+            {preview && (
+              <p className="text-[13px] leading-snug text-muted-foreground line-clamp-3">{preview}</p>
+            )}
 
             <input
               autoFocus
@@ -791,7 +820,7 @@ export function SelectionActionsSheet({
               onChange={(e) => setQuestion(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && question.trim()) {
-                  void library.ask(question.trim(), { contextPassage: sourcePassage });
+                  void library.ask(question.trim(), { contextPassage: sourcePassage || undefined });
                 }
               }}
               placeholder={t("aiLibrary.selectionPlaceholder")}
@@ -807,7 +836,7 @@ export function SelectionActionsSheet({
               <button
                 className="flex-1 rounded-lg bg-primary px-3 py-2 text-[15px] text-primary-foreground disabled:opacity-50"
                 disabled={!question.trim() || library.running}
-                onClick={() => void library.ask(question.trim(), { contextPassage: sourcePassage })}
+                onClick={() => void library.ask(question.trim(), { contextPassage: sourcePassage || undefined })}
               >
                 {library.running ? t("aiLibrary.thinking") : t("aiLibrary.ask")}
               </button>
@@ -879,7 +908,9 @@ export function SelectionActionsSheet({
               </span>
             </div>
 
-            <p className="text-[13px] leading-snug text-muted-foreground line-clamp-3">{preview}</p>
+            {preview && (
+              <p className="text-[13px] leading-snug text-muted-foreground line-clamp-3">{preview}</p>
+            )}
 
             {prereqRunning && (
               <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
