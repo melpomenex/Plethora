@@ -704,6 +704,24 @@ function firstTabPane(pane: Pane): TabPane | null {
   return null;
 }
 
+/** Recover tabs left behind by a removed pane without changing the current view. */
+function attachDetachedTabs(rootPane: Pane, tabs: Tab[], targetPaneId?: string): Pane {
+  const detachedIds = tabs
+    .filter((tab) => !findPaneContainingTabRecursive(rootPane, tab.id))
+    .map((tab) => tab.id);
+  if (detachedIds.length === 0) return rootPane;
+
+  const requested = targetPaneId ? findPaneByIdRecursive(rootPane, targetPaneId) : null;
+  const target = requested?.type === "tabs" ? requested : firstTabPane(rootPane);
+  if (!target) return createTabPane(detachedIds, detachedIds[0]);
+
+  return updatePaneInTree(rootPane, target.id, (pane) => ({
+    ...(pane as TabPane),
+    tabIds: [...target.tabIds, ...detachedIds],
+    activeTabId: target.activeTabId ?? detachedIds[0],
+  }));
+}
+
 // Helper to update pane in tree
 function updatePaneInTree(root: Pane, paneId: string, updater: (pane: Pane) => Pane): Pane {
   if (root.id === paneId) {
@@ -833,9 +851,10 @@ export const useTabsStore = create<TabsState>((set, get) => ({
     if (existingTab) {
       set((state) => {
         // Find the pane containing this tab and activate it
-        const pane = findPaneContainingTabRecursive(state.rootPane, existingTab.id);
+        const reachableRootPane = attachDetachedTabs(state.rootPane, [existingTab], targetPaneId);
+        const pane = findPaneContainingTabRecursive(reachableRootPane, existingTab.id);
         if (pane) {
-          const rootPane = updatePaneInTree(state.rootPane, pane.id, (p) => ({
+          const rootPane = updatePaneInTree(reachableRootPane, pane.id, (p) => ({
             ...(p as TabPane), activeTabId: existingTab.id,
           }));
           const activeTabHistory = [...state.activeTabHistory.filter((x) => x !== existingTab.id), existingTab.id];
@@ -1836,6 +1855,10 @@ export const useTabsStore = create<TabsState>((set, get) => ({
         newRootPane = childToKeep;
       }
 
+      // Collapsing removes pane chrome, while its tabs remain in the workspace.
+      // Move them into a surviving pane so single-instance navigation can reach them.
+      newRootPane = attachDetachedTabs(newRootPane, state.tabs);
+
       setTimeout(() => get().saveTabs(), 0);
 
       return {
@@ -1991,7 +2014,7 @@ export const useTabsStore = create<TabsState>((set, get) => ({
       // Filter pane tree to remove tabs that failed rehydration
       const filteredRootPane = filterInvalidTabsFromPane(data.rootPane, validTabIds);
 
-      const cleanedPane = cleanupEmptyPanes(filteredRootPane);
+      const cleanedPane = attachDetachedTabs(cleanupEmptyPanes(filteredRootPane), rehydratedTabs);
       const navigationByPane = normalizeNavigationByPane(cleanedPane, data.navigation);
 
       // Collect all active tab IDs from restored pane tree to initialize history

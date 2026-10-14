@@ -53,3 +53,9 @@ Alternative: clear or version-reset local storage. Rejected because the current 
 ## Migration Plan
 
 No storage format or dependency change is required. Existing sessions recover in memory during normal startup and persist through existing save behavior. Rollback reverts the code changes; the saved Dashboard tab remains compatible with the current format.
+
+## Follow-up: detached tabs after collapsing a pane
+
+The installed app's saved workspace contained Dashboard in `tabs`, but its only pane listed Queue and Documents. This explains the reported no-op: `addTab` found the single-instance Dashboard, failed to find a containing pane, and returned its ID without activating anything. The startup existence check also accepted this unreachable Dashboard. Six new regression cases failed before the repair: three rendered toolbar positions, explicit reopening into a split pane, persisted restoration, and nested split collapse.
+
+`collapseSplit` removed pane membership while retaining its tabs in the workspace. Recover those tabs into a surviving pane while keeping that pane's active tab. Apply the same pane-membership repair after session restoration, and recover a detached existing tab into a valid requested pane (or the first pane) during normal reopening. Preserve tab IDs, content, data, surviving split sizes, and ordinary visit history. This also recovers other retained tabs rather than discarding user work.

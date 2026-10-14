@@ -35,6 +35,65 @@ import { useTabsStore, createSplitPane, createTabPane, normalizePane } from "../
 
 const DummyComponent = () => null;
 
+describe("detached workspace tab recovery", () => {
+  const dashboard = { id: "saved-dashboard", title: "Dashboard", icon: "📊", type: "dashboard" as const, content: DummyComponent, closable: false };
+  const queue = { id: "saved-queue", title: "Queue", icon: null, type: "queue" as const, content: DummyComponent, closable: true };
+  const documents = { id: "saved-documents", title: "Documents", icon: null, type: "documents" as const, content: DummyComponent, closable: true, data: { libraryScope: "all" } };
+
+  beforeEach(() => {
+    useTabsStore.setState({ tabs: [], rootPane: createTabPane(), activeTabHistory: [], navigationByPane: {}, navigationPaneId: null, evictedTabIds: new Set() });
+  });
+  afterEach(() => {
+    window.dispatchEvent(new Event("pagehide"));
+    window.localStorage.removeItem("plethora-tabs");
+  });
+
+  it("reattaches an existing detached tab to the requested pane with ordinary visit history", () => {
+    const left = createTabPane([queue.id], queue.id);
+    const right = createTabPane([documents.id], documents.id);
+    useTabsStore.setState({ tabs: [dashboard, queue, documents], rootPane: createSplitPane("horizontal", [left, right], [35, 65]), activeTabHistory: [queue.id, documents.id], evictedTabIds: new Set([dashboard.id]) });
+
+    expect(useTabsStore.getState().addTab(dashboard, right.id)).toBe(dashboard.id);
+
+    const state = useTabsStore.getState();
+    expect(state.findPaneContainingTab(dashboard.id)).toMatchObject({ id: right.id, tabIds: [documents.id, dashboard.id], activeTabId: dashboard.id });
+    expect(state.findPaneById(left.id)).toBe(left);
+    expect(state.rootPane).toMatchObject({ type: "split", sizes: [35, 65] });
+    expect(state.navigationByPane[right.id]).toEqual({ back: [documents.id], current: dashboard.id, forward: [] });
+    expect(state.evictedTabIds.has(dashboard.id)).toBe(false);
+    expect(state.tabs).toEqual([dashboard, queue, documents]);
+  });
+
+  it("restores detached tabs without changing Queue focus, and persists the repaired membership", async () => {
+    const pane = createTabPane([queue.id], queue.id);
+    localStorage.setItem("plethora-tabs", JSON.stringify({ tabs: [dashboard, queue, documents], rootPane: pane }));
+
+    expect(await useTabsStore.getState().loadTabs()).toBe(true);
+    expect(useTabsStore.getState().rootPane).toMatchObject({ id: pane.id, tabIds: [queue.id, dashboard.id, documents.id], activeTabId: queue.id });
+    useTabsStore.getState().saveTabs();
+    useTabsStore.setState({ tabs: [], rootPane: createTabPane() });
+    expect(await useTabsStore.getState().loadTabs()).toBe(true);
+    expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual([dashboard.id, queue.id, documents.id]);
+    useTabsStore.getState().addTab(dashboard);
+    expect(useTabsStore.getState().findPaneContainingTab(dashboard.id)?.activeTabId).toBe(dashboard.id);
+  });
+
+  it("keeps tabs reachable when their nested split pane is collapsed", () => {
+    const removed = createSplitPane("vertical", [createTabPane([dashboard.id], dashboard.id), createTabPane([documents.id], documents.id)]);
+    const kept = createTabPane([queue.id], queue.id);
+    const split = createSplitPane("horizontal", [removed, kept]);
+    useTabsStore.setState({ tabs: [dashboard, queue, documents], rootPane: split });
+
+    useTabsStore.getState().collapseSplit(split.id, removed.id);
+
+    const state = useTabsStore.getState();
+    expect(state.rootPane).toMatchObject({ id: kept.id, type: "tabs", tabIds: [queue.id, dashboard.id, documents.id], activeTabId: queue.id });
+    expect(state.tabs).toEqual([dashboard, queue, documents]);
+    state.addTab(dashboard);
+    expect(useTabsStore.getState().findPaneContainingTab(dashboard.id)?.activeTabId).toBe(dashboard.id);
+  });
+});
+
 describe("tabsStore activeTabHistory and MRU close behavior", () => {
   beforeEach(() => {
     // Reset state before each test

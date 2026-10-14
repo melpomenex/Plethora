@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { Toolbar } from "../Toolbar";
+import { Tabs } from "../common/Tabs/Tabs";
 import { useTabsStore, createTabPane } from "../../stores";
 import { useAudioEditionGenerationStore } from "../../stores/audioEditionGenerationStore";
 
@@ -58,6 +59,32 @@ describe("Toolbar", () => {
     state = useTabsStore.getState();
     expect(state.tabs.filter((tab) => tab.type === "dashboard")).toHaveLength(1);
     expect(state.rootPane.type === "tabs" ? state.rootPane.activeTabId : null).toBe(dashboard?.id);
+  });
+
+  it.each(["top", "left", "right"] as const)("displays a detached Dashboard from the %s toolbar without duplicating it", (position) => {
+    // Matches the installed app's saved session: Dashboard exists in tabs,
+    // but the pane only contains Queue and Documents.
+    useTabsStore.setState({
+      tabs: [
+        { id: "dashboard", title: "Dashboard", icon: "📊", type: "dashboard", content: () => <div>Recovered dashboard content</div>, closable: false },
+        { id: "queue", title: "Queue", icon: null, type: "queue", content: () => <div>Queue content</div>, closable: true },
+        { id: "documents", title: "Documents", icon: null, type: "documents", content: () => null, closable: true },
+      ],
+      rootPane: createTabPane(["queue", "documents"], "queue"),
+      navigationByPane: {},
+      activeTabHistory: ["queue"],
+    });
+    render(<><Toolbar position={position} /><Tabs /></>);
+    const dashboardButton = screen.getByRole("button", { name: "Dashboard" });
+
+    fireEvent.click(dashboardButton);
+
+    expect(screen.getByText("Recovered dashboard content").closest("[aria-hidden]")).toHaveAttribute("aria-hidden", "false");
+    expect(screen.getByText("Queue content").closest("[aria-hidden]")).toHaveAttribute("aria-hidden", "true");
+    expect(useTabsStore.getState().tabs.map(tab => tab.id)).toEqual(["dashboard", "queue", "documents"]);
+    fireEvent.click(dashboardButton);
+    expect(useTabsStore.getState().tabs.filter(tab => tab.type === "dashboard")).toHaveLength(1);
+    expect(useTabsStore.getState().findPaneContainingTab("dashboard")?.activeTabId).toBe("dashboard");
   });
 
   it("the Extracts button opens the library-wide extracts tab and reuses an already-open one", () => {

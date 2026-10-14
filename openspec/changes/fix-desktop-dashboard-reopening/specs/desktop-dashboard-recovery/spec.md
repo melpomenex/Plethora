@@ -28,6 +28,16 @@ The desktop Dashboard toolbar action and existing Dashboard keyboard navigation 
 - **WHEN** Dashboard is open in one split pane and the user invokes Dashboard navigation while another pane has focus
 - **THEN** the existing Dashboard is activated in its containing pane and the split layout and other tabs are preserved
 
+#### Scenario: Saved Dashboard has no containing pane
+- **WHEN** Dashboard exists in the saved tab list but no pane contains its ID
+- **THEN** restoration repairs its pane membership while preserving Default View focus
+- **AND** invoking Dashboard navigation selects and renders that same Dashboard without duplication
+
+#### Scenario: Collapse the split containing Dashboard
+- **WHEN** the user collapses a pane containing Dashboard or other open tabs
+- **THEN** those tabs remain reachable in a surviving pane with their IDs and data preserved
+- **AND** the surviving pane retains its active tab until the user selects another tab
+
 ### Requirement: Desktop startup restores a missing Dashboard base tab
 
 When desktop startup restores a workspace without Dashboard, the application SHALL make one Dashboard base tab available alongside the restored tabs. It SHALL preserve existing tab identities and split layout and SHALL apply the configured Default View as the startup focus. An empty saved session SHALL also produce a usable workspace with Dashboard available.
