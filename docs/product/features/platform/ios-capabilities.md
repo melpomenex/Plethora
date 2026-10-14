@@ -12,10 +12,13 @@ aliases:
   - ios capabilities
   - ios feature matrix
   - platform gating
+settings:
+  - platform.unavailable.*
+actions: []
 related:
   - platform.mobile_android
   - platform.eink
-  - platform.desktop
+  - platform.desktop_native
 ---
 
 # iOS Feature Availability
@@ -52,6 +55,9 @@ install) are additionally unavailable on **every** platform under the
    `BUILD_PROFILE === "store"`.
 4. The doc matrix below is generated from the registry and verified by
    `iosCapabilitiesDoc.test.ts`; edit the registry, then regenerate.
+
+## Rationale
+The registry keeps platform-specific controls predictable while preserving the core learning workflow across phone and tablet form factors.
 
 ## Settings & Defaults
 | Key | Default | Description |

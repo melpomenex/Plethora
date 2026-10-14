@@ -23,6 +23,43 @@ describe("Toolbar", () => {
     vi.useRealTimers();
   });
 
+  it.each([
+    ["an empty workspace", false],
+    ["a Queue-only workspace", true],
+  ])("opens one Dashboard from %s", (_label, queueOnly) => {
+    if (queueOnly) {
+      useTabsStore.getState().addTab({
+        title: "Queue",
+        icon: null,
+        type: "queue",
+        content: () => null,
+        closable: true,
+      });
+    }
+
+    render(<Toolbar position="top" />);
+    const dashboardButton = screen.getByRole("button", { name: "Dashboard" });
+    expect(dashboardButton).toHaveAttribute("title", "Dashboard (Ctrl+D)");
+
+    act(() => {
+      dashboardButton.click();
+    });
+
+    let state = useTabsStore.getState();
+    const dashboard = state.tabs.find((tab) => tab.type === "dashboard");
+    expect(state.tabs.filter((tab) => tab.type === "dashboard")).toHaveLength(1);
+    expect(dashboard).toMatchObject({ title: "Dashboard", icon: "📊", closable: false });
+    expect(state.rootPane.type === "tabs" ? state.rootPane.activeTabId : null).toBe(dashboard?.id);
+    if (queueOnly) expect(state.tabs.some((tab) => tab.type === "queue")).toBe(true);
+
+    act(() => {
+      dashboardButton.click();
+    });
+    state = useTabsStore.getState();
+    expect(state.tabs.filter((tab) => tab.type === "dashboard")).toHaveLength(1);
+    expect(state.rootPane.type === "tabs" ? state.rootPane.activeTabId : null).toBe(dashboard?.id);
+  });
+
   it("the Extracts button opens the library-wide extracts tab and reuses an already-open one", () => {
     render(<Toolbar position="top" />);
 

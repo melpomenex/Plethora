@@ -10,7 +10,7 @@ import { useShortcut } from "../common/KeyboardShortcuts";
 import { VimiumNavigationProvider, useVimiumEnabled, type VimiumCommand } from "../common/VimiumNavigation";
 const Toolbar = lazy(() => import("../Toolbar").then(({ Toolbar: toolbar }) => ({ default: toolbar })));
 import { Tabs } from "../common/Tabs";
-import { DashboardTab, QueueTab, QueueScrollPage, DocumentsTab, ReviewTab, AnalyticsTab, SettingsTab, WebBrowserTab, RssTab, PodcastTab, AudiobooksTab, KnowledgeSphereTab, KnowledgeNetworkTab, NewsletterDirectoryTab, DocumentQATab, NotebookLMTab, ImageRegistryTab, DocumentViewer, ImportNeedsReviewTab, prefetchCommonTabs, resolveNearestAvailableTabType } from "../tabs/TabRegistry";
+import { QueueTab, QueueScrollPage, DocumentsTab, ReviewTab, AnalyticsTab, SettingsTab, WebBrowserTab, RssTab, PodcastTab, AudiobooksTab, KnowledgeSphereTab, KnowledgeNetworkTab, NewsletterDirectoryTab, DocumentQATab, NotebookLMTab, ImageRegistryTab, DocumentViewer, ImportNeedsReviewTab, createCanonicalTab, prefetchCommonTabs, resolveNearestAvailableTabType } from "../tabs/TabRegistry";
 import type { Document } from "../../types/document";
 const CommandCenter = lazy(() => import("../search/CommandCenter").then(({ CommandCenter: center }) => ({ default: center })));
 import { captureAndSaveScreenshot } from "../../utils/screenshotCaptureFlow";
@@ -255,13 +255,15 @@ export function MainLayout() {
 
         // If still no tabs after loading, create the Dashboard as a base tab
         if (!restored && useTabsStore.getState().tabs.length === 0) {
-          addTab({
-            title: "Dashboard",
-            icon: <SquaresFour className="w-4 h-4" />,
-            type: "dashboard",
-            content: DashboardTab,
-            closable: false,
-          }, undefined, "bootstrap");
+          addTab(createCanonicalTab("dashboard"), undefined, "bootstrap");
+        }
+
+        // A valid restored session can still be missing the desktop base tab.
+        // Read the live store after the asynchronous restore so any tab opened
+        // during that gap is preserved, and use bootstrap history semantics so
+        // Default View below remains the startup focus.
+        if (!isMobile && !useTabsStore.getState().tabs.some((tab) => tab.type === "dashboard")) {
+          addTab(createCanonicalTab("dashboard"), undefined, "bootstrap");
         }
 
         // Open the view chosen in Settings ▸ Default View. Runs regardless of
@@ -615,8 +617,11 @@ export function MainLayout() {
     // §3.2: deep-links to platform-hidden tabs land on the nearest available
     // surface, never a broken destination. No-op on desktop/Android/web.
     const type = resolveNearestAvailableTabType(requestedType);
+    if (type === "dashboard") {
+      addTab(createCanonicalTab("dashboard"));
+      return;
+    }
     const tabConfig: Record<string, { title: string; content: React.ComponentType; closable: boolean }> = {
-      dashboard: { title: "Dashboard", content: DashboardTab, closable: false },
       documents: { title: "Documents", content: DocumentsTab, closable: true },
       queue: { title: "Queue", content: QueueTab, closable: true },
       "queue-scroll": { title: "Scroll Mode", content: QueueScrollPage, closable: true },

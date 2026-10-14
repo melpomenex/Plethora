@@ -202,7 +202,9 @@ export function rehydrateTab(serialized: { id: string; title: string; icon: stri
     icon: registry?.icon ?? serialized.icon,
     type: resolvedType,
     content: registry?.content ?? DashboardTab,
-    closable: serialized.closable,
+    // Dashboard is a desktop base tab. Older sessions may have serialized it
+    // as closable before the base-tab policy was consistently applied.
+    closable: serialized.type === "dashboard" ? false : serialized.closable,
     data: serialized.data,
   };
 }

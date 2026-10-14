@@ -14,10 +14,10 @@ export interface GeneratedHelpIndex {
 
 export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
   "version": "1.0.0",
-  "corpusHash": "sha256:5e62c1f64935aedca08bd2fea231a426c8f894e66bdcc718835d3f06f144fa7e",
-  "generatedAt": "2026-10-10T11:02:45.047Z",
-  "totalDocs": 75,
-  "totalChunks": 226,
+  "corpusHash": "sha256:b23a0025c0c647fc66a09e55627bf2565852a4733ebdb077791af9e54ba71069",
+  "generatedAt": "2026-10-14T15:20:25.375Z",
+  "totalDocs": 76,
+  "totalChunks": 229,
   "aliasMap": {
     "incremental reading philosophy & workflow": "concepts.incremental_reading",
     "incremental reading": "concepts.incremental_reading",
@@ -154,6 +154,10 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     "android tts": "platform.mobile_android",
     "ml kit gemini": "platform.mobile_android",
     "mobile plethora": "platform.mobile_android",
+    "apple core ai model packaging": "platform.apple_core_ai_models",
+    "apple core ai": "platform.apple_core_ai_models",
+    "core ai models": "platform.apple_core_ai_models",
+    "aimodel packages": "platform.apple_core_ai_models",
     "battery & thermal optimization": "platform.battery_saver",
     "battery saver": "platform.battery_saver",
     "power management": "platform.battery_saver",
@@ -1636,6 +1640,40 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       }
     },
     {
+      "id": "platform.apple_core_ai_models",
+      "title": "Apple Core AI Model Packaging",
+      "domain": "platform",
+      "status": "partial",
+      "platforms": [
+        "desktop-macos",
+        "mobile-ios"
+      ],
+      "summary": "Packaging contract and safety gates for opt-in Apple Core AI custom model packages.",
+      "how_to": "Enable Apple Core AI in Settings → On-device AI when the native model support is available.",
+      "why": "Large custom models need a verified package, clear storage requirements, and explicit user opt-in before installation.",
+      "aliases": [
+        "apple core ai",
+        "core ai models",
+        "aimodel packages"
+      ],
+      "settings": [
+        "features.appleCoreAI"
+      ],
+      "actions": [],
+      "related": [
+        "platform.mobile_ios",
+        "platform.desktop_native"
+      ],
+      "filePath": "docs/product/features/platform/apple-core-ai-packaging.md",
+      "sections": {
+        "intro": "# Apple Core AI Model Packaging",
+        "Purpose": "Defines the package and catalog safety contract for custom Apple Core AI models. Model conversion happens outside Plethora using Apple's converter; the app does not convert source weights on-device.",
+        "User-Facing Behavior": "- Core AI is disabled by default and remains opt-in through `features.appleCoreAI`.\n- The native model download and install flow is not yet implemented. Enabling the setting does not fetch a package by itself.\n- When custom model packaging is supported, catalogs identify the `aimodel-27` format and include a SHA-256 digest, download size, install size, minimum OS version, recommended memory, and license.",
+        "Exact Behavioral Rules": "1. Apple model packages use the `aimodel-27` format.\n2. Catalog bytes can be checked against a pinned SHA-256 digest before use.\n3. Packages larger than 8 GiB fail the size gate.\n4. Installation requires space for the package, a 512 MiB margin, and at least 1 GiB remaining after installation. Large iPhone installs receive a warning above 1.5 GiB.\n5. The model's recommended memory must fit the available memory budget.",
+        "Rationale": "Model packaging and installation can consume substantial storage and memory. Validation and explicit opt-in keep package handling predictable and prevent silent model downloads."
+      }
+    },
+    {
       "id": "platform.battery_saver",
       "title": "Battery & Thermal Optimization",
       "domain": "platform",
@@ -1797,10 +1835,14 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "ios feature matrix",
         "platform gating"
       ],
+      "settings": [
+        "platform.unavailable.*"
+      ],
+      "actions": [],
       "related": [
         "platform.mobile_android",
         "platform.eink",
-        "platform.desktop"
+        "platform.desktop_native"
       ],
       "filePath": "docs/product/features/platform/ios-capabilities.md",
       "sections": {
@@ -1808,6 +1850,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "Purpose": "Central registry (`src/lib/platformCapabilities.ts`) classifying every\nuser-visible destination, command, and settings surface per platform, with\niOS as the first fully-populated column. Unknown capability ids fail closed\nwith a dev warning. APK-install-class surfaces (self-update / sideload\ninstall) are additionally unavailable on **every** platform under the\n`store` build profile (`BUILD_PROFILE=store`).",
         "User-Facing Behavior": "- Core workflow (Import → Read → Extract → Remember → Review) is **protected**:\n  the five `core_*` capabilities are guaranteed available on iOS phone and\n  tablet form factors (test-enforced).\n- Hidden on iOS (no discoverability value): Android on-device TTS adapter,\n  screenshot capture import source, browser-extension sync server, NotebookLM\n  CLI workspace, app self-update row, APK install, desktop DOM capture.\n- Marked unavailable (discoverability matters): overflow-sheet destinations\n  whose capability is unavailable render as a disabled row with an i18n'd\n  reason string (`platform.unavailable.*`).\n- Deep links and restored sessions to a hidden surface land on the nearest\n  available surface (e.g. NotebookLM → Document Q&A → Documents → Dashboard).\n- The iOS Share Extension inbox (staged pending-share drain + retry notice)\n  is available on iOS and Android (`share_extension_inbox`).",
         "Exact Behavioral Rules": "1. A registry entry without a platform column means available on that\n   platform — desktop and Android behavior is frozen by a regression\n   snapshot test.\n2. Unknown capability id → fail closed + dev-mode console error.\n3. `apkInstallClass` capabilities are unavailable on all platforms when\n   `BUILD_PROFILE === \"store\"`.\n4. The doc matrix below is generated from the registry and verified by\n   `iosCapabilitiesDoc.test.ts`; edit the registry, then regenerate.",
+        "Rationale": "The registry keeps platform-specific controls predictable while preserving the core learning workflow across phone and tablet form factors.",
         "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `platform.unavailable.*` (i18n) | — | Reason strings for marked-unavailable surfaces, all six locales. |",
         "Platform Behavior": "- **iOS**: matrix below applies; protected core workflow fully available.\n- **Android / Desktop / Web**: unchanged shipped behavior (snapshot-enforced),\n  with the sanctioned §2 fixes (screenshot source hidden on mobile,\n  NotebookLM/extension-server desktop-only).\n\n<!-- BEGIN GENERATED MATRIX -->\n| Capability id | Kind | iOS | Android | Desktop | Web/PWA |\n| --- | --- | --- | --- | --- | --- |\n| `core_import` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `core_read` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `core_extract` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `core_remember` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `core_review` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `tab_dashboard` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_queue` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_review` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_documents` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_settings` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_extracts` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_image_registry` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_doc_qa` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_rss` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_newsletter` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_analytics` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_podcast` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_audiobook` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_knowledge_sphere` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_notebooklm` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `tts_android_adapter` |  | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |\n| `app_updater` | apk-install-class | `❌ unsupported_platform` | ✅ | ✅ | `❌ unsupported_platform` |\n| `import_screenshot` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | ✅ |\n| `browser_extension_server` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `notebooklm_cli` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `apk_install` | apk-install-class | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |\n| `desktop_capture_dom` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `share_extension_inbox` |  | ✅ | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |\n| `on_device_ai_gemini_nano` |  | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |\n| `on_device_ai_apple_foundation` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `apple_speech_transcription` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `import_document_scan` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `import_photo_library` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `apple_spotlight_search` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `on_device_ai_apple_coreai` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n<!-- END GENERATED MATRIX -->"
       }
@@ -6646,6 +6689,79 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "filePath": "docs/product/features/platform/android-capabilities.md"
     },
     {
+      "id": "platform.apple_core_ai_models#summary",
+      "docId": "platform.apple_core_ai_models",
+      "title": "Apple Core AI Model Packaging",
+      "domain": "platform",
+      "section": "Summary & How-To",
+      "content": "Title: Apple Core AI Model Packaging\nDomain: platform\nSummary: Packaging contract and safety gates for opt-in Apple Core AI custom model packages.\nHow to use: Enable Apple Core AI in Settings → On-device AI when the native model support is available.\nRationale: Large custom models need a verified package, clear storage requirements, and explicit user opt-in before installation.\nAliases: apple core ai, core ai models, aimodel packages\nSettings: features.appleCoreAI",
+      "aliases": [
+        "apple core ai",
+        "core ai models",
+        "aimodel packages"
+      ],
+      "tags": [
+        "platform",
+        "features.appleCoreAI",
+        "apple core ai",
+        "core ai models",
+        "aimodel packages"
+      ],
+      "platforms": [
+        "desktop-macos",
+        "mobile-ios"
+      ],
+      "actions": [],
+      "filePath": "docs/product/features/platform/apple-core-ai-packaging.md"
+    },
+    {
+      "id": "platform.apple_core_ai_models#rules",
+      "docId": "platform.apple_core_ai_models",
+      "title": "Apple Core AI Model Packaging › Behavioral Rules",
+      "domain": "platform",
+      "section": "Exact Behavioral Rules",
+      "content": "1. Apple model packages use the `aimodel-27` format.\n2. Catalog bytes can be checked against a pinned SHA-256 digest before use.\n3. Packages larger than 8 GiB fail the size gate.\n4. Installation requires space for the package, a 512 MiB margin, and at least 1 GiB remaining after installation. Large iPhone installs receive a warning above 1.5 GiB.\n5. The model's recommended memory must fit the available memory budget.",
+      "aliases": [
+        "apple core ai",
+        "core ai models",
+        "aimodel packages"
+      ],
+      "tags": [
+        "platform",
+        "rules"
+      ],
+      "platforms": [
+        "desktop-macos",
+        "mobile-ios"
+      ],
+      "actions": [],
+      "filePath": "docs/product/features/platform/apple-core-ai-packaging.md"
+    },
+    {
+      "id": "platform.apple_core_ai_models#rationale",
+      "docId": "platform.apple_core_ai_models",
+      "title": "Apple Core AI Model Packaging › Purpose & Rationale",
+      "domain": "platform",
+      "section": "Rationale",
+      "content": "Model packaging and installation can consume substantial storage and memory. Validation and explicit opt-in keep package handling predictable and prevent silent model downloads.",
+      "aliases": [
+        "apple core ai",
+        "core ai models",
+        "aimodel packages"
+      ],
+      "tags": [
+        "platform",
+        "rationale",
+        "why"
+      ],
+      "platforms": [
+        "desktop-macos",
+        "mobile-ios"
+      ],
+      "actions": [],
+      "filePath": "docs/product/features/platform/apple-core-ai-packaging.md"
+    },
+    {
       "id": "platform.battery_saver#summary",
       "docId": "platform.battery_saver",
       "title": "Battery & Thermal Optimization",
@@ -6977,7 +7093,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "title": "iOS Feature Availability",
       "domain": "platform",
       "section": "Summary & How-To",
-      "content": "Title: iOS Feature Availability\nDomain: platform\nSummary: Platform capability registry governing which destinations, commands, and settings are available on iOS — hidden-vs-marked-unavailable semantics, test-enforced against the registry.\nHow to use: All surfaces listed below are driven by src/lib/platformCapabilities.ts. The matrix is regenerated from the registry and verified by test on every change.\nRationale: iOS v1 principle — if an iOS user can see a feature, it works on iOS. Desktop-only or Android-only mechanics are hidden or clearly marked unavailable, never broken controls.\nAliases: ios capabilities, ios feature matrix, platform gating",
+      "content": "Title: iOS Feature Availability\nDomain: platform\nSummary: Platform capability registry governing which destinations, commands, and settings are available on iOS — hidden-vs-marked-unavailable semantics, test-enforced against the registry.\nHow to use: All surfaces listed below are driven by src/lib/platformCapabilities.ts. The matrix is regenerated from the registry and verified by test on every change.\nRationale: iOS v1 principle — if an iOS user can see a feature, it works on iOS. Desktop-only or Android-only mechanics are hidden or clearly marked unavailable, never broken controls.\nAliases: ios capabilities, ios feature matrix, platform gating\nSettings: platform.unavailable.*",
       "aliases": [
         "ios capabilities",
         "ios feature matrix",
@@ -6985,6 +7101,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       ],
       "tags": [
         "platform",
+        "platform.unavailable.*",
         "ios capabilities",
         "ios feature matrix",
         "platform gating"
@@ -7023,7 +7140,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "title": "iOS Feature Availability › Purpose & Rationale",
       "domain": "platform",
       "section": "Rationale",
-      "content": "Central registry (`src/lib/platformCapabilities.ts`) classifying every\nuser-visible destination, command, and settings surface per platform, with\niOS as the first fully-populated column. Unknown capability ids fail closed\nwith a dev warning. APK-install-class surfaces (self-update / sideload\ninstall) are additionally unavailable on **every** platform under the\n`store` build profile (`BUILD_PROFILE=store`).",
+      "content": "The registry keeps platform-specific controls predictable while preserving the core learning workflow across phone and tablet form factors.",
       "aliases": [
         "ios capabilities",
         "ios feature matrix",

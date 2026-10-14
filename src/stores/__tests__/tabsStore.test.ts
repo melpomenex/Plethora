@@ -121,6 +121,42 @@ describe("tabsStore activeTabHistory and MRU close behavior", () => {
     expect((state.rootPane as any).activeTabId).toBe(idC);
   });
 
+  it("activates a single Dashboard already open in another split pane", () => {
+    const dashboardPane = createTabPane(["dashboard-tab"], "dashboard-tab");
+    const queuePane = createTabPane(["queue-tab"], "queue-tab");
+    const rootPane = createSplitPane("horizontal", [dashboardPane, queuePane]);
+    useTabsStore.setState({
+      tabs: [
+        { id: "dashboard-tab", title: "Dashboard", icon: "📊", type: "dashboard", content: DummyComponent, closable: false },
+        { id: "queue-tab", title: "Queue", icon: "📚", type: "queue", content: DummyComponent, closable: true },
+      ],
+      rootPane,
+      activeTabHistory: ["dashboard-tab", "queue-tab"],
+      navigationPaneId: queuePane.id,
+    });
+
+    const openedId = useTabsStore.getState().addTab({
+      title: "Dashboard",
+      icon: "📊",
+      type: "dashboard",
+      content: DummyComponent,
+      closable: false,
+    });
+
+    const state = useTabsStore.getState();
+    expect(openedId).toBe("dashboard-tab");
+    expect(state.tabs.filter((tab) => tab.type === "dashboard")).toHaveLength(1);
+    expect(state.rootPane).toMatchObject({
+      type: "split",
+      id: rootPane.id,
+      children: [
+        { id: dashboardPane.id, tabIds: ["dashboard-tab"], activeTabId: "dashboard-tab" },
+        { id: queuePane.id, tabIds: ["queue-tab"], activeTabId: "queue-tab" },
+      ],
+    });
+    expect(state.navigationPaneId).toBe(dashboardPane.id);
+  });
+
   it("resolves and returns to the most recent non-settings destination", () => {
     const documentsId = useTabsStore.getState().addTab({
       title: "Documents",
@@ -537,6 +573,40 @@ describe("tab workspace persistence", () => {
     localStorage.setItem("plethora-tabs", JSON.stringify({ tabs, rootPane: pane, navigation: { version: 99, byPane: { "restore-pane": { back: ["a"], forward: ["a"] } } } }));
     await useTabsStore.getState().loadTabs();
     expect(useTabsStore.getState().navigationByPane["restore-pane"]).toEqual({ back: [], current: "b", forward: [] });
+  });
+
+  it("normalizes a legacy closable Dashboard and retains it through Close All and reload", async () => {
+    const tabs = [
+      { id: "legacy-dashboard", title: "Dashboard", icon: "old-dashboard", type: "dashboard", closable: true, data: { legacy: true } },
+      { id: "legacy-documents", title: "Documents", icon: "📂", type: "documents", closable: true, data: { source: "saved" } },
+    ];
+    const rootPane = createTabPane(["legacy-dashboard", "legacy-documents"], "legacy-documents");
+    localStorage.setItem("plethora-tabs", JSON.stringify({ tabs, rootPane }));
+
+    expect(await useTabsStore.getState().loadTabs()).toBe(true);
+    let state = useTabsStore.getState();
+    expect(state.tabs.find((tab) => tab.id === "legacy-dashboard")).toMatchObject({
+      type: "dashboard",
+      title: "Dashboard",
+      closable: false,
+      data: { legacy: true },
+    });
+    expect(state.tabs.find((tab) => tab.id === "legacy-documents")).toMatchObject({
+      type: "documents",
+      closable: true,
+      data: { source: "saved" },
+    });
+
+    useTabsStore.getState().closeAllTabs();
+    expect(useTabsStore.getState().tabs.map((tab) => tab.id)).toEqual(["legacy-dashboard"]);
+    expect(useTabsStore.getState().tabs[0].closable).toBe(false);
+    useTabsStore.getState().saveTabs();
+
+    useTabsStore.setState({ tabs: [], rootPane: createTabPane([], null), activeTabHistory: [] });
+    expect(await useTabsStore.getState().loadTabs()).toBe(true);
+    state = useTabsStore.getState();
+    expect(state.tabs.filter((tab) => tab.type === "dashboard")).toHaveLength(1);
+    expect(state.tabs[0]).toMatchObject({ id: "legacy-dashboard", closable: false, data: { legacy: true } });
   });
 
 });

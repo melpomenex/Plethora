@@ -6,7 +6,6 @@ import { useI18n } from "../lib/i18n";
 import { TOUR_ANCHORS } from "./onboarding/tour/anchors";
 import {
   ReviewTab,
-  DashboardTab,
   ContinueReadingTab,
   SettingsTab,
   DocumentViewer,
@@ -18,6 +17,7 @@ import {
   AudiobooksTab,
   ExtractsTab,
   QueueTab,
+  createCanonicalTab,
 } from "./tabs/TabRegistry";
 import { WebArticleImportDialog } from "./import/WebArticleImportDialog";
 import { KnowledgeGraphPage } from "../pages/KnowledgeGraphPage";
@@ -462,13 +462,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   // Dashboard button
   const handleDashboard = () => {
-    addTab({
-      title: "Dashboard",
-      icon: <SquaresFour className="w-4 h-4" />,
-      type: "dashboard",
-      content: DashboardTab,
-      closable: false,
-    });
+    addTab(createCanonicalTab("dashboard"));
   };
 
   const handleContinueReading = () => {
@@ -803,7 +797,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       id: "dashboard",
       icon: SquaresFour,
       label: t("toolbar.dashboard"),
-      shortcut: "Ctrl+1",
+      shortcut: "Ctrl+D",
       action: handleDashboard,
       group: 3,
     },
