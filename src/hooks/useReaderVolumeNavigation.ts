@@ -9,6 +9,7 @@ import { useEffect, useRef } from "react";
 import { useSettingsStore } from "../stores/settingsStore";
 import { loadSavedEinkSettings } from "../lib/displayMode";
 import { useIsEink } from "../contexts/PresentationContext";
+import { hasActiveMediaPlayback } from "../utils/mediaPlayback";
 
 export interface VolumeNavigationActions {
   onNextPage?: () => void;
@@ -16,17 +17,6 @@ export interface VolumeNavigationActions {
   onScrollDown?: () => void;
   onScrollUp?: () => void;
   disabled?: boolean;
-}
-
-/**
- * Checks whether audio, podcast, or TTS media is currently playing.
- */
-function isMediaPlaying(): boolean {
-  if (typeof document === "undefined") return false;
-  const mediaElements = Array.from(
-    document.querySelectorAll<HTMLMediaElement>("audio, video")
-  );
-  return mediaElements.some((el) => !el.paused && !el.ended && el.readyState > 2);
 }
 
 export function useReaderVolumeNavigation(actions: VolumeNavigationActions) {
@@ -60,7 +50,7 @@ export function useReaderVolumeNavigation(actions: VolumeNavigationActions) {
       }
 
       // Check if media playback is actively consuming volume buttons
-      if (isMediaPlaying()) {
+      if (hasActiveMediaPlayback()) {
         return;
       }
 

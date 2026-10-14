@@ -7,6 +7,11 @@ type VolumeNavigationCallbacks = {
   scrollDown: () => void;
 };
 
+type VolumeNavigationOptions = {
+  /** Let the device handle hardware volume keys while media is playing. */
+  mediaPlaybackActive?: boolean;
+};
+
 export function isVolumeRockerNavigationKey(key: string, mode: VolumeRockerMode): boolean {
   if (key === "VolumeUp" || key === "VolumeDown") return true;
   return mode !== "none" && (key === "PageUp" || key === "PageDown");
@@ -17,10 +22,18 @@ export function handleVolumeRockerNavigation(
   event: KeyboardEvent,
   mode: VolumeRockerMode,
   callbacks: VolumeNavigationCallbacks,
+  options: VolumeNavigationOptions = {},
 ): boolean {
   const up = event.key === "VolumeUp" || event.key === "PageUp";
   const down = event.key === "VolumeDown" || event.key === "PageDown";
   if ((!up && !down) || mode === "none") return false;
+
+  if (
+    options.mediaPlaybackActive &&
+    (event.key === "VolumeUp" || event.key === "VolumeDown")
+  ) {
+    return false;
+  }
 
   event.preventDefault();
   event.stopPropagation();

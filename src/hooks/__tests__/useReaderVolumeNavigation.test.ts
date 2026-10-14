@@ -77,6 +77,36 @@ describe("useReaderVolumeNavigation", () => {
     unmount();
   });
 
+  it("leaves volume keys unhandled while media playback is active", () => {
+    const audio = document.createElement("audio");
+    Object.defineProperties(audio, {
+      paused: { configurable: true, value: false },
+      ended: { configurable: true, value: false },
+      readyState: { configurable: true, value: 3 },
+    });
+    document.body.appendChild(audio);
+
+    const onNextPage = vi.fn();
+    const onPrevPage = vi.fn();
+    const { unmount } = renderHook(() =>
+      useReaderVolumeNavigation({ onNextPage, onPrevPage })
+    );
+    const event = new KeyboardEvent("keydown", {
+      key: "VolumeDown",
+      bubbles: true,
+      cancelable: true,
+    });
+
+    window.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+    expect(onNextPage).not.toHaveBeenCalled();
+    expect(onPrevPage).not.toHaveBeenCalled();
+
+    audio.remove();
+    unmount();
+  });
+
   it("does not intercept keys when typing in an input element", () => {
     const onNextPage = vi.fn();
     const onPrevPage = vi.fn();

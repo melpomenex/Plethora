@@ -51,6 +51,72 @@ describe("handleVolumeRockerNavigation", () => {
     expect(disabled.defaultPrevented).toBe(false);
   });
 
+  it.each(
+    [
+      ["VolumeUp", "page"],
+      ["VolumeDown", "page"],
+      ["VolumeUp", "scroll"],
+      ["VolumeDown", "scroll"],
+      ["VolumeUp", "none"],
+      ["VolumeDown", "none"],
+    ] as const,
+  )("leaves %s to the device during media playback in %s mode", (key, mode) => {
+    const event = new KeyboardEvent("keydown", { key, cancelable: true });
+    const handlers = callbacks();
+
+    expect(
+      handleVolumeRockerNavigation(event, mode, handlers, {
+        mediaPlaybackActive: true,
+      }),
+    ).toBe(false);
+    expect(event.defaultPrevented).toBe(false);
+    expect(handlers.pageUp).not.toHaveBeenCalled();
+    expect(handlers.pageDown).not.toHaveBeenCalled();
+    expect(handlers.scrollUp).not.toHaveBeenCalled();
+    expect(handlers.scrollDown).not.toHaveBeenCalled();
+  });
+
+  it("keeps PageUp and PageDown navigation available during media playback", () => {
+    const event = new KeyboardEvent("keydown", {
+      key: "PageDown",
+      cancelable: true,
+    });
+    const handlers = callbacks();
+
+    expect(
+      handleVolumeRockerNavigation(event, "page", handlers, {
+        mediaPlaybackActive: true,
+      }),
+    ).toBe(true);
+    expect(event.defaultPrevented).toBe(true);
+    expect(handlers.pageDown).toHaveBeenCalledOnce();
+  });
+
+  it("uses configured rocker navigation when media playback is paused", () => {
+    const pageEvent = new KeyboardEvent("keydown", {
+      key: "VolumeDown",
+      cancelable: true,
+    });
+    const scrollEvent = new KeyboardEvent("keydown", {
+      key: "VolumeDown",
+      cancelable: true,
+    });
+    const pageHandlers = callbacks();
+    const scrollHandlers = callbacks();
+
+    handleVolumeRockerNavigation(pageEvent, "page", pageHandlers, {
+      mediaPlaybackActive: false,
+    });
+    handleVolumeRockerNavigation(scrollEvent, "scroll", scrollHandlers, {
+      mediaPlaybackActive: false,
+    });
+
+    expect(pageEvent.defaultPrevented).toBe(true);
+    expect(pageHandlers.pageDown).toHaveBeenCalledOnce();
+    expect(scrollEvent.defaultPrevented).toBe(true);
+    expect(scrollHandlers.scrollDown).toHaveBeenCalledOnce();
+  });
+
   it("identifies hardware and configured e-ink rocker keys", () => {
     expect(isVolumeRockerNavigationKey("VolumeUp", "none")).toBe(true);
     expect(isVolumeRockerNavigationKey("VolumeDown", "scroll")).toBe(true);

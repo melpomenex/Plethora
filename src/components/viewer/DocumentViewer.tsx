@@ -46,6 +46,7 @@ import { shouldUseNativePdfRangeSource } from "./pdfFeatureFlags";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation";
+import { hasActiveMediaPlayback } from "../../utils/mediaPlayback";
 import { attachIframePointerActivityForwarder } from "../../utils/iframePointerActivity";
 import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
 import { PDFViewer } from "./PDFViewer";
@@ -4331,6 +4332,11 @@ export function DocumentViewer({
             if (docType === "html") scrollHtmlIframe("down");
             else scrollDocumentContainer("down");
           },
+        },
+        {
+          mediaPlaybackActive:
+            (e.key === "VolumeUp" || e.key === "VolumeDown") &&
+            hasActiveMediaPlayback(),
         },
       )) return;
 
