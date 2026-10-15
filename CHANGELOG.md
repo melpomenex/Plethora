@@ -5,11 +5,11 @@
 ### Added
 - **Command Palette** — Rebuilt the palette as a themed command hub for searching and launching actions across Plethora.
 
-![Command palette](https://github.com/melpomenex/Plethora/releases/download/v3.3.0/command-palette.png)
+<img src="https://raw.githubusercontent.com/melpomenex/Plethora/main/docs/release-assets/v3.3.0/command-palette.png" alt="Command palette" width="720">
 
 - **Document Q&A — Ask your library** — Open library questions in a grounded workspace, choose source collections, and get answers from matching passages with citations.
 
-![Document Q&A — Ask your library](https://github.com/melpomenex/Plethora/releases/download/v3.3.0/document-qa.png)
+<img src="https://raw.githubusercontent.com/melpomenex/Plethora/main/docs/release-assets/v3.3.0/document-qa.png" alt="Document Q&A — Ask your library" width="720">
 - **Capture activity** — Added saved browser links to the Dashboard capture activity, alongside captured content.
 - **Windows transcription acceleration** — Added GPU acceleration for transcription on Windows.
 
