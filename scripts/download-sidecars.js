@@ -1514,23 +1514,36 @@ async function main() {
     }
 
   } else if (platform === 'darwin') {
-    // Mac FFmpeg
+    // Pin the macOS binaries to a tagged release and verify the asset digest.
+    // The Evermeet "getrelease" endpoint began returning HTTP 410 in CI.
     if (!fs.existsSync(ffmpegPath)) {
-      console.log('Downloading FFmpeg (Mac)...');
+      console.log('Downloading pinned FFmpeg (Mac)...');
       let ffmpegInstalled = false;
 
       try {
-        execSync('curl -fL --retry 3 --retry-delay 2 https://evermeet.cx/ffmpeg/getrelease/zip -o ffmpeg.zip', { stdio: 'inherit' });
-        // Validate archive before unzip (prevents HTML/error pages being treated as zip files)
-        execSync('unzip -t ffmpeg.zip', { stdio: 'inherit' });
-        execSync('unzip -o ffmpeg.zip', { stdio: 'inherit' });
-        fs.copyFileSync('ffmpeg', ffmpegPath);
+        const asset = process.arch === 'arm64'
+          ? {
+              name: 'ffmpeg-darwin-arm64',
+              sha256: 'a90e3db6a3fd35f6074b013f948b1aa45b31c6375489d39e572bea3f18336584',
+            }
+          : {
+              name: 'ffmpeg-darwin-x64',
+              sha256: 'ebdddc936f61e14049a2d4b549a412b8a40deeff6540e58a9f2a2da9e6b18894',
+            };
+        const url = `https://github.com/eugeneware/ffmpeg-static/releases/download/b6.1.1/${asset.name}`;
+        const downloadPath = path.join(BIN_DIR, `.${asset.name}.download`);
+        execSync(`curl -fL --retry 3 --retry-delay 2 --max-time 300 ${shellQuote(url)} -o ${shellQuote(downloadPath)}`, { stdio: 'inherit' });
+        const digest = createHash('sha256').update(fs.readFileSync(downloadPath)).digest('hex');
+        if (digest !== asset.sha256) {
+          throw new Error(`FFmpeg checksum mismatch: expected ${asset.sha256}, received ${digest}`);
+        }
+        fs.copyFileSync(downloadPath, ffmpegPath);
         ffmpegInstalled = true;
       } catch {
         console.warn('Primary FFmpeg download failed; trying system ffmpeg fallback...');
       } finally {
-        try { fs.unlinkSync('ffmpeg.zip'); } catch { /* best-effort cleanup */ }
-        try { fs.unlinkSync('ffmpeg'); } catch { /* best-effort cleanup */ }
+        const assetName = process.arch === 'arm64' ? 'ffmpeg-darwin-arm64' : 'ffmpeg-darwin-x64';
+        try { fs.unlinkSync(path.join(BIN_DIR, `.${assetName}.download`)); } catch { /* best-effort cleanup */ }
       }
 
       if (!ffmpegInstalled) {
