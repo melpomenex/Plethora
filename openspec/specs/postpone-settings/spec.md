@@ -50,16 +50,24 @@ The system SHALL add a `postpone` field of type `PostponeSettings` to the `Learn
 - **WHEN** randomize is false and the same item is postponed twice
 - **THEN** the computed interval increase SHALL be identical both times
 
-### Requirement: Postpone settings include auto-postpone toggle
-`PostponeSettings` SHALL include `autoPostponeEnabled` (boolean, default false). When enabled, the system SHALL offer to postpone outstanding items at the start of each session.
-
-#### Scenario: Auto-postpone prompt on session start
-- **WHEN** autoPostponeEnabled is true and the user starts a review session with overdue items
-- **THEN** the system SHALL prompt the user to postpone outstanding items before reviewing
-
 ### Requirement: Postpone settings include simple mode toggle
 `PostponeSettings` SHALL include `simpleMode` (boolean, default false). When enabled, simple postpone (linear interpolation by priority) SHALL be used instead of the standard algorithm. No eligibility checks SHALL apply in simple mode.
 
 #### Scenario: Simple mode bypasses eligibility
 - **WHEN** simpleMode is true and an item has priority 10 with high stability
 - **THEN** the item SHALL be postponed using linear interpolation despite having high stability
+
+### Requirement: Postpone settings control automatic session recovery
+`PostponeSettings` SHALL include `autoPostponeEnabled` (boolean, default false). When enabled, the system SHALL automatically process eligible overdue items once at the beginning of each new application session after settings and the backend are ready. It SHALL not require confirmation. When disabled, automatic scheduling mutations SHALL not occur. Manual postpone controls SHALL remain available regardless of this setting.
+
+#### Scenario: Auto-postpone executes at session start
+- **WHEN** `autoPostponeEnabled` is true and the new application session has overdue eligible content
+- **THEN** the system processes those items automatically and provides a nonblocking result summary
+
+#### Scenario: Auto-postpone disabled
+- **WHEN** `autoPostponeEnabled` is false at session start
+- **THEN** no automatic scheduling mutation occurs and manual postpone remains usable
+
+#### Scenario: Manual setting persists on reload
+- **WHEN** a user explicitly enables or disables Auto-Postpone and restarts Plethora
+- **THEN** the stored choice is restored before the session-start decision is made

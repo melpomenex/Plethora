@@ -34,27 +34,20 @@ The queue toolbar SHALL include a "Postpone All" button that postpones all eligi
 - **WHEN** a user clicks "Postpone All" with no items in the queue
 - **THEN** the action SHALL be disabled or show a message "No items to postpone"
 
-### Requirement: Auto-postpone prompt appears on session start
-When auto-postpone is enabled and the user opens the queue with overdue items, the system SHALL display a prompt asking whether to postpone outstanding items. The prompt SHALL show the count of outstanding items.
-
-#### Scenario: Auto-postpone prompt with overdue items
-- **WHEN** autoPostponeEnabled is true, the user opens the queue, and 30 items are overdue
-- **THEN** a prompt SHALL appear: "You have 30 overdue items. Would you like to postpone them?" with "Postpone" and "Review Now" buttons
-
-#### Scenario: Auto-postpone skipped when no overdue items
-- **WHEN** autoPostponeEnabled is true and no items are overdue
-- **THEN** no prompt SHALL appear and the user enters the normal review flow
-
-#### Scenario: User dismisses auto-postpone prompt
-- **WHEN** the user clicks "Review Now" on the auto-postpone prompt
-- **THEN** the prompt SHALL close and the user SHALL enter the normal review flow with all items
-
 ### Requirement: Postpone statistics are displayed after batch operations
-After a postpone-all or auto-postpone operation completes, the system SHALL display a summary showing: total items postponed, total interval increase (sum of all increases in days), and items skipped (ineligible).
+After a manual or automatic batch operation completes, the system SHALL display a nonblocking summary that distinguishes discovered, postponed, skipped, failed, and still-overdue items. It SHALL include the future scheduling distribution when items were postponed. Only persisted successes SHALL count as postponed.
+
+#### Scenario: Summary reflects mixed outcomes
+- **WHEN** a batch completes with successful, skipped, and failed items
+- **THEN** the summary shows each outcome count and the remaining overdue count accurately
 
 #### Scenario: Summary after postpone-all
-- **WHEN** a postpone-all operation completes with 25 items postponed and 15 skipped
-- **THEN** a summary SHALL show: "25 items postponed. Average increase: X days. 15 items skipped (already well-established)."
+- **WHEN** a manual or automatic batch completes with items postponed and other items skipped or failed
+- **THEN** the nonblocking summary shows persisted successes, skipped items, failures, still-overdue items, and the future-date distribution
+
+#### Scenario: Summary does not claim uncommitted work
+- **WHEN** persistence fails before an item is committed
+- **THEN** that item is counted as failed and is not included in the postponed count
 
 ### Requirement: Postpone settings are configurable in the learning settings panel
 The learning settings page SHALL include a "Postpone" section with controls for: auto-postpone toggle, simple mode toggle, randomization toggle, item/topic increase percentages, min/max increase limits, eligibility thresholds, and floor/cap values. All controls SHALL include labels and tooltips explaining what each parameter does.
@@ -66,3 +59,18 @@ The learning settings page SHALL include a "Postpone" section with controls for:
 #### Scenario: Settings are validated before saving
 - **WHEN** a user sets itemMinIncrease greater than itemMaxIncrease
 - **THEN** the system SHALL show a validation error and SHALL NOT save the invalid configuration
+
+### Requirement: Auto-postpone runs without a confirmation prompt
+When Auto-Postpone is enabled and an application session starts with overdue items, the system SHALL automatically process eligible items without a blocking prompt. The system SHALL present a nonblocking summary containing discovered, postponed, skipped, failed, and remaining-overdue counts. Users SHALL retain existing manual controls to review or postpone overdue items independently.
+
+#### Scenario: Eligible backlog is processed without confirmation
+- **WHEN** Auto-Postpone is enabled and the new application session discovers overdue eligible items
+- **THEN** they are processed automatically and no confirmation modal is required
+
+#### Scenario: No overdue items
+- **WHEN** Auto-Postpone is enabled and no eligible overdue items exist
+- **THEN** no postponement runs and no completion prompt is shown
+
+#### Scenario: User reviews overdue content manually
+- **WHEN** a user chooses to review overdue content or uses a manual postpone control
+- **THEN** that choice remains available independently of the automatic setting

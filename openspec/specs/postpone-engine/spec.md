@@ -20,11 +20,15 @@ The system SHALL compute a new interval for a postponed element using priority-w
 - **THEN** the priority factor is 0, raw increase is 5, final increase is 0 which is clamped to minIncrease of 1, and the new interval is 11 days
 
 ### Requirement: Document postponement uses topic parameters
-Documents SHALL be treated as topics in the postpone algorithm. The system SHALL use `topicIncrease`, `topicMinIncrease`, `topicMaxIncrease`, `topicCap`, and `topicFloor` parameters instead of item parameters when computing the interval increase for documents.
+Documents SHALL be treated as topics in the postpone algorithm. The system SHALL use `topicIncrease`, `topicMinIncrease`, `topicMaxIncrease`, `topicCap`, and `topicFloor` parameters instead of item parameters when computing the interval increase for documents. When a document has an `interval_modifier` other than 1.0, the computed postpone interval increase SHALL be multiplied by the modifier before application.
 
 #### Scenario: Document postponed with topic parameters
 - **WHEN** a document has priority 70, days since review 14, topicIncrease 40, topicMinIncrease 1, topicMaxIncrease 200, topicCap 180, topicFloor 1
 - **THEN** the ratio is 1.4, raw increase is `round(14 * 1.4) - 14 = 6`, priority factor is 1, final increase is 12, and the new reading date is shifted by 12 days
+
+#### Scenario: Document with interval modifier postponed
+- **WHEN** a document has `interval_modifier = 0.5` and the postpone algorithm computes a 12-day increase
+- **THEN** the applied increase SHALL be 6 days (12 * 0.5, rounded)
 
 ### Requirement: Postpone eligibility gates filter items
 The system SHALL evaluate item eligibility before postponing. An item SHALL be skipped (not postponed) when ALL of the following are true: `elapsedDays >= minElapsed`, `priority >= minPriority`, AND (`priority >= minPriority2` OR `stability >= minStability` OR `repetitionCount >= minInterval`). Items that fail the checks SHALL have their intervals increased.
@@ -68,3 +72,18 @@ When simple mode is enabled, the system SHALL compute interval increases using d
 #### Scenario: Simple postpone with medium priority
 - **WHEN** simple mode is enabled, an item has priority 50, itemMin=1, itemMax=100, itemBase=1
 - **THEN** increase is `round(99 * 50 / 100) = 50` and new interval is 51
+
+### Requirement: Overdue recovery produces future workload-balanced dates without changing FSRS state
+When the postpone engine recovers overdue scheduled content, it SHALL anchor proposed dates to the current local date rather than shifting an item's historical due date. It SHALL assign eligible items to dates from tomorrow through 30 days ahead, choosing lower-workload dates first and using a stable tie-break. Execution SHALL change due-date fields only and SHALL NOT change intervals, memory state, review metadata, or review history.
+
+#### Scenario: Historical due date remains overdue after a simple shift
+- **WHEN** an eligible item's due date is September 1, today is October 10, and the ordinary postpone calculation yields a seven-day increase
+- **THEN** the recovery plan assigns a date later than October 10 instead of September 8
+
+#### Scenario: Large backlog does not land on one day
+- **WHEN** 49 eligible items are planned with no existing workload in the next 30 days
+- **THEN** their proposed dates cover multiple days in that window and each target is later than today
+
+#### Scenario: Scheduling history is preserved
+- **WHEN** a future recovery date is applied to an FSRS-scheduled learning item
+- **THEN** only its due-date field and ordinary modification/synchronization metadata change

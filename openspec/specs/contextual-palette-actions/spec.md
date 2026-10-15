@@ -2,6 +2,7 @@
 
 ## Purpose
 Surfaces per-view, keyboard-discoverable actions in the command palette (Ctrl/Cmd+K) based on the active tab's view type. When a supported view (document viewer, RSS, Podcast, Audiobook) is active, the palette shows actions that operate on that view — each dispatching to the view's existing handler without re-implementing behavior.
+
 ## Requirements
 
 ### Requirement: Command palette surfaces actions for the active view
@@ -10,10 +11,12 @@ When the command palette is opened while a supported view is the active tab, the
 
 Supported view types are: document viewer (`document-viewer`, covering PDF/EPUB/HTML/TXT/MD), RSS (`rss`), Podcast (`podcast`), and Audiobook (`audiobook`, also covering `audiobook-epub-sync`).
 
+When in `document-viewer`, the command palette SHALL surface Smart Tagging actions including "Retag this document" and "Suggest tags for this document".
+
 #### Scenario: Palette shows contextual actions for the active view
 
 - **WHEN** the user opens the command palette while a document viewer is the active tab
-- **THEN** the palette displays document-applicable actions (e.g. Search in Document) ranked above global navigation commands
+- **THEN** the palette displays document-applicable actions (e.g. Search in Document, Retag Document, Suggest Tags) ranked above global navigation commands
 - **AND** actions from other views (e.g. RSS actions) are not shown
 
 #### Scenario: Palette shows no contextual actions for unsupported views
@@ -25,6 +28,12 @@ Supported view types are: document viewer (`document-viewer`, covering PDF/EPUB/
 
 - **WHEN** the user opens the command palette in a supported view with an empty query
 - **THEN** the palette lists the applicable contextual actions for that view first, followed by the existing global commands
+
+#### Scenario: Retag document contextual action triggers re-analysis
+
+- **WHEN** the user is viewing an open document in the document viewer and selects "Retag this document" from the command palette
+- **THEN** the palette dispatches the retag action to the document viewer handler
+- **AND** Smart Tagging re-analyzes the document and updates the document's tags
 
 ### Requirement: Contextual actions dispatch to existing view handlers without duplicating logic
 
@@ -45,7 +54,7 @@ Contextual actions SHALL invoke the existing handler already present in the acti
 
 ### Requirement: Contextual actions are matched alongside global commands when typing
 
-When the user types a query, contextual actions SHALL participate in the same ranked result set as global commands and content-search results, matching on action title and keywords. Matching contextual actions SHALL be ranked above matching global commands, and existing content-search behavior (documents, RSS articles, podcast episodes) SHALL remain unchanged.
+When the user types a query, contextual actions SHALL participate in the same ranked result set as global commands, content-search results, and canonical product help results, matching on action title, keywords, and registered documentation aliases. Matching contextual actions and direct help actions SHALL be ranked appropriately based on detected intent, while existing content-search behavior (documents, RSS articles, podcast episodes) SHALL remain preserved.
 
 #### Scenario: Typing finds a contextual action above global commands
 
@@ -59,6 +68,11 @@ When the user types a query, contextual actions SHALL participate in the same ra
 - **WHEN** the user types a document title while in the document viewer
 - **THEN** document content-search results are returned as before
 - **AND** contextual actions may also appear if their title/keywords match
+
+#### Scenario: Help action triggers from palette search
+
+- **WHEN** the user types a query that resolves to a safe documentation action (e.g., "e-ink mode" → `settings.appearance.eink`)
+- **THEN** the palette surfaces the direct action item with appropriate category and icon for immediate execution
 
 ### Requirement: Document-view actions respect the active document format
 
@@ -100,3 +114,19 @@ Contextual action identifiers, supported view constants, and per-view action set
 - **WHEN** the palette dispatches an action identifier that the active view's listener does not recognize
 - **THEN** a development-only warning is emitted
 - **AND** the action otherwise fails silently without crashing the palette
+
+### Requirement: Command palette surfaces direct actions for detected X/Twitter content
+When the Command Palette detects a valid X/Twitter status URL, it SHALL prioritize a direct "Open and analyze this thread" action above generic global search results.
+
+#### Scenario: URL detected in palette input prioritizes content opening
+- **WHEN** the user inputs an X/Twitter status URL in the command palette
+- **THEN** the top result is the contextual X thread action
+- **AND** pressing Enter immediately executes navigation to the X reader workspace
+
+### Requirement: Palette executes allowlisted documentation actions
+The command palette SHALL support executing allowlisted action IDs surfaced by the Ask Plethora help system and canonical documentation results. Only statically registered action IDs in `src/commandPalette/contextualActions.ts` or `src/features/help/registeredHelpActions.ts` SHALL be accepted for dispatch.
+
+#### Scenario: Safe execution of allowlisted help action
+- **WHEN** the user selects an action button from a help result (e.g. `action: settings.learning.algorithm`)
+- **THEN** the palette closes and executes the pre-registered action dispatch safely
+- **AND** arbitrary non-allowlisted string commands are rejected

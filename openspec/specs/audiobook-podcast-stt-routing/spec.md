@@ -5,7 +5,7 @@ Defines speech-to-text resolution, engine routing, and model quality ranking for
 ## Requirements
 
 ### Requirement: Unified Speech Resolution for Audiobooks and Podcasts
-The system SHALL resolve transcription requests for audiobooks and podcast episodes according to the unified Speech-to-Text configuration (`sttProvider`, `sttModel`, `preferLocal`, and `mode`), prioritizing the local Nemotron ASR model when installed on supported, capable hardware.
+The system SHALL resolve transcription requests for audiobooks and podcast episodes according to the unified Speech-to-Text configuration (`sttProvider`, `sttModel`, `preferLocal`, and `mode`), prioritizing installed local models (Cactus Whistle or Nemotron ASR) on supported hardware across desktop and mobile platforms.
 
 #### Scenario: Local Nemotron prioritized when installed on desktop
 - **WHEN** an audiobook or podcast transcription is initiated on desktop
@@ -13,6 +13,13 @@ The system SHALL resolve transcription requests for audiobooks and podcast episo
 - **AND** `sttProvider` is set to "local" or ("automatic" with `preferLocal` enabled)
 - **THEN** the resolver SHALL return a successful resolution pointing to local Nemotron transcription
 - **AND** the system SHALL NOT demand a Groq API key or fall back to Groq
+
+#### Scenario: Local Whistle prioritized when installed across desktop or mobile
+- **WHEN** an audiobook or podcast transcription is initiated on desktop or mobile
+- **AND** the Cactus Whistle STT model is installed and ready
+- **AND** `sttProvider` is set to "local", "automatic" with `preferLocal`, or Whistle is explicitly chosen
+- **THEN** the resolver SHALL return a successful resolution pointing to local Whistle transcription
+- **AND** the system SHALL NOT demand a Groq API key or fall back to cloud providers
 
 #### Scenario: Explicit Groq provider selection is honored
 - **WHEN** an audiobook or podcast transcription is initiated
@@ -53,3 +60,16 @@ The audiobook transcription API and backend handler (`generate_audiobook_transcr
 - **WHEN** `generateTranscript` is called for an audiobook file with local Nemotron resolved
 - **THEN** the system SHALL transcribe the audiobook using the local Nemotron engine
 - **AND** return an `AudiobookTranscript` containing formatted segments and full text without invoking Groq APIs
+
+### Requirement: Model Catalog and Quality Ranking for Cactus Whistle
+The system SHALL register and rank Cactus Whistle (`cactus-whistle`, `whistle.cact`) as a first-class local speech profile in the model ranking table, recognizing Whistle across desktop and mobile platforms.
+
+#### Scenario: Automatic fallback selects installed Whistle
+- **WHEN** resolving the best installed local transcription model
+- **AND** the local Whistle model is installed and verified on disk
+- **AND** no larger model is explicitly forced
+- **THEN** the resolver SHALL recognize Whistle as an active, runnable local speech model on both desktop and mobile
+
+#### Scenario: Model identifier normalization for Whistle
+- **WHEN** resolving installed models using either `cactus-whistle`, `whistle.cact`, or full HF identifier `hf:whistle:Cactus-Compute/whistle@main`
+- **THEN** the backend and frontend resolvers SHALL resolve all forms to the installed Whistle model directory and executable engine route
