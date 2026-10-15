@@ -6,6 +6,7 @@
 - **Document Q&A — Ask your library** — Open library questions in a grounded workspace, choose source collections, and get answers from matching passages with citations.
 
 <img src="https://raw.githubusercontent.com/melpomenex/Plethora/main/docs/release-assets/v3.3.0/document-qa.png" alt="Document Q&A — Ask your library" width="720">
+
 - **Capture activity** — Added saved browser links to the Dashboard capture activity, alongside captured content.
 - **Windows transcription acceleration** — Added GPU acceleration for transcription on Windows.
 
