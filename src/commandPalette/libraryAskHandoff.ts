@@ -1,42 +1,33 @@
-/**
- * Typed handoff for "ask my library" prompts.
- *
- * Selecting a library suggestion must prefill the grounded library-assistant
- * composer with the complete prompt (and optional document context) without
- * starting a model request. The palette writes one pending handoff here and
- * closes; a host mounted in the app shell consumes it exactly once. This
- * replaces the old timing-dependent bare `ask-library` window event.
- */
-
+/** Typed, acknowledged palette → Document Q&A entry. Never submits a turn. */
 import { create } from "zustand";
 
 export interface LibraryAskHandoff {
-  /** Monotonic id so the host can tell two identical handoffs apart. */
   nonce: number;
+  intent: "open" | "prefill";
   question: string;
-  /** Optional saved passage giving the question document context. */
   contextPassage?: string;
-  /** Document the question is about, when one is known. */
   documentId?: string;
 }
 
+type QuestionHandoff = Omit<LibraryAskHandoff, "nonce" | "intent">;
+
 interface LibraryAskHandoffState {
   pending: LibraryAskHandoff | null;
-  requestAsk: (handoff: Omit<LibraryAskHandoff, "nonce">) => void;
-  /** Called by the host after it has opened the composer once. */
-  consumeAsk: () => void;
+  requestOpen: () => void;
+  requestAsk: (handoff: QuestionHandoff) => void;
+  /** With an id, acknowledges only that request; without one, dismisses. */
+  consumeAsk: (nonce?: number) => void;
 }
 
 let nonceCounter = 0;
-
 export const useLibraryAskHandoffStore = create<LibraryAskHandoffState>((set) => ({
   pending: null,
-  requestAsk: (handoff) =>
-    set({
-      pending: {
-        ...handoff,
-        nonce: ++nonceCounter,
-      },
-    }),
-  consumeAsk: () => set({ pending: null }),
+  requestOpen: () => set((state) => state.pending?.intent === "open" ? state : {
+    pending: { nonce: ++nonceCounter, intent: "open", question: "" },
+  }),
+  requestAsk: (handoff) => set({
+    pending: { ...handoff, nonce: ++nonceCounter, intent: "prefill" },
+  }),
+  consumeAsk: (nonce) => set((state) =>
+    nonce === undefined || state.pending?.nonce === nonce ? { pending: null } : state),
 }));

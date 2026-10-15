@@ -48,6 +48,17 @@ describe("detached workspace tab recovery", () => {
     window.localStorage.removeItem("plethora-tabs");
   });
 
+  it("reactivates the singleton Document Q&A in its existing split pane", () => {
+    const qa = { id: "existing-qa", title: "Document Q&A", icon: null, type: "doc-qa" as const, content: DummyComponent, closable: true };
+    const left = createTabPane([queue.id], queue.id);
+    const right = createTabPane([qa.id], qa.id);
+    useTabsStore.setState({ tabs: [queue, qa], rootPane: createSplitPane("horizontal", [left, right], [50, 50]), navigationPaneId: left.id });
+    expect(useTabsStore.getState().addTab({ ...qa, title: "Document Q&A" }, left.id)).toBe(qa.id);
+    expect(useTabsStore.getState().tabs.filter((tab) => tab.type === "doc-qa")).toHaveLength(1);
+    expect(useTabsStore.getState().navigationPaneId).toBe(right.id);
+    expect(useTabsStore.getState().findPaneContainingTab(qa.id)?.id).toBe(right.id);
+  });
+
   it("reattaches an existing detached tab to the requested pane with ordinary visit history", () => {
     const left = createTabPane([queue.id], queue.id);
     const right = createTabPane([documents.id], documents.id);

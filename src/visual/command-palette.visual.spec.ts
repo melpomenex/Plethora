@@ -22,8 +22,9 @@ declare global {
  *
  * Every deterministic fixture lives in `src/visual/commandPaletteHarness.tsx`
  * (fixed clock/font/data, no production stores). The palette material derives
- * from the active theme; captures are taken under the app default theme
- * (biolume-abyss) and under gold-on-black (obsidian-noir, which reproduces
+ * from the active theme; captures are taken under the deep-sea scenic theme
+ * (biolume-abyss, the app default before Obsidian Noir) and under
+ * gold-on-black (obsidian-noir, the current app default, which reproduces
  * the preserved reference's material). All captures also land in
  * `.playwright/results/` for the evidence record; the default desktop, the
  * obsidian desktop, and the phone sheet additionally carry committed
@@ -153,7 +154,8 @@ test.describe("reference geometry (1586 × 992)", () => {
 
   test("material follows the chosen theme", async ({ page }) => {
     await openHub(page);
-    // App default theme (biolume-abyss): cyan accent on the deep-sea surface.
+    // Biolume Abyss (the app default before Obsidian Noir): cyan accent on
+    // the deep-sea surface.
     const defaultChip = await page
       .locator('.ch-scope[aria-selected="true"]')
       .evaluate((el) => getComputedStyle(el).backgroundColor);

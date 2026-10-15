@@ -1381,7 +1381,7 @@ function CommandHubLayer(props: CommandHubLayerProps) {
     const resumeReady = home.resume.status === "ready" && Boolean(home.resume.item);
     const recentReady = home.recent.status === "ready" && Boolean(home.recent.item);
     const dueReady = home.due.status === "ready" && home.due.dueCount > 0;
-    return [resumeReady, recentReady, dueReady, home.assistant.available, true, true];
+    return [resumeReady, recentReady, dueReady, true, true, true];
   }, [home]);
 
   const homeItems = useMemo<HomeSelectionItem[]>(() => {

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   STORAGE_KEYS,
   LEGACY_STORAGE_KEYS,
@@ -343,5 +343,33 @@ describe("STORAGE_KEYS constants", () => {
 
   it("exposes the legacy key", () => {
     expect(LEGACY_STORAGE_KEYS.state).toBe("plethora-document-qa");
+  });
+});
+
+
+describe("workspace drafts", () => {
+  it("round-trips tokens, references and evidence without persisting section bodies", () => {
+    const session = createSession({
+      draft: { text: "@{doc-1} #{section-1} Explain this", sections: [{ id: "section-1", title: "Cells", documentId: "doc-1" }] },
+      messages: [{ id: "evidence", role: "assistant", content: "Answer [2]", timestamp: 123,
+        submittedScope: { label: "Cells", documentIds: ["doc-1"], webSearch: false },
+        citations: [{ documentId: "doc-1", documentTitle: "Cells", chunkIndex: 1, chunkText: "Evidence", score: 1, citationNumber: 2 }],
+        evidence: { level: "supported", mode: "semantic", retrievalOnly: false, documentCount: 1 } }],
+    });
+    expect(saveSessions([session])).toBe(true);
+    const loaded = loadSessions()[0];
+    expect(loaded.draft).toEqual(session.draft);
+    expect(loaded.messages).toEqual(session.messages);
+  });
+  it("defaults malformed draft metadata without discarding history", () => {
+    const session = createSession({ messages: [{ id: "m", role: "user", content: "Keep me", timestamp: 1 }] });
+    localStorage.setItem(STORAGE_KEYS.sessions, JSON.stringify([{ ...session, draft: { text: 32, sections: null } }]));
+    expect(loadSessions()[0].draft).toEqual({ text: "", sections: [] });
+    expect(loadSessions()[0].messages[0].content).toBe("Keep me");
+  });
+  it("reports storage failure to callers instead of claiming it saved", () => {
+    const failure = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota"); });
+    expect(saveSessions([createSession()])).toBe(false);
+    failure.mockRestore();
   });
 });

@@ -18,6 +18,27 @@
  */
 
 import type { QAMessage } from "../../stores";
+import type { SectionNode } from "../../utils/sectionIndex";
+
+export interface DocumentQaDraft {
+  text: string;
+  sections: Pick<SectionNode, "id" | "title" | "documentId">[];
+  contextPassage?: string;
+}
+
+export function normalizeQaDraft(value: unknown): DocumentQaDraft {
+  if (!value || typeof value !== "object") return { text: "", sections: [] };
+  const raw = value as Partial<DocumentQaDraft>;
+  if (typeof raw.text !== "string") return { text: "", sections: [] };
+  return {
+    text: raw.text,
+    sections: Array.isArray(raw.sections) ? raw.sections.flatMap((section) =>
+      section && typeof section.id === "string" && typeof section.title === "string"
+        ? [{ id: section.id, title: section.title, documentId: typeof section.documentId === "string" ? section.documentId : undefined }]
+        : []) : [],
+    contextPassage: typeof raw.contextPassage === "string" ? raw.contextPassage : undefined,
+  };
+}
 
 /** localStorage keys for the sessions model. */
 export const STORAGE_KEYS = {
@@ -51,6 +72,7 @@ export interface DocumentQaSession {
   selectedDocumentId: string;
   webSearchEnabled: boolean;
   messages: QAMessage[];
+  draft?: DocumentQaDraft;
   /** Denormalized count derived from `messages.length`. */
   messageCount: number;
   /** Denormalized focus-document name for the sessions list. */
@@ -162,6 +184,7 @@ export function createSession(
     selectedDocumentId: partial.selectedDocumentId ?? "",
     webSearchEnabled: partial.webSearchEnabled ?? false,
     messages,
+    draft: normalizeQaDraft(partial.draft),
     messageCount: partial.messageCount ?? messages.length,
     documentName: partial.documentName,
   };
@@ -201,6 +224,7 @@ function normalizeSession(value: unknown): DocumentQaSession | null {
       typeof raw.selectedDocumentId === "string" ? raw.selectedDocumentId : "",
     webSearchEnabled: typeof raw.webSearchEnabled === "boolean" ? raw.webSearchEnabled : false,
     messages,
+    draft: normalizeQaDraft(raw.draft),
     messageCount: typeof raw.messageCount === "number" ? raw.messageCount : messages.length,
     documentName: typeof raw.documentName === "string" ? raw.documentName : undefined,
   };
@@ -210,8 +234,8 @@ function normalizeSession(value: unknown): DocumentQaSession | null {
  * Persist the session list (capped, most-recent first). Also recomputes
  * denormalized metadata for sessions whose title is still the placeholder.
  */
-export function saveSessions(sessions: DocumentQaSession[]): void {
-  if (typeof localStorage === "undefined") return;
+export function saveSessions(sessions: DocumentQaSession[]): boolean {
+  if (typeof localStorage === "undefined") return false;
   const capped = sessions
     .map((s) => {
       const title = isPlaceholderTitle(s.title)
@@ -223,9 +247,11 @@ export function saveSessions(sessions: DocumentQaSession[]): void {
     .slice(0, MAX_SESSIONS);
   try {
     localStorage.setItem(STORAGE_KEYS.sessions, JSON.stringify(capped));
+    return true;
   } catch (error) {
     // Quota errors etc. — surface to console but never crash the tab.
     console.error("Failed to persist Document Q&A sessions", error);
+    return false;
   }
 }
 
@@ -282,8 +308,7 @@ export function updateSession(
   };
 
   sessions[index] = updated;
-  saveSessions(sessions);
-  return updated;
+  return saveSessions(sessions) ? updated : null;
 }
 
 /** Rename a session (user-initiated). Persists and returns the updated session. */

@@ -769,10 +769,11 @@ export function CommandCenter() {
         }
         case "palette.askLibrary": {
           closePalette();
-          requestLibraryAsk({
-            question: suggestion?.label ?? t("palette.suggest.themes"),
-            ...(suggestion?.documentId ? { documentId: suggestion.documentId } : {}),
-          });
+          if (suggestion) {
+            requestLibraryAsk({ question: suggestion.label, documentId: suggestion.documentId });
+          } else {
+            useLibraryAskHandoffStore.getState().requestOpen();
+          }
           return;
         }
         case "palette.openSettings":

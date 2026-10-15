@@ -1,39 +1,22 @@
-/**
- * Host for palette → library-assistant handoffs.
- *
- * The palette stores a typed pending question (`libraryAskHandoff`) and closes;
- * this host (mounted once in the app shell) opens the existing grounded
- * library-assistant composer with that question prefilled and focused. The
- * handoff is consumed exactly once, survives navigation because it is typed
- * state rather than a timed window event, and starts no model request — the
- * user still presses Ask.
- */
-
-import { lazy, Suspense } from "react";
+import { useEffect, useRef } from "react";
+import { resolveNearestAvailableTabType } from "../../tabs/TabRegistry";
+import { useToastStore, ToastType } from "../../common/Toast";
+import { t } from "../../../lib/i18n";
 import { useLibraryAskHandoffStore } from "../../../commandPalette/libraryAskHandoff";
 
-const SelectionActionsSheet = lazy(() =>
-  import("../../viewer/SelectionActionsSheet").then((m) => ({
-    default: m.SelectionActionsSheet,
-  }))
-);
-
+/** Opens the canonical tab; its ready, active consumer acknowledges the intent. */
 export function LibraryAskHost() {
-  const pending = useLibraryAskHandoffStore((state) => state.pending);
-  const consumeAsk = useLibraryAskHandoffStore((state) => state.consumeAsk);
-
-  if (!pending) return null;
-
-  return (
-    <Suspense fallback={null}>
-      <SelectionActionsSheet
-        key={pending.nonce}
-        open={true}
-        text=""
-        initialQuestion={pending.question}
-        initialContextPassage={pending.contextPassage}
-        onClose={consumeAsk}
-      />
-    </Suspense>
-  );
+  const nonce = useLibraryAskHandoffStore((state) => state.pending?.nonce);
+  const navigated = useRef<number | undefined>(undefined);
+  useEffect(() => {
+    if (nonce === undefined || navigated.current === nonce) return;
+    navigated.current = nonce;
+    const target = resolveNearestAvailableTabType("doc-qa");
+    window.dispatchEvent(new CustomEvent("navigate", { detail: `/${target}` }));
+    if (target !== "doc-qa") {
+      useLibraryAskHandoffStore.getState().consumeAsk(nonce);
+      useToastStore.getState().addToast({ type: ToastType.Info, title: t("toolbar.documentQA"), message: t("platform.unavailable.generic") });
+    }
+  }, [nonce]);
+  return null;
 }

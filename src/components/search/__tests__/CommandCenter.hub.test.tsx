@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "../../../contexts/ThemeContext";
 
@@ -39,6 +39,7 @@ vi.mock("../../../api/transcription", () => ({
 }));
 
 import { CommandCenter } from "../CommandCenter";
+import { useLibraryAskHandoffStore } from "../../../commandPalette/libraryAskHandoff";
 import { useUIStore } from "../../../stores/uiStore";
 import { useDocumentStore } from "../../../stores/documentStore";
 import { useCollectionStore } from "../../../stores/collectionStore";
@@ -95,8 +96,11 @@ describe("CommandCenter hub controller mount", () => {
     });
     expect(screen.getByText("Quick Actions")).toBeInTheDocument();
     expect(screen.getByText("Ask Plethora")).toBeInTheDocument();
-    // The mocked assistant resolution reports unavailable (honest tile text).
-    expect(screen.getByText(/Assistant unavailable/)).toBeInTheDocument();
+    // Opening the workspace remains useful when generation needs setup.
+    expect(screen.getByText("Open Document Q&A")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Ask about your library/ }));
+    expect(useLibraryAskHandoffStore.getState().pending).toMatchObject({ intent: "open", question: "" });
+    expect(useUIStore.getState().commandPaletteOpen).toBe(false);
   });
 
   it("shows the first-run state for an empty library", async () => {
@@ -110,5 +114,7 @@ describe("CommandCenter hub controller mount", () => {
     await waitFor(() => {
       expect(screen.getByText("Your library is empty")).toBeInTheDocument();
     });
+    fireEvent.click(screen.getByRole("button", { name: /Ask about your library/ }));
+    expect(useLibraryAskHandoffStore.getState().pending?.intent).toBe("open");
   });
 });

@@ -37,3 +37,26 @@ describe("library ask handoff", () => {
     expect(useLibraryAskHandoffStore.getState().pending).toBeNull();
   });
 });
+
+
+describe("workspace entry intents", () => {
+  it("opens without inventing a question and coalesces pending bare entries", () => {
+    const store = useLibraryAskHandoffStore.getState();
+    store.consumeAsk();
+    store.requestOpen();
+    const first = useLibraryAskHandoffStore.getState().pending;
+    store.requestOpen();
+    expect(first).toMatchObject({ intent: "open", question: "" });
+    expect(useLibraryAskHandoffStore.getState().pending?.nonce).toBe(first?.nonce);
+  });
+  it("does not let an old acknowledgement erase a newer intent", () => {
+    const store = useLibraryAskHandoffStore.getState();
+    store.requestAsk({ question: "First" });
+    const first = useLibraryAskHandoffStore.getState().pending!.nonce;
+    store.requestAsk({ question: "Second", documentId: "doc-2" });
+    store.consumeAsk(first);
+    expect(useLibraryAskHandoffStore.getState().pending).toMatchObject({ intent: "prefill", question: "Second", documentId: "doc-2" });
+    store.consumeAsk(useLibraryAskHandoffStore.getState().pending!.nonce);
+    expect(useLibraryAskHandoffStore.getState().pending).toBeNull();
+  });
+});

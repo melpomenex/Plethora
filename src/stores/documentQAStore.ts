@@ -14,6 +14,7 @@ export interface RagHit {
   chunkIndex: number;
   chunkText: string;
   score: number;
+  citationNumber?: number;
 }
 
 export interface ToolCall {
@@ -41,6 +42,13 @@ export interface Message {
   toolCalls?: ToolCall[];
   mentionedDocumentIds?: string[];
   sourceContext?: SectionSourceReference;
+  submittedScope?: { label: string; documentIds: string[]; webSearch: boolean };
+  evidence?: {
+    level: "supported" | "weak" | "conflicting" | "none";
+    retrievalOnly: boolean;
+    mode: "semantic" | "lexicalOnly";
+    documentCount: number;
+  };
 }
 
 interface DocumentQAState {

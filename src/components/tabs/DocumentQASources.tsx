@@ -296,10 +296,10 @@ export function DocumentQASources({ citations }: { citations: RagHit[] }) {
                       )
                   );
                 }}
-                className="w-full text-left flex items-start gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted/70 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 aria-disabled:cursor-not-allowed aria-disabled:opacity-80"
+                className="w-full min-h-10 text-left flex items-start gap-2 rounded-md px-2 py-1.5 text-xs transition-colors hover:bg-muted/70 disabled:cursor-not-allowed disabled:hover:bg-transparent disabled:opacity-80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 aria-disabled:cursor-not-allowed aria-disabled:opacity-80"
               >
                 <span className="mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">
-                  {index + 1}
+                  {citation.citationNumber ?? index + 1}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium text-foreground">
@@ -368,7 +368,7 @@ export function sourcesCopyText(content: string, citations: RagHit[] | undefined
     const cached = resolutionCache.get(cacheKey(citation));
     const location = cached?.location;
     const suffix = location ? ` — ${locationLabel(location, t)}` : "";
-    lines.push(`${index + 1}. ${citation.documentTitle}${suffix}`);
+    lines.push(`${citation.citationNumber ?? index + 1}. ${citation.documentTitle}${suffix}`);
   });
   return lines.join("\n");
 }

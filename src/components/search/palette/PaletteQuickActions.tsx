@@ -50,7 +50,6 @@ export function PaletteQuickActions({
   const dueReady = home.due.status === "ready";
   const dueCount = home.due.dueCount;
   const caughtUp = dueReady && dueCount === 0;
-  const assistantAvailable = home.assistant.available;
 
   const tiles: TileModel[] = [
     {
@@ -88,11 +87,9 @@ export function PaletteQuickActions({
     {
       id: "palette.askLibrary",
       label: t("palette.action.ask"),
-      description: assistantAvailable
-        ? t("palette.action.askDesc")
-        : t("palette.action.askUnavailable"),
+      description: t("qaWorkspace.openDescription"),
       icon: <Sparkle className="ch-tile-glyph" aria-hidden="true" />,
-      available: assistantAvailable,
+      available: true,
     },
     {
       id: "palette.openSettings",

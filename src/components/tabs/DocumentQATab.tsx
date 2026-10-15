@@ -22,7 +22,6 @@ import {
 import { createDocumentQaRequestContent, loadDocumentQaText } from "../../features/documentQa/sectionContextRequest";
 import {
   BookOpen,
-  ChatCircle,
   Check,
   CircleNotch,
   Copy,
@@ -32,14 +31,13 @@ import {
   Globe,
   List,
   PaperPlaneTilt,
-  PencilSimple,
+  DotsThree,
+  WarningCircle,
   Plus,
   Sparkle,
   TextT,
   Trash,
-  WarningCircle,
   X,
-  XCircle,
 } from "@phosphor-icons/react";
 import { AssistantResponseContent } from "../common/AssistantResponseContent";
 import { getAssistantAnswer, parseAssistantThinking } from "../../utils/assistantThinking";
@@ -65,25 +63,21 @@ import {
   toolCallsToFlashcardArtifacts,
   type ChatFlashcardArtifact,
 } from "../../features/assistant/chatFlashcardArtifacts";
-import { formatRelativeTime } from "../../utils/relativeTime";
 import { DocumentQASources, sourcesCopyText } from "./DocumentQASources";
-import { ReviewTab } from "./TabRegistry";
+import { ReviewTab, createCanonicalTab } from "./TabRegistry";
 import { useToast } from "../common/Toast";
 import { useDocumentOutlineStore } from "../../stores/documentOutlineStore";
 import { loadAudiobookSectionCatalog } from "../../features/documentQa/audiobookSectionCatalog";
-import {
-  STORAGE_KEYS as SESSION_STORAGE_KEYS,
-  createSession,
-  deleteSession as deleteQaSession,
-  getActiveSessionId,
-  loadSessions,
-  migrateLegacyState,
-  renameSession as renameQaSession,
-  saveSessions,
-  setActiveSessionId,
-  updateSession,
-  type DocumentQaSession,
-} from "./documentQaSessions";
+import { type DocumentQaSession, normalizeQaDraft } from "./documentQaSessions";
+import { useDocumentQaWorkspace } from "./useDocumentQaWorkspace";
+import { DocumentQaHistory, DocumentQaSourcePicker } from "./DocumentQaWorkspaceControls";
+import { useIsActiveTab, usePaneId } from "../common/Tabs/TabContent";
+import { useCollectionStore } from "../../stores/collectionStore";
+import { Button } from "../md3/Button";
+import { Dialog } from "../md3/Dialog";
+import { useAiAvailability } from "../../lib/ai/useAiAvailability";
+import { eligibleQaSources, askQaKnowledge } from "../../features/documentQa/workspaceGrounding";
+import "./documentQaWorkspace.css";
 import {
   buildTwentyRulesSystemPrompt,
   getTwentyRulesReminderMarkdown,
@@ -119,6 +113,7 @@ export function DocumentQATab() {
     messages,
     isProcessing,
     addMessage,
+    updateMessage,
     setMessages,
     clearMessages,
     setIsProcessing,
@@ -132,7 +127,14 @@ export function DocumentQATab() {
   const [showMentionPopup, setShowMentionPopup] = useState(false);
   const [mentionQuery, setMentionQuery] = useState("");
   const [mentionCursorIndex, setMentionCursorIndex] = useState(0);
-  const [, setProviderError] = useState<string | null>(null);
+  const [workspaceError, setProviderError] = useState<string | null>(null);
+  const [contextPassage, setContextPassage] = useState<string | undefined>();
+  const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
+  const [summaryAfterPick, setSummaryAfterPick] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [retryTurnId, setRetryTurnId] = useState<string | null>(null);
+  const restoreRetryRef = useRef<(() => void) | null>(null);
+  const restoredTargetRef = useRef<string | null>(null);
   const [detectedChapter, setDetectedChapter] = useState<{ number: number; title?: string } | null>(null);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string>("");
   const [notebookResearchEnabled, setNotebookResearchEnabled] = useState(false);
@@ -166,36 +168,22 @@ export function DocumentQATab() {
   }>({ status: "idle" });
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
 
-  // --- Document Q&A sessions (see documentQaSessions.ts) ---
-  // The active session id is the source of truth for which conversation is
-  // loaded into the live store below. Hydration happens in a load effect; the
-  // debounced save effect writes the live state back into the active record.
-  const [activeSessionId, setActiveSessionIdState] = useState<string | null>(null);
-  const [sessions, setSessions] = useState<DocumentQaSession[]>([]);
-  // Bump to force a sidebar refresh after session-store mutations performed
-  // outside React (e.g. rename/delete handled in the sidebar).
-  const [sessionsVersion, setSessionsVersion] = useState(0);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
-    if (typeof localStorage === "undefined") return false;
-    return localStorage.getItem(SESSION_STORAGE_KEYS.sidebarCollapsed) === "1";
-  });
   const isMobile = useMobileShell();
-  const [renamingSessionId, setRenamingSessionId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-  const [showNewChatConfirm, setShowNewChatConfirm] = useState(false);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
-  const sessionSaveTimerRef = useRef<number | null>(null);
-  // Guard against the save effect writing state from a session we're in the
-  // middle of switching away from (hydration sets this true).
-  const isHydratingRef = useRef(false);
+  const isActiveTab = useIsActiveTab();
+  const paneId = usePaneId();
+  const navigationPaneId = useTabsStore((state) => state.navigationPaneId);
+  const workspaceIsActive = isActiveTab && (!paneId || !navigationPaneId || paneId === navigationPaneId);
+  const activeCollectionId = useCollectionStore((state) => state.activeCollectionId);
+  const collectionName = useCollectionStore((state) => state.collections.find((collection) => collection.id === state.activeCollectionId)?.name);
+  const aiAvailability = useAiAvailability("prompt");
 
   const targetDocId = useMemo(() => {
     return mentions.length > 0 ? mentions[0].id : selectedDocumentId;
   }, [mentions, selectedDocumentId]);
 
   useEffect(() => {
-    if (!targetDocId) {
+    if (!targetDocId || (!showSectionPopup && !rawInput.includes("#{") && !detectChapterReference(rawInput))) {
       setFullContent("");
       setFullContentLoading(false);
       return;
@@ -231,7 +219,7 @@ export function DocumentQATab() {
     return () => {
       cancelled = true;
     };
-  }, [targetDocId]);
+  }, [targetDocId, showSectionPopup, rawInput]);
 
   const {
     tree: sectionTree,
@@ -244,6 +232,9 @@ export function DocumentQATab() {
   });
 
   useEffect(() => {
+    const restoring = restoredTargetRef.current === targetDocId;
+    restoredTargetRef.current = null;
+    if (restoring) return;
     setSelectedSections([]);
     setRawInput((value) => value.replace(SECTION_REGEX, "").trim());
   }, [targetDocId]);
@@ -477,17 +468,15 @@ export function DocumentQATab() {
     while ((match = MENTION_REGEX.exec(text)) !== null) {
       const documentId = match[1];
       const doc = documents.find((d) => d.id === documentId);
-      if (doc) {
-        newMentions.push({
-          id: documentId,
-          title: doc.title,
-          index: match.index,
-        });
-      }
+      newMentions.push({
+        id: documentId,
+        title: doc?.title ?? t("qaSources.documentUnavailable"),
+        index: match.index,
+      });
     }
 
     return { text, mentions: newMentions };
-  }, [documents]);
+  }, [documents, t]);
 
   // One token→section identity for every mention surface. Ids are primary
   // (what pick-time insertion writes); exact- and normalized-title fallbacks
@@ -650,6 +639,7 @@ export function DocumentQATab() {
   };
 
   const handleRemoveDocumentQaSection = (id: string) => {
+    if (isProcessing) return;
     const removed = selectedSections.find((section) => section.id === id);
     const nextSections = selectedSections.filter((section) => section.id !== id);
     setSelectedSections(nextSections);
@@ -665,7 +655,8 @@ export function DocumentQATab() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // §3.1 — Cmd/Ctrl+Shift+K starts a new chat.
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    // Cmd/Ctrl+Shift+K starts a new conversation.
     if ((e.metaKey || e.ctrlKey) && e.shiftKey && (e.key === "K" || e.key === "k")) {
       e.preventDefault();
       handleNewChat();
@@ -756,6 +747,7 @@ export function DocumentQATab() {
   };
 
   const handleRemoveMention = (mentionId: string) => {
+    if (isProcessing) return;
     const token = `@{${mentionId}}`;
     const newValue = rawInput.replace(token, "");
     setRawInput(newValue);
@@ -764,206 +756,92 @@ export function DocumentQATab() {
     setInput(formatInputForDisplay(newValue, newMentions, selectedSections));
   };
 
-  const refreshSessions = useCallback(() => {
-    setSessions(loadSessions());
-  }, []);
-
-  // Flush (synchronously) the current live state into the active session.
-  // Called before any session switch/new/delete to avoid stale-debounce races.
-  const flushSaveActiveSession = useCallback(() => {
-    if (sessionSaveTimerRef.current) {
-      window.clearTimeout(sessionSaveTimerRef.current);
-      sessionSaveTimerRef.current = null;
-    }
-    const id = getActiveSessionId();
-    if (!id) return;
-    const focusDocName = selectedDocumentId
-      ? documents.find((d) => d.id === selectedDocumentId)?.title
-      : t("tabs.wholeLibrary");
-    updateSession(id, {
-      messages,
-      selectedDocumentId,
-      webSearchEnabled,
-      documentName: focusDocName,
+  const libraryLabel = collectionName
+    ? t("qaWorkspace.collectionScope", { name: collectionName }) : t("tabs.wholeLibrary");
+  const sourceLabel = selectedSections.length > 0 ? selectedSections.map((section) => section.title).join(", ")
+    : mentions.length > 0 ? mentions.map((mention) => mention.title).join(", ")
+      : selectedDocumentId ? documents.find((doc) => doc.id === selectedDocumentId)?.title ?? t("qaSources.documentUnavailable") : libraryLabel;
+  const effectiveScopeLabel = webSearchEnabled ? t("qaWorkspace.withWeb", { scope: sourceLabel }) : sourceLabel;
+  const qaDraft = useMemo(() => normalizeQaDraft({ text: rawInput, sections: selectedSections, contextPassage }), [rawInput, selectedSections, contextPassage]);
+  const focusQuestion = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      const input = textareaRef.current;
+      if (input && !input.closest('[aria-hidden="true"]')) input.focus();
     });
-    refreshSessions();
-  }, [messages, selectedDocumentId, webSearchEnabled, documents, t, refreshSessions]);
-
-  // Hydrate the live store from a session record (and reset the composer).
-  const hydrateFromSession = useCallback(
-    (session: DocumentQaSession) => {
-      isHydratingRef.current = true;
-      setMessages(session.messages);
-      setSelectedDocumentId(session.selectedDocumentId ?? "");
-      setWebSearchEnabled(Boolean(session.webSearchEnabled));
-      // Reset composer / transient focus state — composer is per-session.
-      setInput("");
-      setRawInput("");
-      setMentions([]);
-      setSelectedSections([]);
-      setDetectedChapter(null);
-      setHistoryIndex(-1);
-      setProviderError(null);
-      isHydratingRef.current = false;
-      // Defer focus to the next tick so the textarea is rendered.
-      window.setTimeout(() => textareaRef.current?.focus(), 0);
-    },
-    [setMessages],
-  );
-
-  // §2.1 — On mount: migrate legacy state once, then hydrate the active
-  // session into the live store. Also refresh the sidebar list.
-  useEffect(() => {
-    const activeId = migrateLegacyState();
-    setActiveSessionIdState(activeId);
-    refreshSessions();
-    const session = activeId ? loadSessions().find((s) => s.id === activeId) ?? null : null;
-    if (session) {
-      hydrateFromSession(session);
-    } else {
-      clearMessages();
-    }
   }, []);
-
-  // §2.2 — Debounced save of the live state back into the active session.
-  // Skips writes triggered purely by hydration to avoid stomping a just-loaded
-  // session with a stale closure. Flushes on unmount.
-  useEffect(() => {
-    if (!activeSessionId || isHydratingRef.current) return;
-    if (sessionSaveTimerRef.current) {
-      window.clearTimeout(sessionSaveTimerRef.current);
-    }
-    sessionSaveTimerRef.current = window.setTimeout(() => {
-      const focusDocName = selectedDocumentId
-        ? documents.find((d) => d.id === selectedDocumentId)?.title
-        : t("tabs.wholeLibrary");
-      updateSession(activeSessionId, {
-        messages,
-        selectedDocumentId,
-        webSearchEnabled,
-        documentName: focusDocName,
-      });
-      refreshSessions();
-    }, 500);
-
-    return () => {
-      if (sessionSaveTimerRef.current) {
-        window.clearTimeout(sessionSaveTimerRef.current);
-        sessionSaveTimerRef.current = null;
-      }
-    };
-  }, [messages, selectedDocumentId, webSearchEnabled, activeSessionId, documents, t, refreshSessions]);
-
-  // Keep the sidebar list fresh after out-of-band mutations.
-  useEffect(() => {
-    refreshSessions();
-  }, [sessionsVersion, refreshSessions]);
-
-  // Persist sidebar collapse choice.
-  useEffect(() => {
-    if (typeof localStorage === "undefined") return;
-    localStorage.setItem(SESSION_STORAGE_KEYS.sidebarCollapsed, sidebarCollapsed ? "1" : "0");
-  }, [sidebarCollapsed]);
-
-  const toggleSidebar = useCallback(() => {
-    setSidebarCollapsed((prev) => !prev);
-  }, []);
-
-  // §3.2 / §3.3 — Start a new chat. If the composer has unsent text, confirm
-  // first. Sent history is always preserved into the outgoing session.
-  const handleNewChat = useCallback(() => {
-    if (rawInput.trim()) {
-      setShowNewChatConfirm(true);
-      return;
-    }
-    startNewChatNow();
-  }, [rawInput]);
-
-  const startNewChatNow = useCallback(() => {
-    flushSaveActiveSession();
-    const fresh = createSession({
-      selectedDocumentId,
-      webSearchEnabled: false,
-    });
-    // Persist the new record immediately (createSession only builds the
-    // object) so it's visible in the sidebar / survives a reload.
-    saveSessions([fresh, ...loadSessions()]);
-    setActiveSessionId(fresh.id);
-    setActiveSessionIdState(fresh.id);
-    hydrateFromSession(fresh);
-    setSessionsVersion((v) => v + 1);
-    setShowNewChatConfirm(false);
-  }, [flushSaveActiveSession, hydrateFromSession, selectedDocumentId]);
-
-  // §5.1 — Resume a past session with full state.
-  const handleResumeSession = useCallback(
-    (id: string) => {
-      if (id === activeSessionId) return;
-      flushSaveActiveSession();
-      setActiveSessionId(id);
-      setActiveSessionIdState(id);
-      const target = loadSessions().find((s) => s.id === id) ?? null;
-      if (target) {
-        hydrateFromSession(target);
-      } else {
-        // Guard (§6.3): target vanished — fall back to a fresh session.
-        const fresh = createSession();
-        setActiveSessionId(fresh.id);
-        setActiveSessionIdState(fresh.id);
-        hydrateFromSession(fresh);
-      }
-      setSessionsVersion((v) => v + 1);
-    },
-    [activeSessionId, flushSaveActiveSession, hydrateFromSession],
-  );
-
-  // §4.4 — Rename a session inline.
-  const handleRenameSession = useCallback(
-    (id: string) => {
-      const trimmed = renameValue.trim();
-      if (trimmed) {
-        renameQaSession(id, trimmed);
-      }
-      setRenamingSessionId(null);
-      setRenameValue("");
-      setSessionsVersion((v) => v + 1);
-    },
-    [renameValue],
-  );
-
-  // §4.4 — Delete a session (active session deletion is handled by the store:
-  // it creates+activates an empty session and returns its id).
-  const handleConfirmDelete = useCallback(() => {
-    if (!pendingDeleteId) return;
-    const wasActive = pendingDeleteId === activeSessionId;
-    const newActiveId = deleteQaSession(pendingDeleteId);
-    setPendingDeleteId(null);
-
-    if (wasActive) {
-      setActiveSessionId(newActiveId);
-      setActiveSessionIdState(newActiveId);
-      const fresh = loadSessions().find((s) => s.id === newActiveId) ?? null;
-      if (fresh) hydrateFromSession(fresh);
-    }
-    setSessionsVersion((v) => v + 1);
-  }, [pendingDeleteId, activeSessionId, hydrateFromSession]);
-
-  // §3.4 — Clear the active conversation in place (keeps the session record,
-  // empties its messages). Confirms first.
-  const clearConversation = () => {
-    if (messages.length > 0) {
-      setShowClearConfirm(true);
-      return;
-    }
-    clearMessages();
+  const focusComposer = useCallback(() => {
+    if (!window.matchMedia("(pointer: coarse)").matches) focusQuestion();
+  }, [focusQuestion]);
+  const hydrateFromSession = (session: DocumentQaSession) => {
+    const draft = normalizeQaDraft(session.draft);
+    const parsedMentions = parseMentions(draft.text).mentions;
+    const restoredSections: SectionNode[] = draft.sections.map((section) => ({
+      ...section, content: "", preview: "", children: [], breadcrumb: [], level: 1, parentId: null,
+    }));
+    restoredTargetRef.current = parsedMentions[0]?.id ?? session.selectedDocumentId;
+    setMessages(session.messages);
+    setSelectedDocumentId(session.selectedDocumentId);
+    setWebSearchEnabled(session.webSearchEnabled);
+    setRawInput(draft.text);
+    setMentions(parsedMentions);
+    setSelectedSections(restoredSections);
+    setInput(formatInputForDisplay(draft.text, parsedMentions, restoredSections));
+    setContextPassage(draft.contextPassage);
+    setDetectedChapter(null);
+    setHistoryIndex(-1);
+    setRawQueryHistory([]);
     setProviderError(null);
+    setRetryTurnId(null);
+    restoreRetryRef.current = null;
+    setShowMentionPopup(false);
+    setShowSectionPopup(false);
+    setSourcePickerOpen(false);
+    setHistoryOpen(false);
   };
-
+  const workspace = useDocumentQaWorkspace({
+    snapshot: { messages, selectedDocumentId, webSearchEnabled, draft: qaDraft, documentName: sourceLabel },
+    restore: hydrateFromSession, isActive: workspaceIsActive, isProcessing, focus: focusComposer,
+  });
+  const handleNewChat = () => { if (!isProcessing) workspace.newConversation(); };
   const confirmClearActiveConversation = () => {
+    if (isProcessing) return;
     clearMessages();
     setProviderError(null);
     setShowClearConfirm(false);
-    setSessionsVersion((v) => v + 1);
+  };
+  const prepareStarter = (kind: "connections" | "viewpoints" | "summary") => {
+    if (rawInput.trim() || isProcessing) return;
+    if (kind === "summary" && !selectedDocumentId) {
+      setSummaryAfterPick(true);
+      setSourcePickerOpen(true);
+      return;
+    }
+    const prompt = t(`qaWorkspace.prompt.${kind}`);
+    setRawInput(prompt);
+    setInput(prompt);
+    textareaRef.current?.focus();
+  };
+  const selectSource = (id: string) => {
+    if (isProcessing) return;
+    setSelectedDocumentId(id);
+    if (summaryAfterPick && id && !rawInput.trim()) {
+      const prompt = t("qaWorkspace.prompt.summary");
+      setRawInput(prompt);
+      setInput(prompt);
+      focusQuestion();
+    }
+    setSummaryAfterPick(false);
+  };
+  const openWorkspaceSettings = () => {
+    if (workspace.flush()) useTabsStore.getState().addTab(createCanonicalTab("settings"));
+  };
+  const importWorkspaceDocuments = async () => {
+    if (!workspace.flush()) return;
+    try {
+      await useDocumentStore.getState().openFilePickerAndImport();
+    } catch {
+      setProviderError(t("mainLayout.importFailed"));
+    }
   };
 
   // Get document content for context (chapter-aware)
@@ -1575,11 +1453,13 @@ export function DocumentQATab() {
   const handleSendMessage = async () => {
     if (!rawInput.trim() || isProcessing) return;
 
-    const mentionedDocumentIds = mentions.length > 0
-      ? mentions.map((m) => m.id)
-      : selectedDocumentId
-        ? [selectedDocumentId]
-        : [];
+    const tokenIds = [...rawInput.matchAll(/@{([^}]+)}/g)].map((match) => match[1]);
+    const mentionedDocumentIds = tokenIds.length > 0 ? [...new Set(tokenIds)] : selectedDocumentId ? [selectedDocumentId] : [];
+    const submittedScope = { label: effectiveScopeLabel, documentIds: mentionedDocumentIds, webSearch: webSearchEnabled };
+    if (mentionedDocumentIds.some((id) => !documents.some((doc) => doc.id === id && !doc.isAiExcluded))) {
+      setProviderError(t("qaWorkspace.sourceUnavailable"));
+      return;
+    }
 
     // Detect chapter references in the query
     const chapterRef = detectChapterReference(rawInput.replace(MENTION_REGEX, "").replace(SECTION_REGEX, ""));
@@ -1594,17 +1474,25 @@ export function DocumentQATab() {
     const selectedSectionSnapshot = submittedSectionMentions.nodes;
 
     const userMessage: Message = {
-      id: `user-${Date.now()}`,
+      id: retryTurnId ?? `user-${crypto.randomUUID()}`,
       role: "user",
       content: input, // Display version with document titles
       timestamp: Date.now(),
       mentionedDocumentIds,
+      submittedScope,
     };
 
-    addMessage(userMessage);
+    if (retryTurnId) updateMessage(retryTurnId, userMessage);
+    else addMessage(userMessage);
+    setRetryTurnId(null);
+    restoreRetryRef.current = null;
     setHistoryIndex(-1);
     const savedRawInput = rawInput;
     const restoreComposer = () => {
+      setRetryTurnId(userMessage.id);
+      setSelectedDocumentId(selectedDocumentId);
+      setWebSearchEnabled(webSearchEnabled);
+      setContextPassage(contextPassage);
       setRawInput(savedRawInput);
       setMentions(parseMentions(savedRawInput).mentions);
       setSelectedSections(selectedSectionSnapshot);
@@ -1618,6 +1506,8 @@ export function DocumentQATab() {
     setDetectedChapter(null);
     setProviderError(null);
     setIsProcessing(true);
+    let responseCommitted = false;
+    restoreRetryRef.current = restoreComposer;
 
     let userQuestion = savedRawInput.replace(MENTION_REGEX, "").replace(SECTION_REGEX, "").trim();
     const isTwentyRules = isTwentyRulesCommand(userQuestion);
@@ -1638,6 +1528,14 @@ export function DocumentQATab() {
     }
 
     try {
+      const toolIntent = isTwentyRules || /\b(flashcards?|clozes?|extracts?|create_qa_card|create_cloze_card)\b/i.test(userQuestion);
+      if (!hasSectionMentions && !chapterRef && !toolIntent && !webSearchEnabled) {
+        const message = await askQaKnowledge({ question: userQuestion, scope: submittedScope, collectionId: activeCollectionId, contextPassage });
+        const parsed = parseAssistantThinking(message.content);
+        addMessage({ ...message, content: parsed.answer, thinking: parsed.thinking || undefined });
+        restoreRetryRef.current = null;
+        return;
+      }
       const enabledProviders = getEnabledProviders();
       if (!enabledProviders || enabledProviders.length === 0) {
         const errorMsg = {
@@ -1647,12 +1545,15 @@ export function DocumentQATab() {
           timestamp: Date.now(),
         };
         addMessage(errorMsg);
+        setProviderError(t("qaWorkspace.providerMissing"));
         restoreComposer();
         setIsProcessing(false);
         return;
       }
 
       const provider = enabledProviders[0];
+      const eligible = eligibleQaSources(documents, mentionedDocumentIds, activeCollectionId, provider.provider !== "ollama");
+      if (mentionedDocumentIds.some((id) => !eligible.some((doc) => doc.id === id))) throw new Error("qaWorkspace.sourceUnavailable");
 
       let focusedSectionContext: FocusedSectionContextResult | null = null;
       if (hasSectionMentions) {
@@ -1811,81 +1712,6 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
         }
       }
 
-      // Whole-library RAG branch: when no specific document is mentioned,
-      // retrieve relevant chunks across the collection and answer with
-      // citations instead of the placeholder "search all documents" prompt.
-      if (mentionedDocumentIds.length === 0 && !webSearchEnabled) {
-        try {
-          const { askLibrary } = await import("../../lib/ai/tasks/definitions/libraryTask");
-          const { resolveEmbeddingConfigForRag } = await import("../assistant/ragConfig");
-
-          const ragConfig = await resolveEmbeddingConfigForRag();
-
-          const ragResult = await askLibrary({
-            query: userQuestion,
-            config: ragConfig,
-          });
-
-          // The library was never searched (nothing indexed) — say so instead
-          // of letting the answer read as "I looked and my notes have nothing
-          // on this".
-          if (ragResult.sources.length === 0 && ragResult.answer.evidenceLevel === "none") {
-            const parsedRagAnswer = parseAssistantThinking(ragResult.answer.answer);
-            addMessage({
-              id: `assistant-${Date.now()}`,
-              role: "assistant" as const,
-              content: `⚠️ ${parsedRagAnswer.answer}`,
-              thinking: parsedRagAnswer.thinking || undefined,
-              timestamp: Date.now(),
-            });
-            setIsProcessing(false);
-            return;
-          }
-
-          // `content` is the answer alone; the retrieval citations ride along as
-          // structured data so the sources footer can render them interactively.
-          const citations = ragResult.sources.map(source => ({
-            documentId: source.documentId,
-            documentTitle: source.documentTitle ?? source.documentId,
-            chunkIndex: source.location.ordinal,
-            chunkText: source.text,
-            score: source.score,
-          }));
-          const parsedRagAnswer = parseAssistantThinking(ragResult.answer.answer);
-          const ragMessage = {
-            id: `assistant-${Date.now()}`,
-            role: "assistant" as const,
-            content: parsedRagAnswer.answer,
-            thinking: parsedRagAnswer.thinking || undefined,
-            timestamp: Date.now(),
-            sourceDocuments: citations.length > 0
-              ? citations.map(c => c.documentId)
-              : undefined,
-            citations: citations.length > 0 ? citations : undefined,
-          };
-          addMessage(ragMessage);
-          setIsProcessing(false);
-          return;
-        } catch (ragError) {
-          // Do NOT fall through silently: answering from general knowledge
-          // after retrieval failed is indistinguishable from having searched
-          // the library and found nothing. Show the cause instead.
-          console.warn("Library question failed:", ragError);
-          const detail = ragError instanceof Error ? ragError.message : String(ragError);
-          addMessage({
-            id: `assistant-${Date.now()}`,
-            role: "assistant" as const,
-            content:
-              `⚠️ I could not search your library, so this question was not answered from it.\n\n` +
-              `**Cause:** ${detail}\n\n` +
-              `Check the embedding provider in Settings → Embeddings (Ollama must be running for local models), ` +
-              `then start library indexing. Mention a document with @ to ask about it directly.`,
-            timestamp: Date.now(),
-          });
-          setIsProcessing(false);
-          return;
-        }
-      }
       let contextPrefix = "";
       if (isChapterSpecific && chapterNumber) {
         contextPrefix = `[Focusing on Chapter ${chapterNumber}]\n\n`;
@@ -1908,6 +1734,8 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
       // Include recent messages (excluding system messages) for context
       const conversationHistory: LLMMessage[] = messages
         .filter(m => m.role === "user" || m.role === "assistant")
+        .filter(m => [...(m.mentionedDocumentIds ?? []), ...(m.sourceDocuments ?? [])].every((id) =>
+          eligible.some((doc) => doc.id === id)))
         .slice(-6) // Last 6 messages for context (3 turns)
         .map(m => ({
           role: m.role,
@@ -1950,12 +1778,17 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
         sourceContext: focusedSectionContext?.ok ? focusedSectionContext.source : undefined,
       };
 
-      addMessage(assistantMessage);
+      addMessage({ ...assistantMessage, submittedScope });
+      responseCommitted = true;
+      restoreRetryRef.current = null;
 
       if (toolCalls.length > 0) {
         await executeToolCalls(assistantMessage.id, toolCalls, focusedSectionContext?.ok ? focusedSectionContext.source : undefined);
       }
     } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      setProviderError(reason.startsWith("qaWorkspace.") ? t(reason) : t("qaWorkspace.requestFailed", { reason }));
+      if (!responseCommitted) restoreComposer();
       const errorMessage = {
         id: `error-${Date.now()}`,
         role: "system" as const,
@@ -1968,236 +1801,40 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
     }
   };
 
-  // Empty state when no documents
-  if (documents.length === 0) {
-    return (
-      <div className="h-full flex items-center justify-center p-8">
-        <div className="text-center max-w-md">
-          <TextT className="w-16 h-16 mx-auto mb-4 text-muted-foreground" />
-          <h2 className="text-2xl font-bold text-foreground mb-2">{t("tabs.noDocumentsYet")}</h2>
-          <p className="text-muted-foreground mb-4">
-            {t("tabs.importDocumentsFirst")}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            {t("tabs.useImportButton")}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="h-full flex bg-background">
-      {/* Sessions sidebar (chat-app-native history rail); desktop only — a
-          256px rail leaves no room for the chat column on a phone. */}
-      {!isMobile && !sidebarCollapsed && (
-        <aside className="w-64 flex-shrink-0 border-r border-border flex flex-col bg-card/50">
-          <div className="p-3 border-b border-border flex items-center gap-2">
-            <button
-              onClick={startNewChatNow}
-              className="flex-1 px-3 py-2 text-sm font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center justify-center gap-1.5"
-              title={t("tabs.newChatShortcut")}
-            >
-              <Plus className="w-4 h-4" />
-              {t("tabs.newChat")}
-            </button>
-            <button
-              onClick={toggleSidebar}
-              className="p-2 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
-              title={t("tabs.collapseSidebar")}
-              aria-label={t("tabs.collapseSidebar")}
-            >
-              <List className="w-4 h-4" />
-            </button>
+    <div className="document-qa-workspace flex h-full min-h-0 bg-surface text-on-surface">
+      <DocumentQaHistory sessions={workspace.sessions} activeId={workspace.activeId} busy={isProcessing}
+        onNew={handleNewChat} onResume={workspace.resume} onRename={workspace.rename} onDelete={workspace.remove}
+        open={historyOpen} onClose={() => setHistoryOpen(false)} />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-outline-variant px-3 py-2 sm:px-5">
+          <div className="flex min-w-0 items-center gap-2">
+            <BookOpen className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+            <h1 className="text-base font-medium">{t("toolbar.documentQA")}</h1>
           </div>
-
-          <div className="px-3 pt-2 pb-1">
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              {t("tabs.chatHistory")}
-            </div>
-          </div>
-
-          <div className="flex-1 overflow-auto px-2 pb-2">
-            {sessions.length === 0 ? (
-              <div className="text-center text-xs text-muted-foreground p-4">
-                <ChatCircle className="w-6 h-6 mx-auto mb-2 opacity-40" />
-                <p>{t("tabs.sidebarEmpty")}</p>
+          <div className="flex items-center gap-1">
+            <Button variant="text" size="icon" onClick={() => setHistoryOpen(true)} aria-label={t("qaWorkspace.history")}><List aria-hidden="true" /></Button>
+            <Button variant="tonal" className="px-3" onClick={handleNewChat} disabled={isProcessing} title={t("tabs.newChatShortcut")}>
+              <Plus aria-hidden="true" /><span className="hidden sm:inline">{t("qaWorkspace.newConversation")}</span>
+              <span className="sr-only sm:hidden">{t("qaWorkspace.newConversation")}</span>
+            </Button>
+            <details className="relative">
+              <summary className="md-focus-ring flex min-h-10 min-w-10 cursor-pointer list-none items-center justify-center rounded-full" aria-label={t("qaWorkspace.more")}><DotsThree aria-hidden="true" /></summary>
+              <div className="absolute right-0 z-20 w-56 rounded-lg bg-surface-container-high p-2 shadow-lg">
+                <Button variant="text" className="w-full justify-start px-3" disabled={isProcessing || messages.length === 0}
+                  onClick={(event) => { event.currentTarget.closest("details")?.removeAttribute("open"); setShowClearConfirm(true); }}>
+                  <Trash aria-hidden="true" />{t("qaWorkspace.clearConversation")}
+                </Button>
               </div>
-            ) : (
-              <ul className="space-y-1">
-                {sessions.map((session) => {
-                  const isActive = session.id === activeSessionId;
-                  const focusLabel = session.documentName || t("tabs.wholeLibrary");
-                  return (
-                    <li key={session.id}>
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => handleResumeSession(session.id)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            handleResumeSession(session.id);
-                          }
-                        }}
-                        className={`group relative w-full text-left px-2.5 py-2 rounded-lg cursor-pointer transition-colors ${
-                          isActive
-                            ? "bg-primary/15 ring-1 ring-primary/30"
-                            : "hover:bg-muted"
-                        }`}
-                      >
-                        {isActive && (
-                          <span className="absolute left-0 top-1/2 -translate-y-1/2 h-6 w-1 rounded-r bg-primary" />
-                        )}
-                        {renamingSessionId === session.id ? (
-                          <input
-                            autoFocus
-                            value={renameValue}
-                            onChange={(e) => setRenameValue(e.target.value)}
-                            onBlur={() => handleRenameSession(session.id)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                handleRenameSession(session.id);
-                              } else if (e.key === "Escape") {
-                                e.preventDefault();
-                                setRenamingSessionId(null);
-                                setRenameValue("");
-                              }
-                            }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="w-full bg-background border border-primary rounded px-1.5 py-0.5 text-sm text-foreground focus:outline-none"
-                          />
-                        ) : (
-                          <div className="pr-12">
-                            <div className="text-sm font-medium text-foreground truncate">
-                              {session.title}
-                            </div>
-                            <div className="flex items-center gap-1.5 mt-0.5 text-xs text-muted-foreground">
-                              <span>{formatRelativeTime(session.updatedAt)}</span>
-                              <span aria-hidden>·</span>
-                              <span className="truncate">{focusLabel}</span>
-                            </div>
-                            {isActive && (
-                              <span className="text-[10px] font-semibold uppercase text-primary">
-                                {t("tabs.activeSessionLabel")}
-                              </span>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Row hover actions */}
-                        {renamingSessionId !== session.id && (
-                          <div className="absolute right-1.5 top-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setRenamingSessionId(session.id);
-                                setRenameValue(session.title);
-                              }}
-                              className="p-1 rounded text-muted-foreground hover:bg-background hover:text-foreground"
-                              title={t("tabs.rename")}
-                              aria-label={t("tabs.rename")}
-                            >
-                              <PencilSimple className="w-3.5 h-3.5" />
-                            </button>
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setPendingDeleteId(session.id);
-                              }}
-                              className="p-1 rounded text-muted-foreground hover:bg-destructive hover:text-destructive-foreground"
-                              title={t("tabs.deleteSession")}
-                              aria-label={t("tabs.deleteSession")}
-                            >
-                              <Trash className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-            {sessions.length > 0 && (
-              <p className="text-[10px] text-muted-foreground px-2 pt-3">
-                {t("tabs.sidebarCapNote")}
-              </p>
-            )}
+            </details>
           </div>
-        </aside>
-      )}
-
-      {/* Collapsed sidebar — show just the expand toggle */}
-      {sidebarCollapsed && (
-        <div className="w-10 flex-shrink-0 border-r border-border flex flex-col items-center py-3 bg-card/50">
-          <button
-            onClick={toggleSidebar}
-            className="p-2 rounded-lg text-muted-foreground hover:bg-muted transition-colors"
-            title={t("tabs.expandSidebar")}
-            aria-label={t("tabs.expandSidebar")}
-          >
-            <List className="w-4 h-4" />
-          </button>
-          <button
-            onClick={startNewChatNow}
-            className="mt-2 p-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-            title={t("tabs.newChatShortcut")}
-            aria-label={t("tabs.newChat")}
-          >
-            <Plus className="w-4 h-4" />
-          </button>
-        </div>
-      )}
-
-      {/* Chat column */}
-      <div className="flex-1 flex flex-col min-w-0">
-      {/* Header */}
-      <div className="p-2 sm:p-4 border-b border-border flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <ChatCircle className="w-5 h-5 text-primary flex-shrink-0" />
-          <h2 className="text-base sm:text-xl font-bold text-foreground truncate">{t("toolbar.documentQA")}</h2>
-        </div>
-        <div className="flex items-center gap-2 sm:gap-3 flex-shrink-0">
-          {documents.length > 0 && (
-            <div className="flex items-center gap-1.5 bg-muted/50 border border-border rounded-lg px-2.5 py-1 text-muted-foreground focus-within:ring-1 focus-within:ring-primary transition-all max-w-[45vw]">
-              <BookOpen className="w-3.5 h-3.5" />
-              <select
-                aria-label="Select focus document"
-                value={selectedDocumentId}
-                onChange={(e) => setSelectedDocumentId(e.target.value)}
-                className="bg-transparent text-xs font-semibold text-foreground focus:outline-none cursor-pointer pr-1"
-              >
-                <option value="" className="bg-background text-foreground">🌐 {t("tabs.wholeLibrary")} (RAG)</option>
-                {documents.map((doc) => (
-                  <option key={doc.id} value={doc.id} className="bg-background text-foreground">
-                    {doc.title.length > 30 ? `${doc.title.slice(0, 30)}...` : doc.title}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          <button
-            onClick={handleNewChat}
-            className="px-2 sm:px-3 py-1.5 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-1 min-h-[36px]"
-            title={t("tabs.newChatShortcut")}
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">{t("tabs.newChat")}</span>
-          </button>
-          {messages.length > 0 && (
-            <button
-              onClick={clearConversation}
-              className="px-2 sm:px-3 py-1.5 text-sm bg-muted text-muted-foreground rounded hover:bg-destructive hover:text-destructive-foreground transition-colors flex items-center gap-1 min-h-[36px]"
-              title={t("tabs.clearChat")}
-            >
-              <Trash className="w-4 h-4" />
-              <span className="hidden sm:inline">{t("tabs.clearChat")}</span>
-            </button>
-          )}
-        </div>
-      </div>
+        </header>
+        {workspace.pending && <div role="status" className="flex flex-wrap items-center gap-2 bg-surface-container-low px-4 py-2 text-sm">
+          <span className="flex-1">{t(isProcessing ? "qaWorkspace.pendingEntry" : "qaWorkspace.preparingEntry")}</span>
+          {workspace.error && <Button variant="text" onClick={workspace.retryEntry}>{t("qaWorkspace.retry")}</Button>}
+          <Button variant="text" onClick={workspace.dismissEntry}>{t("tabs.cancel")}</Button>
+        </div>}
+        {workspace.error && <p role="alert" className="px-4 py-2 text-sm text-error">{workspace.error}</p>}
 
       {notebookResearchEnabled && showLegacyNotebookResearch && (
         <div className="border-b border-border bg-muted/30 p-4">
@@ -2352,72 +1989,10 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
         </div>
       )}
 
-      {/* Mention badges, chapter detection, section focus - new tree-aware */}
-      {(mentions.length > 0 || detectedChapter || selectedSections.length > 0) && (
-        <div className="px-4 pt-2 flex flex-wrap gap-2">
-          {mentions.map((mention) => (
-            <span
-              key={mention.id}
-              className="inline-flex items-center gap-1 px-2 py-1 bg-primary/20 text-primary text-sm rounded-full"
-            >
-              <TextT className="w-3 h-3" />
-              {mention.title}
-              <button
-                onClick={() => handleRemoveMention(mention.id)}
-                className="hover:bg-primary/30 rounded-full p-0.5"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          ))}
-          {detectedChapter && (
-            <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 text-sm rounded-full">
-              <BookOpen className="w-3 h-3" />
-              Chapter {detectedChapter.number}
-              {detectedChapter.title && `: ${detectedChapter.title}`}
-            </span>
-          )}
-          {selectedSections.map((selectedSection) => (
-            <SectionMentionCard
-              key={selectedSection.id}
-              node={selectedSection}
-              onRemove={handleRemoveDocumentQaSection}
-            />
-          ))}
-        </div>
-      )}
-
       {/* Messages */}
-      <div className="flex-1 overflow-auto p-2 sm:p-4">
-        {messages.length === 0 ? (
-          <div className="h-full flex items-center justify-center">
-            <div className="text-center max-w-md">
-              <Sparkle className="w-8 h-8 sm:w-12 sm:h-12 mx-auto mb-2 sm:mb-4 text-primary opacity-50" />
-              <h2 className="text-lg sm:text-2xl font-bold text-foreground mb-2">
-                {t("tabs.askYourDocuments")}
-              </h2>
-              <p className="text-muted-foreground mb-4">
-                {t("tabs.typeAtToMention")}
-              </p>
-              <div className={`${isMobile ? "hidden" : ""} text-sm text-muted-foreground text-left`}>
-                <p className="font-semibold mb-2">Example questions:</p>
-                <ul className="space-y-1">
-                  <li>• "@MyDocument What are the main points?"</li>
-                  <li>• "Summarize chapter 3" (saves tokens!)</li>
-                  <li>• "@MyDocument Explain chapter 5 in detail"</li>
-                  <li>• "Create flashcards from mentioned documents"</li>
-                  <li>• "What insights can you extract?"</li>
-                </ul>
-                <p className="font-semibold mt-3 mb-1">Chapter-aware queries:</p>
-                <p className="text-xs">
-                  Mention a document, then ask about a specific chapter like "summarize chapter 9" 
-                  to only process that chapter—saving LLM tokens and getting more focused answers.
-                </p>
-              </div>
-            </div>
-          </div>
-        ) : (
-          <div className="space-y-4 max-w-4xl mx-auto">
+      <div className={messages.length > 0 ? "min-h-0 flex-1 overflow-auto p-3 sm:p-6" : "hidden"}>
+        {messages.length > 0 && (
+          <div className="space-y-5 max-w-[75ch] mx-auto">
             {messages.map((message) => (
               <div
                 key={message.id}
@@ -2448,9 +2023,10 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
                   )}
                 </div>
 
+                {message.submittedScope && <p className="mb-2 max-w-full break-words text-xs text-on-surface-variant">{message.submittedScope.label}</p>}
                 {/* Message content */}
                 <div
-                  className={`max-w-[85%] rounded-lg p-3 sm:p-4 relative group ${
+                  className={`max-w-full sm:max-w-[90%] rounded-lg p-3 sm:p-4 relative group ${message.role === "assistant" ? "pr-12 sm:pr-12" : ""} ${
                     message.role === "user"
                       ? "bg-primary text-primary-foreground"
                       : message.role === "system"
@@ -2469,8 +2045,8 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
                             setCopiedMessageId(message.id);
                             setTimeout(() => setCopiedMessageId(null), 2000);
                           }}
-                          className="absolute top-2 right-2 p-1.5 rounded bg-background/50 hover:bg-background/80 text-muted-foreground transition-all opacity-0 group-hover:opacity-100 border border-border"
-                          title="Copy response"
+                          className="md-focus-ring absolute top-1 right-1 flex min-h-10 min-w-10 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface-container-high"
+                          title={t("qaWorkspace.copyResponse")} aria-label={t("qaWorkspace.copyResponse")}
                         >
                           {copiedMessageId === message.id ? (
                             <Check className="w-3.5 h-3.5 text-green-500" />
@@ -2488,10 +2064,20 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
                           message carries structured citations (older persisted
                           messages have their sources baked into content as text
                           and must not gain a second footer). */}
+                      {message.evidence && <p className="mt-3 text-xs text-on-surface-variant">
+                        {t("qaWorkspace.sourcesCount", { count: message.evidence.documentCount })}
+                        {message.evidence.retrievalOnly && ` · ${t("qaWorkspace.retrievalOnly")}`}
+                        {message.evidence.level === "weak" && ` · ${t("qaWorkspace.weakEvidence")}`}
+                        {message.evidence.level === "none" && ` · ${t("qaWorkspace.noEvidence")}`}
+                        {message.evidence.level === "conflicting" && ` · ${t("qaWorkspace.conflictingEvidence")}`}
+                      </p>}
                       {message.role === "assistant" &&
                         message.citations &&
                         message.citations.length > 0 && (
+                          <details className="mt-3">
+                          <summary className="md-focus-ring flex min-h-10 cursor-pointer items-center gap-2 rounded-lg text-sm font-medium text-primary">{t("qaWorkspace.showSources")}</summary>
                           <DocumentQASources citations={message.citations} />
+                        </details>
                         )}
                     </>
                   )}
@@ -2569,7 +2155,7 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
             {isProcessing && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
                 <CircleNotch className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                <span>{t("assistant.thinkingInProgress")}</span>
+                <span>{t("qaWorkspace.processing")}</span>
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -2577,76 +2163,103 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
         )}
       </div>
 
-      {/* Input */}
-      <div
-        className="p-2 sm:p-4 border-t border-border relative"
-        style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
-      >
-        {/* Quick Command Chips */}
-        <div className="flex items-center gap-2 max-w-4xl mx-auto mb-2 text-xs">
-          <button
-            type="button"
-            onClick={() => {
-              setRawInput((prev) => {
-                const trimmed = prev.trim();
-                if (!trimmed) return "/20rules ";
-                if (isTwentyRulesCommand(trimmed)) return prev;
-                return `/20rules ${trimmed}`;
-              });
-              textareaRef.current?.focus();
-            }}
-            title="Formulate atomic flashcards following Dr. Wozniak's 20 Rules (Minimum Info Principle, clozes, anti-interference)"
-            className="px-2.5 py-1 bg-muted/80 hover:bg-muted border border-border/80 rounded-md text-foreground transition-colors flex items-center gap-1.5 font-medium shadow-xs"
-          >
-            <Sparkle className="w-3.5 h-3.5 text-amber-500" />
-            <span className="font-mono font-semibold">/20rules</span>
-            <span className="text-[11px] text-muted-foreground font-normal hidden sm:inline">— 20 Rules Formulation</span>
-          </button>
-        </div>
-
-        <div className="flex gap-2 max-w-4xl mx-auto">
-          <div className="relative flex-1">
-            <textarea
-              ref={textareaRef}
-              value={rawInput}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              placeholder="Type @ to mention documents... (Shift+Enter for new line)"
-              className="w-full px-3 sm:px-4 py-2 sm:py-3 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-foreground resize-none pr-12 text-[15px]"
-              rows={isMobile ? 1 : 2}
-              disabled={isProcessing}
-            />
-            {/* Character indicator for mentions */}
-            {mentions.length > 0 && (
-              <div className="absolute bottom-2 left-4 text-xs text-muted-foreground">
-                {mentions.length} document{mentions.length > 1 ? "s" : ""} mentioned
-              </div>
-            )}
+      {/* The same composer moves from the start state into the conversation. */}
+      <div className={`qa-composer-wrap ${messages.length === 0 ? "qa-composer-wrap--empty" : "qa-composer-wrap--conversation"}`}>
+        <div className="mx-auto w-full max-w-[75ch]">
+          {messages.length === 0 && <div className="qa-start-guidance mb-6">
+            <h2 className="text-2xl font-medium tracking-tight sm:text-3xl">{t("qaWorkspace.heading")}</h2>
+            <p className="mt-2 text-sm text-on-surface-variant">{t("qaWorkspace.intro")}</p>
+          </div>}
+          {documents.length === 0 && <div className="mb-4 flex flex-wrap items-center gap-2 rounded-lg bg-surface-container-low p-3 text-sm">
+            <p className="min-w-0 flex-1">{t("qaWorkspace.emptyLibrary")}</p>
+            <Button variant="tonal" onClick={importWorkspaceDocuments}>{t("qaWorkspace.import")}</Button>
+          </div>}
+          {!aiAvailability.loading && !aiAvailability.available && documents.length > 0 && <div className="qa-start-guidance mb-3 flex flex-wrap items-center gap-2 text-sm text-on-surface-variant">
+            <p className="min-w-0 flex-1">{t("qaWorkspace.setupHint")}</p>
+            <Button variant="text" onClick={openWorkspaceSettings}>{t("qaWorkspace.configure")}</Button>
+          </div>}
+          <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2">
+            <span className="text-sm text-on-surface-variant">{t("qaWorkspace.sources")}</span>
+            <Button variant="tonal" className="min-w-0 max-w-full justify-start whitespace-normal px-3 text-left" disabled={isProcessing}
+              aria-label={t("qaWorkspace.chooseSources")} onClick={() => setSourcePickerOpen(true)}>
+              <BookOpen className="shrink-0" aria-hidden="true" /><span className="min-w-0 break-words">{effectiveScopeLabel}</span>
+            </Button>
           </div>
-          <button
-            onClick={() => setWebSearchEnabled(!webSearchEnabled)}
-            title="Toggle Web Search"
-            className={`px-3 sm:px-4 py-2 sm:py-3 min-h-[44px] border rounded-lg transition-all flex items-center gap-1.5 ${
-              webSearchEnabled
-                ? "bg-emerald-500/10 text-emerald-500 border-emerald-500/30 hover:bg-emerald-500/20"
-                : "bg-muted/50 border-border text-muted-foreground hover:bg-muted"
-            }`}
-            disabled={isProcessing}
-          >
-            <Globe className={`w-5 h-5 ${webSearchEnabled ? "animate-pulse" : ""}`} />
-            <span className="text-xs font-semibold hidden md:inline">Web Search</span>
-          </button>
-          <button
-            onClick={handleSendMessage}
-            disabled={!rawInput.trim() || isProcessing}
-            className="px-4 sm:px-6 py-2 sm:py-3 min-h-[44px] bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
-          >
-            {isProcessing ? (
-              <CircleNotch className="w-5 h-5 animate-spin" />
-            ) : (
-              <PaperPlaneTilt className="w-5 h-5" />
-            )}
-          </button>
+      {/* Mention badges, chapter detection, section focus - new tree-aware */}
+      {(mentions.length > 0 || detectedChapter || selectedSections.length > 0) && (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          {mentions.map((mention) => (
+            <span
+              key={mention.id}
+              className="inline-flex items-center gap-1 px-2 py-1 bg-primary/20 text-primary text-sm rounded-full"
+            >
+              <TextT className="w-3 h-3" />
+              {mention.title}
+              <button
+                onClick={() => handleRemoveMention(mention.id)} disabled={isProcessing}
+                aria-label={t("qaWorkspace.removeSource", { name: mention.title })}
+                className="md-focus-ring flex h-10 w-10 items-center justify-center rounded-full"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+          {detectedChapter && (
+            <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200 text-sm rounded-full">
+              <BookOpen className="w-3 h-3" />
+              Chapter {detectedChapter.number}
+              {detectedChapter.title && `: ${detectedChapter.title}`}
+            </span>
+          )}
+          {selectedSections.map((selectedSection) => (
+            <div className="qa-section-chip" key={selectedSection.id}>
+              <SectionMentionCard node={sections.find((section) => section.id === selectedSection.id) ?? selectedSection}
+                onRemove={handleRemoveDocumentQaSection} />
+            </div>
+          ))}
+        </div>
+      )}
+
+
+          {contextPassage && <div className="mb-3 flex items-start gap-2 rounded-lg bg-surface-container-low p-3 text-sm">
+            <p className="min-w-0 flex-1 whitespace-pre-wrap line-clamp-3">{contextPassage}</p>
+            <Button variant="text" size="icon" disabled={isProcessing} onClick={() => setContextPassage(undefined)} aria-label={t("qaWorkspace.removePassage")}><X /></Button>
+          </div>}
+          <div className="qa-question-box">
+            <label className="sr-only" htmlFor="qa-question">{t("qaWorkspace.questionLabel")}</label>
+            <textarea id="qa-question" ref={textareaRef} value={rawInput} onChange={handleInputChange} onKeyDown={handleKeyDown}
+              placeholder={t("qaWorkspace.placeholder")} rows={messages.length === 0 ? 3 : isMobile ? 2 : 2}
+              className="qa-question-input" disabled={isProcessing} />
+            <div className="flex flex-wrap items-center justify-between gap-2 px-2 pb-2">
+              <div className="flex flex-wrap items-center gap-1">
+                <Button variant="text" size="icon" disabled={isProcessing} aria-label={t("qaWorkspace.chooseDocument")} onClick={() => setSourcePickerOpen(true)}><BookOpen aria-hidden="true" /></Button>
+                <Button variant="text" size="icon" disabled={isProcessing} aria-label={t("qaWorkspace.addSection")} onClick={() => setShowSectionPopup((value) => !value)}><List aria-hidden="true" /></Button>
+                <Button variant={webSearchEnabled ? "tonal" : "text"} size="icon" disabled={isProcessing} aria-pressed={webSearchEnabled}
+                  aria-label={t("qaWorkspace.webSearch")} title={t("qaWorkspace.webSearch")} onClick={() => setWebSearchEnabled(!webSearchEnabled)}><Globe aria-hidden="true" /></Button>
+                <Button variant="text" disabled={isProcessing} className="px-3 text-xs" onClick={() => {
+                  const next = isTwentyRulesCommand(rawInput) ? rawInput : `/20rules ${rawInput}`;
+                  setRawInput(next);
+                  setInput(formatInputForDisplay(next, mentions, selectedSections));
+                  textareaRef.current?.focus();
+                }} title={t("qaWorkspace.twentyRules")}>/20rules</Button>
+              </div>
+              <Button onClick={() => void handleSendMessage()} disabled={!rawInput.trim() || isProcessing || documents.length === 0} className="px-5">
+                {isProcessing ? <CircleNotch className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <PaperPlaneTilt aria-hidden="true" />}
+                {t("qaWorkspace.ask")}
+              </Button>
+            </div>
+          </div>
+          {workspaceError && <div role="alert" className="mt-3 rounded-lg bg-error-container p-3 text-sm text-on-error-container">
+            <p>{workspaceError}</p><div className="mt-2 flex flex-wrap gap-2">
+              <Button variant="outlined" disabled={isProcessing || !restoreRetryRef.current} onClick={() => restoreRetryRef.current?.()}>{t("qaWorkspace.retry")}</Button>
+              <Button variant="text" onClick={openWorkspaceSettings}>{t("qaWorkspace.configure")}</Button>
+            </div>
+          </div>}
+          {messages.length === 0 && <div className="qa-start-guidance mt-4 flex flex-wrap gap-2" aria-label={t("qaWorkspace.starters")}>
+            {(["connections", "viewpoints", "summary"] as const).map((kind) => <Button key={kind} variant="outlined" className="whitespace-normal px-4 text-sm"
+              disabled={Boolean(rawInput.trim()) || isProcessing || documents.length === 0} onClick={() => prepareStarter(kind)}>{t(`qaWorkspace.starter.${kind}`)}</Button>)}
+          </div>}
+          <p className="qa-start-guidance mt-3 text-xs leading-relaxed text-on-surface-variant">{t("qaWorkspace.evidenceHint")}</p>
         </div>
 
         {/* Mention autocomplete popup */}
@@ -2705,117 +2318,13 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
         )}
       </div>
 
-      {/* Confirmation dialogs (new chat / clear active / delete session) */}
-      {showNewChatConfirm && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={t("tabs.clearDraftTitle")}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={() => setShowNewChatConfirm(false)}
-        >
-          <div
-            className="max-w-sm w-full bg-background border border-border rounded-lg shadow-xl p-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start gap-2 mb-3">
-              <WarningCircle className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <h3 className="text-base font-semibold text-foreground">{t("tabs.clearDraftTitle")}</h3>
-                <p className="text-sm text-muted-foreground mt-1">{t("tabs.clearDraftBody")}</p>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setShowNewChatConfirm(false)}
-                className="px-3 py-1.5 text-sm rounded border border-border bg-background hover:bg-muted"
-              >
-                {t("tabs.cancel")}
-              </button>
-              <button
-                onClick={startNewChatNow}
-                className="px-3 py-1.5 text-sm rounded bg-primary text-primary-foreground hover:bg-primary/90"
-              >
-                {t("tabs.startNewChat")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showClearConfirm && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={t("tabs.clearActiveChatTitle")}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={() => setShowClearConfirm(false)}
-        >
-          <div
-            className="max-w-sm w-full bg-background border border-border rounded-lg shadow-xl p-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start gap-2 mb-3">
-              <Trash className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
-              <div>
-                <h3 className="text-base font-semibold text-foreground">{t("tabs.clearActiveChatTitle")}</h3>
-                <p className="text-sm text-muted-foreground mt-1">{t("tabs.clearActiveChatBody")}</p>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setShowClearConfirm(false)}
-                className="px-3 py-1.5 text-sm rounded border border-border bg-background hover:bg-muted"
-              >
-                {t("tabs.cancel")}
-              </button>
-              <button
-                onClick={confirmClearActiveConversation}
-                className="px-3 py-1.5 text-sm rounded bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                {t("tabs.clearChat")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {pendingDeleteId && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={t("tabs.deleteSession")}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={() => setPendingDeleteId(null)}
-        >
-          <div
-            className="max-w-sm w-full bg-background border border-border rounded-lg shadow-xl p-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start gap-2 mb-3">
-              <XCircle className="w-5 h-5 text-destructive flex-shrink-0 mt-0.5" />
-              <div>
-                <h3 className="text-base font-semibold text-foreground">{t("tabs.deleteSession")}</h3>
-                <p className="text-sm text-muted-foreground mt-1">{t("tabs.deleteSessionConfirm")}</p>
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={() => setPendingDeleteId(null)}
-                className="px-3 py-1.5 text-sm rounded border border-border bg-background hover:bg-muted"
-              >
-                {t("tabs.cancel")}
-              </button>
-              <button
-                onClick={handleConfirmDelete}
-                className="px-3 py-1.5 text-sm rounded bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              >
-                {t("tabs.deleteSession")}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DocumentQaSourcePicker open={sourcePickerOpen} onClose={() => { setSourcePickerOpen(false); setSummaryAfterPick(false); }}
+        documents={documents.filter((doc) => !doc.collectionId || doc.collectionId === activeCollectionId)} selectedId={selectedDocumentId} libraryLabel={libraryLabel} onSelect={selectSource} />
+      <Dialog open={showClearConfirm} onClose={() => setShowClearConfirm(false)} title={t("tabs.clearActiveChatTitle")} description={t("tabs.clearActiveChatBody")}
+        footer={<><Button variant="text" onClick={() => setShowClearConfirm(false)}>{t("tabs.cancel")}</Button>
+          <Button variant="destructive" disabled={isProcessing} onClick={confirmClearActiveConversation}>{t("qaWorkspace.clearConversation")}</Button></>}>
+        <p className="text-sm text-on-surface-variant">{t("qaWorkspace.savedItemsUnaffected")}</p>
+      </Dialog>
       </div>
     </div>
   );

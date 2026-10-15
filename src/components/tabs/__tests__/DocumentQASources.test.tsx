@@ -268,3 +268,9 @@ describe("DocumentQASources", () => {
     unmount();
   });
 });
+
+it("copies original numeric references when unused retrieval candidates are omitted", () => {
+  const text = sourcesCopyText("Supported [3].", [{ ...citation(), citationNumber: 3 }]);
+  expect(text).toContain("3. ");
+  expect(text).not.toContain("1. ");
+});

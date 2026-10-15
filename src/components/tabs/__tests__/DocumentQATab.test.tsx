@@ -1,5 +1,12 @@
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+
+import { useLibraryAskHandoffStore } from "../../../commandPalette/libraryAskHandoff";
+import { askLibrary } from "../../../lib/ai/tasks/definitions/libraryTask";
+vi.mock("../../../lib/ai/tasks/definitions/libraryTask", () => ({ askLibrary: vi.fn() }));
+vi.mock("../../../lib/ai/resolveLibraryRag", () => ({ resolveLibraryRagComposition: vi.fn().mockResolvedValue({ retrieverId: "ai_learning", generatorKind: "ondevice", namespace: "library" }) }));
+vi.mock("../../assistant/ragConfig", () => ({ resolveEmbeddingConfigForRag: vi.fn().mockResolvedValue(undefined) }));
 
 // --- Mocks -----------------------------------------------------------------
 
@@ -68,6 +75,7 @@ vi.mock("../../../hooks/useDocumentSections", () => ({
 
 // Seed a single document so the tab renders past the empty-documents guard.
 import { copyToClipboard } from "../../../api/integrations";
+import { getDocument, extractDocumentText } from "../../../api/documents";
 import { chatWithContext } from "../../../api/llm";
 import { callAppMCPTool } from "../../../api/mcp";
 import { useDocumentQAStore, useLLMProvidersStore, useReviewStore, useStudyDeckStore, useTabsStore } from "../../../stores";
@@ -75,6 +83,8 @@ import { useDocumentStore } from "../../../stores/documentStore";
 import { useDocumentOutlineStore } from "../../../stores/documentOutlineStore";
 import type { SectionNode } from "../../../utils/sectionIndex";
 beforeEach(() => {
+  useLibraryAskHandoffStore.getState().consumeAsk();
+  vi.mocked(askLibrary).mockReset();
   sectionHookState.tree = [];
   sectionHookState.flat = [];
   useDocumentStore.setState({
@@ -121,13 +131,18 @@ afterEach(() => {
 /** Wait for the debounced save effect (500ms) to flush into the store. */
 const waitForSave = () => waitFor(() => expect(loadSessions().length).toBeGreaterThan(0), { timeout: 3000 });
 
+function selectFocusDocument() {
+  fireEvent.click(screen.getByRole("button", { name: "Choose sources" }));
+  fireEvent.click(screen.getByRole("button", { name: useDocumentStore.getState().documents.find((doc) => doc.id === "doc-1")!.title }));
+}
+
 // --- Tests -----------------------------------------------------------------
 
 describe("DocumentQATab sessions sidebar", () => {
   it("renders the sidebar with a New chat button and chat history heading", () => {
     render(<DocumentQATab />);
     expect(screen.getByText("Chat history")).toBeInTheDocument();
-    expect(screen.getAllByText("New chat").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("New conversation").length).toBeGreaterThan(0);
   });
 
   it("starts a new chat and preserves the prior session in the list", async () => {
@@ -138,10 +153,10 @@ describe("DocumentQATab sessions sidebar", () => {
 
     render(<DocumentQATab />);
 
-    // Click the sidebar "New chat" button (the one inside the sidebar header,
+    // Click the sidebar "New conversation" button (the one inside the sidebar header,
     // which sits within the chat history aside).
     const aside = screen.getByText("Chat history").closest("aside")!;
-    const newChatBtn = within(aside).getByText("New chat");
+    const newChatBtn = within(aside).getByText("New conversation");
     fireEvent.click(newChatBtn);
 
     // A fresh active session is created (empty messages) and the prior one
@@ -385,8 +400,8 @@ describe("DocumentQATab audiobook section parity", () => {
     });
 
     render(<DocumentQATab />);
-    fireEvent.change(screen.getByLabelText("Select focus document"), { target: { value: "doc-1" } });
-    const composer = screen.getByPlaceholderText("Type @ to mention documents... (Shift+Enter for new line)");
+    selectFocusDocument();
+    const composer = screen.getByRole("textbox", { name: "Your question" });
     fireEvent.change(composer, { target: { value: "#", selectionStart: 1 } });
 
     const sectionList = await screen.findByRole("listbox", { name: "Sections" });
@@ -448,8 +463,8 @@ describe("DocumentQATab audiobook section parity", () => {
     vi.mocked(chatWithContext).mockResolvedValue({ content: "Created cards." } as never);
 
     render(<DocumentQATab />);
-    fireEvent.change(screen.getByLabelText("Select focus document"), { target: { value: "doc-1" } });
-    const composer = screen.getByPlaceholderText("Type @ to mention documents... (Shift+Enter for new line)");
+    selectFocusDocument();
+    const composer = screen.getByRole("textbox", { name: "Your question" });
     fireEvent.change(composer, { target: { value: "#", selectionStart: 1 } });
     const sectionList = await screen.findByRole("listbox", { name: "Sections" });
     fireEvent.click(within(sectionList).getByRole("option", { name: /008/ }));
@@ -469,7 +484,7 @@ describe("DocumentQATab audiobook section parity", () => {
     expect(chip).toBeInTheDocument();
 
     fireEvent.click(chip);
-    const composer = screen.getByPlaceholderText("Type @ to mention documents... (Shift+Enter for new line)") as HTMLTextAreaElement;
+    const composer = screen.getByRole("textbox", { name: "Your question" }) as HTMLTextAreaElement;
     expect(composer.value).toBe("/20rules ");
   });
 
@@ -489,7 +504,7 @@ describe("DocumentQATab audiobook section parity", () => {
     vi.mocked(chatWithContext).mockResolvedValue({ content: "Created cards." } as never);
 
     render(<DocumentQATab />);
-    const composer = screen.getByPlaceholderText("Type @ to mention documents... (Shift+Enter for new line)");
+    const composer = screen.getByRole("textbox", { name: "Your question" });
     fireEvent.change(composer, { target: { value: "@{doc-1} /20rules create cards" } });
     fireEvent.keyDown(composer, { key: "Enter", code: "Enter" });
 
@@ -535,8 +550,8 @@ describe("DocumentQATab audiobook section parity", () => {
     vi.mocked(chatWithContext).mockResolvedValue({ content: "Created atomic cards." } as never);
 
     render(<DocumentQATab />);
-    fireEvent.change(screen.getByLabelText("Select focus document"), { target: { value: "doc-1" } });
-    const composer = screen.getByPlaceholderText("Type @ to mention documents... (Shift+Enter for new line)");
+    selectFocusDocument();
+    const composer = screen.getByRole("textbox", { name: "Your question" });
     fireEvent.change(composer, { target: { value: "#", selectionStart: 1 } });
     const sectionList = await screen.findByRole("listbox", { name: "Sections" });
     fireEvent.click(within(sectionList).getByRole("option", { name: /001/ }));
@@ -591,8 +606,8 @@ describe("DocumentQATab audiobook section parity", () => {
     vi.mocked(chatWithContext).mockResolvedValue({ content: "ok" } as never);
 
     render(<DocumentQATab />);
-    fireEvent.change(screen.getByLabelText("Select focus document"), { target: { value: "doc-1" } });
-    const composer = screen.getByPlaceholderText("Type @ to mention documents... (Shift+Enter for new line)") as HTMLTextAreaElement;
+    selectFocusDocument();
+    const composer = screen.getByRole("textbox", { name: "Your question" }) as HTMLTextAreaElement;
     fireEvent.change(composer, { target: { value: "#", selectionStart: 1 } });
     const sectionList = await screen.findByRole("listbox", { name: "Sections" });
     fireEvent.click(within(sectionList).getByRole("option", { name: /001/ }));
@@ -613,5 +628,186 @@ describe("DocumentQATab audiobook section parity", () => {
     fireEvent.keyDown(composer, { key: "ArrowUp" });
     await waitFor(() => expect(composer.value).toContain("#{sec-001}"));
     expect(screen.getByText("Transcript > 001")).toBeInTheDocument();
+  });
+});
+
+
+const groundedResult = () => ({
+  answer: { answer: "Cells share a common structure [1].", sourceRefs: [{ refId: "chunk-1", quote: "Cells share a common structure." }], evidenceLevel: "supported" },
+  sources: [{ chunkId: "chunk-1", documentId: "doc-1", documentTitle: "Biology Textbook", sourceType: "document", text: "Cells share a common structure.", location: { ordinal: 0 }, score: 1 }],
+  retrievalOnly: false, mode: "semantic",
+});
+const questionInput = () => screen.getByRole("textbox", { name: "Your question" }) as HTMLTextAreaElement;
+
+describe("Document Q&A workspace entry", () => {
+  it("opens cleanly while preserving and restoring the previous draft and conversation", async () => {
+    const old = createSession({ selectedDocumentId: "doc-1", messages: [userMsg("Earlier research")],
+      draft: { text: "@{doc-1} #{cells} Explain this", sections: [{ id: "cells", title: "Cells", documentId: "doc-1" }] } });
+    saveSessions([old]); setActiveSessionId(old.id);
+    useLibraryAskHandoffStore.getState().requestOpen();
+    const view = render(<DocumentQATab />);
+    await waitFor(() => expect(useLibraryAskHandoffStore.getState().pending).toBeNull());
+    expect(questionInput().value).toBe("");
+    expect(localStorage.getItem(STORAGE_KEYS.activeSession)).not.toBe(old.id);
+    expect(loadSessions().find((session) => session.id === old.id)?.draft?.text).toBe("@{doc-1} #{cells} Explain this");
+    fireEvent.click(screen.getByText("Earlier research"));
+    await waitFor(() => expect(questionInput().value).toBe("@{doc-1} #{cells} Explain this"));
+    view.unmount();
+    render(<DocumentQATab />);
+    expect(questionInput().value).toBe("@{doc-1} #{cells} Explain this");
+    expect(chatWithContext).not.toHaveBeenCalled(); expect(askLibrary).not.toHaveBeenCalled();
+  });
+
+  it("prefills a complete document suggestion exactly once under Strict Mode", async () => {
+    useLibraryAskHandoffStore.getState().requestAsk({ question: "Explain cell division", documentId: "doc-1" });
+    render(<StrictMode><DocumentQATab /></StrictMode>);
+    await waitFor(() => expect(questionInput().value).toBe("Explain cell division"));
+    expect(screen.getByRole("button", { name: "Choose sources" })).toHaveTextContent("Biology Textbook");
+    expect(loadSessions()).toHaveLength(2);
+    expect(askLibrary).not.toHaveBeenCalled(); expect(chatWithContext).not.toHaveBeenCalled();
+  });
+
+  it("dismisses a source picker before focusing a palette handoff", async () => {
+    render(<DocumentQATab />);
+    fireEvent.click(screen.getByRole("button", { name: "Choose sources" }));
+    act(() => useLibraryAskHandoffStore.getState().requestAsk({ question: "A new question", documentId: "doc-1" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(questionInput()).toHaveFocus());
+    expect(questionInput().value).toBe("A new question");
+  });
+
+  it("does not force input focus when a touch user opens the workspace", async () => {
+    const original = window.matchMedia.bind(window);
+    const media = vi.spyOn(window, "matchMedia").mockImplementation((query) => {
+      const result = original(query);
+      return query === "(pointer: coarse)" ? { ...result, matches: true } : result;
+    });
+    try {
+      useLibraryAskHandoffStore.getState().requestOpen();
+      render(<DocumentQATab />);
+      await waitFor(() => expect(useLibraryAskHandoffStore.getState().pending).toBeNull());
+      expect(questionInput()).not.toHaveFocus();
+    } finally { media.mockRestore(); }
+  });
+
+  it("reuses a clean conversation on repeated bare entries", async () => {
+    useLibraryAskHandoffStore.getState().requestOpen();
+    render(<DocumentQATab />);
+    await waitFor(() => expect(useLibraryAskHandoffStore.getState().pending).toBeNull());
+    const id = localStorage.getItem(STORAGE_KEYS.activeSession);
+    act(() => useLibraryAskHandoffStore.getState().requestOpen());
+    await waitFor(() => expect(useLibraryAskHandoffStore.getState().pending).toBeNull());
+    expect(localStorage.getItem(STORAGE_KEYS.activeSession)).toBe(id);
+    expect(loadSessions()).toHaveLength(1);
+    await waitFor(() => expect(questionInput()).toHaveFocus());
+  });
+
+  it("keeps an in-flight answer in its original session before applying queued entry", async () => {
+    let finish!: (value: never) => void;
+    vi.mocked(askLibrary).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    render(<DocumentQATab />);
+    const id = localStorage.getItem(STORAGE_KEYS.activeSession);
+    fireEvent.change(questionInput(), { target: { value: "How do cells work?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() => expect(askLibrary).toHaveBeenCalledTimes(1));
+    act(() => useLibraryAskHandoffStore.getState().requestOpen());
+    expect(screen.getByText(/This answer will finish/)).toBeInTheDocument();
+    expect(localStorage.getItem(STORAGE_KEYS.activeSession)).toBe(id);
+    await act(async () => finish(groundedResult() as never));
+    await waitFor(() => expect(useLibraryAskHandoffStore.getState().pending).toBeNull());
+    expect(loadSessions().find((session) => session.id === id)?.messages.some((message) => message.content.includes("common structure"))).toBe(true);
+    const active = loadSessions().find((session) => session.id === localStorage.getItem(STORAGE_KEYS.activeSession));
+    expect(active?.id).not.toBe(id); expect(active?.messages).toEqual([]);
+  });
+
+  it("uses selected-document retrieval and preserves source evidence on reload", async () => {
+    vi.mocked(askLibrary).mockResolvedValue(groundedResult() as never);
+    const view = render(<DocumentQATab />); selectFocusDocument();
+    fireEvent.change(questionInput(), { target: { value: "Explain cells" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() => expect(askLibrary).toHaveBeenCalledWith(expect.objectContaining({ query: "Explain cells", filters: { documentIds: ["doc-1"] } })));
+    await screen.findByText("Cells share a common structure [1].");
+    view.unmount(); render(<DocumentQATab />);
+    expect(screen.getByText("Source documents: 1")).toBeInTheDocument();
+    const answer = useDocumentQAStore.getState().messages.find((message) => message.role === "assistant");
+    expect(answer?.submittedScope?.label).toBe("Biology Textbook");
+    expect(answer?.citations?.[0].citationNumber).toBe(1);
+  });
+
+  it("retries explicitly without duplicating the failed user turn", async () => {
+    vi.mocked(askLibrary).mockRejectedValueOnce(new Error("index unavailable")).mockResolvedValueOnce(groundedResult() as never);
+    render(<DocumentQATab />);
+    fireEvent.change(questionInput(), { target: { value: "Explain cells" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await screen.findByText(/Could not answer from these sources/);
+    fireEvent.click(screen.getByRole("button", { name: "Review and retry" }));
+    expect(askLibrary).toHaveBeenCalledTimes(1); expect(questionInput().value).toBe("Explain cells");
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await screen.findByText("Cells share a common structure [1].");
+    expect(useDocumentQAStore.getState().messages.filter((message) => message.role === "user")).toHaveLength(1);
+    expect(chatWithContext).not.toHaveBeenCalled();
+  });
+
+  it("preserves the live draft and session if storage fails during a new conversation", async () => {
+    render(<DocumentQATab />);
+    fireEvent.change(questionInput(), { target: { value: "Keep this unsent question" } });
+    const id = localStorage.getItem(STORAGE_KEYS.activeSession);
+    const original = Storage.prototype.setItem;
+    const failure = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (key, value) {
+      if (key === STORAGE_KEYS.sessions) throw new Error("quota");
+      original.call(this, key, value);
+    });
+    fireEvent.click(screen.getAllByRole("button", { name: "New conversation" })[0]);
+    expect(screen.getByRole("alert")).toHaveTextContent("Could not save this conversation");
+    expect(questionInput().value).toBe("Keep this unsent question");
+    expect(localStorage.getItem(STORAGE_KEYS.activeSession)).toBe(id);
+    failure.mockRestore();
+  });
+
+  it("imports into an empty library without losing the typed question", async () => {
+    const importDocuments = vi.fn().mockResolvedValue([]);
+    const previous = useDocumentStore.getState().openFilePickerAndImport;
+    useDocumentStore.setState({ documents: [], openFilePickerAndImport: importDocuments });
+    render(<DocumentQATab />);
+    fireEvent.change(questionInput(), { target: { value: "My future question" } });
+    fireEvent.click(screen.getByRole("button", { name: "Import documents" }));
+    await waitFor(() => expect(importDocuments).toHaveBeenCalledTimes(1));
+    expect(questionInput().value).toBe("My future question");
+    expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled();
+    useDocumentStore.setState({ openFilePickerAndImport: previous });
+  });
+
+  it("makes starters editable, protects existing text and ignores IME Enter", async () => {
+    render(<DocumentQATab />);
+    fireEvent.click(screen.getByRole("button", { name: "Compare viewpoints" }));
+    expect(questionInput().value).toContain("agree or disagree");
+    expect(screen.getByRole("button", { name: "Find connections" })).toBeDisabled();
+    fireEvent.keyDown(questionInput(), { key: "Enter", isComposing: true });
+    expect(askLibrary).not.toHaveBeenCalled(); expect(chatWithContext).not.toHaveBeenCalled();
+  });
+
+  it("prepares a summary only after choosing a document and focuses the editable question", async () => {
+    render(<DocumentQATab />);
+    fireEvent.click(screen.getByRole("button", { name: "Summarize a document" }));
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Biology Textbook" }));
+    await waitFor(() => expect(questionInput()).toHaveFocus());
+    expect(questionInput().value).toContain("Summarize the main arguments");
+    expect(screen.getByRole("button", { name: "Choose sources" })).toHaveTextContent("Biology Textbook");
+    expect(askLibrary).not.toHaveBeenCalled();
+  });
+
+  it("bounds the source picker to metadata for 3,000 documents", async () => {
+    const docs = Array.from({ length: 3000 }, (_, index) => ({ id: `doc-${index}`, title: `Research source ${index}`, tags: [] }));
+    useDocumentStore.setState({ documents: docs as never });
+    vi.mocked(getDocument).mockClear(); vi.mocked(extractDocumentText).mockClear();
+    render(<DocumentQATab />);
+    fireEvent.click(screen.getByRole("button", { name: "Choose sources" }));
+    const list = screen.getByRole("list", { name: "Choose document" });
+    expect(within(list).getAllByRole("button")).toHaveLength(60);
+    fireEvent.change(screen.getByLabelText("Search your documents"), { target: { value: "Research source 2999" } });
+    fireEvent.click(screen.getByRole("button", { name: "Research source 2999" }));
+    expect(screen.getByRole("button", { name: "Choose sources" })).toHaveTextContent("Research source 2999");
+    expect(getDocument).not.toHaveBeenCalled(); expect(extractDocumentText).not.toHaveBeenCalled(); expect(askLibrary).not.toHaveBeenCalled();
   });
 });
