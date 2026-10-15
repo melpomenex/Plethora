@@ -19,7 +19,7 @@ function renderPicker() {
 }
 
 function openPicker() {
-  const trigger = screen.getByRole("button", { name: /Biolume Abyss/ });
+  const trigger = screen.getByRole("button", { name: /Obsidian Noir/ });
   fireEvent.click(trigger);
   return trigger;
 }
@@ -32,7 +32,7 @@ describe("ThemePicker", () => {
   it("shows the active theme name + swatch in a compact control", () => {
     renderPicker();
     // The active theme appears in the summary row and in the collapsed trigger.
-    expect(screen.getAllByText("Biolume Abyss").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Obsidian Noir").length).toBeGreaterThan(0);
   });
 
   it("opens a compact panel with every theme reachable (full catalog)", async () => {
@@ -158,7 +158,7 @@ describe("ThemePicker", () => {
     );
 
     // Live-preview a non-active theme (the DOM reflects it).
-    fireEvent.click(screen.getByRole("button", { name: /Biolume Abyss/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Obsidian Noir/ }));
     await screen.findByText("Nord");
     fireEvent.mouseEnter(screen.getByText("Nord").closest("button") as HTMLElement);
     await waitFor(() => {
@@ -172,7 +172,7 @@ describe("ThemePicker", () => {
     // theme.
     fireEvent.click(screen.getByRole("button", { name: "close picker" }));
     await waitFor(() => {
-      expect(document.documentElement.getAttribute("data-theme-id")).toBe("biolume-abyss");
+      expect(document.documentElement.getAttribute("data-theme-id")).toBe("obsidian-noir");
     });
     expect(localStorage.getItem("plethora-last-theme")).not.toBe("nord");
   });

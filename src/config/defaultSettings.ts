@@ -17,7 +17,7 @@ export const defaultSettings: Settings = {
   },
 
   interface: {
-    theme: 'biolume-abyss',
+    theme: 'obsidian-noir',
     denseMode: false,
     compactDocumentsView: false,
     toolbarIconSize: 24,

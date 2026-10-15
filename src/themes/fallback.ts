@@ -3,7 +3,7 @@
  *
  * These themes are the only ones the app needs before first paint
  * (ThemeContext seeds its state with them): the default theme
- * (Biolume Abyss) plus the legacy fallbacks. They live in their own module so
+ * (Obsidian Noir) plus the legacy fallbacks. They live in their own module so
  * the app root can import them WITHOUT statically importing `./builtin` —
  * a module that is both statically and dynamically imported gets merged into
  * the static importer's chunk, which previously dragged the entire theme
@@ -219,8 +219,9 @@ export const superGameBroTheme: Theme = {
   },
 };
 
-// The app default. Must stay in this module (not ./builtin) so the first
-// paint uses the real default instead of a placeholder fallback theme.
+// Kept eagerly loadable because existing installs may still have it stored as
+// their selected theme; the first paint must use the real theme instead of a
+// placeholder fallback.
 export const biolumeAbyssTheme: Theme = {
   id: 'biolume-abyss',
   name: 'Biolume Abyss',
@@ -333,6 +334,78 @@ export const biolumeAbyssTheme: Theme = {
       backdrop-filter: blur(16px);
       border: 1px solid rgba(6, 182, 212, 0.18) !important;
       box-shadow: 0 8px 32px rgba(14, 116, 144, 0.1) !important;
+    }
+  `,
+};
+
+// The app default for fresh installs (desktop and PWA). Must stay in this
+// module (not ./builtin) so the first paint uses the real default instead of a
+// placeholder fallback theme.
+export const obsidianNoirTheme: Theme = {
+  id: 'obsidian-noir',
+  name: 'Obsidian Noir',
+  variant: 'dark',
+  description: 'Polished black obsidian with amber firelight — deep, luxurious, volcanic.',
+  colors: {
+    background: '#08090c',
+    onBackground: '#ede4d3',
+    surface: '#111318',
+    onSurface: '#ede4d3',
+    surfaceVariant: '#1a1c22',
+    primary: '#e8a840',
+    onPrimary: '#1a1002',
+    primaryContainer: 'rgba(232, 168, 64, 0.15)',
+    onPrimaryContainer: '#fce8c2',
+    secondary: '#5a5550',
+    onSecondary: '#ede4d3',
+    outline: 'rgba(232, 168, 64, 0.18)',
+    outlineVariant: 'rgba(232, 168, 64, 0.08)',
+    error: '#f87171',
+    onError: '#1a0202',
+    errorContainer: 'rgba(248, 113, 113, 0.18)',
+    onErrorContainer: '#fecaca',
+    success: '#4ade80',
+    warning: '#fbbf24',
+    toolbar: '#0c0d12',
+    sidebar: '#0a0b0f',
+    card: '#111318',
+    input: '#15171d',
+    border: 'rgba(232, 168, 64, 0.15)',
+    text: '#ede4d3',
+    textSecondary: '#9d9484',
+    link: '#e8a840',
+  },
+  typography: {
+    fontFamily: '"Crimson Text", "Lora", Georgia, serif',
+    fontSize: { xs: '0.75rem', sm: '0.875rem', md: '1rem', lg: '1.125rem', xl: '1.25rem', '2xl': '1.5rem', '3xl': '1.875rem' },
+    fontWeight: { normal: 400, medium: 500, semibold: 600, bold: 700 },
+    lineHeight: { tight: 1.25, normal: 1.6, relaxed: 1.8 },
+  },
+  spacing: { xs: '0.25rem', sm: '0.5rem', md: '1rem', lg: '1.5rem', xl: '2rem', '2xl': '3rem', '3xl': '4rem' },
+  radius: { none: '0', sm: '0.125rem', md: '0.375rem', lg: '0.5rem', xl: '0.75rem', '2xl': '1rem', full: '9999px' },
+  shadows: {
+    sm: '0 2px 4px rgba(0,0,0,0.5)',
+    md: '0 4px 12px rgba(0,0,0,0.6)',
+    lg: '0 8px 24px rgba(0,0,0,0.7)',
+    xl: '0 16px 40px rgba(0,0,0,0.8)',
+  },
+  customCSS: `
+    :root[data-theme-id="obsidian-noir"] .sidebar-item-active {
+      background: rgba(232, 168, 64, 0.1) !important;
+      border-left: 3px solid #e8a840 !important;
+      box-shadow: inset 0 0 20px rgba(232, 168, 64, 0.06);
+    }
+    :root[data-theme-id="obsidian-noir"] .sidebar-item:hover:not(.sidebar-item-active) {
+      background: rgba(232, 168, 64, 0.04) !important;
+    }
+    :root[data-theme-id="obsidian-noir"] input:focus,
+    :root[data-theme-id="obsidian-noir"] textarea:focus {
+      border-color: rgba(232, 168, 64, 0.5) !important;
+      box-shadow: 0 0 12px rgba(232, 168, 64, 0.15) !important;
+    }
+    :root[data-theme-id="obsidian-noir"] .card:hover {
+      border-color: rgba(232, 168, 64, 0.2) !important;
+      box-shadow: 0 4px 20px rgba(232, 168, 64, 0.08) !important;
     }
   `,
 };

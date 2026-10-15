@@ -11,7 +11,7 @@ import { Theme, ThemeContextValue, ThemeId } from "../types/theme";
 // defeat the lazy import("../themes/builtin") below — Rollup merges a module
 // that is both statically and dynamically imported into the static importer's
 // chunk. The full catalog is lazy-loaded on mount (see the effect below).
-import { biolumeAbyssTheme, superGameBroTheme, milkyMatchaTheme, plethoraLaunchTheme } from "../themes/fallback";
+import { biolumeAbyssTheme, superGameBroTheme, milkyMatchaTheme, plethoraLaunchTheme, obsidianNoirTheme } from "../themes/fallback";
 import { makeOpaque } from "../themes/color";
 import { deriveMaterialRoles } from "../themes/materialRoles";
 import { resolveModeAccent } from "../themes/modeAccent";
@@ -246,7 +246,7 @@ function loadLastThemeId(): ThemeId {
   } catch (error) {
     console.error("Failed to load last theme:", error);
   }
-  return "biolume-abyss"; // Default theme
+  return obsidianNoirTheme.id; // Default theme
 }
 
 /**
@@ -267,7 +267,7 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
   // themes/builtin module ships in its own chunk instead of the initial bundle.
   const [themes, setThemes] = useState<Theme[]>(() => {
     const customThemes = loadCustomThemes();
-    const initialBuiltins = [biolumeAbyssTheme, superGameBroTheme, milkyMatchaTheme, plethoraLaunchTheme];
+    const initialBuiltins = [obsidianNoirTheme, biolumeAbyssTheme, superGameBroTheme, milkyMatchaTheme, plethoraLaunchTheme];
     // De-duplicate in case a custom theme shadows a fallback id.
     const seen = new Set(initialBuiltins.map((t) => t.id));
     const merged = [...initialBuiltins, ...customThemes.filter((t) => !seen.has(t.id))];
@@ -288,7 +288,7 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
   // persisting custom themes. Pre-seeded with the eagerly-loaded fallback ids;
   // populated with the full set once the catalog loads.
   const builtinThemeIdsRef = useRef<Set<string>>(
-    new Set([biolumeAbyssTheme.id, superGameBroTheme.id, milkyMatchaTheme.id, plethoraLaunchTheme.id])
+    new Set([obsidianNoirTheme.id, biolumeAbyssTheme.id, superGameBroTheme.id, milkyMatchaTheme.id, plethoraLaunchTheme.id])
   );
 
   const currentTheme = themes.find((t) => t.id === currentThemeId) || themes[0];
