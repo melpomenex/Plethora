@@ -1,14 +1,10 @@
+import type { ReaderContextMenuPayload } from "./annotationContextMenu";
 import type { PdfSelectionContext } from "../../types/selection";
 
 /** Payload PDFViewer emits on a valid right-click. Mirrors EPUBViewer's
  *  onContextMenu contract; coords are top-document client coords because PDF
  *  surfaces (text layers and the reflow DOM) are not iframed. */
-export interface PdfContextMenuPayload {
-  x: number;
-  y: number;
-  selectedText: string;
-  selectionContext: PdfSelectionContext;
-}
+export type PdfContextMenuPayload = ReaderContextMenuPayload;
 
 export interface PdfContextMenuInput {
   clientX: number;

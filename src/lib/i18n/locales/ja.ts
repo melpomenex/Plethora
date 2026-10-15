@@ -9,6 +9,8 @@ export const ja: Dict = {
   "platform.unavailable.notebooklm": "NotebookLM デスクトップ統合が必要です",
   "platform.unavailable.storeBuild": "このビルドの Plethora では利用できません",
   ...en,
+  "viewer.removeAnnotation": "ハイライト・抜粋を削除",
+  "viewer.removeAnnotationConfirm": "このハイライトと保存済みの抜粋を削除しますか？",
   "nav.continue": "続きを読む",
   "nav.dashboard": "ダッシュボード",
   "nav.documents": "ドキュメント",

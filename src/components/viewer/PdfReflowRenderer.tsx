@@ -13,13 +13,26 @@ export function safePdfLink(href?: string): string | undefined {
 
 function highlightedText(block: PdfReflowBlock, highlights: StoredHighlight[]): ReactNode {
   if (block.source.confidence < 0.8) return block.text;
-  const match = highlights.find((highlight) => highlight.pageNumber === block.source.pageNumber
+  const matches = highlights.filter((highlight) => highlight.pageNumber === block.source.pageNumber
     && highlight.text.trim().length >= 2
-    && block.text.toLocaleLowerCase().includes(highlight.text.trim().toLocaleLowerCase()));
-  if (!match) return block.text;
-  const start = block.text.toLocaleLowerCase().indexOf(match.text.trim().toLocaleLowerCase());
-  const end = start + match.text.trim().length;
-  return <>{block.text.slice(0, start)}<mark data-highlight-id={match.id} className={`pdf-reflow-highlight ${match.color}`}>{block.text.slice(start, end)}</mark>{block.text.slice(end)}</>;
+    && block.text.toLocaleLowerCase().includes(highlight.text.trim().toLocaleLowerCase())
+    && block.text.toLocaleLowerCase().indexOf(highlight.text.trim().toLocaleLowerCase()) === block.text.toLocaleLowerCase().lastIndexOf(highlight.text.trim().toLocaleLowerCase())
+    && block.source.rects.some((source) => highlight.pdfRects.some((rect) =>
+      Math.max(rect.x1, rect.x2) > source.x && Math.min(rect.x1, rect.x2) < source.x + source.width
+      && Math.max(rect.y1, rect.y2) > source.y && Math.min(rect.y1, rect.y2) < source.y + source.height)));
+  const ranges = matches.map((match) => {
+    const start = block.text.toLocaleLowerCase().indexOf(match.text.trim().toLocaleLowerCase());
+    return { match, start, end: start + match.text.trim().length };
+  });
+  const boundaries = [...new Set([0, block.text.length, ...ranges.flatMap((range) => [range.start, range.end])])].sort((a, b) => a - b);
+  return boundaries.slice(1).map((end, index) => {
+    const start = boundaries[index];
+    const active = ranges.filter((range) => range.start < end && range.end > start);
+    const text = block.text.slice(start, end);
+    return active.length ? <mark key={start} data-highlight-id={active[0].match.id}
+      data-highlight-ids={JSON.stringify(active.map((range) => range.match.id))}
+      className={`pdf-reflow-highlight ${active[0].match.color}`}>{text}</mark> : text;
+  });
 }
 
 function Block({ block, onViewOriginal, highlights, activeSearchBlockId }: { block: PdfReflowBlock; onViewOriginal?: (block: PdfReflowBlock) => void; highlights: StoredHighlight[]; activeSearchBlockId?: string | null }) {

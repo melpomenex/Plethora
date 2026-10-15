@@ -270,11 +270,7 @@ export function PdfPageViewWrapper({
           pageIndex={pageIndex}
           viewport={pageViewRef.current?.viewport ?? null}
           highlights={highlights}
-          interactive={true}
-          onHighlightClick={(highlight) => {
-            console.log("Highlight clicked:", highlight);
-            // TODO: Show highlight options menu
-          }}
+          interactive={false}
         />
         {/* Persisted-selection overlay: re-derives its rects from the selection's
             PDF-space rects through the current viewport on every render, so it

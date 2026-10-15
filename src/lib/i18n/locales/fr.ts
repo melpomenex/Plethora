@@ -9,6 +9,8 @@ export const fr: Dict = {
   "platform.unavailable.notebooklm": "Nécessite l'intégration NotebookLM de la version ordinateur",
   "platform.unavailable.storeBuild": "Indisponible dans cette version de Plethora",
   ...en,
+  "viewer.removeAnnotation": "Supprimer le surlignage/extrait",
+  "viewer.removeAnnotationConfirm": "Supprimer ce surlignage et son extrait enregistré ?",
   "nav.continue": "Continuer la lecture",
   "nav.dashboard": "Tableau de bord",
   "nav.documents": "Documents",

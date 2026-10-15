@@ -9,6 +9,8 @@ export const de: Dict = {
   "platform.unavailable.notebooklm": "Erfordert die NotebookLM-Desktop-Integration",
   "platform.unavailable.storeBuild": "In dieser Plethora-Version nicht verfügbar",
   ...en,
+  "viewer.removeAnnotation": "Markierung/Exzerpt entfernen",
+  "viewer.removeAnnotationConfirm": "Diese Markierung und das gespeicherte Exzerpt löschen?",
   "nav.continue": "Weiterlesen",
   "nav.dashboard": "Dashboard",
   "nav.documents": "Dokumente",

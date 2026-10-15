@@ -226,6 +226,37 @@ describe("EPUBViewer", () => {
     }
   });
 
+  it("right-clicks saved CFI fragments without selection, translates frame coords, and detaches on close", async () => {
+    const annotation = { extractId: "extract:opaque", documentId: "doc-epub", text: "Saved passage" };
+    const onContextMenu = vi.fn();
+    const runtime = mockRendition as any;
+    const reader = render(<EPUBViewer documentId="doc-epub" fileUrl="mock.epub" fileName="fixture.epub"
+      persistedHighlights={[{ id: "fragment-0", cfiRange: "cfi-0", text: "Saved passage", annotation },
+        { id: "fragment-1", cfiRange: "cfi-1", text: "Saved passage", annotation }]}
+      onContextMenu={onContextMenu} />);
+    await waitFor(() => expect(mockRendition.hooks.content.register).toHaveBeenCalled());
+    const hook = mockRendition.hooks.content.register.mock.calls.at(-1)![0];
+    for (const index of [0, 1]) {
+      const frame = document.createElement("iframe"); document.body.appendChild(frame);
+      vi.spyOn(frame, "getBoundingClientRect").mockReturnValue(new DOMRect(120, 80, 500, 600));
+      const doc = frame.contentDocument!;
+      doc.body.textContent = "Saved passage";
+      const range = doc.createRange(); range.selectNodeContents(doc.body);
+      Object.defineProperty(range, "getClientRects", { value: () => [new DOMRect(10, 20, 100, 20)] });
+      runtime.getRange = () => range;
+      act(() => hook({ document: doc, window: frame.contentWindow!, section: { index, href: `chapter${index}.xhtml` } }));
+      act(() => doc.body.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 30, clientY: 25 })));
+      expect(onContextMenu).toHaveBeenLastCalledWith({ x: 150, y: 105, selectedText: "", selectionContext: null, annotations: [annotation] });
+      if (index === 1) {
+        reader.unmount(); onContextMenu.mockClear();
+        doc.body.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 30, clientY: 25 }));
+        expect(onContextMenu).not.toHaveBeenCalled();
+      }
+      frame.remove();
+    }
+    delete runtime.getRange;
+  });
+
   it.each([false, true])("iframe vertical touch preserves continuous scrolling and genuine paginated navigation (paginated=%s)", async (paginated) => {
     mobileState.isMobile = true;
     mobileState.paginated = paginated;

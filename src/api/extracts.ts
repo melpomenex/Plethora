@@ -75,7 +75,23 @@ export interface UpdateExtractInput {
   selection_context?: SelectionContext | Record<string, unknown>;
 }
 
-function normalizeExtract(extract: Extract): Extract {
+const EXTRACT_FIELD_ALIASES = {
+  document_id: "documentId", html_content: "htmlContent", source_url: "sourceUrl",
+  page_title: "pageTitle", page_number: "pageNumber", selection_context: "selectionContext",
+  highlight_color: "highlightColor", progressive_disclosure_level: "progressiveDisclosureLevel",
+  max_disclosure_level: "maxDisclosureLevel", progressive_summaries: "progressiveSummaries",
+  date_created: "dateCreated", date_modified: "dateModified", next_review_date: "nextReviewDate",
+  last_review_date: "lastReviewDate", review_count: "reviewCount", memory_state: "memoryState",
+  priority_score: "priorityScore", is_dismissed: "isDismissed", total_time_spent: "totalTimeSpent",
+} as const;
+
+function normalizeExtract(input: Extract): Extract {
+  // The browser backend emits camelCase; native commands emit snake_case.
+  // Keep the public API's snake_case contract for ownership and saved anchors.
+  const extract = { ...input } as Extract & Record<string, unknown>;
+  for (const [field, alias] of Object.entries(EXTRACT_FIELD_ALIASES)) {
+    if (extract[field] === undefined && extract[alias] !== undefined) extract[field] = extract[alias];
+  }
   return {
     ...extract,
     content: extract.content ?? "",
@@ -101,8 +117,9 @@ export async function getExtracts(documentId?: string | null): Promise<Extract[]
  * Get a single extract by ID
  */
 export async function getExtract(id: string): Promise<Extract | null> {
-  const extract = await invokeCommand<Extract | null>("get_extract", { id });
-  return extract ? normalizeExtract(extract) : null;
+  const extract = await invokeCommand<(Extract & { _deleted?: boolean; Deleted?: boolean }) | null>("get_extract", { id });
+  if (!extract || extract._deleted || extract.Deleted) return null;
+  return normalizeExtract(extract);
 }
 
 /**
@@ -176,17 +193,44 @@ export async function updateExtract(input: UpdateExtractInput): Promise<Extract>
 /**
  * Delete an extract
  */
-export async function deleteExtract(id: string): Promise<void> {
-  // The delete command doesn't return the extract, so look up which document
-  // owns it BEFORE deleting — relying on whatever local cache happens to have
-  // it would silently skip the count patch when the cache is stale, which is
-  // the exact bug this function exists to fix.
-  const owner = await getExtract(id).catch(() => null);
+const pendingDeletes = new Map<string, Promise<void>>();
 
-  await invokeCommand("delete_extract", { id });
-  if (owner?.document_id) {
-    void patchDocumentExtractCount(owner.document_id, -1);
-  }
+export async function deleteExtract(id: string, expectedDocumentId?: string): Promise<void> {
+  const pending = pendingDeletes.get(id);
+  if (pending) return pending;
+  const operation = (async () => {
+    // Reader targets require verified ownership; legacy callers retain their
+    // existing best-effort owner lookup when deleting by ID alone.
+    const owner = expectedDocumentId ? await getExtract(id) : await getExtract(id).catch(() => null);
+    if (owner && expectedDocumentId && owner.document_id !== expectedDocumentId) {
+      throw new Error("This extract belongs to another document.");
+    }
+    if (owner || !expectedDocumentId) {
+      await invokeCommand("delete_extract", { id });
+      if (owner?.document_id) await patchDocumentExtractCount(owner.document_id, -1);
+    }
+    // Reconcile the known deletion locally; a subsequent refresh failure must
+    // never put the mark back or cause another delete/count decrement.
+    const reconciled = await Promise.allSettled([
+      import("../stores/extractStore").then(({ useExtractStore }) => {
+        useExtractStore.setState((state) => ({
+          extracts: state.extracts.filter((extract) => extract.id !== id),
+          revision: state.revision + 1,
+        }));
+      }),
+      import("../stores/queueStore").then(({ useQueueStore }) => {
+        const state = useQueueStore.getState();
+        state.removeItemsLocally(state.items.filter((item) => item.itemType === "extract"
+          && (item.extractId === id || item.id === id)).map((item) => item.id));
+      }),
+    ]);
+    for (const result of reconciled) {
+      if (result.status === "rejected") console.warn("Failed to reconcile deleted extract", result.reason);
+    }
+    window.dispatchEvent(new CustomEvent("plethora:extract-deleted", { detail: { id, documentId: owner?.document_id ?? expectedDocumentId } }));
+  })();
+  pendingDeletes.set(id, operation);
+  try { await operation; } finally { pendingDeletes.delete(id); }
 }
 
 // ---------------------------------------------------------------------------

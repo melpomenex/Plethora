@@ -308,6 +308,15 @@ export function ExtractsList({
     });
   };
 
+  useEffect(() => {
+    const onDeleted = (event: Event) => {
+      const { id } = (event as CustomEvent<{ id: string }>).detail;
+      setExtracts((rows) => rows.filter((row) => row.id !== id));
+    };
+    window.addEventListener("plethora:extract-deleted", onDeleted);
+    return () => window.removeEventListener("plethora:extract-deleted", onDeleted);
+  }, []);
+
   const handleExtractDeleted = (deletedId: string) => {
     setExtracts(extracts.filter((e) => e.id !== deletedId));
     // Also remove from generated counts

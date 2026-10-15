@@ -39,6 +39,8 @@ export const zh: Dict = {
   "shareTarget.pendingSharesTitle": "部分分享内容仍在等待导入",
   "shareTarget.pendingSharesMessage": "离线保存的分享链接将在下次启动 Plethora 时自动重试。",
   ...en,
+  "viewer.removeAnnotation": "移除高亮/摘录",
+  "viewer.removeAnnotationConfirm": "移除此高亮并删除其保存的摘录？",
   "nav.continue": "继续阅读",
   "nav.dashboard": "仪表盘",
   "nav.documents": "文档",

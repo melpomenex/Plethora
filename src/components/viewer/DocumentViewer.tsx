@@ -1,3 +1,5 @@
+import { textAnnotationTargetsAtPoint, type ReaderContextMenuPayload, type PersistedEpubHighlight } from "./annotationContextMenu";
+import { AnnotationRemovalMenu } from "./AnnotationRemovalMenu";
 import { emitUserInteraction, emitInteractionFeedback } from "../../lib/feedback/orchestrator";
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
@@ -1288,13 +1290,7 @@ export function DocumentViewer({
   }, [documentId]);
   const [dictionaryResult, setDictionaryResult] = useState<DictionaryResult | null>(null);
   const [isDictionaryLoading, setIsDictionaryLoading] = useState(false);
-  const [contextMenuState, setContextMenuState] = useState<{
-    visible: boolean;
-    x: number;
-    y: number;
-    selectedText: string;
-    selectionContext?: SelectionContext | null;
-  } | null>(null);
+  const [contextMenuState, setContextMenuState] = useState<(ReaderContextMenuPayload & { visible: boolean }) | null>(null);
   const lastSelectionRef = useRef("");
 
   // Guard that suppresses selection re-population for a short window after an
@@ -1538,6 +1534,8 @@ export function DocumentViewer({
   // browser/PWA) — not just PWA. The old `isPWA()` gate made it unreachable in
   // the native Android/iOS build.
   const isMobileTouch = useMobileShell();
+  const isMobileTouchRef = useRef(isMobileTouch);
+  isMobileTouchRef.current = isMobileTouch;
   const isEpubOrTextDoc =
     docType === "epub" ||
     docType === "markdown" ||
@@ -1697,7 +1695,7 @@ export function DocumentViewer({
     });
 
     const pdfHighlights: StoredHighlight[] = [];
-    const epubHighlights: Array<{ id: string; cfiRange: string; color?: string | null; text: string }> = [];
+    const epubHighlights: PersistedEpubHighlight[] = [];
     const markdownHighlights: AnchoredTextHighlight[] = [];
     const htmlHighlights: AnchoredTextHighlight[] = [];
 
@@ -1706,6 +1704,7 @@ export function DocumentViewer({
       const highlightColor = extract.highlight_color ?? extract.highlightColor;
       const title = extract.content ?? extract.page_title ?? extract.pageTitle ?? "";
 
+      const annotation = { extractId: String(extract.id), documentId, text: title, color: highlightColor };
       if (isPdfSelectionContext(context)) {
         // Canonical regions (selection_context v2) paint exact per-line word
         // unions; legacy geometry remains the fallback for older extracts.
@@ -1719,6 +1718,7 @@ export function DocumentViewer({
           for (const [pageNumber, pdfRects] of regionsByPage) {
             pdfHighlights.push({
               id: `${extract.id}:${pageNumber}`,
+              annotation,
               pageNumber,
               pdfRects,
               color: normalizePdfHighlightColor(highlightColor),
@@ -1733,6 +1733,7 @@ export function DocumentViewer({
         for (const page of context.pages) {
           pdfHighlights.push({
             id: `${extract.id}:${page.pageNumber}`,
+            annotation,
             pageNumber: page.pageNumber,
             pdfRects: page.pdfRects,
             color: normalizePdfHighlightColor(highlightColor),
@@ -1748,6 +1749,7 @@ export function DocumentViewer({
         const ranges = context.cfiRanges?.length ? context.cfiRanges : [context.cfiRange];
         ranges.forEach((cfiRange, rangeIndex) => epubHighlights.push({
           id: `${String(extract.id)}:${rangeIndex}`,
+          annotation,
           cfiRange,
           color: highlightColor,
           text: title,
@@ -1758,6 +1760,7 @@ export function DocumentViewer({
       if (isTextSelectionContext(context)) {
         const descriptor: AnchoredTextHighlight = {
           id: String(extract.id),
+          annotation,
           startOffset: context.startOffset,
           endOffset: context.endOffset,
           color: highlightColor,
@@ -1777,7 +1780,13 @@ export function DocumentViewer({
       markdownHighlights,
       htmlHighlights,
     };
-  }, [currentDocument?.id, extracts]);
+  }, [currentDocument?.id, documentId, extracts]);
+
+  const htmlContextMenuDetachRef = useRef<(() => void) | null>(null);
+  useEffect(() => () => { htmlContextMenuDetachRef.current?.(); }, [documentId]);
+  const htmlHighlightsRef = useRef(persistedDocumentHighlights.htmlHighlights);
+  htmlHighlightsRef.current = persistedDocumentHighlights.htmlHighlights;
+  useEffect(() => { setContextMenuState(null); }, [documentId]);
 
   const MAX_SELECTION_CHARS = 10000;
   const updateSelection = useCallback((rawText: string | null | undefined, context?: SelectionContext | null) => {
@@ -5763,6 +5772,11 @@ export function DocumentViewer({
     url: string;
     mailto: boolean;
   } | null>(null);
+  const handleReaderContextMenu = useCallback((payload: ReaderContextMenuPayload) => {
+    setArticleLinkMenu(null);
+    setContextMenuState({ visible: true, ...payload });
+  }, []);
+
 
   const openArticleLinkInBrowserTab = useCallback((url: string) => {
     // Dynamic import: TabRegistry (transitively) imports this module through
@@ -6516,8 +6530,19 @@ export function DocumentViewer({
       const iframe = iframeRef.current;
       const doc = iframe?.contentDocument;
       if (!iframe || !doc) return;
-      doc.addEventListener("contextmenu", (e: Event) => {
+      htmlContextMenuDetachRef.current?.();
+      const handleHtmlContextMenu = (e: Event) => {
         const win = iframe.contentWindow;
+        const mouse = e as MouseEvent;
+        const annotations = textAnnotationTargetsAtPoint(doc.body, htmlHighlightsRef.current, mouse.clientX, mouse.clientY);
+        if (annotations.length) {
+          if (selectionV2Ref.current && isMobileTouchRef.current) return;
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          const rect = iframe.getBoundingClientRect();
+          handleReaderContextMenu({ x: rect.left + mouse.clientX, y: rect.top + mouse.clientY, selectedText: "", annotations });
+          return;
+        }
         const anchor = anchorFromEventTarget(e.target);
         const selection = win?.getSelection();
         const text = selection?.toString().trim();
@@ -6531,6 +6556,7 @@ export function DocumentViewer({
           e.preventDefault();
           const mouseEvent = e as unknown as MouseEvent;
           const iframeRect = iframe.getBoundingClientRect();
+          setContextMenuState(null);
           setArticleLinkMenu({
             visible: true,
             x: iframeRect.left + mouseEvent.clientX,
@@ -6542,7 +6568,7 @@ export function DocumentViewer({
         }
         // Android's synthesized long-press contextmenu must not open the menu
         // sheet mid-gesture while the selection controller owns touch UX.
-        if (selectionV2Ref.current && isMobileTouch) return;
+        if (selectionV2Ref.current && isMobileTouchRef.current) return;
         e.preventDefault();
         const mouseEvent = e as unknown as MouseEvent;
         const iframeRect = iframe.getBoundingClientRect();
@@ -6558,9 +6584,11 @@ export function DocumentViewer({
           selectedText: text,
           selectionContext: context,
         });
-      });
+      };
+      doc.addEventListener("contextmenu", handleHtmlContextMenu);
+      htmlContextMenuDetachRef.current = () => doc.removeEventListener("contextmenu", handleHtmlContextMenu);
     } catch { /* cross-origin guard */ }
-  }, [documentId, isMobileTouch]);
+  }, [documentId, handleReaderContextMenu]);
 
   // Forward pointer movement from the HTML iframe to the top window, so
   // surfaces gating overlays on parent-window mousemove (Scroll Mode's
@@ -7794,7 +7822,7 @@ export function DocumentViewer({
                 ? (reason) => selectionControllerRef.current.invalidate(reason)
                 : undefined
             }
-            onContextMenu={({ x, y, selectedText: text, selectionContext: ctx }) => setContextMenuState({ visible: true, x, y, selectedText: text, selectionContext: ctx })}
+            onContextMenu={handleReaderContextMenu}
             selectionPopupSuppressed={Boolean(contextMenuState?.visible)}
             pageNumber={pageNumber}
             scale={scale}
@@ -7878,7 +7906,7 @@ export function DocumentViewer({
             embedded={embedded}
             onLoad={(toc) => handleDocumentLoad(0, toc)}
             onSelectionChange={updateSelection}
-            onContextMenu={({ x, y, selectedText: text, selectionContext: ctx }) => setContextMenuState({ visible: true, x, y, selectedText: text, selectionContext: ctx })}
+            onContextMenu={handleReaderContextMenu}
             onContextTextChange={handlePdfContextTextChange}
             onSpeechSectionsChange={handleEpubSpeechSectionsChange}
             onNavigationSettled={handleNavigationSettled}
@@ -8090,7 +8118,7 @@ export function DocumentViewer({
                 resetDraftCards: true,
                 autoEditDraft: true,
               })}
-              onContextMenu={({ x, y, selectedText: text, selectionContext: ctx }) => setContextMenuState({ visible: true, x, y, selectedText: text, selectionContext: ctx })}
+              onContextMenu={handleReaderContextMenu}
               onScrollPositionChange={(scrollPercent) => {
                 handleScrollPositionChange({
                   pageNumber: 1,
@@ -8956,7 +8984,13 @@ export function DocumentViewer({
       {/* Text selection context menu (EPUB/HTML/Markdown viewers and PDF
           selections — native, reflow, and OCR-HTML surfaces all feed
           contextMenuState) */}
-      {contextMenuState && contextMenuState.visible && (
+      <AnnotationRemovalMenu
+        key={documentId}
+        documentId={documentId}
+        menu={contextMenuState?.annotations?.length ? contextMenuState : null}
+        onClose={() => setContextMenuState(null)}
+      />
+      {!contextMenuState?.annotations?.length && contextMenuState && contextMenuState.visible && (
         <ContextMenu
           menuId="text-selection-context-menu"
           items={buildContextMenuItems(contextMenuState.selectedText, contextMenuState.selectionContext)}

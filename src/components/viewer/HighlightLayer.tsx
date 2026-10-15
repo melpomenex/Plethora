@@ -1,3 +1,4 @@
+import type { SavedAnnotationTarget } from "./annotationContextMenu";
 
 import React, { useMemo, useCallback } from "react";
 import type { PageViewport } from "pdfjs-dist";
@@ -8,6 +9,7 @@ import { normalizeHighlightColor } from "../../utils/highlightColors";
 export interface StoredHighlight {
   /** Unique identifier for the highlight */
   id: string;
+  annotation?: SavedAnnotationTarget;
   /** Page number (1-indexed) */
   pageNumber: number;
   /** PDF coordinate rectangles (immutable) */
@@ -127,6 +129,7 @@ export const HighlightLayer: React.FC<HighlightLayerProps> = ({
         highlight.viewportRects.map((rect, rectIndex) => (
           <div
             key={`${highlight.id}-${rectIndex}`}
+            data-highlight-id={highlight.id}
             className={`pdf-highlight ${highlight.color}`}
             style={{
               left: rect.left,

@@ -39,6 +39,8 @@ export const en: Dict = {
   "shareImport.error.canceled": "Import canceled.",
   "shareTarget.pendingSharesTitle": "Some shares are still pending",
   "shareTarget.pendingSharesMessage": "Shared links saved offline will retry automatically next time Plethora launches.",
+  "viewer.removeAnnotation": "Remove highlight/extract",
+  "viewer.removeAnnotationConfirm": "Remove this highlight and delete its saved extract?",
   "nav.continue": "Continue Reading",
   "nav.dashboard": "Dashboard",
   "nav.documents": "Documents",

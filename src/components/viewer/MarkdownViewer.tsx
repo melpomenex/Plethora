@@ -1,3 +1,4 @@
+import { textAnnotationTargetsAtPoint, type ReaderContextMenuPayload } from "./annotationContextMenu";
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { Document } from "../../types";
 import { renderMarkdown } from "../../utils/markdown";
@@ -22,7 +23,7 @@ interface MarkdownViewerProps {
   onSelectionChange?: (text: string, context?: SelectionContext | null) => void;
   onCreateFlashcard?: (excerpt: string) => void;
   /** Callback when user right-clicks on selected text */
-  onContextMenu?: (event: { x: number; y: number; selectedText: string; selectionContext?: any }) => void;
+  onContextMenu?: (event: ReaderContextMenuPayload) => void;
 }
 
 function escapeRegex(term: string): string {
@@ -290,6 +291,15 @@ export function MarkdownViewer({
   }, [document.id, onSelectionChange]);
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
+    const annotations = contentRef.current
+      ? textAnnotationTargetsAtPoint(contentRef.current, highlights, e.clientX, e.clientY) : [];
+    if (annotations.length && onContextMenu) {
+      e.preventDefault();
+      // Do not let the opening event dismiss the menu as it reaches document.
+      e.stopPropagation();
+      onContextMenu({ x: e.clientX, y: e.clientY, selectedText: "", annotations });
+      return;
+    }
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed || !selection.toString().trim()) return;
     e.preventDefault();
@@ -299,7 +309,7 @@ export function MarkdownViewer({
     } else if (onCreateFlashcard) {
       setContextMenu({ x: e.clientX, y: e.clientY, selectedText });
     }
-  }, [onContextMenu, onCreateFlashcard]);
+  }, [onContextMenu, onCreateFlashcard, highlights]);
 
   return (
     <>

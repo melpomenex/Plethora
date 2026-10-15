@@ -1,3 +1,4 @@
+import { epubAnnotationTargetsAtPoint, type ReaderContextMenuPayload, type PersistedEpubHighlight } from "./annotationContextMenu";
 import { useEffect, useRef, useState, useCallback, type MouseEvent } from "react";
 import type { EpubSelectionContext, SelectionContext } from "../../types/selection";
 import type { DocumentMetadata, Document } from "../../types/document";
@@ -482,7 +483,7 @@ interface EPUBViewerProps {
   onLoad?: (toc: any[]) => void;
   onSelectionChange?: (text: string, context?: SelectionContext | null) => void;
   /** Callback when user right-clicks on selected text */
-  onContextMenu?: (event: { x: number; y: number; selectedText: string; selectionContext?: SelectionContext | null }) => void;
+  onContextMenu?: (event: ReaderContextMenuPayload) => void;
   onContextTextChange?: (text: string) => void;
   /**
    * Section-structured speech text for TTS anchoring: one entry per mounted
@@ -513,7 +514,7 @@ interface EPUBViewerProps {
     activeCfi: string | null;
   }) => void;
   onProgressChange?: (progressPercent: number) => void;
-  persistedHighlights?: Array<{ id: string; cfiRange: string; color?: string | null; text: string }>;
+  persistedHighlights?: PersistedEpubHighlight[];
   /** Increment to trigger rendition.next() for TTS chapter auto-advance */
   advanceChapterSignal?: number;
   /** Transcript segments for audiobook sync */
@@ -713,6 +714,8 @@ export function EPUBViewer({
   // Detachers for content-document bridge registrations (V2): cleared when
   // the rendition tears down so dead iframes drop out of the controller.
   const bridgeDetachersRef = useRef(new Set<() => void>());
+  const persistedHighlightsRef = useRef(persistedHighlights);
+  persistedHighlightsRef.current = persistedHighlights;
   const onContextMenuRef = useRef(onContextMenu);
   onContextMenuRef.current = onContextMenu;
   const onProgressChangeRef = useRef(onProgressChange);
@@ -1373,6 +1376,7 @@ export function EPUBViewer({
     if (!containerHasSize || (!fileUrl && !fileData)) return;
 
     let mounted = true;
+    const annotationMenuDetachers: Array<() => void> = [];
     let bookInstance: any = null;
     let renditionInstance: any = null;
     let bookReadySettled = false;
@@ -1933,24 +1937,33 @@ export function EPUBViewer({
             // handles mid-gesture; with the selection-interaction bridge
             // active (pill bar + ⋯ overflow) that path is suppressed on touch
             // shells — desktop right-click is unchanged.
-            contents.document.addEventListener("contextmenu", (e: Event) => {
+            const handleAnnotationContextMenu = (e: Event) => {
               if (isMobileRef.current && selectionInteractionBridgeRef.current) return;
+              const mouseEvent = e as unknown as MouseEvent;
+              const annotations = epubAnnotationTargetsAtPoint(
+                persistedHighlightsRef.current,
+                (cfi) => rendition.getRange(cfi), contents.document,
+                mouseEvent.clientX, mouseEvent.clientY,
+              );
               const selection = contents.window.getSelection();
               const text = selection?.toString().trim();
-              if (!text) return;
+              if (!annotations.length && !text) return;
               e.preventDefault();
-              const mouseEvent = e as unknown as MouseEvent;
+              if (annotations.length) e.stopImmediatePropagation();
               const iframe = (contents.window?.frameElement || viewerRef.current?.querySelector("iframe")) as HTMLIFrameElement | null;
               if (iframe) {
                 const iframeRect = iframe.getBoundingClientRect();
                 onContextMenuRef.current?.({
                   x: iframeRect.left + mouseEvent.clientX,
                   y: iframeRect.top + mouseEvent.clientY,
-                  selectedText: text,
-                  selectionContext: lastEpubSelectionContextRef.current,
+                  selectedText: annotations.length ? "" : text ?? "",
+                  selectionContext: annotations.length ? null : lastEpubSelectionContextRef.current,
+                  annotations,
                 });
               }
-            });
+            };
+            contents.document.addEventListener("contextmenu", handleAnnotationContextMenu);
+            annotationMenuDetachers.push(() => contents.document.removeEventListener("contextmenu", handleAnnotationContextMenu));
 
             // Forward click events from EPUB iframe to parent window for overlay toggle
             contents.document.addEventListener("click", (e: MouseEvent) => {
@@ -2350,6 +2363,7 @@ export function EPUBViewer({
 
     return () => {
       mounted = false;
+      for (const detach of annotationMenuDetachers) detach();
       // V2: book close ends the reading context — detach iframe bridges and
       // invalidate (aborts in-flight selection actions, clears stale CFI refs).
       for (const detach of bridgeDetachersRef.current) {
@@ -2788,7 +2802,7 @@ export function EPUBViewer({
         // multiply with the rgba alpha and wash the colors out).
         rendition.annotations?.highlight?.(
           highlight.cfiRange,
-          {},
+          highlight.annotation ? { annotation: highlight.annotation } : {},
           undefined,
           "epub-persisted-highlight",
           {

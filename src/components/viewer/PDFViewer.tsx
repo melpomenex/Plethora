@@ -1,3 +1,4 @@
+import { renderedAnnotationTargetsAtPoint, type ReaderContextMenuPayload } from "./annotationContextMenu";
 import { ReaderNavigationOwner, observeReaderInput, announceReaderNavigation } from "../../lib/readerNavigation";
 import { pdfDestinationPoint, pdfDestinationScale, pdfReflowDestinationBlock } from "./pdfTocDestination";
 import { useEffect, useRef, useState, useCallback, useMemo, useReducer, type CSSProperties } from "react";
@@ -475,7 +476,7 @@ interface PDFViewerProps {
   /** Right-click on a committed selection asks the host to open its shared
    *  text-selection context menu. Mirrors EPUBViewer's contract; coords are
    *  top-document client coords (PDF surfaces are not iframed). */
-  onContextMenu?: (event: { x: number; y: number; selectedText: string; selectionContext: PdfSelectionContext | null }) => void;
+  onContextMenu?: (event: ReaderContextMenuPayload) => void;
   /** While true the floating selection popup stays hidden — the host's context
    *  menu supersedes it, and the popup returns when this flips back false. */
   selectionPopupSuppressed?: boolean;
@@ -690,6 +691,8 @@ export function PDFViewer({
   const textCacheRef = useRef<Map<number, string>>(new Map());
   const textWindowRef = useRef<{ start: number; end: number }>({ start: 1, end: 1 });
   const lastSelectionWasPdfRef = useRef(false);
+  const persistedHighlightsRef = useRef(persistedHighlights);
+  persistedHighlightsRef.current = persistedHighlights;
   const onContextMenuRef = useRef(onContextMenu);
   onContextMenuRef.current = onContextMenu;
   const pageTextSelectionAvailabilityRef = useRef<Map<number, boolean>>(new Map());
@@ -2881,6 +2884,15 @@ export function PDFViewer({
       const target = e.target as Node | null;
       const container = scrollContainerRef.current;
       if (!target || !container || !container.contains(target)) return;
+
+      const highlights = persistedHighlightsRef.current;
+      const annotations = renderedAnnotationTargetsAtPoint(container, highlights, e.clientX, e.clientY);
+      if (annotations.length) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        onContextMenuRef.current?.({ x: e.clientX, y: e.clientY, selectedText: "", annotations });
+        return;
+      }
 
       // The reflow surface is only mounted when its document data exists; the
       // container falls back to fixed page views otherwise.

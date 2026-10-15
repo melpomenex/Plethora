@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PDFViewer } from "../PDFViewer";
 
 const fixture = vi.hoisted(() => ({
-  getDestination: vi.fn(), getPosition: vi.fn(), pageReady: true, pageCount: 8, reflow: false,
+  getDestination: vi.fn(), getPosition: vi.fn(), pageReady: true, pageCount: 8, reflow: false, mobile: true,
   emitCanonical: null as null | ((page: any) => void),
   viewports: new Map<number, (viewport?: any) => void>(),
 }));
@@ -71,7 +71,7 @@ function canonicalPage(pageNumber = 1) {
     id: `p${pageNumber}:b${i}`, pageNumber, kind: "heading", role: "body", text: `Block ${i}`, wordIds: [], lineIds: [], readingOrder: i, sourceRegions: [{ pageNumber, bbox: { x0: 0, y0: y - 20, x1: 500, y1: y } }],
   })) };
 }
-vi.mock("../../../hooks/useMobileShell", () => ({ useMobileShell: () => true }));
+vi.mock("../../../hooks/useMobileShell", () => ({ useMobileShell: () => fixture.mobile }));
 vi.mock("../../../api/position", () => ({ getDocumentPosition: fixture.getPosition, saveDocumentPosition: vi.fn(), pagePosition: (page: number) => ({ type: "page", page }), scrollPosition: (percent: number) => ({ type: "scroll", percent }) }));
 vi.mock("../../../api/documents", async (original) => ({ ...await original<any>(), getDocumentAuto: vi.fn(async () => ({})), updateDocumentProgressAuto: vi.fn() }));
 
@@ -102,11 +102,34 @@ async function select(title: string) {
 
 describe("PDFViewer navigation integration", () => {
   beforeEach(() => {
-    fixture.reflow = false; fixture.emitCanonical = null; localStorage.clear();
+    fixture.reflow = false; fixture.mobile = true; fixture.emitCanonical = null; localStorage.clear();
     fixture.pageCount = 8; fixture.pageReady = true; fixture.viewports.clear(); fixture.getPosition.mockReset();
     fixture.getDestination.mockReset().mockImplementation(async (name: string) =>
       [name === "far" ? 6 : 0, { name: "XYZ" }, 0, name === "b" ? 200 : 700, null]);
   });
+  it.each([false, true])("right-clicks an owned saved mark without selection (reflow=%s)", async (reflow) => {
+    fixture.mobile = false;
+    fixture.reflow = reflow;
+    const annotation = { extractId: "saved:opaque-id", documentId: "nav-fixture", text: "Saved passage" };
+    const onContextMenu = vi.fn();
+    const r = await reader({ onContextMenu, persistedHighlights: [{ id: "fragment-1", annotation, pageNumber: 1,
+      pdfRects: [{ x1: 10, y1: 20, x2: 100, y2: 40 }], color: "yellow", text: annotation.text, createdAt: 0, wordIds: ["p1-word"] }] });
+    if (reflow) {
+      await waitFor(() => expect(fixture.emitCanonical).toBeTruthy());
+      act(() => fixture.emitCanonical!(canonicalPage()));
+      await waitFor(() => expect(screen.getByLabelText("Switch to original PDF view")).toBeTruthy());
+    }
+    // Exercise the real PDFViewer document listener. Renderer-specific
+    // geometry/ownership is covered by HighlightLayer and reflow tests.
+    const mark = document.createElement("span");
+    if (reflow) { mark.dataset.w = "p1-word"; mark.className = "pdf-reflow-highlight"; }
+    else mark.dataset.highlightId = "fragment-1";
+    mark.getClientRects = () => [new DOMRect(10, 20, 100, 20)] as unknown as DOMRectList;
+    r.scroll.appendChild(mark);
+    fireEvent.contextMenu(mark, { clientX: 30, clientY: 25 });
+    expect(onContextMenu).toHaveBeenCalledExactlyOnceWith({ x: 30, y: 25, selectedText: "", annotations: [annotation] });
+  });
+
   it("navigates independently to multiple headings on the currently displayed page", async () => {
     const r = await reader();
     await select("Heading A");
