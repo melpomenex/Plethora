@@ -1,4 +1,5 @@
 import type { AssistantContext } from "../AssistantPanel";
+import type { RefObject } from "react";
 
 export const MOBILE_ASSISTANT_CONVERSATION_KEY = "mobile:global";
 export type AssistantDetent = "closed" | "partial" | "expanded";
@@ -16,9 +17,28 @@ export interface MobileAssistantRegistration {
   priority?: number;
 }
 
+/**
+ * Sheet-level controls the host owns (detent, close, source attach) that the
+ * panel renders inside its single mobile chrome row.
+ */
+export interface MobileAssistantSheetControls {
+  detent: AssistantDetent;
+  hasPartial: boolean;
+  onClose: () => void;
+  onToggleDetent: () => void;
+  source?: {
+    title: string;
+    removed: boolean;
+    onToggle: () => void;
+  };
+  /** Host-owned initial focus target for `useDialogFocus`. */
+  closeRef: RefObject<HTMLButtonElement | null>;
+}
+
 export interface MobileAssistantPresentation {
   visible: boolean;
   viewIdentity?: string;
+  sheet?: MobileAssistantSheetControls;
 }
 
 export interface AssistantSourceProvenance {

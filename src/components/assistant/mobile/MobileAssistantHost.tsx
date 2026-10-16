@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ArrowsInSimple, ArrowsOutSimple, Sparkle, X } from "@phosphor-icons/react";
+import { Sparkle } from "@phosphor-icons/react";
 import { useDialogFocus, dialogSurface } from "../../md3/Dialog";
 import { highestOverlayPriority, registerOverlayDismissal, subscribeOverlayStack } from "../../../lib/overlayStack";
 import { createFeedbackInteractionId, emitUserInteraction } from "../../../lib/feedback/orchestrator";
@@ -12,7 +12,6 @@ import { useAssistantSheetGesture } from "./useAssistantSheetGesture";
 import { AssistantSheetMotion } from "./motion";
 import { assistantPillBottom, readAssistantViewport } from "./viewport";
 import "./mobile-assistant.css";
-const Commands = lazy(() => import("./MobileAssistantCommands").then(module => ({ default: module.MobileAssistantCommands })));
 const Panel = lazy(() => import("../AssistantPanel").then(module => ({ default: module.AssistantPanel })));
 
 export function MobileAssistantHost({ navRef, fullscreen }: { navRef: RefObject<HTMLElement | null>; fullscreen: boolean }) {
@@ -21,7 +20,6 @@ export function MobileAssistantHost({ navRef, fullscreen }: { navRef: RefObject<
   const controller = useMobileAssistantController();
   const [viewport, setViewport] = useState(readAssistantViewport);
   const [navTop, setNavTop] = useState<number>();
-  const [mode, setMode] = useState<"chat" | "commands">("chat");
   const [singleDetent, setSingleDetent] = useState(false);
   const [detent, setDetent] = useState<AssistantDetent>("closed");
   const [preview, setPreview] = useState(false);
@@ -148,13 +146,15 @@ export function MobileAssistantHost({ navRef, fullscreen }: { navRef: RefObject<
     motion.settle(panelHeight.current, true, () => {});
   }, [geometry, viewport.keyboardHeight, composerFocused, motion]);
   useEffect(() => {
-    if (!open || !mounted || mode !== "chat") return;
+    if (!open || !mounted) return;
     const measure = () => {
       const surface = surfaceRef.current;
       const composer = surface?.querySelector<HTMLElement>("[data-assistant-composer]");
       const toolbar = surface?.querySelector<HTMLElement>("[data-assistant-toolbar]");
       if (!composer || !toolbar || !surface) return;
-      const chrome = composer.offsetHeight + toolbar.offsetHeight + (surface.querySelector<HTMLElement>(".mobile-assistant-sheet-header")?.offsetHeight ?? 0) + 96;
+      // The conversation must keep at least 96px inside the partial stop; the
+      // single-stop fallback only fires for genuinely oversized chrome.
+      const chrome = composer.offsetHeight + toolbar.offsetHeight + (surface.querySelector<HTMLElement>(".mobile-assistant-sheet-header")?.offsetHeight ?? 0);
       if (chrome + 96 > geometryRef.current.partial) {
         setSingleDetent(true); setDetent("expanded"); currentDetent.current = "expanded";
       }
@@ -163,7 +163,7 @@ export function MobileAssistantHost({ navRef, fullscreen }: { navRef: RefObject<
     if (surfaceRef.current) observer.observe(surfaceRef.current, { childList: true, subtree: true });
     measure();
     return () => observer.disconnect();
-  }, [open, mounted, mode]);
+  }, [open, mounted]);
   useEffect(() => { if (fullscreen && open) close(); }, [fullscreen, open, close]);
   useEffect(() => {
     if (!open && !exiting) return;
@@ -189,24 +189,29 @@ export function MobileAssistantHost({ navRef, fullscreen }: { navRef: RefObject<
       <div ref={element => { surfaceRef.current = element; dialogRef.current = element; }} id="mobile-assistant-dialog"
         className={`mobile-assistant-sheet ${dialogSurface}`} style={{ height: panelHeight.current || assistantDetentHeight(initialAssistantDetent(geometry), geometry) }}
         role={committed ? "dialog" : undefined} aria-modal={committed ? true : undefined} aria-labelledby="mobile-assistant-heading" tabIndex={-1} data-gesture-lock>
+        {/* One chrome row only: the handle stay; the panel below owns context, scope and close. */}
         <div className="mobile-assistant-sheet-header">
-          <button type="button" className="mobile-assistant-handle md-state" aria-label={detent === "partial" ? "Expand Assistant" : "Collapse Assistant"} {...handle.bindings}><span aria-hidden="true" /></button>
-          <div className="mobile-assistant-sheet-bar">
-            <h2 id="mobile-assistant-heading" className="sr-only">{t("assistant.title")}</h2>
-            <div role="tablist" aria-label="Assistant mode" className="mobile-assistant-modes">
-              <button type="button" role="tab" aria-selected={mode === "chat"} aria-controls="mobile-assistant-chat" className="md-state md-hit-slop rounded-full" onClick={() => setMode("chat")}>Chat</button>
-              <button type="button" role="tab" aria-selected={mode === "commands"} aria-controls="mobile-assistant-commands" className="md-state md-hit-slop rounded-full" onClick={() => setMode("commands")}>Commands</button>
-            </div>
-            <span className="mobile-assistant-bar-spacer" aria-hidden="true" />
-            {geometry.hasPartial && <button type="button" className="mobile-assistant-icon md-state" aria-label={detent === "partial" ? "Expand Assistant" : "Collapse Assistant"} onClick={() => { preKeyboardDetent.current = null; commit(detent === "partial" ? "expanded" : "partial", createFeedbackInteractionId(), "handle"); }}>{detent === "partial" ? <ArrowsOutSimple size={20} /> : <ArrowsInSimple size={20} />}</button>}
-            <button ref={closeRef} type="button" className="mobile-assistant-icon md-state" aria-label="Close Assistant" onClick={close}><X size={20} /></button>
-          </div>
+          <button type="button" className="mobile-assistant-handle md-state" aria-label={detent === "partial" ? t("assistant.expandSheet") : t("assistant.collapseSheet")} {...handle.bindings}><span aria-hidden="true" /></button>
+          <h2 id="mobile-assistant-heading" className="sr-only">{t("assistant.title")}</h2>
         </div>
-        {open && mode === "chat" && active.registration && <div className="mobile-assistant-source"><span>{active.registration.context.metadata?.title ?? active.viewLabel}</span><button type="button" className="md-state" onClick={active.removed ? active.restore : active.remove}>{active.removed ? "Attach source" : "Remove source"}</button></div>}
-        {mounted && <div id="mobile-assistant-chat" role="tabpanel" className="mobile-assistant-conversation" hidden={!open || mode !== "chat"} inert={!open || mode !== "chat"}>
-          <Suspense fallback={<p role="status">Loading Assistant…</p>}><Panel context={active.context} conversationKey={MOBILE_ASSISTANT_CONVERSATION_KEY} mobilePresentation={{ visible: open && mode === "chat", viewIdentity: `${active.ownerKey}:${detent}` }} fillContainer appendContextMessages={false} /></Suspense>
+        {mounted && <div id="mobile-assistant-chat" className="mobile-assistant-conversation" hidden={!open} inert={!open}>
+          <Suspense fallback={<p role="status">Loading Assistant…</p>}><Panel context={active.context} conversationKey={MOBILE_ASSISTANT_CONVERSATION_KEY} mobilePresentation={{
+            visible: open,
+            viewIdentity: `${active.ownerKey}:${detent}`,
+            sheet: {
+              detent,
+              hasPartial: geometry.hasPartial,
+              onClose: close,
+              onToggleDetent: () => { preKeyboardDetent.current = null; commit(detent === "partial" ? "expanded" : "partial", createFeedbackInteractionId(), "handle"); },
+              closeRef,
+              source: active.registration ? {
+                title: active.registration.context.metadata?.title ?? active.viewLabel,
+                removed: active.removed,
+                onToggle: active.removed ? active.restore : active.remove,
+              } : undefined,
+            },
+          }} fillContainer appendContextMessages={false} /></Suspense>
         </div>}
-        {mounted && mode === "commands" && <div id="mobile-assistant-commands" role="tabpanel" className="mobile-assistant-conversation" hidden={!open} inert={!open}><Suspense fallback={<p role="status">Loading commands…</p>}><Commands sourceTitle={active.context.metadata?.title} onClose={close} /></Suspense></div>}
       </div>
     </div>
   </>, document.body);

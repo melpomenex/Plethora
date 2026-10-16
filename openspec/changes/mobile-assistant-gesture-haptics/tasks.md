@@ -103,5 +103,7 @@ Depends on section 10 and predecessor native haptic/Back acceptance. Acceptance:
 
 ## 12. Searchable command mode (user clarification)
 
+Superseded 2026-10-16 by `update-mobile-assistant-composer`: the tab-based Chat/Commands mode was replaced by the composer add menu. The registry/matcher/availability/executor contract and the completed evidence below remain valid; sheet-level mode switching is no longer part of the presentation.
+
 - [x] 12.1 Add Chat/Commands mode using the existing command registry, matcher, availability gates and executor; preserve Chat state and keyboard palette behavior, cancel capture on mode change, and avoid automatic keyboard focus.
 - [x] 12.2 Verify shared command matching/execution, unavailable-action filtering, conversation preservation across modes and dismissal before command action; record evidence in validation.md.

@@ -12,7 +12,7 @@ Mobile readers need an Assistant they can reach deliberately without leaving the
 - Share a composer dictation adapter between the global sheet and selection Ask. Extend existing Android and Apple speech plugins for short, explicitly requested, cancellable native dictation; keep keyboard dictation available as ordinary text entry and browser recognition as a disclosed, capability-gated web fallback.
 - Add deterministic gesture/feedback/session/speech coverage and mandatory physical Android/iPhone acceptance, including existing navigation regressions and performance under reader load.
 
-- Product clarification (2026-10-16): the global sheet also provides a searchable Commands mode alongside Chat, backed by the existing unified command registry, matcher and executor. Keyboard palette behavior stays available; natural-language command execution is outside this addition.
+- Product clarification (2026-10-16): the global sheet also provides a searchable command surface alongside Chat, backed by the existing unified command registry, matcher and executor. It is reached from the composer's add control (see `update-mobile-assistant-composer`); an earlier Chat/Commands tab was superseded on 2026-10-16 by that change. Keyboard palette behavior stays available; natural-language command execution is outside this addition.
 
 ## Capabilities
 

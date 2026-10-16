@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AssistantPanel } from "../AssistantPanel";
+import { ThemeProvider } from "../../../contexts/ThemeContext";
 import { useLLMProvidersStore } from "../../../stores/llmProvidersStore";
 import { runAssistantTurn } from "../../../lib/ai/assistant/orchestrator";
 import { getDocument } from "../../../api/documents";
@@ -24,8 +25,10 @@ function deferredTurn() {
 }
 describe("mobile conversation frozen turn and request epoch", () => {
   it("New conversation rejects a late response and preserves the new draft", async () => {
-    const finish = deferredTurn(); render(<AssistantPanel {...props} context={{ type: "general" }} />); submit();
-    await waitFor(() => expect(runAssistantTurn).toHaveBeenCalledOnce()); fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
+    const finish = deferredTurn(); render(<ThemeProvider><AssistantPanel {...props} context={{ type: "general" }} /></ThemeProvider>); submit();
+    await waitFor(() => expect(runAssistantTurn).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Add to your message" }));
+    fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "new draft" } });
     await act(async () => { finish("old response must not return"); });
     expect(screen.queryByText("old response must not return")).not.toBeInTheDocument(); expect(screen.getByRole("textbox")).toHaveValue("new draft");

@@ -6,6 +6,7 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor, fireEvent, act } from "@testing-library/react";
 import { AssistantPanel } from "../AssistantPanel";
+import { ThemeProvider } from "../../../contexts/ThemeContext";
 import { useLLMProvidersStore } from "../../../stores/llmProvidersStore";
 
 vi.mock("../../../lib/tauri", async (importOriginal) => {
@@ -119,7 +120,7 @@ describe("AssistantPanel stable mobile session", () => {
     fireEvent.change(input, { target: { value: "in memory edit" } });
     rerender(<AssistantPanel {...mobileProps} mobilePresentation={{ visible: false }} context={{ type: "video", documentId: "other", metadata: { title: "Changed title" }, position: { currentTime: 99 } }} />);
     expect(input).toHaveValue("in memory edit");
-    expect(screen.getByRole("button", { name: "Library" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Assistant scope: Library" })).toBeInTheDocument();
     expect(screen.getByText("global second turn")).toBeInTheDocument();
     unmount();
     render(<AssistantPanel {...mobileProps} context={{ type: "general" }} />);
@@ -129,12 +130,13 @@ describe("AssistantPanel stable mobile session", () => {
 
   it("New conversation resets only the mobile key to Chat", async () => {
     seedMobile();
-    render(<AssistantPanel {...mobileProps} context={documentContext} />);
+    render(<ThemeProvider><AssistantPanel {...mobileProps} context={documentContext} /></ThemeProvider>);
     await screen.findByText("global first turn");
+    fireEvent.click(screen.getByRole("button", { name: "Add to your message" }));
     fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
     expect(screen.queryByText("global first turn")).not.toBeInTheDocument();
     expect(screen.getByRole("textbox")).toHaveValue("");
-    expect(screen.getByRole("button", { name: "Chat" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Assistant scope: Chat" })).toBeInTheDocument();
     const stored = JSON.parse(localStorage.getItem(CONVERSATIONS_KEY)!);
     expect(stored["document:doc-1"].input).toBe("desktop draft");
     expect(stored["mobile:global"].messages).toEqual([]);

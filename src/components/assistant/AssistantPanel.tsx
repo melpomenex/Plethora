@@ -1,13 +1,17 @@
 import { useComposerDictation } from "../../hooks/useComposerDictation";
-import { ComposerDictationControl } from "./ComposerDictationControl";
+import { ComposerDictationButton } from "./ComposerDictationControl";
+import { ASSISTANT_SLASH_COMMANDS } from "./assistantSlashCommands";
+import { MobileComposerMenu } from "./mobile/MobileComposerMenu";
 import { MOBILE_ASSISTANT_CONVERSATION_KEY, type MobileAssistantPresentation, type AssistantSourceProvenance } from "./mobile/contracts";
 import { assistantSourceProvenance, authorizeAssistantHistory, mergeAssistantProvenance } from "./mobile/provenance";
 import { AssistantScopeSelector } from "./AssistantScopeSelector";
 import { runAssistantTurn } from "../../lib/ai/assistant/orchestrator";
 import { isAssistantScope, type AssistantScope } from "../../lib/ai/assistant/scopes";
 import { parseAssistantToolCalls, normalizeAssistantToolParameters } from "../../lib/ai/assistant/toolCallParser";
-import { useState, useRef, useEffect, useMemo, useCallback, type ReactNode } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, type ReactNode } from "react";
 import {
+  ArrowsInSimple,
+  ArrowsOutSimple,
   CaretDown,
   CaretLeft,
   CaretRight,
@@ -23,6 +27,7 @@ import {
   Images,
   Lightning,
   PaperPlaneTilt,
+  Plus,
   ShareNetwork,
   SidebarSimple,
   Sparkle,
@@ -344,6 +349,7 @@ export function AssistantPanel({
   const { t } = useI18n();
   const sessionKey = explicitConversationKey ?? getConversationKey(context);
   const isMobileSession = sessionKey === MOBILE_ASSISTANT_CONVERSATION_KEY;
+  const isMobilePresentation = Boolean(mobilePresentation);
   const requestEpochRef = useRef(0);
   const [hydratedSessionKey, setHydratedSessionKey] = useState<string | null>(null);
   useEffect(() => {
@@ -388,6 +394,9 @@ export function AssistantPanel({
   const [isDragOver, setIsDragOver] = useState(false);
   const inputContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerAddRef = useRef<HTMLButtonElement>(null);
+  const [isComposerMenuOpen, setIsComposerMenuOpen] = useState(false);
+  const [dictationNotice, setDictationNotice] = useState<string | null>(null);
 
   // Section # mention support - new tree UX
   const [showSectionPopup, setShowSectionPopup] = useState(false);
@@ -714,6 +723,29 @@ export function AssistantPanel({
   const historyDraftRef = useRef("");
   const publishConversationTimerRef = useRef<number | null>(null);
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
+
+  // The composer menu is a transient surface: close it with the presentation.
+  useEffect(() => {
+    if (!mobilePresentation?.visible) setIsComposerMenuOpen(false);
+  }, [mobilePresentation?.visible]);
+
+  // Dictation status no longer occupies a composer row; errors surface as a
+  // transient notice while the trigger's live region announces every change.
+  useEffect(() => {
+    if (!dictation.error) { setDictationNotice(null); return; }
+    setDictationNotice(dictation.error);
+    const timer = setTimeout(() => setDictationNotice(null), 8000);
+    return () => clearTimeout(timer);
+  }, [dictation.error]);
+
+  // The mobile composer grows with its content (one line up to ~6 lines).
+  useLayoutEffect(() => {
+    if (!mobilePresentation) return;
+    const element = textareaRef.current;
+    if (!element) return;
+    element.style.height = "auto";
+    element.style.height = `${Math.min(element.scrollHeight, 160)}px`;
+  }, [input, mobilePresentation]);
 
   const attachImage = async (file: File) => {
     if (!file.type.startsWith("image/")) return;
@@ -2761,21 +2793,38 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     onProviderChange?.(providerId);
   };
 
+  const canSend = (input.trim().length > 0 || attachedImages.length > 0) && !isLoading;
+  const mobileSheet = mobilePresentation?.sheet;
+  // The mobile header source chip already carries document/web context, so the
+  // banner only survives on phones when it shows actionable transcript state.
+  const showContextBanner = Boolean(context) && (!isMobilePresentation || isThreadContext
+    || (context?.type === "video" && (context.transcriptStatus === "loading" || context.transcriptStatus === "failed" || context.transcriptStatus === "partial" || !context.content?.trim())));
+
   return (
     <div
       className={`flex flex-col h-full max-h-full min-h-0 overflow-hidden bg-card ${position === "right" ? "border-l" : "border-r"} border-border relative ${className}`}
       style={{ width: fillContainer ? "100%" : isCollapsed ? "auto" : width }}
       onContextMenu={(e) => handleContextMenu(e)}
     >
-      {/* Header */}
-      <div data-assistant-toolbar className={`flex items-center border-b border-border ${mobilePresentation ? "flex-wrap gap-x-1 gap-y-0.5 px-2 py-1" : "justify-between p-3"}`}>
-        <div className="flex items-center gap-2">
-          {!mobilePresentation && <ChatCircle className="w-4 h-4 text-primary" />}
-          {mobilePresentation ? <button type="button" onClick={handleClearChat} aria-label="New conversation" title="New conversation" className="md-state min-h-10 rounded-full px-2 text-xs text-primary">New</button> : <h2 className="text-sm font-semibold text-foreground">Assistant</h2>}
-        </div>
+      {/* Header — one compact row on phones; the desktop toolbar is unchanged. */}
+      <div data-assistant-toolbar className={mobilePresentation ? "flex items-center gap-1 border-b border-border px-2 py-1" : "flex items-center justify-between border-b border-border p-3"}>
+        {mobileSheet?.source && (
+          <div data-testid="mobile-assistant-source" className="flex min-w-0 flex-1 items-center gap-1 rounded-full bg-muted/50 pe-1 ps-2.5">
+            <span className="min-w-0 flex-1 truncate text-xs text-foreground/90">{mobileSheet.source.title}</span>
+            <button type="button" onClick={mobileSheet.source.onToggle} className="md-state min-h-8 shrink-0 rounded-full px-2 text-[11px] font-medium text-primary">
+              {t(mobileSheet.source.removed ? "assistant.sourceAttach" : "assistant.sourceRemove")}
+            </button>
+          </div>
+        )}
+        {!mobilePresentation && (
+          <div className="flex items-center gap-2">
+            <ChatCircle className="w-4 h-4 text-primary" />
+            <h2 className="text-sm font-semibold text-foreground">Assistant</h2>
+          </div>
+        )}
         <div className={`flex items-center gap-1 ${mobilePresentation ? "ml-auto" : ""}`}>
-          {/* Share Conversation Button */}
-          {messages.length > 0 && (
+          {/* Share Conversation Button (desktop; the mobile menu owns this action) */}
+          {!mobilePresentation && messages.length > 0 && (
             <button
               onClick={handleShareConversation}
               className="p-1.5 hover:bg-muted transition-colors rounded mr-1"
@@ -2805,16 +2854,21 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           <div className={`relative ${mobilePresentation ? "flex items-center gap-1" : "mr-2"}`}>
             <button
               onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+              aria-label={mobilePresentation ? `${t("assistant.composer.model")}: ${(() => {
+                const activeConfig = configuredProvidersList.find(p => p.provider === effectiveProvider && p.enabled);
+                return getFriendlyModelName(effectiveProvider, activeConfig?.model);
+              })()}` : undefined}
               className={`
-                flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold
+                flex items-center gap-1.5 rounded-full text-xs font-semibold
                 bg-background border border-border shadow-sm transition-all duration-200
                 hover:bg-muted/80 cursor-pointer select-none active:scale-[0.98]
+                ${mobilePresentation ? "min-h-10 gap-1 px-2" : "px-2.5 py-1"}
                 ${isModelDropdownOpen ? "border-primary ring-2 ring-primary/10 bg-muted/30" : ""}
               `}
               title="Change Active AI Model"
             >
               {/* Pulsing indicator dot */}
-              <span className="relative flex h-1.5 w-1.5">
+              {!mobilePresentation && <span className="relative flex h-1.5 w-1.5">
                 <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
                   effectiveProvider === "openai" ? "bg-emerald-400" :
                   effectiveProvider === "anthropic" ? "bg-orange-400" :
@@ -2827,7 +2881,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                   effectiveProvider === "ollama" ? "bg-cyan-500" :
                   isAppleFmAssistantProvider(effectiveProvider) ? "bg-slate-500" : "bg-purple-500"
                 }`}></span>
-              </span>
+              </span>}
 
               {/* Icon */}
               {(() => {
@@ -2836,13 +2890,13 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 return <activeProvObj.icon className={`w-3 h-3 ${activeProvObj.color}`} />;
               })()}
 
-              {/* Active Model Name */}
-              <span className={`truncate text-foreground/90 font-medium tracking-tight ${mobilePresentation ? "max-w-[80px]" : "max-w-[110px]"}`}>
+              {/* Active Model Name (desktop; the mobile pill stays icon-sized) */}
+              {!mobilePresentation && <span className="truncate text-foreground/90 font-medium tracking-tight max-w-[110px]">
                 {(() => {
                   const activeConfig = configuredProvidersList.find(p => p.provider === effectiveProvider && p.enabled);
                   return getFriendlyModelName(effectiveProvider, activeConfig?.model);
                 })()}
-              </span>
+              </span>}
 
               {/* Chevron */}
               <CaretDown className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${
@@ -2850,7 +2904,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               }`} />
             </button>
 
-            <AssistantScopeSelector value={scope} onChange={setScope} disabled={isLoading} compact={Boolean(mobilePresentation)} />
+            <AssistantScopeSelector value={scope} onChange={setScope} disabled={isLoading} compact={isMobilePresentation} variant={isMobilePresentation ? "menu" : "segmented"} />
 
             {/* AI Engine Center Dropdown */}
             {isModelDropdownOpen && (
@@ -2990,6 +3044,25 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               </>
             )}
           </div>
+          {/* Mobile expand/collapse — the handle also toggles, this keeps an explicit control. */}
+          {mobileSheet?.hasPartial && <button
+            type="button"
+            aria-label={mobileSheet.detent === "partial" ? t("assistant.expandSheet") : t("assistant.collapseSheet")}
+            onClick={mobileSheet.onToggleDetent}
+            className="md-state flex min-h-12 min-w-12 items-center justify-center rounded-full"
+          >
+            {mobileSheet.detent === "partial" ? <ArrowsOutSimple size={20} aria-hidden="true" /> : <ArrowsInSimple size={20} aria-hidden="true" />}
+          </button>}
+          {/* Mobile close — the only persistent sheet control besides the handle. */}
+          {mobilePresentation && <button
+            ref={mobileSheet?.closeRef}
+            type="button"
+            onClick={mobileSheet?.onClose}
+            aria-label={t("assistant.close")}
+            className="md-state flex min-h-12 min-w-12 items-center justify-center rounded-full"
+          >
+            <X size={20} aria-hidden="true" />
+          </button>}
           {/* Position Toggle Button */}
           {!mobilePresentation && <><button
             onClick={togglePosition}
@@ -3018,7 +3091,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       </div>
 
       {/* Context Banner */}
-      {context && (
+      {showContextBanner && (
         <div className="px-3 py-2 bg-muted/50 border-b border-border text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
             {context.type === "document" && <TextT className="w-3 h-3" />}
@@ -3304,6 +3377,20 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         )}
       </div>
 
+      {/* Add menu — an in-flow row above the composer so it can never be clipped. */}
+      {mobilePresentation && (
+        <MobileComposerMenu
+          open={isComposerMenuOpen}
+          anchorRef={composerAddRef}
+          sourceTitle={assistantDocumentTitle}
+          onClose={() => setIsComposerMenuOpen(false)}
+          onInsert={(command) => { setInput(command); textareaRef.current?.focus(); }}
+          onAttach={() => fileInputRef.current?.click()}
+          onNewConversation={handleClearChat}
+          onShare={messages.length > 0 ? handleShareConversation : undefined}
+        />
+      )}
+
       {/* Input Area */}
       <div data-assistant-composer className="flex-shrink-0 p-3 border-t border-border bg-card relative">
         <div className="flex flex-col gap-2">
@@ -3382,11 +3469,11 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             </div>
           )}
 
-          {/* Available Tools Hint */}
-          <div className="text-xs text-muted-foreground flex items-center gap-1">
+          {/* Available Tools Hint (desktop; the mobile add menu owns this discovery) */}
+          {!mobilePresentation && <div className="text-xs text-muted-foreground flex items-center gap-1">
             <Sparkle className="w-3 h-3" />
             <span>Type /tools to see available tools • # references sections of an open document</span>
-          </div>
+          </div>}
 
           {/* SectionMentionPopup - positioned above input */}
           {showSectionPopup && (
@@ -3414,14 +3501,30 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             </div>
           )}
 
-          {/* Text Input */}
+          {/* Text Input — one bar on phones, the stacked desktop composer elsewhere. */}
           <div
             data-assistant-composer-input
             ref={inputContainerRef}
-            className={`flex gap-2 rounded-lg transition-colors ${isDragOver ? "border-2 border-dashed border-primary bg-primary/5" : ""}`}
+            className={mobilePresentation
+              ? `relative flex items-end gap-1 rounded-full border border-border bg-background px-1.5 py-1 transition-colors ${isDragOver ? "border-2 border-dashed border-primary bg-primary/5" : ""}`
+              : `flex gap-2 rounded-lg transition-colors ${isDragOver ? "border-2 border-dashed border-primary bg-primary/5" : ""}`}
             onMouseEnter={() => setIsInputHovered(true)}
             onMouseLeave={() => setIsInputHovered(false)}
           >
+            {mobilePresentation && (
+              <button
+                ref={composerAddRef}
+                type="button"
+                data-assistant-composer-add
+                aria-label={t("assistant.composer.addMenu")}
+                aria-expanded={isComposerMenuOpen}
+                aria-haspopup="dialog"
+                className="md-state flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full text-foreground/80"
+                onClick={() => setIsComposerMenuOpen((open) => !open)}
+              >
+                <Plus size={22} aria-hidden="true" />
+              </button>
+            )}
             <textarea
               ref={textareaRef}
               value={input}
@@ -3430,34 +3533,68 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               onFocus={() => { setIsInputFocused(true); setSectionsArmed(true); }}
               onBlur={() => setIsInputFocused(false)}
               placeholder={attachedImages.length > 0 ? "Ask about the attached image(s)..." : "Ask about your document, or type /help for commands..."}
-              className="flex-1 px-3 py-2 bg-background border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary text-foreground text-sm"
-              rows={2}
+              className={mobilePresentation
+                ? "max-h-40 min-h-11 flex-1 resize-none bg-transparent px-1 py-2.5 text-foreground text-sm focus:outline-none"
+                : "flex-1 px-3 py-2 bg-background border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary text-foreground text-sm"}
+              rows={mobilePresentation ? 1 : 2}
               disabled={isLoading}
             />
-            <div className="flex flex-col gap-1">
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isLoading || attachedImages.length >= MAX_ATTACHED_IMAGES}
-                className="px-2 py-1 bg-muted text-muted-foreground rounded-lg hover:bg-muted/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                title={attachedImages.length >= MAX_ATTACHED_IMAGES ? `Maximum ${MAX_ATTACHED_IMAGES} images` : "Attach image"}
-              >
-                <Images className="w-4 h-4" />
-              </button>
-              <button
-                onClick={handleSendMessage}
-                disabled={(!input.trim() && attachedImages.length === 0) || isLoading}
-                className="px-2 py-1 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
-              >
-                {isLoading ? (
-                  <CircleNotch className="w-4 h-4 animate-spin" />
-                ) : (
-                  <PaperPlaneTilt className="w-4 h-4" />
+            {mobilePresentation ? (
+              <>
+                <ComposerDictationButton dictation={dictation} className="min-h-11 min-w-11 shrink-0" />
+                {(input.trim().length > 0 || attachedImages.length > 0 || isLoading) && (
+                  <button
+                    type="button"
+                    onClick={handleSendMessage}
+                    disabled={!canSend}
+                    aria-label="Send message"
+                    className="md-state flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
+                  >
+                    {isLoading ? (
+                      <CircleNotch className="w-5 h-5 animate-spin" aria-hidden="true" />
+                    ) : (
+                      <PaperPlaneTilt className="w-5 h-5" aria-hidden="true" />
+                    )}
+                  </button>
                 )}
-              </button>
-            </div>
+              </>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isLoading || attachedImages.length >= MAX_ATTACHED_IMAGES}
+                  className="px-2 py-1 bg-muted text-muted-foreground rounded-lg hover:bg-muted/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title={attachedImages.length >= MAX_ATTACHED_IMAGES ? `Maximum ${MAX_ATTACHED_IMAGES} images` : "Attach image"}
+                >
+                  <Images className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={handleSendMessage}
+                  disabled={!canSend}
+                  className="px-2 py-1 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                >
+                  {isLoading ? (
+                    <CircleNotch className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <PaperPlaneTilt className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+            )}
           </div>
 
-          {mobilePresentation && <ComposerDictationControl dictation={dictation} />}
+          {mobilePresentation && dictationNotice && (
+            <div
+              data-assistant-dictation-status
+              role="alert"
+              className="absolute inset-x-3 bottom-full mb-1 flex items-center gap-2 rounded-lg border border-border bg-surface-container-high px-3 py-2 text-xs text-foreground"
+            >
+              <span className="flex-1">{dictationNotice}</span>
+              <button type="button" onClick={() => setDictationNotice(null)} aria-label={t("common.dismiss")} className="md-state rounded-full p-1">
+                <X className="h-3.5 w-3.5" aria-hidden="true" />
+              </button>
+            </div>
+          )}
 
           {/* Hidden file input */}
           <input
@@ -3478,34 +3615,19 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             }}
           />
 
-          {/* Quick Actions */}
-          <div className="flex items-center gap-2 text-xs">
-            <button
-              onClick={() => setInput("/20rules")}
-              className="px-2 py-1 bg-muted hover:bg-muted/80 rounded text-muted-foreground transition-colors font-medium"
-              title="Formulate atomic flashcards with Dr. Wozniak's 20 Rules"
-            >
-              /20rules
-            </button>
-            <button
-              onClick={() => setInput("/tools")}
-              className="px-2 py-1 bg-muted hover:bg-muted/80 rounded text-muted-foreground transition-colors"
-            >
-              /tools
-            </button>
-            <button
-              onClick={() => setInput("/help")}
-              className="px-2 py-1 bg-muted hover:bg-muted/80 rounded text-muted-foreground transition-colors"
-            >
-              /help
-            </button>
-            <button
-              onClick={() => setInput("/clear")}
-              className="px-2 py-1 bg-muted hover:bg-muted/80 rounded text-muted-foreground transition-colors ml-auto"
-            >
-              /clear
-            </button>
-          </div>
+          {/* Quick Actions (desktop; the mobile add menu lists these slash commands) */}
+          {!mobilePresentation && <div className="flex items-center gap-2 text-xs">
+            {ASSISTANT_SLASH_COMMANDS.map((command, index) => (
+              <button
+                key={command.command}
+                onClick={() => setInput(command.command)}
+                className={`px-2 py-1 bg-muted hover:bg-muted/80 rounded text-muted-foreground transition-colors font-medium${index === ASSISTANT_SLASH_COMMANDS.length - 1 ? " ml-auto" : ""}`}
+                title={t(command.descriptionKey)}
+              >
+                {command.command}
+              </button>
+            ))}
+          </div>}
         </div>
       </div>
 

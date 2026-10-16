@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MobileAssistantCommands } from "../MobileAssistantCommands";
+import { MobileAssistantCommands, useAssistantCommandMatches } from "../MobileAssistantCommands";
 import { CommandCategory } from "../../../../commandPalette/commandModel";
 const fixture = vi.hoisted(() => ({ registry: vi.fn(), execute: vi.fn(), theme: { id: "test", name: "Test", variant: "dark" }, action: vi.fn() }));
 vi.mock("../../../../contexts/ThemeContext", () => ({ useTheme: () => ({ theme: fixture.theme, themes: [], setTheme: vi.fn() }) }));
@@ -12,24 +12,35 @@ beforeEach(() => {
     { id: "settings", label: "Open Settings", aliases: ["settings"], category: CommandCategory.Navigation, action: fixture.action },
   ]);
 });
-describe("Assistant shared command palette mode", () => {
+
+function MatchesHarness({ query, sourceTitle }: { query: string; sourceTitle?: string }) {
+  const commands = useAssistantCommandMatches(sourceTitle, query);
+  return <ul aria-label="matches">{commands.map(command => <li key={command.id}>{command.label}</li>)}</ul>;
+}
+
+describe("Assistant composer command list", () => {
   it("uses the registry's current theme, availability and source-title context", () => {
-    render(<MobileAssistantCommands sourceTitle="Current book" onClose={() => {}} />);
+    const { rerender } = render(<MatchesHarness query="" sourceTitle="Current book" />);
     expect(fixture.registry).toHaveBeenCalledWith(expect.objectContaining({ theme: fixture.theme, selectedDocumentTitle: "Current book" }));
-    expect(screen.getByRole("button", { name: /Open Documents/ })).toBeInTheDocument();
-    expect(document.activeElement).not.toBe(screen.getByRole("searchbox"));
+    expect(screen.getByRole("list", { name: "matches" }).children).toHaveLength(2);
+    rerender(<MatchesHarness query="" />);
+    expect(fixture.registry).toHaveBeenLastCalledWith(expect.objectContaining({ selectedDocumentTitle: null }));
   });
-  it("searches using shared aliases and executes through the shared executor", () => {
-    const close = vi.fn(); render(<MobileAssistantCommands onClose={close} />);
-    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "library" } });
-    expect(screen.queryByRole("button", { name: "Open Settings" })).not.toBeInTheDocument();
+  it("filters with the shared matcher's aliases", () => {
+    render(<MatchesHarness query="library" />);
+    expect(screen.getByText("Open Documents")).toBeInTheDocument();
+    expect(screen.queryByText("Open Settings")).not.toBeInTheDocument();
+  });
+  it("executes through the shared executor and reports back to the menu", () => {
+    const close = vi.fn(); render(<MobileAssistantCommands commands={[
+      { id: "documents", label: "Open Documents", category: CommandCategory.Navigation, action: fixture.action },
+    ]} onExecuted={close} />);
     fireEvent.click(screen.getByRole("button", { name: /Open Documents/ }));
     expect(fixture.execute).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: "documents" }), close);
     expect(fixture.action).not.toHaveBeenCalled();
   });
-  it("supports keyboard execution and an honest no-results state", () => {
-    render(<MobileAssistantCommands onClose={() => {}} />); const search = screen.getByRole("searchbox");
-    fireEvent.change(search, { target: { value: "settings" } }); fireEvent.keyDown(search, { key: "Enter" }); expect(fixture.execute).toHaveBeenCalledOnce();
-    fireEvent.change(search, { target: { value: "zzzz-unavailable" } }); expect(screen.getByRole("status")).toHaveTextContent("No matching commands");
+  it("renders nothing when the filter is empty (the menu owns the no-results state)", () => {
+    const { container } = render(<MobileAssistantCommands commands={[]} onExecuted={() => {}} />);
+    expect(container).toBeEmptyDOMElement();
   });
 });

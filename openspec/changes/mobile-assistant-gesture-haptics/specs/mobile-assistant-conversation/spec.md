@@ -88,12 +88,12 @@ The global conversation SHALL coexist with the selection-based Ask composer and 
 - **THEN** the global presentation closes while retaining its session, and the selection workflow opens without stacked competing sheets
 
 ### Requirement: Searchable command access alongside conversation
-The global mobile Assistant SHALL expose a searchable Commands mode alongside Chat, using the existing shared command registry, matcher, availability gates and executor. Executing a command SHALL dismiss the sheet while preserving its Chat session. Opening the sheet SHALL NOT force the software keyboard. Existing keyboard palette invocation SHALL remain available.
+The global mobile Assistant SHALL expose a searchable command menu anchored at the composer's add control (superseded 2026-10-16 by the `mobile-assistant-composer` capability in `update-mobile-assistant-composer`: the tab-based Commands mode was replaced by this menu), using the existing shared command registry, matcher, availability gates and executor. Executing a command SHALL dismiss the menu while preserving its Chat session. Opening the sheet or the menu SHALL NOT force the software keyboard. Existing keyboard palette invocation SHALL remain available.
 
 #### Scenario: Find and execute an existing action
-- **WHEN** the user selects Commands, searches for an available action and activates it
-- **THEN** the shared command executor performs the same action as the keyboard palette and dismisses the sheet
+- **WHEN** the user opens the add menu, searches for an available action and activates it
+- **THEN** the shared command executor performs the same action as the keyboard palette and dismisses the menu
 
 #### Scenario: Return to conversation
-- **WHEN** the user switches between Chat and Commands or reopens after a command
+- **WHEN** the user closes the menu or reopens after a command
 - **THEN** the global messages, draft and scope remain intact and no competing microphone capture continues
