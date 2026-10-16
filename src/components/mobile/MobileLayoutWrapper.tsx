@@ -7,8 +7,10 @@
  * - Mobile bottom navigation
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { PWAInstallPrompt, OfflineIndicator } from "./PWAComponents";
+import { MobileAssistantHost } from "../assistant/mobile/MobileAssistantHost";
+import { MobileAssistantContextProvider } from "../assistant/mobile/MobileAssistantContext";
 import { MobileNavigation } from "./MobileNavigation";
 import { useQueueStore } from "../../stores";
 import { useMobileShell } from "../../hooks/useMobileShell";
@@ -23,6 +25,7 @@ interface MobileLayoutWrapperProps {
 }
 
 export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
+  const navRef = useRef<HTMLElement | null>(null);
   const queueItems = useQueueStore((state) => state.items);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const isMobile = useMobileShell();
@@ -98,6 +101,7 @@ export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
   }
 
   return (
+    <MobileAssistantContextProvider>
     <AdaptiveAppScaffold mobile fullscreen={isFullscreen}>
       {/* PWA Components */}
       <PWAInstallPrompt />
@@ -113,10 +117,13 @@ export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
 
       {/* Mobile Bottom Navigation */}
       <MobileNavigation
+        navRef={navRef}
         dueCount={dueCount}
         unreadCount={unreadCount}
         hidden={isFullscreen}
       />
+      <MobileAssistantHost navRef={navRef} fullscreen={isFullscreen} />
     </AdaptiveAppScaffold>
+    </MobileAssistantContextProvider>
   );
 }

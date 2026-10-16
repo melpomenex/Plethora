@@ -1,3 +1,4 @@
+import { useRegisterMobileAssistant, useMobileAssistantController } from "../assistant/mobile/MobileAssistantContext";
 import type { VideoViewerContext } from "../../lib/ai/assistant/scopes";
 /**
  * Wrapper component that adds Assistant panel to DocumentViewer
@@ -170,9 +171,10 @@ export function DocumentViewer({
     const saved = localStorage.getItem(ASSISTANT_POSITION_KEY);
     return saved === "left" ? "left" : "right";
   });
+  const mobileAssistant = useMobileAssistantController();
   const formFactor = useFormFactor();
   // Only hide assistant on phones, not on tablets or small screens.
-  const isMobile = formFactor === "phone";
+  const isMobile = Boolean(mobileAssistant) || formFactor === "phone";
   const documents = useDocumentStore((state) => state.documents);
   const currentDoc = documents.find((doc) => doc.id === documentId) ?? currentDocument ?? null;
   const selectionRef = useRef(selection);
@@ -529,6 +531,8 @@ export function DocumentViewer({
     videoContext,
   ]);
 
+  useRegisterMobileAssistant(assistantContext, { revision: documentId, disabled: Boolean(embedded), unavailableReason: selection ? "selection" : undefined });
+
   const handlePositionChange = (newPosition: AssistantPosition) => {
     setAssistantPosition(newPosition);
     localStorage.setItem(ASSISTANT_POSITION_KEY, newPosition);
@@ -670,7 +674,7 @@ export function DocumentViewer({
           >
             {documentViewer}
           </MobileDocumentWrapper>
-          {isPWA() && (
+          {isPWA() && !mobileAssistant && (
             <PwaAssistantButton
               context={assistantContext}
               enabled={pwaAssistantEnabled}

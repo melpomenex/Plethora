@@ -34,6 +34,11 @@ export const FEEDBACK_EVENT_IDS = [
   "review.streak-milestone",
   "review.progress-milestone",
 
+  // Assistant manipulation
+  "assistant.invoke-armed",
+  "assistant.opened",
+  "assistant.detent-settled",
+
   // Reader and navigation interactions
   "reader.context-activated",
   "reader.annotation-saved",
@@ -121,6 +126,10 @@ export interface FeedbackEventPayloads {
   };
   "review.streak-milestone": { currentStreak: number };
   "review.progress-milestone": { completedCount: number };
+
+  "assistant.invoke-armed": Record<string, never>;
+  "assistant.opened": Record<string, never>;
+  "assistant.detent-settled": Record<string, never>;
 
   "reader.context-activated": Record<string, never>;
   "reader.annotation-saved": Record<string, never>;

@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef, type RefObject, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { X } from "@phosphor-icons/react";
-import { registerOverlayDismissal, resolveOverlayOwner } from "../../lib/overlayStack";
+import { registerOverlayDismissal, resolveOverlayOwner, highestOverlayPriority } from "../../lib/overlayStack";
 import { cn } from "../../utils/cn";
 import { usePaneId, useTabId } from "../common/Tabs/TabContent";
 import { useTabsStore } from "../../stores/tabsStore";
@@ -97,7 +97,7 @@ export function Dialog({
   );
 }
 
-export function useDialogFocus(open: boolean, onClose: () => void, initialFocusRef?: RefObject<HTMLElement | null>) {
+export function useDialogFocus(open: boolean, onClose: () => void, initialFocusRef?: RefObject<HTMLElement | null>, options?: { priority?: number; global?: boolean }) {
   const paneId = usePaneId();
   const tabId = useTabId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -108,8 +108,8 @@ export function useDialogFocus(open: boolean, onClose: () => void, initialFocusR
   useEffect(() => {
     if (!open) return;
     const unregister = registerOverlayDismissal(() => closeRef.current(), {
-      priority: 100,
-      owner: resolveOverlayOwner(paneId, tabId),
+      priority: options?.priority ?? 100,
+      owner: options?.global ? { scope: "global" } : resolveOverlayOwner(paneId, tabId),
     });
     previousFocusRef.current = document.activeElement as HTMLElement | null;
     const frame = window.requestAnimationFrame(() => {
@@ -122,6 +122,7 @@ export function useDialogFocus(open: boolean, onClose: () => void, initialFocusR
       }
     });
     const handleKey = (event: KeyboardEvent) => {
+      if (options?.priority !== undefined && highestOverlayPriority() > options.priority) return;
       if (event.key === "Escape") {
         closeRef.current();
         return;
@@ -152,7 +153,7 @@ export function useDialogFocus(open: boolean, onClose: () => void, initialFocusR
       document.removeEventListener("keydown", handleKey);
       restoreOverlayFocus(previousFocusRef.current);
     };
-  }, [open, paneId, tabId]);
+  }, [open, paneId, tabId, options?.priority, options?.global]);
 
   return panelRef;
 }

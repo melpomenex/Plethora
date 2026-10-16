@@ -129,8 +129,8 @@ describe("task 2.1 — composer", () => {
   it("voice control degrades gracefully when unsupported", async () => {
     openSheet();
     await screen.findByRole("button", { name: /voice input/i });
-    fireEvent.click(screen.getByRole("button", { name: /voice input/i }));
-    expect(await screen.findByText(/voice input isn't supported/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /voice input/i })).toBeDisabled();
+    expect(await screen.findByText(/type or use your keyboard.*dictation/i)).toBeInTheDocument();
   });
 });
 

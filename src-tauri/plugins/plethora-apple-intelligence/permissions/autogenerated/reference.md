@@ -13,6 +13,7 @@ each reserved RPC.
 - `allow-apple-fm-cancel`
 - `allow-apple-fm-count-tokens`
 - `allow-apple-fm-warmup`
+- `allow-apple-speech-dictation-status`
 - `allow-apple-speech-status`
 - `allow-apple-speech-ensure-assets`
 - `allow-apple-speech-transcribe-file`
@@ -648,6 +649,32 @@ Enables the apple_speech_cancel command without any pre-configured scope.
 <td>
 
 Denies the apple_speech_cancel command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-apple-intelligence:allow-apple-speech-dictation-status`
+
+</td>
+<td>
+
+Enables the apple_speech_dictation_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-apple-intelligence:deny-apple-speech-dictation-status`
+
+</td>
+<td>
+
+Denies the apple_speech_dictation_status command without any pre-configured scope.
 
 </td>
 </tr>

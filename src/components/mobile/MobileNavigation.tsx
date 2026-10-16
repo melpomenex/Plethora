@@ -9,7 +9,7 @@
  */
 
 import { emitUserInteraction } from "../../lib/feedback/orchestrator";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import {
   ArrowsInSimple,
   ArrowsLeftRight,
@@ -265,6 +265,7 @@ interface MobileNavigationProps {
   dueCount?: number;
   unreadCount?: number;
   hidden?: boolean;
+  navRef?: RefObject<HTMLElement | null>;
 }
 
 /** §3.1: resolve a nav item's platform availability (ungated ⇒ available). */
@@ -278,6 +279,7 @@ export function MobileNavigation({
   dueCount = 0,
   unreadCount = 0,
   hidden = false,
+  navRef,
 }: MobileNavigationProps) {
   const { t } = useI18n();
   const { tabs, rootPane, addTab, setActiveTab } = useTabsStore();
@@ -457,7 +459,7 @@ export function MobileNavigation({
 
   return (
     <>
-    <nav className={`mobile-bottom-nav ${hidden ? "hidden" : ""}`} aria-hidden={hidden}>
+    <nav ref={navRef} className={`mobile-bottom-nav ${hidden ? "hidden" : ""}`} aria-hidden={hidden}>
       {availablePrimaryNavItems.map((item) => {
         const active = activeTab?.type === item.tabType;
         const badge =

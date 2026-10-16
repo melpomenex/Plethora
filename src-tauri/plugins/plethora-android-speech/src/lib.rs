@@ -68,6 +68,38 @@ mod commands {
     use super::*;
 
     #[tauri::command]
+    pub async fn dictation_status(state: State<'_, Native>, request: Option<serde_json::Value>) -> Result<serde_json::Value, Error> {
+        #[cfg(target_os = "android")]
+        { state.handle.run_mobile_plugin::<serde_json::Value>("dictationStatus", request.unwrap_or_else(|| serde_json::json!({}))).map_err(|e| Error::Message(e.to_string())) }
+        #[cfg(not(target_os = "android"))]
+        { let _ = (state, request); Err(not_android()) }
+    }
+
+    #[tauri::command]
+    pub async fn start_dictation(state: State<'_, Native>, request: Option<serde_json::Value>) -> Result<serde_json::Value, Error> {
+        #[cfg(target_os = "android")]
+        { state.handle.run_mobile_plugin::<serde_json::Value>("startDictation", request.unwrap_or_else(|| serde_json::json!({}))).map_err(|e| Error::Message(e.to_string())) }
+        #[cfg(not(target_os = "android"))]
+        { let _ = (state, request); Err(not_android()) }
+    }
+
+    #[tauri::command]
+    pub async fn stop_dictation(state: State<'_, Native>, request: Option<serde_json::Value>) -> Result<serde_json::Value, Error> {
+        #[cfg(target_os = "android")]
+        { state.handle.run_mobile_plugin::<serde_json::Value>("stopDictation", request.unwrap_or_else(|| serde_json::json!({}))).map_err(|e| Error::Message(e.to_string())) }
+        #[cfg(not(target_os = "android"))]
+        { let _ = (state, request); Err(not_android()) }
+    }
+
+    #[tauri::command]
+    pub async fn cancel_dictation(state: State<'_, Native>, request: Option<serde_json::Value>) -> Result<serde_json::Value, Error> {
+        #[cfg(target_os = "android")]
+        { state.handle.run_mobile_plugin::<serde_json::Value>("cancelDictation", request.unwrap_or_else(|| serde_json::json!({}))).map_err(|e| Error::Message(e.to_string())) }
+        #[cfg(not(target_os = "android"))]
+        { let _ = (state, request); Err(not_android()) }
+    }
+
+    #[tauri::command]
     pub async fn speech_status(
         state: State<'_, Native>,
         request: Option<serde_json::Value>,
@@ -132,7 +164,11 @@ pub fn init() -> TauriPlugin<Wry> {
         .invoke_handler(tauri::generate_handler![
             commands::speech_status,
             commands::transcribe_audio,
-            commands::download_speech_model
+            commands::download_speech_model,
+            commands::dictation_status,
+            commands::start_dictation,
+            commands::stop_dictation,
+            commands::cancel_dictation,
         ])
         .setup(|app, api| {
             let native = init_mobile(app.app_handle(), api)?;

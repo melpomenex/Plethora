@@ -1,3 +1,7 @@
+import { useComposerDictation } from "../../hooks/useComposerDictation";
+import { ComposerDictationControl } from "./ComposerDictationControl";
+import { MOBILE_ASSISTANT_CONVERSATION_KEY, type MobileAssistantPresentation, type AssistantSourceProvenance } from "./mobile/contracts";
+import { assistantSourceProvenance, authorizeAssistantHistory, mergeAssistantProvenance } from "./mobile/provenance";
 import { AssistantScopeSelector } from "./AssistantScopeSelector";
 import { runAssistantTurn } from "../../lib/ai/assistant/orchestrator";
 import { isAssistantScope, type AssistantScope } from "../../lib/ai/assistant/scopes";
@@ -127,6 +131,8 @@ import {
 export interface AssistantContext {
   type: "document" | "web" | "video" | "general";
   content?: string;
+  /** Parent library IDs for extracts; [] for ephemeral web sources. */
+  privacyDocumentIds?: string[];
   url?: string;
   documentId?: string;
   selection?: string;
@@ -148,6 +154,7 @@ export interface AssistantContext {
   source?: string;
   /** Authoritative viewer-supplied sections (for example timed audiobook chapters). */
   sections?: SectionNode[];
+  snapshotForSubmit?: () => AssistantContext;
   resolveForPrompt?: (prompt: string) => Promise<ResolvedAssistantContext>;
 }
 
@@ -161,6 +168,7 @@ export interface AttachedImage {
 }
 
 interface Message {
+  provenance?: AssistantSourceProvenance;
   scope?: AssistantScope;
   id: string;
   role: "user" | "assistant" | "system";
@@ -194,6 +202,8 @@ interface AssistantPanelProps {
   appendContextMessages?: boolean;
   /** Fill the host width and disable the desktop drag handle (used by mobile sheets). */
   fillContainer?: boolean;
+  conversationKey?: string;
+  mobilePresentation?: MobileAssistantPresentation;
 }
 
 const ASSISTANT_POSITION_KEY = "assistant-panel-position";
@@ -328,8 +338,24 @@ export function AssistantPanel({
   onProviderChange,
   appendContextMessages = true,
   fillContainer = false,
+  conversationKey: explicitConversationKey,
+  mobilePresentation,
 }: AssistantPanelProps) {
   const { t } = useI18n();
+  const sessionKey = explicitConversationKey ?? getConversationKey(context);
+  const isMobileSession = sessionKey === MOBILE_ASSISTANT_CONVERSATION_KEY;
+  const requestEpochRef = useRef(0);
+  const [hydratedSessionKey, setHydratedSessionKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isMobileSession) return;
+    const background = () => {
+      if (!document.hidden) return;
+      requestEpochRef.current += 1;
+      setIsLoading(false);
+    };
+    document.addEventListener("visibilitychange", background);
+    return () => { requestEpochRef.current += 1; document.removeEventListener("visibilitychange", background); };
+  }, [isMobileSession]);
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [width, setWidth] = useState(() => {
     const saved = localStorage.getItem(ASSISTANT_WIDTH_KEY);
@@ -461,7 +487,7 @@ export function AssistantPanel({
     tree: documentSectionTree,
     flat: documentSectionFlat,
   } = useDocumentSections({
-    documentId: context?.documentId,
+    documentId: mobilePresentation && !mobilePresentation.visible ? undefined : context?.documentId,
     content: sectionsArmed ? assistantFullContent || context?.content || "" : "",
     useStoreOutline: true,
   });
@@ -490,6 +516,7 @@ export function AssistantPanel({
   }, [context?.type, context?.selection, context?.documentId, context?.metadata?.title, context?.position?.pageNumber]);
 
   useEffect(() => {
+    if (isMobileSession) return;
     const onSelectionAsk = (e: Event) => {
       const detail = (e as CustomEvent<SelectionAskEventDetail>).detail;
       if (!detail?.snapshot) return;
@@ -504,7 +531,7 @@ export function AssistantPanel({
     window.addEventListener(SELECTION_ASK_EVENT, onSelectionAsk);
     window.addEventListener("plethora:selection-ask-replay", onSelectionAsk);
     return () => { window.removeEventListener(SELECTION_ASK_EVENT, onSelectionAsk); window.removeEventListener("plethora:selection-ask-replay", onSelectionAsk); };
-  }, []);
+  }, [isMobileSession]);
 
   const clearPinnedSelection = useCallback(() => {
     setPinnedSelection(null);
@@ -531,7 +558,7 @@ export function AssistantPanel({
   // must say "loading" rather than a false "no sections available".
   const [sectionTextLoading, setSectionTextLoading] = useState(false);
   useEffect(() => {
-    if (!context?.documentId || !sectionsArmed || context.sections?.length) {
+    if (!context?.documentId || !sectionsArmed || context.sections?.length || (mobilePresentation && !mobilePresentation.visible)) {
       setAssistantFullContent("");
       setSectionTextLoading(false);
       return;
@@ -554,7 +581,7 @@ export function AssistantPanel({
     return () => {
       mounted = false;
     };
-  }, [context?.documentId, context?.sections?.length, sectionsArmed]);
+  }, [context?.documentId, context?.sections?.length, sectionsArmed, mobilePresentation?.visible]);
 
   const isThreadContext = useMemo(() => {
     if (!context) return false;
@@ -678,6 +705,10 @@ export function AssistantPanel({
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const requireLocalDictation = useSettingsStore(state => state.settings.ai.strictLocalOnly === true);
+  const sourceLocalOnly = useDocumentStore(state => state.documents.some(document => (context?.privacyDocumentIds ?? [context?.documentId]).includes(document.id) && document.isLocalOnly));
+  const dictation = useComposerDictation({ active: Boolean(mobilePresentation?.visible) && !isLoading, resetKey: `${sessionKey}:${mobilePresentation?.viewIdentity ?? getConversationKey(context)}`,
+    text: input, setText: setInput, inputRef: textareaRef, requireOnDevice: requireLocalDictation || sourceLocalOnly });
   const lastContextSignatureRef = useRef<string | null>(null);
   const activeConversationKeyRef = useRef<string>("general");
   const historyDraftRef = useRef("");
@@ -855,9 +886,11 @@ export function AssistantPanel({
   }, [isInputFocused, isInputHovered, onInputHoverChange]);
 
   useEffect(() => {
-    const conversationKey = getConversationKey(context);
-    activeConversationKeyRef.current = conversationKey;
-    const stored = readStoredConversations()[conversationKey];
+    requestEpochRef.current += 1;
+    activeConversationKeyRef.current = sessionKey;
+    const stored = readStoredConversations()[sessionKey];
+    setHydratedSessionKey(sessionKey);
+    setIsLoading(false);
     setMessages(stored?.messages ?? []);
     setScope(stored?.scope ?? "chat");
     setInput(stored?.input ?? "");
@@ -865,10 +898,11 @@ export function AssistantPanel({
     setHistoryIndex(null);
     lastContextSignatureRef.current = null;
     clearAttachedImages();
-  }, [context?.type, context?.documentId, context?.url, context?.metadata?.videoId, context?.metadata?.title]);
+  }, [sessionKey]);
 
   useEffect(() => {
     const key = activeConversationKeyRef.current;
+    if (hydratedSessionKey !== sessionKey) return;
     const conversations = readStoredConversations();
     conversations[key] = {
       messages: messages.slice(-MAX_STORED_MESSAGES),
@@ -883,7 +917,7 @@ export function AssistantPanel({
     // (500ms trailing) so a burst of UI updates — typing in the input, a tool
     // call resolving — collapses to one publish rather than one per keystroke.
     // Images are stripped by the entity before they hit the wire.
-    if (isTauri()) {
+    if (isTauri() && !isMobileSession) {
       if (publishConversationTimerRef.current !== null) {
         window.clearTimeout(publishConversationTimerRef.current);
       }
@@ -891,7 +925,7 @@ export function AssistantPanel({
         publishConversationTimerRef.current = null;
       }, 500);
     }
-  }, [messages, input, scope]);
+  }, [messages, input, scope, hydratedSessionKey, sessionKey, isMobileSession]);
 
   // When a conversation arrives from another device, reload the active
   // conversation from localStorage (the entity already wrote it there) so the
@@ -899,6 +933,7 @@ export function AssistantPanel({
   // an in-flight interaction: skip while a request is loading, or when the
   // input is focused+dirty (the user is mid-typing) and the remote key matches.
   useEffect(() => {
+    if (isMobileSession) return;
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail as { key?: string } | undefined;
       const activeKey = activeConversationKeyRef.current;
@@ -916,7 +951,7 @@ export function AssistantPanel({
       window.removeEventListener("plethora:synced-conversation", handler);
       window.removeEventListener("plethora:synced-conversation-deleted", handler);
     };
-  }, [isLoading, isInputFocused, input]);
+  }, [isLoading, isInputFocused, input, isMobileSession]);
 
   useEffect(() => {
     persistAssistantProvider(selectedProvider);
@@ -1015,7 +1050,7 @@ export function AssistantPanel({
 
   // Add context message when context changes
   useEffect(() => {
-    if (context && appendContextMessages) {
+    if (context && appendContextMessages && !isMobileSession) {
       const signature = `${context.type}:${context.documentId ?? ""}:${context.url ?? ""}`;
       if (lastContextSignatureRef.current === signature) {
         return;
@@ -1092,12 +1127,14 @@ export function AssistantPanel({
     restoreInputOnError?: string;
   }
 
+  const isCurrentRequest = (token: string) => token === `${activeConversationKeyRef.current}:${requestEpochRef.current}`;
+
   const appendMessagesIfSameConversation = (
     conversationKeyAtStart: string,
     updater: (prev: Message[]) => Message[],
   ) => {
     setMessages((prev) => {
-      if (activeConversationKeyRef.current !== conversationKeyAtStart) return prev;
+      if (!isCurrentRequest(conversationKeyAtStart)) return prev;
       return updater(prev).map((message) => message.scope ? message : { ...message, scope });
     });
   };
@@ -1105,7 +1142,7 @@ export function AssistantPanel({
   const submitAssistantRequest = async (request: AssistantSubmitRequest) => {
     if (isLoading) return;
 
-    const conversationKeyAtStart = activeConversationKeyRef.current;
+    const conversationKeyAtStart = `${activeConversationKeyRef.current}:${requestEpochRef.current}`;
     toolExecutionContextRef.current = request.capturedDocumentContext
       ?? captureDocumentContext(context?.documentId, assistantDocumentTitle);
 
@@ -1113,8 +1150,11 @@ export function AssistantPanel({
       setFlashcardGeneratingMessageId(request.originatingMessageId);
     }
 
+    const turnContext = isMobileSession ? context?.snapshotForSubmit?.() ?? context : context;
+    const turnProvenance = isMobileSession ? mergeAssistantProvenance(assistantSourceProvenance(turnContext), messages.map(m => m.provenance)) : undefined;
     const hasImages = (request.images?.length ?? 0) > 0;
     const userMessage: Message = {
+      provenance: turnProvenance,
       id: `user-${Date.now()}`,
       role: "user",
       content: request.displayContent ?? request.requestContent,
@@ -1183,7 +1223,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         }
 
         if (userInput === "/clear") {
-          if (activeConversationKeyRef.current === conversationKeyAtStart) {
+          if (isCurrentRequest(conversationKeyAtStart)) {
             setMessages([]);
           }
           return;
@@ -1216,10 +1256,11 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         ?? messages.filter((m) => m.role === "user" || m.role === "assistant");
 
       const contextData = {
-        currentContext: context,
+        currentContext: turnContext,
         conversationHistory: filteredHistory,
         availableTools: getAvailableTools(),
         currentUserImages: userMessage.images,
+        providerSnapshot: useLLMProvidersStore.getState().providers.map(provider => ({ ...provider })),
         currentProvider: effectiveProvider,
         currentModel: useLLMProvidersStore.getState().providers.find((p) => p.provider === effectiveProvider)?.model,
         sourceContentOverride: request.sourceContentOverride,
@@ -1230,6 +1271,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       if (request.sourceContentOverride && response.content.startsWith("Error calling LLM:")) {
         throw new Error(response.content.replace(/^Error calling LLM:\s*/, ""));
       }
+      if (!isCurrentRequest(conversationKeyAtStart)) return;
       const parsedResponse = parseAssistantThinking(response.content);
       const { cleanedContent, toolCalls } = parseToolCalls(parsedResponse.answer);
 
@@ -1245,6 +1287,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 
       const displayContent = cleanedContent || (toolCalls.length > 0 ? "Running tool calls..." : parsedResponse.answer);
       const assistantMessage: Message = {
+        provenance: turnProvenance,
         id: `assistant-${Date.now()}`,
         role: "assistant",
         content: displayContent,
@@ -1271,7 +1314,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         });
       }
 
-      if (toolCalls.length > 0 && activeConversationKeyRef.current === conversationKeyAtStart) {
+      if (toolCalls.length > 0 && isCurrentRequest(conversationKeyAtStart)) {
         const results = await executeToolCalls(assistantMessage.id, toolCalls, response.sourceContext);
         const confirmation = buildConfirmationMessage(results);
         if (confirmation) {
@@ -1285,7 +1328,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         }
       }
     } catch (error) {
-      if (request.restoreInputOnError !== undefined && activeConversationKeyRef.current === conversationKeyAtStart) {
+      if (request.restoreInputOnError !== undefined && isCurrentRequest(conversationKeyAtStart)) {
         setInput(request.restoreInputOnError);
         historyDraftRef.current = request.restoreInputOnError;
       }
@@ -1297,11 +1340,11 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       };
       appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, errorMessage]);
     } finally {
-      toolExecutionContextRef.current = {};
-      setFlashcardGeneratingMessageId(null);
-      setIsLoading(false);
-      if (!request.sourceContentOverride) {
-        setSelectedSectionNodes([]);
+      if (isCurrentRequest(conversationKeyAtStart)) {
+        toolExecutionContextRef.current = {};
+        setFlashcardGeneratingMessageId(null);
+        setIsLoading(false);
+        if (!request.sourceContentOverride) setSelectedSectionNodes([]);
       }
     }
   };
@@ -1381,6 +1424,10 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     const promptSectionNodes = mentionResolution.nodes;
 
     try {
+      const privacyDocuments = isMobileSession ? await authorizeAssistantHistory({
+        sources: [assistantSourceProvenance(contextData.currentContext as AssistantContext), ...(contextData.conversationHistory as Message[]).map(m => m.provenance)],
+        providerId: effectiveProvider, strictLocalOnly: useSettingsStore.getState().settings.ai.strictLocalOnly, getDocument,
+      }) : undefined;
       const toolInstruction = buildToolInstruction(getAvailableTools(), isTwentyRules);
       const effectivePrompt = isTwentyRules
         ? (stripTwentyRulesCommand(prompt) || "Create atomic flashcards from the provided content strictly following the 20 Rules of Knowledge Formulation.")
@@ -1391,10 +1438,8 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       const llmContext = contextData.currentContext as AssistantContext;
       const contextWindow = contextWindowTokens && contextWindowTokens > 0 ? contextWindowTokens : 2000;
       const isOllama = effectiveProvider === "ollama";
-      const providerConfig = useLLMProvidersStore
-        .getState()
-        .providers.find((p) => p.provider === effectiveProvider && p.enabled)
-        ?? useLLMProvidersStore.getState().providers.find((p) => p.provider === effectiveProvider);
+      const providerSnapshot = (contextData.providerSnapshot as ReturnType<typeof useLLMProvidersStore.getState>["providers"] | undefined) ?? useLLMProvidersStore.getState().providers;
+      const providerConfig = providerSnapshot.find(p => p.provider === effectiveProvider && p.enabled) ?? providerSnapshot.find(p => p.provider === effectiveProvider);
       const policy = resolveRequestPolicy({
         provider: effectiveProvider,
         providerMaxOutput: providerConfig?.maxTokens,
@@ -1628,7 +1673,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           sourceContent: contextContent, playbackTimeSeconds: llmContext?.position?.currentTime,
           history: (contextData.conversationHistory as Message[]).map((m) => ({ ...m, images: m.images?.map((image) => image.dataUrl) })), tools: getAvailableTools(),
           provider: "apple-foundation", isTwentyRules, twentyRulesPrompt: buildTwentyRulesSystemPrompt(),
-          documentsForPrivacyCheck: context?.documentId ? [await getDocument(context.documentId)] : [],
+          documentsForPrivacyCheck: privacyDocuments ?? (context?.documentId ? [await getDocument(context.documentId)] : []),
           strictLocalOnly: useSettingsStore.getState().settings.ai.strictLocalOnly,
           chatExecutor: async ({ messages, context: source }) => runAssistantAppleFmChat({
             systemInstruction: String(messages[0].content),
@@ -1647,8 +1692,8 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         };
       }
 
-      const allProviders = useLLMProvidersStore.getState().providers;
-      const enabledProviders = useLLMProvidersStore.getState().getEnabledProviders();
+      const allProviders = providerSnapshot;
+      const enabledProviders = providerSnapshot.filter(p => p.enabled);
 
       const selectedTypeProvider = allProviders.find((p) => p.provider === effectiveProvider);
 
@@ -1684,7 +1729,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         sourceTitle: assistantDocumentTitle, sourceUrl: llmContext?.url,
         sourceContent: contextContent, selectionExcerpt: pinnedSelection?.excerpt ?? llmContext?.selection,
         playbackTimeSeconds: llmContext?.position?.currentTime, transcriptStatus: llmContext?.transcriptStatus,
-        documentsForPrivacyCheck: llmContext?.documentId && !llmContext.documentId.startsWith("extract:") ? [await getDocument(llmContext.documentId)] : [],
+        documentsForPrivacyCheck: privacyDocuments ?? (llmContext?.documentId && !llmContext.documentId.startsWith("extract:") ? [await getDocument(llmContext.documentId)] : []),
         strictLocalOnly: useSettingsStore.getState().settings.ai.strictLocalOnly,
         provider: effectiveProvider, model: provider.model, apiKey: provider.apiKey,
         baseUrl: provider.baseUrl?.trim() || undefined, temperature: provider.temperature,
@@ -2115,6 +2160,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
   };
 
   const handleInputChange = (value: string) => {
+    dictation.onEdit();
     setInput(value);
     if (historyIndex === null) {
       historyDraftRef.current = value;
@@ -2480,7 +2526,17 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
   };
 
   const handleClearChat = () => {
+    dictation.cancel();
+    requestEpochRef.current += 1;
+    setIsLoading(false);
     setMessages([]);
+    if (isMobileSession) {
+      setInput("");
+      setScope("chat");
+      setPinnedSelection(null);
+      setSelectedSectionNodes([]);
+      clearAttachedImages();
+    }
     toast.success("Chat history cleared");
   };
 
@@ -2712,10 +2768,10 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       onContextMenu={(e) => handleContextMenu(e)}
     >
       {/* Header */}
-      <div className="flex items-center justify-between p-3 border-b border-border">
+      <div data-assistant-toolbar className="flex items-center justify-between p-3 border-b border-border">
         <div className="flex items-center gap-2">
           <ChatCircle className="w-4 h-4 text-primary" />
-          <h2 className="text-sm font-semibold text-foreground">Assistant</h2>
+          {mobilePresentation ? <button type="button" onClick={handleClearChat} className="min-h-12 text-sm text-primary md-state">New conversation</button> : <h2 className="text-sm font-semibold text-foreground">Assistant</h2>}
         </div>
         <div className="flex items-center gap-1">
           {/* Share Conversation Button */}
@@ -2935,7 +2991,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             )}
           </div>
           {/* Position Toggle Button */}
-          <button
+          {!mobilePresentation && <><button
             onClick={togglePosition}
             className="p-1.5 hover:bg-muted transition-colors rounded"
             title={position === "right" ? "Move to left side" : "Move to right side"}
@@ -2957,6 +3013,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               <CaretLeft className="w-4 h-4 text-foreground" />
             )}
           </button>
+          </>}
         </div>
       </div>
 
@@ -3130,7 +3187,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 {message.role === "user" ? (
                   renderUserMessageContent(message.content, assistantSectionFlat)
                 ) : (
-                  <AssistantResponseContent content={message.content} thinking={message.thinking} onTimestampClick={context?.type === "video" ? (seconds) => window.dispatchEvent(new CustomEvent("plethora:assistant-seek", { detail: { documentId: context.documentId, seconds } })) : undefined} />
+                  <AssistantResponseContent content={message.content} thinking={message.thinking} onTimestampClick={context?.type === "video" ? (seconds) => window.dispatchEvent(new CustomEvent("plethora:assistant-seek", { detail: { documentId: message.provenance?.sourceId ?? context.documentId, seconds } })) : undefined} />
                 )}
               </div>
 
@@ -3248,7 +3305,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       </div>
 
       {/* Input Area */}
-      <div className="flex-shrink-0 p-3 border-t border-border bg-card relative">
+      <div data-assistant-composer className="flex-shrink-0 p-3 border-t border-border bg-card relative">
         <div className="flex flex-col gap-2">
           {/* Image Preview Strip */}
           {attachedImages.length > 0 && (
@@ -3359,6 +3416,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
 
           {/* Text Input */}
           <div
+            data-assistant-composer-input
             ref={inputContainerRef}
             className={`flex gap-2 rounded-lg transition-colors ${isDragOver ? "border-2 border-dashed border-primary bg-primary/5" : ""}`}
             onMouseEnter={() => setIsInputHovered(true)}
@@ -3398,6 +3456,8 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               </button>
             </div>
           </div>
+
+          {mobilePresentation && <ComposerDictationControl dictation={dictation} />}
 
           {/* Hidden file input */}
           <input

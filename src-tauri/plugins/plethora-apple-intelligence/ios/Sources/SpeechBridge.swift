@@ -13,6 +13,9 @@ struct SpeechFileArgs: Decodable {
 }
 
 final class AppleSpeechBridge: NSObject {
+  private lazy var composer = ComposerSpeechBridge(legacyBusy: { [weak self] in self?.liveEngine != nil || self?.legacyStarting == true })
+  private var legacyStarting = false
+  func dictationStatus(_ invoke: Invoke) throws { try composer.status(invoke) }
   private var liveTask: SFSpeechRecognitionTask?
   private var liveEngine: AVAudioEngine?
   private var liveRequest: SFSpeechAudioBufferRecognitionRequest?
@@ -80,12 +83,18 @@ final class AppleSpeechBridge: NSObject {
   }
 
   func startLive(_ invoke: Invoke) throws {
+    let args = try invoke.parseArgs(SpeechLiveArgs.self)
+    if args.purpose == "composer-dictation" { composer.start(invoke, args); return }
+    guard !composer.busy, liveEngine == nil, !legacyStarting else { rejectCoded(invoke, "busy", "Microphone is already owned"); return }
+    legacyStarting = true
     SFSpeechRecognizer.requestAuthorization { status in
       guard status == .authorized else {
+        self.legacyStarting = false
         rejectCoded(invoke, "permission_denied", "Speech recognition not authorized")
         return
       }
       do {
+        self.legacyStarting = false
         try self.beginLive()
         invoke.resolve(["ok": true])
       } catch {
@@ -95,12 +104,14 @@ final class AppleSpeechBridge: NSObject {
   }
 
   func stopLive(_ invoke: Invoke) {
+    if let args = try? invoke.parseArgs(SpeechLiveArgs.self), args.purpose == "composer-dictation" { composer.stop(invoke, id: args.sessionId); return }
     liveTask?.finish()
     teardownLive()
     invoke.resolve(["text": joinedText(), "segments": liveSegments])
   }
 
   func cancel(_ invoke: Invoke) {
+    if let args = try? invoke.parseArgs(SpeechLiveArgs.self), args.purpose == "composer-dictation" { composer.cancel(invoke, id: args.sessionId); return }
     liveTask?.cancel()
     teardownLive()
     invoke.resolve(["ok": true])

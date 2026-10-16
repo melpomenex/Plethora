@@ -1,3 +1,4 @@
+import { acquireAudioCapture } from "../../lib/speech/captureOwner";
 import { useUIStore } from "../../stores/uiStore";
 import { useEffect, useRef, useState } from "react";
 import { persistLectureRecording, saveLectureDocument } from "../../lib/ai/android/lectureCapture";
@@ -109,6 +110,7 @@ export function LectureCaptureHost() {
   }, [requested]);
   const [recording, setRecording] = useState(false);
   const [partial, setPartial] = useState("");
+  const captureLease = useRef<(() => void) | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const pcmTapRef = useRef<{ stop: () => Promise<string> } | null>(null);
@@ -130,6 +132,7 @@ export function LectureCaptureHost() {
   };
 
   const discard = () => {
+    captureLease.current?.(); captureLease.current = null;
     try {
       recorderRef.current?.stop();
     } catch {
@@ -168,6 +171,7 @@ export function LectureCaptureHost() {
     const pcmBase64 = (await pcmTapRef.current?.stop()) ?? "";
     pcmTapRef.current = null;
     stopTracks(recorder);
+    captureLease.current?.(); captureLease.current = null;
     setRecording(false);
     chunksRef.current = [];
     recorderRef.current = null;
@@ -189,7 +193,11 @@ export function LectureCaptureHost() {
   };
 
   const start = async () => {
+    let lease: (() => void) | undefined;
+    try {
+    lease = acquireAudioCapture(); captureLease.current = lease;
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    if (captureLease.current !== lease) { stream.getTracks().forEach(track => track.stop()); return; }
     const recorder = new MediaRecorder(stream);
     chunksRef.current = [];
     setPartial("");
@@ -201,6 +209,11 @@ export function LectureCaptureHost() {
     pcmTapRef.current = attachPcmTap(stream);
     captionsRef.current = startBrowserCaptions(setPartial);
     setRecording(true);
+    } catch (error) {
+      lease?.();
+      if (captureLease.current === lease) captureLease.current = null;
+      addToast({ type: ToastType.Error, title: t("commandPalette.recordLecture"), message: String(error) });
+    }
   };
 
   if (!open) return null;

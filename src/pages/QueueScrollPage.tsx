@@ -1,3 +1,4 @@
+import { useRegisterMobileAssistant, useMobileAssistantController } from "../components/assistant/mobile/MobileAssistantContext";
 import type { VideoViewerContext } from "../lib/ai/assistant/scopes";
 import { SELECTION_ASK_EVENT, type SelectionAskEventDetail } from "../utils/selectionAskHandoff";
 import { emitInteractionFeedback, createFeedbackInteractionId } from "../lib/feedback/orchestrator";
@@ -604,7 +605,13 @@ export function QueueScrollPage() {
     if (typeof localStorage === "undefined") return true;
     return localStorage.getItem("assistant-panel-visible") !== "false";
   });
+  const mobileAssistant = useMobileAssistantController();
+  const mobileShell = useMobileShell();
   const toggleAssistantVisibility = useCallback(() => {
+    if (mobileShell && mobileAssistant) {
+      void (async () => { if (document.fullscreenElement) await document.exitFullscreen(); requestAnimationFrame(() => mobileAssistant.open()); })();
+      return;
+    }
     setIsAssistantVisible((prev) => {
       const next = !prev;
       if (typeof localStorage !== "undefined") {
@@ -612,8 +619,8 @@ export function QueueScrollPage() {
       }
       return next;
     });
-  }, []);
-  const isMobile = useMobileShell();
+  }, [mobileShell, mobileAssistant]);
+  const isMobile = mobileShell;
   const [rssSelectedText, setRssSelectedText] = useState("");
   const lastRssSelectionRef = useRef("");
   const activeRssSelection = rssSelectedText || lastRssSelectionRef.current;
@@ -2500,6 +2507,7 @@ export function QueueScrollPage() {
           setAssistantContext({
             type: "document",
             documentId: `extract:${assistantItem.extract.id}`,
+            privacyDocumentIds: assistantItem.extract.document_id ? [assistantItem.extract.document_id] : undefined,
             content: trimmed || undefined,
             contextWindowTokens: maxTokens,
             selection: selection || undefined,
@@ -2560,6 +2568,20 @@ export function QueueScrollPage() {
     settings.documents.ocr.autoOCR,
     settings.documents.ocr.autoExtractOnLoad,
   ]);
+
+  const mobileContext = useMemo<AssistantContext | undefined>(() => {
+    const item = renderedItem ?? currentItem;
+    if (!item || item.type === "flashcard") return undefined;
+    if (item.type === "document" && assistantContext?.documentId !== item.documentId) return undefined;
+    if (item.type === "extract" && assistantContext?.documentId !== `extract:${item.extract?.id}`) return undefined;
+    if (item.type === "rss" && assistantContext?.url !== (item.rssItem?.link || `rss:${item.rssItem?.id}`)) return undefined;
+    return liveVideoContext ? { ...assistantContext, type: "video", documentId: item.documentId,
+      position: { currentTime: liveVideoContext.currentTime }, transcriptStatus: liveVideoContext.transcriptStatus,
+      content: liveVideoContext.transcript, metadata: { title: liveVideoContext.title, duration: liveVideoContext.duration, videoId: liveVideoContext.videoId },
+    } : assistantContext;
+  }, [assistantContext, liveVideoContext, renderedItem, currentItem]);
+  useRegisterMobileAssistant(mobileContext, { revision: (renderedItem ?? currentItem)?.id ?? "queue", priority: 10,
+    unavailableReason: askSheetOpen || selection || rssSelectedText ? "selection" : undefined });
 
   useEffect(() => {
     if (currentItem) {

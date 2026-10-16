@@ -6,6 +6,11 @@ ML Kit Speech Recognition (alpha) — persist-audio-first
 """
 permissions = [
   "allow-speech-status",
+  "allow-dictation-status",
+  "allow-start-dictation",
+  "allow-stop-dictation",
+  "allow-cancel-dictation",
+
   "allow-transcribe-audio",
   "allow-download-speech-model"
 ]

@@ -9,6 +9,7 @@ const COMMANDS: &[&str] = &[
     "apple_fm_cancel",
     "apple_fm_count_tokens",
     "apple_fm_warmup",
+    "apple_speech_dictation_status",
     "apple_speech_status",
     "apple_speech_ensure_assets",
     "apple_speech_transcribe_file",

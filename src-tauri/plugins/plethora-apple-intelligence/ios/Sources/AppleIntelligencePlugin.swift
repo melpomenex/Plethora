@@ -62,6 +62,7 @@ public class AppleIntelligencePlugin: Plugin {
   @objc public func fmCountTokens(_ invoke: Invoke) throws { try foundation.countTokens(invoke) }
   @objc public func fmWarmup(_ invoke: Invoke) throws { foundation.warmup(invoke) }
 
+  @objc public func speechDictationStatus(_ invoke: Invoke) throws { try speech.dictationStatus(invoke) }
   @objc public func speechStatus(_ invoke: Invoke) throws { speech.status(invoke) }
   @objc public func speechEnsureAssets(_ invoke: Invoke) throws { speech.ensureAssets(invoke) }
   @objc public func speechTranscribeFile(_ invoke: Invoke) throws { try speech.transcribeFile(invoke) }

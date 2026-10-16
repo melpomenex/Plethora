@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   const settingsState = {
@@ -327,4 +327,46 @@ describe("emitFeedback", () => {
       expect(mocks.performAdmittedHaptic).toHaveBeenCalledWith("threshold", interactionId);
     });
   });
+  describe("Assistant interaction admission", () => {
+    beforeEach(() => {
+      vi.useFakeTimers(); vi.setSystemTime(1000);
+      Object.assign(mocks.hapticsSnapshot, { configured: true, enabled: true, busy: false, capabilities: { hardware: "available" } });
+      mocks.settingsState.settings.haptics.enabled = true;
+    });
+    afterEach(() => { vi.useRealTimers(); Object.assign(mocks.hapticsSnapshot, { busy: false }); });
+    const emit = (event: "assistant.invoke-armed" | "assistant.opened" | "assistant.detent-settled", id: string) => emitInteractionFeedback(event, {}, { interactionId: id, origin: "user" });
+    it("deduplicates phase identities and enforces exact threshold and tap cooldown boundaries", () => {
+      expect(emit("assistant.invoke-armed", "one:armed").channels).toEqual(["haptic"]);
+      expect(emit("assistant.invoke-armed", "one:armed").suppressedBy).toBe("duplicate");
+      vi.setSystemTime(1249); expect(emit("assistant.invoke-armed", "two:armed").suppressedBy).toBe("cooldown");
+      vi.setSystemTime(1250); expect(emit("assistant.invoke-armed", "three:armed").channels).toEqual(["haptic"]);
+      vi.setSystemTime(1500); expect(emit("assistant.opened", "tap:opened").channels).toEqual(["haptic"]);
+      vi.setSystemTime(1749); expect(emit("assistant.opened", "fast:opened").suppressedBy).toBe("cooldown");
+      vi.setSystemTime(1750); expect(emit("assistant.opened", "next:opened").channels).toEqual(["haptic"]);
+      expect(mocks.performAdmittedHaptic.mock.calls.map(call => call[0])).toEqual(["threshold", "threshold", "activation", "activation"]);
+    });
+    it("enforces 120ms detent cooldown and phase separation across event aliases", () => {
+      expect(emit("assistant.detent-settled", "one:detent").channels).toEqual(["haptic"]);
+      vi.setSystemTime(1119); expect(emit("assistant.detent-settled", "fast:detent").suppressedBy).toBe("cooldown");
+      vi.setSystemTime(1120); expect(emit("assistant.detent-settled", "next:detent").channels).toEqual(["haptic"]);
+      vi.setSystemTime(1400); expect(emit("assistant.opened", "one:detent").suppressedBy).toBe("duplicate");
+      expect(emit("assistant.opened", "one:opened").channels).toEqual(["haptic"]);
+    });
+    it("ignores sound and quiet-hours settings without querying asynchronous capabilities", () => {
+      mocks.settingsState.settings.notifications.soundEnabled = false; mocks.settingsState.settings.notifications.quietHoursEnabled = true;
+      expect(emit("assistant.invoke-armed", "silent:armed").channels).toEqual(["haptic"]);
+      expect(mocks.addToast).not.toHaveBeenCalled(); expect(mocks.playFile).not.toHaveBeenCalled(); expect(mocks.sendNotification).not.toHaveBeenCalled(); expect(mocks.queryAsyncCapabilities).not.toHaveBeenCalled();
+    });
+    it.each(["busy", "configuration", "capability", "settings"] as const)("drops %s output without replay", reason => {
+      if (reason === "busy") Object.assign(mocks.hapticsSnapshot, { busy: true });
+      if (reason === "configuration") Object.assign(mocks.hapticsSnapshot, { configured: false });
+      if (reason === "capability") Object.assign(mocks.hapticsSnapshot, { capabilities: { hardware: "unknown" } });
+      if (reason === "settings") mocks.settingsState.settings.haptics.enabled = false;
+      expect(emit("assistant.invoke-armed", "dropped:armed").suppressedBy).toBe(reason);
+      Object.assign(mocks.hapticsSnapshot, { configured: true, busy: false, capabilities: { hardware: "available" } }); mocks.settingsState.settings.haptics.enabled = true;
+      vi.advanceTimersByTime(1000); expect(mocks.performAdmittedHaptic).not.toHaveBeenCalled();
+      expect(emit("assistant.invoke-armed", "fresh:armed").channels).toEqual(["haptic"]);
+    });
+  });
+
 });

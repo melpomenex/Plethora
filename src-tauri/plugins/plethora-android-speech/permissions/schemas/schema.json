@@ -295,6 +295,30 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the cancel_dictation command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cancel-dictation",
+          "markdownDescription": "Enables the cancel_dictation command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cancel_dictation command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cancel-dictation",
+          "markdownDescription": "Denies the cancel_dictation command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the dictation_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-dictation-status",
+          "markdownDescription": "Enables the dictation_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the dictation_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-dictation-status",
+          "markdownDescription": "Denies the dictation_status command without any pre-configured scope."
+        },
+        {
           "description": "Enables the download_speech_model command without any pre-configured scope.",
           "type": "string",
           "const": "allow-download-speech-model",
@@ -319,6 +343,30 @@
           "markdownDescription": "Denies the speech_status command without any pre-configured scope."
         },
         {
+          "description": "Enables the start_dictation command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-start-dictation",
+          "markdownDescription": "Enables the start_dictation command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the start_dictation command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-start-dictation",
+          "markdownDescription": "Denies the start_dictation command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the stop_dictation command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-stop-dictation",
+          "markdownDescription": "Enables the stop_dictation command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the stop_dictation command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-stop-dictation",
+          "markdownDescription": "Denies the stop_dictation command without any pre-configured scope."
+        },
+        {
           "description": "Enables the transcribe_audio command without any pre-configured scope.",
           "type": "string",
           "const": "allow-transcribe-audio",
@@ -331,10 +379,10 @@
           "markdownDescription": "Denies the transcribe_audio command without any pre-configured scope."
         },
         {
-          "description": "ML Kit Speech Recognition (alpha) — persist-audio-first\n\n#### This default permission set includes:\n\n- `allow-speech-status`\n- `allow-transcribe-audio`\n- `allow-download-speech-model`",
+          "description": "ML Kit Speech Recognition (alpha) — persist-audio-first\n\n#### This default permission set includes:\n\n- `allow-speech-status`\n- `allow-dictation-status`\n- `allow-start-dictation`\n- `allow-stop-dictation`\n- `allow-cancel-dictation`\n- `allow-transcribe-audio`\n- `allow-download-speech-model`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "ML Kit Speech Recognition (alpha) — persist-audio-first\n\n#### This default permission set includes:\n\n- `allow-speech-status`\n- `allow-transcribe-audio`\n- `allow-download-speech-model`"
+          "markdownDescription": "ML Kit Speech Recognition (alpha) — persist-audio-first\n\n#### This default permission set includes:\n\n- `allow-speech-status`\n- `allow-dictation-status`\n- `allow-start-dictation`\n- `allow-stop-dictation`\n- `allow-cancel-dictation`\n- `allow-transcribe-audio`\n- `allow-download-speech-model`"
         }
       ]
     }

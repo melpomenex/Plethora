@@ -392,6 +392,7 @@ mod commands {
         };
     }
 
+    stub_cmd!(apple_speech_dictation_status, "speechDictationStatus");
     stub_cmd!(apple_speech_status, "speechStatus");
     stub_cmd!(apple_speech_ensure_assets, "speechEnsureAssets");
     stub_cmd!(apple_speech_transcribe_file, "speechTranscribeFile");
@@ -459,6 +460,7 @@ pub fn init() -> TauriPlugin<Wry> {
             commands::apple_fm_cancel,
             commands::apple_fm_count_tokens,
             commands::apple_fm_warmup,
+            commands::apple_speech_dictation_status,
             commands::apple_speech_status,
             commands::apple_speech_ensure_assets,
             commands::apple_speech_transcribe_file,

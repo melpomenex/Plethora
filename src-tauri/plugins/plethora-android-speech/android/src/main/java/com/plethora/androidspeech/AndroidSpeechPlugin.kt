@@ -9,6 +9,8 @@ import android.util.Base64
 import androidx.core.content.ContextCompat
 import app.tauri.annotation.Command
 import app.tauri.annotation.InvokeArg
+import app.tauri.annotation.Permission
+import app.tauri.annotation.PermissionCallback
 import app.tauri.annotation.TauriPlugin
 import app.tauri.plugin.Invoke
 import app.tauri.plugin.JSObject
@@ -97,8 +99,16 @@ object PacedPcm {
     }
 }
 
-@TauriPlugin
+@TauriPlugin(permissions = [Permission(alias = "dictationMicrophone", strings = [android.Manifest.permission.RECORD_AUDIO])])
 class AndroidSpeechPlugin(private val activity: Activity) : Plugin(activity) {
+    private val dictation = ComposerDictation(activity)
+    @Command fun dictationStatus(invoke: Invoke) { dictation.status(invoke) }
+    @Command fun startDictation(invoke: Invoke) { dictation.prepare(invoke) { requestPermissionForAlias("dictationMicrophone", invoke, "dictationPermissionResult") } }
+    @PermissionCallback private fun dictationPermissionResult(invoke: Invoke) { dictation.permissionResult(invoke) }
+    @Command fun stopDictation(invoke: Invoke) { dictation.stop(invoke) }
+    @Command fun cancelDictation(invoke: Invoke) { dictation.cancel(invoke) }
+    override fun onPause() { dictation.interrupt(); super.onPause() }
+    override fun onDestroy() { dictation.interrupt(); super.onDestroy() }
     private val io = Executors.newSingleThreadExecutor { r ->
         Thread(r, "plethora-speech").apply { isDaemon = true }
     }

@@ -1,3 +1,7 @@
+import { useComposerDictation } from "../../hooks/useComposerDictation";
+import { ComposerDictationControl } from "./ComposerDictationControl";
+import { useDocumentStore } from "../../stores/documentStore";
+import { useMobileAssistantBlock } from "./mobile/MobileAssistantContext";
 import { AssistantScopeSelector } from "./AssistantScopeSelector";
 import { runConfiguredAssistantTurn } from "../../lib/ai/assistant/configuredTurn";
 import type { AssistantScope } from "../../lib/ai/assistant/scopes";
@@ -21,7 +25,6 @@ import {
   CaretDown,
   CaretUp,
   Copy,
-  Microphone,
   Plus,
   Sparkle,
   SpeakerHigh,
@@ -99,12 +102,8 @@ function toRagHit(source: AskLibraryCitedSource): RagHit {
   };
 }
 
-function getSpeechRecognitionCtor(): (new () => any) | null {
-  const w = window as unknown as Record<string, unknown>;
-  return (w.SpeechRecognition as new () => any) ?? (w.webkitSpeechRecognition as new () => any) ?? null;
-}
-
 export function AskSheet({ open, onClose, request }: AskSheetProps) {
+  useMobileAssistantBlock("selection-ask", open);
   const { t } = useI18n();
   const toast = useToast();
   const isMobile = useMobileShell();
@@ -123,16 +122,18 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
   const [expanded, setExpanded] = useState(false);
   const [followUps, setFollowUps] = useState<string[]>([]);
   const [indexState, setIndexState] = useState<AskSheetIndexState | null>(null);
-  const [listening, setListening] = useState(false);
-  const [voiceHint, setVoiceHint] = useState<string | null>(null);
   const [tracing, setTracing] = useState(false);
   const [traceHits, setTraceHits] = useState<RagHit[] | null>(null);
   const [speaking, setSpeaking] = useState(false);
 
   const historyRef = useRef<ConversationHistoryTurn[]>([]);
   const abortRef = useRef<AbortController | null>(null);
-  const recognitionRef = useRef<any | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  const requireLocalSpeech = useSettingsStore(state => state.settings.ai.strictLocalOnly === true);
+  const sourceLocalOnly = useDocumentStore(state => state.documents.some(document => document.id === request?.documentId && document.isLocalOnly));
+  const dictation = useComposerDictation({ active: open && phase === "compose", resetKey: request, text: question, setText: setQuestion,
+    inputRef, requireOnDevice: requireLocalSpeech || sourceLocalOnly });
+  const stopListening = dictation.cancel;
   const touchStartY = useRef<number | null>(null);
   const requestRef = useRef<AskSheetRequest | null>(null);
   requestRef.current = request;
@@ -158,7 +159,6 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
     setFollowUps([]);
     setTraceHits(null);
     setTracing(false);
-    setVoiceHint(null);
 
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -193,76 +193,6 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
 
     return () => controller.abort();
   }, [open]);
-
-  // Stop voice recognition when the sheet closes.
-  useEffect(() => {
-    if (!open) {
-      try {
-        recognitionRef.current?.stop();
-      } catch {
-        /* already stopped */
-      }
-      setListening(false);
-    }
-  }, [open ]);
-
-  const stopListening = useCallback(() => {
-    try {
-      recognitionRef.current?.stop();
-    } catch {
-      /* already stopped */
-    }
-    recognitionRef.current = null;
-    setListening(false);
-  }, []);
-
-  const startListening = useCallback(() => {
-    const Ctor = getSpeechRecognitionCtor();
-    if (!Ctor) {
-      setVoiceHint(t("askSheet.voiceNotSupported"));
-      return;
-    }
-    if (!window.isSecureContext) {
-      setVoiceHint(t("askSheet.voiceDenied"));
-      return;
-    }
-    setVoiceHint(null);
-    // Request the mic permission inside the tap gesture so the prompt appears.
-    navigator.mediaDevices
-      ?.getUserMedia({ audio: true })
-      .then((stream) => stream.getTracks().forEach((tr) => tr.stop()))
-      .catch(() => {
-        setVoiceHint(t("askSheet.voiceDenied"));
-      });
-    const recognition = new Ctor();
-    recognition.lang = navigator.language || "en-US";
-    recognition.interimResults = true;
-    let finalText = "";
-    recognition.onresult = (event: any) => {
-      let interim = "";
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0]?.transcript ?? "";
-        if (event.results[i].isFinal) finalText += transcript;
-        else interim += transcript;
-      }
-      setQuestion((finalText + (interim ? ` ${interim}` : "")).trim());
-    };
-    recognition.onerror = () => {
-      setVoiceHint(t("askSheet.voiceDenied"));
-      stopListening();
-    };
-    recognition.onend = () => {
-      recognitionRef.current = null;
-      setListening(false);
-    };
-    recognitionRef.current = recognition;
-    setListening(true);
-    try {
-      recognition.start();
-    } catch {
-      stopListening();
-    }
-  }, [stopListening, t]);
 
   const submitQuestion = useCallback(
     async (queryText: string, submitScope?: AssistantScope) => {
@@ -529,7 +459,7 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
             <textarea
               ref={inputRef}
               value={question}
-              onChange={(e) => setQuestion(e.target.value)}
+              onChange={(e) => { dictation.onEdit(); setQuestion(e.target.value); }}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
@@ -541,24 +471,8 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
               aria-label={t("askSheet.questionPlaceholder")}
               className="flex-1 bg-transparent text-[15px] text-foreground outline-none resize-none placeholder:text-muted-foreground"
             />
-            <button
-              type="button"
-              onClick={() => (listening ? stopListening() : startListening())}
-              aria-label={t("askSheet.voiceInput")}
-              aria-pressed={listening}
-              className={`shrink-0 rounded-full p-2.5 transition-colors ${
-                listening ? "bg-destructive text-destructive-foreground animate-pulse" : "bg-primary text-primary-foreground"
-              }`}
-            >
-              <Microphone className="w-5 h-5" weight="fill" aria-hidden="true" />
-            </button>
           </div>
-          {listening && (
-            <div className="text-xs text-muted-foreground px-1">{t("askSheet.voiceListening")}</div>
-          )}
-          {voiceHint && (
-            <div className="text-xs text-muted-foreground px-1">{voiceHint}</div>
-          )}
+          <ComposerDictationControl dictation={dictation} />
 
           {/* Suggested questions */}
           {suggestions.length > 0 && (
