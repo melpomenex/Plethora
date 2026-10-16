@@ -45,6 +45,8 @@ Focused suites added or updated:
 
 ## Outstanding device rows (release acceptance, not claimable here)
 
+Acceptance APK built from `cc843bf4` on the Mac mini with `ORG_GRADLE_PROJECT_plethoraNativeBackEnabled=true` (internal acceptance path per `docs/android-build-notes.md`), sha256 `4751963ca3ea7048f438271e5588d2379fed5ce792ad5c50b1d79279366246a6`, and installed in place with `adb install -r` to the Pixel 9 Pro XL (data preserved; `versionName=3.3.0`). The rows below remain unverified until someone exercises them on the device.
+
 - Soft-keyboard resize while the menu is open (no IME in Chromium desktop): the menu is in flow inside the sheet and inherits the sheet's keyboard-driven height, verified structurally and by the menu-inside-sheet checks only.
 - Android predictive Back ordering (menu → sheet → view): ordering is enforced by `overlayStack` priority 70 > 60 and covered by unit tests; physical Back not exercised.
 - iOS Safari and TalkBack/VoiceOver walkthroughs; real-microphone dictation consent/deny/error flows.
