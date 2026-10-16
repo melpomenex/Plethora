@@ -1,4 +1,5 @@
 import { useRegisterMobileAssistant } from "../assistant/mobile/MobileAssistantContext";
+import { buildRssAssistantContext } from "./rssAssistantContext";
 import { rssReadingStyle, filterRssArticles, sortRssArticles } from "../../types/rssCustomization";
 import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
@@ -140,11 +141,7 @@ export function RSSReader() {
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [items, setItems] = useState<Array<{ feed: Feed; item: FeedItem }>>([]);
   const [selectedItem, setSelectedItem] = useState<FeedItem | null>(null);
-  useRegisterMobileAssistant(useMemo(() => selectedItem ? {
-    type: "web" as const, url: selectedItem.link || `rss:${selectedItem.id}`,
-    content: selectedItem.content || selectedItem.description,
-    privacyDocumentIds: [], metadata: { title: selectedItem.title }, status: "ready" as const,
-  } : undefined, [selectedItem]), { revision: selectedItem?.id ?? "rss" });
+  useRegisterMobileAssistant(useMemo(() => buildRssAssistantContext(selectedItem), [selectedItem]), { revision: selectedItem?.id ?? "rss" });
   const [selectedItemFeed, setSelectedItemFeed] = useState<Feed | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("all");
   const [lastNonSearchViewMode, setLastNonSearchViewMode] = useState<ViewMode>("all");

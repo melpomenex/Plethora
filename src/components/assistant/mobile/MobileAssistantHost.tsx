@@ -191,13 +191,16 @@ export function MobileAssistantHost({ navRef, fullscreen }: { navRef: RefObject<
         role={committed ? "dialog" : undefined} aria-modal={committed ? true : undefined} aria-labelledby="mobile-assistant-heading" tabIndex={-1} data-gesture-lock>
         <div className="mobile-assistant-sheet-header">
           <button type="button" className="mobile-assistant-handle md-state" aria-label={detent === "partial" ? "Expand Assistant" : "Collapse Assistant"} {...handle.bindings}><span aria-hidden="true" /></button>
-          <h2 id="mobile-assistant-heading" className="md-title-medium">{t("assistant.title")}</h2>
-          {geometry.hasPartial && <button type="button" className="mobile-assistant-icon md-state" aria-label={detent === "partial" ? "Expand Assistant" : "Collapse Assistant"} onClick={() => { preKeyboardDetent.current = null; commit(detent === "partial" ? "expanded" : "partial", createFeedbackInteractionId(), "handle"); }}>{detent === "partial" ? <ArrowsOutSimple size={20} /> : <ArrowsInSimple size={20} />}</button>}
-          <button ref={closeRef} type="button" className="mobile-assistant-icon md-state" aria-label="Close Assistant" onClick={close}><X size={20} /></button>
-        </div>
-        <div className="flex shrink-0 px-3" role="tablist" aria-label="Assistant mode">
-          <button type="button" role="tab" aria-selected={mode === "chat"} aria-controls="mobile-assistant-chat" className="md-state min-h-12 flex-1 rounded-full" onClick={() => setMode("chat")}>Chat</button>
-          <button type="button" role="tab" aria-selected={mode === "commands"} aria-controls="mobile-assistant-commands" className="md-state min-h-12 flex-1 rounded-full" onClick={() => setMode("commands")}>Commands</button>
+          <div className="mobile-assistant-sheet-bar">
+            <h2 id="mobile-assistant-heading" className="sr-only">{t("assistant.title")}</h2>
+            <div role="tablist" aria-label="Assistant mode" className="mobile-assistant-modes">
+              <button type="button" role="tab" aria-selected={mode === "chat"} aria-controls="mobile-assistant-chat" className="md-state md-hit-slop rounded-full" onClick={() => setMode("chat")}>Chat</button>
+              <button type="button" role="tab" aria-selected={mode === "commands"} aria-controls="mobile-assistant-commands" className="md-state md-hit-slop rounded-full" onClick={() => setMode("commands")}>Commands</button>
+            </div>
+            <span className="mobile-assistant-bar-spacer" aria-hidden="true" />
+            {geometry.hasPartial && <button type="button" className="mobile-assistant-icon md-state" aria-label={detent === "partial" ? "Expand Assistant" : "Collapse Assistant"} onClick={() => { preKeyboardDetent.current = null; commit(detent === "partial" ? "expanded" : "partial", createFeedbackInteractionId(), "handle"); }}>{detent === "partial" ? <ArrowsOutSimple size={20} /> : <ArrowsInSimple size={20} />}</button>}
+            <button ref={closeRef} type="button" className="mobile-assistant-icon md-state" aria-label="Close Assistant" onClick={close}><X size={20} /></button>
+          </div>
         </div>
         {open && mode === "chat" && active.registration && <div className="mobile-assistant-source"><span>{active.registration.context.metadata?.title ?? active.viewLabel}</span><button type="button" className="md-state" onClick={active.removed ? active.restore : active.remove}>{active.removed ? "Attach source" : "Remove source"}</button></div>}
         {mounted && <div id="mobile-assistant-chat" role="tabpanel" className="mobile-assistant-conversation" hidden={!open || mode !== "chat"} inert={!open || mode !== "chat"}>

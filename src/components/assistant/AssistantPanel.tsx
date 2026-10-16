@@ -2768,12 +2768,12 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       onContextMenu={(e) => handleContextMenu(e)}
     >
       {/* Header */}
-      <div data-assistant-toolbar className="flex items-center justify-between p-3 border-b border-border">
+      <div data-assistant-toolbar className={`flex items-center border-b border-border ${mobilePresentation ? "flex-wrap gap-x-1 gap-y-0.5 px-2 py-1" : "justify-between p-3"}`}>
         <div className="flex items-center gap-2">
-          <ChatCircle className="w-4 h-4 text-primary" />
-          {mobilePresentation ? <button type="button" onClick={handleClearChat} className="min-h-12 text-sm text-primary md-state">New conversation</button> : <h2 className="text-sm font-semibold text-foreground">Assistant</h2>}
+          {!mobilePresentation && <ChatCircle className="w-4 h-4 text-primary" />}
+          {mobilePresentation ? <button type="button" onClick={handleClearChat} aria-label="New conversation" title="New conversation" className="md-state min-h-10 rounded-full px-2 text-xs text-primary">New</button> : <h2 className="text-sm font-semibold text-foreground">Assistant</h2>}
         </div>
-        <div className="flex items-center gap-1">
+        <div className={`flex items-center gap-1 ${mobilePresentation ? "ml-auto" : ""}`}>
           {/* Share Conversation Button */}
           {messages.length > 0 && (
             <button
@@ -2802,7 +2802,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           `}</style>
 
           {/* Model Status Pill & Selector */}
-          <div className="relative mr-2">
+          <div className={`relative ${mobilePresentation ? "flex items-center gap-1" : "mr-2"}`}>
             <button
               onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
               className={`
@@ -2837,7 +2837,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               })()}
 
               {/* Active Model Name */}
-              <span className="max-w-[110px] truncate text-foreground/90 font-medium tracking-tight">
+              <span className={`truncate text-foreground/90 font-medium tracking-tight ${mobilePresentation ? "max-w-[80px]" : "max-w-[110px]"}`}>
                 {(() => {
                   const activeConfig = configuredProvidersList.find(p => p.provider === effectiveProvider && p.enabled);
                   return getFriendlyModelName(effectiveProvider, activeConfig?.model);
@@ -2850,7 +2850,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               }`} />
             </button>
 
-            <AssistantScopeSelector value={scope} onChange={setScope} disabled={isLoading} />
+            <AssistantScopeSelector value={scope} onChange={setScope} disabled={isLoading} compact={Boolean(mobilePresentation)} />
 
             {/* AI Engine Center Dropdown */}
             {isModelDropdownOpen && (
