@@ -336,8 +336,10 @@ describe("Session customization filtering", () => {
   };
 
   const findModal = () => {
-    // The modal title heading is h2 "Customize Session", the button is a <button>
-    return screen.getByRole("heading", { name: "Customize Session", level: 2 }).closest(".fixed")!;
+    // The customize dialog portals to the shared overlay layer, so it is no
+    // longer a descendant of the queue view. Query by role instead of walking
+    // up from the heading through a wrapper class.
+    return screen.getByRole("dialog");
   };
 
   // Due All used to bypass the Item Types toggles entirely, so unchecking

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { SessionCustomizeModal, DEFAULT_CUSTOMIZATION } from '../SessionCustomizeModal';
 import { useSavedQueueStore } from '../../../stores/savedQueueStore';
@@ -70,6 +70,29 @@ describe('SessionCustomizeModal - Saved Queues', () => {
       savedQueues: [mockActiveQueue],
       activeQueueId: mockActiveQueue.id,
     });
+  });
+
+  it('renders through the shared dialog layer portaled to document.body', () => {
+    const { container } = render(
+      <SessionCustomizeModal
+        isOpen={true}
+        onClose={onClose}
+        onApply={onApply}
+        customization={DEFAULT_CUSTOMIZATION}
+        onChange={vi.fn()}
+      />
+    );
+
+    const dialog = screen.getByRole('dialog');
+    expect(dialog.classList.contains('adaptive-dialog-panel')).toBe(true);
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
+
+    // The layer, not the tab content, owns the dialog: that is what lets the
+    // scrim and panel paint above the mobile bottom navigation.
+    const layer = dialog.closest('.adaptive-dialog-layer');
+    expect(layer).not.toBeNull();
+    expect(layer!.parentElement).toBe(document.body);
+    expect(container.contains(dialog)).toBe(false);
   });
 
   it('renders modal with Save as New Queue and Update Queue buttons', () => {
@@ -166,5 +189,102 @@ describe('SessionCustomizeModal - Saved Queues', () => {
       );
     });
     expect(onSavedQueueUpdated).toHaveBeenCalled();
+  });
+});
+
+/**
+ * The phone/desktop split below is driven by the presentation mode, which in
+ * jsdom falls back to "compact-desktop" because the Tauri globals exist in the
+ * test environment. Stub the hook so each surface variant is asserted
+ * deterministically; the real phone presentation is covered by the browser
+ * check in `src/visual/session-customize.visual.spec.ts`.
+ */
+const presentationMode = vi.hoisted(() => ({ current: "desktop" }));
+vi.mock("../../../contexts/PresentationContext", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../../../contexts/PresentationContext")>();
+  return {
+    ...actual,
+    usePresentation: () => ({
+      ...actual.readPresentationState(),
+      mode: presentationMode.current,
+      setDisplayMode: () => {},
+    }),
+  };
+});
+
+describe('SessionCustomizeModal - action area layout', () => {
+  const renderModal = () =>
+    render(
+      <SessionCustomizeModal
+        isOpen={true}
+        onClose={vi.fn()}
+        onApply={vi.fn()}
+        customization={DEFAULT_CUSTOMIZATION}
+        onChange={vi.fn()}
+      />
+    );
+
+  beforeEach(() => {
+    useSavedQueueStore.setState({
+      savedQueues: [mockActiveQueue],
+      activeQueueId: mockActiveQueue.id,
+    });
+  });
+
+  afterEach(() => {
+    presentationMode.current = "desktop";
+  });
+
+  it('keeps a full-width primary action above a 44px secondary row on a phone', () => {
+    presentationMode.current = "phone";
+    renderModal();
+
+    const apply = screen.getByRole('button', { name: 'Apply Customization' });
+    expect(apply.className).toContain('w-full');
+    expect(apply.className).toContain('min-h-12');
+
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    expect(cancel.className).toContain('w-full');
+
+    const reset = screen.getByRole('button', { name: 'Reset to Defaults' });
+    expect(reset.className).toContain('min-h-11');
+    expect(screen.getByText('Save as New Queue').closest('button')!.className).toContain('min-h-11');
+
+    // Reading order stays: secondary actions first, then Cancel, then Apply.
+    const footer = document.querySelector('.adaptive-dialog-footer')!;
+    const labels = Array.from(footer.querySelectorAll('button')).map((b) => b.textContent?.trim());
+    expect(labels).toEqual([
+      'Reset to Defaults',
+      'Save as New Queue',
+      expect.stringContaining('Update Queue'),
+      'Cancel',
+      'Apply Customization',
+    ]);
+  });
+
+  it('keeps the single desktop action row', () => {
+    presentationMode.current = "desktop";
+    renderModal();
+
+    const apply = screen.getByRole('button', { name: 'Apply Customization' });
+    expect(apply.className).not.toContain('w-full');
+
+    const footer = document.querySelector('.adaptive-dialog-footer')!;
+    const labels = Array.from(footer.querySelectorAll('button')).map((b) => b.textContent?.trim());
+    expect(labels[0]).toBe('Reset to Defaults');
+    expect(labels[labels.length - 1]).toBe('Apply Customization');
+  });
+
+  it('keeps the queue name entry out of the scrolling body', () => {
+    presentationMode.current = "phone";
+    renderModal();
+
+    fireEvent.click(screen.getByText('Save as New Queue'));
+    const input = screen.getByPlaceholderText(/queue name/i);
+
+    expect(document.querySelector('.adaptive-dialog-footer')!.contains(input)).toBe(true);
+    expect(document.querySelector('.adaptive-dialog-body')!.contains(input)).toBe(false);
+    expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument();
   });
 });

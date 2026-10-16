@@ -619,7 +619,14 @@
 
   .adaptive-dialog-layer {
     position: fixed;
-    inset: 0;
+    /* Keyboard-aware, like the app shell and the inspector drawer: several
+       mobile browsers shrink only the visual viewport when the on-screen
+       keyboard opens, so a bottom-anchored sheet must be bounded by the visible
+       viewport (and offset by its top) or it lands behind the keyboard. */
+    top: var(--app-viewport-offset-top, 0px);
+    right: 0;
+    left: 0;
+    height: var(--app-viewport-height, 100dvh);
     z-index: var(--overlay-backdrop-z, 1050);
     display: flex;
     align-items: center;

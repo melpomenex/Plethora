@@ -186,20 +186,22 @@ describe("Session Goal field", () => {
 
   it("lives inside the dialog's existing scroll container, adding no new one", () => {
     // The field must not push the lower ranking sliders out of reach. It adds no
-    // fixed height and no nested scroller: it is one more block in the region that
-    // already scrolls, alongside the sticky header and footer.
+    // fixed height and no nested scroller: it is one more block in the surface's
+    // scrolling region, between the shared header and footer.
     enableRanking();
     const { field } = open();
 
-    const panel = field()!.closest(".fixed")!.querySelector(".overflow-auto")!;
+    // The dialog portals into the shared overlay layer, so the scroll region is
+    // identified by the surface's own class rather than by a wrapper utility.
+    const panel = field()!.closest(".adaptive-dialog-body");
     expect(panel).not.toBeNull();
-    expect(panel.contains(field()!)).toBe(true);
+    expect(panel!.contains(field()!)).toBe(true);
 
     // The knob panel below it is in the same scroll region, so both are reachable.
     const knobPanel = within(panel as HTMLElement).getByRole("slider", {
       name: /goal relevance/i,
     });
-    expect(panel.contains(knobPanel)).toBe(true);
+    expect(panel!.contains(knobPanel)).toBe(true);
     expect(
       field()!.compareDocumentPosition(knobPanel) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();

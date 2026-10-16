@@ -1,5 +1,6 @@
 import { executeCommand } from "../../commandPalette/executeCommand";
-import { useDialogFocus } from "../md3/Dialog";
+import { ResponsiveDialogSheet } from "../adaptive/ResponsiveDialogSheet";
+import { usePresentation } from "../../contexts/PresentationContext";
 import {
   Bookmarks,
   Clock,
@@ -8,7 +9,6 @@ import {
   Sliders,
   Stack,
   Tag,
-  X,
 } from "@phosphor-icons/react";
 import { useState } from "react";
 import { useI18n } from "../../lib/i18n";
@@ -112,8 +112,14 @@ export function SessionCustomizeModal({
   onSavedQueueCreated,
   onSavedQueueUpdated,
 }: SessionCustomizeModalProps) {
-  const dialogRef = useDialogFocus(isOpen, onClose);
   const { t } = useI18n();
+  const { mode } = usePresentation();
+  /**
+   * Compact presentations get the shared bottom-sheet form and a stacked
+   * action area; this mirrors `ResponsiveDialogSheet`'s own sheet decision so
+   * the footer can never disagree with the surface it sits on.
+   */
+  const compact = mode === "phone" || mode === "tablet";
   const daqe = useSettingsStore((s) => s.settings.daqe);
   const updateSettingsCategory = useSettingsStore((s) => s.updateSettingsCategory);
   const daqeEnabled = daqe?.rankingEnabled ?? false;
@@ -254,407 +260,412 @@ export function SessionCustomizeModal({
     updateFilters({ categories });
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="session-customize-title" tabIndex={-1} className="bg-card border border-border rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-auto m-4">
-        <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-center justify-between">
-          <h2 id="session-customize-title" className="text-lg font-semibold text-foreground">{t("sessionCustomize.title")}</h2>
+  // Compact presentations get a wrapping secondary row above a stacked primary
+  // pair, because five mixed-weight actions in one row cannot all be 44px tall
+  // and reachable on a phone. Desktop keeps the single row it always had.
+  const secondaryActionClass = compact
+    ? "inline-flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded border border-border px-3 py-2 text-xs text-foreground hover:bg-muted/60"
+    : "flex items-center gap-1.5 rounded border border-border px-3 py-1.5 text-xs text-foreground hover:bg-muted/60";
+  const resetActionClass = compact
+    ? "inline-flex min-h-11 min-w-0 flex-1 items-center justify-center rounded border border-border px-3 py-2 text-xs text-foreground/80 hover:bg-muted/60"
+    : "px-3 py-1.5 text-xs text-foreground/70 hover:text-foreground";
+  const cancelActionClass = compact
+    ? "min-h-11 w-full rounded border border-border bg-background px-4 py-2 text-sm text-foreground hover:bg-muted/60"
+    : "rounded border border-border bg-background px-4 py-2 text-sm text-foreground hover:bg-muted/60";
+  const applyActionClass = compact
+    ? "min-h-12 w-full rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600"
+    : "rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-600";
+
+  const footerActions = (
+    <div className="flex flex-col gap-3">
+      {/* Save As Name Entry. Rendered in the non-scrolling footer area so the
+          field, Save and Cancel stay visible above the safe area while the
+          on-screen keyboard resizes the viewport. */}
+      {showSaveAs && (
+        <div className="flex flex-wrap items-center gap-2">
+          <Bookmarks className="w-4 h-4 text-primary shrink-0" />
+          <input
+            type="text"
+            value={saveQueueName}
+            onChange={(e) => setSaveQueueName(e.target.value)}
+            placeholder={t("savedQueues.namePlaceholder") || "Queue name (e.g. Today's Focus)"}
+            className="min-h-11 min-w-0 flex-1 px-3 py-1.5 text-sm rounded border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+            autoFocus
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void executeCommand({ id: "save-new-queue", label: t("savedQueues.saveAsNewQueue"), action: () => handleSaveAsNewQueue() });
+              if (e.key === "Escape") setShowSaveAs(false);
+            }}
+          />
           <button
-            onClick={onClose}
-            className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground"
-            aria-label={t("common.close")}
+            type="button"
+            onClick={() => void executeCommand({ id: "save-new-queue", label: t("savedQueues.saveAsNewQueue"), action: () => handleSaveAsNewQueue() })}
+            disabled={!saveQueueName.trim()}
+            className="min-h-11 px-3 py-1.5 text-xs md:text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 font-medium"
           >
-            <X className="w-5 h-5" />
+            {t("common.save") || "Save"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowSaveAs(false)}
+            className="min-h-11 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground"
+          >
+            {t("common.cancel") || "Cancel"}
           </button>
         </div>
+      )}
 
-        <div className="p-6 space-y-6">
-          {/* Session Duration */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold text-foreground">{t("sessionCustomize.sessionDuration")}</h3>
+      <div className={compact ? "flex flex-col gap-2" : "flex flex-wrap items-center justify-between gap-3"}>
+        <div className={compact ? "flex flex-wrap gap-2" : "flex items-center gap-2"}>
+          <button onClick={handleReset} className={resetActionClass}>
+            {t("sessionCustomize.resetToDefaults")}
+          </button>
+          {!showSaveAs && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowSaveAs(true)}
+                className={secondaryActionClass}
+                title={t("savedQueues.saveAsNewQueue") || "Save as New Queue"}
+              >
+                <Bookmarks className="w-3.5 h-3.5 text-primary shrink-0" />
+                <span className="truncate">{t("savedQueues.saveAsNewQueue") || "Save as New Queue"}</span>
+              </button>
+              {activeQueue && (
+                <button
+                  type="button"
+                  onClick={() => void executeCommand({ id: "update-saved-queue", label: t("savedQueues.manageQueues"), action: () => handleUpdateActiveQueue() })}
+                  className={secondaryActionClass}
+                  title={`${t("savedQueues.updateQueue") || "Update Queue"}: ${activeQueue.name}`}
+                >
+                  <FloppyDisk className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <span className="truncate">{savedFeedback ? "✓ Saved!" : `${t("savedQueues.updateQueue") || "Update"} (${activeQueue.name})`}</span>
+                </button>
+              )}
+            </>
+          )}
+        </div>
+        <div className={compact ? "flex flex-col gap-2" : "flex items-center gap-2"}>
+          <button onClick={onClose} className={cancelActionClass}>
+            {t("common.cancel")}
+          </button>
+          <button onClick={onApply} className={applyActionClass}>
+            {t("sessionCustomize.applyCustomization")}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  return (
+    <ResponsiveDialogSheet
+      open={isOpen}
+      onClose={onClose}
+      title={t("sessionCustomize.title")}
+      closeLabel={t("common.close")}
+      footer={footerActions}
+    >
+      <div className="space-y-6">
+        {/* Session Duration */}
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold text-foreground">{t("sessionCustomize.sessionDuration")}</h3>
+          </div>
+          <div className="flex items-center gap-4">
+            <input
+              type="range"
+              min="15"
+              max="180"
+              step="15"
+              value={customization.sessionDurationMinutes}
+              onChange={(e) =>
+                updateCustomization({ sessionDurationMinutes: Number(e.target.value) })
+              }
+              className="flex-1"
+            />
+            <div className="min-w-[80px] text-sm text-foreground/80 text-right">
+              {t("sessionCustomize.minutesShort", { count: customization.sessionDurationMinutes })}
             </div>
-            <div className="flex items-center gap-4">
+          </div>
+          <div className="flex gap-2">
+            {[30, 45, 60, 90, 120].map((duration) => (
+              <button
+                key={duration}
+                onClick={() => updateCustomization({ sessionDurationMinutes: duration })}
+                className={`px-3 py-1 text-xs rounded border ${
+                  customization.sessionDurationMinutes === duration
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background border-border hover:bg-muted/60"
+                }`}
+              >
+                {t("sessionCustomize.minutesCompact", { count: duration })}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* Max Items */}
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Stack className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold text-foreground">{t("sessionCustomize.maximumItems")}</h3>
+          </div>
+          <div className="flex items-center gap-4">
+            <input
+              type="range"
+              min="5"
+              max="100"
+              step="5"
+              value={customization.maxItems}
+              onChange={(e) => updateCustomization({ maxItems: Number(e.target.value) })}
+              className="flex-1"
+            />
+            <div className="min-w-[80px] text-sm text-foreground/80 text-right">
+              {t("sessionCustomize.itemsCount", { count: customization.maxItems })}
+            </div>
+          </div>
+        </section>
+
+        {/* Item Types */}
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Stack className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold text-foreground">{t("sessionCustomize.itemTypes")}</h3>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <input
+                type="checkbox"
+                checked={customization.itemTypes.documents}
+                onChange={(e) => updateItemTypes({ documents: e.target.checked })}
+                className="rounded"
+              />
+              {t("sessionCustomize.documents")}
+            </label>
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <input
+                type="checkbox"
+                checked={customization.itemTypes.extracts}
+                onChange={(e) => updateItemTypes({ extracts: e.target.checked })}
+                className="rounded"
+              />
+              {t("sessionCustomize.extracts")}
+            </label>
+            <label className="flex items-center gap-2 text-sm text-foreground">
+              <input
+                type="checkbox"
+                checked={customization.itemTypes.learningItems}
+                onChange={(e) => updateItemTypes({ learningItems: e.target.checked })}
+                className="rounded"
+              />
+              {t("sessionCustomize.learningItems")}
+            </label>
+          </div>
+        </section>
+
+        {/* Priority Range */}
+        <section className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Sliders className="w-4 h-4 text-muted-foreground" />
+            <h3 className="text-sm font-semibold text-foreground">{t("sessionCustomize.priorityRange")}</h3>
+          </div>
+          <div className="flex items-center gap-4">
+            <div className="flex-1">
+              <label className="text-xs text-foreground/80 font-medium">{t("sessionCustomize.minimumPriority")}</label>
               <input
                 type="range"
-                min="15"
-                max="180"
-                step="15"
-                value={customization.sessionDurationMinutes}
+                min="0"
+                max="100"
+                value={customization.filters.priorityRange.min}
                 onChange={(e) =>
-                  updateCustomization({ sessionDurationMinutes: Number(e.target.value) })
+                  updateFilters({
+                    priorityRange: {
+                      ...customization.filters.priorityRange,
+                      min: Number(e.target.value),
+                    },
+                  })
                 }
-                className="flex-1"
+                className="w-full"
               />
-              <div className="min-w-[80px] text-sm text-foreground/80 text-right">
-                {t("sessionCustomize.minutesShort", { count: customization.sessionDurationMinutes })}
+              <div className="text-xs text-foreground/80 text-right">
+                {customization.filters.priorityRange.min}
               </div>
             </div>
-            <div className="flex gap-2">
-              {[30, 45, 60, 90, 120].map((duration) => (
+            <div className="flex-1">
+              <label className="text-xs text-foreground/80 font-medium">{t("sessionCustomize.maximumPriority")}</label>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={customization.filters.priorityRange.max}
+                onChange={(e) =>
+                  updateFilters({
+                    priorityRange: {
+                      ...customization.filters.priorityRange,
+                      max: Number(e.target.value),
+                    },
+                  })
+                }
+                className="w-full"
+              />
+              <div className="text-xs text-foreground/80 text-right">
+                {customization.filters.priorityRange.max}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Tags Filter */}
+        {availableTags.length > 0 && (
+          <section className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Tag className="w-4 h-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold text-foreground">{t("sessionCustomize.filterByTags")}</h3>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {availableTags.map((tag) => (
                 <button
-                  key={duration}
-                  onClick={() => updateCustomization({ sessionDurationMinutes: duration })}
+                  key={tag}
+                  onClick={() => toggleTag(tag)}
                   className={`px-3 py-1 text-xs rounded border ${
-                    customization.sessionDurationMinutes === duration
+                    customization.filters.tags.includes(tag)
                       ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-background border-border hover:bg-muted/60"
+                      : "bg-background text-foreground border-border hover:bg-muted/60"
                   }`}
                 >
-                  {t("sessionCustomize.minutesCompact", { count: duration })}
+                  {tag}
                 </button>
               ))}
             </div>
           </section>
-
-          {/* Max Items */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Stack className="w-4 h-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold text-foreground">{t("sessionCustomize.maximumItems")}</h3>
-            </div>
-            <div className="flex items-center gap-4">
-              <input
-                type="range"
-                min="5"
-                max="100"
-                step="5"
-                value={customization.maxItems}
-                onChange={(e) => updateCustomization({ maxItems: Number(e.target.value) })}
-                className="flex-1"
-              />
-              <div className="min-w-[80px] text-sm text-foreground/80 text-right">
-                {t("sessionCustomize.itemsCount", { count: customization.maxItems })}
-              </div>
-            </div>
-          </section>
-
-          {/* Item Types */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Stack className="w-4 h-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold text-foreground">{t("sessionCustomize.itemTypes")}</h3>
-            </div>
-            <div className="flex flex-wrap gap-3">
-              <label className="flex items-center gap-2 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  checked={customization.itemTypes.documents}
-                  onChange={(e) => updateItemTypes({ documents: e.target.checked })}
-                  className="rounded"
-                />
-                {t("sessionCustomize.documents")}
-              </label>
-              <label className="flex items-center gap-2 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  checked={customization.itemTypes.extracts}
-                  onChange={(e) => updateItemTypes({ extracts: e.target.checked })}
-                  className="rounded"
-                />
-                {t("sessionCustomize.extracts")}
-              </label>
-              <label className="flex items-center gap-2 text-sm text-foreground">
-                <input
-                  type="checkbox"
-                  checked={customization.itemTypes.learningItems}
-                  onChange={(e) => updateItemTypes({ learningItems: e.target.checked })}
-                  className="rounded"
-                />
-                {t("sessionCustomize.learningItems")}
-              </label>
-            </div>
-          </section>
-
-          {/* Priority Range */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Sliders className="w-4 h-4 text-muted-foreground" />
-              <h3 className="text-sm font-semibold text-foreground">{t("sessionCustomize.priorityRange")}</h3>
-            </div>
-            <div className="flex items-center gap-4">
-              <div className="flex-1">
-                <label className="text-xs text-foreground/80 font-medium">{t("sessionCustomize.minimumPriority")}</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={customization.filters.priorityRange.min}
-                  onChange={(e) =>
-                    updateFilters({
-                      priorityRange: {
-                        ...customization.filters.priorityRange,
-                        min: Number(e.target.value),
-                      },
-                    })
-                  }
-                  className="w-full"
-                />
-                <div className="text-xs text-foreground/80 text-right">
-                  {customization.filters.priorityRange.min}
-                </div>
-              </div>
-              <div className="flex-1">
-                <label className="text-xs text-foreground/80 font-medium">{t("sessionCustomize.maximumPriority")}</label>
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={customization.filters.priorityRange.max}
-                  onChange={(e) =>
-                    updateFilters({
-                      priorityRange: {
-                        ...customization.filters.priorityRange,
-                        max: Number(e.target.value),
-                      },
-                    })
-                  }
-                  className="w-full"
-                />
-                <div className="text-xs text-foreground/80 text-right">
-                  {customization.filters.priorityRange.max}
-                </div>
-              </div>
-            </div>
-          </section>
-
-          {/* Tags Filter */}
-          {availableTags.length > 0 && (
-            <section className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Tag className="w-4 h-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold text-foreground">{t("sessionCustomize.filterByTags")}</h3>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {availableTags.map((tag) => (
-                  <button
-                    key={tag}
-                    onClick={() => toggleTag(tag)}
-                    className={`px-3 py-1 text-xs rounded border ${
-                      customization.filters.tags.includes(tag)
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-background text-foreground border-border hover:bg-muted/60"
-                    }`}
-                  >
-                    {tag}
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Categories Filter */}
-          {availableCategories.length > 0 && (
-            <section className="space-y-3">
-              <div className="flex items-center gap-2">
-                <Stack className="w-4 h-4 text-muted-foreground" />
-                <h3 className="text-sm font-semibold text-foreground">{t("sessionCustomize.filterByCategory")}</h3>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {availableCategories.map((category) => (
-                  <button
-                    key={category}
-                    onClick={() => toggleCategory(category)}
-                    className={`px-3 py-1 text-xs rounded border ${
-                      customization.filters.categories.includes(category)
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-background text-foreground border-border hover:bg-muted/60"
-                    }`}
-                  >
-                    {category}
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Exclude Suspended */}
-          <section className="flex items-center justify-between p-3 bg-muted/30 rounded border border-border">
-            <span className="text-sm text-foreground">{t("sessionCustomize.excludeSuspended")}</span>
-            <label className="relative inline-flex items-center cursor-pointer shrink-0">
-              <input
-                type="checkbox"
-                checked={customization.filters.excludeSuspended}
-                onChange={(e) => updateFilters({ excludeSuspended: e.target.checked })}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-background peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
-            </label>
-          </section>
-
-          {/* Adaptive Ranking (DAQE).
-
-              A session's own settings decide *which* items appear; these decide
-              the *order* of the ones that do. They live in settings rather than in
-              the session draft because a preset is a durable choice about how the
-              user reads, not a property of one sitting. That also means Cancel
-              does not roll them back — Apply does, and Cancel leaves the last
-              applied ranking alone. The section says so, because a control that
-              ignores the button under it is worse than no control. */}
-          {showDaque ? (
-            <section className="space-y-4 rounded-lg border border-border bg-muted/20 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <label className="flex items-center gap-2 text-sm text-foreground">
-                  <input
-                    type="checkbox"
-                    checked={daqeEnabled}
-                    onChange={(e) => setDaqueEnabled(e.target.checked)}
-                  />
-                  {t("daqeKnob.enable")}
-                </label>
-              </div>
-              <p className="text-[11px] opacity-70">{t("daqeKnob.cancelNote")}</p>
-
-              {daqeEnabled ? (
-                <>
-                  {/* The goal, above the sliders it feeds: `goalRelevance` weights
-                      this, and a weight the user dials in with nothing behind it is
-                      the dead slider this field exists to fix. */}
-                  <div className="space-y-2 border-b border-border pb-3">
-                    <div className="flex items-center gap-2">
-                      <Crosshair className="w-4 h-4 text-muted-foreground" />
-                      <label
-                        htmlFor="daqe-session-goal"
-                        className="text-sm font-semibold text-foreground"
-                      >
-                        {t("sessionGoal.label")}
-                      </label>
-                    </div>
-                    <input
-                      id="daqe-session-goal"
-                      type="text"
-                      value={displayedGoal}
-                      placeholder={t("sessionGoal.placeholder")}
-                      aria-describedby="daqe-session-goal-desc"
-                      aria-invalid={goalError ? true : undefined}
-                      onChange={(event) => {
-                        setGoalError(null);
-                        setGoalDraft(event.target.value);
-                      }}
-                      onBlur={(event) => commitGoal(event.target.value)}
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                    />
-                    <p
-                      id="daqe-session-goal-desc"
-                      className={`text-xs ${goalError ? "text-destructive" : "opacity-70"}`}
-                    >
-                      {goalError ?? t("sessionGoal.hint")}
-                    </p>
-                    {daqeRecentGoals.length > 0 ? (
-                      <div className="flex flex-wrap gap-2">
-                        {daqeRecentGoals.map((goal) => (
-                          <button
-                            key={goal}
-                            type="button"
-                            onClick={() => pickRecentGoal(goal)}
-                            className="px-3 py-1 text-xs rounded border bg-background text-foreground border-border hover:bg-muted/60"
-                          >
-                            {goal}
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                  <DaqeKnobPanel
-                    knobs={daqeKnobs}
-                    onKnobChange={setDaqueKnobs}
-                    onPresetSelect={setDaquePreset}
-                    onScheduleRerank={onScheduleRerank}
-                  />
-                  <div className="border-t border-border pt-3">
-                    <DaqeDecisionModelSettings />
-                  </div>
-                </>
-              ) : null}
-            </section>
-          ) : null}
-        </div>
-
-        {/* Save As Inline Bar */}
-        {showSaveAs && (
-          <div className="bg-muted/40 border-t border-border px-6 py-3 flex items-center gap-3">
-            <Bookmarks className="w-4 h-4 text-primary shrink-0" />
-            <input
-              type="text"
-              value={saveQueueName}
-              onChange={(e) => setSaveQueueName(e.target.value)}
-              placeholder={t("savedQueues.namePlaceholder") || "Queue name (e.g. Today's Focus)"}
-              className="flex-1 px-3 py-1.5 text-sm rounded border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              autoFocus
-              onKeyDown={(e) => {
-                if (e.key === "Enter") void executeCommand({ id: "save-new-queue", label: t("savedQueues.saveAsNewQueue"), action: () => handleSaveAsNewQueue() });
-                if (e.key === "Escape") setShowSaveAs(false);
-              }}
-            />
-            <button
-              type="button"
-              onClick={() => void executeCommand({ id: "save-new-queue", label: t("savedQueues.saveAsNewQueue"), action: () => handleSaveAsNewQueue() })}
-              disabled={!saveQueueName.trim()}
-              className="px-3 py-1.5 text-xs md:text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 font-medium"
-            >
-              {t("common.save") || "Save"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setShowSaveAs(false)}
-              className="px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground"
-            >
-              {t("common.cancel") || "Cancel"}
-            </button>
-          </div>
         )}
 
-        {/* Footer Actions */}
-        <div className="sticky bottom-0 bg-card border-t border-border px-6 py-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleReset}
-              className="px-3 py-1.5 text-xs text-foreground/70 hover:text-foreground"
-            >
-              {t("sessionCustomize.resetToDefaults")}
-            </button>
-            {!showSaveAs && (
-              <>
+        {/* Categories Filter */}
+        {availableCategories.length > 0 && (
+          <section className="space-y-3">
+            <div className="flex items-center gap-2">
+              <Stack className="w-4 h-4 text-muted-foreground" />
+              <h3 className="text-sm font-semibold text-foreground">{t("sessionCustomize.filterByCategory")}</h3>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {availableCategories.map((category) => (
                 <button
-                  type="button"
-                  onClick={() => setShowSaveAs(true)}
-                  className="px-3 py-1.5 text-xs border border-border rounded hover:bg-muted/60 text-foreground flex items-center gap-1.5"
-                  title={t("savedQueues.saveAsNewQueue") || "Save as New Queue"}
+                  key={category}
+                  onClick={() => toggleCategory(category)}
+                  className={`px-3 py-1 text-xs rounded border ${
+                    customization.filters.categories.includes(category)
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background text-foreground border-border hover:bg-muted/60"
+                  }`}
                 >
-                  <Bookmarks className="w-3.5 h-3.5 text-primary" />
-                  <span>{t("savedQueues.saveAsNewQueue") || "Save as New Queue"}</span>
+                  {category}
                 </button>
-                {activeQueue && (
-                  <button
-                    type="button"
-                    onClick={() => void executeCommand({ id: "update-saved-queue", label: t("savedQueues.manageQueues"), action: () => handleUpdateActiveQueue() })}
-                    className="px-3 py-1.5 text-xs border border-border rounded hover:bg-muted/60 text-foreground flex items-center gap-1.5"
-                    title={`${t("savedQueues.updateQueue") || "Update Queue"}: ${activeQueue.name}`}
+              ))}
+            </div>
+          </section>
+        )}
+
+        {/* Exclude Suspended */}
+        <section className="flex items-center justify-between p-3 bg-muted/30 rounded border border-border">
+          <span className="text-sm text-foreground">{t("sessionCustomize.excludeSuspended")}</span>
+          <label className="relative inline-flex items-center cursor-pointer shrink-0">
+            <input
+              type="checkbox"
+              checked={customization.filters.excludeSuspended}
+              onChange={(e) => updateFilters({ excludeSuspended: e.target.checked })}
+              className="sr-only peer"
+            />
+            <div className="w-11 h-6 bg-background peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-primary rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+          </label>
+        </section>
+
+        {/* Adaptive Ranking (DAQE).
+
+            A session's own settings decide *which* items appear; these decide
+            the *order* of the ones that do. They live in settings rather than in
+            the session draft because a preset is a durable choice about how the
+            user reads, not a property of one sitting. That also means Cancel
+            does not roll them back — Apply does, and Cancel leaves the last
+            applied ranking alone. The section says so, because a control that
+            ignores the button under it is worse than no control. */}
+        {showDaque ? (
+          <section className="space-y-4 rounded-lg border border-border bg-muted/20 p-3">
+            <div className="flex items-center justify-between gap-3">
+              <label className="flex items-center gap-2 text-sm text-foreground">
+                <input
+                  type="checkbox"
+                  checked={daqeEnabled}
+                  onChange={(e) => setDaqueEnabled(e.target.checked)}
+                />
+                {t("daqeKnob.enable")}
+              </label>
+            </div>
+            <p className="text-[11px] opacity-70">{t("daqeKnob.cancelNote")}</p>
+
+            {daqeEnabled ? (
+              <>
+                {/* The goal, above the sliders it feeds: `goalRelevance` weights
+                    this, and a weight the user dials in with nothing behind it is
+                    the dead slider this field exists to fix. */}
+                <div className="space-y-2 border-b border-border pb-3">
+                  <div className="flex items-center gap-2">
+                    <Crosshair className="w-4 h-4 text-muted-foreground" />
+                    <label
+                      htmlFor="daqe-session-goal"
+                      className="text-sm font-semibold text-foreground"
+                    >
+                      {t("sessionGoal.label")}
+                    </label>
+                  </div>
+                  <input
+                    id="daqe-session-goal"
+                    type="text"
+                    value={displayedGoal}
+                    placeholder={t("sessionGoal.placeholder")}
+                    aria-describedby="daqe-session-goal-desc"
+                    aria-invalid={goalError ? true : undefined}
+                    onChange={(event) => {
+                      setGoalError(null);
+                      setGoalDraft(event.target.value);
+                    }}
+                    onBlur={(event) => commitGoal(event.target.value)}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <p
+                    id="daqe-session-goal-desc"
+                    className={`text-xs ${goalError ? "text-destructive" : "opacity-70"}`}
                   >
-                    <FloppyDisk className="w-3.5 h-3.5 text-muted-foreground" />
-                    <span>{savedFeedback ? "✓ Saved!" : `${t("savedQueues.updateQueue") || "Update"} (${activeQueue.name})`}</span>
-                  </button>
-                )}
+                    {goalError ?? t("sessionGoal.hint")}
+                  </p>
+                  {daqeRecentGoals.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {daqeRecentGoals.map((goal) => (
+                        <button
+                          key={goal}
+                          type="button"
+                          onClick={() => pickRecentGoal(goal)}
+                          className="px-3 py-1 text-xs rounded border bg-background text-foreground border-border hover:bg-muted/60"
+                        >
+                          {goal}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+                <DaqeKnobPanel
+                  knobs={daqeKnobs}
+                  onKnobChange={setDaqueKnobs}
+                  onPresetSelect={setDaquePreset}
+                  onScheduleRerank={onScheduleRerank}
+                />
+                <div className="border-t border-border pt-3">
+                  <DaqeDecisionModelSettings />
+                </div>
               </>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm bg-background border border-border rounded hover:bg-muted/60 text-foreground"
-            >
-              {t("common.cancel")}
-            </button>
-            <button
-              onClick={onApply}
-              className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-md font-medium shadow-sm dark:bg-blue-500 dark:hover:bg-blue-600"
-            >
-              {t("sessionCustomize.applyCustomization")}
-            </button>
-          </div>
-        </div>
+            ) : null}
+          </section>
+        ) : null}
       </div>
-    </div>
+    </ResponsiveDialogSheet>
   );
 }
