@@ -1,3 +1,5 @@
+import { useDestinationAction, useDestinationActionStore } from "../../commandPalette/destinationActions";
+import { useSavedQueueActions, savedQueueIsApplied } from "../queue/useSavedQueueActions";
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
@@ -43,14 +45,11 @@ import { formatDuration } from "../../api/audiobooks";
 import { DaqeKnobPanel } from "../queue/DaqeKnobPanel";
 import {
   DAQE_PRESETS,
-  applyPreset,
   coerceStoredPresetId,
   resolvePriorityPresetId,
-  type DaqePresetId,
   type QueueStrategyPresetId,
 } from "../../lib/daqe/presets";
 import { ResponsiveBulkActionBar, type BulkActionItem } from "../common/ResponsiveBulkActionBar";
-import { defaultDaqeKnobs } from "../../lib/daqe/knobs";
 import {
   applyFilters,
   formatMinutesRange,
@@ -94,8 +93,6 @@ import { useStartupStore } from "../../stores/startupStore";
 import { useCollectionStore } from "../../stores/collectionStore";
 import { SavedQueueDropdown } from "../queue/SavedQueueDropdown";
 import { ManageSavedQueuesModal } from "../queue/ManageSavedQueuesModal";
-import { useSavedQueueStore } from "../../stores/savedQueueStore";
-import type { SavedQueue } from "../../types/savedQueue";
 
 type QueueMode = "reading" | "review" | "schedule";
 
@@ -127,6 +124,7 @@ let persistentQueueScrollAnchor: ScrollAnchor | null = null;
 export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMode }: ReviewQueueViewProps) {
   const { locale, t } = useI18n();
   const isActiveTab = useIsActiveTab();
+  const hasCompletedFirstLoad = useQueueStore((state) => state.hasCompletedFirstLoad);
   const ensureStartup = useStartupStore((state) => state.ensureStartup);
   const activeCollectionId = useCollectionStore((state) => state.activeCollectionId);
 
@@ -275,82 +273,18 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     return finalDefault;
   });
 
-  const activeQueueId = useSavedQueueStore((s) => s.activeQueueId);
-  const isMountedRef = useRef(false);
-  const prevActiveQueueIdRef = useRef<string | null>(activeQueueId);
-
-  const handleSelectSavedQueue = useCallback((queue: SavedQueue) => {
-    setSessionCustomization((prev) => ({
-      ...prev,
-      sessionDurationMinutes: queue.sessionDurationMinutes,
-      maxItems: queue.maxItems,
-      filters: {
-        ...prev.filters,
-        ...queue.filters,
-        tags: [...queue.filters.tags],
-        categories: [...queue.filters.categories],
-        priorityRange: { ...queue.filters.priorityRange },
-        excludeSuspended: queue.filters.excludeSuspended,
-      },
-      itemTypes: {
-        documents: queue.itemTypes.documents,
-        extracts: queue.itemTypes.extracts,
-        learningItems: queue.itemTypes.learningItems,
-      },
-    }));
-
-    const daqe = useSettingsStore.getState().settings.daqe;
-    const shouldEnableRanking = daqe?.rankingEnabled || Boolean(queue.sessionGoal || queue.daqePresetId);
-
-    if (queue.sessionGoal !== undefined || queue.daqePresetId || shouldEnableRanking !== daqe?.rankingEnabled) {
-      let knobs = daqe?.knobs ?? defaultDaqeKnobs();
-      if (queue.daqePresetId) {
-        knobs = applyPreset(queue.daqePresetId as DaqePresetId, knobs);
-      }
-      useSettingsStore.getState().updateSettingsCategory("daqe", {
-        sessionGoal: queue.sessionGoal ?? daqe?.sessionGoal ?? "",
-        knobs,
-        rankingEnabled: shouldEnableRanking,
-      });
-    }
-
-    const currentDaqe = useSettingsStore.getState().settings.daqe;
-    if (currentDaqe?.rankingEnabled) {
-      void applyRankSnapshot(currentDaqe.knobs, queue.filters.tags);
-    }
-  }, [applyRankSnapshot]);
-
-  useEffect(() => {
-    if (!isMountedRef.current) {
-      isMountedRef.current = true;
-      if (activeQueueId) {
-        const queue = useSavedQueueStore.getState().savedQueues.find((q) => q.id === activeQueueId);
-        if (queue) {
-          handleSelectSavedQueue(queue);
-        }
-      }
-      prevActiveQueueIdRef.current = activeQueueId;
-      return;
-    }
-    if (activeQueueId && activeQueueId !== prevActiveQueueIdRef.current) {
-      prevActiveQueueIdRef.current = activeQueueId;
-      const queue = useSavedQueueStore.getState().savedQueues.find((q) => q.id === activeQueueId);
-      if (queue) {
-        handleSelectSavedQueue(queue);
-      }
-    }
-  }, [activeQueueId, handleSelectSavedQueue]);
-
-  useEffect(() => {
-    const handleOpenManage = () => setManageQueuesModalOpen(true);
-    const handleOpenNew = () => setCustomizeModalOpen(true);
-    window.addEventListener("plethora:manage-saved-queues", handleOpenManage);
-    window.addEventListener("plethora:new-saved-queue", handleOpenNew);
-    return () => {
-      window.removeEventListener("plethora:manage-saved-queues", handleOpenManage);
-      window.removeEventListener("plethora:new-saved-queue", handleOpenNew);
-    };
-  }, []);
+  const { queue: activeSavedQueue, applyQueue: handleSelectSavedQueue } = useSavedQueueActions(
+    (configuration) => {
+      setSessionCustomization(configuration);
+      setQueueMode("reading");
+      setSearchQuery("");
+      setSelectedFileType("all");
+      setCustomSubset(null);
+      useQueueStore.getState().setQueueFilterMode("due-all");
+    },
+    () => setManageQueuesModalOpen(true),
+    () => setCustomizeModalOpen(true),
+  );
 
   const [selectedFileType, setSelectedFileType] = useState<string>("all");
   const searchRef = useRef<HTMLInputElement>(null);
@@ -656,7 +590,8 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       semanticStudy: sessionCustomization.semanticStudy,
     };
     const filtered = applyFilters(searchedItems, customizationOptions);
-    const ordered = orderQueueItems(filtered, resolvePriorityPresetId(preset));
+    const allOrdered = orderQueueItems(filtered, resolvePriorityPresetId(preset));
+    const ordered = activeSavedQueue ? allOrdered.slice(0, sessionCustomization.maxItems) : allOrdered;
     if (queueSortMode === "overdue-desc") {
       return [...ordered].sort((a, b) => {
         const now = Date.now();
@@ -666,7 +601,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       });
     }
     return ordered;
-  }, [items, queueMode, queueFilterMode, preset, searchQuery, selectedFileType, sessionCustomization, effectiveItemTypes, customSubset, queueSortMode]);
+  }, [items, queueMode, queueFilterMode, preset, searchQuery, selectedFileType, sessionCustomization, effectiveItemTypes, customSubset, queueSortMode, activeSavedQueue]);
 
   useEffect(() => {
     const container = queueScrollRef.current;
@@ -1167,13 +1102,21 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     }
 
     if (onOpenScrollMode) {
-      // The composition shares are the sole control over an Optimal
-      // Session's membership — no item-type gating is forwarded.
-      onOpenScrollMode({ mode: "optimal" });
+      onOpenScrollMode(activeSavedQueue
+        ? { items: visibleItems, mode: "queue-list", itemTypes: effectiveItemTypes }
+        : { mode: "optimal" });
       return;
     }
     onStartReview?.();
   };
+
+  const pendingSession = useDestinationActionStore((state) => state.pending);
+  useDestinationAction("queue", (request) => {
+    if (request.action !== "start") return;
+    if (activeSavedQueue?.id !== request.queueId) throw new Error(t("savedQueues.notFound"));
+    handleStartOptimalSession();
+  }, pendingSession?.action === "start" && !isLoading && Boolean(hasCompletedFirstLoad) && savedQueueIsApplied(activeSavedQueue, sessionCustomization));
+
 
   const handleToggleSelectAll = () => {
     if (allSelected) {
@@ -1242,6 +1185,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
           <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
             <button
               onClick={handleStartOptimalSession}
+              disabled={Boolean(activeSavedQueue) && visibleItems.length === 0}
               {...tourAnchor("queueStartSession")}
               className="flex-1 md:flex-none px-3 md:px-4 py-2 md:py-2 bg-primary text-primary-foreground rounded-md hover:opacity-90 flex items-center justify-center gap-2 min-h-[44px] text-sm md:text-base"
             >
@@ -2554,6 +2498,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       <ManageSavedQueuesModal
         isOpen={isManageQueuesModalOpen}
         onClose={() => setManageQueuesModalOpen(false)}
+        onCreate={() => { setManageQueuesModalOpen(false); setCustomizeModalOpen(true); }}
       />
 
       <SemanticGraphPanel

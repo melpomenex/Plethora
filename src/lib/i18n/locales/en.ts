@@ -1,6 +1,19 @@
 export type Dict = Record<string, string>;
 
 export const en: Dict = {
+  "commandPalette.openReaderFirst": "Open a document before running this reader action.",
+  "commandPalette.openPdfFirst": "Open a PDF document before toggling reflow.",
+  "commandPalette.cleanupFailed": "Could not update {count} documents. Check storage and retry.",
+  "commandPalette.actionFailed": "{reason} Try again or check the relevant settings.",
+  "commandPalette.destinationUnavailable": "This view could not open the action. Open the destination and try again.",
+  "commandPalette.selectTextFirst": "Select text in the active document, then try again.",
+  "savedQueues.notFound": "This saved queue no longer exists. Choose another queue.",
+  "selectionTranslation.sourceLanguage": "Source language",
+  "selectionTranslation.targetLanguage": "Translate into",
+  "selectionTranslation.languageHint": "Enter language codes, for example en, es, fr, de, ja or zh.",
+  "selectionTranslation.allowCloud": "Allow the configured cloud provider when local translation is unavailable. The selected text may leave this device.",
+  "selectionTranslation.loading": "Translating…",
+  "selectionTranslation.setupHint": "Choose a supported language pair, download its local model, or configure an AI provider in Settings and allow cloud translation, then retry.",
   // Platform capability unavailability reasons (Change D — ios-feature-availability)
   "platform.unavailable.generic": "Not available on this device",
   "platform.unavailable.unsupported_platform": "Not available on this device",
@@ -1434,7 +1447,7 @@ export const en: Dict = {
   "commandPalette.recordLecture": "Record lecture",
   "commandPalette.recordLectureDesc": "Save audio first, then transcribe on this device",
   "commandPalette.translateSelection": "Translate selection",
-  "commandPalette.translateSelectionDesc": "Translate the current selection on this device",
+  "commandPalette.translateSelectionDesc": "Translate the selected passage",
   "commandPalette.importTwitterVideo": "Import X / Twitter Video",
   "commandPalette.createFlashcard": "Create Flashcard",
   "commandPalette.createFlashcardDesc": "Open Flashcard Studio to draft a card",

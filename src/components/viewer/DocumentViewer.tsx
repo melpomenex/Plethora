@@ -1,3 +1,5 @@
+import { lazy as lazyTranslation, Suspense as TranslationSuspense } from "react";
+import { usePaletteSelection, getPaletteSelection, type PaletteSelection } from "../../commandPalette/selectionTranslation";
 import { textAnnotationTargetsAtPoint, type ReaderContextMenuPayload, type PersistedEpubHighlight } from "./annotationContextMenu";
 import { AnnotationRemovalMenu } from "./AnnotationRemovalMenu";
 import { emitUserInteraction, emitInteractionFeedback } from "../../lib/feedback/orchestrator";
@@ -220,6 +222,8 @@ function formatTime(seconds: number): string {
 }
 
 type ViewMode = "document" | "extracts" | "cards";
+const SelectionTranslationDialog = lazyTranslation(() => import("./SelectionTranslationDialog").then((module) => ({ default: module.SelectionTranslationDialog })));
+
 type PdfViewMode = "pdf" | "ocr-html";
 
 type DocumentType = "pdf" | "epub" | "markdown" | "html" | "youtube" | "video" | "audio" | "image" | "other";
@@ -1263,7 +1267,13 @@ export function DocumentViewer({
   }, [pageNumber]);
 
   const [selectedText, setSelectedText] = useState("");
+  const [translationSelection, setTranslationSelection] = useState<PaletteSelection | null>(null);
+  useEffect(() => { setTranslationSelection(null); }, [documentId, tabContextIsActive]);
   const [selectionContext, setSelectionContext] = useState<SelectionContext | null>(null);
+  usePaletteSelection({ documentId, tabId, paneId, text: selectedText,
+    sourceAnchor: { sourceType: docType === "pdf" || docType === "epub" || docType === "html" || docType === "markdown" ? docType : "text", documentId, sourceId: documentId, locator: { selection: JSON.stringify(selectionContext) } },
+  }, tabContextIsActive);
+
   const [initialHighlightColor, setInitialHighlightColor] = useState<string | undefined>(undefined);
   const [pdfTextSelectionCapability, setPdfTextSelectionCapability] = useState<PdfTextSelectionCapability | null>(null);
   const [isExtractDialogOpen, setIsExtractDialogOpen] = useState(false);
@@ -5262,6 +5272,11 @@ export function DocumentViewer({
   usePaletteActionListener(
     "document-viewer",
     {
+      "doc.toggleTts": () => ttsHandleRef.current?.toggle?.(),
+      "doc.translateSelection": () => {
+        const captured = getPaletteSelection();
+        if (captured?.documentId === documentId && captured.tabId === tabId) setTranslationSelection(captured);
+      },
       "doc.search": () => {
         if (viewerSearchSupported) {
           setShowSearch(true);
@@ -8979,6 +8994,10 @@ export function DocumentViewer({
             <CornersOut className="w-5 h-5 text-foreground" />
           </div>
         </button>
+      )}
+
+      {translationSelection && translationSelection.documentId === documentId && tabContextIsActive && (
+        <TranslationSuspense fallback={null}><SelectionTranslationDialog selection={translationSelection} onClose={() => setTranslationSelection(null)} /></TranslationSuspense>
       )}
 
       {/* Text selection context menu (EPUB/HTML/Markdown viewers and PDF

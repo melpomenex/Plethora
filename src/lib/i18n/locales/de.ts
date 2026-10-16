@@ -1,6 +1,19 @@
 import { Dict, en } from "./en";
 
 export const de: Dict = {
+  "commandPalette.openReaderFirst": "Vor dieser Leseaktion ein Dokument öffnen.",
+  "commandPalette.openPdfFirst": "Zum Umschalten des Textflusses ein PDF-Dokument öffnen.",
+  "commandPalette.cleanupFailed": "{count} Dokumente konnten nicht aktualisiert werden. Speicher prüfen und erneut versuchen.",
+  "commandPalette.actionFailed": "{reason} Erneut versuchen oder die entsprechenden Einstellungen prüfen.",
+  "commandPalette.destinationUnavailable": "Die Aktion konnte nicht geöffnet werden. Den Zielbereich öffnen und erneut versuchen.",
+  "commandPalette.selectTextFirst": "Text im aktiven Dokument auswählen und erneut versuchen.",
+  "savedQueues.notFound": "Diese gespeicherte Warteschlange existiert nicht mehr. Eine andere auswählen.",
+  "selectionTranslation.sourceLanguage": "Ausgangssprache",
+  "selectionTranslation.targetLanguage": "Übersetzen in",
+  "selectionTranslation.languageHint": "Sprachcodes eingeben, z. B. en, es, fr, de, ja oder zh.",
+  "selectionTranslation.allowCloud": "Den konfigurierten Cloud-Anbieter erlauben, wenn keine lokale Übersetzung verfügbar ist. Der ausgewählte Text kann dieses Gerät verlassen.",
+  "selectionTranslation.loading": "Wird übersetzt…",
+  "selectionTranslation.setupHint": "Ein unterstütztes Sprachpaar wählen, sein lokales Modell herunterladen oder einen KI-Anbieter in den Einstellungen konfigurieren und Cloud-Übersetzung erlauben. Dann erneut versuchen.",
   "platform.unavailable.generic": "Auf diesem Gerät nicht verfügbar",
   "platform.unavailable.unsupported_platform": "Auf diesem Gerät nicht verfügbar",
   "platform.unavailable.requires_network": "Erfordert eine Internetverbindung",
@@ -1172,7 +1185,7 @@ export const de: Dict = {
   "commandPalette.scanDocument": "Dokument scannen",
   "commandPalette.scanDocumentDesc": "Seiten in die Bibliothek aufnehmen",
   "commandPalette.translateSelection": "Auswahl übersetzen",
-  "commandPalette.translateSelectionDesc": "Die aktuelle Auswahl auf diesem Gerät übersetzen",
+  "commandPalette.translateSelectionDesc": "Die ausgewählte Passage übersetzen",
   "commandPalette.recordLecture": "Vorlesung aufnehmen",
   "commandPalette.recordLectureDesc": "Audio zuerst speichern, dann auf diesem Gerät transkribieren",
   "commandPalette.importTwitterVideo": "X-/Twitter-Video importieren",

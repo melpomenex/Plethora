@@ -1,3 +1,5 @@
+import { useIsActiveTab, usePaneId } from "../components/common/Tabs/TabContent";
+import { useTabsStore } from "../stores/tabsStore";
 /**
  * Dispatch channel for contextual command-palette actions.
  *
@@ -84,23 +86,13 @@ export function usePaletteContextProvider(
   options: UsePaletteActionListenerOptions = {},
 ): void {
   const { isActive = true } = options;
-  const ctxRef = useRef(ctx);
-  ctxRef.current = ctx;
-
   useEffect(() => {
-    if (!isActive) {
-      // Stop publishing if we go inactive but stay mounted.
-      if (liveContextByView[view] !== undefined) delete liveContextByView[view];
-      return;
-    }
-    liveContextByView[view] = ctxRef.current;
+    if (!isActive) return;
+    liveContextByView[view] = ctx;
     return () => {
-      // Only clear if we still own the slot (avoid clearing a newer mount).
-      if (liveContextByView[view] === ctxRef.current) {
-        delete liveContextByView[view];
-      }
+      if (liveContextByView[view] === ctx) delete liveContextByView[view];
     };
-  }, [view, isActive]);
+  }, [view, isActive, ctx]);
 }
 
 export interface UsePaletteActionListenerOptions {
@@ -129,7 +121,9 @@ export function usePaletteActionListener(
   handlerMap: PaletteHandlerMap,
   options: UsePaletteActionListenerOptions = {},
 ): void {
-  const { isActive = true } = options;
+  const tabActive = useIsActiveTab();
+  const paneId = usePaneId();
+  const isActive = options.isActive ?? tabActive;
   // Keep the latest handler map without resubscribing.
   const handlerMapRef = useRef(handlerMap);
   handlerMapRef.current = handlerMap;
@@ -138,6 +132,8 @@ export function usePaletteActionListener(
     if (!isActive) return;
 
     const onAction = (e: Event) => {
+      const navigationPane = useTabsStore.getState().navigationPaneId;
+      if (paneId && navigationPane && paneId !== navigationPane) return;
       const detail = (e as CustomEvent<unknown>).detail;
       if (!isPaletteActionPayload(detail)) return;
       if (detail.view !== view) return;
@@ -160,5 +156,5 @@ export function usePaletteActionListener(
 
     window.addEventListener(PALETTE_ACTION_EVENT, onAction as EventListener);
     return () => window.removeEventListener(PALETTE_ACTION_EVENT, onAction as EventListener);
-  }, [view, isActive]);
+  }, [view, isActive, paneId]);
 }

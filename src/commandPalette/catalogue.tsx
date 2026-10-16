@@ -1,3 +1,4 @@
+import { startPaletteScrollSession } from "./destinationActions";
 /**
  * One command/navigation catalogue for the palette (revamp-command-palette).
  *
@@ -41,6 +42,7 @@ import type { TranslateFn } from "./homeModel";
  * duplicate registry actions.
  */
 export const REPLACED_REGISTRY_COMMAND_IDS = [
+  "translate-selection",
   "go-documents",
   "go-queue",
   "go-analytics",
@@ -141,7 +143,7 @@ export function buildCommandCatalogue(deps: CatalogueDeps): Command[] {
       description: t("commandPalette.startOptimalSessionDesc"),
       icon: <Play className="w-4 h-4" />,
       category: CommandCategory.Navigation,
-      action: () => navigateTo("/queue-scroll"),
+      action: startPaletteScrollSession,
       keywords: ["start", "session", "optimal", "queue", "scroll", "reading", "study", "learn", "tiktok"],
     },
   ];

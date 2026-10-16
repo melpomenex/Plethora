@@ -270,7 +270,6 @@ export const PLATFORM_CAPABILITY_REGISTRY: Record<
   import_document_scan: {
     id: "import_document_scan",
     platforms: {
-      android: unavailable("unsupported_platform"),
       web: unavailable("unsupported_platform"),
     },
   },

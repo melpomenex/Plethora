@@ -1,3 +1,4 @@
+import { usePaletteActionListener } from "../../commandPalette/paletteActionEvents";
 import { renderedAnnotationTargetsAtPoint, type ReaderContextMenuPayload } from "./annotationContextMenu";
 import { ReaderNavigationOwner, observeReaderInput, announceReaderNavigation } from "../../lib/readerNavigation";
 import { pdfDestinationPoint, pdfDestinationScale, pdfReflowDestinationBlock } from "./pdfTocDestination";
@@ -567,6 +568,7 @@ export function PDFViewer({
   const [pdfSourceIdentity, setPdfSourceIdentity] = useState<{ identity: string; fingerprint: string } | null>(null);
   const [reflowDocument, setReflowDocument] = useState<PdfReflowDocument | null>(null);
   const [mobilePdfMode, setMobilePdfMode] = useState<"fixed" | "reflow">("fixed");
+  usePaletteActionListener("document-viewer", { "doc.toggleReflow": () => setMobilePdfMode((mode) => mode === "reflow" ? "fixed" : "reflow") });
   // V2: fixed ↔ reflow switches invalidate selection geometry (the reflowed
   // representation and the fixed text layer are different DOM).
   const lastMobilePdfModeRef = useRef<"fixed" | "reflow">("fixed");

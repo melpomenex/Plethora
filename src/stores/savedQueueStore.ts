@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import { create } from 'zustand';
 import {
   getSavedQueues,
@@ -13,10 +14,14 @@ import type {
   UpdateSavedQueueInput,
 } from '../types/savedQueue';
 
+let loadGeneration = 0;
+
 export interface SavedQueueState {
   savedQueues: SavedQueue[];
   activeQueueId: string | null;
+  activationRevision: number;
   isLoading: boolean;
+  loadedCollectionId?: string | null;
   error: string | null;
 
   loadSavedQueues: (collectionId?: string | null) => Promise<void>;
@@ -30,17 +35,24 @@ export interface SavedQueueState {
 export const useSavedQueueStore = create<SavedQueueState>()((set, get) => ({
   savedQueues: [],
   activeQueueId: null,
+  activationRevision: 0,
   isLoading: false,
   error: null,
 
   loadSavedQueues: async (collectionId?: string | null) => {
-    set({ isLoading: true, error: null });
+    const generation = ++loadGeneration;
+    const scope = collectionId ?? null;
+    set((state) => ({ isLoading: true, error: null,
+      ...(state.loadedCollectionId !== scope ? { savedQueues: [], activeQueueId: null } : {}),
+      loadedCollectionId: scope,
+    }));
     try {
       const [queues, storedActiveId] = await Promise.all([
         getSavedQueues(collectionId),
         getActiveSavedQueueId(),
       ]);
 
+      if (generation !== loadGeneration) return;
       let activeId = storedActiveId;
       if (!activeId || !queues.some((q) => q.id === activeId)) {
         const defaultQueue = queues.find((q) => q.isDefault);
@@ -53,6 +65,7 @@ export const useSavedQueueStore = create<SavedQueueState>()((set, get) => ({
         isLoading: false,
       });
     } catch (e) {
+      if (generation !== loadGeneration) return;
       set({
         error: e instanceof Error ? e.message : String(e),
         isLoading: false,
@@ -65,9 +78,8 @@ export const useSavedQueueStore = create<SavedQueueState>()((set, get) => ({
       const created = await apiCreateSavedQueue(input);
       set((state) => ({
         savedQueues: [...state.savedQueues, created],
-        activeQueueId: created.id,
       }));
-      await apiSetActiveSavedQueueId(created.id);
+      await get().activateSavedQueue(created.id);
       return created;
     } catch (e) {
       set({ error: e instanceof Error ? e.message : String(e) });
@@ -116,11 +128,18 @@ export const useSavedQueueStore = create<SavedQueueState>()((set, get) => ({
   },
 
   activateSavedQueue: async (id: string | null) => {
-    set({ activeQueueId: id });
+    if (id && !get().savedQueues.some((queue) => queue.id === id)) {
+      throw new Error(t("savedQueues.notFound"));
+    }
     try {
       await apiSetActiveSavedQueueId(id);
+      if (id && !get().savedQueues.some((queue) => queue.id === id)) {
+        throw new Error(t("savedQueues.notFound"));
+      }
+      set((state) => ({ activeQueueId: id, activationRevision: state.activationRevision + 1, error: null }));
     } catch (e) {
-      console.error('Failed to persist active saved queue id', e);
+      set({ error: e instanceof Error ? e.message : String(e) });
+      throw e;
     }
   },
 

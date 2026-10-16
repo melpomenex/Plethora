@@ -1,8 +1,14 @@
+import { useUIStore } from "../../stores/uiStore";
 /**
  * Command palette for quick actions
  * Inspired by VS Code command palette
  */
 
+import { executeCommand } from "../../commandPalette/executeCommand";
+import { requestDestinationAction, startPaletteScrollSession } from "../../commandPalette/destinationActions";
+import { getPaletteSelection, translatePaletteSelection } from "../../commandPalette/selectionTranslation";
+import { useLibraryAskHandoffStore } from "../../commandPalette/libraryAskHandoff";
+import { isNativeAndroid, isTauri, isMac, nativePlatform } from "../../lib/tauri";
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Bookmarks,
@@ -167,8 +173,7 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
       case "Enter":
         e.preventDefault();
         if (filtered[selectedIndex]) {
-          filtered[selectedIndex].action();
-          onClose();
+          void executeCommand(filtered[selectedIndex], onClose);
         }
         break;
       case "Escape":
@@ -272,8 +277,7 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
                             key={cmd.id}
                             ref={isSelected ? selectedCommandRef : undefined}
                             onClick={() => {
-                              cmd.action();
-                              onClose();
+                              void executeCommand(cmd, onClose);
                             }}
                             className={`w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-muted transition-colors ${
                               isSelected ? "bg-muted" : ""
@@ -421,12 +425,7 @@ export function getDefaultCommands(): Command[] {
       description: t("commandPalette.importDocumentDesc"),
       icon: <Plus className="w-4 h-4" />,
       category: CommandCategory.Documents,
-      action: () => {
-        window.dispatchEvent(new CustomEvent("navigate", { detail: "/documents" }));
-        window.setTimeout(() => {
-          window.dispatchEvent(new CustomEvent("import-document"));
-        }, 100);
-      },
+      action: () => requestDestinationAction({ destination: "documents", action: "import" }),
       keywords: ["create", "add", "import", "file", "pdf", "epub"],
       shortcut: "⌘N",
     }),
@@ -438,26 +437,13 @@ export function getDefaultCommands(): Command[] {
       icon: <Camera className="w-4 h-4" />,
       category: CommandCategory.Documents,
       action: async () => {
-        try {
+        if (isNativeAndroid()) {
           const { scanDocumentIntoLibrary } = await import("../../lib/ai/android/visionProvider");
           await scanDocumentIntoLibrary();
-          return;
-        } catch (error) {
-          const { isOnDeviceAiSupportedPlatform } = await import("../../lib/ai/onDeviceAI");
-          if (isOnDeviceAiSupportedPlatform()) {
-            const { useToastStore, ToastType } = await import("./Toast");
-            useToastStore.getState().addToast({
-              type: ToastType.Info,
-              title: t("commandPalette.scanDocument"),
-              message: error instanceof Error ? error.message : String(error),
-            });
-            return;
-          }
+        } else {
+          const { importAppleDocumentScan } = await import("../../lib/ai/apple/importVisionDocument");
+          await importAppleDocumentScan();
         }
-        window.dispatchEvent(new CustomEvent("navigate", { detail: "/documents" }));
-        window.setTimeout(() => {
-          window.dispatchEvent(new CustomEvent("import-document-scan"));
-        }, 100);
       },
       keywords: ["scan", "camera", "ocr", "document"],
     }),
@@ -468,25 +454,23 @@ export function getDefaultCommands(): Command[] {
       icon: <MagnifyingGlass className="w-4 h-4" />,
       category: CommandCategory.Documents,
       action: () => {
-        window.dispatchEvent(new CustomEvent("navigate", { detail: "/search" }));
-        window.setTimeout(() => {
-          window.dispatchEvent(new CustomEvent("ask-library"));
-        }, 100);
+        useLibraryAskHandoffStore.getState().requestOpen();
+        window.dispatchEvent(new CustomEvent("navigate", { detail: "/doc-qa" }));
       },
       keywords: ["ask", "library", "rag", "search"],
     }),
     createCommand({
       id: "record-lecture",
-      capabilityId: "apple_speech_transcription",
       label: t("commandPalette.recordLecture"),
       description: t("commandPalette.recordLectureDesc"),
       icon: <Microphone className="w-4 h-4" />,
       category: CommandCategory.Documents,
       action: () => {
-        window.dispatchEvent(new CustomEvent("navigate", { detail: "/documents" }));
-        window.setTimeout(() => {
+        if (isTauri() && (isMac() || nativePlatform() === "ios")) {
           window.dispatchEvent(new CustomEvent("record-lecture"));
-        }, 100);
+        } else {
+          useUIStore.getState().setLectureCaptureRequested(true);
+        }
       },
       keywords: ["record", "lecture", "speech", "transcribe"],
     }),
@@ -496,21 +480,8 @@ export function getDefaultCommands(): Command[] {
       description: t("commandPalette.translateSelectionDesc"),
       icon: <TextT className="w-4 h-4" />,
       category: CommandCategory.Documents,
-      action: () => {
-        window.dispatchEvent(new CustomEvent("translate-selection"));
-      },
+      action: () => translatePaletteSelection(),
       keywords: ["translate", "language", "mlkit"],
-    }),
-    createCommand({
-      id: "record-lecture-android",
-      label: t("commandPalette.recordLecture"),
-      description: t("commandPalette.recordLectureDesc"),
-      icon: <Microphone className="w-4 h-4" />,
-      category: CommandCategory.Documents,
-      action: () => {
-        window.dispatchEvent(new CustomEvent("plethora:record-lecture"));
-      },
-      keywords: ["lecture", "record", "transcribe", "speech", "mic"],
     }),
     createCommand({
       id: "tag-untagged-documents",
@@ -573,38 +544,43 @@ export function getDefaultCommands(): Command[] {
 
         let cleanedDocsCount = 0;
         let removedTagsCount = 0;
+        let failedDocsCount = 0;
 
         for (const doc of allDocs) {
           if (!doc.tags || doc.tags.length === 0) continue;
           const details = doc.metadata?.smartTagDetails || [];
+          let removedForDoc = 0;
           // Keep tags that have explicit smart or manual provenance
           const filteredTags = doc.tags.filter((tag) => {
             if (tag === "auto-tagged") {
-              removedTagsCount++;
+              removedForDoc++;
               return false;
             }
             const hasProvenance = details.some((d) => d.tag.toLowerCase() === tag.toLowerCase());
             if (!hasProvenance && legacyStaticTags.has(tag.toLowerCase())) {
               // Legacy tag with no provenance attached
-              removedTagsCount++;
+              removedForDoc++;
               return false;
             }
             return true;
           });
 
           if (filteredTags.length !== doc.tags.length) {
-            cleanedDocsCount++;
             const updatedDoc = { ...doc, tags: filteredTags };
             try {
               await updateDocument(doc.id, updatedDoc);
+              cleanedDocsCount++;
+              removedTagsCount += removedForDoc;
               publishItemTagsUpdated({ itemType: "document", id: doc.id, tags: filteredTags });
             } catch (e) {
+              failedDocsCount++;
               console.warn(`[CleanupLegacyTags] Failed to update doc ${doc.id}:`, e);
             }
           }
         }
 
-        useDocumentStore.getState().loadDocuments();
+        await useDocumentStore.getState().loadDocuments();
+        if (failedDocsCount) throw new Error(t("commandPalette.cleanupFailed", { count: failedDocsCount }));
 
         useToastStore.getState().addToast({
           type: ToastType.Success,
@@ -621,12 +597,7 @@ export function getDefaultCommands(): Command[] {
       description: t("commandPalette.createFlashcardDesc"),
       icon: <Plus className="w-4 h-4" />,
       category: CommandCategory.Flashcards,
-      action: () => {
-        window.dispatchEvent(new CustomEvent("navigate", { detail: "/review" }));
-        window.setTimeout(() => {
-          window.dispatchEvent(new CustomEvent("open-flashcard-studio"));
-        }, 100);
-      },
+      action: () => requestDestinationAction({ destination: "review", action: "create-card" }),
       keywords: ["create", "add", "new", "flashcard", "card", "studio"],
       shortcut: typeof window !== "undefined" && navigator.platform.toUpperCase().indexOf("MAC") >= 0 ? "⌘⌥F" : "Ctrl+Alt+F",
     }),
@@ -669,12 +640,7 @@ export function getDefaultCommands(): Command[] {
       description: "Manage, rename, or delete saved queues",
       icon: <Bookmarks className="w-4 h-4 text-primary" />,
       category: CommandCategory.Review,
-      action: () => {
-        window.dispatchEvent(new CustomEvent("navigate", { detail: "/queue" }));
-        window.setTimeout(() => {
-          window.dispatchEvent(new CustomEvent("plethora:manage-saved-queues"));
-        }, 150);
-      },
+      action: () => requestDestinationAction({ destination: "queue", action: "manage" }),
       keywords: ["saved", "queue", "manage", "filter"],
     }),
     createCommand({
@@ -684,12 +650,7 @@ export function getDefaultCommands(): Command[] {
       description: "Create a new saved queue with custom filters",
       icon: <Plus className="w-4 h-4" />,
       category: CommandCategory.Review,
-      action: () => {
-        window.dispatchEvent(new CustomEvent("navigate", { detail: "/queue" }));
-        window.setTimeout(() => {
-          window.dispatchEvent(new CustomEvent("plethora:new-saved-queue"));
-        }, 150);
-      },
+      action: () => requestDestinationAction({ destination: "queue", action: "new" }),
       keywords: ["saved", "queue", "new", "create"],
     }),
     ...useSavedQueueStore.getState().savedQueues.map((sq) =>
@@ -701,8 +662,7 @@ export function getDefaultCommands(): Command[] {
         icon: <Bookmarks className="w-4 h-4 text-primary" />,
         category: CommandCategory.Review,
         action: async () => {
-          await useSavedQueueStore.getState().activateSavedQueue(sq.id);
-          window.dispatchEvent(new CustomEvent("navigate", { detail: "/queue" }));
+          await requestDestinationAction({ destination: "queue", action: "select", queueId: sq.id });
         },
         keywords: ["queue", "saved", sq.name.toLowerCase()],
       })
@@ -734,7 +694,7 @@ export function getDefaultCommands(): Command[] {
       description: t("commandPalette.startOptimalSessionDesc"),
       icon: <Play className="w-4 h-4" />,
       category: CommandCategory.Review,
-      action: () => { window.dispatchEvent(new CustomEvent('navigate', { detail: '/queue-scroll' })); },
+      action: startPaletteScrollSession,
       keywords: ["start", "session", "optimal", "queue", "scroll", "reading", "study", "learn", "tiktok"],
     }),
     createCommand({
@@ -782,5 +742,8 @@ export function getDefaultCommands(): Command[] {
   const libraryRag = useSettingsStore.getState().settings.features.aiLibraryRag;
   return commands
     .filter((cmd) => libraryRag || cmd.id !== "ask-my-library")
+    .filter((cmd) => cmd.id !== "translate-selection" || Boolean(getPaletteSelection()))
+    .filter((cmd) => cmd.id !== "record-lecture" || typeof MediaRecorder !== "undefined" || (isTauri() && (isMac() || nativePlatform() === "ios")))
+    .filter((cmd) => cmd.id !== "scan-document" || isNativeAndroid() || (isTauri() && (isMac() || nativePlatform() === "ios")))
     .filter((cmd) => !cmd.capabilityId || isPlatformCapabilityAvailable(cmd.capabilityId));
 }

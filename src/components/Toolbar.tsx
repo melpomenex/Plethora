@@ -1,3 +1,5 @@
+import { requestDestinationAction } from "../commandPalette/destinationActions";
+import { executeCommand } from "../commandPalette/executeCommand";
 import { useEffect, useRef, useState, useCallback, type CSSProperties } from "react";
 import { useTabsStore, useDocumentStore, useUIStore, useSettingsStore } from "../stores";
 import { useAudioEditionGenerationStore } from "../stores/audioEditionGenerationStore";
@@ -486,10 +488,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   };
 
   const handleSavedQueues = () => {
-    handleQueue();
-    window.setTimeout(() => {
-      window.dispatchEvent(new CustomEvent("plethora:manage-saved-queues"));
-    }, 150);
+    void executeCommand({ id: "manage-saved-queues", label: t("savedQueues.manageQueues"),
+      action: () => requestDestinationAction({ destination: "queue", action: "manage" }) });
   };
 
   // Dashboard is already the default tab, so middle-click doesn't make much sense

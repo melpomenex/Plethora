@@ -1,6 +1,19 @@
 import { Dict, en } from "./en";
 
 export const es: Dict = {
+  "commandPalette.openReaderFirst": "Abre un documento antes de ejecutar esta acción de lectura.",
+  "commandPalette.openPdfFirst": "Abre un documento PDF antes de cambiar el reajuste de texto.",
+  "commandPalette.cleanupFailed": "No se pudieron actualizar {count} documentos. Comprueba el almacenamiento y reinténtalo.",
+  "commandPalette.actionFailed": "{reason} Vuelve a intentarlo o revisa los ajustes correspondientes.",
+  "commandPalette.destinationUnavailable": "No se pudo abrir la acción. Abre el destino y vuelve a intentarlo.",
+  "commandPalette.selectTextFirst": "Selecciona texto en el documento activo y vuelve a intentarlo.",
+  "savedQueues.notFound": "Esta cola guardada ya no existe. Elige otra.",
+  "selectionTranslation.sourceLanguage": "Idioma de origen",
+  "selectionTranslation.targetLanguage": "Traducir al",
+  "selectionTranslation.languageHint": "Introduce códigos de idioma, por ejemplo en, es, fr, de, ja o zh.",
+  "selectionTranslation.allowCloud": "Permitir el proveedor de nube configurado cuando no haya traducción local. El texto seleccionado puede salir de este dispositivo.",
+  "selectionTranslation.loading": "Traduciendo…",
+  "selectionTranslation.setupHint": "Elige un par de idiomas compatible, descarga su modelo local o configura un proveedor de IA en Ajustes y permite la traducción en la nube. Luego vuelve a intentarlo.",
   "platform.unavailable.generic": "No disponible en este dispositivo",
   "platform.unavailable.unsupported_platform": "No disponible en este dispositivo",
   "platform.unavailable.requires_network": "Requiere conexión a Internet",
@@ -1177,7 +1190,7 @@ export const es: Dict = {
   "commandPalette.scanDocument": "Escanear documento",
   "commandPalette.scanDocumentDesc": "Capturar páginas en la biblioteca",
   "commandPalette.translateSelection": "Traducir selección",
-  "commandPalette.translateSelectionDesc": "Traducir la selección actual en este dispositivo",
+  "commandPalette.translateSelectionDesc": "Traducir el pasaje seleccionado",
   "commandPalette.recordLecture": "Grabar clase",
   "commandPalette.recordLectureDesc": "Guardar el audio primero y transcribirlo en este dispositivo",
   "commandPalette.importTwitterVideo": "Importar video de X/Twitter",

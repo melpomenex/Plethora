@@ -72,6 +72,7 @@ interface TTSStartPosition {
 
 /** Imperative start/stop API for hosts (selection "Read from here", TOC retarget). */
 export interface ReaderTTSHandle {
+  toggle?: () => void;
   /** Stop any current playback and begin at an exact anchor. */
   startFrom(anchor: TTSStartAnchor): void;
   /** Stop playback and clear transient state. */
@@ -1444,6 +1445,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
         pendingAnchorRef.current = anchor;
       },
       playbackState: () => playbackStateRef.current,
+      toggle: () => { void handlePlayPauseRef.current(); },
     }),
     []
   );

@@ -1,3 +1,5 @@
+import { executeCommand } from "../../commandPalette/executeCommand";
+import { useDestinationAction } from "../../commandPalette/destinationActions";
 import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 import { Fragment, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -735,6 +737,13 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
     window.addEventListener("plethora:reveal-document", handleRevealDocument);
     return () => window.removeEventListener("plethora:reveal-document", handleRevealDocument);
   }, [cachedDocuments]);
+
+  useDestinationAction("documents", () => {
+    void executeCommand({ id: "import-picker", label: t("commandPalette.importDocument"), action: async () => {
+      const imported = await openFilePickerAndImport();
+      if (onOpenDocument && imported.length) onOpenDocument(imported[0]);
+    } });
+  });
 
   useEffect(() => {
     const handleImportShortcut = () => {

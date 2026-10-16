@@ -128,4 +128,12 @@ describe('savedQueues API', () => {
       expect(mockInvokeCommand).toHaveBeenCalledWith('delete_saved_queue', { id: 'sq-1' });
     });
   });
+  it('reports a browser storage failure instead of claiming a profile was saved', async () => {
+    const before = await getSavedQueues();
+    const write = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => { throw new Error('Quota exceeded'); });
+    await expect(createSavedQueue({ name: 'Unsaved queue' })).rejects.toThrow('Quota exceeded');
+    write.mockRestore();
+    expect(await getSavedQueues()).toEqual(before);
+  });
+
 });

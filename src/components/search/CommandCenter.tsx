@@ -1,3 +1,6 @@
+import { executeCommand } from "../../commandPalette/executeCommand";
+import { useSavedQueueStore } from "../../stores/savedQueueStore";
+import { usePaletteSelectionStore, getPaletteSelection } from "../../commandPalette/selectionTranslation";
 import { useState, useCallback, useEffect, useMemo, useRef, lazy, Suspense } from "react";
 import { GlobalSearch, SearchResult, SearchQuery, SearchResultType } from "./GlobalSearch";
 import { useDocumentStore } from "../../stores/documentStore";
@@ -287,7 +290,7 @@ function resolveActivePaletteView(documents: Document[]): {
   const state = useTabsStore.getState();
   const paneIds = state.getTabPaneIds();
   if (paneIds.length === 0) return { view: null, context: {}, documentTitle: null };
-  const pane = state.findPaneById(paneIds[0]);
+  const pane = state.findPaneById(state.navigationPaneId ?? paneIds[0]);
   if (!pane || pane.type !== "tabs" || !pane.activeTabId) {
     return { view: null, context: {}, documentTitle: null };
   }
@@ -327,7 +330,7 @@ function resolveActivePaletteView(documents: Document[]): {
                   : ft === "audio"
                     ? "audio"
                     : "other";
-      return { viewerKind, vimAvailable: true };
+      return { viewerKind, vimAvailable: true, hasSelection: Boolean(getPaletteSelection()) };
     }
     // For RSS/Podcast, target-item-dependent actions are shown by default;
     // the listener hides them at runtime if there is no current item.
@@ -394,6 +397,8 @@ export function CommandCenter() {
   const documentsLoaded = useDocumentStore(selectDocumentsLoaded);
   const loadDocuments = useDocumentStore(selectLoadDocuments);
   const addTab = useTabsStore(selectAddTab);
+  const paletteRootPane = useTabsStore((state) => state.rootPane);
+  const paletteNavigationPane = useTabsStore((state) => state.navigationPaneId);
   const decks = useStudyDeckStore(selectDecks);
   const activeDeckIds = useStudyDeckStore(selectActiveDeckIds);
   const commandPaletteOpen = useUIStore(selectCommandPaletteOpen);
@@ -433,6 +438,10 @@ export function CommandCenter() {
   const requestLibraryAsk = useLibraryAskHandoffStore((state) => state.requestAsk);
   const clearNoteDraft = usePaletteNoteDraftStore((state) => state.clearDraft);
   const toast = useToast();
+  const savedQueues = useSavedQueueStore((state) => state.savedQueues);
+  const savedQueueLoading = useSavedQueueStore((state) => state.isLoading);
+  const savedQueueError = useSavedQueueStore((state) => state.error);
+  const paletteSelection = usePaletteSelectionStore((state) => state.selection);
 
   // Due-card state for the active collection/deck. Sourced from the same
   // eligible set the review workflow uses (`getDueItems` + active-deck
@@ -457,7 +466,7 @@ export function CommandCenter() {
       const state = useTabsStore.getState();
       const paneIds = state.getTabPaneIds();
       if (paneIds.length === 0) return null;
-      const pane = state.findPaneById(paneIds[0]);
+      const pane = state.findPaneById(state.navigationPaneId ?? paneIds[0]);
       if (!pane || pane.type !== "tabs" || !pane.activeTabId) return null;
       return state.tabs.find(t => t.id === pane.activeTabId) || null;
     };
@@ -646,6 +655,9 @@ export function CommandCenter() {
     dueState,
     enrichedResume,
     t,
+    paletteSelection,
+    paletteRootPane,
+    paletteNavigationPane,
   ]);
 
   // Enrich exactly one resume document (cover/metadata/position/passage).
@@ -1044,7 +1056,7 @@ export function CommandCenter() {
       const state = useTabsStore.getState();
       const paneIds = state.getTabPaneIds();
       if (paneIds.length === 0) return null;
-      const pane = state.findPaneById(paneIds[0]);
+      const pane = state.findPaneById(state.navigationPaneId ?? paneIds[0]);
       if (!pane || pane.type !== "tabs" || !pane.activeTabId) return null;
       return state.tabs.find(t => t.id === pane.activeTabId) || null;
     };
@@ -1078,7 +1090,7 @@ export function CommandCenter() {
           : ft === "youtube" ? "youtube"
           : ft === "audio" ? "audio"
           : "other";
-        return { viewerKind, vimAvailable: true };
+        return { viewerKind, vimAvailable: true, hasSelection: Boolean(getPaletteSelection()) };
       }
       // For RSS/Podcast, target-item-dependent actions are shown by default;
       // the listener hides them at runtime if there is no current item.
@@ -2037,7 +2049,7 @@ export function CommandCenter() {
     });
 
     return results.sort((a, b) => b.score - a.score).slice(0, maxResults);
-  }, [loadExtracts, activeDeck, shouldFilterByDeck, theme.id, theme.name, theme.variant, themes, setTheme, activeCollectionId, t]);
+  }, [loadExtracts, activeDeck, shouldFilterByDeck, theme.id, theme.name, theme.variant, themes, setTheme, activeCollectionId, t, savedQueues, savedQueueLoading, savedQueueError, paletteSelection]);
 
   const handleResultClick = useCallback((result: SearchResult) => {
     if (result.metadata?.resultKind === "rss-article") {
@@ -2110,7 +2122,7 @@ export function CommandCenter() {
     if (result.type === SearchResultType.Command) {
       const action = result.metadata?.action;
       if (typeof action === 'function') {
-        action();
+        void executeCommand({ id: result.id.replace(/^cmd-/, ""), label: result.title, action });
       }
     } else if (result.type === SearchResultType.Document || result.type === SearchResultType.Extract) {
       const docId = result.type === SearchResultType.Extract ? result.metadata?.documentId : result.id;
@@ -2158,6 +2170,12 @@ export function CommandCenter() {
     };
   }, [
     documents,
+    savedQueues,
+    savedQueueLoading,
+    savedQueueError,
+    paletteSelection,
+    paletteRootPane,
+    paletteNavigationPane,
     executePaletteAction,
     hubHome,
     saveNoteDraft,

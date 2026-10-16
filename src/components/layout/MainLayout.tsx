@@ -1,3 +1,5 @@
+import { executeCommand } from "../../commandPalette/executeCommand";
+import { useDestinationActionStore, requestDestinationAction } from "../../commandPalette/destinationActions";
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useTabsStore, normalizePane, useDocumentStore, useSettingsStore, useUIStore, type TabType } from "../../stores";
 import { useStartupStore } from "../../stores/startupStore";
@@ -196,24 +198,15 @@ export function MainLayout() {
   });
 
   useShortcut("edit.new-document", () => {
-    openTabByType("documents");
-    window.setTimeout(() => {
-      window.dispatchEvent(new CustomEvent("import-document"));
-    }, 100);
+    void executeCommand({ id: "new-document", label: t("commandPalette.importDocument"), action: () => requestDestinationAction({ destination: "documents", action: "import" }) });
   });
 
   useShortcut("doc.import", () => {
-    openTabByType("documents");
-    window.setTimeout(() => {
-      window.dispatchEvent(new CustomEvent("import-document"));
-    }, 100);
+    void executeCommand({ id: "new-document", label: t("commandPalette.importDocument"), action: () => requestDestinationAction({ destination: "documents", action: "import" }) });
   });
 
   useShortcut("edit.new-flashcard", () => {
-    openTabByType("review");
-    window.setTimeout(() => {
-      window.dispatchEvent(new CustomEvent("open-flashcard-studio"));
-    }, 100);
+    void executeCommand({ id: "new-flashcard", label: t("commandPalette.createFlashcard"), action: () => requestDestinationAction({ destination: "review", action: "create-card" }) });
   });
 
   useShortcut("gen.quit", () => {
@@ -613,7 +606,7 @@ export function MainLayout() {
     });
   };
 
-  const openTabByType = useCallback((requestedType: TabType) => {
+  const openTabByType = useCallback((requestedType: TabType, forceQueueList = false) => {
     // §3.2: deep-links to platform-hidden tabs land on the nearest available
     // surface, never a broken destination. No-op on desktop/Android/web.
     const type = resolveNearestAvailableTabType(requestedType);
@@ -639,7 +632,7 @@ export function MainLayout() {
       "image-registry": { title: "Images", content: ImageRegistryTab, closable: true },
       "import-needs-review": { title: "Import Needs Review", content: ImportNeedsReviewTab, closable: true },
     };
-    if (type === "queue") {
+    if (type === "queue" && !forceQueueList) {
       // "Queue" can mean either the list view or Scroll Mode — reactivate
       // whichever was more recently active instead of always the list.
       const { getMostRecentTabOfTypes, findPaneContainingTab, setActiveTab: activateTab } = useTabsStore.getState();
@@ -671,7 +664,7 @@ export function MainLayout() {
       const cleanPath = path.replace(/^\//, "");
       const tabType = resolveTabType(cleanPath);
       if (tabType) {
-        openTabByType(tabType);
+        openTabByType(tabType, tabType === "queue" && useDestinationActionStore.getState().pending?.destination === "queue");
       }
     };
 

@@ -1,6 +1,19 @@
 import { Dict, en } from "./en";
 
 export const ja: Dict = {
+  "commandPalette.openReaderFirst": "この閲覧操作を実行する前に文書を開いてください。",
+  "commandPalette.openPdfFirst": "リフローを切り替える前にPDF文書を開いてください。",
+  "commandPalette.cleanupFailed": "{count}件の文書を更新できませんでした。ストレージを確認して再試行してください。",
+  "commandPalette.actionFailed": "{reason} もう一度試すか、関連する設定を確認してください。",
+  "commandPalette.destinationUnavailable": "この操作を開けませんでした。移動先を開いてから再試行してください。",
+  "commandPalette.selectTextFirst": "アクティブな文書でテキストを選択してから再試行してください。",
+  "savedQueues.notFound": "この保存済みキューは存在しません。別のキューを選んでください。",
+  "selectionTranslation.sourceLanguage": "原文の言語",
+  "selectionTranslation.targetLanguage": "翻訳先の言語",
+  "selectionTranslation.languageHint": "言語コードを入力してください（例：en、es、fr、de、ja、zh）。",
+  "selectionTranslation.allowCloud": "端末内翻訳が利用できない場合、設定済みのクラウドプロバイダーを許可する。選択したテキストが端末外に送信される場合があります。",
+  "selectionTranslation.loading": "翻訳中…",
+  "selectionTranslation.setupHint": "対応する言語ペアを選択し、端末内モデルをダウンロードするか、設定でAIプロバイダーを設定してクラウド翻訳を許可してから再試行してください。",
   "platform.unavailable.generic": "このデバイスでは利用できません",
   "platform.unavailable.unsupported_platform": "このデバイスでは利用できません",
   "platform.unavailable.requires_network": "インターネット接続が必要です",
@@ -1162,7 +1175,7 @@ export const ja: Dict = {
   "commandPalette.scanDocument": "文書をスキャン",
   "commandPalette.scanDocumentDesc": "ページをライブラリに取り込む",
   "commandPalette.translateSelection": "選択範囲を翻訳",
-  "commandPalette.translateSelectionDesc": "現在の選択範囲をこの端末で翻訳",
+  "commandPalette.translateSelectionDesc": "選択した文章を翻訳",
   "commandPalette.recordLecture": "講義を録音",
   "commandPalette.recordLectureDesc": "まず音声を保存し、この端末で文字起こしします",
   "commandPalette.importTwitterVideo": "X / Twitter 動画をインポート",

@@ -1,3 +1,4 @@
+import { useDestinationAction } from "../../commandPalette/destinationActions";
 import { useEffect, useMemo, useState } from "react";
 import {
   ArrowsClockwise,
@@ -167,6 +168,8 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
       useStudyDeckStore.getState().ensureDecksExist(names);
     }
   }, [allItems, isStatsLoading]);
+
+  useDestinationAction("review", () => setIsFlashcardStudioOpen(true));
 
   useEffect(() => {
     const handler = () => setIsFlashcardStudioOpen(true);

@@ -1,3 +1,4 @@
+import { executeCommand } from "../../commandPalette/executeCommand";
 import { useState, useRef, useEffect } from "react";
 import {
   Bookmarks,
@@ -95,7 +96,7 @@ export function SavedQueueDropdown({
               return (
                 <button
                   key={queue.id}
-                  onClick={() => handleSelect(queue)}
+                  onClick={() => void executeCommand({ id: `switch-queue-${queue.id}`, label: queue.name, action: () => handleSelect(queue) })}
                   className={`w-full text-left px-3 py-2 text-xs flex items-center justify-between hover:bg-muted/80 transition-colors ${
                     isSelected ? "bg-primary/10 text-primary font-medium" : "text-foreground"
                   }`}

@@ -1,3 +1,4 @@
+import { settleDestinationAction, useDestinationActionStore } from "../../../commandPalette/destinationActions";
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getDefaultCommands } from '../CommandPalette';
 import { useSavedQueueStore } from '../../../stores/savedQueueStore';
@@ -46,15 +47,14 @@ describe('CommandPalette - Saved Queues', () => {
   });
 
   it('switches queue when executing the queue switch command', async () => {
-    const activateSpy = vi.fn().mockResolvedValue(undefined);
-    useSavedQueueStore.setState({ activateSavedQueue: activateSpy });
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
 
     const commands = getDefaultCommands();
     const switchCmd = commands.find((c) => c.id === 'switch-queue-q-history')!;
-    await switchCmd.action();
-
-    expect(activateSpy).toHaveBeenCalledWith('q-history');
+    const completion = switchCmd.action();
+    expect(useDestinationActionStore.getState().pending).toMatchObject({ destination: "queue", action: "select", queueId: "q-history" });
+    settleDestinationAction(useDestinationActionStore.getState().pending!.id);
+    await completion;
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'navigate',
@@ -63,21 +63,21 @@ describe('CommandPalette - Saved Queues', () => {
     );
   });
 
-  it('dispatches manage-saved-queues when executing manage command', () => {
+  it('retains manage request until its destination acknowledges it', async () => {
     vi.useFakeTimers();
     const dispatchSpy = vi.spyOn(window, 'dispatchEvent');
 
     const commands = getDefaultCommands();
     const manageCmd = commands.find((c) => c.id === 'manage-saved-queues')!;
-    manageCmd.action();
+    const completion = manageCmd.action();
     vi.advanceTimersByTime(200);
 
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'navigate', detail: '/queue' })
     );
-    expect(dispatchSpy).toHaveBeenCalledWith(
-      expect.objectContaining({ type: 'plethora:manage-saved-queues' })
-    );
+    expect(useDestinationActionStore.getState().pending).toMatchObject({ action: "manage", destination: "queue" });
+    settleDestinationAction(useDestinationActionStore.getState().pending!.id);
+    await completion;
     vi.useRealTimers();
   });
 });

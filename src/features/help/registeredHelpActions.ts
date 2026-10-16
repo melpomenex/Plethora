@@ -1,3 +1,10 @@
+import { useTabsStore } from "../../stores/tabsStore";
+import { useDocumentStore } from "../../stores/documentStore";
+import { t } from "../../lib/i18n";
+import type { DocumentActionId } from "../../commandPalette/contextualActions";
+import { requestDestinationAction, startPaletteScrollSession } from "../../commandPalette/destinationActions";
+import { executeCommand } from "../../commandPalette/executeCommand";
+import { dispatchPaletteAction } from "../../commandPalette/paletteActionEvents";
 /**
  * Allowlisted Safe Interactive UI Actions for Ask Plethora & Canonical Documentation.
  *
@@ -8,10 +15,14 @@
 export interface RegisteredHelpAction {
   label: string;
   description: string;
-  handler: () => void;
+  handler: () => void | Promise<void>;
 }
 
 const dispatchNavigation = (path: string) => {
+  if (path.startsWith("/settings?")) {
+    const section = new URLSearchParams(path.split("?")[1]).get("tab") ?? "general";
+    return requestDestinationAction({ destination: "settings", action: "section", section: ({ "scroll-queue": "smart-queue", "hands-free": "tts", "sync": "cloud-storage" } as Record<string, string>)[section] ?? section });
+  }
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent("navigate", { detail: path }));
   }
@@ -22,6 +33,17 @@ const dispatchCustomEvent = (name: string, detail?: unknown) => {
     window.dispatchEvent(new CustomEvent(name, { detail }));
   }
 };
+
+function dispatchReaderAction(actionId: DocumentActionId): void {
+  const state = useTabsStore.getState();
+  const paneId = state.navigationPaneId ?? state.getTabPaneIds()[0];
+  const pane = paneId ? state.findPaneById(paneId) : null;
+  const tab = pane?.type === "tabs" ? state.tabs.find((entry) => entry.id === pane.activeTabId) : null;
+  if (tab?.type !== "document-viewer") throw new Error(t("commandPalette.openReaderFirst"));
+  const doc = useDocumentStore.getState().documents.find((entry) => entry.id === tab.data?.documentId);
+  if (actionId === "doc.toggleReflow" && doc?.fileType !== "pdf") throw new Error(t("commandPalette.openPdfFirst"));
+  dispatchPaletteAction("document-viewer", actionId);
+}
 
 export const REGISTERED_HELP_ACTIONS: Record<string, RegisteredHelpAction> = {
   "action.view.dashboard": {
@@ -87,22 +109,22 @@ export const REGISTERED_HELP_ACTIONS: Record<string, RegisteredHelpAction> = {
   "action.reader.toggle_reflow": {
     label: "Toggle PDF Reflow",
     description: "Convert PDF layout to reflowable responsive text",
-    handler: () => dispatchCustomEvent("palette-action", { view: "document-viewer", actionId: "doc.reflow_toggle" }),
+    handler: () => dispatchReaderAction("doc.toggleReflow"),
   },
   "action.reader.reflow_toggle": {
     label: "Toggle PDF Reflow",
     description: "Convert PDF layout to reflowable responsive text",
-    handler: () => dispatchCustomEvent("palette-action", { view: "document-viewer", actionId: "doc.reflow_toggle" }),
+    handler: () => dispatchReaderAction("doc.toggleReflow"),
   },
   "action.reader.toggle_tts": {
     label: "Toggle Text-to-Speech",
     description: "Start or pause audio playback for current document",
-    handler: () => dispatchCustomEvent("toggle-tts"),
+    handler: () => dispatchReaderAction("doc.toggleTts"),
   },
   "action.reader.toggle_vim": {
     label: "Toggle Vim Reading Mode",
     description: "Enable or disable Vim keyboard navigation in reader",
-    handler: () => dispatchCustomEvent("palette-action", { view: "document-viewer", actionId: "doc.toggleVimMode" }),
+    handler: () => dispatchReaderAction("doc.toggleVimMode"),
   },
   "action.queue.open": {
     label: "Open Reading Queue",
@@ -112,7 +134,7 @@ export const REGISTERED_HELP_ACTIONS: Record<string, RegisteredHelpAction> = {
   "action.queue.scroll_session": {
     label: "Start Scroll Queue Session",
     description: "Launch continuous TikTok-style incremental reading scroll session",
-    handler: () => dispatchNavigation("/queue-scroll"),
+    handler: startPaletteScrollSession,
   },
   "action.review.start": {
     label: "Start Card Review",
@@ -120,19 +142,19 @@ export const REGISTERED_HELP_ACTIONS: Record<string, RegisteredHelpAction> = {
     handler: () => dispatchNavigation("/review"),
   },
   "action.review.zen": {
-    label: "Enter Zen Review Mode",
-    description: "Launch distraction-free fullscreen review mode",
-    handler: () => dispatchNavigation("/review?mode=zen"),
+    label: "Open Card Review",
+    description: "Open the card review workspace",
+    handler: () => dispatchNavigation("/review"),
   },
   "action.review.flashcard_studio": {
     label: "Open Flashcard Studio",
     description: "Create or edit Q/A, Cloze, and Image Occlusion cards",
-    handler: () => dispatchCustomEvent("open-flashcard-studio"),
+    handler: () => requestDestinationAction({ destination: "review", action: "create-card" }),
   },
   "action.language.dictionary": {
-    label: "Open Language Dictionary",
-    description: "View target language vocabulary and definitions",
-    handler: () => dispatchNavigation("/language"),
+    label: "Open Language Settings",
+    description: "Configure language profiles and dictionary options",
+    handler: () => dispatchNavigation("/settings?tab=language-learning"),
   },
   "action.media.podcasts": {
     label: "Open Podcasts",
@@ -152,7 +174,7 @@ export const REGISTERED_HELP_ACTIONS: Record<string, RegisteredHelpAction> = {
   "action.search.command_center": {
     label: "Open Command Palette",
     description: "Open unified global search and command center",
-    handler: () => dispatchCustomEvent("open-command-center"),
+    handler: () => dispatchCustomEvent("command-palette-open"),
   },
 };
 
@@ -166,7 +188,8 @@ export const isRegisteredHelpAction = isRegisteredHelpActionId;
 export function executeHelpAction(actionId: string): boolean {
   if (isRegisteredHelpActionId(actionId)) {
     try {
-      REGISTERED_HELP_ACTIONS[actionId].handler();
+      const action = REGISTERED_HELP_ACTIONS[actionId];
+      void executeCommand({ id: actionId, label: action.label, action: action.handler });
       return true;
     } catch (error) {
       console.warn(`[registeredHelpActions] Failed to execute action ${actionId}:`, error);

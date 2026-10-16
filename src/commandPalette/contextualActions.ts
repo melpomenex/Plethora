@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 /**
  * Contextual command-palette actions.
  *
@@ -34,12 +35,16 @@ export interface ActionContext {
   viewerKind?: ViewerKind;
   /** Whether a vim reading runtime is available for the active document. */
   vimAvailable?: boolean;
+  hasSelection?: boolean;
   /** Whether there is a resolvable target episode (podcast) or article (rss). */
   hasTargetItem?: boolean;
 }
 
 /** Per-view action id unions (statically typed so typos fail at compile time). */
 export type DocumentActionId =
+  | "doc.toggleReflow"
+  | "doc.toggleTts"
+  | "doc.translateSelection"
   | "doc.search"
   | "doc.toggleToc"
   | "doc.nextPage"
@@ -130,6 +135,7 @@ const paginated = (ctx: ActionContext): boolean =>
   ctx.viewerKind === "pdf" || ctx.viewerKind === "epub";
 
 export const documentActions: ViewAction[] = [
+  { id: "doc.translateSelection", title: "Translate Selection", view: "document-viewer", keywords: ["translate", "translation", "language"], applies: (ctx) => Boolean(ctx.hasSelection) },
   {
     id: "doc.search",
     title: "Search in Document",
@@ -522,7 +528,8 @@ export function getActionsForView(
 ): ViewAction[] {
   const all = ACTIONS_BY_VIEW[view];
   if (!all) return [];
-  return all.filter((action) => (action.applies ? action.applies(ctx) : true));
+  return all.filter((action) => (action.applies ? action.applies(ctx) : true)).map((action) =>
+    action.id === "doc.translateSelection" ? { ...action, title: t("commandPalette.translateSelection") } : action);
 }
 
 /** All contextual actions (flat), for tests/inspection. */

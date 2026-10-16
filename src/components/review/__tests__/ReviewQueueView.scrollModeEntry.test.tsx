@@ -6,7 +6,7 @@
  * layout/tooltip/activation behavior, and contain no hard-coded pink/purple.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { ReviewQueueView } from "../ReviewQueueView";
 import { scrollModeEntryProminentClasses } from "../../queue/scrollModeEntry";
 import { useSavedQueueStore } from "../../../stores/savedQueueStore";
@@ -150,7 +150,7 @@ describe("ReviewQueueView Scroll Mode launcher (mode-accent styling)", () => {
     });
   });
 
-  it("carries active saved queue item types and filtered items into onOpenScrollMode", () => {
+  it("carries active saved queue item types and filtered items into onOpenScrollMode", async () => {
     const onOpenScrollMode = vi.fn();
     const testQueue = {
       id: "q-extracts-only",
@@ -185,6 +185,7 @@ describe("ReviewQueueView Scroll Mode launcher (mode-accent styling)", () => {
     const dropdownBtn = screen.getByRole("button", { name: /Saved Queues/i });
     fireEvent.click(dropdownBtn);
     fireEvent.click(screen.getByText("Extracts Only"));
+    await waitFor(() => expect(useSavedQueueStore.getState().activeQueueId).toBe("q-extracts-only"));
 
     // Click Scroll Mode launcher
     fireEvent.click(getLauncher());
@@ -193,5 +194,7 @@ describe("ReviewQueueView Scroll Mode launcher (mode-accent styling)", () => {
       mode: "queue-list",
       itemTypes: { documents: false, extracts: true, learningItems: false },
     });
+    // An empty saved profile must not launch an unrelated optimal session.
+    expect(screen.getByRole("button", { name: /Start Optimal Session/i })).toBeDisabled();
   });
 });

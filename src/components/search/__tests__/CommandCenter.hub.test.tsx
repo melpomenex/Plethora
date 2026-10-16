@@ -1,4 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useSavedQueueStore } from "../../../stores/savedQueueStore";
+import { STARTER_SAVED_QUEUES } from "../../../api/savedQueues";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ThemeProvider } from "../../../contexts/ThemeContext";
 
@@ -117,4 +119,18 @@ describe("CommandCenter hub controller mount", () => {
     fireEvent.click(screen.getByRole("button", { name: /Ask about your library/ }));
     expect(useLibraryAskHandoffStore.getState().pending?.intent).toBe("open");
   });
+  it("keeps Actions open while late saved queues load, rename and disappear", async () => {
+    useSavedQueueStore.setState({ savedQueues: [], isLoading: true, error: null });
+    render(<ThemeProvider><CommandCenter /></ThemeProvider>);
+    fireEvent.click(screen.getByRole("tab", { name: "Actions" }));
+    const profile = { ...STARTER_SAVED_QUEUES[1], id: "reactive", name: "Reactive Profile" };
+    act(() => useSavedQueueStore.setState({ savedQueues: [profile], isLoading: false }));
+    expect(await screen.findByText(/Saved Queues: Reactive Profile/)).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Actions" })).toHaveAttribute("aria-selected", "true");
+    act(() => useSavedQueueStore.setState({ savedQueues: [{ ...profile, name: "Renamed Profile" }] }));
+    expect(await screen.findByText(/Saved Queues: Renamed Profile/)).toBeInTheDocument();
+    act(() => useSavedQueueStore.setState({ savedQueues: [] }));
+    expect(screen.queryByText(/Saved Queues: Renamed Profile/)).not.toBeInTheDocument();
+  });
+
 });

@@ -1,3 +1,4 @@
+import { useDestinationActionStore, settleDestinationAction } from "../../../commandPalette/destinationActions";
 /**
  * End-to-End Integration Tests for Canonical Product Documentation & Ask Plethora
  */
@@ -48,9 +49,11 @@ describe("Help System End-to-End Integration", () => {
       expect(dispatchSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           type: "navigate",
-          detail: "/settings?tab=appearance&panel=eink",
+          detail: "/settings",
         })
       );
+      expect(useDestinationActionStore.getState().pending).toMatchObject({ destination: "settings", action: "section", section: "appearance" });
+      settleDestinationAction(useDestinationActionStore.getState().pending!.id);
       dispatchSpy.mockRestore();
     }
   });

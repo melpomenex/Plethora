@@ -1,3 +1,4 @@
+import { useUIStore } from "../../stores/uiStore";
 import { useEffect, useRef, useState } from "react";
 import { persistLectureRecording, saveLectureDocument } from "../../lib/ai/android/lectureCapture";
 import { floatToPcm16leBase64 } from "../../lib/ai/android/pcm";
@@ -99,6 +100,13 @@ export function LectureCaptureHost() {
   const { t } = useI18n();
   const addToast = useToastStore((s) => s.addToast);
   const [open, setOpen] = useState(false);
+  const requested = useUIStore((state) => state.lectureCaptureRequested);
+  useEffect(() => {
+    if (requested) {
+      setOpen(true);
+      useUIStore.getState().setLectureCaptureRequested(false);
+    }
+  }, [requested]);
   const [recording, setRecording] = useState(false);
   const [partial, setPartial] = useState("");
   const recorderRef = useRef<MediaRecorder | null>(null);

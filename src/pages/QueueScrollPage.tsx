@@ -1229,9 +1229,7 @@ export function QueueScrollPage() {
       const queueScrollMode = activeTabQueueData.queueScrollMode;
 
       if (queueScrollMode === "queue-list" || (customQueueItems && customQueueItems.length > 0)) {
-        const sourceQueueItems = (customQueueItems && customQueueItems.length > 0)
-          ? customQueueItems
-          : documentQueueItems;
+        const sourceQueueItems = customQueueItems ?? documentQueueItems;
 
         const extractsMap = new Map(dueExtracts.map((e) => [e.id, e]));
         const flashcardsMap = new Map(dueFlashcards.map((f) => [f.id, f]));

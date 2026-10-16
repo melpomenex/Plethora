@@ -1,3 +1,4 @@
+import { executeCommand } from "../../commandPalette/executeCommand";
 /**
  * Global search system
  * Fast, full-text search across all content types
@@ -340,6 +341,7 @@ export function GlobalSearch({
     }
   }, [query, filters, debouncedSearch, isURLMode, controller, scope, browseAll, searchRetryToken]);
 
+  const hasController = Boolean(controller);
   // Reset hub state on an ordinary open and consume any explicit prefill.
   useEffect(() => {
     if (!isOpen) return;
@@ -360,7 +362,7 @@ export function GlobalSearch({
     setFilters({ types: [], categories: [], tags: [] });
     setShowFilters(false);
     latestSearchRequestRef.current += 1;
-  }, [isOpen, controller]);
+  }, [isOpen, hasController]);
 
   // Focus input when opened (standalone path; the hub owns focus via the
   // modal focus lifecycle).
@@ -1226,8 +1228,7 @@ function CommandHubLayer(props: CommandHubLayerProps) {
       shortcut: cmd.shortcut,
       group,
       activate: async () => {
-        await cmd.action();
-        onClose();
+        await executeCommand(cmd, onClose);
       },
     }),
     [onClose]

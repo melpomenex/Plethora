@@ -1,3 +1,9 @@
+import { useDestinationAction, useDestinationActionStore } from "../../commandPalette/destinationActions";
+import { useSavedQueueActions, savedQueueIsApplied } from "../queue/useSavedQueueActions";
+import { SavedQueueDropdown } from "../queue/SavedQueueDropdown";
+import { ManageSavedQueuesModal } from "../queue/ManageSavedQueuesModal";
+import { SessionCustomizeModal, DEFAULT_CUSTOMIZATION } from "../review/SessionCustomizeModal";
+import { applyFilters } from "../../utils/reviewUx";
 import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 /**
  * Mobile Queue View - Simplified for PWA
@@ -121,6 +127,13 @@ export function MobileQueueView({
     }))
   );
 
+  const [sessionCustomization, setSessionCustomization] = useState(DEFAULT_CUSTOMIZATION);
+  const [manageOpen, setManageOpen] = useState(false);
+  const [newQueueOpen, setNewQueueOpen] = useState(false);
+  const { queue: savedQueue, applyQueue } = useSavedQueueActions(
+    (configuration) => { setSessionCustomization(configuration); setActiveTab("reading"); setSearchQuery(""); },
+    () => setManageOpen(true), () => setNewQueueOpen(true),
+  );
   const [searchQuery, setSearchQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [activeTab, setActiveTab] = useState<"reading" | "review" | "schedule">("reading");
@@ -252,6 +265,7 @@ export function MobileQueueView({
   // path over an already-loaded queue. See design decision D3.
   useEffect(() => {
     if (!isActiveTab) return;
+    if (savedQueue) { setQueueFilterMode("due-all"); return; }
     const mobileKey = `mobile:${quickFilter}`;
     if (quickFilter !== "today") {
       if (useQueueStore.getState().loadedQueryKey === mobileKey) return;
@@ -288,11 +302,12 @@ export function MobileQueueView({
     return () => {
       cancelled = true;
     };
-  }, [quickFilter, ensureStartup, isActiveTab, setQueueFilterMode, loadDueQueueItems]);
+  }, [quickFilter, savedQueue, ensureStartup, isActiveTab, setQueueFilterMode, loadDueQueueItems]);
 
   // Filter items
   const filteredItems = useMemo(() => {
     let result = items.filter((item) => {
+      if (savedQueue) return true;
       if (activeTab === "review") {
         return item.itemType === "learning-item";
       }
@@ -307,8 +322,9 @@ export function MobileQueueView({
       );
     }
 
-    return orderQueueItems(result, queueStrategyPreset);
-  }, [items, activeTab, searchQuery, queueStrategyPreset]);
+    const ordered = orderQueueItems(applyFilters(result, savedQueue ? sessionCustomization : undefined), queueStrategyPreset);
+    return savedQueue ? ordered.slice(0, sessionCustomization.maxItems) : ordered;
+  }, [items, activeTab, searchQuery, queueStrategyPreset, savedQueue, sessionCustomization]);
 
   useEffect(() => {
     if (!hasCompletedFirstLoad || isLoading || error || !isNativeAndroid() || !isActiveTab) return;
@@ -375,12 +391,22 @@ export function MobileQueueView({
     // if scroll mode isn't wired up.
     if (onOpenScrollMode) {
       emitUserInteraction("navigation.destination-opened");
-      onOpenScrollMode({ mode: "optimal" });
+      onOpenScrollMode(savedQueue
+        ? { items: filteredItems, mode: "queue-list", itemTypes: sessionCustomization.itemTypes }
+        : { mode: "optimal" });
     } else if (onOpenDocument) {
       emitUserInteraction("navigation.destination-opened");
       onOpenDocument(firstDue);
     }
   };
+
+  const pendingSession = useDestinationActionStore((state) => state.pending);
+  useDestinationAction("queue", (request) => {
+    if (request.action !== "start") return;
+    if (savedQueue?.id !== request.queueId) throw new Error(t("savedQueues.notFound"));
+    handleStartSession();
+  }, pendingSession?.action === "start" && !isLoading && Boolean(hasCompletedFirstLoad) && savedQueueIsApplied(savedQueue, sessionCustomization));
+
 
   // Note: getDueBadge is defined at module level (below) so QueueRow can share it.
 
@@ -645,6 +671,13 @@ export function MobileQueueView({
 
   return (
     <div className="flex flex-col w-full min-w-0 h-full bg-background" data-responsive-surface="queue">
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2">
+        <SavedQueueDropdown onOpenNewQueue={() => setNewQueueOpen(true)} onOpenManageQueues={() => setManageOpen(true)} onQueueSelect={applyQueue} />
+      </div>
+      <ManageSavedQueuesModal isOpen={manageOpen} onClose={() => setManageOpen(false)} onCreate={() => { setManageOpen(false); setNewQueueOpen(true); }} />
+      <SessionCustomizeModal isOpen={newQueueOpen} onClose={() => setNewQueueOpen(false)} customization={sessionCustomization} onChange={setSessionCustomization} onApply={() => setNewQueueOpen(false)}
+        availableTags={Array.from(new Set(items.flatMap((item) => item.tags ?? [])))} availableCategories={Array.from(new Set(items.flatMap((item) => item.category ? [item.category] : [])))}
+        onSavedQueueCreated={applyQueue} onSavedQueueUpdated={applyQueue} />
       {/* Header */}
       <div className="px-4 py-3 border-b border-border bg-card">
         <div className="flex items-center justify-between mb-3">
@@ -803,7 +836,7 @@ export function MobileQueueView({
           </button>
           {activeTab === "reading" && onOpenScrollMode && (
             <button
-              onClick={() => onOpenScrollMode({ items: filteredItems, mode: "queue-list" })}
+              onClick={() => onOpenScrollMode({ items: filteredItems, mode: "queue-list", itemTypes: savedQueue ? sessionCustomization.itemTypes : undefined })}
               disabled={filteredItems.length === 0}
               className={`flex items-center justify-center gap-2 px-4 py-3 ${scrollModeEntryProminentClasses} ${scrollModeEntryDisabledClasses} rounded-xl font-medium active:scale-95 transition-all`}
               title={t("queue.scrollModeTooltip")}

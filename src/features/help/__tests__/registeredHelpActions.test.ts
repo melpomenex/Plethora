@@ -1,3 +1,5 @@
+import { useTabsStore } from "../../../stores/tabsStore";
+import { useDocumentStore } from "../../../stores/documentStore";
 /**
  * Unit tests for Registered Help Actions (registeredHelpActions.ts)
  */
@@ -45,6 +47,8 @@ describe("registeredHelpActions", () => {
   it("dispatches window custom events for contextual palette actions", () => {
     const dispatchSpy = vi.spyOn(window, "dispatchEvent");
 
+    useTabsStore.setState({ tabs: [{ id: "pdf", type: "document-viewer", data: { documentId: "pdf" } } as never], rootPane: { id: "pane", type: "tabs", activeTabId: "pdf", tabIds: ["pdf"] }, navigationPaneId: "pane" });
+    useDocumentStore.setState({ documents: [{ id: "pdf", fileType: "pdf" } as never] });
     const ok = dispatchRegisteredHelpAction("action.reader.reflow_toggle");
     expect(ok).toBe(true);
     expect(dispatchSpy).toHaveBeenCalledWith(
@@ -52,7 +56,7 @@ describe("registeredHelpActions", () => {
         type: "palette-action",
         detail: {
           view: "document-viewer",
-          actionId: "doc.reflow_toggle",
+          actionId: "doc.toggleReflow",
         },
       })
     );

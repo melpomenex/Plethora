@@ -135,4 +135,24 @@ describe('savedQueueStore', () => {
     expect(state.activeQueueId).toBe('sq-2');
     expect(setActiveSpy).toHaveBeenCalledWith('sq-2');
   });
+  it('does not change active configuration when persistence fails and supports retry', async () => {
+    useSavedQueueStore.setState({ savedQueues: [sampleQueue1, sampleQueue2], activeQueueId: 'sq-1' });
+    vi.spyOn(api, 'setActiveSavedQueueId').mockRejectedValueOnce(new Error('Disk full')).mockResolvedValue();
+    await expect(useSavedQueueStore.getState().activateSavedQueue('sq-2')).rejects.toThrow('Disk full');
+    expect(useSavedQueueStore.getState().activeQueueId).toBe('sq-1');
+    expect(useSavedQueueStore.getState().error).toBe('Disk full');
+    await useSavedQueueStore.getState().activateSavedQueue('sq-2');
+    expect(useSavedQueueStore.getState().activeQueueId).toBe('sq-2');
+  });
+
+  it('rejects deleted profile IDs and emits a new revision on same-ID reselection', async () => {
+    useSavedQueueStore.setState({ savedQueues: [sampleQueue1], activeQueueId: 'sq-1' });
+    const persist = vi.spyOn(api, 'setActiveSavedQueueId').mockResolvedValue();
+    await expect(useSavedQueueStore.getState().activateSavedQueue('deleted')).rejects.toThrow();
+    expect(persist).not.toHaveBeenCalled();
+    const before = useSavedQueueStore.getState().activationRevision;
+    await useSavedQueueStore.getState().activateSavedQueue('sq-1');
+    expect(useSavedQueueStore.getState().activationRevision).toBe(before + 1);
+  });
+
 });

@@ -1,6 +1,19 @@
 import { Dict, en } from "./en";
 
 export const zh: Dict = {
+  "commandPalette.openReaderFirst": "请先打开文档，再执行此阅读操作。",
+  "commandPalette.openPdfFirst": "请先打开 PDF 文档，再切换重排模式。",
+  "commandPalette.cleanupFailed": "无法更新 {count} 个文档。请检查存储后重试。",
+  "commandPalette.actionFailed": "{reason} 请重试或检查相关设置。",
+  "commandPalette.destinationUnavailable": "无法打开此操作。请打开目标页面后重试。",
+  "commandPalette.selectTextFirst": "请先在当前文档中选择文本，然后重试。",
+  "savedQueues.notFound": "此已保存队列已不存在。请选择其他队列。",
+  "selectionTranslation.sourceLanguage": "源语言",
+  "selectionTranslation.targetLanguage": "翻译为",
+  "selectionTranslation.languageHint": "输入语言代码，例如 en、es、fr、de、ja 或 zh。",
+  "selectionTranslation.allowCloud": "本地翻译不可用时允许使用已配置的云服务。所选文本可能会发送到此设备之外。",
+  "selectionTranslation.loading": "正在翻译…",
+  "selectionTranslation.setupHint": "请选择支持的语言对并下载本地模型，或在设置中配置 AI 服务并允许云翻译，然后重试。",
   "platform.unavailable.generic": "此设备上不可用",
   "platform.unavailable.unsupported_platform": "此设备上不可用",
   "platform.unavailable.requires_network": "需要联网",
@@ -1492,7 +1505,7 @@ export const zh: Dict = {
   "commandPalette.scanDocument": "扫描文档",
   "commandPalette.scanDocumentDesc": "将页面收入资料库",
   "commandPalette.translateSelection": "翻译所选内容",
-  "commandPalette.translateSelectionDesc": "在本机翻译当前所选内容",
+  "commandPalette.translateSelectionDesc": "翻译所选段落",
   "commandPalette.recordLecture": "录制讲座",
   "commandPalette.recordLectureDesc": "先保存音频，再在本机转写",
   "commandPalette.importTwitterVideo": "导入 X / Twitter 视频",

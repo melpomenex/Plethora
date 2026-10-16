@@ -1,3 +1,5 @@
+import { executeCommand } from "../../commandPalette/executeCommand";
+import { useDialogFocus } from "../md3/Dialog";
 import {
   Bookmarks,
   Clock,
@@ -110,6 +112,7 @@ export function SessionCustomizeModal({
   onSavedQueueCreated,
   onSavedQueueUpdated,
 }: SessionCustomizeModalProps) {
+  const dialogRef = useDialogFocus(isOpen, onClose);
   const { t } = useI18n();
   const daqe = useSettingsStore((s) => s.settings.daqe);
   const updateSettingsCategory = useSettingsStore((s) => s.updateSettingsCategory);
@@ -253,9 +256,9 @@ export function SessionCustomizeModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-      <div className="bg-card border border-border rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-auto m-4">
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="session-customize-title" tabIndex={-1} className="bg-card border border-border rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-auto m-4">
         <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-foreground">{t("sessionCustomize.title")}</h2>
+          <h2 id="session-customize-title" className="text-lg font-semibold text-foreground">{t("sessionCustomize.title")}</h2>
           <button
             onClick={onClose}
             className="p-1 rounded hover:bg-muted/60 text-muted-foreground hover:text-foreground"
@@ -580,13 +583,13 @@ export function SessionCustomizeModal({
               className="flex-1 px-3 py-1.5 text-sm rounded border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               autoFocus
               onKeyDown={(e) => {
-                if (e.key === "Enter") void handleSaveAsNewQueue();
+                if (e.key === "Enter") void executeCommand({ id: "save-new-queue", label: t("savedQueues.saveAsNewQueue"), action: () => handleSaveAsNewQueue() });
                 if (e.key === "Escape") setShowSaveAs(false);
               }}
             />
             <button
               type="button"
-              onClick={() => void handleSaveAsNewQueue()}
+              onClick={() => void executeCommand({ id: "save-new-queue", label: t("savedQueues.saveAsNewQueue"), action: () => handleSaveAsNewQueue() })}
               disabled={!saveQueueName.trim()}
               className="px-3 py-1.5 text-xs md:text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 font-medium"
             >
@@ -625,7 +628,7 @@ export function SessionCustomizeModal({
                 {activeQueue && (
                   <button
                     type="button"
-                    onClick={() => void handleUpdateActiveQueue()}
+                    onClick={() => void executeCommand({ id: "update-saved-queue", label: t("savedQueues.manageQueues"), action: () => handleUpdateActiveQueue() })}
                     className="px-3 py-1.5 text-xs border border-border rounded hover:bg-muted/60 text-foreground flex items-center gap-1.5"
                     title={`${t("savedQueues.updateQueue") || "Update Queue"}: ${activeQueue.name}`}
                   >

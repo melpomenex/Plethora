@@ -1,3 +1,4 @@
+import { useDestinationAction } from "../../commandPalette/destinationActions";
 /**
  * Settings page - Main settings UI with search functionality
  */
@@ -638,6 +639,14 @@ export function SettingsPage() {
       }
     }
   }, [isMobile]);
+
+  useDestinationAction("settings", (request) => {
+    if (request.action !== "section") return;
+    if (Object.values(SettingsTab).includes(request.section as SettingsTab)) {
+      setActiveTab(request.section as SettingsTab);
+      setShowMobileMenu(false);
+    }
+  });
 
   // Group filtered results by relevance for search display
   const searchResults = useMemo(() => {

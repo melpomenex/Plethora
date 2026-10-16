@@ -97,11 +97,8 @@ function getLocalQueues(): SavedQueue[] {
 }
 
 function saveLocalQueues(queues: SavedQueue[]) {
-  try {
-    localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(queues));
-  } catch (e) {
-    console.error('Failed to save queues to localStorage', e);
-  }
+  // Persistence failures must reach the UI; otherwise an unsaved profile looks saved.
+  localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(queues));
 }
 
 export async function getSavedQueues(collectionId?: string | null): Promise<SavedQueue[]> {

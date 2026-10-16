@@ -13,6 +13,7 @@ interface UIState {
 
   // Command Palette
   commandPaletteOpen: boolean;
+  lectureCaptureRequested: boolean;
   commandPaletteQuery: string;
 
   // Paste Extract Dialog
@@ -31,6 +32,7 @@ interface UIState {
   openModal: (modal: string, data?: Record<string, unknown>) => void;
   closeModal: () => void;
   setCommandPaletteOpen: (open: boolean) => void;
+  setLectureCaptureRequested: (requested: boolean) => void;
   setCommandPaletteQuery: (query: string) => void;
   setPasteExtractDialogOpen: (open: boolean) => void;
   setTwitterImportDialogOpen: (open: boolean) => void;
@@ -45,6 +47,7 @@ export const useUIStore = create<UIState>((set) => ({
   activeModal: null,
   modalData: {},
   commandPaletteOpen: false,
+  lectureCaptureRequested: false,
   commandPaletteQuery: "",
   pasteExtractDialogOpen: false,
   twitterImportDialogOpen: false,
@@ -74,6 +77,8 @@ export const useUIStore = create<UIState>((set) => ({
       commandPaletteOpen,
       commandPaletteQuery: commandPaletteOpen ? "" : "",
     }),
+
+  setLectureCaptureRequested: (lectureCaptureRequested) => set({ lectureCaptureRequested }),
 
   setCommandPaletteQuery: (commandPaletteQuery) => set({ commandPaletteQuery }),
   setPasteExtractDialogOpen: (pasteExtractDialogOpen) => set({ pasteExtractDialogOpen }),

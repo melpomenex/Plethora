@@ -1,3 +1,6 @@
+import { useCollectionStore } from "../../stores/collectionStore";
+import { executeCommand } from "../../commandPalette/executeCommand";
+import { useDialogFocus } from "../md3/Dialog";
 import { useState } from "react";
 import {
   Bookmarks,
@@ -14,14 +17,19 @@ import type { SavedQueue } from "../../types/savedQueue";
 interface ManageSavedQueuesModalProps {
   isOpen: boolean;
   onClose: () => void;
+  onCreate?: () => void;
 }
 
 export function ManageSavedQueuesModal({
   isOpen,
   onClose,
+  onCreate,
 }: ManageSavedQueuesModalProps) {
+  const dialogRef = useDialogFocus(isOpen, onClose);
   const { t } = useI18n();
   const savedQueues = useSavedQueueStore((s) => s.savedQueues);
+  const loading = useSavedQueueStore((s) => s.isLoading);
+  const error = useSavedQueueStore((s) => s.error);
   const activeQueueId = useSavedQueueStore((s) => s.activeQueueId);
   const activateSavedQueue = useSavedQueueStore((s) => s.activateSavedQueue);
   const updateSavedQueue = useSavedQueueStore((s) => s.updateSavedQueue);
@@ -65,6 +73,8 @@ export function ManageSavedQueuesModal({
 
   return (
     <div
+      ref={dialogRef}
+      tabIndex={-1}
       role="dialog"
       aria-modal="true"
       aria-labelledby="manage-saved-queues-title"
@@ -97,7 +107,9 @@ export function ManageSavedQueuesModal({
 
         {/* Content */}
         <div className="overflow-y-auto p-4 space-y-3">
-          {savedQueues.length === 0 ? (
+          {loading && <p role="status" className="text-sm">{t("common.loading")}</p>}
+          {error && <div role="alert" className="space-y-2 text-sm text-error"><p>{error}</p><button type="button" onClick={() => void useSavedQueueStore.getState().loadSavedQueues(useCollectionStore.getState().activeCollectionId)}>{t("common.retry")}</button></div>}
+          {!loading && !error && savedQueues.length === 0 ? (
             <div className="text-center py-8 text-sm text-muted-foreground">
               {t("savedQueues.noQueues") || "No saved queues yet."}
             </div>
@@ -119,14 +131,14 @@ export function ManageSavedQueuesModal({
                   <div
                     className={`flex-1 min-w-0 mr-3 ${!isEditing ? "cursor-pointer" : ""}`}
                     onClick={() => {
-                      if (!isEditing) void handleSelectQueue(queue);
+                      if (!isEditing) void executeCommand({ id: `switch-queue-${queue.id}`, label: queue.name, action: () => handleSelectQueue(queue) });
                     }}
                     role={!isEditing ? "button" : undefined}
                     tabIndex={!isEditing ? 0 : undefined}
                     onKeyDown={(e) => {
                       if (!isEditing && (e.key === "Enter" || e.key === " ")) {
                         e.preventDefault();
-                        void handleSelectQueue(queue);
+                        void executeCommand({ id: `switch-queue-${queue.id}`, label: queue.name, action: () => handleSelectQueue(queue) });
                       }
                     }}
                   >
@@ -137,7 +149,7 @@ export function ManageSavedQueuesModal({
                           value={editingName}
                           onChange={(e) => setEditingName(e.target.value)}
                           onKeyDown={(e) => {
-                            if (e.key === "Enter") void handleSaveRename(queue.id);
+                            if (e.key === "Enter") void executeCommand({ id: `rename-queue-${queue.id}`, label: queue.name, action: () => handleSaveRename(queue.id) });
                             if (e.key === "Escape") setEditingId(null);
                           }}
                           autoFocus
@@ -145,7 +157,7 @@ export function ManageSavedQueuesModal({
                         />
                         <button
                           type="button"
-                          onClick={() => void handleSaveRename(queue.id)}
+                          onClick={() => void executeCommand({ id: `rename-queue-${queue.id}`, label: queue.name, action: () => handleSaveRename(queue.id) })}
                           className="p-1 rounded bg-primary text-primary-foreground hover:bg-primary/90"
                           title={t("common.save") || "Save"}
                         >
@@ -184,7 +196,7 @@ export function ManageSavedQueuesModal({
                     {!queue.isDefault && (
                       <button
                         type="button"
-                        onClick={() => void handleSetDefault(queue)}
+                        onClick={() => void executeCommand({ id: `default-queue-${queue.id}`, label: t("savedQueues.manageQueues"), action: () => handleSetDefault(queue) })}
                         className="p-1.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
                         title={t("savedQueues.setDefault") || "Set as Default"}
                       >
@@ -205,7 +217,7 @@ export function ManageSavedQueuesModal({
 
                     <button
                       type="button"
-                      onClick={() => void handleDelete(queue.id)}
+                      onClick={() => { if (deleteConfirmId !== queue.id) setDeleteConfirmId(queue.id); else void executeCommand({ id: `delete-queue-${queue.id}`, label: t("savedQueues.delete"), action: () => handleDelete(queue.id) }); }}
                       className={`p-1.5 rounded transition-colors ${
                         isConfirmingDelete
                           ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
@@ -226,6 +238,7 @@ export function ManageSavedQueuesModal({
           )}
         </div>
 
+        {onCreate && <button type="button" className="mx-4 mb-4 rounded-md border border-border px-3 py-2 text-sm" onClick={onCreate}>{t("savedQueues.newQueue")}</button>}
         {/* Footer */}
         <div className="border-t border-border px-5 py-3 flex justify-end">
           <button

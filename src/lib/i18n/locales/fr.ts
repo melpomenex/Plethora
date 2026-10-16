@@ -1,6 +1,19 @@
 import { Dict, en } from "./en";
 
 export const fr: Dict = {
+  "commandPalette.openReaderFirst": "Ouvrez un document avant d’utiliser cette action de lecture.",
+  "commandPalette.openPdfFirst": "Ouvrez un document PDF avant de changer la redistribution du texte.",
+  "commandPalette.cleanupFailed": "Impossible de mettre à jour {count} documents. Vérifiez le stockage et réessayez.",
+  "commandPalette.actionFailed": "{reason} Réessayez ou vérifiez les paramètres correspondants.",
+  "commandPalette.destinationUnavailable": "Impossible d’ouvrir cette action. Ouvrez la destination et réessayez.",
+  "commandPalette.selectTextFirst": "Sélectionnez du texte dans le document actif, puis réessayez.",
+  "savedQueues.notFound": "Cette file enregistrée n’existe plus. Choisissez-en une autre.",
+  "selectionTranslation.sourceLanguage": "Langue source",
+  "selectionTranslation.targetLanguage": "Traduire en",
+  "selectionTranslation.languageHint": "Saisissez des codes de langue, par exemple en, es, fr, de, ja ou zh.",
+  "selectionTranslation.allowCloud": "Autoriser le fournisseur cloud configuré si la traduction locale est indisponible. Le texte sélectionné peut quitter cet appareil.",
+  "selectionTranslation.loading": "Traduction…",
+  "selectionTranslation.setupHint": "Choisissez une paire de langues prise en charge, téléchargez son modèle local ou configurez un fournisseur d’IA dans les paramètres et autorisez la traduction cloud, puis réessayez.",
   "platform.unavailable.generic": "Indisponible sur cet appareil",
   "platform.unavailable.unsupported_platform": "Indisponible sur cet appareil",
   "platform.unavailable.requires_network": "Nécessite une connexion Internet",
@@ -1180,7 +1193,7 @@ export const fr: Dict = {
   "commandPalette.scanDocument": "Numériser un document",
   "commandPalette.scanDocumentDesc": "Capturer des pages dans la bibliothèque",
   "commandPalette.translateSelection": "Traduire la sélection",
-  "commandPalette.translateSelectionDesc": "Traduire la sélection actuelle sur cet appareil",
+  "commandPalette.translateSelectionDesc": "Traduire le passage sélectionné",
   "commandPalette.recordLecture": "Enregistrer un cours",
   "commandPalette.recordLectureDesc": "Enregistrer l’audio d’abord, puis transcrire sur cet appareil",
   "commandPalette.importTwitterVideo": "Importer une vidéo X/Twitter",
