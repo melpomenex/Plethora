@@ -90,6 +90,7 @@ import { IntelligenceIndicator } from "./IntelligenceIndicator";
 import { TrainingMenu } from "./TrainingMenu";
 import { KeyboardShortcutProvider } from "./KeyboardShortcutProvider";
 import { usePaletteActionListener, usePaletteContextProvider } from "../../commandPalette/paletteActionEvents";
+import { useDestinationAction } from "../../commandPalette/destinationActions";
 import { KeyboardHelpOverlay } from "./KeyboardHelpOverlay";
 import { AnnotationsPanel } from "./AnnotationsPanel";
 import { RSSDashboard } from "./RSSDashboard";
@@ -794,6 +795,12 @@ export function RSSReader() {
     },
     [isAutoRefreshing, scheduleSyncFeedbackReset]
   );
+
+  // Global palette command: "Refresh RSS Feeds" delivers this request through
+  // the shared destination-action handoff, reusing the existing manual refresh.
+  useDestinationAction("rss", () => {
+    void refreshAllFeeds("manual");
+  });
 
   // Auto-refresh interval. Paused while the tab is hidden (so backgrounded
   // windows don't keep polling) and restarted on visibility. The interval

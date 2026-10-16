@@ -244,6 +244,10 @@
     "assistant-video/playback-2h-cached": {
       "cost": 0.1207,
       "reason": "unify-assistant-conversation-and-video-context: initial baseline for the live-playback plan on the same cached 2-hour transcript; the window-centred path must stay cheaper than topical retrieval so currentTime updates never trigger a full re-plan of the transcript."
+    },
+    "commandPalette/registry-match-full-registry": {
+      "cost": 51.72,
+      "reason": "Unified command-registry matcher at registry scale (150 seeded multi-token queries x 234 commands); new benchmark for the unify-command-palette-registry change."
     }
   }
 }

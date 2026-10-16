@@ -46,37 +46,13 @@ import { useWebviewRecovery } from "../../lib/webviewRecovery";
 import { useLifecycleCheckpoint } from "../../lib/lifecycleCheckpoint";
 import { cn } from "../../utils";
 import { runAutoPostponeSession } from "../../lib/autoPostponeSession";
+import { resolveTabType } from "../../navigation/tabDestinations";
 const PaywallModal = lazy(() => import("../monetization/PaywallModal").then(({ PaywallModal: modal }) => ({ default: modal })));
 
 // Auto-postpone scans the full scheduled backlog and may write many rows. Give
 // the mobile shell time to paint and finish its first library/settings loads
 // before starting that background work.
 const AUTO_POSTPONE_BOOT_DELAY_MS = 2_000;
-
-const TAB_TYPE_ALIASES: Record<string, TabType> = {
-  dash: "dashboard", dashboard: "dashboard", home: "dashboard",
-  docs: "documents", documents: "documents", doc: "documents",
-  queue: "queue", q: "queue",
-  "queue-scroll": "queue-scroll", qs: "queue-scroll", scroll: "queue-scroll", "scroll-mode": "queue-scroll", "optimal-queue": "queue-scroll",
-  rev: "review", review: "review",
-  anal: "analytics", analytics: "analytics", stats: "analytics",
-  set: "settings", settings: "settings",
-  rss: "rss", feeds: "rss",
-  news: "newsletter", newsletter: "newsletter",
-  pod: "podcast", podcast: "podcast", podcasts: "podcast",
-  audiobook: "audiobook", audiobooks: "audiobook", ab: "audiobook",
-  ks: "knowledge-sphere", sphere: "knowledge-sphere", "knowledge-sphere": "knowledge-sphere",
-  kn: "knowledge-network", network: "knowledge-network", "knowledge-network": "knowledge-network",
-  qa: "doc-qa", "doc-qa": "doc-qa",
-  nb: "notebooklm", notebook: "notebooklm", notebooklm: "notebooklm",
-  img: "image-registry", images: "image-registry", "image-registry": "image-registry",
-  web: "web-browser", browser: "web-browser", "web-browser": "web-browser",
-  "needs-review": "import-needs-review", "import-needs-review": "import-needs-review",
-};
-
-function resolveTabType(input: string): TabType | null {
-  return TAB_TYPE_ALIASES[input.toLowerCase()] ?? null;
-}
 
 function getActiveTabPane() {
   const paneIds = useTabsStore.getState().getTabPaneIds();

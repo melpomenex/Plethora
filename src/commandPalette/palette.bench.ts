@@ -24,6 +24,8 @@ import { filterResultsByScope } from "./facets";
 import type { RecentOpenEntry } from "./recentOpens";
 import type { StartupProgressItem } from "../types/startup";
 import type { PaletteScope } from "./types";
+import { matchCommands } from "./registry";
+import { CommandCategory, type Command } from "./commandModel";
 
 const rng = seededRandom(0x5ea1ec7);
 
@@ -92,6 +94,150 @@ const providerResults = Array.from({ length: RESULT_COUNT }, (_, i) => {
 
 const SCOPES: PaletteScope[] = ["documents", "actions", "library", "cards", "settings"];
 
+
+/* ------------------------------------------------------------------------- */
+/* Registry matching corpus (synthetic, registry-scale)                      */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * The registry matcher is pure, so the benchmark builds a deterministic
+ * registry-scale command list instead of importing the real registry (whose
+ * module graph touches Tauri/DOM APIs that the Node bench setup stubs).
+ * Anchor entries mirror real destinations so the seeded queries exercise
+ * exact-label and exact-alias hits as well as keyword/fuzzy/description tiers.
+ */
+
+const ANCHOR_COMMANDS: Command[] = [
+  ["rss", "RSS", ["feeds", "rss reader"]],
+  ["analytics", "Analytics", ["stats", "statistics"]],
+  ["podcasts", "Podcasts", ["podcast", "shows"]],
+  ["audiobooks", "Audiobooks", ["audiobook", "narration"]],
+  ["settings", "Settings", ["preferences", "prefs"]],
+  ["review", "Review", ["flashcards", "cards"]],
+  ["documents", "Documents", ["library", "docs"]],
+  ["queue", "Queue", ["reading queue", "todo"]],
+  ["extracts", "Extracts", ["highlights", "quotes"]],
+  ["knowledge-sphere", "Knowledge Sphere", ["sphere", "graph"]],
+  ["palette-cmd-import", "Import Document", ["import document"]],
+  ["palette-cmd-flashcard", "Create Flashcard", ["new flashcard"]],
+  ["palette-cmd-dark", "Switch to Dark Theme", ["dark mode"]],
+  ["palette-cmd-refresh", "Refresh RSS Feeds", ["refresh feeds"]],
+].map(([id, label, aliases]) => ({
+  id: id as string,
+  label: label as string,
+  description: `Open ${(label as string).toLowerCase()}`,
+  aliases: aliases as string[],
+  keywords: (aliases as string[]).flatMap((alias) => alias.split(" ")),
+  category: CommandCategory.Navigation,
+  action: () => {},
+}));
+
+const SYNTHETIC_NOUNS = [
+  "Feeds",
+  "Analytics",
+  "Podcasts",
+  "Audiobooks",
+  "Settings",
+  "Review",
+  "Documents",
+  "Queue",
+  "Highlights",
+  "Appearance",
+  "Learning",
+  "Privacy",
+  "Notifications",
+  "Embeddings",
+  "Handbook",
+  "Themes",
+  "Captures",
+  "Notes",
+  "Sessions",
+  "Charts",
+  "Insights",
+  "Sources",
+  "Questions",
+  "Cards",
+  "Decks",
+  "Books",
+  "Articles",
+  "Transcripts",
+  "Bookmarks",
+  "Filters",
+];
+
+const SYNTHETIC_VERBS = [
+  "Open",
+  "Manage",
+  "Switch",
+  "Refresh",
+  "Create",
+  "Start",
+  "Import",
+  "Export",
+  "Toggle",
+  "Reset",
+  "Sync",
+  "Search",
+];
+
+const SYNTHETIC_COMMAND_COUNT = 220;
+
+const SYNTHETIC_COMMANDS: Command[] = Array.from(
+  { length: SYNTHETIC_COMMAND_COUNT },
+  (_, i) => {
+    const noun = SYNTHETIC_NOUNS[Math.floor(rng() * SYNTHETIC_NOUNS.length)];
+    const verb = SYNTHETIC_VERBS[Math.floor(rng() * SYNTHETIC_VERBS.length)];
+    return {
+      id: `bench-cmd-${i}`,
+      label: `${verb} ${noun}`,
+      description: `${verb} the ${noun.toLowerCase()} surface`,
+      aliases: [noun.toLowerCase(), `${verb.toLowerCase()} ${noun.toLowerCase()}`],
+      keywords: [noun.toLowerCase(), verb.toLowerCase(), "search", "library"],
+      category: CommandCategory.Navigation,
+      action: () => {},
+    };
+  }
+);
+
+const REGISTRY_COMMANDS: Command[] = [...ANCHOR_COMMANDS, ...SYNTHETIC_COMMANDS];
+
+const QUERY_WORDS = [
+  "rss",
+  "feeds",
+  "analytics",
+  "stats",
+  "podcasts",
+  "audiobooks",
+  "settings",
+  "review",
+  "flashcards",
+  "new",
+  "flashcard",
+  "import",
+  "document",
+  "dark",
+  "mode",
+  "refresh",
+  "scroll",
+  "extracts",
+  "appearance",
+  "appear",
+  "podcasst",
+  "knowledge",
+  "sphere",
+  "queue",
+  "morning",
+];
+
+const REGISTRY_QUERIES: string[] = Array.from({ length: 150 }, () => {
+  const tokenCount = 1 + Math.floor(rng() * 3);
+  const tokens: string[] = [];
+  for (let i = 0; i < tokenCount; i++) {
+    tokens.push(QUERY_WORDS[Math.floor(rng() * QUERY_WORDS.length)]);
+  }
+  return tokens.join(" ");
+});
+
 // Consumed result sink (bench bodies return void).
 let sink = 0;
 
@@ -125,6 +271,18 @@ bench("commandPalette/scope-filter-2000-results", () => {
   let acc = 0;
   for (const scope of SCOPES) {
     acc += filterResultsByScope(providerResults, scope).length;
+  }
+  sink ^= acc;
+});
+
+/* ------------------------------------------------------------------------- */
+/* Unified registry matching (unify-command-palette-registry)                */
+/* ------------------------------------------------------------------------- */
+
+bench("commandPalette/registry-match-full-registry", () => {
+  let acc = 0;
+  for (const query of REGISTRY_QUERIES) {
+    acc += matchCommands(REGISTRY_COMMANDS, query).length;
   }
   sink ^= acc;
 });

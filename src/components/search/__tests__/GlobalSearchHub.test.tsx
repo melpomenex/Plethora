@@ -9,9 +9,42 @@ import {
 } from "../GlobalSearch";
 import type { Command } from "../../common/CommandPalette";
 import { CommandCategory } from "../../common/CommandPalette";
+import { buildCommandRegistry, type RegistryDeps } from "../../../commandPalette/registry";
+import { en } from "../../../lib/i18n/locales/en";
 import { useUIStore } from "../../../stores/uiStore";
 import { usePaletteNoteDraftStore } from "../../../commandPalette/noteDraft";
 import type { PaletteHomeModel } from "../../../commandPalette/types";
+
+function makeRegistryDeps(): RegistryDeps {
+  return {
+    translate: (key, vars) => {
+      const template = en[key] ?? key;
+      if (!vars) return template;
+      return template.replace(/\{(\w+)\}/g, (_, name: string) => String(vars[name] ?? `{${name}}`));
+    },
+    theme: { id: "theme-dark", name: "Dark", variant: "dark" },
+    themes: [
+      { id: "theme-dark", name: "Dark", variant: "dark" },
+      { id: "theme-light", name: "Light", variant: "light" },
+    ],
+    setTheme: vi.fn(),
+    isWeb: false,
+    selectedDocumentTitle: null,
+    savedQueues: [],
+  };
+}
+
+function openViewAll() {
+  const event = new KeyboardEvent("keydown", {
+    key: "/",
+    ctrlKey: true,
+    bubbles: true,
+    cancelable: true,
+  });
+  act(() => {
+    window.dispatchEvent(event);
+  });
+}
 
 function buildHome(overrides: Partial<PaletteHomeModel> = {}): PaletteHomeModel {
   return {
@@ -404,5 +437,104 @@ describe("GlobalSearch hub mode", () => {
       const status = document.querySelector('output[aria-live="polite"]');
       expect(status?.textContent).toContain("1 results");
     });
+  });
+
+  it("lists each registered destination exactly once in View all", async () => {
+    const controller = makeController({ commands: buildCommandRegistry(makeRegistryDeps()) });
+    renderHub(controller);
+    openViewAll();
+
+    await waitFor(() => expect(screen.getByText("RSS")).toBeInTheDocument());
+    const titleCount = (label: string) =>
+      Array.from(document.querySelectorAll(".ch-result-title-text")).filter(
+        (node) => node.textContent === label
+      ).length;
+    expect(titleCount("RSS")).toBe(1);
+    expect(titleCount("Podcasts")).toBe(1);
+    expect(titleCount("Knowledge Sphere")).toBe(1);
+    expect(titleCount("Document Q&A")).toBe(1);
+    expect(titleCount("Settings")).toBe(1);
+  });
+
+  it("filters browse rows by alias and keyword through the shared matcher", async () => {
+    const controller = makeController({ commands: buildCommandRegistry(makeRegistryDeps()) });
+    renderHub(controller);
+    openViewAll();
+    await waitFor(() => expect(screen.getByText("RSS")).toBeInTheDocument());
+
+    const input = screen.getByRole("combobox");
+    fireEvent.change(input, { target: { value: "feeds" } });
+    expect(screen.getByText("RSS")).toBeInTheDocument();
+    expect(screen.queryByText("Smart Tag Untagged Documents")).not.toBeInTheDocument();
+    expect(screen.queryByText("Audiobooks")).not.toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: "highlights" } });
+    expect(screen.getByText("Extracts")).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: "zzzzz" } });
+    expect(screen.getByText("No results found")).toBeInTheDocument();
+  });
+
+  it("executes the highlighted browse command exactly once per activation", async () => {
+    const action = vi.fn();
+    const controller = makeController({
+      commands: [
+        {
+          id: "cmd-test",
+          label: "Test Command",
+          description: "Runs the test action",
+          icon: null,
+          category: CommandCategory.General,
+          action,
+        } as unknown as Command,
+      ],
+    });
+    renderHub(controller);
+    openViewAll();
+    await waitFor(() => expect(screen.getByText("Test Command")).toBeInTheDocument());
+
+    const input = screen.getByRole("combobox");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(action).toHaveBeenCalledTimes(1);
+
+    // Let executeCommand's pending guard settle before the pointer activation.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    fireEvent.click(screen.getByText("Test Command"));
+    expect(action).toHaveBeenCalledTimes(2);
+  });
+
+  it("moves browse selection with arrow keys and closes on Escape", async () => {
+    const onOpenChange = vi.fn();
+    const controller = makeController({ commands: buildCommandRegistry(makeRegistryDeps()) });
+    render(
+      <GlobalSearch
+        isOpen={true}
+        onOpenChange={onOpenChange}
+        hideTrigger={true}
+        onSearch={vi.fn(async () => [])}
+        onResultClick={vi.fn()}
+        controller={controller}
+      />
+    );
+    openViewAll();
+
+    const input = screen.getByRole("combobox");
+    const first = input.getAttribute("aria-activedescendant");
+    expect(first).toBeTruthy();
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    await waitFor(() =>
+      expect(input.getAttribute("aria-activedescendant")).not.toBe(first)
+    );
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.getAttribute("aria-activedescendant")).toBe(first);
+
+    // Escape precedence: innermost surface first (exits View all), then the
+    // palette itself closes on the next Escape.
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onOpenChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });

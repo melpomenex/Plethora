@@ -102,13 +102,17 @@ export function filterResultsByScope<T extends PaletteFacetableResult>(
 
 /**
  * Explicit scope tags for a global command, so command results honor the
- * Actions/Library/Settings scopes. `settingsCategoryId` is the command's
- * `CommandCategory` value as a string.
+ * Actions/Library/Settings scopes. Registry entries declare their scopes
+ * (`Command.scopes`); everything else falls back to the legacy category
+ * rules (`settingsCategoryId` is the command's `CommandCategory` value as a
+ * string).
  */
 export function commandScopes(
   category: string,
-  commandId: string
+  commandId: string,
+  scopes?: readonly PaletteScope[]
 ): PaletteScope[] {
+  if (scopes && scopes.length > 0) return [...scopes];
   if (category === "Settings" || commandId.startsWith("theme-")) {
     return ["settings"];
   }

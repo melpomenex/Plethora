@@ -87,4 +87,14 @@ describe("palette facets", () => {
     expect(commandScopes("Navigation", "nav-documents")).toEqual(["library"]);
     expect(commandScopes("Documents", "paste-extract")).toEqual(["actions"]);
   });
+
+  it("prefers registry-declared scopes over the legacy category rules", () => {
+    expect(commandScopes("Navigation", "go-settings", ["settings", "library"])).toEqual([
+      "settings",
+      "library",
+    ]);
+    expect(commandScopes("Documents", "refresh-rss-feeds", ["actions"])).toEqual(["actions"]);
+    // An empty declaration falls back to the legacy classification.
+    expect(commandScopes("Navigation", "go-rss", [])).toEqual(["library"]);
+  });
 });

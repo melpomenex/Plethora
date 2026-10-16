@@ -22,6 +22,7 @@ function source(path: string): string {
 }
 
 const SETTINGS_PAGE = "components/settings/SettingsPage.tsx";
+const SETTINGS_SECTIONS = "components/settings/settingsSections.ts";
 const STORE = "stores/settingsStore.ts";
 
 describe("one home for queue settings", () => {
@@ -60,9 +61,11 @@ describe("one home for queue settings", () => {
   });
 
   it("puts the decision-model search terms on the surviving tab", () => {
-    const page = source(SETTINGS_PAGE);
+    // Section search keywords live in the shared metadata module (consumed by
+    // both the Settings page and the command palette registry).
+    const sections = source(SETTINGS_SECTIONS);
     for (const term of ["decision model", "jev", "laya", "clef", "openrouter", "download model"]) {
-      expect(page).toContain(`"${term}"`);
+      expect(sections).toContain(`"${term}"`);
     }
   });
 });

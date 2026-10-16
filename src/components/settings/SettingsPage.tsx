@@ -56,6 +56,17 @@ import { useContextualBack, type ContextualBackHandler } from "../../lib/context
 import type { NavigationCompletion } from "../../lib/navigationFeedback";
 import { requestApplicationBackIntent } from "../../lib/applicationBack";
 import { usePaneId, useTabId } from "../common/Tabs/TabContent";
+import {
+  SETTINGS_SECTION_METADATA,
+  SettingsTab,
+} from "./settingsSections";
+
+/**
+ * Settings section ids now live in the shared `settingsSections` module
+ * (also consumed by the command palette registry). Re-exported here so
+ * existing imports keep working.
+ */
+export { SettingsTab } from "./settingsSections";
 
 /**
  * Section panels are lazy chunks: SettingsPage used to statically import all
@@ -198,33 +209,6 @@ function prefetchSettingsSections(): void {
 // Module scope == the SettingsPage chunk just arrived == Settings was opened.
 prefetchSettingsSections();
 
-/**
- * Settings tab
- */
-export enum SettingsTab {
-  Account = "account",
-  General = "general",
-  LanguageLearning = "language-learning",
-  Appearance = "appearance",
-  Learning = "learning",
-  SmartQueue = "smart-queue",
-  Documents = "documents",
-  RSS = "rss",
-
-  Shortcuts = "shortcuts",
-  AI = "ai",
-  AudioTranscription = "audio-transcription",
-  TTS = "tts",
-  Integrations = "integrations",
-  CloudStorage = "cloud-storage",
-  ImportExport = "import-export",
-  Notifications = "notifications",
-  Privacy = "privacy",
-  Handbook = "handbook",
-  Embeddings = "embeddings",
-  Help = "help",
-}
-
 function isActiveSettingsOwner(ownerTabId?: string): boolean {
   const state = useTabsStore.getState();
   const tab = state.tabs.find((candidate) => ownerTabId ? candidate.id === ownerTabId : candidate.type === "settings");
@@ -316,217 +300,62 @@ interface SettingsTabConfig {
   description: string;
 }
 
-export const ALL_SETTINGS_TABS: SettingsTabConfig[] = [
-  {
-    id: SettingsTab.Account,
-    label: "settings.account",
-    icon: User,
-    keywords: ["account", "profile", "pro", "upgrade", "subscription", "trial", "billing", "devices", "capabilities"],
-    description: "Account profile, subscription, Pro capabilities, and connected devices",
-  },
-  {
-    id: SettingsTab.General,
-    label: "settings.general",
-    icon: Sliders,
-    keywords: ["language", "startup", "default", "view", "auto-save", "backup", "data", "storage", "haptics", "haptic", "vibration", "feedback"],
-    description: "Basic application settings, language, and data management",
-  },
-  {
-    id: SettingsTab.LanguageLearning,
-    label: "settings.languageLearning",
-    icon: GraduationCap,
-    keywords: ["language", "learning", "profile", "target", "spanish", "japanese", "proficiency"],
-    description: "Target-language profiles and explicit reader associations",
-  },
-  {
-    id: SettingsTab.Appearance,
-    label: "settings.appearance",
-    icon: Palette,
-    keywords: [
-      "theme",
-      "color",
-      "font",
-      "size",
-      "typography",
-      "dark mode",
-      "light mode",
-      "display",
-      "compact",
-    ],
-    description: "Customize the look and feel of the app",
-  },
-  {
-    id: SettingsTab.Learning,
-    label: "settings.learning",
-    icon: GraduationCap,
-    keywords: [
-      "algorithm",
-      "fsrs",
-      "interval",
-      "review",
-      "flashcard",
-      "retention",
-      "difficulty",
-      "scheduler",
-    ],
-    description: "Learning algorithm and review settings",
-  },
-  {
-    id: SettingsTab.SmartQueue,
-    label: "settings.smartQueues",
-    icon: Brain,
-    // Adaptive ranking and decision models live in this section, so their search
-    // terms belong here rather than on a tab that no longer exists.
-    keywords: [
-      "queue",
-      "smart queue",
-      "daqe",
-      "adaptive",
-      "ranking",
-      "knobs",
-      "decision model",
-      "jev",
-      "laya",
-      "clef",
-      "openrouter",
-      "download model",
-      "priority",
-      "interleaving",
-      "dwell",
-      "auto-refresh",
-    ],
-    description: "Adaptive queue ranking (DAQE), tuning knobs, and queue auto-refresh",
-  },
-  {
-    id: SettingsTab.Documents,
-    label: "settings.documents",
-    icon: BookOpen,
-    keywords: ["import", "pdf", "epub", "reading", "extract", "annotation", "highlight", "tas", "tag", "scheduling", "prerequisite", "interference", "jitter", "maturity", "coherence"],
-    description: "Document import and reading preferences",
-  },
-  {
-    id: SettingsTab.RSS,
-    label: "settings.rss",
-    icon: Rss,
-    keywords: ["rss", "feed", "article", "retention", "cleanup", "keep", "subscription", "queue"],
-    description: "RSS feed subscription, retention policies and Smart Queue settings",
-  },
-  {
-    id: SettingsTab.Shortcuts,
-    label: "settings.shortcuts",
-    icon: Keyboard,
-    keywords: ["keyboard", "hotkey", "keybinding", "shortcut", "command", "vim"],
-    description: "Keyboard shortcuts and keybindings",
-  },
-  {
-    id: SettingsTab.AI,
-    label: "settings.ai",
-    icon: Brain,
-    keywords: [
-      "openai",
-      "anthropic",
-      "gemini",
-      "nano",
-      "ollama",
-      "llm",
-      "model",
-      "token",
-      "api key",
-      "assistant",
-      "flashcard generation",
-      "learn this",
-      "ask library",
-      "socratic",
-      "tutor",
-      "ai learning",
-      "on-device",
-      "prerequisites",
-      "active recall",
-      "agent",
-      "occlusion",
-    ],
-    description: "AI providers, on-device models (Gemini Nano / Apple), and AI Learning features",
-  },
-  {
-    id: SettingsTab.AudioTranscription,
-    label: "settings.audioTranscription",
-    icon: Microphone,
-    keywords: [
-      "audio",
-      "transcription",
-      "whisper",
-      "speech",
-      "speech to text",
-      "model",
-      "download",
-      "offline",
-    ],
-    description: "Download Whisper models for local transcription",
-  },
-  {
-    id: SettingsTab.TTS,
-    label: "settings.tts",
-    icon: SpeakerHigh,
-    keywords: ["tts", "text to speech", "fal", "voice clone", "speech synthesis", "audio output"],
-    description: "Configure Fal.ai voices, cloning, and generation presets",
-  },
-  {
-    id: SettingsTab.Integrations,
-    label: "settings.integrations",
-    icon: Plug,
-    keywords: ["obsidian", "anki", "third-party", "extension", "browser", "plugin"],
-    description: "Third-party app integrations",
-  },
-  {
-    id: SettingsTab.CloudStorage,
-    label: "settings.cloudStorage",
-    icon: Cloud,
-    keywords: ["google drive", "dropbox", "onedrive", "backup", "cloud", "storage", "oauth"],
-    description: "Cloud storage providers and backups",
-  },
-  {
-    id: SettingsTab.ImportExport,
-    label: "settings.importExport",
-    icon: FolderOpen,
-    keywords: ["data", "backup", "migration", "json", "csv", "archive", "transfer"],
-    description: "Import and export your data",
-  },
-  {
-    id: SettingsTab.Notifications,
-    label: "settings.notifications",
-    icon: Bell,
-    keywords: ["reminder", "alert", "study", "due", "email", "push", "sound"],
-    description: "Notification and reminder settings",
-  },
-  {
-    id: SettingsTab.Privacy,
-    label: "settings.privacy",
-    icon: Shield,
-    keywords: ["security", "password", "encryption", "private", "data protection", "gdpr"],
-    description: "Privacy and security settings",
-  },
-  {
-    id: SettingsTab.Embeddings,
-    label: "settings.embeddings",
-    icon: Brain,
-    keywords: ["embedding", "vector", "rag", "semantic", "retrieval", "index", "whole library", "chat"],
-    description: "Embedding model and whole-library chat indexing",
-  },
-  {
-    id: SettingsTab.Handbook,
-    label: "settings.handbook",
-    icon: BookOpenText,
-    keywords: ["guide", "help", "tutorial", "documentation", "manual", "how to", "learn"],
-    description: "User guide and documentation",
-  },
-  {
-    id: SettingsTab.Help,
-    label: "settings.help",
-    icon: Lifebuoy,
-    keywords: ["tour", "onboarding", "replay", "reset", "walkthrough", "tutorial"],
-    description: "settings.helpDesc",
-  },
-];
+const SETTINGS_TAB_ICONS: Record<SettingsTab, React.ElementType> = {
+  [SettingsTab.Account]: User,
+  [SettingsTab.General]: Sliders,
+  [SettingsTab.LanguageLearning]: GraduationCap,
+  [SettingsTab.Appearance]: Palette,
+  [SettingsTab.Learning]: GraduationCap,
+  [SettingsTab.SmartQueue]: Brain,
+  [SettingsTab.Documents]: BookOpen,
+  [SettingsTab.RSS]: Rss,
+  [SettingsTab.Shortcuts]: Keyboard,
+  [SettingsTab.AI]: Brain,
+  [SettingsTab.AudioTranscription]: Microphone,
+  [SettingsTab.TTS]: SpeakerHigh,
+  [SettingsTab.Integrations]: Plug,
+  [SettingsTab.CloudStorage]: Cloud,
+  [SettingsTab.ImportExport]: FolderOpen,
+  [SettingsTab.Notifications]: Bell,
+  [SettingsTab.Privacy]: Shield,
+  [SettingsTab.Embeddings]: Brain,
+  [SettingsTab.Handbook]: BookOpenText,
+  [SettingsTab.Help]: Lifebuoy,
+};
+
+const SETTINGS_TAB_DESCRIPTIONS: Record<SettingsTab, string> = {
+  [SettingsTab.Account]: "Account profile, subscription, Pro capabilities, and connected devices",
+  [SettingsTab.General]: "Basic application settings, language, and data management",
+  [SettingsTab.LanguageLearning]: "Target-language profiles and explicit reader associations",
+  [SettingsTab.Appearance]: "Customize the look and feel of the app",
+  [SettingsTab.Learning]: "Learning algorithm and review settings",
+  [SettingsTab.SmartQueue]: "Adaptive queue ranking (DAQE), tuning knobs, and queue auto-refresh",
+  [SettingsTab.Documents]: "Document import and reading preferences",
+  [SettingsTab.RSS]: "RSS feed subscription, retention policies and Smart Queue settings",
+  [SettingsTab.Shortcuts]: "Keyboard shortcuts and keybindings",
+  [SettingsTab.AI]: "AI providers, on-device models (Gemini Nano / Apple), and AI Learning features",
+  [SettingsTab.AudioTranscription]: "Download Whisper models for local transcription",
+  [SettingsTab.TTS]: "Configure Fal.ai voices, cloning, and generation presets",
+  [SettingsTab.Integrations]: "Third-party app integrations",
+  [SettingsTab.CloudStorage]: "Cloud storage providers and backups",
+  [SettingsTab.ImportExport]: "Import and export your data",
+  [SettingsTab.Notifications]: "Notification and reminder settings",
+  [SettingsTab.Privacy]: "Privacy and security settings",
+  [SettingsTab.Embeddings]: "Embedding model and whole-library chat indexing",
+  [SettingsTab.Handbook]: "User guide and documentation",
+  [SettingsTab.Help]: "settings.helpDesc",
+};
+
+/** Section ids/keywords come from the shared metadata; icons/descriptions are page-local. */
+export const ALL_SETTINGS_TABS: SettingsTabConfig[] = SETTINGS_SECTION_METADATA.map(
+  ({ id, labelKey, keywords }) => ({
+    id,
+    label: labelKey,
+    icon: SETTINGS_TAB_ICONS[id],
+    keywords,
+    description: SETTINGS_TAB_DESCRIPTIONS[id],
+  })
+);
 
 /** Returns the list of settings tabs visible to the user given current product availability. */
 export function getVisibleSettingsTabs(): SettingsTabConfig[] {

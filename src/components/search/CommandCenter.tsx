@@ -30,7 +30,6 @@ import type { StudyDeck } from "../../types/study-decks";
 import { fetchYouTubeTranscript } from "../../api/youtube";
 import { getTranscript, type TranscriptSegment as WhisperTranscriptSegment } from "../../api/transcription";
 import { useTheme } from "../../contexts/ThemeContext";
-import { findMatchingSections } from "./sectionRegistry";
 import type { ExactSearchHitLocation, SearchHit } from "../../types/searchHit";
 import { registerCommandPaletteOpenEvents } from "../../utils/commandPaletteEvents";
 import { openDocumentAtLocation } from "../../utils/openDocumentAtLocation";
@@ -46,7 +45,7 @@ import {
   type ViewActionId,
 } from "../../commandPalette/contextualActions";
 import { dispatchPaletteAction, getLiveContext } from "../../commandPalette/paletteActionEvents";
-import { buildCommandCatalogue, navigateTo } from "../../commandPalette/catalogue";
+import { buildCommandRegistry, matchCommands, navigateTo } from "../../commandPalette/registry";
 import { filterResultsByScope } from "../../commandPalette/facets";
 import {
   buildResumeItem,
@@ -1140,18 +1139,6 @@ export function CommandCenter() {
     // don't run the term-dependent search below.
     if (!term) return results;
 
-    // §3.3: platform gating applied to the single shared catalogue (registry
-    // actions, navigation, themes and palette-owned commands live in
-    // `commandPalette/catalogue`; the palette browses this same list).
-    const allCommands = buildCommandCatalogue({
-      translate: t,
-      theme,
-      themes,
-      setTheme,
-      isWeb,
-      selectedDocumentTitle,
-    });
-
     if (urlDetectorUtils.isTwitterURL(query.query.trim())) {
       const targetUrl = query.query.trim();
       const statusId = urlDetectorUtils.extractTwitterStatusID(targetUrl);
@@ -1229,6 +1216,45 @@ export function CommandCenter() {
       return matches;
     }
 
+    /* --------------------------------------------------------------------- */
+    /* Unified registry matching (all view branches below share this pass)    */
+    /* --------------------------------------------------------------------- */
+
+    // One registry, one matcher: scores encode the tier hierarchy (exact
+    // label 1.30 → description 0.85) so exact destinations outrank content.
+    // Contextual actions supersede their registry equivalents for this query.
+    const allCommands = buildCommandRegistry({
+      translate: t,
+      theme,
+      themes,
+      setTheme,
+      isWeb,
+      selectedDocumentTitle,
+    });
+    const matchedContextualIds = new Set(
+      contextualActions
+        .filter((action) => actionMatchesQuery(action, query.query))
+        .map((action) => action.id)
+    );
+    const commandMatches = matchCommands(allCommands, query.query).filter(({ command }) =>
+      !(command.suppressedByContextual ?? []).some((id) => matchedContextualIds.has(id))
+    );
+    const buildCommandResults = (): SearchResult[] =>
+      commandMatches.map(({ command: cmd, score }) => ({
+        id: `cmd-${cmd.id}`,
+        type: SearchResultType.Command,
+        title: cmd.label,
+        excerpt: cmd.description,
+        score,
+        metadata: {
+          action: cmd.action,
+          resultKind: "command",
+          shortcut: cmd.shortcut,
+          scopes: cmd.scopes,
+          intentId: cmd.intentId,
+        },
+      }));
+
     if (isRssView) {
       try {
         const lowerQuery = query.query.toLowerCase().trim();
@@ -1287,45 +1313,7 @@ export function CommandCenter() {
           });
         }
         
-        const matchedCommands = allCommands.filter((cmd) => {
-          const label = cmd.label.toLowerCase();
-          const description = cmd.description?.toLowerCase() ?? "";
-          const keywords = cmd.keywords?.map((keyword) => keyword.toLowerCase()) ?? [];
-          return label.includes(lowerQuery) || description.includes(lowerQuery) || keywords.some((keyword) => keyword.includes(lowerQuery));
-        });
-        
-        matchedCommands.forEach((cmd) => {
-          matches.push({
-            id: `cmd-${cmd.id}`,
-            type: SearchResultType.Command,
-            title: cmd.label,
-            excerpt: cmd.description,
-            score: 0.8,
-            metadata: {
-              action: cmd.action,
-              resultKind: "command",
-              shortcut: cmd.shortcut,
-            },
-          });
-        });
-        
-        const sectionMatches = findMatchingSections(query.query);
-        sectionMatches.forEach(({ section, score }) => {
-          matches.push({
-            id: `section-${section.id}`,
-            type: SearchResultType.Command,
-            title: section.label,
-            excerpt: `Open ${section.label}`,
-            score,
-            metadata: {
-              category: "Section",
-              sectionId: section.id,
-              targetPath: section.path,
-              resultKind: "section",
-              action: () => navigateTo(section.path),
-            },
-          });
-        });
+        matches.push(...buildCommandResults());
         
         return filterResultsByScope(matches, paletteScope)
           .sort((a, b) => b.score - a.score)
@@ -1431,45 +1419,7 @@ export function CommandCenter() {
           }
         }
         
-        const matchedCommands = allCommands.filter((cmd) => {
-          const label = cmd.label.toLowerCase();
-          const description = cmd.description?.toLowerCase() ?? "";
-          const keywords = cmd.keywords?.map((keyword) => keyword.toLowerCase()) ?? [];
-          return label.includes(lowerQuery) || description.includes(lowerQuery) || keywords.some((keyword) => keyword.includes(lowerQuery));
-        });
-        
-        matchedCommands.forEach((cmd) => {
-          matches.push({
-            id: `cmd-${cmd.id}`,
-            type: SearchResultType.Command,
-            title: cmd.label,
-            excerpt: cmd.description,
-            score: 0.8,
-            metadata: {
-              action: cmd.action,
-              resultKind: "command",
-              shortcut: cmd.shortcut,
-            },
-          });
-        });
-        
-        const sectionMatches = findMatchingSections(query.query);
-        sectionMatches.forEach(({ section, score }) => {
-          matches.push({
-            id: `section-${section.id}`,
-            type: SearchResultType.Command,
-            title: section.label,
-            excerpt: `Open ${section.label}`,
-            score,
-            metadata: {
-              category: "Section",
-              sectionId: section.id,
-              targetPath: section.path,
-              resultKind: "section",
-              action: () => navigateTo(section.path),
-            },
-          });
-        });
+        matches.push(...buildCommandResults());
         
         return filterResultsByScope(matches, paletteScope)
           .sort((a, b) => b.score - a.score)
@@ -1478,35 +1428,6 @@ export function CommandCenter() {
         console.error("Podcast search error:", err);
       }
     }
-
-    const matchedCommands = allCommands.filter((cmd) => {
-      const label = cmd.label.toLowerCase();
-      const description = cmd.description?.toLowerCase() ?? "";
-      const keywords = cmd.keywords?.map((keyword) => keyword.toLowerCase()) ?? [];
-      const termMatch = matchesTerms(label, searchTerms) || matchesTerms(description, searchTerms);
-      const keywordMatch = keywords.some((keyword) => matchesTerms(keyword, searchTerms));
-
-      if (termMatch || keywordMatch) return true;
-      return fuzzyMatches(label) || (description ? fuzzyMatches(description) : false);
-    });
-
-    const sectionMatches = findMatchingSections(query.query);
-    sectionMatches.forEach(({ section, score }) => {
-      results.push({
-        id: `section-${section.id}`,
-        type: SearchResultType.Command,
-        title: section.label,
-        excerpt: `Open ${section.label}`,
-        score,
-        metadata: {
-          category: "Section",
-          sectionId: section.id,
-          targetPath: section.path,
-          resultKind: "section",
-          action: () => navigateTo(section.path),
-        },
-      });
-    });
 
     // Handle Direct Canonical Lookup and Natural Language Help
     if (intent.kind === "direct_lookup") {
@@ -1586,20 +1507,7 @@ export function CommandCenter() {
       });
     }
 
-    matchedCommands.forEach((cmd) => {
-      results.push({
-        id: `cmd-${cmd.id}`,
-        type: SearchResultType.Command,
-        title: cmd.label,
-        excerpt: cmd.description,
-        score: 0.8,
-        metadata: {
-          action: cmd.action,
-          resultKind: "command",
-          shortcut: cmd.shortcut,
-        },
-      });
-    });
+    results.push(...buildCommandResults());
 
     /* --------------------------------------------------------------------- */
     /* Scope enforcement (revamp-command-palette)                             */
@@ -2147,7 +2055,7 @@ export function CommandCenter() {
 
   const hubController = useMemo<PaletteHubController>(() => {
     const selectedDocumentTitle = resolveActivePaletteView(documents).documentTitle;
-    const commands = buildCommandCatalogue({
+    const commands = buildCommandRegistry({
       translate: t,
       theme,
       themes,

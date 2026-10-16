@@ -9,6 +9,12 @@ import {
   tabContentRegistry,
 } from "../../components/tabs/TabRegistry";
 import { getDefaultCommands } from "../../components/common/CommandPalette";
+import {
+  buildCommandRegistry,
+  isRegistryCommandException,
+  type RegistryDeps,
+} from "../../commandPalette/registry";
+import { t } from "../i18n";
 
 /**
  * §1.4 — lint-style consistency test: every user-visible navigation,
@@ -31,23 +37,18 @@ const TAB_EXCEPTION_LIST: Record<string, string> = {
   "queue-scroll": "Scroll Mode; covered by core_read / start-optimal-session.",
 };
 
-/** Palette commands that are platform-neutral mechanics (no native bridge). */
-const COMMAND_EXCEPTION_LIST: Record<string, string> = {
-  "tag-untagged-documents": "Local smart-tagging; works on every platform.",
-  "cleanup-legacy-auto-tags": "Local tag cleanup; works on every platform.",
-  "review-browser-imports": "Needs-review queue; works on every platform.",
-  "toggle-theme": "UI-only theme toggle.",
-  "keyboard-shortcuts": "Help overlay; platform-neutral.",
-  "paste-extract": "Gated via capabilityId core_extract in CommandCenter.",
-  "ask-my-library":
-    "Feature-flag gated (settings.features.aiLibraryRag) in getDefaultCommands; dispatches a DOM event to the platform-neutral SearchPage RAG surface (no native bridge).",
-  "translate-selection":
-    "Ungated-with-rationale: the palette action only dispatches a DOM event; no native bridge is called from the command itself.",
-  "record-lecture-android":
-    "Ungated-with-rationale: dispatches a DOM event consumed by LectureCaptureHost (MainLayout), which uses standard web media APIs; the Android speech provider degrades to the configured transcription provider off-Android.",
-  "start-guided-tour": "Onboarding tour; platform-neutral.",
-  "import-twitter-video":
-    "Ungated-with-rationale: uses the Rust backend, which ships on iOS too (audit §Command palette).",
+/** Fixed deps so the registry lint is deterministic across environments. */
+const REGISTRY_TEST_DEPS: RegistryDeps = {
+  translate: t,
+  theme: { id: "theme-dark", name: "Dark", variant: "dark" },
+  themes: [
+    { id: "theme-dark", name: "Dark", variant: "dark" },
+    { id: "theme-light", name: "Light", variant: "light" },
+  ],
+  setTheme: () => {},
+  isWeb: false,
+  selectedDocumentTitle: null,
+  savedQueues: [],
 };
 
 describe("§1.4 capability lint — navigation definitions", () => {
@@ -90,15 +91,26 @@ describe("§1.4 capability lint — tab registry", () => {
 });
 
 describe("§1.4 capability lint — command palette", () => {
-  it("every default command is gated or on the reviewed exception list", () => {
-    for (const cmd of getDefaultCommands()) {
+  it("every registry command is gated or on the reviewed exception list", () => {
+    const commands = buildCommandRegistry(REGISTRY_TEST_DEPS);
+    expect(commands.length).toBeGreaterThan(0);
+    for (const cmd of commands) {
       expect(
-        cmd.capabilityId ?? COMMAND_EXCEPTION_LIST[cmd.id],
+        cmd.capabilityId ?? (isRegistryCommandException(cmd.id) ? "allowlisted" : undefined),
         `command "${cmd.id}" is neither capability-gated nor exception-listed`
       ).toBeDefined();
       if (cmd.capabilityId) {
         expect(PLATFORM_CAPABILITY_IDS).toContain(cmd.capabilityId);
       }
+    }
+  });
+
+  it("the legacy getDefaultCommands wrapper stays gated or allowlisted", () => {
+    for (const cmd of getDefaultCommands()) {
+      expect(
+        cmd.capabilityId ?? (isRegistryCommandException(cmd.id) ? "allowlisted" : undefined),
+        `command "${cmd.id}" is neither capability-gated nor exception-listed`
+      ).toBeDefined();
     }
   });
 

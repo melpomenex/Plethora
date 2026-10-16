@@ -44,4 +44,32 @@ describe("acknowledged destination requests", () => {
     settleDestinationAction(useDestinationActionStore.getState().pending!.id);
     await second;
   });
+
+  it("delivers an RSS refresh request to the active RSS view exactly once", async () => {
+    const handler = vi.fn();
+    function Rss() {
+      useDestinationAction("rss", handler);
+      return <div>RSS</div>;
+    }
+    const tab = {
+      id: "rss-1",
+      type: "rss",
+      title: "RSS",
+      content: Rss,
+      closable: true,
+      icon: null,
+    } as const;
+    useTabsStore.setState({
+      tabs: [tab],
+      rootPane: { id: "pane", type: "tabs", tabIds: ["rss-1"], activeTabId: "rss-1" },
+      navigationPaneId: "pane",
+    });
+    render(<TabContent tabs={[tab]} activeTabId="rss-1" paneId="pane" />);
+
+    await act(async () => {
+      await requestDestinationAction({ destination: "rss", action: "refresh" });
+    });
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(useDestinationActionStore.getState().pending).toBeNull();
+  });
 });

@@ -10,7 +10,8 @@ export type DestinationAction =
   | { destination: "queue"; action: "select" | "start"; queueId: string }
   | { destination: "documents"; action: "import" }
   | { destination: "review"; action: "create-card" }
-  | { destination: "settings"; action: "section"; section: string };
+  | { destination: "settings"; action: "section"; section: string }
+  | { destination: "rss"; action: "refresh" };
 
 export type DestinationRequest = DestinationAction & {
   id: number;

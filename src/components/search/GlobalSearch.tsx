@@ -50,8 +50,7 @@ import { usePaletteNoteDraftStore } from "../../commandPalette/noteDraft";
 import type { ContextualViewType, ViewActionId } from "../../commandPalette/contextualActions";
 import { commandScopes, filterResultsByScope } from "../../commandPalette/facets";
 import { PALETTE_QUICK_ACTION_ORDER } from "../../commandPalette/quickActions";
-import { navigateTo } from "../../commandPalette/catalogue";
-import { APP_SECTION_DESTINATIONS } from "./sectionRegistry";
+import { commandMatchesQuery } from "../../commandPalette/registry";
 import { PaletteHome } from "./palette/PaletteHome";
 import { PaletteScopeBar } from "./palette/PaletteScopeBar";
 import {
@@ -1234,20 +1233,6 @@ function CommandHubLayer(props: CommandHubLayerProps) {
     [onClose]
   );
 
-  const sectionRow = useCallback(
-    (section: (typeof APP_SECTION_DESTINATIONS)[number]): PaletteBrowseRow => ({
-      id: `section-${section.id}`,
-      title: section.label,
-      description: t("palette.openSection", { name: section.label }),
-      group: t("palette.group.navigation"),
-      activate: () => {
-        navigateTo(section.path);
-        onClose();
-      },
-    }),
-    [onClose, t]
-  );
-
   const contextualRows = useMemo(
     () =>
       home.contextualActions.map((action) => ({
@@ -1262,33 +1247,40 @@ function CommandHubLayer(props: CommandHubLayerProps) {
   );
 
   const browseRows = useMemo<PaletteBrowseRow[]>(() => {
-    const term = query.trim().toLowerCase();
+    const term = query.trim();
+    const matchesTerm = (text: string): boolean =>
+      !term || text.toLowerCase().includes(term.toLowerCase());
+    // Commands filter through the shared registry matcher so aliases and
+    // keywords work in browse (View all) exactly like typed search.
+    const visibleCommands = term
+      ? commands.filter((cmd) => commandMatchesQuery(cmd, term))
+      : commands;
+
+    const settingsCommands = visibleCommands.filter((cmd) =>
+      commandScopes(String(cmd.category), cmd.id, cmd.scopes).includes("settings")
+    );
+    const libraryCommands = visibleCommands.filter((cmd) =>
+      commandScopes(String(cmd.category), cmd.id, cmd.scopes).includes("library")
+    );
+    const actionCommands = visibleCommands.filter((cmd) =>
+      commandScopes(String(cmd.category), cmd.id, cmd.scopes).includes("actions")
+    );
+
     const rows: PaletteBrowseRow[] = [];
 
-    const settingsCommands = commands.filter((cmd) =>
-      commandScopes(String(cmd.category), cmd.id).includes("settings")
-    );
-    const libraryCommands = commands.filter((cmd) =>
-      commandScopes(String(cmd.category), cmd.id).includes("library")
-    );
-    const actionCommands = commands.filter((cmd) =>
-      commandScopes(String(cmd.category), cmd.id).includes("actions")
-    );
-
     if (browseAll) {
-      commands.forEach((cmd) => rows.push(commandRow(cmd, String(cmd.category))));
-      APP_SECTION_DESTINATIONS.forEach((section) => rows.push(sectionRow(section)));
+      // One row per registered destination/action: destinations are registry
+      // commands now, so no separate section rows exist.
+      visibleCommands.forEach((cmd) => rows.push(commandRow(cmd, String(cmd.category))));
     } else if (scope === "actions") {
-      rows.push(...contextualRows);
+      contextualRows
+        .filter((row) => matchesTerm(`${row.title} ${row.description ?? ""}`))
+        .forEach((row) => rows.push(row));
       actionCommands.forEach((cmd) => rows.push(commandRow(cmd, String(cmd.category))));
     } else if (scope === "settings") {
       settingsCommands.forEach((cmd) => rows.push(commandRow(cmd, String(cmd.category))));
-      APP_SECTION_DESTINATIONS.filter((section) =>
-        section.path.includes("settings")
-      ).forEach((section) => rows.push(sectionRow(section)));
     } else if (scope === "library") {
       libraryCommands.forEach((cmd) => rows.push(commandRow(cmd, t("palette.group.navigation"))));
-      APP_SECTION_DESTINATIONS.forEach((section) => rows.push(sectionRow(section)));
     } else if (scope === "documents") {
       const seen = new Set<string>();
       const recent = [
@@ -1297,6 +1289,7 @@ function CommandHubLayer(props: CommandHubLayerProps) {
       ];
       recent.forEach((item) => {
         if (!item || seen.has(item.documentId)) return;
+        if (!matchesTerm(item.title)) return;
         seen.add(item.documentId);
         rows.push({
           id: `recent-${item.documentId}`,
@@ -1308,40 +1301,33 @@ function CommandHubLayer(props: CommandHubLayerProps) {
       });
     }
 
-    if (!term) {
-      if (browseAll) {
-        recentSearches.slice(0, 5).forEach((search) =>
-          rows.push({
-            id: `recent-search-${search}`,
-            title: search,
-            group: t("palette.group.recentSearches"),
-            activate: () => {
-              setBrowseAll(false);
-              setQuery(search);
-            },
-          })
-        );
-        savedSearches.forEach((saved) =>
-          rows.push({
-            id: `saved-search-${saved.id}`,
-            title: saved.name,
-            description: saved.query.query,
-            group: t("palette.group.savedSearches"),
-            activate: () => {
-              setBrowseAll(false);
-              setQuery(saved.query.query);
-            },
-          })
-        );
-      }
-      return rows;
+    if (!term && browseAll) {
+      recentSearches.slice(0, 5).forEach((search) =>
+        rows.push({
+          id: `recent-search-${search}`,
+          title: search,
+          group: t("palette.group.recentSearches"),
+          activate: () => {
+            setBrowseAll(false);
+            setQuery(search);
+          },
+        })
+      );
+      savedSearches.forEach((saved) =>
+        rows.push({
+          id: `saved-search-${saved.id}`,
+          title: saved.name,
+          description: saved.query.query,
+          group: t("palette.group.savedSearches"),
+          activate: () => {
+            setBrowseAll(false);
+            setQuery(saved.query.query);
+          },
+        })
+      );
     }
 
-    // Local filtering (browse all keeps the complete catalogue reachable).
-    return rows.filter((row) => {
-      const haystack = `${row.title} ${row.description ?? ""}`.toLowerCase();
-      return haystack.includes(term);
-    });
+    return rows;
   }, [
     browseAll,
     commands,
@@ -1354,7 +1340,6 @@ function CommandHubLayer(props: CommandHubLayerProps) {
     savedSearches,
     scope,
     commandRow,
-    sectionRow,
     setBrowseAll,
     setQuery,
     t,

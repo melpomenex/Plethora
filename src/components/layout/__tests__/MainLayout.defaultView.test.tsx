@@ -363,4 +363,40 @@ describe("MainLayout applies Default View after a restored session", () => {
     vi.advanceTimersByTime(2_000);
     expect(autoPostpone.run).toHaveBeenCalledTimes(1);
   });
+
+  it("activates an existing destination tab instead of duplicating it", async () => {
+    localStorage.removeItem("plethora-tabs");
+    useSettingsStore.getState().updateSettingsCategory("general", {
+      restoreSession: false,
+      defaultView: "queue",
+    });
+    useTabsStore.setState({ tabs: [], rootPane: createTabPane(), closedTabs: [], activeTabHistory: [] });
+
+    render(<MainLayout />);
+    await waitFor(() => {
+      expect(useTabsStore.getState().tabs.length).toBeGreaterThan(0);
+    });
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("navigate", { detail: "/rss" }));
+    });
+    await waitFor(() => {
+      expect(useTabsStore.getState().tabs.filter((tab) => tab.type === "rss")).toHaveLength(1);
+    });
+    const rssId = useTabsStore.getState().tabs.find((tab) => tab.type === "rss")!.id;
+
+    // Navigate away, then invoke the destination again: the existing tab must
+    // be re-activated rather than duplicated.
+    act(() => {
+      window.dispatchEvent(new CustomEvent("navigate", { detail: "/dashboard" }));
+    });
+    act(() => {
+      window.dispatchEvent(new CustomEvent("navigate", { detail: "/rss" }));
+    });
+
+    const state = useTabsStore.getState();
+    expect(state.tabs.filter((tab) => tab.type === "rss")).toHaveLength(1);
+    const pane = state.findPaneContainingTab(rssId);
+    expect(pane?.type === "tabs" ? pane.activeTabId : null).toBe(rssId);
+  });
 });
