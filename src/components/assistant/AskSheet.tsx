@@ -1,3 +1,7 @@
+import { AssistantScopeSelector } from "./AssistantScopeSelector";
+import { runConfiguredAssistantTurn } from "../../lib/ai/assistant/configuredTurn";
+import type { AssistantScope } from "../../lib/ai/assistant/scopes";
+import type { ConversationHistoryTurn } from "../../lib/ai/assistant/promptBuilder";
 /**
  * AskSheet — mobile bottom-sheet question composer + docked answer cards
  * (OpenSpec `mobile-ask-sheet-library-qa`).
@@ -66,7 +70,7 @@ interface AskSheetProps {
 
 type Phase = "compose" | "working" | "answered" | "error";
 
-const SCOPES: AskScope[] = ["passage", "document", "library"];
+
 
 /** Session cache: passage hash → suggested questions (design decision 5). */
 const suggestionCache = new Map<string, string[]>();
@@ -106,13 +110,13 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
   const isMobile = useMobileShell();
 
   const [phase, setPhase] = useState<Phase>("compose");
-  const [scope, setScope] = useState<AskScope>("passage");
+  const [scope, setScope] = useState<AssistantScope>("chat");
   const [chipText, setChipText] = useState<string | null>(null);
   const [editingChip, setEditingChip] = useState(false);
   const [draftChip, setDraftChip] = useState("");
   const [question, setQuestion] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [answer, setAnswer] = useState<AskLibraryResult | null>(null);
+  const [answer, setAnswer] = useState<Pick<AskLibraryResult, "answer" | "sources" | "retrievalOnly"> | null>(null);
   const [thinking, setThinking] = useState("");
   const [lastQuestion, setLastQuestion] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -125,6 +129,7 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
   const [traceHits, setTraceHits] = useState<RagHit[] | null>(null);
   const [speaking, setSpeaking] = useState(false);
 
+  const historyRef = useRef<ConversationHistoryTurn[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const recognitionRef = useRef<any | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
@@ -138,7 +143,8 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
     const req = requestRef.current;
     const context = req?.passage ?? req?.pageContext ?? null;
     setPhase("compose");
-    setScope(req?.passage ? "passage" : "document");
+    setScope("chat");
+    historyRef.current = [];
     setChipText(context);
     setEditingChip(false);
     setDraftChip(context ?? "");
@@ -259,7 +265,7 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
   }, [stopListening, t]);
 
   const submitQuestion = useCallback(
-    async (queryText: string, submitScope?: AskScope) => {
+    async (queryText: string, submitScope?: AssistantScope) => {
       const req = requestRef.current;
       const q = queryText.trim();
       if (!q || phase === "working") return;
@@ -274,14 +280,15 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
       setFollowUps([]);
       setTraceHits(null);
       try {
-        const result = await askInScope({
-          scope: activeScope,
-          query: q,
-          contextPassage: chipText ?? undefined,
-          documentId: req?.documentId,
-          signal: controller.signal,
+        const turn = await runConfiguredAssistantTurn({
+          scope: activeScope, userQuestion: q, selectionExcerpt: chipText ?? undefined,
+          sourceId: req?.documentId, sourceTitle: req?.documentTitle,
+          history: historyRef.current, signal: controller.signal,
         });
+        const result = { answer: { answer: turn.answer, evidenceLevel: turn.evidenceLevel ?? "supported" as const, sourceRefs: [] }, sources: turn.citations ?? [], retrievalOnly: turn.retrievalOnly ?? false };
         if (controller.signal.aborted) return;
+        historyRef.current = [...historyRef.current,
+          { role: "user", content: q, scope: activeScope }, { role: "assistant", content: result.answer.answer, scope: activeScope }];
         const parsedAnswer = parseAssistantThinking(result.answer.answer);
         setAnswer({
           ...result,
@@ -343,7 +350,7 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
     setChipText(null);
     setEditingChip(false);
     // Spec: removing the chip falls back to the current document scope.
-    setScope((s) => (s === "passage" ? "document" : s));
+    setScope((s) => s);
   }, []);
 
   const makeFlashcard = useCallback(() => {
@@ -505,7 +512,7 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
                   className="text-xs text-primary font-medium"
                   onClick={() => {
                     setChipText(draftChip.trim() ? draftChip.trim() : null);
-                    if (!draftChip.trim()) setScope((s) => (s === "passage" ? "document" : s));
+                    if (!draftChip.trim()) setScope((s) => s);
                     setEditingChip(false);
                   }}
                 >
@@ -515,28 +522,7 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
             </div>
           )}
 
-          {/* Scope picker */}
-          <div>
-            <div className="flex rounded-full bg-muted/60 border border-border p-1" role="tablist">
-              {SCOPES.map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  role="tab"
-                  aria-selected={scope === s}
-                  onClick={() => setScope(s)}
-                  className={`flex-1 rounded-full px-2 py-1.5 text-[13px] font-medium transition-colors ${
-                    scope === s ? "bg-card text-foreground shadow-sm" : "text-muted-foreground"
-                  }`}
-                >
-                  {t(`askSheet.scope${s[0].toUpperCase()}${s.slice(1)}`)}
-                </button>
-              ))}
-            </div>
-            <div className="mt-1 text-[11px] text-muted-foreground px-1">
-              {t(`askSheet.scope${scope[0].toUpperCase()}${scope.slice(1)}Hint`)}
-            </div>
-          </div>
+          <AssistantScopeSelector value={scope} onChange={setScope} disabled={phase === "working"} />
 
           {/* Question input + voice */}
           <div className="rounded-2xl border border-border bg-card px-3 py-2 flex items-end gap-2">

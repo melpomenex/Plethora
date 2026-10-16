@@ -1,3 +1,5 @@
+import { runAssistantTurn } from "../../lib/ai/assistant/orchestrator";
+import { useLLMProvidersStore } from "../../stores/llmProvidersStore";
 import type { Document } from "../../types/document";
 import type { Message, RagHit } from "../../stores/documentQAStore";
 import type { AskLibraryResult } from "../../lib/ai/tasks/definitions/libraryTask";
@@ -28,6 +30,7 @@ export function groundedQaMessage(result: AskLibraryResult, scope: NonNullable<M
 }
 
 export async function askQaKnowledge(options: {
+  history?: import("../../lib/ai/assistant/promptBuilder").ConversationHistoryTurn[];
   question: string; scope: NonNullable<Message["submittedScope"]>; collectionId: string; contextPassage?: string;
 }): Promise<Message> {
   const [{ askLibrary }, { resolveLibraryRagComposition }, { resolveEmbeddingConfigForRag }, { useDocumentStore }, { useCollectionStore }] = await Promise.all([
@@ -42,7 +45,20 @@ export async function askQaKnowledge(options: {
     throw new Error("qaWorkspace.sourceUnavailable");
   }
   const documentIds = documents.map((doc) => doc.id);
-  const result = await askLibrary({ query: options.question, config, composition,
-    filters: { documentIds }, contextPassage: options.contextPassage });
-  return groundedQaMessage(result, { ...options.scope, documentIds });
+  let libraryResult: AskLibraryResult | undefined;
+  const configured = useLLMProvidersStore.getState().providers.find((provider) => provider.enabled);
+  const turn = await runAssistantTurn({
+    scope: options.scope.conversationScope ?? (documentIds.length === 1 ? "document" : "library"),
+    userQuestion: options.question, history: options.history, selectionExcerpt: options.contextPassage,
+    provider: composition.generatorKind === "cloud" ? configured?.provider ?? "openai" : "ondevice",
+    configuredContextTokens: configured?.contextWindowTokens,
+    documentsForPrivacyCheck: documents,
+    libraryExecutor: async ({ rewrittenQuery, history, contextBudgetTokens, k }) => {
+      libraryResult = await askLibrary({ query: rewrittenQuery, history, contextBudgetTokens, k, config, composition,
+        filters: { documentIds }, contextPassage: options.contextPassage });
+      return libraryResult;
+    },
+  });
+  if (!libraryResult) throw new Error("qaWorkspace.sourceUnavailable");
+  return { ...groundedQaMessage(libraryResult, { ...options.scope, documentIds }), content: turn.answer };
 }

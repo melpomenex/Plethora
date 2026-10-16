@@ -3860,6 +3860,18 @@ const commandHandlers: Record<string, CommandHandler> = {
         return toCamelCase(doc);
     },
 
+    save_youtube_transcript_segments: async (args) => {
+        const videoId = args.videoId as string;
+        const segments = args.segments as Array<{ text: string; start: number; duration: number }>;
+        if (!videoId || !Array.isArray(segments) || segments.some((s) => !Number.isFinite(s.start) || s.start < 0 || !Number.isFinite(s.duration) || s.duration < 0)) throw new Error("Invalid transcript segments");
+        const transcript = segments.map((s) => `[${Math.floor(s.start / 60)}:${String(Math.floor(s.start % 60)).padStart(2, "0")}] ${s.text}`).join("\n");
+        const documents = await db.getDocuments();
+        const ids = documents.filter((doc) => doc.id === args.documentId || (doc.file_type === "youtube" && doc.file_path.includes(videoId))).map((doc) => doc.id);
+        for (const id of ids) await db.updateDocument(id, { content: transcript });
+        // Timed segments remain available across reloads and in offline PWA sessions.
+        localStorage.setItem(`plethora:youtube-transcript:${videoId}`, JSON.stringify({ segments, language: args.language, savedAt: Date.now() }));
+    },
+
     get_youtube_transcript_by_id: async (args) => {
         const videoId = args.videoId as string;
         const language = args.language as string | undefined;
@@ -3870,7 +3882,16 @@ const commandHandlers: Record<string, CommandHandler> = {
         }
 
         try {
+            if (!args.forceRefresh) {
+                const raw = localStorage.getItem(`plethora:youtube-transcript:${videoId}`);
+                const cached = raw ? JSON.parse(raw) : undefined;
+                if (cached && (!language || !cached.language || cached.language === language) && (cached.segments?.length || Date.now() - cached.savedAt < 86400000)) {
+                    if (cached.segments.length) await commandHandlers.save_youtube_transcript_segments({ ...args, segments: cached.segments, language: cached.language });
+                    return cached.segments;
+                }
+            }
             const result = await fetchYouTubeTranscript(videoId, language);
+            await commandHandlers.save_youtube_transcript_segments({ ...args, segments: result.segments, language: result.language });
             return result.segments;
         } catch (error) {
             console.warn('[Browser] Failed to fetch YouTube transcript:', error);

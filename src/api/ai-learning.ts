@@ -64,7 +64,7 @@ export function buildEmbeddingConfig(
 
 /** Location payload for navigating back to a chunk's origin (design D13). */
 export interface ChunkLocation {
-  sourceType: "pdf" | "epub" | "html" | "markdown" | "text" | "fts" | "video" | "audio";
+  sourceType: "pdf" | "epub" | "html" | "markdown" | "text" | "fts" | "video" | "audio" | "transcript";
   documentId: string;
   ordinal: number;
   startOffset: number;
@@ -79,6 +79,7 @@ export interface ChunkLocation {
   anchorId?: string;
   assetUrl?: string;
   timestampMs?: number;
+  endTimestampMs?: number;
 }
 
 export type SemanticSourceType =
@@ -257,7 +258,8 @@ export async function retrieveFromLibrary(
     paid_embeddings_enabled: paidEmbeddingsConsentFlag(),
   });
   if (options.includeSpotlight === false) return sqlite;
-  return mergeSpotlightIntoRetrieval(query, sqlite);
+  const merged = await mergeSpotlightIntoRetrieval(query, sqlite);
+  return options.filters?.documentIds ? { ...merged, results: merged.results.filter((hit) => options.filters!.documentIds!.includes(hit.documentId)) } : merged;
 }
 
 /**

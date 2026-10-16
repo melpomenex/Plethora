@@ -2020,6 +2020,7 @@ pub fn run() {
             youtube::download_youtube_video,
             youtube::get_youtube_transcript,
             youtube::get_youtube_transcript_by_id,
+            youtube::save_youtube_transcript_segments,
             youtube::fetch_youtube_transcript_on_device,
             youtube::on_device_transcript_available,
             youtube::search_youtube_videos,

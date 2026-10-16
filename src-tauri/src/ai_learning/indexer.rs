@@ -387,7 +387,14 @@ pub async fn index_document_once(
     set_state(repo, document_id, IndexState::Indexing, None).await?;
 
     let content = doc.content.clone().unwrap_or_default();
-    if content.trim().is_empty() {
+    if content.trim().is_empty()
+        && !matches!(
+            doc.file_type,
+            crate::models::FileType::Youtube
+                | crate::models::FileType::Video
+                | crate::models::FileType::Audio
+        )
+    {
         // Nothing indexable (e.g. scanned PDF awaiting OCR). Record an empty
         // but successful state so the document is not perpetually requeued.
         upsert_state_row(
@@ -440,18 +447,13 @@ pub async fn index_document_once(
         None,
     )
     .await?;
-    let chunk_rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT id, text FROM semantic_chunks WHERE document_id = ?1",
-    )
-    .bind(document_id)
-    .fetch_all(repo.pool())
-    .await
-    .unwrap_or_default();
-    crate::ai_learning::spotlight::donate_document_chunks(
-        document_id,
-        &doc.title,
-        &chunk_rows,
-    );
+    let chunk_rows: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, text FROM semantic_chunks WHERE document_id = ?1")
+            .bind(document_id)
+            .fetch_all(repo.pool())
+            .await
+            .unwrap_or_default();
+    crate::ai_learning::spotlight::donate_document_chunks(document_id, &doc.title, &chunk_rows);
     Ok(IndexOutcome::Completed)
 }
 
@@ -461,6 +463,76 @@ async fn build_document_chunks(
     doc: &crate::models::Document,
     content: &str,
 ) -> Vec<ChunkModel> {
+    if matches!(
+        doc.file_type,
+        crate::models::FileType::Youtube
+            | crate::models::FileType::Video
+            | crate::models::FileType::Audio
+    ) {
+        let youtube = repo
+            .get_youtube_transcript_by_document_id(&doc.id)
+            .await
+            .ok()
+            .flatten()
+            .map(|(_, json)| json);
+        let json = match youtube {
+            Some(json) => Some(json),
+            None => sqlx::query_scalar::<_, String>(
+                "SELECT segments_json FROM video_transcripts WHERE document_id=?1",
+            )
+            .bind(&doc.id)
+            .fetch_optional(repo.pool())
+            .await
+            .ok()
+            .flatten(),
+        };
+        if let Some(values) =
+            json.and_then(|json| serde_json::from_str::<Vec<serde_json::Value>>(&json).ok())
+        {
+            let segments = values
+                .iter()
+                .filter_map(|value| {
+                    let start = value
+                        .get("start")
+                        .or_else(|| value.get("time"))
+                        .or_else(|| value.get("startSeconds"))?
+                        .as_f64()?;
+                    let duration = value
+                        .get("duration")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or_else(|| {
+                            value
+                                .get("end")
+                                .and_then(|v| v.as_f64())
+                                .unwrap_or(start + 5.0)
+                                - start
+                        });
+                    Some(crate::ai_learning::chunker::TranscriptChunkSegment {
+                        start,
+                        duration,
+                        text: value.get("text")?.as_str()?.to_string(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            if !segments.is_empty() {
+                let ctx = ChunkContext {
+                    document_id: &doc.id,
+                    source_type: "transcript",
+                    source_id: None,
+                    location_source_type: "transcript",
+                    spine_index: None,
+                };
+                return chunk_document(
+                    &ctx,
+                    ChunkInput::Transcript {
+                        segments: &segments,
+                        chapters: &[],
+                    },
+                    &ChunkOptions::default(),
+                );
+            }
+        }
+    }
     let location_type = match doc.file_type {
         crate::models::FileType::Pdf => "pdf",
         crate::models::FileType::Epub => "epub",

@@ -409,6 +409,7 @@ export interface AIControlsSettings {
  * AI Settings
  */
 interface AISettings {
+  strictLocalOnly?: boolean;
   enabled: boolean;
   provider: "openai" | "anthropic" | "openrouter" | "ollama";
   model: string;

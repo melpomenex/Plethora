@@ -30,7 +30,6 @@ import {
 import { TranscriptSearchState, TranscriptSync, TranscriptSegment } from "../media/TranscriptSync";
 import { invokeCommand as invoke, isTauri, isNativeMobile, getPlatform } from "../../lib/tauri";
 import { getYouTubeWatchURL, formatDuration } from "../../api/youtube";
-import { fetchYouTubeTranscript } from "../../utils/youtubeTranscriptBrowser";
 import { archiveDocument, getDocumentAuto, updateDocument, updateDocumentProgressAuto } from "../../api/documents";
 import { generateYouTubeShareUrl, copyShareLink, parseStateFromUrl } from "../../lib/shareLink";
 import { cn } from "../../utils";
@@ -89,6 +88,7 @@ interface YouTubeViewerProps {
   documentId?: string;
   title?: string;
   onLoad?: (metadata: { duration: number; title: string }) => void;
+  onTranscriptStatusChange?: (status: import("../../lib/ai/assistant/scopes").TranscriptAvailabilityStatus) => void;
   onTranscriptLoad?: (segments: Array<{ text: string; start: number; end: number }>) => void;
   onTimeUpdate?: (time: number) => void;
   onSelectionChange?: (text: string) => void;
@@ -119,6 +119,7 @@ export function YouTubeViewer({
   title,
   onLoad,
   onTranscriptLoad,
+  onTranscriptStatusChange,
   onTimeUpdate,
   onSelectionChange,
   onArchive,
@@ -139,6 +140,9 @@ export function YouTubeViewer({
   const containerRef = useRef<HTMLDivElement>(null);
   const lastSavedTimeRef = useRef<number>(0);
   const documentIdRef = useRef(documentId);
+  const transcriptGenerationRef = useRef(0);
+  const transcriptStatusRef = useRef(onTranscriptStatusChange);
+  transcriptStatusRef.current = onTranscriptStatusChange;
   const onTranscriptLoadRef = useRef(onTranscriptLoad);
   const onTranscriptSearchStateChangeRef = useRef(onTranscriptSearchStateChange);
   const onTimeUpdateRef = useRef(onTimeUpdate);
@@ -566,9 +570,13 @@ export function YouTubeViewer({
     // string, and the fetch only re-runs when the selection actually changes.
   }, [normalizedVideoId, sponsorBlock.canFetch, sponsorBlockCategoriesKey, sponsorBlock.cacheDurationHours]);
 
-  const loadTranscript = useCallback(async () => {
+  const loadTranscript = useCallback(async (forceRefresh = false) => {
     if (!normalizedVideoId) return;
 
+    const generation = ++transcriptGenerationRef.current;
+    setTranscript([]);
+    onTranscriptLoadRef.current?.([]);
+    transcriptStatusRef.current?.("loading");
     setIsLoadingTranscript(true);
     setTranscriptError(null);
     try {
@@ -579,7 +587,7 @@ export function YouTubeViewer({
         // Use Tauri backend for desktop app
         const transcriptData = await invoke<RawTranscriptSegment[] | null>(
           "get_youtube_transcript_by_id",
-          { videoId: normalizedVideoId, documentId }
+          { videoId: normalizedVideoId, documentId, forceRefresh }
         );
 
         if (!transcriptData || !Array.isArray(transcriptData)) {
@@ -599,12 +607,19 @@ export function YouTubeViewer({
         fetchedDuration = segments[segments.length - 1]?.end || 0;
       } else {
         // Use web API for browser app
-        const result = await fetchYouTubeTranscript(normalizedVideoId);
+        const { resolveTranscript } = await import("../../lib/transcript/sourceChain");
+        const result = await resolveTranscript(normalizedVideoId, undefined, { documentId, forceRefresh });
 
         segments = toTranscriptSegments(result.segments);
         fetchedDuration = segments[segments.length - 1]?.end || 0;
       }
 
+      if (generation !== transcriptGenerationRef.current) return;
+      await invoke("save_youtube_transcript_segments", { videoId: normalizedVideoId, documentId,
+        segments: segments.map((segment) => ({ ...segment, duration: segment.end - segment.start })),
+      });
+      if (generation !== transcriptGenerationRef.current) return;
+      transcriptStatusRef.current?.(segments.length ? "ready-full" : "unavailable");
       setTranscript(segments);
       setDuration(fetchedDuration);
 
@@ -612,6 +627,8 @@ export function YouTubeViewer({
       onTranscriptLoadRef.current?.(segments);
       onLoad?.({ duration: fetchedDuration, title: titleRef.current || "" });
     } catch (error) {
+      if (generation !== transcriptGenerationRef.current) return;
+      transcriptStatusRef.current?.("failed");
       console.error("Transcript not available:", error);
       const errorMsg = error instanceof Error ? error.message : String(error);
       setTranscriptError(errorMsg);
@@ -625,13 +642,18 @@ export function YouTubeViewer({
         activeSegmentId: null,
       });
     } finally {
-      setIsLoadingTranscript(false);
+      if (generation === transcriptGenerationRef.current) setIsLoadingTranscript(false);
     }
   }, [documentId, effectiveTranscriptSearchQuery, normalizedVideoId, onLoad]);
 
   useEffect(() => {
     loadTranscript();
-  }, [loadTranscript]);
+    const retry = (event: Event) => {
+      if ((event as CustomEvent).detail?.documentId === documentId) void loadTranscript(true);
+    };
+    window.addEventListener("plethora:retry-transcript", retry);
+    return () => { transcriptGenerationRef.current++; window.removeEventListener("plethora:retry-transcript", retry); };
+  }, [documentId, loadTranscript]);
 
   // Resolve YouTube title
   useEffect(() => {
@@ -984,6 +1006,15 @@ export function YouTubeViewer({
     toast.success(t("viewer.seeking"), t("viewer.startingAt", { time: formatTime(time) }));
   // eslint-disable-next-line react-hooks/exhaustive-deps -- resolvedTitle/title unused but harmless in deps; t is i18n stable
   }, [resolvedTitle, title, saveCurrentPosition, toast, showInlinePlayer, segments]);
+  useEffect(() => {
+    const seek = (event: Event) => {
+      const detail = (event as CustomEvent<{ documentId?: string; seconds: number }>).detail;
+      if (detail?.documentId === documentId && Number.isFinite(detail.seconds)) handleSeek(detail.seconds);
+    };
+    window.addEventListener("plethora:assistant-seek", seek);
+    return () => window.removeEventListener("plethora:assistant-seek", seek);
+  }, [documentId, handleSeek]);
+
 
   // Format time for display
   const formatTime = (seconds: number) => {

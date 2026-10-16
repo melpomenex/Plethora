@@ -4,9 +4,10 @@
 //! through the yt-dlp command-line tool.
 
 use serde::{Deserialize, Serialize};
+use sqlx::Row;
 use std::path::PathBuf;
 use std::process::Command;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::database::Repository;
 use crate::models::{Document, DocumentMetadata, FileType};
@@ -1159,6 +1160,118 @@ pub async fn download_youtube_video(
     Ok(path.to_string_lossy().to_string())
 }
 
+/// Persist the canonical timed representation and searchable text together.
+pub async fn persist_canonical_youtube_transcript(
+    repo: &Repository,
+    document_id: Option<&str>,
+    video_id: &str,
+    language: Option<&str>,
+    segments: &[TranscriptSegment],
+    app: Option<&AppHandle>,
+) -> Result<(), String> {
+    if segments.iter().any(|s| {
+        !s.start.is_finite() || s.start < 0.0 || !s.duration.is_finite() || s.duration < 0.0
+    }) {
+        return Err("Invalid transcript segment timing".into());
+    }
+    let text = segments
+        .iter()
+        .filter(|s| !s.text.trim().is_empty())
+        .map(|s| {
+            let seconds = s.start.floor() as u64;
+            format!("[{}:{:02}] {}", seconds / 60, seconds % 60, s.text.trim())
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let json = serde_json::to_string(segments).map_err(|e| e.to_string())?;
+    let mut tx = repo.pool().begin().await.map_err(|e| e.to_string())?;
+    sqlx::query("INSERT INTO youtube_transcripts (id, document_id, video_id, transcript, segments_json, date_created, date_modified, word_timings_version, language) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?8) ON CONFLICT(video_id) DO UPDATE SET document_id=COALESCE(excluded.document_id,youtube_transcripts.document_id), transcript=excluded.transcript, segments_json=excluded.segments_json, date_modified=excluded.date_modified, word_timings_version=excluded.word_timings_version, language=COALESCE(excluded.language,youtube_transcripts.language)")
+        .bind(uuid::Uuid::new_v4().to_string()).bind(document_id).bind(video_id).bind(&text).bind(json)
+        .bind(chrono::Utc::now()).bind(YOUTUBE_WORD_TIMINGS_VERSION).bind(language)
+        .execute(&mut *tx).await.map_err(|e| e.to_string())?;
+    let ids: Vec<String> = sqlx::query_scalar(
+        "SELECT id FROM documents WHERE id=?1 OR (file_type='youtube' AND instr(file_path,?2)>0)",
+    )
+    .bind(document_id)
+    .bind(video_id)
+    .fetch_all(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    for id in &ids {
+        sqlx::query("UPDATE documents SET content=?1 WHERE id=?2")
+            .bind(&text)
+            .bind(id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    tx.commit().await.map_err(|e| e.to_string())?;
+    if let Some(state) =
+        app.and_then(|app| app.try_state::<crate::commands::ai_learning::AiLearningState>())
+    {
+        for id in ids {
+            state.enqueue_document(id).map_err(|e| e.to_string())?;
+        }
+    }
+    Ok(())
+}
+
+async fn canonical_cached_transcript(
+    repo: &Repository,
+    video_id: &str,
+    language: Option<&str>,
+    force_refresh: bool,
+) -> Result<Option<Vec<TranscriptSegment>>, String> {
+    if force_refresh {
+        return Ok(None);
+    }
+    let row = sqlx::query("SELECT segments_json, word_timings_version, language, date_modified FROM youtube_transcripts WHERE video_id=?1")
+        .bind(video_id).fetch_optional(repo.pool()).await.map_err(|e| e.to_string())?;
+    let Some(row) = row else { return Ok(None) };
+    let json: String = row.get("segments_json");
+    let cached_language: Option<String> = row.get("language");
+    if language.is_some()
+        && cached_language.as_deref().is_some()
+        && language != cached_language.as_deref()
+    {
+        return Ok(None);
+    }
+    if !is_transcript_cache_fresh(&json, row.get("word_timings_version")) {
+        return Ok(None);
+    }
+    if json.trim() == "[]" {
+        let modified: chrono::DateTime<chrono::Utc> = row.get("date_modified");
+        if chrono::Utc::now()
+            .signed_duration_since(modified)
+            .num_hours()
+            >= 24
+        {
+            return Ok(None);
+        }
+    }
+    Ok(serde_json::from_str(&json).ok())
+}
+
+#[tauri::command]
+pub async fn save_youtube_transcript_segments(
+    app: AppHandle,
+    repo: State<'_, Repository>,
+    video_id: String,
+    document_id: Option<String>,
+    language: Option<String>,
+    segments: Vec<TranscriptSegment>,
+) -> Result<(), String> {
+    persist_canonical_youtube_transcript(
+        repo.inner(),
+        document_id.as_deref(),
+        &video_id,
+        language.as_deref(),
+        &segments,
+        Some(&app),
+    )
+    .await
+}
+
 pub async fn get_youtube_transcript_internal(
     url: &str,
     language: Option<&str>,
@@ -1166,13 +1279,22 @@ pub async fn get_youtube_transcript_internal(
     repo: &Repository,
 ) -> Result<Vec<TranscriptSegment>, String> {
     if let Some(video_id) = extract_video_id(url) {
-        if let Ok(Some((_transcript, segments_json, version))) = repo
-            .get_youtube_transcript_by_video_id_with_version(&video_id)
-            .await
+        if let Some(segments) =
+            canonical_cached_transcript(repo, &video_id, language, false).await?
         {
-            if is_transcript_cache_fresh(&segments_json, version) {
-                return parse_transcript_segments(&segments_json);
+            // Associate/backfill documents opened after the original fetch.
+            if !segments.is_empty() {
+                persist_canonical_youtube_transcript(
+                    repo,
+                    document_id,
+                    &video_id,
+                    language,
+                    &segments,
+                    None,
+                )
+                .await?;
             }
+            return Ok(segments);
         }
     }
 
@@ -1186,18 +1308,15 @@ pub async fn get_youtube_transcript_internal(
             .map_err(|e| format!("Failed to join transcript task: {}", e))??;
 
     if let Some(video_id) = extract_video_id(url) {
-        let transcript = build_transcript_text(&segments);
-        let segments_json = serde_json::to_string(&segments)
-            .map_err(|e| format!("Failed to serialize transcript: {}", e))?;
-        repo.upsert_youtube_transcript(
+        persist_canonical_youtube_transcript(
+            repo,
             document_id,
             &video_id,
-            &transcript,
-            &segments_json,
-            YOUTUBE_WORD_TIMINGS_VERSION,
+            language,
+            &segments,
+            None,
         )
-        .await
-        .map_err(|e| format!("Failed to cache transcript: {}", e))?;
+        .await?;
     }
 
     Ok(segments)
@@ -1220,100 +1339,143 @@ pub async fn get_youtube_transcript(
     .await
 }
 
-/// Tauri command: Extract transcript by videoId
+/// Cache-first transcript retrieval, including desktop InnerTube and yt-dlp.
 #[tauri::command]
 pub async fn get_youtube_transcript_by_id(
+    app: AppHandle,
     video_id: String,
     language: Option<String>,
     document_id: Option<String>,
+    force_refresh: Option<bool>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<TranscriptSegment>, String> {
-    // 1. Try on-device InnerTube API fetcher first (no yt-dlp binary dependency)
-    let res =
+    if let Some(segments) = canonical_cached_transcript(
+        repo.inner(),
+        &video_id,
+        language.as_deref(),
+        force_refresh.unwrap_or(false),
+    )
+    .await?
+    {
+        if !segments.is_empty() {
+            persist_canonical_youtube_transcript(
+                repo.inner(),
+                document_id.as_deref(),
+                &video_id,
+                language.as_deref(),
+                &segments,
+                Some(&app),
+            )
+            .await?;
+        }
+        return Ok(segments);
+    }
+    let result =
         innertube::fetch_youtube_transcript_on_device_internal(&video_id, language.as_deref())
             .await;
-    match res {
-        innertube::OnDeviceTranscriptResult::Ok { segments, .. } if !segments.is_empty() => {
+    let segments = match result {
+        innertube::OnDeviceTranscriptResult::Ok {
+            segments,
+            language: fetched_language,
+        } => {
+            persist_canonical_youtube_transcript(
+                repo.inner(),
+                document_id.as_deref(),
+                &video_id,
+                Some(&fetched_language),
+                &segments,
+                Some(&app),
+            )
+            .await?;
             return Ok(segments);
+        }
+        innertube::OnDeviceTranscriptResult::Err { kind, .. } if kind == "NoCaptions" => Vec::new(),
+        _ => {
+            let url = format!("https://www.youtube.com/watch?v={}", video_id);
+            let lang = language.clone();
+            tokio::task::spawn_blocking(move || extract_transcript(&url, lang.as_deref()))
+                .await
+                .map_err(|e| e.to_string())??
+        }
+    };
+    persist_canonical_youtube_transcript(
+        repo.inner(),
+        document_id.as_deref(),
+        &video_id,
+        language.as_deref(),
+        &segments,
+        Some(&app),
+    )
+    .await?;
+    Ok(segments)
+}
+
+#[tauri::command]
+pub async fn fetch_youtube_transcript_on_device(
+    app: AppHandle,
+    video_id: String,
+    language: Option<String>,
+    document_id: Option<String>,
+    force_refresh: Option<bool>,
+    repo: State<'_, Repository>,
+) -> Result<innertube::OnDeviceTranscriptResult, String> {
+    if let Some(segments) = canonical_cached_transcript(
+        repo.inner(),
+        &video_id,
+        language.as_deref(),
+        force_refresh.unwrap_or(false),
+    )
+    .await?
+    {
+        if segments.is_empty() {
+            return Ok(innertube::OnDeviceTranscriptResult::Err {
+                kind: "NoCaptions".into(),
+                detail: "No captions available".into(),
+            });
+        }
+        persist_canonical_youtube_transcript(
+            repo.inner(),
+            document_id.as_deref(),
+            &video_id,
+            language.as_deref(),
+            &segments,
+            Some(&app),
+        )
+        .await?;
+        return Ok(innertube::OnDeviceTranscriptResult::Ok {
+            segments,
+            language: language.unwrap_or_else(|| "en".into()),
+        });
+    }
+    let result =
+        innertube::fetch_youtube_transcript_on_device_internal(&video_id, language.as_deref())
+            .await;
+    match &result {
+        innertube::OnDeviceTranscriptResult::Ok { segments, language } => {
+            persist_canonical_youtube_transcript(
+                repo.inner(),
+                document_id.as_deref(),
+                &video_id,
+                Some(language),
+                segments,
+                Some(&app),
+            )
+            .await?
+        }
+        innertube::OnDeviceTranscriptResult::Err { kind, .. } if kind == "NoCaptions" => {
+            persist_canonical_youtube_transcript(
+                repo.inner(),
+                document_id.as_deref(),
+                &video_id,
+                language.as_deref(),
+                &[],
+                Some(&app),
+            )
+            .await?
         }
         _ => {}
     }
-
-    // 2. Fallback to yt-dlp if available
-    let url = format!("https://www.youtube.com/watch?v={}", video_id);
-    get_youtube_transcript_internal(
-        &url,
-        language.as_deref(),
-        document_id.as_deref(),
-        repo.inner(),
-    )
-    .await
-}
-
-/// Tauri command: Fetch YouTube transcript on-device
-#[tauri::command]
-pub async fn fetch_youtube_transcript_on_device(
-    video_id: String,
-    language: Option<String>,
-    document_id: Option<String>,
-    repo: State<'_, Repository>,
-) -> Result<innertube::OnDeviceTranscriptResult, String> {
-    // 1. Check local cache first
-    if let Ok(Some((_transcript, segments_json, version))) = repo
-        .get_youtube_transcript_by_video_id_with_version(&video_id)
-        .await
-    {
-        if is_transcript_cache_fresh(&segments_json, version) {
-            if let Ok(segments) = serde_json::from_str::<Vec<TranscriptSegment>>(&segments_json) {
-                return Ok(innertube::OnDeviceTranscriptResult::Ok {
-                    segments,
-                    language: language.unwrap_or_else(|| "en".to_string()),
-                });
-            }
-        }
-    }
-
-    // 2. Perform fetch
-    let res =
-        innertube::fetch_youtube_transcript_on_device_internal(&video_id, language.as_deref())
-            .await;
-
-    // 3. Cache successful results or NoCaptions
-    match &res {
-        innertube::OnDeviceTranscriptResult::Ok {
-            segments,
-            language: _,
-        } => {
-            let transcript = build_transcript_text(segments);
-            if let Ok(segments_json) = serde_json::to_string(segments) {
-                let _ = repo
-                    .upsert_youtube_transcript(
-                        document_id.as_deref(),
-                        &video_id,
-                        &transcript,
-                        &segments_json,
-                        YOUTUBE_WORD_TIMINGS_VERSION,
-                    )
-                    .await;
-            }
-        }
-        innertube::OnDeviceTranscriptResult::Err { kind, .. } => {
-            if kind == "NoCaptions" {
-                // Cache empty transcript for NoCaptions to avoid retries
-                let _ = repo
-                    .upsert_youtube_transcript(
-                        document_id.as_deref(),
-                        &video_id,
-                        "",
-                        "[]",
-                        YOUTUBE_WORD_TIMINGS_VERSION,
-                    )
-                    .await;
-            }
-        }
-    }
-
-    Ok(res)
+    Ok(result)
 }
 
 /// Tauri command: Check if on-device transcript is available
@@ -1784,5 +1946,83 @@ mod tests {
         assert!(is_transcript_cache_fresh(r#"[{"text":"x"}]"#, 1));
         // The NoCaptions sentinel must never be considered stale.
         assert!(is_transcript_cache_fresh("[]", 0));
+    }
+}
+
+#[cfg(test)]
+mod canonical_transcript_tests {
+    use super::*;
+    async fn repo() -> Repository {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::query("CREATE TABLE documents (id TEXT PRIMARY KEY, file_path TEXT, file_type TEXT, content TEXT); CREATE TABLE youtube_transcripts (id TEXT PRIMARY KEY, document_id TEXT, video_id TEXT UNIQUE, transcript TEXT NOT NULL, segments_json TEXT NOT NULL, date_created TEXT, date_modified TEXT, word_timings_version INTEGER, language TEXT)").execute(&pool).await.unwrap();
+        Repository::new(pool)
+    }
+    #[tokio::test]
+    async fn canonical_persistence_updates_document_and_serves_cache_without_network() {
+        let repo = repo().await;
+        sqlx::query("INSERT INTO documents VALUES ('doc','https://youtube.com/watch?v=video123','youtube',NULL)").execute(repo.pool()).await.unwrap();
+        let segments = vec![TranscriptSegment {
+            start: 7190.0,
+            duration: 10.0,
+            text: "Late video fact".into(),
+            words: None,
+        }];
+        persist_canonical_youtube_transcript(
+            &repo,
+            Some("doc"),
+            "video123",
+            Some("en"),
+            &segments,
+            None,
+        )
+        .await
+        .unwrap();
+        let text: String = sqlx::query_scalar("SELECT content FROM documents WHERE id='doc'")
+            .fetch_one(repo.pool())
+            .await
+            .unwrap();
+        assert_eq!(text, "[119:50] Late video fact");
+        let cached = canonical_cached_transcript(&repo, "video123", Some("en"), false)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(cached[0].start, 7190.0);
+        assert!(
+            canonical_cached_transcript(&repo, "video123", Some("en"), true)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            canonical_cached_transcript(&repo, "video123", Some("fr"), false)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+    #[tokio::test]
+    async fn negative_cache_expires_after_one_day() {
+        let repo = repo().await;
+        persist_canonical_youtube_transcript(&repo, None, "empty", None, &[], None)
+            .await
+            .unwrap();
+        assert!(canonical_cached_transcript(&repo, "empty", None, false)
+            .await
+            .unwrap()
+            .unwrap()
+            .is_empty());
+        sqlx::query("UPDATE youtube_transcripts SET date_modified=?1")
+            .bind(chrono::Utc::now() - chrono::Duration::hours(25))
+            .execute(repo.pool())
+            .await
+            .unwrap();
+        assert!(canonical_cached_transcript(&repo, "empty", None, false)
+            .await
+            .unwrap()
+            .is_none());
     }
 }

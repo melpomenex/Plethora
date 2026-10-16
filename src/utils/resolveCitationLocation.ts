@@ -73,6 +73,7 @@ export interface CitationLocationDeps {
   fetchYouTubeSegments?: (videoId: string) => Promise<Array<{ start: number; text: string }>>;
   loadStoredAudioSegments?: (documentId: string) => AudioTranscriptSegment[];
   loadWhisperSegments?: (documentId: string) => Promise<AudioTranscriptSegment[]>;
+  location?: { timestampMs?: number; timestamp_ms?: number };
   loadVideoTranscript?: (documentId: string) => Promise<VideoTranscriptLike | null>;
 }
 
@@ -257,7 +258,7 @@ function readStoredAudioSegments(documentId: string): AudioTranscriptSegment[] {
   }
 }
 
-const defaultDeps: Required<CitationLocationDeps> = {
+const defaultDeps: Required<Omit<CitationLocationDeps, "location">> = {
   fetchYouTubeSegments: (videoId) => fetchYouTubeTranscript(videoId),
   loadStoredAudioSegments: (documentId) => readStoredAudioSegments(documentId),
   loadWhisperSegments: async (documentId) => {
@@ -290,7 +291,11 @@ export async function resolveCitationLocation(
   deps: CitationLocationDeps = {}
 ): Promise<ExactSearchHitLocation | null> {
   if (!document || !chunkText || !chunkText.trim()) return null;
-  const allDeps: Required<CitationLocationDeps> = { ...defaultDeps, ...deps };
+  const timestamp = deps.location?.timestampMs ?? deps.location?.timestamp_ms;
+  if (timestamp != null && Number.isFinite(timestamp) && timestamp >= 0 && ["youtube", "video", "audio"].includes(document.fileType)) {
+    return { kind: document.fileType === "youtube" ? "youtube" : "audio", timeSeconds: timestamp / 1000, textQuote: chunkText };
+  }
+  const allDeps: Required<Omit<CitationLocationDeps, "location">> = { ...defaultDeps, ...deps };
   const fileType = document.fileType;
 
   // Transcript-backed documents: the document content is not a searchable
@@ -344,7 +349,7 @@ export async function resolveCitationLocation(
 async function resolveTranscriptLocation(
   document: Document,
   chunkText: string,
-  deps: Required<CitationLocationDeps>
+  deps: Required<Omit<CitationLocationDeps, "location">>
 ): Promise<ExactSearchHitLocation | null> {
   if (document.fileType === "youtube") {
     const videoId = extractYouTubeId(document.filePath);

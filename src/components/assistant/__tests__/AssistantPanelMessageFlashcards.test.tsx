@@ -173,7 +173,7 @@ describe("AssistantPanel message flashcard action", () => {
     expect(messages[0].role).toBe("system");
     expect(String(messages[0].content)).toMatch(/20 Rules|Knowledge Formulation/i);
     expect(messages[1].role).toBe("user");
-    expect(llmContext.content).toBe("UNIQUE_ROPE_SOURCE_TEXT");
+    expect(llmContext.content).toContain("UNIQUE_ROPE_SOURCE_TEXT");
     expect(llmContext.content).not.toContain("UNIQUE_GROUP_SOURCE_TEXT");
     expect(llmContext.documentId).toBe("doc-1");
     expect(String(messages[1].content)).toMatch(/source material|Assistant response context/i);

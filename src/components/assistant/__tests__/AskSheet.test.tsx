@@ -20,6 +20,13 @@ vi.mock("../../../lib/ai/askSheet/scope", () => ({
   getAskSheetIndexState: (...args: unknown[]) => mockGetIndexState(...args),
 }));
 
+vi.mock("../../../lib/ai/assistant/configuredTurn", () => ({
+  runConfiguredAssistantTurn: async (input: { userQuestion: string; selectionExcerpt?: string }) => {
+    const result = await mockAskInScope({ ...input, query: input.userQuestion, contextPassage: input.selectionExcerpt });
+    return { answer: result.answer.answer, evidenceLevel: result.answer.evidenceLevel, citations: result.sources, retrievalOnly: result.retrievalOnly };
+  },
+}));
+
 vi.mock("../../../lib/ai/tasks/runTask", () => ({
   runTask: vi.fn(async () => ({
     output: "Q: What is spaced repetition?\nQ: Why do intervals expand?\nQ: How does recall help?",
@@ -90,9 +97,9 @@ describe("task 2.1 — composer", () => {
   it("opens with the passage as context chip, scope picker, and voice control", async () => {
     openSheet();
     expect(await screen.findByText("The forgetting curve shows memory decaying over time.")).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Passage" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tab", { name: "Document" })).toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Library" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Chat" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Document" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Library" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /voice input/i })).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/ask a question/i)).toBeInTheDocument();
   });
@@ -103,12 +110,12 @@ describe("task 2.1 — composer", () => {
     expect(document.activeElement?.tagName).not.toBe("TEXTAREA");
   });
 
-  it("removing the chip falls back to document scope", async () => {
+  it("removing the chip preserves Chat scope", async () => {
     openSheet();
     await screen.findByText("The forgetting curve shows memory decaying over time.");
     fireEvent.click(screen.getByText("Remove"));
     expect(screen.queryByText("The forgetting curve shows memory decaying over time.")).not.toBeInTheDocument();
-    expect(screen.getByRole("tab", { name: "Document" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("button", { name: "Chat" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("tapping a suggested question submits without typing", async () => {
@@ -162,7 +169,7 @@ describe("task 5.1 — honest state", () => {
   it("shows the answering mode and freshness disclosure in library scope", async () => {
     openSheet();
     await screen.findByText(/on-device/i);
-    fireEvent.click(screen.getByRole("tab", { name: "Library" }));
+    fireEvent.click(screen.getByRole("button", { name: "Library" }));
     expect(await screen.findByText("2 documents not yet indexed")).toBeInTheDocument();
   });
 

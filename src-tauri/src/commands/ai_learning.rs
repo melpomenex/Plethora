@@ -7,6 +7,7 @@
 //! already sends for RAG; when absent, the on-device stub backend applies
 //! (offline-first default, design D10) and retrieval runs lexical-only.
 
+use crate::ai::embeddings::EmbeddingProviderType;
 use crate::ai_learning::embeddings_backend::EmbeddingBackend;
 use crate::ai_learning::indexer::{
     aggregate_status, document_statuses, mark_all_stale, reset_index, BackendFactory, IndexerQueue,
@@ -14,7 +15,6 @@ use crate::ai_learning::indexer::{
 };
 use crate::ai_learning::models::{RetrievalFilters, RetrievalResponse};
 use crate::ai_learning::retrieval::{self, DEFAULT_K};
-use crate::ai::embeddings::EmbeddingProviderType;
 use crate::commands::semantic_graph::EmbeddingConfigInput;
 use crate::database::Repository;
 use crate::error::{PlethoraError, Result};
@@ -44,6 +44,10 @@ impl AiLearningState {
         });
         let queue = IndexerQueue::new(repo, factory);
         Self { queue, config }
+    }
+
+    pub fn enqueue_document(&self, document_id: String) -> Result<()> {
+        self.queue.enqueue_document(document_id)
     }
 
     fn update_config(&self, config: Option<EmbeddingConfigInput>) {
@@ -228,13 +232,9 @@ fn gated_effective_config(
     config: Option<&EmbeddingConfigInput>,
     paid_embeddings_enabled: Option<bool>,
 ) -> Result<()> {
-    let effective = config.cloned().or_else(|| {
-        state
-            .config
-            .read()
-            .ok()
-            .and_then(|guard| guard.clone())
-    });
+    let effective = config
+        .cloned()
+        .or_else(|| state.config.read().ok().and_then(|guard| guard.clone()));
     ensure_embedding_consent(effective.as_ref(), paid_embeddings_enabled)
 }
 

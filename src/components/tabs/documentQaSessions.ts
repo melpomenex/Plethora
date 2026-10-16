@@ -1,3 +1,4 @@
+import { isAssistantScope, type AssistantScope } from "../../lib/ai/assistant/scopes";
 /**
  * Document Q&A sessions — client-side persistence of distinct Q&A
  * conversations. Each session groups the chat (`messages`), the selected
@@ -64,6 +65,7 @@ export const PLACEHOLDER_DOCUMENT_NAME = "Whole Library";
 const TITLE_MAX_CHARS = 60;
 
 export interface DocumentQaSession {
+  scope?: AssistantScope;
   id: string;
   title: string;
   createdAt: number;
@@ -177,6 +179,7 @@ export function createSession(
   const now = nowMs();
   const messages = coerceMessages(partial.messages);
   const session: DocumentQaSession = {
+    scope: partial.scope ?? "chat",
     id: generateId(),
     title: partial.title && partial.title.trim() ? partial.title.trim() : PLACEHOLDER_TITLE,
     createdAt: now,
@@ -216,6 +219,7 @@ function normalizeSession(value: unknown): DocumentQaSession | null {
   if (typeof raw.id !== "string" || !raw.id) return null;
   const messages = coerceMessages(raw.messages);
   return {
+    scope: isAssistantScope(raw.scope) ? raw.scope : raw.selectedDocumentId ? "document" : "library",
     id: raw.id,
     title: typeof raw.title === "string" && raw.title ? raw.title : PLACEHOLDER_TITLE,
     createdAt: typeof raw.createdAt === "number" ? raw.createdAt : nowMs(),

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   buildDocFirstExpansionInstruction,
+  buildWebSearchQuery,
   fetchBraveSearchWithTimeout,
   formatBraveContext,
   formatSourceLabeledAnswer,
@@ -20,6 +21,18 @@ describe("shouldExpandBeyondDocument", () => {
     expect(shouldExpandBeyondDocument("")).toBe(false);
   });
 
+  it("does NOT trigger false-positive expansion on chapter questions", () => {
+    expect(shouldExpandBeyondDocument("Summarize chapter 2")).toBe(false);
+    expect(shouldExpandBeyondDocument("What is the main argument in this chapter?")).toBe(false);
+  });
+
+  it("respects strict Document and Library scopes unless lookupToggle is explicitly true", () => {
+    expect(shouldExpandBeyondDocument("Tell me more about this", false, "document")).toBe(false);
+    expect(shouldExpandBeyondDocument("Tell me more about this", false, "library")).toBe(false);
+    expect(shouldExpandBeyondDocument("Tell me more about this", false, "chat")).toBe(true);
+    expect(shouldExpandBeyondDocument("What does this say?", true, "document")).toBe(true);
+  });
+
   it("honors the explicit lookup toggle", () => {
     expect(shouldExpandBeyondDocument("What does this say?", true)).toBe(true);
     expect(shouldExpandBeyondDocument("What does this say?", false)).toBe(false);
@@ -29,6 +42,24 @@ describe("shouldExpandBeyondDocument", () => {
     const instruction = buildDocFirstExpansionInstruction();
     expect(instruction).toContain("document context first");
     expect(instruction).toContain("separate");
+  });
+});
+
+describe("buildWebSearchQuery", () => {
+  it("uses the user's question rather than raw selected text when question is self-contained", () => {
+    const query = buildWebSearchQuery(
+      "Look up recent neuroscience papers on biological attention mechanisms",
+      "A 500-word verbatim paragraph from the transformer paper about scaled dot-product attention...",
+    );
+    expect(query).toBe("recent neuroscience papers on biological attention mechanisms");
+  });
+
+  it("disambiguates deictic pronoun questions with a concise selection topic snippet", () => {
+    const query = buildWebSearchQuery(
+      "What else can you tell me about this? Look it up",
+      "Scaled dot-product attention computes the dot products of the query with all keys.",
+    );
+    expect(query).toContain("Scaled dot-product attention");
   });
 });
 

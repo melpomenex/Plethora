@@ -706,6 +706,7 @@ describe("Document Q&A workspace entry", () => {
     let finish!: (value: never) => void;
     vi.mocked(askLibrary).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
     render(<DocumentQATab />);
+    fireEvent.click(screen.getByRole("button", { name: "Library" }));
     const id = localStorage.getItem(STORAGE_KEYS.activeSession);
     fireEvent.change(questionInput(), { target: { value: "How do cells work?" } });
     fireEvent.click(screen.getByRole("button", { name: "Ask" }));
@@ -737,6 +738,7 @@ describe("Document Q&A workspace entry", () => {
   it("retries explicitly without duplicating the failed user turn", async () => {
     vi.mocked(askLibrary).mockRejectedValueOnce(new Error("index unavailable")).mockResolvedValueOnce(groundedResult() as never);
     render(<DocumentQATab />);
+    fireEvent.click(screen.getByRole("button", { name: "Library" }));
     fireEvent.change(questionInput(), { target: { value: "Explain cells" } });
     fireEvent.click(screen.getByRole("button", { name: "Ask" }));
     await screen.findByText(/Could not answer from these sources/);
@@ -773,7 +775,7 @@ describe("Document Q&A workspace entry", () => {
     fireEvent.click(screen.getByRole("button", { name: "Import documents" }));
     await waitFor(() => expect(importDocuments).toHaveBeenCalledTimes(1));
     expect(questionInput().value).toBe("My future question");
-    expect(screen.getByRole("button", { name: "Ask" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Ask" })).not.toBeDisabled();
     useDocumentStore.setState({ openFilePickerAndImport: previous });
   });
 

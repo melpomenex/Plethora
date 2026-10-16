@@ -1,3 +1,4 @@
+import { runAssistantTurn } from "../../lib/ai/assistant/orchestrator";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent } from "react";
 import {
   CircleNotch,
@@ -330,102 +331,29 @@ export function PwaAssistantButton({
         return;
       }
 
-      const contextWindow =
-        context.contextWindowTokens && context.contextWindowTokens > 0
-          ? context.contextWindowTokens
-          : settings.ai.maxTokens;
+      const resolvedContext = context.resolveForPrompt ? await context.resolveForPrompt(trimmed) : { content: context.content };
+      const provider = resolved.provider;
+      const response = await runAssistantTurn({
+        scope: "chat", userQuestion: trimmed, sourceType: context.type, sourceId: context.documentId,
+        sourceTitle: context.metadata?.title, sourceContent: resolvedContext.content,
+        selectionExcerpt: context.selection, playbackTimeSeconds: context.position?.currentTime,
+        transcriptStatus: context.transcriptStatus,
+        history: messages.filter((message) => message.role !== "system"),
+        provider: resolved.useAppleFm ? "apple-foundation" : provider.provider,
+        model: provider?.model, apiKey: provider?.apiKey, baseUrl: provider?.baseUrl,
+        maxOutputTokens: provider?.maxTokens, configuredContextTokens: provider?.contextWindowTokens,
+        memoryEnabled: settings.ai.memoryEnabled, strictLocalOnly: settings.ai.strictLocalOnly,
+        documentsForPrivacyCheck: context.documentId ? [await documentsApi.getDocument(context.documentId)] : [],
+        systemInstruction: provider?.systemPrompt,
+        chatExecutor: resolved.useAppleFm ? async ({ messages, context: source, maxTokens }) => runAssistantAppleFmChat({
+          systemInstruction: String(messages[0].content), userPrompt: String(messages.at(-1)?.content ?? trimmed),
+          conversationHistory: messages.slice(1, -1).map((message) => ({ role: message.role, content: String(message.content) })),
+          documentContext: source.content, maxOutputTokens: maxTokens,
+        }) : undefined,
+      });
+      setLastUsedProviderLabel(resolved.useAppleFm ? "Apple Intelligence • on-device" : `${provider.name || provider.provider} • ${provider.model}`);
 
-      const resolvedContext = context.resolveForPrompt
-        ? await context.resolveForPrompt(trimmed)
-        : {
-            status: context.status ?? "ready",
-            content: typeof context.content === "string" ? context.content : undefined,
-            message: context.statusMessage,
-          };
-
-      const contextContent = typeof resolvedContext.content === "string"
-        ? resolvedContext.content.trim()
-        : "";
-      if (resolvedContext.status !== "ready" || !contextContent) {
-        throw new Error(resolvedContext.message || getAssistantContextErrorMessage(context.status));
-      }
-
-      const history = messages
-        .filter((m) => m.role === "user" || m.role === "assistant")
-        .slice(-6)
-        .map((m) => ({
-          role: m.role as "user" | "assistant",
-          content: m.role === "assistant" ? getAssistantAnswer(m.content) : m.content,
-        }));
-
-      if (resolved.useAppleFm) {
-        setLastUsedProviderLabel("Apple Intelligence • on-device");
-        try {
-          const response = await runAssistantAppleFmChat({
-            systemInstruction:
-              "You are a helpful reading assistant. Answer using the attached document context when relevant. Be concise.",
-            userPrompt: trimmed,
-            documentContext: resolvedContext.content ?? contextContent,
-            conversationHistory: history,
-            maxOutputTokens: contextWindow,
-          });
-
-          const parsedResponse = parseAssistantThinking(response.content);
-          const assistant: ChatMessage = {
-            id: `a-${Date.now()}`,
-            role: "assistant",
-            content: parsedResponse.answer,
-            thinking: parsedResponse.thinking || undefined,
-            timestamp: Date.now(),
-          };
-          setMessages((prev) => [...prev, assistant]);
-        } catch (error) {
-          const message =
-            error instanceof Error && error.message
-              ? error.message
-              : "Apple Intelligence is not available on this device. Enable it in System Settings or turn on the Assistant toggle in On-Device AI settings.";
-          setError(message);
-        }
-        return;
-      }
-
-      const provider = resolved.provider!;
-      setLastUsedProviderLabel(`${provider.name || provider.provider} • ${provider.model}`);
-
-      // Small, stable system prompt optimized for reading assistance.
-      const system: LLMMessage = {
-        role: "system",
-        content:
-          "You are a concise reading assistant. Answer using the provided document context. If the context does not contain the answer, say so and suggest what to look for.",
-      };
-
-      const llmMessages: LLMMessage[] = [system, ...history, { role: "user", content: trimmed }];
-
-      const response = await chatWithContext(
-        provider.provider,
-        provider.model,
-        llmMessages,
-        {
-          type: context.type,
-          documentId: context.documentId,
-          url: context.url,
-          selection: context.selection,
-          content: resolvedContext.content ?? contextContent,
-          contextWindowTokens: contextWindow,
-          promptBudgetTokens: contextWindow,
-          configuredContextTokens: provider.contextWindowTokens ?? contextWindow,
-          maxOutputTokens: provider.maxTokens,
-        },
-        provider.apiKey,
-        provider.baseUrl && provider.baseUrl.trim() ? provider.baseUrl : undefined,
-        provider.temperature,
-        provider.maxTokens,
-        provider.systemPrompt,
-        settings.ai.aiControls?.contextFromRelatedCards,
-        settings.ai.aiControls?.documentSnippetLength
-      );
-
-      const parsedResponse = parseAssistantThinking(response.content);
+      const parsedResponse = parseAssistantThinking(response.rawContent);
       const assistant: ChatMessage = {
         id: `a-${Date.now()}`,
         role: "assistant",

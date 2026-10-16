@@ -13,8 +13,8 @@ use crate::ai::ollama_chat::{
     sanitize_ollama_error, OllamaErrorKind, OllamaNativeResponse, OllamaNativeStreamChunk,
 };
 use crate::ai::prompt_budget::{
-    assemble_context_with_budget, build_context_prompt as assemble_context_prompt,
-    BudgetMessage, ContextBudgetInput,
+    assemble_context_with_budget, build_context_prompt as assemble_context_prompt, BudgetMessage,
+    ContextBudgetInput,
 };
 use crate::ai::stream_registry::{StreamRequestRegistry, DEFAULT_MAX_STREAM_REQUESTS};
 
@@ -218,12 +218,27 @@ struct OpenAIStreamDelta {
 
 #[derive(Debug, Serialize)]
 struct AnthropicRequest {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    system: Option<String>,
     model: String,
     messages: Vec<AnthropicMessage>,
     max_tokens: usize,
     temperature: f64,
     anthropic_version: String,
     stream: Option<bool>,
+}
+
+fn join_system_messages(messages: &[LLMMessage]) -> Option<String> {
+    let text = messages
+        .iter()
+        .filter_map(|m| extract_text_from_message_content(&m.content))
+        .collect::<Vec<_>>()
+        .join("\n\n");
+    if text.trim().is_empty() {
+        None
+    } else {
+        Some(text)
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -427,15 +442,7 @@ pub async fn llm_chat(
             .await?
         }
         "ollama" => {
-            call_ollama_with_url(
-                &client,
-                &model,
-                messages,
-                temperature,
-                &policy,
-                &base_url,
-            )
-            .await?
+            call_ollama_with_url(&client, &model, messages, temperature, &policy, &base_url).await?
         }
         "openrouter" => {
             call_openrouter_with_key(
@@ -482,20 +489,36 @@ pub async fn llm_chat_with_context(
 
     let last_user_idx = messages.iter().rposition(|m| m.role == "user");
     let (history_src, last_user, trailing) = match last_user_idx {
-        Some(i) => (&messages[..i], Some(messages[i].clone()), &messages[i + 1..]),
+        Some(i) => (
+            &messages[..i],
+            Some(messages[i].clone()),
+            &messages[i + 1..],
+        ),
         None => (messages.as_slice(), None, &messages[0..0]),
     };
 
+    let protected_system = messages
+        .iter()
+        .filter(|m| m.role == "system")
+        .cloned()
+        .collect::<Vec<_>>();
+    let history = history_src
+        .iter()
+        .filter(|m| m.role != "system")
+        .cloned()
+        .collect::<Vec<_>>();
     let assembled = assemble_context_with_budget(
         &provider,
         &ContextBudgetInput {
             context_type: context.r#type.clone(),
+            scope: context.scope.clone(),
+            system_instruction: join_system_messages(&protected_system),
             document_id: context.document_id.clone(),
             url: context.url.clone(),
             selection: context.selection.clone(),
             content: context.content.clone(),
             memory_content,
-            history: budget_messages_from_llm(history_src),
+            history: budget_messages_from_llm(&history),
             current_user_message: latest_user_message.clone(),
         },
         &policy,
@@ -510,7 +533,7 @@ pub async fn llm_chat_with_context(
     if let Some(user) = last_user {
         initial_messages.push(user);
     }
-    initial_messages.extend(trailing.iter().cloned());
+    initial_messages.extend(trailing.iter().filter(|m| m.role != "system").cloned());
 
     let estimated_prompt = assembled.estimated_prompt_tokens;
     let send = || {
@@ -841,6 +864,7 @@ async fn stream_anthropic(
     let anthropic_messages = map_anthropic_messages(chat_messages)?;
 
     let request = AnthropicRequest {
+        system: join_system_messages(&system_message),
         model: model.to_string(),
         messages: anthropic_messages,
         max_tokens,
@@ -1567,7 +1591,8 @@ async fn call_openai_with_key(
 
         let mut request_builder = client.post(format!("{}/chat/completions", base_url));
         if let Some(api_key) = api_key {
-            request_builder = request_builder.header("Authorization", format!("Bearer {}", api_key));
+            request_builder =
+                request_builder.header("Authorization", format!("Bearer {}", api_key));
         }
 
         let response = request_builder
@@ -1658,6 +1683,7 @@ async fn call_anthropic_with_key(
     let anthropic_messages = map_anthropic_messages(chat_messages)?;
 
     let request = AnthropicRequest {
+        system: join_system_messages(&system_message),
         model: model.to_string(),
         messages: anthropic_messages,
         max_tokens,
@@ -1737,9 +1763,8 @@ async fn call_ollama_with_url(
         .text()
         .await
         .map_err(|e| format!("Failed to read Ollama response: {}", e))?;
-    let native: OllamaNativeResponse = serde_json::from_str(&body).map_err(|e| {
-        format!("Failed to parse Ollama response: {}", e)
-    })?;
+    let native: OllamaNativeResponse = serde_json::from_str(&body)
+        .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
 
     let prompt_tokens = native.prompt_eval_count.unwrap_or(0);
     let completion_tokens = native.eval_count.unwrap_or(0);
@@ -2232,10 +2257,7 @@ async fn fetch_ollama_model_details(
         .await
         .map_err(|e| format!("Failed to fetch Ollama model details: {e}"))?;
     if !response.status().is_success() {
-        return Err(format!(
-            "Ollama show error ({})",
-            response.status()
-        ));
+        return Err(format!("Ollama show error ({})", response.status()));
     }
     let payload: serde_json::Value = response
         .json()
@@ -2318,7 +2340,12 @@ async fn fetch_ollama_models(client: &Client, base_url: &str) -> Result<Vec<Mode
         let client = client.clone();
         let base = base_url.to_string();
         let id = m.id.clone();
-        async move { (id.clone(), fetch_ollama_model_details(&client, &base, &id).await.ok()) }
+        async move {
+            (
+                id.clone(),
+                fetch_ollama_model_details(&client, &base, &id).await.ok(),
+            )
+        }
     });
     let details = futures_util::future::join_all(detail_futs).await;
     for (id, detail) in details {
@@ -2460,6 +2487,7 @@ fn build_context_prompt(context: &LLMContextRequest, latest_user_message: Option
         context.content.as_deref(),
         excerpt_budget,
         latest_user_message,
+        context.scope.as_deref(),
     )
 }
 
@@ -2640,6 +2668,8 @@ pub struct LLMUsage {
 pub struct LLMContextRequest {
     #[serde(rename = "type")]
     pub r#type: String,
+    #[serde(default)]
+    pub scope: Option<String>,
     pub document_id: Option<String>,
     pub url: Option<String>,
     pub selection: Option<String>,
@@ -2660,6 +2690,33 @@ pub struct LLMContextRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn anthropic_request_serializes_all_system_layers() {
+        let messages = vec![
+            LLMMessage {
+                role: "system".into(),
+                content: LLMMessageContent::Text("Scope and tools".into()),
+            },
+            LLMMessage {
+                role: "system".into(),
+                content: LLMMessageContent::Text("Source evidence".into()),
+            },
+        ];
+        for stream in [Some(true), None] {
+            let request = AnthropicRequest {
+                system: join_system_messages(&messages),
+                model: "test".into(),
+                messages: vec![],
+                max_tokens: 100,
+                temperature: 0.2,
+                anthropic_version: "2023-06-01".into(),
+                stream,
+            };
+            let json = serde_json::to_value(request).unwrap();
+            assert_eq!(json["system"], "Scope and tools\n\nSource evidence");
+        }
+    }
 
     fn assert_price(actual: Option<f64>, expected: f64) {
         let actual = actual.unwrap_or_else(|| panic!("expected price {expected}, got None"));

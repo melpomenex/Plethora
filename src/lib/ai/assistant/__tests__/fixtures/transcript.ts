@@ -1,0 +1,1 @@
+export const longTranscript = Array.from({ length: 720 }, (_, i) => ({ start: i * 10, duration: 10, text: i > 660 ? `Late finding quantum entanglement resolves experiment ${i}.` : `Lecture passage ${i} discusses the history of classical mechanics and its assumptions.` }));

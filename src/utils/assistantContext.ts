@@ -56,7 +56,7 @@ export function formatSelectionExcerpt(
 function normalizeWhitespace(value?: string | null): string {
   if (value == null) return "";
   const str = typeof value === "string" ? value : String(value);
-  return str.replace(/\s+/g, " ").trim();
+  return str.replace(/\r\n?/g, "\n").replace(/[^\S\n]+/g, " ").replace(/ *\n */g, "\n").trim();
 }
 
 function stripHtml(value?: string | null): string {

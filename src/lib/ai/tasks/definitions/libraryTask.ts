@@ -1,3 +1,7 @@
+import { getDocument } from "../../../../api/documents";
+import { resolveRequestPolicy } from "../../../../api/llm/policy";
+import { useLLMProvidersStore } from "../../../../stores/llmProvidersStore";
+import { rewriteFollowUpQueryWithHistory, summarizeEvictedTurns, type ConversationHistoryTurn } from "../../assistant/promptBuilder";
 /**
  * `AskLibraryTask` — whole-library grounded Q&A (design D15 / ai-library-rag
  * spec, tasks 4.9/4.10).
@@ -85,6 +89,7 @@ export interface AskLibrarySource {
 export interface AskLibraryInput {
   /** The user's question (trusted — it is the user's own words). */
   query: string;
+  history?: readonly ConversationHistoryTurn[];
   /** Retrieved chunks, order = citation order ([1..N]). */
   sources: AskLibrarySource[];
   /**
@@ -101,7 +106,7 @@ export const askLibraryTask: AITaskDefinition<AskLibraryInput, LibraryAnswer> = 
   taskType: "prompt",
   modelClass: "full",
   systemInstruction: `${UNTRUSTED_CONTAINMENT_CLAUSE}\n${ASK_LIBRARY_CORE_INSTRUCTION}`,
-  buildInput: ({ query, sources, contextPassage }) => ({
+  buildInput: ({ query, sources, contextPassage, history }) => ({
     text: [
       "Answer the question at the end using only these numbered library chunks:",
       "",
@@ -114,11 +119,13 @@ export const askLibraryTask: AITaskDefinition<AskLibraryInput, LibraryAnswer> = 
       ...(contextPassage
         ? [
             "",
-            "The user selected this passage while asking (context only — not a citable source):",
+            "The user selected this passage while asking (a citable selection source):",
             wrapUntrustedBlock("selection-context", contextPassage),
           ]
         : []),
       "",
+      ...(history?.length ? ["Prior conversation for reference resolution only. Ground all factual claims in this turn sources:",
+        `<untrusted_conversation_summary>\n${summarizeEvictedTurns(history).replace(/<\/untrusted_conversation_summary/gi, "&lt;/untrusted_conversation_summary")}\n</untrusted_conversation_summary>`] : []),
       "Question:",
       query,
     ].join("\n"),
@@ -127,7 +134,7 @@ export const askLibraryTask: AITaskDefinition<AskLibraryInput, LibraryAnswer> = 
   schema: LIBRARY_ANSWER_SCHEMA,
   validate: (output, input) =>
     validateLibraryAnswer(output, {
-      sources: new Map(input.sources.map((s) => [s.id, s.text])),
+      sources: new Map([...input.sources.map((s) => [s.id, s.text] as const), ...(input.contextPassage ? [["selection-context", input.contextPassage] as const] : [])]),
     }),
   maxOutputTokens: ASK_LIBRARY_MAX_OUTPUT_TOKENS,
   timeoutMs: ASK_LIBRARY_TIMEOUT_MS,
@@ -235,6 +242,9 @@ export interface AskLibraryResult {
 
 export interface AskLibraryOptions {
   query: string;
+  history?: readonly ConversationHistoryTurn[];
+  contextBudgetTokens?: number;
+  loadDocumentMetadata?: (id: string) => Promise<{ isAiExcluded?: boolean; isLocalOnly?: boolean } | null>;
   /** Retrieval width (default `ASK_LIBRARY_K` ≈ 8, design D15). */
   k?: number;
   filters?: RetrievalFilters;
@@ -287,26 +297,57 @@ export async function askLibrary(options: AskLibraryOptions): Promise<AskLibrary
     );
   }
 
+  const configured = useLLMProvidersStore.getState().providers.find((provider) => provider.enabled);
+  const capabilities = options.provider ? await options.provider.getCapabilities() : undefined;
+  const policy = resolveRequestPolicy({ provider: configured?.provider ?? "ondevice", providerContextTokens: capabilities?.contextTokens ?? configured?.contextWindowTokens,
+    perModelOverride: configured?.model ? configured.modelContextWindows?.[configured.model] : undefined,
+    providerMaxOutput: configured?.maxTokens });
+  const budget = options.contextBudgetTokens ?? (policy.promptBudgetTokens <= 4096 ? 2400 : policy.promptBudgetTokens <= 16384 ? Math.min(6000, Math.floor(policy.promptBudgetTokens * .55)) : Math.min(14000, Math.floor(policy.promptBudgetTokens * .6)));
+  const query = rewriteFollowUpQueryWithHistory(options.query, options.history);
   const retrieve = options.retrieve ?? retrieveFromLibrary;
   const retrieval = options.retriever
     ? {
         results: await options.retriever.retrieve({
-          query: options.query,
+          query,
           k: options.k ?? ASK_LIBRARY_K,
           namespace: composition.namespace,
         }),
         mode: "semantic" as const,
         candidatesScanned: 0,
       }
-    : await retrieve(options.query, {
+    : await retrieve(query, {
         k: options.k ?? ASK_LIBRARY_K,
         filters: options.filters,
         config: options.config,
         includeSpotlight: options.retrieve == null,
       });
 
-  const deduped = dedupeRetrievedChunks(retrieval.results);
-  const budgeted = fitChunksToContextBudget(deduped);
+  // Privacy-eligible chunks: known exclusions always drop, but a document
+  // whose metadata cannot be loaded (deleted mid-flight, synthetic spotlight
+  // ids) is not silently discarded — only explicit isAiExcluded / isLocalOnly
+  // boundaries remove evidence.
+  const metadata = new Map(
+    await Promise.all(
+      [...new Set(retrieval.results.map((hit) => hit.documentId))].map(async (id) => {
+        try {
+          return [id, await (options.loadDocumentMetadata ?? getDocument)(id)] as const;
+        } catch {
+          return [id, null] as const;
+        }
+      }),
+    ),
+  );
+  const privacyEligible = retrieval.results.filter((hit) => {
+    const doc = metadata.get(hit.documentId);
+    if (!doc) return true;
+    return (
+      !doc.isAiExcluded &&
+      !(doc.isLocalOnly && composition.generatorKind === "cloud" && configured?.provider !== "ollama")
+    );
+  });
+  const eligibleResults = options.filters?.documentIds ? privacyEligible.filter((hit) => options.filters!.documentIds!.includes(hit.documentId)) : privacyEligible;
+  const deduped = dedupeRetrievedChunks(eligibleResults);
+  const budgeted = fitChunksToContextBudget(deduped, budget);
 
   // Nothing survived retrieval: answer honestly without invoking a model —
   // there is nothing to ground on, and a zero-chunk prompt invites
@@ -397,7 +438,7 @@ export async function askLibrary(options: AskLibraryOptions): Promise<AskLibrary
 
   const run = await runTask(
     askLibraryTask,
-    { query: options.query, sources, contextPassage: options.contextPassage },
+    { query: options.query, sources, contextPassage: options.contextPassage, history: options.history },
     {
       signal: options.signal,
       provider: options.provider,

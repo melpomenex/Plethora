@@ -1,7 +1,12 @@
+import { AssistantScopeSelector } from "../assistant/AssistantScopeSelector";
+import { runAssistantTurn } from "../../lib/ai/assistant/orchestrator";
+import { runConfiguredAssistantTurn } from "../../lib/ai/assistant/configuredTurn";
+import { parseAssistantToolCalls, normalizeAssistantToolParameters } from "../../lib/ai/assistant/toolCallParser";
+import type { AssistantScope } from "../../lib/ai/assistant/scopes";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { useDocumentStore, useLLMProvidersStore, useSettingsStore, useDocumentQAStore, useReviewStore, useStudyDeckStore, useTabsStore, type QAMessage, type QAToolCall } from "../../stores";
-import { chatWithContext, type LLMMessage } from "../../api/llm";
+import type { LLMMessage } from "../../api/llm";
 import { getDocument, extractDocumentText } from "../../api/documents";
 import { getExtracts, patchDocumentExtractCount } from "../../api/extracts";
 import { callAppMCPTool, getAppMCPTools } from "../../api/mcp";
@@ -121,6 +126,8 @@ export function DocumentQATab() {
   } = useDocumentQAStore();
 
   // Local UI state (doesn't need persistence)
+  const [assistantScope, setAssistantScope] = useState<AssistantScope>("library");
+  const [suggestSwitchToChat, setSuggestSwitchToChat] = useState(false);
   const [input, setInput] = useState("");
   const [rawInput, setRawInput] = useState(""); // Input with mention tokens
   const [mentions, setMentions] = useState<DocumentMention[]>([]);
@@ -266,7 +273,6 @@ export function DocumentQATab() {
   const getEnabledProviders = useLLMProvidersStore((state) => state.getEnabledProviders);
   const toast = useToast();
   const contextWindowTokens = useSettingsStore((state) => state.settings.ai.maxTokens);
-  const aiControls = useSettingsStore((state) => state.settings.ai.aiControls);
   const notebookFeatureEnabled = useSettingsStore((state) => state.settings.features.notebooklmEnabled);
   const analyticsEnabled = useSettingsStore((state) => state.settings.privacy.analyticsEnabled);
   const { t } = useI18n();
@@ -780,6 +786,7 @@ export function DocumentQATab() {
     }));
     restoredTargetRef.current = parsedMentions[0]?.id ?? session.selectedDocumentId;
     setMessages(session.messages);
+    setAssistantScope(session.scope ?? (session.selectedDocumentId ? "document" : "library"));
     setSelectedDocumentId(session.selectedDocumentId);
     setWebSearchEnabled(session.webSearchEnabled);
     setRawInput(draft.text);
@@ -799,7 +806,7 @@ export function DocumentQATab() {
     setHistoryOpen(false);
   };
   const workspace = useDocumentQaWorkspace({
-    snapshot: { messages, selectedDocumentId, webSearchEnabled, draft: qaDraft, documentName: sourceLabel },
+    snapshot: { scope: assistantScope, messages, selectedDocumentId, webSearchEnabled, draft: qaDraft, documentName: sourceLabel },
     restore: hydrateFromSession, isActive: workspaceIsActive, isProcessing, focus: focusComposer,
   });
   const handleNewChat = () => { if (!isProcessing) workspace.newConversation(); };
@@ -824,6 +831,7 @@ export function DocumentQATab() {
   const selectSource = (id: string) => {
     if (isProcessing) return;
     setSelectedDocumentId(id);
+    setAssistantScope(id ? "document" : "library");
     if (summaryAfterPick && id && !rawInput.trim()) {
       const prompt = t("qaWorkspace.prompt.summary");
       setRawInput(prompt);
@@ -854,6 +862,7 @@ export function DocumentQATab() {
       const docTitle = doc?.title || "Unknown Document";
 
       let documentContent = doc?.content || "";
+      if (doc?.fileType === "youtube") documentContent = await loadDocumentQaText(documentId, { getDocument, extractDocumentText });
 
       // If no content stored, try to extract from the document (e.g., PDF)
       if (!documentContent) {
@@ -941,7 +950,7 @@ export function DocumentQATab() {
     if (documentIds.length === 0) {
       // If no documents mentioned, search all documents
       return {
-        content: "User is asking about their documents. Search across all available documents to find relevant information.",
+        content: "",
         isChapterSpecific: false,
       };
     }
@@ -984,38 +993,7 @@ export function DocumentQATab() {
     };
   };
 
-  const parseToolCalls = (content: string) => {
-    const toolCalls: ToolCall[] = [];
-    const toolCallRegex = /```tool_calls\s*([\s\S]*?)```/g;
-    let cleanedContent = content;
-
-    let match: RegExpExecArray | null;
-    while ((match = toolCallRegex.exec(content)) !== null) {
-      try {
-        const parsed = JSON.parse(match[1].trim());
-        const calls = Array.isArray(parsed)
-          ? parsed
-          : Array.isArray(parsed?.tool_calls)
-            ? parsed.tool_calls
-            : [];
-
-        calls.forEach((call: { name?: string; arguments?: Record<string, unknown> }) => {
-          if (typeof call?.name === "string") {
-            toolCalls.push({
-              name: call.name,
-              parameters: call.arguments || {},
-              status: "pending",
-            });
-          }
-        });
-        cleanedContent = cleanedContent.replace(match[0], "").trim();
-      } catch (error) {
-        console.warn("Failed to parse tool call block:", error);
-      }
-    }
-
-    return { cleanedContent, toolCalls };
-  };
+  const parseToolCalls = (content: string) => parseAssistantToolCalls(content, ["create_qa_card", "create_cloze_card", "batch_create_cards", "create_extract", "create_deck"]);
 
   const documentTitleFromStore = (documentId?: string): string | undefined => {
     if (!documentId) return undefined;
@@ -1053,28 +1031,10 @@ export function DocumentQATab() {
     documentTitleOverride?: string,
     documentIdOverride?: string,
   ) => {
-    const normalized = { ...parameters };
-    const documentId = documentIdOverride ?? toolDocumentId(normalized, sourceContext);
-    const deckName = getDocumentDeckName(documentTitleOverride ?? documentTitleFromStore(documentId));
-
-    if (documentId && ATTACHABLE_TOOL_NAMES.has(toolName)) {
-      normalized.document_id = documentId;
-    }
-
-    // Auto-tag with deck:<base title> for card/extract tools.
-    // Strips parenthetical author info (e.g. "Book (Author)" → "deck:Book")
-    // so tags match deck names more reliably.
-    if (deckName && ATTACHABLE_TOOL_NAMES.has(toolName)) {
-      const deckTag = `deck:${deckName}`;
-      const existingTags: string[] = Array.isArray(normalized.tags)
-        ? normalized.tags
-          .map((t: unknown) => String(t))
-          .filter((tag) => !tag.toLowerCase().startsWith("deck:"))
-        : [];
-      normalized.tags = [...existingTags, deckTag];
-    }
-
-    return normalized;
+    return normalizeAssistantToolParameters(toolName, parameters, {
+      documentId: documentIdOverride ?? toolDocumentId(parameters, sourceContext),
+      documentTitle: documentTitleOverride ?? documentTitleFromStore(documentIdOverride ?? toolDocumentId(parameters, sourceContext)),
+    });
   };
 
   const deckNameFromParameters = (parameters: Record<string, unknown>): string | undefined => {
@@ -1455,7 +1415,7 @@ export function DocumentQATab() {
 
     const tokenIds = [...rawInput.matchAll(/@{([^}]+)}/g)].map((match) => match[1]);
     const mentionedDocumentIds = tokenIds.length > 0 ? [...new Set(tokenIds)] : selectedDocumentId ? [selectedDocumentId] : [];
-    const submittedScope = { label: effectiveScopeLabel, documentIds: mentionedDocumentIds, webSearch: webSearchEnabled };
+    const submittedScope = { conversationScope: assistantScope, label: effectiveScopeLabel, documentIds: mentionedDocumentIds, webSearch: webSearchEnabled };
     if (mentionedDocumentIds.some((id) => !documents.some((doc) => doc.id === id && !doc.isAiExcluded))) {
       setProviderError(t("qaWorkspace.sourceUnavailable"));
       return;
@@ -1530,9 +1490,26 @@ export function DocumentQATab() {
     try {
       const toolIntent = isTwentyRules || /\b(flashcards?|clozes?|extracts?|create_qa_card|create_cloze_card)\b/i.test(userQuestion);
       if (!hasSectionMentions && !chapterRef && !toolIntent && !webSearchEnabled) {
-        const message = await askQaKnowledge({ question: userQuestion, scope: submittedScope, collectionId: activeCollectionId, contextPassage });
-        const parsed = parseAssistantThinking(message.content);
-        addMessage({ ...message, content: parsed.answer, thinking: parsed.thinking || undefined });
+        if (assistantScope !== "chat" && !(assistantScope === "document" && mentionedDocumentIds.length === 0)) {
+          const message = await askQaKnowledge({ question: userQuestion, scope: submittedScope, collectionId: activeCollectionId, contextPassage,
+            history: messages.filter((message) => message.role !== "system").map((message) => ({ ...message, scope: message.submittedScope?.conversationScope })) });
+          setSuggestSwitchToChat(message.evidence?.level === "none");
+          const parsed = parseAssistantThinking(message.content);
+          addMessage({ ...message, content: parsed.answer, thinking: parsed.thinking || undefined });
+          restoreRetryRef.current = null;
+          return;
+        }
+        const result = await runConfiguredAssistantTurn({ scope: assistantScope, userQuestion,
+          documentIds: mentionedDocumentIds, sourceId: mentionedDocumentIds[0], sourceTitle: sourceLabel,
+          selectionExcerpt: contextPassage, history: messages.filter((message) => message.role !== "system").map((message) => ({ ...message, scope: message.submittedScope?.conversationScope })),
+        });
+        const parsed = parseAssistantThinking(result.answer);
+        setSuggestSwitchToChat(Boolean(result.suggestSwitchToChat));
+        addMessage({ id: `assistant-${Date.now()}`, role: "assistant", timestamp: Date.now(), submittedScope,
+          content: parsed.answer, thinking: parsed.thinking || undefined,
+          citations: result.citations?.map((source, index) => ({ documentId: source.documentId, documentTitle: source.documentTitle ?? source.documentId, chunkIndex: source.location.ordinal, chunkText: source.text, score: source.score, citationNumber: index + 1 })),
+          evidence: result.evidenceLevel ? { level: result.evidenceLevel, retrievalOnly: false, mode: "semantic", documentCount: new Set(result.citations?.map((source) => source.documentId)).size } : undefined,
+        });
         restoreRetryRef.current = null;
         return;
       }
@@ -1630,62 +1607,6 @@ export function DocumentQATab() {
       }
 
       const mcpTools = (await getAppMCPTools()) || [];
-      const systemPrompt: LLMMessage = {
-        role: "system",
-        content: `You are a helpful assistant for incremental reading and spaced repetition.
-
-${mentionedDocumentIds.length > 0
-  ? `**DOCUMENT CONTENT PROVIDED**: The user has provided full document content below. Use this content to:
-- Answer questions about the material
-- Extract key concepts for flashcards
-- Create extracts from important passages
-- Summarize and explain topics
-
-${chapterRef ? `**CHAPTER CONTEXT**: The user is asking about Chapter ${chapterRef.number}. Focus your answer and flashcard creation on that specific chapter.\n\n` : ''}
-${focusedSectionContext?.ok ? `**SECTION CONTEXT**: The user is asking about Section(s) "${focusedSectionContext.labels.join(", ")}". Focus your answer and flashcard creation on those specific sections. Resolved context estimate: ${focusedSectionContext.estimatedTokens} tokens.\n\n` : ''}`
-  : `The user is asking a general question. Answer based on your knowledge.`}
-
-**CRITICAL: TOOL USAGE**
-When the user asks to CREATE or SAVE learning items, you MUST output tool calls in the exact format below. DO NOT just display flashcards as text - use tool calls to actually save them to the database.
-
-**When to use tools**:
-- "Create flashcards", "make cards", "generate cards", "add to database" → MUST use create_qa_card or create_cloze_card tools
-- "Create an extract", "save this quote", "save this passage" → MUST use create_extract tool
-- "Save this note" → MUST use create_extract tool
-
-**For regular questions** like "summarize", "explain", "what is" - answer directly without tools.
-
-**FLASHCARD CREATION - CRITICAL INSTRUCTIONS**:
-When asked to create flashcards:
-1. Extract key concepts FROM THE PROVIDED DOCUMENT CONTENT
-2. Create meaningful Q&A cards and cloze deletion cards
-3. **IMPORTANT**: You MUST output the tool_calls code block to actually save the cards
-4. Do NOT just display "Flashcard 1", "Flashcard 2" as text
-5. The document_id will be automatically added
-
-**CORRECT FORMAT (you MUST use this)**:
-User: "Create 5 flashcards from this paper"
-You respond:
-\`\`\`tool_calls
-{"tool_calls":[
-  {"name":"create_qa_card","arguments":{"question":"What is the main contribution?","answer":"The paper introduces..."}},
-  {"name":"create_cloze_card","arguments":{"text":"BRACE conditions on the {{belief distribution}}"}},
-  {"name":"create_qa_card","arguments":{"question":"How does it learn?","answer":"End-to-end gradients..."}}
-]}
-\`\`\`
-
-**WRONG FORMAT (do NOT do this)**:
-Flashcard 1 - Q&A
-Q: ...
-A: ...
-
-${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join(", ")}
-
-**REQUIRED TOOL CALL FORMAT**:
-\`\`\`tool_calls
-{"tool_calls":[{"name":"tool_name","arguments":{"key":"value"}}]}
-\`\`\`` : ''}${isTwentyRules ? `\n\n${buildTwentyRulesSystemPrompt()}` : ""}`,
-      };
 
       // Get document context (chapter-aware or section-aware)
       const { content: documentContext, isChapterSpecific, chapterNumber, isSectionSpecific, sectionTitle } = await buildMultiDocumentContext(
@@ -1736,35 +1657,32 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
         .filter(m => m.role === "user" || m.role === "assistant")
         .filter(m => [...(m.mentionedDocumentIds ?? []), ...(m.sourceDocuments ?? [])].every((id) =>
           eligible.some((doc) => doc.id === id)))
-        .slice(-6) // Last 6 messages for context (3 turns)
+
         .map(m => ({
           role: m.role,
           content: m.role === "assistant" ? getAssistantAnswer(m.content) : m.content,
         }));
 
       // Call LLM with conversation history
-      const response = await chatWithContext(
-        provider.provider,
-        provider.model,
-        [systemPrompt, ...conversationHistory, userPrompt],
-        {
-          type: mentionedDocumentIds.length > 0 ? "document" : "general",
-          documentId: mentionedDocumentIds[0],
-          content: mentionedDocumentIds.length > 0 ? requestContent.contextContent : webSearchContext,
-          promptBudgetTokens: provider.contextWindowTokens,
-          configuredContextTokens: provider.contextWindowTokens,
-          maxOutputTokens: provider.maxTokens,
-        },
-        provider.apiKey,
-        provider.baseUrl,
-        provider.temperature,
-        provider.maxTokens,
-        provider.systemPrompt,
-        aiControls?.contextFromRelatedCards,
-        aiControls?.documentSnippetLength
-      );
+      const response = await runAssistantTurn({
+        scope: assistantScope, userQuestion: String(userPrompt.content),
+        sourceContent: requestContent.contextContent, sourceId: mentionedDocumentIds[0], sourceTitle: sourceLabel,
+        sourceType: targetDocument?.fileType === "youtube" ? "video" : "document", selectionExcerpt: contextPassage,
+        history: conversationHistory.map((message) => ({ role: message.role, content: String(message.content) })),
+        provider: provider.provider, model: provider.model, apiKey: provider.apiKey, baseUrl: provider.baseUrl,
+        temperature: provider.temperature, maxOutputTokens: provider.maxTokens, configuredContextTokens: provider.contextWindowTokens,
+        memoryEnabled: useSettingsStore.getState().settings.ai.memoryEnabled,
+        strictLocalOnly: useSettingsStore.getState().settings.ai.strictLocalOnly,
+        documentsForPrivacyCheck: eligible, tools: mcpTools, isTwentyRules, twentyRulesPrompt: buildTwentyRulesSystemPrompt(),
+        systemInstruction: provider.systemPrompt,
+        libraryExecutor: assistantScope === "library" ? async ({ rewrittenQuery, history, contextPassage, contextBudgetTokens, k }) => {
+          const [{ askLibrary }, { resolveEmbeddingConfigForRag }] = await Promise.all([import("../../lib/ai/tasks/definitions/libraryTask"), import("../assistant/ragConfig")]);
+          return askLibrary({ query: rewrittenQuery, history, contextPassage, contextBudgetTokens, k, config: await resolveEmbeddingConfigForRag().catch(() => undefined), filters: { documentIds: eligible.map((doc) => doc.id) } });
+        } : undefined,
+      });
+      setSuggestSwitchToChat(Boolean(response.suggestSwitchToChat));
 
-      const parsedResponse = parseAssistantThinking(response.content);
+      const parsedResponse = parseAssistantThinking(response.rawContent);
       const { cleanedContent, toolCalls } = parseToolCalls(parsedResponse.answer);
 
       const assistantMessage = {
@@ -1803,6 +1721,10 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
 
   return (
     <div className="document-qa-workspace flex h-full min-h-0 bg-surface text-on-surface">
+      <div className="flex flex-wrap items-center gap-2 px-3 py-2">
+        <AssistantScopeSelector value={assistantScope} onChange={setAssistantScope} disabled={isProcessing} />
+        {suggestSwitchToChat && assistantScope !== "chat" && <Button variant="text" onClick={() => setAssistantScope("chat")}>Switch to Chat</Button>}
+      </div>
       <DocumentQaHistory sessions={workspace.sessions} activeId={workspace.activeId} busy={isProcessing}
         onNew={handleNewChat} onResume={workspace.resume} onRename={workspace.rename} onDelete={workspace.remove}
         open={historyOpen} onClose={() => setHistoryOpen(false)} />
@@ -2243,7 +2165,7 @@ ${mcpTools.length > 0 ? `**AVAILABLE TOOLS**: ${mcpTools.map((t) => t.name).join
                   textareaRef.current?.focus();
                 }} title={t("qaWorkspace.twentyRules")}>/20rules</Button>
               </div>
-              <Button onClick={() => void handleSendMessage()} disabled={!rawInput.trim() || isProcessing || documents.length === 0} className="px-5">
+              <Button onClick={() => void handleSendMessage()} disabled={!rawInput.trim() || isProcessing || (documents.length === 0 && assistantScope !== "chat")} className="px-5">
                 {isProcessing ? <CircleNotch className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <PaperPlaneTilt aria-hidden="true" />}
                 {t("qaWorkspace.ask")}
               </Button>

@@ -1,3 +1,5 @@
+import type { VideoViewerContext } from "../lib/ai/assistant/scopes";
+import { SELECTION_ASK_EVENT, type SelectionAskEventDetail } from "../utils/selectionAskHandoff";
 import { emitInteractionFeedback, createFeedbackInteractionId } from "../lib/feedback/orchestrator";
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -2189,6 +2191,9 @@ export function QueueScrollPage() {
   const [scrollState, setScrollState] = useState<{ pageNumber?: number; scrollPercent?: number }>({});
   const [debouncedScrollPercent, setDebouncedScrollPercent] = useState<number | undefined>(undefined);
 
+  const [liveVideoContext, setLiveVideoContext] = useState<VideoViewerContext | null>(null);
+  const liveVideoRef = useRef(liveVideoContext);
+  liveVideoRef.current = liveVideoContext;
   const [pdfContextText, setPdfContextText] = useState<string | undefined>(undefined);
   const [pdfOcrContextText, setPdfOcrContextText] = useState<string | null>(null);
   const [documentContent, setDocumentContent] = useState<string | undefined>(undefined);
@@ -2236,6 +2241,8 @@ export function QueueScrollPage() {
     setSelection("");
     setScrollState({});
     setDebouncedScrollPercent(undefined);
+    setLiveVideoContext(null);
+    setAssistantContext(undefined);
     setPdfContextText(undefined);
     setPdfOcrContextText(null);
     setDocumentContent(undefined);
@@ -2245,6 +2252,19 @@ export function QueueScrollPage() {
     setSummaryText("");
     setIsSummarizing(false);
   }, [renderedItem?.id]);
+
+  useEffect(() => {
+    const openSelection = (event: Event) => {
+      const detail = (event as CustomEvent<SelectionAskEventDetail>).detail;
+      if (!detail?.snapshot || detail.snapshot.documentId !== (renderedItem ?? currentItem)?.documentId) return;
+      setSelection(detail.snapshot.excerpt);
+      setIsAssistantVisible(true);
+      // A newly mounted panel consumes the same snapshot after it registers.
+      window.setTimeout(() => window.dispatchEvent(new CustomEvent("plethora:selection-ask-replay", { detail })), 0);
+    };
+    window.addEventListener(SELECTION_ASK_EVENT, openSelection);
+    return () => window.removeEventListener(SELECTION_ASK_EVENT, openSelection);
+  }, [renderedItem?.id, currentItem?.id]);
 
   const [assistantContext, setAssistantContext] = useState<AssistantContext | undefined>(undefined);
 
@@ -2295,7 +2315,7 @@ export function QueueScrollPage() {
         const doc = documentsRef.current.find((d) => d.id === assistantItem.documentId);
         if (doc?.fileType === "youtube") {
           return resolveGenericAssistantContext(
-            assistantContextRef.current?.content,
+            liveVideoRef.current?.transcript ?? transcriptCacheRef.current.get(doc.id),
             "video-transcript",
             activeSelection,
           );
@@ -2365,7 +2385,7 @@ export function QueueScrollPage() {
         const titleLine = title ? `Title: ${title}` : null;
 
         if (doc?.fileType === "youtube") {
-          let transcriptText = transcriptCacheRef.current.get(doc.id);
+          let transcriptText = liveVideoRef.current?.videoId === extractYouTubeId(doc.filePath) ? liveVideoRef.current.transcript : transcriptCacheRef.current.get(doc.id);
           if (!transcriptText && !transcriptFetchInFlightRef.current.has(doc.id)) {
             transcriptFetchInFlightRef.current.add(doc.id);
             try {
@@ -2389,7 +2409,7 @@ export function QueueScrollPage() {
 
           if (transcriptText) {
             const content = [titleLine, transcriptText].filter(Boolean).join("\n\n");
-            const trimmed = content ? await trimToTokenWindow(content, maxTokens, aiModel, selection, debouncedScrollPercent) : undefined;
+            const trimmed = content;
             if (!cancelled) {
               setAssistantContext({
                 type: "video",
@@ -2407,6 +2427,11 @@ export function QueueScrollPage() {
             }
             return;
           }
+        }
+
+        if (doc?.fileType === "youtube") {
+          if (!cancelled) setAssistantContext({ type: "video", documentId: doc.id, status: "unavailable", transcriptStatus: "unavailable", metadata: { title: doc.title, videoId: extractYouTubeId(doc.filePath) }, resolveForPrompt: resolveContextForPrompt });
+          return;
         }
 
         let contentText = doc?.content ?? documentContent;
@@ -4133,7 +4158,11 @@ export function QueueScrollPage() {
             </div>
             <div className="flex-shrink-0 h-full min-h-0 z-10">
               <AssistantPanel
-                context={assistantContext}
+                context={liveVideoContext ? { ...assistantContext, type: "video", documentId: (renderedItem ?? currentItem)?.documentId,
+                  content: liveVideoContext.transcript, status: liveVideoContext.transcript?.trim() ? "ready" : liveVideoContext.transcriptStatus === "loading" ? "loading" : "unavailable",
+                  transcriptStatus: liveVideoContext.transcriptStatus, selection, position: { currentTime: liveVideoContext.currentTime }, metadata: liveVideoContext,
+                  resolveForPrompt: resolveContextForPrompt, retryTranscript: () => window.dispatchEvent(new CustomEvent("plethora:retry-transcript", { detail: { documentId: (renderedItem ?? currentItem)?.documentId } })),
+                } : assistantContext}
                 className="assistant-panel h-full"
                 onInputHoverChange={setAssistantInputActive}
                 appendContextMessages={false}
@@ -4176,6 +4205,7 @@ export function QueueScrollPage() {
                 autoPlay={isAudioEdition}
                 embedded={true}
                 hideRatingOrbs={true}
+                onVideoContextChange={setLiveVideoContext}
                 onSelectionChange={setSelection}
                 onScrollPositionChange={setScrollState}
                 onPdfContextTextChange={setPdfContextText}
@@ -4509,7 +4539,11 @@ export function QueueScrollPage() {
           <>
             <div className="flex-shrink-0 h-full min-h-0 z-10">
               <AssistantPanel
-                context={assistantContext}
+                context={liveVideoContext ? { ...assistantContext, type: "video", documentId: (renderedItem ?? currentItem)?.documentId,
+                  content: liveVideoContext.transcript, status: liveVideoContext.transcript?.trim() ? "ready" : liveVideoContext.transcriptStatus === "loading" ? "loading" : "unavailable",
+                  transcriptStatus: liveVideoContext.transcriptStatus, selection, position: { currentTime: liveVideoContext.currentTime }, metadata: liveVideoContext,
+                  resolveForPrompt: resolveContextForPrompt, retryTranscript: () => window.dispatchEvent(new CustomEvent("plethora:retry-transcript", { detail: { documentId: (renderedItem ?? currentItem)?.documentId } })),
+                } : assistantContext}
                 className="assistant-panel h-full"
                 onInputHoverChange={setAssistantInputActive}
                 appendContextMessages={false}

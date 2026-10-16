@@ -60,7 +60,7 @@ export const LIBRARY_ANSWER_SCHEMA = {
 
 /** Whitespace-squashed, case-folded text for containment checks. */
 function normalizeForContainment(text: string): string {
-  return text.replace(/\s+/g, " ").trim().toLowerCase();
+  return text.normalize("NFKC").replace(/[‘’]/g, "\'").replace(/[“”]/g, '"').replace(/[–—]/g, "-").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 /**
@@ -70,7 +70,16 @@ function normalizeForContainment(text: string): string {
 export function quoteIsGroundedIn(sourceText: string, quote: string): boolean {
   const needle = normalizeForContainment(quote);
   if (!needle) return false;
-  return normalizeForContainment(sourceText).includes(needle);
+  const source = normalizeForContainment(sourceText);
+  let offset = 0;
+  const clauses = needle.split(/\.{3,}|…/).map((part) => part.trim()).filter(Boolean);
+  if (!clauses.length) return false;
+  for (const clause of clauses) {
+    const found = source.indexOf(clause, offset);
+    if (found < 0) return false;
+    offset = found + clause.length;
+  }
+  return true;
 }
 
 export interface ValidateLibraryAnswerContext {

@@ -1,3 +1,4 @@
+import type { VideoViewerContext } from "../../lib/ai/assistant/scopes";
 import { lazy as lazyTranslation, Suspense as TranslationSuspense } from "react";
 import { usePaletteSelection, getPaletteSelection, type PaletteSelection } from "../../commandPalette/selectionTranslation";
 import { textAnnotationTargetsAtPoint, type ReaderContextMenuPayload, type PersistedEpubHighlight } from "./annotationContextMenu";
@@ -415,13 +416,7 @@ interface DocumentViewerProps {
   extractPostCreateBehavior?: "show-extracts" | "stay-in-reader";
   focusedExtractId?: string;
   extractSourceContext?: ExtractSourceContext;
-  onVideoContextChange?: (context: {
-    videoId: string;
-    title?: string;
-    transcript?: string;
-    currentTime?: number;
-    duration?: number;
-  } | null) => void;
+  onVideoContextChange?: (context: VideoViewerContext | null) => void;
   onMediaSectionsChange?: (sections: SectionNode[]) => void;
   hideRatingOrbs?: boolean;
   /**
@@ -606,13 +601,7 @@ export function DocumentViewer({
   const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode ?? "document");
   const [isPaletteMode, setIsPaletteMode] = useState(false);
   const [isExtractMode, setIsExtractMode] = useState(false);
-  const [videoContext, setVideoContext] = useState<{
-    videoId: string;
-    title?: string;
-    transcript?: string;
-    currentTime?: number;
-    duration?: number;
-  } | null>(null);
+  const [videoContext, setVideoContext] = useState<VideoViewerContext | null>(null);
   const readingSessionStartRef = useRef(Date.now());
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -4610,6 +4599,7 @@ export function DocumentViewer({
   }, [currentDocument]);
 
   const handleYouTubeLoad = useCallback((metadata: { duration: number; title: string }) => {
+    setVideoContext((previous) => previous ? { ...previous, duration: metadata.duration, title: metadata.title || previous.title } : previous);
   }, []);
 
   const handlePdfContextTextChange = useCallback(
@@ -8434,6 +8424,10 @@ export function DocumentViewer({
                   closeTab(currentTab.id);
                 }
               }}
+              onTranscriptStatusChange={(transcriptStatus) => setVideoContext((previous) => ({
+                ...previous, videoId: extractYouTubeVideoId(currentDocument.filePath) ?? "", title: currentDocument.title, transcriptStatus,
+                ...(transcriptStatus === "loading" ? { transcript: undefined } : {}),
+              }))}
               onTranscriptLoad={(segments) => {
                 const transcriptText = segments.map(s => `[${formatTime(s.start)}] ${s.text}`).join("\n");
                 setVideoContext(prev => ({

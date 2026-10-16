@@ -373,3 +373,23 @@ describe("workspace drafts", () => {
     failure.mockRestore();
   });
 });
+
+
+describe("conversation scopes migration", () => {
+  it("restores old document and library sessions without losing messages", () => {
+    const document = createSession({ selectedDocumentId: "doc-1", messages: [userMsg("keep this")] });
+    const library = createSession({ messages: [userMsg("library question")] });
+    const { scope: _first, ...legacyDocument } = document;
+    const { scope: _second, ...legacyLibrary } = library;
+    localStorage.setItem(STORAGE_KEYS.sessions, JSON.stringify([legacyDocument, legacyLibrary]));
+    const loaded = loadSessions();
+    expect(loaded.find((session) => session.id === document.id)?.scope).toBe("document");
+    expect(loaded.find((session) => session.id === library.id)?.scope).toBe("library");
+    expect(loaded.find((session) => session.id === document.id)?.messages[0].content).toBe("keep this");
+  });
+  it("persists explicit Chat scope with the draft and messages", () => {
+    const session = createSession({ scope: "chat", selectedDocumentId: "doc-1", messages: [userMsg("general topic")], draft: { text: "follow up", sections: [] } });
+    saveSessions([session]);
+    expect(loadSessions()[0]).toMatchObject({ scope: "chat", draft: { text: "follow up" }, messages: [{ content: "general topic" }] });
+  });
+});

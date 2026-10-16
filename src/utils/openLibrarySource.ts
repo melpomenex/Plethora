@@ -42,6 +42,9 @@ export function chunkLocationToSearchHit(
   chunkText: string
 ): ExactSearchHitLocation | undefined {
   const quote = quoteText(chunkText);
+  if (location.timestampMs != null && Number.isFinite(location.timestampMs) && location.timestampMs >= 0 && ["youtube", "audio", "video"].includes(document.fileType)) {
+    return { kind: document.fileType === "youtube" ? "youtube" : "audio", timeSeconds: location.timestampMs / 1000, textQuote: quote };
+  }
   switch (location.sourceType) {
     case "pdf":
       if (typeof location.pageNumber === "number" && location.pageNumber > 0) {

@@ -9,6 +9,7 @@ import {
 } from "./documentQaSessions";
 
 export interface QaWorkspaceSnapshot {
+  scope?: DocumentQaSession["scope"];
   messages: DocumentQaSession["messages"];
   selectedDocumentId: string;
   webSearchEnabled: boolean;
@@ -84,7 +85,7 @@ export function useDocumentQaWorkspace({ snapshot, restore, isActive, isProcessi
     const timer = window.setTimeout(flush, 500);
     return () => window.clearTimeout(timer);
   }, [ready, isActive, snapshot.messages, snapshot.selectedDocumentId, snapshot.webSearchEnabled,
-    snapshot.draft, flush]);
+    snapshot.draft, snapshot.scope, flush]);
 
   // A reload/navigation must not lose the last debounce interval of typing.
   useEffect(() => {
@@ -131,9 +132,9 @@ export function useDocumentQaWorkspace({ snapshot, restore, isActive, isProcessi
     if (!flush()) return;
     const session = reusable
       ? loadSessions().find((candidate) => candidate.id === activeRef.current)
-      : createSession({ selectedDocumentId: documentId });
+      : createSession({ scope: "library", selectedDocumentId: documentId });
     if (!session) return;
-    const prepared = { ...session, draft: { text: pending.question, sections: [], contextPassage: pending.contextPassage } };
+    const prepared = { ...session, scope: "library" as const, draft: { text: pending.question, sections: [], contextPassage: pending.contextPassage } };
     const next = [prepared, ...loadSessions().filter((candidate) => candidate.id !== prepared.id)];
     if (!saveSessions(next)) { reportSaveError(); return; }
     if (!activate(prepared)) return;

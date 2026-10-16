@@ -84,6 +84,7 @@ export interface LLMResponse {
 
 export interface LLMContext {
   type: "document" | "web" | "general" | "video";
+  scope?: "chat" | "document" | "library";
   documentId?: string;
   url?: string;
   selection?: string;
@@ -161,7 +162,7 @@ export async function chatWithContext(
 ): Promise<LLMResponse> {
   // Normalize context content to ensure it's always a string
   const normalizedContent = normalizeContextContent(context.content);
-  if (context.type === "document" && !normalizedContent?.trim()) {
+  if (context.type === "document" && context.scope === "document" && !normalizedContent?.trim()) {
     throw new Error("Document context is unavailable for this request.");
   }
 
@@ -187,6 +188,7 @@ export async function chatWithContext(
     maxTokens: policy.maxOutputTokens,
     context: {
       type: context.type,
+      scope: context.scope,
       documentId: context.documentId,
       url: context.url,
       selection: context.selection,

@@ -59,7 +59,7 @@ describe("Document Q&A focused-section provider boundary", () => {
   });
 
   it.each(["openai", "anthropic"] as LLMProvider[])(
-    "sends the canonical section body in both LLM-facing fields for %s",
+    "sends the canonical section body once through structured context for %s",
     async (provider) => {
       const fullContent = "# Overview\nGeneral material.\n# Evidence\nThe decisive body phrase is forty-two.\n# Appendix\nUnrelated notes.";
       const { flat } = buildDocumentSections(fullContent);
@@ -88,10 +88,10 @@ describe("Document Q&A focused-section provider boundary", () => {
       expect(mockInvokeCommand).toHaveBeenCalledOnce();
       const [, args] = mockInvokeCommand.mock.calls[0];
       expect(args.provider).toBe(provider);
-      expect(args.messages.at(-1).content).toContain("The decisive body phrase is forty-two.");
+      expect(args.messages.at(-1).content).not.toContain("The decisive body phrase is forty-two.");
       expect(args.context.content).toContain("The decisive body phrase is forty-two.");
       expect(args.context.content).not.toBe("Evidence");
-      expect(args.messages.at(-1).content.match(/The decisive body phrase is forty-two\./g)).toHaveLength(1);
+      expect(args.messages.at(-1).content.match(/The decisive body phrase is forty-two\./g)).toBeNull();
       expect(args.context.content.match(/The decisive body phrase is forty-two\./g)).toHaveLength(1);
     },
   );
@@ -152,7 +152,7 @@ describe("Document Q&A focused-section provider boundary", () => {
       userQuestion: "Create Q&A and cloze cards",
       focusLabel: focused.labels.join(", "),
     });
-    expect(request.userPromptContent).toContain("Unique EPUB card source");
+    expect(request.userPromptContent).not.toContain("Unique EPUB card source");
     expect(request.contextContent).toContain("Unique EPUB card source");
     expect(request.contextContent).not.toContain("Opening material");
     expect(request.contextContent).not.toContain("Closing material");
@@ -201,7 +201,7 @@ describe("Document Q&A focused-section provider boundary", () => {
       userQuestion: "Summarize this chapter.",
       focusLabel: focused.labels.join(", "),
     });
-    expect(request.userPromptContent).toContain("Darwin delayed publishing his theory");
+    expect(request.userPromptContent).not.toContain("Darwin delayed publishing his theory");
     expect(request.contextContent).toContain("Darwin delayed publishing his theory");
     // The front-matter table of contents must not be what the model receives.
     expect(request.contextContent).not.toMatch(/^Contents$/m);

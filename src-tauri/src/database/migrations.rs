@@ -4151,6 +4151,23 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE rss_user_preferences ADD COLUMN card_height TEXT;
     "#,
     ),
+    Migration::new(
+        "121_canonical_youtube_transcripts",
+        r#"
+        ALTER TABLE youtube_transcripts ADD COLUMN language TEXT;
+        UPDATE documents SET content = (
+            SELECT transcript FROM youtube_transcripts yt
+            WHERE (yt.document_id = documents.id OR
+                (documents.file_type = 'youtube' AND instr(documents.file_path, yt.video_id) > 0))
+              AND trim(yt.transcript) <> '' LIMIT 1
+        ) WHERE (content IS NULL OR content = '') AND EXISTS (
+            SELECT 1 FROM youtube_transcripts yt
+            WHERE (yt.document_id = documents.id OR
+                (documents.file_type = 'youtube' AND instr(documents.file_path, yt.video_id) > 0))
+              AND trim(yt.transcript) <> ''
+        );
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
@@ -4871,5 +4888,72 @@ mod tests {
             insert(&pool).await.is_err(),
             "content_hash is the cache identity, so a duplicate must be rejected"
         );
+    }
+
+    #[tokio::test]
+    async fn canonical_youtube_transcript_migration_adds_language_and_backfills_empty_content() {
+        let pool = pool_migrated_up_to("121_canonical_youtube_transcripts").await;
+
+        // A pre-change installation: the video viewer cached a transcript in
+        // `youtube_transcripts` but never wrote `documents.content`, so the
+        // document rows that FTS5 / Document Q&A read stayed empty.
+        sqlx::query(
+            "INSERT INTO documents (id, title, file_path, file_type, date_added, date_modified, content)
+             VALUES ('yt-doc-1', 'Cached talk', 'https://www.youtube.com/watch?v=vid-1', 'youtube', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '')",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed youtube document");
+
+        // A document whose content is already present must never be rewritten.
+        sqlx::query(
+            "INSERT INTO documents (id, title, file_path, file_type, date_added, date_modified, content)
+             VALUES ('pdf-doc-1', 'Untouched', '/tmp/other.pdf', 'pdf', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'Existing body')",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed filled document");
+
+        sqlx::query(
+            "INSERT INTO youtube_transcripts (id, document_id, video_id, transcript, segments_json, date_created, date_modified)
+             VALUES ('yt-1', 'yt-doc-1', 'vid-1', '[00:00] Hello world', '[]', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed transcript");
+
+        run_migrations(&pool).await.expect("migrations apply");
+
+        // The language column exists and is nullable on existing rows.
+        let language: Option<String> =
+            sqlx::query_scalar("SELECT language FROM youtube_transcripts WHERE id = 'yt-1'")
+                .fetch_one(&pool)
+                .await
+                .expect("read language");
+        assert_eq!(language, None, "language is unrecorded, not fabricated");
+
+        // The cached transcript backfilled the empty document content, and
+        // the FTS5 trigger carried it into document_search.
+        let (content,): (String,) =
+            sqlx::query_as("SELECT content FROM documents WHERE id = 'yt-doc-1'")
+                .fetch_one(&pool)
+                .await
+                .expect("read backfilled content");
+        assert_eq!(content, "[00:00] Hello world");
+        let (search_hits,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM document_search WHERE document_id = 'yt-doc-1' AND content LIKE '%Hello world%'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("read document_search");
+        assert_eq!(search_hits, 1, "backfill should sync into FTS5");
+
+        // Non-empty content is left exactly as it was.
+        let (unchanged,): (String,) =
+            sqlx::query_as("SELECT content FROM documents WHERE id = 'pdf-doc-1'")
+                .fetch_one(&pool)
+                .await
+                .expect("read untouched content");
+        assert_eq!(unchanged, "Existing body");
     }
 }

@@ -469,6 +469,13 @@ function TranscriptView({ documentId, documentTitle, filePath, currentTime, onSe
   const loadTranscript = useCallback(async () => {
     setLoading(true);
     try {
+      const doc = await getDocument(documentId);
+      if (doc?.fileType === "youtube") {
+        const videoId = doc.filePath.match(/(?:v=|youtu\.be\/|embed\/)([\w-]{11})/)?.[1] ?? doc.filePath;
+        const segments = await invokeCommand<Array<{ text: string; start: number; duration: number }>>("get_youtube_transcript_by_id", { videoId, documentId });
+        setTranscript(segments.map((segment) => ({ time: segment.start, text: segment.text })));
+        return;
+      }
       const result = await getVideoTranscript(documentId);
       if (result) {
         setTranscript(result.segments);

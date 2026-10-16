@@ -42,7 +42,7 @@ export interface Message {
   toolCalls?: ToolCall[];
   mentionedDocumentIds?: string[];
   sourceContext?: SectionSourceReference;
-  submittedScope?: { label: string; documentIds: string[]; webSearch: boolean };
+  submittedScope?: { conversationScope?: import("../lib/ai/assistant/scopes").AssistantScope; label: string; documentIds: string[]; webSearch: boolean };
   evidence?: {
     level: "supported" | "weak" | "conflicting" | "none";
     retrievalOnly: boolean;

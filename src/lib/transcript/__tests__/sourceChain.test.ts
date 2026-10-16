@@ -51,6 +51,7 @@ describe("Transcript Source Chain", () => {
       videoId: "video123",
       language: undefined,
       documentId: null,
+      forceRefresh: false,
     });
   });
 

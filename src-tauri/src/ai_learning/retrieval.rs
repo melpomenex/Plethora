@@ -100,22 +100,8 @@ pub async fn retrieve(
         let model = backend.model_name();
         let version = backend.embedding_version();
 
-        // Candidate documents: FTS hits ∪ explicit filters.
-        let mut candidate_docs: Option<Vec<String>> = filters.document_ids.clone();
-        if let Some(fts) = fts_doc_ids.as_ref() {
-            candidate_docs = Some(match candidate_docs.take() {
-                Some(explicit) => {
-                    let mut merged = explicit;
-                    for id in fts {
-                        if !merged.contains(id) {
-                            merged.push(id.clone());
-                        }
-                    }
-                    merged
-                }
-                None => fts.clone(),
-            });
-        }
+        // Explicit filters are an authorization boundary, not additional FTS candidates.
+        let candidate_docs = filters.document_ids.clone().or_else(|| fts_doc_ids.clone());
 
         let (scored, scanned) = semantic_topk(
             repo,
@@ -894,7 +880,13 @@ mod tests {
     async fn cross_modal_figure_and_media_retrieval() {
         let pool = test_pool().await;
         let repo = Repository::new(pool.clone());
-        seed_document(&pool, "doc-vis-1", "Neural network architectures and figures.", "pdf").await;
+        seed_document(
+            &pool,
+            "doc-vis-1",
+            "Neural network architectures and figures.",
+            "pdf",
+        )
+        .await;
         reindex_fts(&pool).await;
 
         let backend = EmbeddingBackend::Mock {

@@ -33,4 +33,14 @@ describe("AssistantResponseContent", () => {
     );
     expect(screen.getByText("assistant.thinkingInterrupted")).toBeTruthy();
   });
+  it("turns video timestamps into seek controls while keeping code inert", () => {
+    const seek = vi.fn();
+    render(<AssistantResponseContent content="See [14:25] and [1:02:10]. `Example [01:10]`" onTimestampClick={seek} />);
+    fireEvent.click(screen.getByRole("button", { name: "Seek to [14:25]" }));
+    expect(seek).toHaveBeenCalledWith(865);
+    fireEvent.click(screen.getByRole("button", { name: "Seek to [1:02:10]" }));
+    expect(seek).toHaveBeenCalledWith(3730);
+    expect(screen.queryByRole("button", { name: "Seek to [01:10]" })).toBeNull();
+  });
+
 });

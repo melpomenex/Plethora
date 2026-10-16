@@ -1,3 +1,5 @@
+import type { AssistantScope } from "../lib/ai/assistant/scopes";
+
 export interface BraveSearchResult {
   title: string;
   url: string;
@@ -13,14 +15,69 @@ const EXPANSION_PATTERNS: RegExp[] = [
   /search\s+(the\s+)?web/i,
   /more\s+(context|background|about\s+this)/i,
   /explain\s+.*\s+in\s+more\s+depth/i,
-  /chapter/i,
 ];
 
-export function shouldExpandBeyondDocument(question: string, lookupToggle?: boolean): boolean {
+const WEB_LOOKUP_PATTERNS: RegExp[] = [
+  /look\s*(it|this|that)?\s*up/i,
+  /search\s+(the\s+)?web/i,
+  /find\s+more\s+about/i,
+  /beyond\s+(this|the)\s+document/i,
+  /what\s+else\s+can\s+you\s+tell\s+me/i,
+];
+
+export function shouldExpandBeyondDocument(
+  question: string,
+  lookupToggle?: boolean,
+  scope?: AssistantScope,
+): boolean {
   if (lookupToggle) return true;
+  if (scope === "document" || scope === "library") return false;
   const normalized = question.trim();
   if (!normalized) return false;
   return EXPANSION_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+export function shouldTriggerWebLookup(
+  question: string,
+  lookupToggle?: boolean,
+  scope?: AssistantScope,
+): boolean {
+  if (lookupToggle) return true;
+  if (scope === "document") return false;
+  const normalized = question.trim();
+  if (!normalized) return false;
+  return WEB_LOOKUP_PATTERNS.some((pattern) => pattern.test(normalized));
+}
+
+/**
+ * Construct a focused web search query from the user's actual question
+ * rather than sending a raw multi-sentence selected passage verbatim.
+ */
+export function buildWebSearchQuery(
+  question: string,
+  selection?: string | null,
+): string {
+  const cleanedQuestion = question
+    .replace(/\b(look\s*(?:it|this|that)?\s*up|search\s+(?:the\s+)?web(?:\s+for)?|what\s+else\s+can\s+you\s+tell\s+me\s+about)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const needsTopicDisambiguation =
+    !cleanedQuestion ||
+    cleanedQuestion.length < 12 ||
+    /\b(this|it|that|these|those|the\s+selection|this\s+paragraph)\b/i.test(cleanedQuestion);
+
+  if (needsTopicDisambiguation && selection?.trim()) {
+    const topicSnippet = selection
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 120);
+    return cleanedQuestion
+      ? `${cleanedQuestion} ${topicSnippet}`.slice(0, 300).trim()
+      : topicSnippet;
+  }
+
+  return (cleanedQuestion || question.trim()).slice(0, 300);
 }
 
 export function buildDocFirstExpansionInstruction(): string {

@@ -72,8 +72,18 @@ function withTimeout<T>(promise: Promise<T>, ms: number, errorMsg: string): Prom
 
 async function resolveTranscriptInternal(
   videoId: string,
-  language?: string
+  language?: string,
+  options?: { documentId?: string; forceRefresh?: boolean },
 ): Promise<SourceChainResult> {
+  if (!isTauri() && !options?.forceRefresh) {
+    try {
+      const raw = localStorage.getItem(`plethora:youtube-transcript:${videoId}`);
+      const cached = raw ? JSON.parse(raw) : undefined;
+      if (Array.isArray(cached?.segments) && cached.segments.length > 0 && (!language || !cached.language || language === cached.language)) {
+        return { segments: cached.segments, language: cached.language ?? "en", source: "local-cache" };
+      }
+    } catch { /* An invalid browser cache falls through to the source chain. */ }
+  }
   const settings = useSettingsStore.getState().settings;
   const onDeviceEnabled = settings.youtube?.transcriptOnDeviceEnabled ?? true;
   const customUrl = settings.youtube?.transcriptServerUrl;
@@ -87,7 +97,8 @@ async function resolveTranscriptInternal(
         invokeCommand<any>("fetch_youtube_transcript_on_device", {
           videoId,
           language,
-          documentId: null,
+          documentId: options?.documentId ?? null,
+          forceRefresh: options?.forceRefresh ?? false,
         }),
         15000,
         "On-device transcript fetch timed out (15s)"
@@ -172,11 +183,15 @@ async function resolveTranscriptInternal(
 
 export async function resolveTranscript(
   videoId: string,
-  language?: string
+  language?: string,
+  options?: { documentId?: string; forceRefresh?: boolean },
 ): Promise<SourceChainResult> {
   const startTime = Date.now();
   try {
-    const result = await resolveTranscriptInternal(videoId, language);
+    const result = await resolveTranscriptInternal(videoId, language, options);
+    await invokeCommand("save_youtube_transcript_segments", {
+      videoId, documentId: options?.documentId ?? null, language: result.language, segments: result.segments,
+    });
     saveDiagnostic({
       videoId,
       timestamp: new Date().toISOString(),

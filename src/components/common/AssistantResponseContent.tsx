@@ -9,6 +9,7 @@ export type AssistantThinkingStatus = "running" | "complete" | "interrupted";
 
 interface AssistantResponseContentProps {
   content: string;
+  onTimestampClick?: (seconds: number) => void;
   /** Optional separately persisted thinking text. */
   thinking?: string;
   /** `running` buffers delimiter prefixes split across streamed chunks. */
@@ -19,28 +20,57 @@ interface AssistantResponseContentProps {
 }
 
 function ResponseBody({
+  onTimestampClick,
   content,
   markdown,
   className,
 }: {
   content: string;
+  onTimestampClick?: (seconds: number) => void;
   markdown: boolean;
   className: string;
 }) {
-  const html = useMemo(
-    () => markdown ? DOMPurify.sanitize(renderMarkdown(content)) : "",
-    [content, markdown],
-  );
+  const html = useMemo(() => {
+    if (!markdown && !onTimestampClick) return "";
+    const root = document.createElement("div");
+    if (markdown) root.innerHTML = DOMPurify.sanitize(renderMarkdown(content));
+    else root.textContent = content;
+    if (onTimestampClick) {
+      const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+      const nodes: Text[] = [];
+      while (walker.nextNode()) nodes.push(walker.currentNode as Text);
+      for (const node of nodes) {
+        if (node.parentElement?.closest("a,code,pre,button")) continue;
+        const text = node.textContent ?? "";
+        const pattern = /\[(?:(\d+):)?(\d+):([0-5]\d)\]/g;
+        const fragment = document.createDocumentFragment(); let last = 0;
+        for (const match of text.matchAll(pattern)) {
+          fragment.append(text.slice(last, match.index));
+          const button = document.createElement("button"); button.type = "button";
+          button.className = "assistant-timestamp-link text-primary underline focus-visible:ring-2 focus-visible:ring-primary";
+          button.dataset.seconds = String(Number(match[1] || 0) * 3600 + Number(match[2]) * 60 + Number(match[3]));
+          button.textContent = match[0]; button.setAttribute("aria-label", `Seek to ${match[0]}`);
+          fragment.append(button); last = match.index! + match[0].length;
+        }
+        if (last) { fragment.append(text.slice(last)); node.replaceWith(fragment); }
+      }
+    }
+    return root.innerHTML;
+  }, [content, markdown, onTimestampClick]);
 
   if (!content) return null;
-  return markdown ? (
-    <div className={className} dangerouslySetInnerHTML={{ __html: html }} />
+  return markdown || onTimestampClick ? (
+    <div className={`${className} ${markdown ? "" : "whitespace-pre-wrap"}`} onClick={(event) => {
+      const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-seconds]");
+      if (button) onTimestampClick?.(Number(button.dataset.seconds));
+    }} dangerouslySetInnerHTML={{ __html: html }} />
   ) : (
     <div className={`${className} whitespace-pre-wrap`}>{content}</div>
   );
 }
 
 export function AssistantResponseContent({
+  onTimestampClick,
   content,
   thinking,
   status = "complete",
@@ -85,7 +115,7 @@ export function AssistantResponseContent({
           </div>
         </details>
       )}
-      <ResponseBody content={answer} markdown={markdown} className={bodyClassName} />
+      <ResponseBody onTimestampClick={onTimestampClick} content={answer} markdown={markdown} className={bodyClassName} />
     </>
   );
 }

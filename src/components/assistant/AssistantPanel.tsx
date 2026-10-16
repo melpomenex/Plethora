@@ -1,3 +1,7 @@
+import { AssistantScopeSelector } from "./AssistantScopeSelector";
+import { runAssistantTurn } from "../../lib/ai/assistant/orchestrator";
+import { isAssistantScope, type AssistantScope } from "../../lib/ai/assistant/scopes";
+import { parseAssistantToolCalls, normalizeAssistantToolParameters } from "../../lib/ai/assistant/toolCallParser";
 import { useState, useRef, useEffect, useMemo, useCallback, type ReactNode } from "react";
 import {
   CaretDown,
@@ -32,7 +36,6 @@ import {
 } from "@phosphor-icons/react";
 import { compressImage, readFileAsDataUrl } from "../../utils/imageCompression";
 import { supportsVision } from "../../utils/visionCapability";
-import { chatWithContext, type LLMMessage, type LLMMessageContentPart, type LLMProvider } from "../../api/llm";
 import { resolveRequestPolicy } from "../../api/llm/policy";
 import { callAppMCPTool, getAppMCPTools, type MCPTool } from "../../api/mcp";
 import { AssistantResponseContent } from "../common/AssistantResponseContent";
@@ -46,7 +49,7 @@ import { useI18n } from "../../lib/i18n";
 import { useContextMenu, ContextMenu, ContextMenuItem, ContextMenuItemType } from "../common/ContextMenu";
 import { useToast } from "../common/Toast";
 import { createExtract, patchDocumentExtractCount } from "../../api/extracts";
-import { getAssistantContextErrorMessage, SELECTION_PRECEDENCE_INSTRUCTION, type ResolvedAssistantContext } from "../../utils/assistantContext";
+import { SELECTION_PRECEDENCE_INSTRUCTION, type ResolvedAssistantContext } from "../../utils/assistantContext";
 import {
   createSelectionAskSnapshot,
   shouldReseedSelectionSnapshot,
@@ -60,7 +63,8 @@ import {
   fetchBraveSearchWithTimeout,
   formatBraveContext,
   shouldExpandBeyondDocument,
-  type BraveSearchResult,
+  shouldTriggerWebLookup,
+  buildWebSearchQuery,
 } from "../../utils/assistantExpansion";
 import {
   APPLE_FM_ASSISTANT_PROVIDER,
@@ -137,6 +141,8 @@ export interface AssistantContext {
     duration?: number;
     videoId?: string;
   };
+  transcriptStatus?: import("../../lib/ai/assistant/scopes").TranscriptAvailabilityStatus;
+  retryTranscript?: () => void;
   status?: "ready" | "loading" | "unavailable";
   statusMessage?: string;
   source?: string;
@@ -155,6 +161,7 @@ export interface AttachedImage {
 }
 
 interface Message {
+  scope?: AssistantScope;
   id: string;
   role: "user" | "assistant" | "system";
   content: string;
@@ -213,6 +220,7 @@ const getDocumentDeckName = (title?: string): string | undefined => {
 };
 
 interface StoredConversation {
+  scope?: AssistantScope;
   messages: Message[];
   input: string;
   updatedAt: number;
@@ -258,6 +266,7 @@ const readStoredConversations = (): StoredConversationMap => {
         : [];
       normalized[key] = {
         messages,
+        scope: isAssistantScope(candidate.scope) ? candidate.scope : "chat",
         input: typeof candidate.input === "string" ? candidate.input : "",
         updatedAt: typeof candidate.updatedAt === "number" ? candidate.updatedAt : Date.now(),
       };
@@ -372,7 +381,6 @@ export function AssistantPanel({
   const effectiveProvider = externalSelectedProvider ?? selectedProvider;
   const [isInputHovered, setIsInputHovered] = useState(false);
   const contextWindowTokens = useSettingsStore((state) => state.settings.ai.maxTokens);
-  const aiControls = useSettingsStore((state) => state.settings.ai.aiControls);
 
   useEffect(() => {
     if (!isAppleOsPlatform()) return;
@@ -444,7 +452,8 @@ export function AssistantPanel({
   // library task (retrieve top-k chunks across the semantic index + grounded
   // validated answer + citations) instead of the single-document
   // chatWithContext path.
-  const [useWholeLibraryScope, setUseWholeLibraryScope] = useState(false);
+  const [scope, setScope] = useState<AssistantScope>("chat");
+  const [suggestSwitchToChat, setSuggestSwitchToChat] = useState(false);
   const configuredProvidersList = useLLMProvidersStore((state) => state.providers);
 
   // Document sections for # mentions
@@ -493,7 +502,8 @@ export function AssistantPanel({
       textareaRef.current?.focus();
     };
     window.addEventListener(SELECTION_ASK_EVENT, onSelectionAsk);
-    return () => window.removeEventListener(SELECTION_ASK_EVENT, onSelectionAsk);
+    window.addEventListener("plethora:selection-ask-replay", onSelectionAsk);
+    return () => { window.removeEventListener(SELECTION_ASK_EVENT, onSelectionAsk); window.removeEventListener("plethora:selection-ask-replay", onSelectionAsk); };
   }, []);
 
   const clearPinnedSelection = useCallback(() => {
@@ -849,6 +859,7 @@ export function AssistantPanel({
     activeConversationKeyRef.current = conversationKey;
     const stored = readStoredConversations()[conversationKey];
     setMessages(stored?.messages ?? []);
+    setScope(stored?.scope ?? "chat");
     setInput(stored?.input ?? "");
     historyDraftRef.current = stored?.input ?? "";
     setHistoryIndex(null);
@@ -861,6 +872,7 @@ export function AssistantPanel({
     const conversations = readStoredConversations();
     conversations[key] = {
       messages: messages.slice(-MAX_STORED_MESSAGES),
+      scope,
       input,
       updatedAt: Date.now(),
     };
@@ -879,7 +891,7 @@ export function AssistantPanel({
         publishConversationTimerRef.current = null;
       }, 500);
     }
-  }, [messages, input]);
+  }, [messages, input, scope]);
 
   // When a conversation arrives from another device, reload the active
   // conversation from localStorage (the entity already wrote it there) so the
@@ -1086,7 +1098,7 @@ export function AssistantPanel({
   ) => {
     setMessages((prev) => {
       if (activeConversationKeyRef.current !== conversationKeyAtStart) return prev;
-      return updater(prev);
+      return updater(prev).map((message) => message.scope ? message : { ...message, scope });
     });
   };
 
@@ -1197,53 +1209,11 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           }
         }
 
-        if (useWholeLibraryScope) {
-          try {
-            const { askLibrary } = await import("../../lib/ai/tasks/definitions/libraryTask");
-            const { resolveEmbeddingConfigForRag } = await import("./ragConfig");
 
-            const config = await resolveEmbeddingConfigForRag();
-
-            const result = await askLibrary({
-              query: userInput,
-              config,
-            });
-
-            const citationsBlock =
-              result.sources.length > 0
-                ? "\n\n---\n**Sources:**\n" +
-                  result.sources
-                    .map((c, i) => `[${i + 1}] ${c.documentTitle ?? c.documentId} (score ${c.score.toFixed(2)})`)
-                    .join("\n")
-                : "";
-
-            const parsedRagResponse = parseAssistantThinking(result.answer.answer + citationsBlock);
-            const ragMessage: Message = {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content: parsedRagResponse.answer,
-              thinking: parsedRagResponse.thinking || undefined,
-              timestamp: Date.now(),
-            };
-            appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, ragMessage]);
-          } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
-            const errorMsg: Message = {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content: `⚠️ Whole-library chat failed: ${errorMessage}\n\nMake sure your library is indexed (Settings → Embeddings → Library indexing) and an embedding provider is configured.`,
-              timestamp: Date.now(),
-            };
-            appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, errorMsg]);
-          }
-          return;
-        }
       }
 
       const filteredHistory = request.conversationHistoryOverride
-        ?? messages
-          .filter((m) => m.role === "user" || m.role === "assistant")
-          .slice(-10);
+        ?? messages.filter((m) => m.role === "user" || m.role === "assistant");
 
       const contextData = {
         currentContext: context,
@@ -1433,7 +1403,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           ? providerConfig.modelContextWindows?.[providerConfig.model]
           : undefined,
         providerContextTokens: providerConfig?.contextWindowTokens,
-        globalContextTokens: contextWindow,
+        globalContextTokens: undefined,
         autoPreset: providerConfig?.contextWindowPreset === "auto",
         applyOllamaDefaultGuard: isOllama,
       });
@@ -1605,14 +1575,14 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       // Explicit expansion (assistant-external-lookup): doc-first answer, then
       // broader background. Brave runs only on explicit trigger; failures and
       // missing keys degrade to knowledge-only with a disclosure note.
-      const wantsExpansion = shouldExpandBeyondDocument(prompt);
+      const wantsExpansion = shouldExpandBeyondDocument(prompt, false, scope);
       if (wantsExpansion && !sourceContentOverride && llmContext?.type === "document") {
         const expansionInstruction = buildDocFirstExpansionInstruction();
         if (!resolvedUserPrompt.includes("Answer from the selection")) {
           resolvedUserPrompt = `${expansionInstruction}\n\n${resolvedUserPrompt}`;
         }
-        try {
-          const lookupQuery = (pinnedSelection?.excerpt || llmContext?.selection || prompt).slice(0, 300);
+        if (shouldTriggerWebLookup(prompt, false, scope)) try {
+          const lookupQuery = buildWebSearchQuery(prompt, pinnedSelection?.excerpt || llmContext?.selection);
           const { results } = await fetchBraveSearchWithTimeout(
             lookupQuery,
             (command, args) => invokeCommand(command, args),
@@ -1630,13 +1600,11 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           contextContent = finalResolvedContent.trim();
         }
       }
-      if (((!usedDocumentFallback && resolvedContext.status !== "ready") && !hasExplicitSelectionContext && !pinnedApplies) || !contextContent) {
-        throw new Error(resolvedContext.message || getAssistantContextErrorMessage(llmContext?.status));
+      if (scope === "document" && (((!usedDocumentFallback && resolvedContext.status !== "ready") && !hasExplicitSelectionContext && !pinnedApplies) || !contextContent)) {
+        // Hand the empty evidence to the orchestrator, which returns the
+        // honest missing-evidence response with a Switch to Chat action.
+        contextContent = "";
       }
-      }
-
-      if (!sourceContentOverride && !contextContent) {
-        throw new Error("No source content available for this request.");
       }
 
       if (isAppleFmAssistantProvider(effectiveProvider)) {
@@ -1654,19 +1622,25 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         const appleFmUserPrompt = sectionNodes.length > 0
           ? (prompt.replace(/#{([^}]+)}/g, "").trim() || effectivePrompt)
           : effectivePrompt;
-        const fmResponse = await runAssistantAppleFmChat({
-          systemInstruction: toolInstruction,
-          conversationHistory: (contextData.conversationHistory as Message[]).map((m) => ({
-            role: m.role,
-            content: m.content,
-          })),
-          userPrompt: appleFmUserPrompt,
-          documentContext: contextContent || undefined,
-          maxOutputTokens: contextWindowTokens,
+        const fmResponse = await runAssistantTurn({
+          scope, userQuestion: appleFmUserPrompt, sourceType: llmContext?.type,
+          sourceId: llmContext?.documentId, sourceTitle: assistantDocumentTitle,
+          sourceContent: contextContent, playbackTimeSeconds: llmContext?.position?.currentTime,
+          history: (contextData.conversationHistory as Message[]).map((m) => ({ ...m, images: m.images?.map((image) => image.dataUrl) })), tools: getAvailableTools(),
+          provider: "apple-foundation", isTwentyRules, twentyRulesPrompt: buildTwentyRulesSystemPrompt(),
+          documentsForPrivacyCheck: context?.documentId ? [await getDocument(context.documentId)] : [],
+          strictLocalOnly: useSettingsStore.getState().settings.ai.strictLocalOnly,
+          chatExecutor: async ({ messages, context: source }) => runAssistantAppleFmChat({
+            systemInstruction: String(messages[0].content),
+            conversationHistory: messages.slice(1, -1).map((m) => ({ role: m.role, content: String(m.content) })),
+            userPrompt: String(messages.at(-1)?.content ?? appleFmUserPrompt), documentContext: source.content,
+            maxOutputTokens: contextWindowTokens,
+          }),
         });
+        setSuggestSwitchToChat(Boolean(fmResponse.suggestSwitchToChat));
 
         return {
-          content: fmResponse.content,
+          content: fmResponse.rawContent,
           imagesStripped,
           modelName: appleFmProviderLabel,
           sourceContext,
@@ -1699,94 +1673,37 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 
       const provider = selectedTypeProvider;
 
-      const llmMessages: LLMMessage[] = [
-        {
-          role: "system" as const,
-          content: toolInstruction,
-        },
-        ...(contextData.conversationHistory as Message[]).map((m) => {
-          if (m.images && m.images.length > 0) {
-            const parts: LLMMessageContentPart[] = [];
-            if (m.content.trim()) {
-              parts.push({ type: "text", text: m.content });
-            }
-            for (const img of m.images) {
-              parts.push({ type: "image_url", imageUrl: img.dataUrl });
-            }
-            return {
-              role: m.role as "system" | "user" | "assistant",
-              content: parts,
-            };
-          }
-          return {
-            role: m.role as "system" | "user" | "assistant",
-            content: m.role === "assistant" ? getAssistantAnswer(m.content) : m.content,
-          };
-        }),
-        {
-          role: "user" as const,
-          content: resolvedUserPrompt,
-        },
-      ];
-
-      let imagesStripped = false;
       const modelName = (provider.model || effectiveProvider) as string;
-
-      if (currentUserImages && currentUserImages.length > 0) {
-        const hasVision = supportsVision(effectiveProvider, modelName);
-        if (!hasVision) {
-          const lastUserIdx = llmMessages.map((m) => m.role).lastIndexOf("user");
-          if (lastUserIdx >= 0) {
-            llmMessages[lastUserIdx] = {
-              role: "user",
-              content: prompt,
-            };
-          }
-          imagesStripped = true;
-        } else {
-          const parts: LLMMessageContentPart[] = [];
-          if (prompt.trim()) {
-            parts.push({ type: "text", text: prompt });
-          }
-          for (const img of currentUserImages) {
-            parts.push({ type: "image_url", imageUrl: img.dataUrl });
-          }
-          const lastUserIdx2 = llmMessages.map((m) => m.role).lastIndexOf("user");
-          llmMessages[lastUserIdx2] = {
-            role: "user" as const,
-            content: parts,
-          };
-        }
-      }
-
-      const llmContextData = {
-        type: llmContext?.type || "general",
-        documentId: llmContext?.documentId,
-        url: llmContext?.url,
-        selection: llmContext?.selection,
-        content: finalResolvedContent || contextContent,
-        contextWindowTokens: promptBudget,
-        promptBudgetTokens: promptBudget,
-        configuredContextTokens: policy.configuredContextTokens,
-        maxOutputTokens: policy.maxOutputTokens,
+      const imagesStripped = Boolean(currentUserImages?.length && !supportsVision(effectiveProvider, modelName));
+      const response = await runAssistantTurn({
+        scope, userQuestion: resolvedUserPrompt, history: (contextData.conversationHistory as Message[]).map((m) => ({
+          ...m, content: m.role === "assistant" ? getAssistantAnswer(m.content) : m.content,
+          images: m.images?.map((image) => image.dataUrl),
+        })),
+        sourceType: llmContext?.type ?? "general", sourceId: llmContext?.documentId,
+        sourceTitle: assistantDocumentTitle, sourceUrl: llmContext?.url,
+        sourceContent: contextContent, selectionExcerpt: pinnedSelection?.excerpt ?? llmContext?.selection,
+        playbackTimeSeconds: llmContext?.position?.currentTime, transcriptStatus: llmContext?.transcriptStatus,
+        documentsForPrivacyCheck: llmContext?.documentId && !llmContext.documentId.startsWith("extract:") ? [await getDocument(llmContext.documentId)] : [],
+        strictLocalOnly: useSettingsStore.getState().settings.ai.strictLocalOnly,
+        provider: effectiveProvider, model: provider.model, apiKey: provider.apiKey,
+        baseUrl: provider.baseUrl?.trim() || undefined, temperature: provider.temperature,
+        maxOutputTokens: provider.maxTokens, configuredContextTokens: policy.configuredContextTokens,
         memoryEnabled: useSettingsStore.getState().settings.ai.memoryEnabled,
-      };
+        tools: getAvailableTools(), isTwentyRules, twentyRulesPrompt: buildTwentyRulesSystemPrompt(),
+        systemInstruction: [provider.systemPrompt, toolInstruction].filter(Boolean).join("\n\n"),
+        userImages: imagesStripped ? undefined : currentUserImages?.map((image) => image.dataUrl),
+        libraryExecutor: async ({ rewrittenQuery, history, contextPassage, contextBudgetTokens, k }) => {
+          const [{ askLibrary }, { resolveEmbeddingConfigForRag }] = await Promise.all([
+            import("../../lib/ai/tasks/definitions/libraryTask"), import("./ragConfig"),
+          ]);
+          const config = await resolveEmbeddingConfigForRag();
+          return askLibrary({ query: rewrittenQuery, history, contextPassage, contextBudgetTokens, k, config });
+        },
+      });
+      setSuggestSwitchToChat(Boolean(response.suggestSwitchToChat));
 
-      const response = await chatWithContext(
-        effectiveProvider as LLMProvider,
-        provider.model,
-        llmMessages,
-        llmContextData,
-        provider.apiKey,
-        provider.baseUrl && provider.baseUrl.trim() ? provider.baseUrl : undefined,
-        provider.temperature,
-        provider.maxTokens,
-        provider.systemPrompt,
-        aiControls?.contextFromRelatedCards,
-        aiControls?.documentSnippetLength
-      );
-
-      return { content: response.content, imagesStripped, modelName, sourceContext };
+      return { content: response.rawContent, imagesStripped, modelName, sourceContext };
     } catch (error) {
       console.error("LLM API error:", error);
       if (hasSectionMentions || throwOnLlmError) throw error;
@@ -1806,189 +1723,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     return availableTools;
   };
 
-  const parseToolCalls = (content: string) => {
-    const knownToolNames = new Set(availableTools.map((t) => t.name));
-    const toolCalls: ToolCall[] = [];
-    const toolCallRegex = /```tool_calls\s*([\s\S]*?)```/g;
-    let cleanedContent = content;
-    let match: RegExpExecArray | null;
-
-    const extractCalls = (parsed: unknown): Array<{ name?: string; arguments?: Record<string, unknown> }> => {
-      if (Array.isArray(parsed)) return parsed;
-      if (parsed && typeof parsed === "object" && Array.isArray((parsed as Record<string, unknown>).tool_calls)) {
-        return (parsed as Record<string, unknown>).tool_calls as Array<{ name?: string; arguments?: Record<string, unknown> }>;
-      }
-      if (parsed && typeof parsed === "object" && typeof (parsed as Record<string, unknown>).name === "string") {
-        return [parsed as { name?: string; arguments?: Record<string, unknown> }];
-      }
-      return [];
-    };
-
-    while ((match = toolCallRegex.exec(content)) !== null) {
-      const raw = match[1].trim();
-      try {
-        const parsed = JSON.parse(raw);
-        const calls = extractCalls(parsed);
-
-        calls.forEach((call: { name?: string; arguments?: Record<string, unknown> }) => {
-          if (typeof call?.name === "string" && knownToolNames.has(call.name)) {
-            const args = call.arguments;
-            const normalizedArgs = args && typeof args === "object" && !Array.isArray(args)
-              ? args
-              : {};
-            toolCalls.push({
-              name: call.name,
-              parameters: normalizedArgs,
-              status: "pending",
-            });
-          }
-        });
-        cleanedContent = cleanedContent.replace(match[0], "").trim();
-      } catch (error) {
-        console.warn("Failed to parse tool call block:", error);
-      }
-    }
-
-    // Fallback 1: try to parse unfenced JSON containing recognized tool names
-    // Uses brace/bracket depth matching instead of regex to handle nested JSON like {"tool_calls":[...]}.
-    if (toolCalls.length === 0 && knownToolNames.size > 0) {
-      const jsonCandidatePositions: number[] = [];
-      for (let i = 0; i < cleanedContent.length; i += 1) {
-        if (cleanedContent[i] === "{" || cleanedContent[i] === "[") {
-          jsonCandidatePositions.push(i);
-        }
-      }
-      for (const startPos of jsonCandidatePositions) {
-        const opener = cleanedContent[startPos];
-        const closer = opener === "{" ? "}" : "]";
-        let depth = 0;
-        let endPos = -1;
-        for (let i = startPos; i < cleanedContent.length; i += 1) {
-          if (cleanedContent[i] === opener) depth += 1;
-          else if (cleanedContent[i] === closer) {
-            depth -= 1;
-            if (depth === 0) { endPos = i + 1; break; }
-          }
-        }
-        if (endPos === -1) continue;
-        const raw = cleanedContent.slice(startPos, endPos).trim();
-        try {
-          const parsed = JSON.parse(raw);
-          const calls = extractCalls(parsed);
-          const validCalls = calls.filter((call) => typeof call?.name === "string" && knownToolNames.has(call.name));
-          if (validCalls.length > 0) {
-            validCalls.forEach((call) => {
-              const args = call.arguments;
-              const normalizedArgs = args && typeof args === "object" && !Array.isArray(args) ? args : {};
-              toolCalls.push({ name: call.name!, parameters: normalizedArgs, status: "pending" });
-            });
-            cleanedContent = cleanedContent.slice(0, startPos) + cleanedContent.slice(endPos);
-            cleanedContent = cleanedContent.replace(/\n{3,}/g, "\n\n").trim();
-          } else if (knownToolNames.has("create_qa_card") && Array.isArray(parsed)) {
-            let foundCards = false;
-            for (const item of parsed) {
-              if (item && typeof item === "object") {
-                const q = item.question ?? item.Q ?? item.q;
-                const a = item.answer ?? item.A ?? item.a;
-                if (typeof q === "string" && typeof a === "string") {
-                  toolCalls.push({ name: "create_qa_card", parameters: { question: q, answer: a }, status: "pending" });
-                  foundCards = true;
-                }
-              }
-            }
-            if (foundCards) {
-              cleanedContent = cleanedContent.slice(0, startPos) + cleanedContent.slice(endPos);
-              cleanedContent = cleanedContent.replace(/\n{3,}/g, "\n\n").trim();
-            }
-          }
-        } catch {
-          // Not valid JSON — leave untouched
-        }
-      }
-    }
-
-    // Fallback 2: convert fenced JSON arrays of {question, answer} into create_qa_card calls
-    if (toolCalls.length === 0 && knownToolNames.has("create_qa_card")) {
-      const jsonArrRegex = /```(?:json)?\s*\n?([\s\S]*?)```/g;
-      let arrMatch: RegExpExecArray | null;
-      while ((arrMatch = jsonArrRegex.exec(cleanedContent)) !== null) {
-        const raw = arrMatch[1].trim();
-        try {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) {
-            for (const item of parsed) {
-              if (item && typeof item === "object") {
-                const q = item.question ?? item.Q ?? item.q;
-                const a = item.answer ?? item.A ?? item.a;
-                if (typeof q === "string" && typeof a === "string") {
-                  toolCalls.push({ name: "create_qa_card", parameters: { question: q, answer: a }, status: "pending" });
-                }
-              }
-            }
-            cleanedContent = cleanedContent.replace(arrMatch[0], "").trim();
-          }
-        } catch {
-        /* Image paste handling may fail */ }
-      }
-    }
-
-    // Fallback 3: convert UNFENCED JSON arrays of {question, answer} into create_qa_card calls
-    // This catches the common case where the LLM outputs raw JSON without code fences.
-    if (toolCalls.length === 0 && knownToolNames.has("create_qa_card")) {
-      // Strategy: find JSON arrays that start with [{ and contain question/answer-like keys.
-      // Use a relaxed regex that only needs to match the start of the first object.
-      const arrayLikeRegex = /\[\s*\{[^}]*?(?:question|Q|q)\s*:/s;
-      let arrMatch = arrayLikeRegex.exec(cleanedContent);
-      if (arrMatch) {
-        try {
-          // Try to find the full array by extending from the match start
-          const start = arrMatch.index;
-          const afterMatch = cleanedContent.slice(start);
-          const arrayStart = afterMatch.indexOf('[');
-          if (arrayStart !== -1) {
-            // Find the matching closing bracket
-            let depth = 0;
-            let end = -1;
-            for (let i = arrayStart; i < afterMatch.length; i += 1) {
-              if (afterMatch[i] === '[') depth += 1;
-              else if (afterMatch[i] === ']') {
-                depth -= 1;
-                if (depth === 0) {
-                  end = i + 1;
-                  break;
-                }
-              }
-            }
-            if (end !== -1) {
-              const raw = afterMatch.slice(arrayStart, end);
-              const parsed = JSON.parse(raw);
-              if (Array.isArray(parsed)) {
-                let foundCards = false;
-                for (const item of parsed) {
-                  if (item && typeof item === "object") {
-                    const q = item.question ?? item.Q ?? item.q;
-                    const a = item.answer ?? item.A ?? item.a;
-                    if (typeof q === "string" && typeof a === "string") {
-                      toolCalls.push({ name: "create_qa_card", parameters: { question: q, answer: a }, status: "pending" });
-                      foundCards = true;
-                    }
-                  }
-                }
-                if (foundCards) {
-                  cleanedContent = cleanedContent.slice(0, start + arrayStart) + cleanedContent.slice(start + end);
-                  cleanedContent = cleanedContent.replace(/\n{3,}/g, '\n\n').trim();
-                }
-              }
-            }
-          }
-        } catch {
-          // Not valid JSON — leave untouched
-        }
-      }
-    }
-
-    return { cleanedContent, toolCalls };
-  };
+  const parseToolCalls = (content: string) => parseAssistantToolCalls(content, availableTools);
 
   const executeToolCalls = async (
     messageId: string,
@@ -2204,32 +1939,10 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     parameters: Record<string, unknown>,
     documentTitleOverride?: string,
   ) => {
-    const normalized = { ...parameters };
-    const documentId = toolExecutionContextRef.current.documentId ?? context?.documentId;
-    const deckName = getDocumentDeckName(
-      documentTitleOverride
-        ?? toolExecutionContextRef.current.documentTitle
-        ?? assistantDocumentTitle,
-    );
-
-    if (documentId && ATTACHABLE_TOOL_NAMES.has(toolName)) {
-      normalized.document_id = documentId;
-    }
-
-    // Auto-tag with deck:<base title> for card/extract tools.
-    // Strips parenthetical author info (e.g. "Book (Author)" → "deck:Book")
-    // so tags match deck names more reliably.
-    if (deckName && ATTACHABLE_TOOL_NAMES.has(toolName)) {
-      const deckTag = `deck:${deckName}`;
-      const existingTags: string[] = Array.isArray(normalized.tags)
-        ? normalized.tags
-          .map((t: unknown) => String(t))
-          .filter((tag) => !tag.toLowerCase().startsWith("deck:"))
-        : [];
-      normalized.tags = [...existingTags, deckTag];
-    }
-
-    return normalized;
+    return normalizeAssistantToolParameters(toolName, parameters, {
+      documentId: toolExecutionContextRef.current.documentId ?? context?.documentId,
+      documentTitle: documentTitleOverride ?? toolExecutionContextRef.current.documentTitle ?? assistantDocumentTitle,
+    });
   };
 
   const openChatCard = (artifact: ChatFlashcardArtifact) => {
@@ -3081,22 +2794,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               }`} />
             </button>
 
-            {/* Whole-library RAG scope toggle */}
-            <button
-              onClick={() => setUseWholeLibraryScope((v) => !v)}
-              className={`
-                flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium
-                transition-all duration-200 cursor-pointer select-none active:scale-[0.98]
-                ${useWholeLibraryScope
-                  ? "bg-primary/15 text-primary border border-primary/40 ring-2 ring-primary/10"
-                  : "bg-background border border-border text-muted-foreground hover:bg-muted/80"
-                }
-              `}
-              title={useWholeLibraryScope ? "Whole-library chat ON — answers are grounded in your indexed collection with citations. Click to use single-document context." : "Whole-library chat OFF — single-document context. Click to chat across your whole library (requires indexing)."}
-            >
-              <Globe className="w-3 h-3" />
-              {useWholeLibraryScope ? "Library" : "Document"}
-            </button>
+            <AssistantScopeSelector value={scope} onChange={setScope} disabled={isLoading} />
 
             {/* AI Engine Center Dropdown */}
             {isModelDropdownOpen && (
@@ -3273,15 +2971,17 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               <span className="ml-auto px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 font-medium text-[10px]">
                 Scope: This X thread
               </span>
-            ) : context.type === "video" && context.content ? (
+            ) : context.type === "video" ? (
               <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground/80">
-                Transcript attached
+                {context.transcriptStatus === "loading" ? "Loading transcript…" : context.transcriptStatus === "failed" ? "Transcript failed" : context.transcriptStatus === "partial" ? "Partial transcript" : context.content?.trim() ? "Transcript ready" : "Transcript unavailable"}
+                {context.transcriptStatus === "failed" && context.retryTranscript && <button type="button" onClick={context.retryTranscript} className="ml-2 underline">Retry</button>}
               </span>
             ) : null}
           </div>
         </div>
       )}
 
+      {suggestSwitchToChat && scope !== "chat" && <button type="button" onClick={() => { setScope("chat"); setSuggestSwitchToChat(false); }} className="md-state min-h-10 px-3 text-sm text-primary underline focus-visible:ring-2 focus-visible:ring-primary">Switch to Chat to use general knowledge</button>}
       {/* Messages */}
       <div
         ref={messagesContainerRef}
@@ -3430,7 +3130,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 {message.role === "user" ? (
                   renderUserMessageContent(message.content, assistantSectionFlat)
                 ) : (
-                  <AssistantResponseContent content={message.content} thinking={message.thinking} />
+                  <AssistantResponseContent content={message.content} thinking={message.thinking} onTimestampClick={context?.type === "video" ? (seconds) => window.dispatchEvent(new CustomEvent("plethora:assistant-seek", { detail: { documentId: context.documentId, seconds } })) : undefined} />
                 )}
               </div>
 

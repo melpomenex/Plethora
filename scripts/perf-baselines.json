@@ -236,6 +236,14 @@
     "commandPalette/scope-filter-2000-results": {
       "cost": 0.1677,
       "reason": "revamp-command-palette: initial baseline for filtering 2,000 provider results through all five non-all palette scopes (facet classification per result)."
+    },
+    "assistant-video/topical-2h-cached": {
+      "cost": 0.2246,
+      "reason": "unify-assistant-conversation-and-video-context: initial baseline for query-time transcript planning on a cached 2-hour transcript (3,600 segments) \u2014 the per-prompt cost of the BM25 window ranking that replaced the 2,000-token head truncation. Normalized by the noise anchor; no tiktoken encode/decode runs on playback ticks."
+    },
+    "assistant-video/playback-2h-cached": {
+      "cost": 0.1207,
+      "reason": "unify-assistant-conversation-and-video-context: initial baseline for the live-playback plan on the same cached 2-hour transcript; the window-centred path must stay cheaper than topical retrieval so currentTime updates never trigger a full re-plan of the transcript."
     }
   }
 }

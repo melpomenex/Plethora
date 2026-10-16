@@ -1,3 +1,4 @@
+import type { VideoViewerContext } from "../../lib/ai/assistant/scopes";
 /**
  * Wrapper component that adds Assistant panel to DocumentViewer
  */
@@ -67,13 +68,7 @@ interface DocumentViewerWithAssistantProps {
   extractPostCreateBehavior?: "show-extracts" | "stay-in-reader";
   onEnded?: () => void;
   onArchive?: () => void;
-  onVideoContextChange?: (context: {
-    videoId: string;
-    title?: string;
-    transcript?: string;
-    currentTime?: number;
-    duration?: number;
-  } | null) => void;
+  onVideoContextChange?: (context: VideoViewerContext | null) => void;
   onMediaSectionsChange?: (sections: SectionNode[]) => void;
   /** Deterministic real-reader state used only by the explicit marketing capture host. */
   captureReader?: MarketingSceneApplication["reader"];
@@ -157,13 +152,7 @@ export function DocumentViewer({
   }, [scrollState.scrollPercent]);
   const [pdfContextText, setPdfContextText] = useState<string | undefined>(undefined);
   const [pdfOcrContextText, setPdfOcrContextText] = useState<string | null>(null);
-  const [videoContext, setVideoContext] = useState<{
-    videoId: string;
-    title?: string;
-    transcript?: string;
-    currentTime?: number;
-    duration?: number;
-  } | null>(null);
+  const [videoContext, setVideoContext] = useState<VideoViewerContext | null>(null);
   const currentDocument = useDocumentStore((state) => state.currentDocument);
   const settings = useSettingsStore((state) => state.settings);
   const contextWindowTokens = useSettingsStore((state) => state.settings.ai.maxTokens);
@@ -358,34 +347,13 @@ export function DocumentViewer({
     let isActive = true;
     const maxTokens = contextWindowTokens && contextWindowTokens > 0 ? contextWindowTokens : 2000;
 
-    // If video context is available, use it even when transcript is missing.
     if (videoContext?.videoId) {
-      const transcriptText = videoContext.transcript?.trim();
-      const videoText = transcriptText
-        ? `Video: ${videoContext.title || videoContext.videoId}\nDuration: ${formatDuration(videoContext.duration || 0)}\n\nTRANSCRIPT:\n${transcriptText}`
-        : `Video: ${videoContext.title || videoContext.videoId}\nDuration: ${formatDuration(videoContext.duration || 0)}\n\nTranscript: unavailable.`;
-      
-      trimToTokenWindow(videoText, maxTokens, aiModel, selection)
-        .then((trimmed) => {
-          if (isActive) {
-            setAssistantContent(trimmed);
-            setAssistantStatus("ready");
-            setAssistantStatusMessage(undefined);
-            setAssistantSource("video-transcript");
-          }
-        })
-        .catch(() => {
-          if (isActive) {
-            setAssistantContent(videoText.slice(0, maxTokens * 4));
-            setAssistantStatus("ready");
-            setAssistantStatusMessage(undefined);
-            setAssistantSource("video-transcript");
-          }
-        });
-      
-      return () => {
-        isActive = false;
-      };
+      const transcript = videoContext.transcript?.trim();
+      setAssistantContent(transcript || undefined);
+      setAssistantStatus(transcript ? "ready" : videoContext.transcriptStatus === "loading" ? "loading" : "unavailable");
+      setAssistantStatusMessage(transcript ? undefined : "Transcript unavailable");
+      setAssistantSource(transcript ? "video-transcript" : undefined);
+      return;
     }
 
     // Otherwise use regular document content
@@ -426,7 +394,7 @@ export function DocumentViewer({
     return () => {
       isActive = false;
     };
-  }, [currentDoc?.content, currentDoc?.fileType, documentContent, selection, contextWindowTokens, aiModel, pdfContextText, videoContext, debouncedScrollPercent]);
+  }, [currentDoc?.content, currentDoc?.fileType, documentContent, selection, contextWindowTokens, aiModel, pdfContextText, videoContext?.videoId, videoContext?.transcript, videoContext?.transcriptStatus, debouncedScrollPercent]);
 
   const resolveContextForPrompt = useCallback(async (_prompt: string): Promise<ResolvedAssistantContext> => {
     const maxTokens = contextWindowTokens && contextWindowTokens > 0 ? contextWindowTokens : 2000;
@@ -436,7 +404,7 @@ export function DocumentViewer({
 
     if (videoContextRef.current?.videoId) {
       return resolveGenericAssistantContext(
-        assistantContentRef.current,
+        videoContextRef.current.transcript,
         "video-transcript",
         activeSelection,
       );
@@ -524,6 +492,8 @@ export function DocumentViewer({
       return {
         ...base,
         type: "video" as const,
+        transcriptStatus: videoContext.transcriptStatus ?? (videoContext.transcript?.trim() ? "ready-full" as const : "unavailable" as const),
+        retryTranscript: () => window.dispatchEvent(new CustomEvent("plethora:retry-transcript", { detail: { documentId } })),
         position: { currentTime: videoContext.currentTime },
         metadata: {
           title: videoContext.title,
@@ -721,14 +691,4 @@ export function DocumentViewer({
       )}
     </div>
   );
-}
-
-function formatDuration(seconds: number): string {
-  const hrs = Math.floor(seconds / 3600);
-  const mins = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
-  if (hrs > 0) {
-    return `${hrs}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-  }
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
 }

@@ -61,6 +61,10 @@ impl Default for ChunkOptions {
 /// Source-specific input for `chunk_document`.
 #[derive(Debug, Clone)]
 pub enum ChunkInput<'a> {
+    Transcript {
+        segments: &'a [TranscriptChunkSegment],
+        chapters: &'a [TranscriptChapter],
+    },
     /// Markdown with ATX headings.
     Markdown { text: &'a str },
     /// HTML / XHTML markup (documents' `html_content`, or an EPUB spine
@@ -77,6 +81,88 @@ pub enum ChunkInput<'a> {
     /// Page-scoped plain text (PDF). Every page boundary closes the chunk and
     /// is recorded in the location payload as `pageNumber`.
     Paged { pages: &'a [String] },
+}
+
+#[derive(Debug, Clone)]
+pub struct TranscriptChunkSegment {
+    pub start: f64,
+    pub duration: f64,
+    pub text: String,
+}
+#[derive(Debug, Clone)]
+pub struct TranscriptChapter {
+    pub start: f64,
+    pub title: String,
+}
+
+fn transcript_timestamp(seconds: f64) -> String {
+    let seconds = seconds.max(0.0).floor() as u64;
+    format!("{}:{:02}", seconds / 60, seconds % 60)
+}
+
+fn chunk_transcript(
+    ctx: &ChunkContext<'_>,
+    segments: &[TranscriptChunkSegment],
+    chapters: &[TranscriptChapter],
+) -> Vec<ChunkModel> {
+    let transcript_ctx = ChunkContext {
+        source_type: "transcript",
+        location_source_type: "transcript",
+        ..ctx.clone()
+    };
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    while start < segments.len() {
+        let chapter = chapters.iter().rfind(|c| c.start <= segments[start].start);
+        let mut end = start;
+        let mut size = 0;
+        while end < segments.len() {
+            let next_chapter = chapters.iter().rfind(|c| c.start <= segments[end].start);
+            if end > start
+                && (size >= 900 || next_chapter.map(|c| c.start) != chapter.map(|c| c.start))
+            {
+                break;
+            }
+            size += segments[end].text.chars().count() + 12;
+            end += 1;
+        }
+        let text = segments[start..end]
+            .iter()
+            .map(|s| format!("[{}] {}", transcript_timestamp(s.start), s.text))
+            .collect::<Vec<_>>()
+            .join("\n");
+        if let Some(mut chunk) = single_chunk(
+            &transcript_ctx,
+            &text,
+            chunks.len() as i64,
+            None,
+            start,
+            end,
+        ) {
+            let heading = chapter.map(|c| c.title.clone()).unwrap_or_else(|| {
+                format!(
+                    "{} - {}",
+                    transcript_timestamp(segments[start].start),
+                    transcript_timestamp(segments[end - 1].start + segments[end - 1].duration)
+                )
+            });
+            chunk.heading_path = vec![heading.clone()];
+            let mut location: serde_json::Value =
+                serde_json::from_str(&chunk.location_json).unwrap_or_default();
+            location["timestampMs"] = serde_json::json!((segments[start].start * 1000.0) as i64);
+            location["endTimestampMs"] = serde_json::json!(
+                ((segments[end - 1].start + segments[end - 1].duration) * 1000.0) as i64
+            );
+            location["headingPath"] = serde_json::json!([heading]);
+            chunk.location_json = location.to_string();
+            chunks.push(chunk);
+        }
+        if end == segments.len() {
+            break;
+        }
+        start = if end > start + 2 { end - 2 } else { end };
+    }
+    chunks
 }
 
 /// Context identifying what is being chunked.
@@ -887,6 +973,9 @@ pub fn chunk_document(
     opts: &ChunkOptions,
 ) -> Vec<ChunkModel> {
     let blocks = match &input {
+        ChunkInput::Transcript { segments, chapters } => {
+            return chunk_transcript(ctx, segments, chapters)
+        }
         ChunkInput::Markdown { text } => parse_markdown_blocks(text),
         ChunkInput::Html { html } => parse_html_blocks(html),
         ChunkInput::Plain {
@@ -1446,5 +1535,59 @@ mod tests {
             assert_eq!(c.ordinal, i as i64);
             assert_eq!(parse_location(c).ordinal, i as i64);
         }
+    }
+    #[test]
+    fn transcript_windows_preserve_timing_overlap_chapters_and_hashes() {
+        let ctx = ChunkContext {
+            document_id: "video",
+            source_type: "document",
+            source_id: None,
+            location_source_type: "text",
+            spine_index: None,
+        };
+        let segments = (0..30)
+            .map(|i| TranscriptChunkSegment {
+                start: i as f64 * 10.0,
+                duration: 10.0,
+                text: format!("Segment {} {}", i, "word ".repeat(30)),
+            })
+            .collect::<Vec<_>>();
+        let chapters = vec![
+            TranscriptChapter {
+                start: 0.0,
+                title: "Opening".into(),
+            },
+            TranscriptChapter {
+                start: 200.0,
+                title: "Conclusion".into(),
+            },
+        ];
+        let build = || {
+            chunk_document(
+                &ctx,
+                ChunkInput::Transcript {
+                    segments: &segments,
+                    chapters: &chapters,
+                },
+                &ChunkOptions::default(),
+            )
+        };
+        let chunks = build();
+        assert!(chunks.len() > 3);
+        assert!(chunks.iter().all(|chunk| chunk.source_type == "transcript"));
+        assert!(chunks
+            .iter()
+            .any(|chunk| chunk.heading_path == vec!["Conclusion"]));
+        assert_eq!(parse_location(&chunks[0]).timestamp_ms, Some(0));
+        assert_eq!(
+            chunks.iter().map(|c| &c.content_hash).collect::<Vec<_>>(),
+            build()
+                .iter()
+                .map(|c| c.content_hash.clone())
+                .collect::<Vec<_>>()
+                .iter()
+                .collect::<Vec<_>>()
+        );
+        assert!(chunks.last().unwrap().text.contains("Segment 29"));
     }
 }
