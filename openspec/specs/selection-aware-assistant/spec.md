@@ -6,10 +6,10 @@ Makes the reader's text selection the primary context for Assistant questions an
 ## Requirements
 
 ### Requirement: Selection takes precedence as Assistant context
-When the user asks the Assistant a question from a document reader while a non-empty text selection exists, the system SHALL place the selected text first as the primary question context and keep surrounding document context as secondary grounding. The Assistant SHALL interpret ambiguous references such as "this", "it", or "this paragraph" as referring to the selection.
+When the user asks the Assistant a question from a document or video reader while a non-empty text selection or pinned selection snapshot exists across `Chat`, `Document`, or `Library` scopes, the system SHALL place the selected text first as the primary question context and keep surrounding document, transcript, or library context as secondary grounding. The Assistant SHALL interpret ambiguous references such as "this", "it", or "this paragraph" as referring to the selection, while allowing broader conceptual expansion when in `Chat` scope.
 
 #### Scenario: Selected paragraph is the question subject
-- **WHEN** the user selects a paragraph and asks "What else can you tell me about this?"
+- **WHEN** the user selects a paragraph and asks "What else can you tell me about this?" in `Chat` scope
 - **THEN** the Assistant answer addresses the selected paragraph first before adding wider context
 
 #### Scenario: Selection disambiguates pronouns
@@ -32,11 +32,11 @@ The system SHALL include the verbatim selected text (whitespace-normalized, trun
 - **THEN** the request keeps the head of the selection, appends a truncation marker, and still answers from the visible quoted portion
 
 ### Requirement: Select-to-Ask hands off into the Assistant window thread
-When the user invokes "Ask" / "Ask a question" from a text selection (context menu, selection bar, or action sheet), the system SHALL open or focus the Assistant window, start or continue a thread seeded with the selection quote and document reference, place the user's question as the first message, focus the follow-up input, and preserve the selection context for follow-up turns without requiring re-selection.
+When the user invokes "Ask" / "Ask a question" from a text selection (context menu, selection bar, or action sheet) in either the standard document/video viewer or Queue Scroll mode, the system SHALL open or focus the Assistant window, start or continue a thread seeded with the selection quote and document/timestamp reference, place the user's question as the first message, focus the follow-up input, and preserve the selection context for follow-up turns without requiring re-selection.
 
 #### Scenario: Right-click Ask opens Assistant thread
-- **WHEN** the user selects text, right-clicks, and chooses "Ask a question" and types "Why does this matter?"
-- **THEN** the Assistant window opens with a thread showing the quoted selection, the document reference, and the question, with the reply in progress and the input focused for follow-up
+- **WHEN** the user selects text in the standard reader or Queue Scroll mode, right-clicks or taps Ask, and chooses "Ask a question" and types "Why does this matter?"
+- **THEN** the Assistant window opens with a thread showing the quoted selection, the document/timestamp reference, and the question, with the reply in progress and the input focused for follow-up
 
 #### Scenario: Follow-up retains selection without re-selecting
 - **WHEN** the user asks a follow-up such as "Give me an example" in the same thread after the selection highlight is gone
@@ -56,3 +56,10 @@ The Assistant thread seeded from a selection SHALL display the active selection 
 #### Scenario: Clearing context
 - **WHEN** the user clears the selection context chip
 - **THEN** subsequent questions in that thread no longer treat the old selection as primary
+
+### Requirement: Grounded answers preserve citations to the active selection context
+When a grounded `Document` or `Library` request includes a `selection-context` passage, the citation validator SHALL register `selection-context` as a valid source reference ID so that model citations to the user's selected passage are preserved rather than stripped or downgraded to `evidenceLevel: "none"`.
+
+#### Scenario: Citing selected passage in grounded Q&A
+- **WHEN** the user asks a grounded question with an active selection and the model cites `selection-context`
+- **THEN** the citation is retained as valid supporting evidence and the response evidence level is not downgraded to `"none"`
