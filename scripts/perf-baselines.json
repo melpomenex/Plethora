@@ -248,6 +248,15 @@
     "commandPalette/registry-match-full-registry": {
       "cost": 51.72,
       "reason": "Unified command-registry matcher at registry scale (150 seeded multi-token queries x 234 commands); new benchmark for the unify-command-palette-registry change."
+    },
+    "routing resolveRoute (64 questions)": {
+      "cost": 0.2586
+    },
+    "citation renderAnswer (40 claims)": {
+      "cost": 0.02035
+    },
+    "sourcePlan page context": {
+      "cost": 0.0001927
     }
   }
 }
