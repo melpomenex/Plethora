@@ -1,0 +1,4 @@
+# Bulk fixture data is a local capture; regenerate with:
+#   node scripts/fixtures/generate-legacy-assistant-fixtures.mjs
+# manifest.json and README.md stay committed.
+data/

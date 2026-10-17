@@ -1,0 +1,56 @@
+{
+  "purpose": "Raw legacy Assistant-storage capture for unify-assistant-experience tasks 0.4/1.5/8.3. Generated deterministically; contains no production user data.",
+  "generator": "scripts/fixtures/generate-legacy-assistant-fixtures.mjs",
+  "seed": "0x5eeda11a",
+  "fixedEpoch": "2026-08-01T00:00:00.000Z",
+  "generatedAt": "deterministic-input",
+  "storageShapes": {
+    "sidebar-conversations.json": "assistant-panel-conversations-v1 (StoredConversationMap)",
+    "qa-sessions.json": "document-qa-sessions-v1 (DocumentQaSession[])",
+    "legacy-document-qa.json": "plethora-document-qa (zustand persist blob, modern + legacy variants)",
+    "corrupt-records.json": "malformed/typed-wrong/duplicate inputs for quarantine tests",
+    "oversized-session.json": "single >1MB session JSON for quota/stress tests",
+    "ai-conversations.sql": "ai_conversations/ai_messages rows for migration 003 schema"
+  },
+  "counts": {
+    "sidebarConversationKeys": 60,
+    "sidebarMessages": 572,
+    "qaSessions": 62,
+    "qaMessages": 514,
+    "qaSessionsWithDrafts": 11,
+    "qaSessionsWithImages": 0,
+    "sidebarSessionsWithImages": 1,
+    "corruptVariantInputs": 5,
+    "oversizedBytes": 1121820
+  },
+  "files": {
+    "sidebar-conversations.json": {
+      "bytes": 121786,
+      "sha256": "af10b87e7f9cddc1547be130fe116ebbb2d74e77709796c0c8c70b35cccd0a8a"
+    },
+    "qa-sessions.json": {
+      "bytes": 263047,
+      "sha256": "40983b66077612bc2a343619215d264f0da4f227730d643193ec0b359e9e36ad"
+    },
+    "legacy-document-qa.json": {
+      "bytes": 2382,
+      "sha256": "3139c70bf1c11f161ce47acd6ec696ab43bf96a860af3e603c16304e67c09532"
+    },
+    "corrupt-records.json": {
+      "bytes": 6737,
+      "sha256": "0c973c24de2a65461f992eed19d140749c6fa6e5cb57eb01ad28395f32819f4b"
+    },
+    "oversized-session.json": {
+      "bytes": 1123919,
+      "sha256": "9cddf21d22f9fbc531c1641667faa94000ea77e0048c0958b2b5ec30ec3fad08"
+    },
+    "ai-conversations.sql": {
+      "bytes": 15446,
+      "sha256": "86e6c90202ac43d7bfbc66816b7c827382b1f8a8d8e0688fb263a49b5044bb5f"
+    },
+    "manifest.json": {
+      "bytes": 2073,
+      "sha256": "4bb3e2a4d11ea43f284f1a96d23795379519235a9f8678d984499b1705bc6309"
+    }
+  }
+}
