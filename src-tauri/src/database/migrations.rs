@@ -4168,6 +4168,166 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     ),
+    // Migration 122: canonical Assistant conversation ownership.
+    //
+    // Additive on purpose: `ai_conversations` / `ai_messages` keep their ids,
+    // existing columns and foreign keys (created in migration 003, long before
+    // any rows were written by a UI). New columns get honest defaults and
+    // pre-existing rows stay readable ("unassigned" identity, legacy content).
+    //
+    // New tables:
+    //   ai_conversation_turns      one row per turn (append-only lifecycle)
+    //   ai_conversation_attempts   per-attempt frozen finals; retry keeps the
+    //                              user turn and adds an attempt
+    //   ai_conversation_drafts     per-device working draft (durable)
+    //   ai_conversation_sources    source edges for reauthorization
+    //   ai_message_sources         per-message validated source snapshot
+    //   ai_conversation_import_journal  checkpointed legacy import log
+    Migration::new(
+        "122_add_canonical_conversations",
+        r#"
+        -- If migration 003 never ran in a legacy database, recreate its shape
+        -- (without touching an existing table).
+        CREATE TABLE IF NOT EXISTS ai_conversations (
+            id TEXT PRIMARY KEY,
+            document_id TEXT,
+            title TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            model TEXT NOT NULL,
+            date_created TEXT NOT NULL,
+            date_modified TEXT NOT NULL,
+            FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE SET NULL
+        );
+        CREATE TABLE IF NOT EXISTS ai_messages (
+            id TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            tokens_used INTEGER,
+            FOREIGN KEY (conversation_id) REFERENCES ai_conversations(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_conversations_document_id ON ai_conversations(document_id);
+        CREATE INDEX IF NOT EXISTS idx_ai_messages_conversation_id ON ai_messages(conversation_id);
+
+        -- Additive conversation columns. `record_version` distinguishes
+        -- canonical (2) from legacy (1) rows read back by rollback readers.
+        ALTER TABLE ai_conversations ADD COLUMN record_version INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE ai_conversations ADD COLUMN owner_profile_id TEXT NOT NULL DEFAULT 'unassigned';
+        ALTER TABLE ai_conversations ADD COLUMN collection_id TEXT;
+        ALTER TABLE ai_conversations ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE ai_conversations ADD COLUMN sync_policy TEXT NOT NULL DEFAULT 'device-local';
+        ALTER TABLE ai_conversations ADD COLUMN deleted_at TEXT;
+        ALTER TABLE ai_conversations ADD COLUMN legacy_aliases TEXT NOT NULL DEFAULT '[]';
+        ALTER TABLE ai_conversations ADD COLUMN context_policy_json TEXT NOT NULL DEFAULT '{}';
+        ALTER TABLE ai_conversations ADD COLUMN payload_json TEXT;
+        ALTER TABLE ai_conversations ADD COLUMN updated_at_ms INTEGER;
+        ALTER TABLE ai_conversations ADD COLUMN created_at_ms INTEGER;
+        -- `provider`/`model` are NOT NULL in the legacy schema; new
+        -- pre-generation conversations use this explicit sentinel rather than
+        -- fabricating a provider.
+        ALTER TABLE ai_conversations ADD COLUMN provider_kind TEXT NOT NULL DEFAULT 'unassigned';
+        ALTER TABLE ai_conversations ADD COLUMN provider_configuration_id TEXT;
+
+        -- Additive message columns.
+        ALTER TABLE ai_messages ADD COLUMN turn_id TEXT;
+        ALTER TABLE ai_messages ADD COLUMN order_key TEXT;
+        ALTER TABLE ai_messages ADD COLUMN thinking TEXT;
+        ALTER TABLE ai_messages ADD COLUMN evidence_json TEXT;
+        ALTER TABLE ai_messages ADD COLUMN payload_json TEXT;
+        ALTER TABLE ai_messages ADD COLUMN created_at_ms INTEGER;
+
+        CREATE INDEX IF NOT EXISTS idx_ai_conversations_owner_updated
+            ON ai_conversations(owner_profile_id, updated_at_ms);
+        CREATE INDEX IF NOT EXISTS idx_ai_conversations_tombstone
+            ON ai_conversations(deleted_at);
+        CREATE INDEX IF NOT EXISTS idx_ai_messages_turn ON ai_messages(turn_id);
+        CREATE INDEX IF NOT EXISTS idx_ai_messages_order ON ai_messages(conversation_id, order_key);
+
+        CREATE TABLE IF NOT EXISTS ai_conversation_turns (
+            id TEXT PRIMARY KEY,
+            conversation_id TEXT NOT NULL,
+            parent_turn_id TEXT,
+            user_message_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            accepted_attempt_id TEXT,
+            request_plan_json TEXT NOT NULL,
+            created_at_ms INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL,
+            FOREIGN KEY (conversation_id) REFERENCES ai_conversations(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_turns_conversation
+            ON ai_conversation_turns(conversation_id, created_at_ms);
+
+        CREATE TABLE IF NOT EXISTS ai_conversation_attempts (
+            id TEXT PRIMARY KEY,
+            turn_id TEXT NOT NULL,
+            conversation_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            failure_reason TEXT,
+            detached INTEGER NOT NULL DEFAULT 0,
+            request_plan_json TEXT NOT NULL,
+            provider_json TEXT,
+            started_at_ms INTEGER NOT NULL,
+            finished_at_ms INTEGER,
+            FOREIGN KEY (turn_id) REFERENCES ai_conversation_turns(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_attempts_turn ON ai_conversation_attempts(turn_id);
+
+        CREATE TABLE IF NOT EXISTS ai_conversation_drafts (
+            conversation_id TEXT NOT NULL,
+            device_id TEXT NOT NULL,
+            revision INTEGER NOT NULL DEFAULT 0,
+            text TEXT NOT NULL DEFAULT '',
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            updated_at_ms INTEGER NOT NULL,
+            PRIMARY KEY (conversation_id, device_id),
+            FOREIGN KEY (conversation_id) REFERENCES ai_conversations(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS ai_conversation_sources (
+            conversation_id TEXT NOT NULL,
+            attachment_id TEXT NOT NULL,
+            library_id TEXT,
+            source_kind TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'optional',
+            origin TEXT NOT NULL,
+            title TEXT NOT NULL,
+            content_version TEXT,
+            locator_json TEXT,
+            removed_at_ms INTEGER,
+            payload_json TEXT,
+            PRIMARY KEY (conversation_id, attachment_id),
+            FOREIGN KEY (conversation_id) REFERENCES ai_conversations(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_conversation_sources_library
+            ON ai_conversation_sources(library_id);
+
+        CREATE TABLE IF NOT EXISTS ai_message_sources (
+            message_id TEXT NOT NULL,
+            attachment_id TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            PRIMARY KEY (message_id, attachment_id),
+            FOREIGN KEY (message_id) REFERENCES ai_messages(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS ai_conversation_import_journal (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            owner_profile_id TEXT NOT NULL,
+            origin TEXT NOT NULL,
+            record_key TEXT NOT NULL,
+            record_digest TEXT NOT NULL,
+            assigned_conversation_id TEXT,
+            status TEXT NOT NULL,
+            reason TEXT,
+            raw_json TEXT,
+            imported_at_ms INTEGER NOT NULL,
+            UNIQUE (owner_profile_id, origin, record_digest)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_import_journal_cursor
+            ON ai_conversation_import_journal(owner_profile_id, origin, id);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
@@ -4955,5 +5115,152 @@ mod tests {
                 .await
                 .expect("read untouched content");
         assert_eq!(unchanged, "Existing body");
+    }
+
+    /// Migration 122 must be additive: legacy `ai_conversations` /
+    /// `ai_messages` rows (migration-003 shape, long predating any UI writer)
+    /// stay byte-identical in their original columns, foreign keys keep
+    /// cascading, and unknown legacy payloads survive untouched while
+    /// canonical columns get honest defaults.
+    #[tokio::test]
+    async fn canonical_conversation_migration_preserves_legacy_rows() {
+        let pool = pool_migrated_up_to("122_add_canonical_conversations").await;
+
+        sqlx::query("INSERT INTO documents (id, title, file_path, file_type, date_added, date_modified) VALUES ('doc-legacy', 'Legacy Doc', '/legacy.md', 'markdown', datetime('now'), datetime('now'))")
+            .execute(&pool)
+            .await
+            .expect("seed document");
+        sqlx::query("INSERT INTO ai_conversations (id, document_id, title, provider, model, date_created, date_modified) VALUES ('conv-legacy', 'doc-legacy', 'Legacy thread', 'openai', 'gpt-4o-mini', '2026-08-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z')")
+            .execute(&pool)
+            .await
+            .expect("seed legacy conversation");
+        sqlx::query("INSERT INTO ai_conversations (id, document_id, title, provider, model, date_created, date_modified) VALUES ('conv-orphan', NULL, 'Orphaned', 'ollama', 'llama3.1:8b', '2026-08-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z')")
+            .execute(&pool)
+            .await
+            .expect("seed orphan conversation");
+        for i in 0..3 {
+            sqlx::query("INSERT INTO ai_messages (id, conversation_id, role, content, timestamp, tokens_used) VALUES (?1, 'conv-legacy', ?2, ?3, '2026-08-01T00:00:00.000Z', ?4)")
+                .bind(format!("legacy-m{i}"))
+                .bind(if i % 2 == 0 { "user" } else { "assistant" })
+                .bind(format!("Legacy message {i}"))
+                .bind(if i % 2 == 0 { None::<i64> } else { Some(120_i64) })
+                .execute(&pool)
+                .await
+                .expect("seed legacy message");
+        }
+
+        run_migrations(&pool).await.expect("apply migration 122");
+
+        // Original columns are untouched.
+        let (title, provider, model): (String, String, String) = sqlx::query_as(
+            "SELECT title, provider, model FROM ai_conversations WHERE id = 'conv-legacy'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("read legacy conversation");
+        assert_eq!(title, "Legacy thread");
+        assert_eq!(provider, "openai");
+        assert_eq!(model, "gpt-4o-mini");
+
+        // Honest defaults: rows are device-local, unassigned, version 1.
+        let (version, owner, sync_policy, revision, deleted): (i64, String, String, i64, Option<String>) =
+            sqlx::query_as("SELECT record_version, owner_profile_id, sync_policy, revision, deleted_at FROM ai_conversations WHERE id = 'conv-legacy'")
+                .fetch_one(&pool)
+                .await
+                .expect("read canonical defaults");
+        assert_eq!(version, 1, "legacy rows are version 1 until imported");
+        assert_eq!(owner, "unassigned");
+        assert_eq!(sync_policy, "device-local");
+        assert_eq!(revision, 0);
+        assert!(deleted.is_none());
+
+        // Legacy messages keep their original content and nullability.
+        let (count,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM ai_messages WHERE conversation_id = 'conv-legacy' AND turn_id IS NULL AND order_key IS NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("count legacy messages");
+        assert_eq!(count, 3);
+        let (null_tokens,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM ai_messages WHERE conversation_id = 'conv-legacy' AND tokens_used IS NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("count null tokens");
+        assert_eq!(null_tokens, 2);
+
+        // Foreign keys still cascade from migration 003.
+        sqlx::query("DELETE FROM ai_conversations WHERE id = 'conv-legacy'")
+            .execute(&pool)
+            .await
+            .expect("delete conversation");
+        let (remaining,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM ai_messages WHERE conversation_id = 'conv-legacy'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("count after cascade");
+        assert_eq!(remaining, 0, "message cascade preserved");
+
+        // New tables exist and are empty on an upgraded database.
+        for table in [
+            "ai_conversation_turns",
+            "ai_conversation_attempts",
+            "ai_conversation_drafts",
+            "ai_conversation_sources",
+            "ai_message_sources",
+            "ai_conversation_import_journal",
+        ] {
+            let (exists,): (i64,) = sqlx::query_as(&format!(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{table}'"
+            ))
+            .fetch_one(&pool)
+            .await
+            .expect("check table exists");
+            assert_eq!(exists, 1, "table {table} should exist");
+        }
+    }
+
+    /// Re-applying the additive migration (a crash between the DDL and the
+    /// tracking row, then a restart) must be a no-op for schema and data.
+    #[tokio::test]
+    async fn canonical_conversation_migration_is_additive_on_rerun() {
+        let pool = pool_migrated_up_to("122_add_canonical_conversations").await;
+        run_migrations(&pool).await.expect("first application");
+        sqlx::query("INSERT INTO ai_conversations (id, title, provider, model, record_version, owner_profile_id, date_created, date_modified, updated_at_ms) VALUES ('conv-canonical', 'Canonical', 'unassigned', 'unassigned', 2, 'local:device-a', '2026-08-01T00:00:00.000Z', '2026-08-01T00:00:00.000Z', 1)")
+            .execute(&pool)
+            .await
+            .expect("seed canonical row");
+        // Re-running migrations finds 122 already recorded and does nothing.
+        run_migrations(&pool).await.expect("second application");
+        let (owner,): (String,) = sqlx::query_as("SELECT owner_profile_id FROM ai_conversations WHERE id = 'conv-canonical'")
+            .fetch_one(&pool)
+            .await
+            .expect("read canonical row");
+        assert_eq!(owner, "local:device-a");
+    }
+
+    /// A pre-imported (version-2) row read by an old reader must still expose
+    /// the legacy columns it knows; this asserts the read-compatibility
+    /// contract the rollback path depends on.
+    #[tokio::test]
+    async fn canonical_rows_remain_readable_through_legacy_columns() {
+        let pool = pool_migrated_up_to("122_add_canonical_conversations").await;
+        run_migrations(&pool).await.expect("apply migration 122");
+        sqlx::query("INSERT INTO ai_conversations (id, title, provider, model, record_version, owner_profile_id, revision, date_created, date_modified, updated_at_ms, provider_kind) VALUES ('conv-v2', 'Canonical title', 'unassigned', 'unassigned', 2, 'local:device-a', 4, '2026-08-01T00:00:00.000Z', '2026-08-02T00:00:00.000Z', 5000, 'unassigned')")
+            .execute(&pool)
+            .await
+            .expect("seed canonical row");
+        // The legacy read shape (title/provider/model/dates) still resolves.
+        let (title, created, modified): (String, String, String) = sqlx::query_as(
+            "SELECT title, date_created, date_modified FROM ai_conversations WHERE id = 'conv-v2'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("legacy-shaped read");
+        assert_eq!(title, "Canonical title");
+        assert_eq!(created, "2026-08-01T00:00:00.000Z");
+        assert_eq!(modified, "2026-08-02T00:00:00.000Z");
     }
 }

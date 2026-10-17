@@ -835,6 +835,13 @@ interface FeatureFlags {
   windowsSystemAi: boolean;
   /** Experimental WinRT structured-output paths on Windows desktop. */
   windowsAiExperimental: boolean;
+  /** Canonical Assistant conversation rollout flags (unify-assistant-experience). */
+  assistantCanonicalConversations: boolean;
+  assistantContextAttachments: boolean;
+  assistantCitationParity: boolean;
+  assistantUnifiedSelectionEntry: boolean;
+  assistantTurnStreaming: boolean;
+  assistantConversationSync: boolean;
 }
 
 /**
@@ -1509,6 +1516,15 @@ export const defaultSettings: Settings = {
     dictionaryPeek: true,
     // Mobile AskSheet (mobile-ask-sheet-library-qa): dark until UX validated.
     askSheetMobile: false,
+    // Canonical Assistant conversation repository (unify-assistant-experience).
+    // Each flag is independent so read-only history/import can ship before
+    // entry consolidation, and streaming/sync gate separately.
+    assistantCanonicalConversations: false,
+    assistantContextAttachments: false,
+    assistantCitationParity: false,
+    assistantUnifiedSelectionEntry: false,
+    assistantTurnStreaming: false,
+    assistantConversationSync: false,
     appleFoundationModels: true,
     appleSpotlightIndex: true,
     appleSpeechTranscription: true,

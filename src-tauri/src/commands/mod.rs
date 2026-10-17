@@ -2,6 +2,7 @@
 
 pub mod ai;
 pub mod ai_key_store;
+pub mod ai_conversations;
 pub mod ai_learning;
 pub mod ai_provenance;
 pub mod algorithm;
@@ -75,6 +76,7 @@ pub use crate::error::Result;
 
 pub use ai::*;
 pub use ai_key_store::*;
+pub use ai_conversations::*;
 pub use ai_learning::*;
 pub use ai_provenance::*;
 pub use algorithm::*;

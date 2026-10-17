@@ -1,5 +1,6 @@
 //! Database layer for Incrementum
 
+pub mod ai_conversation_repository;
 pub mod ai_provenance_repository;
 pub mod audio_edition_repository;
 pub mod capture_repository;
@@ -19,6 +20,10 @@ pub mod priority_rank;
 pub mod repository;
 pub mod saved_queue_repository;
 
+pub use ai_conversation_repository::{
+    AiConversationRepository, ConversationSummary, ImportJournalEntry, ListOptions,
+    StoredAttempt, StoredConversationRecord, StoredDraft, StoredMessage, StoredTurn,
+};
 pub use ai_provenance_repository::{AiProvenance, AiProvenanceRepository};
 pub use audio_edition_repository::AudioEditionRepository;
 pub use concept_repository::{
