@@ -8,6 +8,7 @@ import {
   CircleNotch,
   Clock,
   Copy,
+  DotsThreeVertical,
   Download,
   Flame,
   FolderOpen,
@@ -44,11 +45,25 @@ import { MobileCardDetailsSurface } from "./MobileCardDetailsSurface";
 import { useResizablePanels } from "./useResizablePanels";
 import { DeckStatsPanel } from "./DeckStatsPanel";
 import { useMobileShell } from "../../hooks/useMobileShell";
+import { useOverlayDismissal } from "../../hooks/useOverlayDismissal";
 import type { StudyDeck } from "../../types/study-decks";
+import { ResponsiveDialogSheet } from "../adaptive/ResponsiveDialogSheet";
+import { ResponsiveBulkActionBar, type BulkActionItem } from "../common/ResponsiveBulkActionBar";
+import {
+  DECK_MANAGER_CATEGORIES,
+  DECK_MANAGER_SORTS,
+  getDeckManagerCategoryCounts,
+  matchesDeckManagerCategory,
+  sortDeckManagerCards,
+  type DeckManagerCategory,
+  type DeckManagerSortDirection,
+  type DeckManagerSortField,
+} from "./deckManagerModel";
 
-type SortField = "due_date" | "state" | "difficulty" | "interval" | "review_count" | "lapses";
-type SortDir = "asc" | "desc";
-type StateFilter = "" | "New" | "Learning" | "Review" | "Relearning" | "Suspended" | "Leeches";
+type SortField = DeckManagerSortField;
+type SortDir = DeckManagerSortDirection;
+type StateFilter = DeckManagerCategory;
+type MobileSurface = "deck-picker" | "filters" | "actions" | "statistics" | "export" | "rename" | "retag";
 
 interface DeckManagerProps {
   onBack: () => void;
@@ -81,12 +96,19 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
     }
   }, [selectedDeckId, setSelectedDeckId]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectionMode, setSelectionMode] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
   const [sortField, setSortField] = useState<SortField>("due_date");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [stateFilter, setStateFilter] = useState<StateFilter>("");
-  const [showFilters, setShowFilters] = useState(false);
+  const [mobileSurface, setMobileSurface] = useState<MobileSurface | null>(null);
+  const [deckPickerQuery, setDeckPickerQuery] = useState("");
+  const [filterDraft, setFilterDraft] = useState<StateFilter>("");
+  const [sortFieldDraft, setSortFieldDraft] = useState<SortField>("due_date");
+  const [sortDirDraft, setSortDirDraft] = useState<SortDir>("asc");
+  const [addRetagTags, setAddRetagTags] = useState("");
+  const [removeRetagTags, setRemoveRetagTags] = useState("");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showExportPicker, setShowExportPicker] = useState(false);
   const [contextMenu, setContextMenu] = useState<{ deckId: string; x: number; y: number } | null>(null);
@@ -96,6 +118,8 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
   const [rightPanelView, setRightPanelView] = useState<"preview" | "stats">("preview");
   const isMobile = useMobileShell();
   const [mobileCardOpen, setMobileCardOpen] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
+  const previousMobileRef = useRef(isMobile);
   const { widths, containerRef, handlePointerDown } = useResizablePanels();
 
   // Load all learning items (extracted for reuse after card creation)
@@ -210,48 +234,8 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
       );
     }
 
-    if (stateFilter) {
-      if (stateFilter === "Suspended") {
-        cards = cards.filter((c) => c.is_suspended);
-      } else if (stateFilter === "Leeches") {
-        cards = cards.filter((c) => c.lapses >= 5);
-      } else {
-        cards = cards.filter((c) => c.state === stateFilter as LearningItem["state"]);
-      }
-    }
-
-    const stateOrder: Record<string, number> = {
-      New: 0,
-      Learning: 1,
-      Relearning: 2,
-      Review: 3,
-    };
-    cards.sort((a, b) => {
-      let cmp = 0;
-      switch (sortField) {
-        case "due_date":
-          cmp = (a.due_date ?? "").localeCompare(b.due_date ?? "");
-          break;
-        case "state":
-          cmp = (stateOrder[a.state] ?? 0) - (stateOrder[b.state] ?? 0);
-          break;
-        case "difficulty":
-          cmp = a.difficulty - b.difficulty;
-          break;
-        case "interval":
-          cmp = a.interval - b.interval;
-          break;
-        case "review_count":
-          cmp = a.review_count - b.review_count;
-          break;
-        case "lapses":
-          cmp = a.lapses - b.lapses;
-          break;
-      }
-      return sortDir === "asc" ? cmp : -cmp;
-    });
-
-    return cards;
+    cards = cards.filter((card) => matchesDeckManagerCategory(card, stateFilter));
+    return sortDeckManagerCards(cards, sortField, sortDir);
   }, [
     expandedDeck,
     getCardsForDeck,
@@ -267,17 +251,76 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
 
   // State filter counts for the active deck
   const stateFilterCounts = useMemo(() => {
-    if (!expandedDeck) return { all: 0, "New": 0, "Learning": 0, "Review": 0, "Suspended": 0, "Leeches": 0 };
-    const cards = getCardsForDeck(expandedDeck);
-    return {
-      all: cards.length,
-      "New": cards.filter((c) => c.state === "New").length,
-      "Learning": cards.filter((c) => c.state === "Learning" || c.state === "Relearning").length,
-      "Review": cards.filter((c) => c.state === "Review").length,
-      "Suspended": cards.filter((c) => c.is_suspended).length,
-      "Leeches": cards.filter((c) => c.lapses >= 5).length,
-    };
+    if (!expandedDeck) return getDeckManagerCategoryCounts([]);
+    return getDeckManagerCategoryCounts(getCardsForDeck(expandedDeck));
   }, [expandedDeck, getCardsForDeck]);
+
+  const scrollListToTop = useCallback(() => {
+    const list = listRef.current;
+    if (!list) return;
+    if (typeof list.scrollTo === "function") list.scrollTo({ top: 0 });
+    else list.scrollTop = 0;
+  }, []);
+
+  const handleSwitchDeck = useCallback((deckId: string | null) => {
+    if (deckId === expandedDeckId) {
+      setMobileSurface(null);
+      return;
+    }
+    setExpandedDeckId(deckId);
+    setSearchQuery("");
+    setStateFilter("");
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+    setPreviewCardId(null);
+    setMobileCardOpen(false);
+    setMobileSurface(null);
+    scrollListToTop();
+  }, [expandedDeckId, scrollListToTop]);
+
+  const handleSearchChange = useCallback((query: string) => {
+    if (query !== searchQuery) setSelectedIds(new Set());
+    setSearchQuery(query);
+    scrollListToTop();
+  }, [searchQuery, scrollListToTop]);
+
+  const handleStateFilterChange = useCallback((category: StateFilter) => {
+    if (category !== stateFilter) setSelectedIds(new Set());
+    setStateFilter(category);
+    scrollListToTop();
+  }, [stateFilter, scrollListToTop]);
+
+  const applyFilterDraft = useCallback(() => {
+    if (filterDraft !== stateFilter) setSelectedIds(new Set());
+    setStateFilter(filterDraft);
+    setSortField(sortFieldDraft);
+    setSortDir(sortDirDraft);
+    setMobileSurface(null);
+    scrollListToTop();
+  }, [filterDraft, stateFilter, sortFieldDraft, sortDirDraft, scrollListToTop]);
+
+  useEffect(() => {
+    if (expandedDeckId && !decks.some((deck) => deck.id === expandedDeckId)) {
+      setExpandedDeckId(isMobile ? sortedDecks[0]?.id ?? null : null);
+      setSearchQuery("");
+      setStateFilter("");
+      setSelectedIds(new Set());
+      setSelectionMode(false);
+      setPreviewCardId(null);
+      setMobileCardOpen(false);
+      setMobileSurface(null);
+      scrollListToTop();
+    }
+  }, [expandedDeckId, decks, sortedDecks, isMobile, scrollListToTop]);
+
+  useEffect(() => {
+    if (previousMobileRef.current === isMobile) return;
+    previousMobileRef.current = isMobile;
+    setMobileSurface(null);
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+    setMobileCardOpen(false);
+  }, [isMobile]);
 
   const handleToggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -289,12 +332,45 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
   }, []);
 
   const handleSelectAll = useCallback(() => {
-    if (selectedIds.size === expandedCards.length) {
+    if (expandedCards.length > 0 && expandedCards.every((card) => selectedIds.has(card.id))) {
       setSelectedIds(new Set());
     } else {
       setSelectedIds(new Set(expandedCards.map((c) => c.id)));
     }
-  }, [selectedIds.size, expandedCards]);
+  }, [selectedIds, expandedCards]);
+
+  const enterSelectionMode = useCallback(() => {
+    setMobileSurface(null);
+    setSelectionMode(true);
+    setSelectedIds(new Set());
+  }, []);
+
+  const exitSelectionMode = useCallback(() => {
+    setSelectedIds(new Set());
+    setSelectionMode(false);
+  }, []);
+
+  useOverlayDismissal(isMobile && selectionMode && mobileSurface === null, exitSelectionMode, 20);
+
+  const openFilterSheet = useCallback(() => {
+    setFilterDraft(stateFilter);
+    setSortFieldDraft(sortField);
+    setSortDirDraft(sortDir);
+    setMobileSurface("filters");
+  }, [stateFilter, sortField, sortDir]);
+
+  const openDeckPicker = useCallback(() => {
+    setDeckPickerQuery("");
+    setMobileSurface("deck-picker");
+  }, []);
+
+  const openMobileActions = useCallback(() => setMobileSurface("actions"), []);
+
+  const clearSearchAndFilters = useCallback(() => {
+    handleSearchChange("");
+    handleStateFilterChange("");
+    setSelectedIds(new Set());
+  }, [handleSearchChange, handleStateFilterChange]);
 
   const handleExpandCard = useCallback(
     (id: string) => {
@@ -375,19 +451,21 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
         })
       );
       setSelectedIds(new Set());
+      setMobileSurface(null);
       toast.success(`Retagged ${ids.length} cards`);
     },
     [selectedIds, toast]
   );
 
   const handleLeechFilter = useCallback(() => {
-    setStateFilter("Leeches");
+    handleStateFilterChange("Leeches");
     setSortField("lapses");
     setSortDir("desc");
-  }, []);
+  }, [handleStateFilterChange]);
 
   const handleNewCard = useCallback(async () => {
     if (!expandedDeck) return;
+    setMobileSurface(null);
     try {
       const newCard = await createLearningItem({
         item_type: "basic",
@@ -402,11 +480,12 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
       setRightPanelView("preview");
       // Reload to pick up the new card in the deck
       await loadAllItems();
+      if (isMobile) setMobileCardOpen(true);
     } catch (error) {
       console.error("Failed to create card:", error);
       toast.error(t("common.error"), error instanceof Error ? error.message : "Failed to create card");
     }
-  }, [expandedDeck, toast, t, loadAllItems]);
+  }, [expandedDeck, toast, t, loadAllItems, isMobile]);
 
   const handleStudyNow = useCallback(async () => {
     if (!expandedDeck || !onStartReview) return;
@@ -436,7 +515,8 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
     setRenamingDeckId(deckId);
     setRenameValue(deck.name);
     setContextMenu(null);
-  }, [decks]);
+    if (isMobile) setMobileSurface("rename");
+  }, [decks, isMobile]);
 
   const commitRename = useCallback(() => {
     if (renamingDeckId && renameValue.trim()) {
@@ -444,6 +524,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
     }
     setRenamingDeckId(null);
     setRenameValue("");
+    setMobileSurface(null);
   }, [renamingDeckId, renameValue, updateDeck]);
 
   const handleDeckDuplicate = useCallback((deckId: string) => {
@@ -451,6 +532,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
     if (!deck) return;
     addDeck(`${deck.name} (copy)`, deck.tagFilters);
     setContextMenu(null);
+    setMobileSurface(null);
     toast.success(`Duplicated deck "${deck.name}"`);
   }, [decks, addDeck, toast]);
 
@@ -458,17 +540,18 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
     const deck = decks.find((d) => d.id === deckId);
     if (!deck) return;
     setContextMenu(null);
+    setMobileSurface(null);
     confirmDialog.confirm({
       title: t("deckManager.deleteDeck"),
       message: t("deckManager.deleteDeckConfirm", { name: deck.name }),
       variant: "danger",
       onConfirm: () => {
         removeDeck(deckId);
-        if (expandedDeckId === deckId) setExpandedDeckId(null);
+        if (expandedDeckId === deckId) handleSwitchDeck(null);
         toast.success(`Deleted deck "${deck.name}"`);
       },
     });
-  }, [decks, removeDeck, expandedDeckId, toast, confirmDialog, t]);
+  }, [decks, removeDeck, expandedDeckId, handleSwitchDeck, toast, confirmDialog, t]);
 
   const handleDeckStudy = useCallback(async (deckId: string) => {
     const deck = decks.find((d) => d.id === deckId);
@@ -540,6 +623,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
     const deck = decks.find((d) => d.id === deckId);
     if (!deck) return;
     setContextMenu(null);
+    setMobileSurface(null);
     try {
       // Use Tauri file dialog to pick save location
       const { save } = await import("@tauri-apps/plugin-dialog");
@@ -561,6 +645,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
     const deck = decks.find((d) => d.id === deckId);
     if (!deck) return;
     setContextMenu(null);
+    setMobileSurface(null);
     try {
       const { save } = await import("@tauri-apps/plugin-dialog");
       const filePath = await save({
@@ -668,6 +753,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
 
   const toggleSort = useCallback(
     (field: SortField) => {
+      scrollListToTop();
       if (sortField === field) {
         setSortDir((prev) => (prev === "asc" ? "desc" : "asc"));
       } else {
@@ -675,16 +761,21 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
         setSortDir("asc");
       }
     },
-    [sortField]
+    [sortField, scrollListToTop]
   );
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        if (mobileSurface || confirmDialog.isOpen) return;
         if (contextMenu) { setContextMenu(null); return; }
         if (renamingDeckId) { setRenamingDeckId(null); setRenameValue(""); return; }
         if (isMobile && mobileCardOpen) {
           setMobileCardOpen(false);
+          return;
+        }
+        if (isMobile && selectionMode) {
+          exitSelectionMode();
           return;
         }
         if (previewCardId) {
@@ -696,7 +787,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [contextMenu, expandedDeckId, isMobile, mobileCardOpen, previewCardId, renamingDeckId]);
+  }, [contextMenu, confirmDialog.isOpen, expandedDeckId, exitSelectionMode, isMobile, mobileCardOpen, mobileSurface, previewCardId, renamingDeckId, selectionMode]);
 
   const allDeckCards = expandedDeck ? getCardsForDeck(expandedDeck) : [];
 
@@ -721,61 +812,171 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
     return { total: cards.length, dueToday, newCards, learningCards, matureCards, retentionRate };
   }, [expandedDeck, getCardsForDeck]);
 
-  const sortLabels: [SortField, string][] = [
-    ["due_date", "Due"],
-    ["state", "State"],
-    ["difficulty", "Diff"],
-    ["interval", "Int."],
-    ["review_count", "Reviews"],
-    ["lapses", "Lapses"],
-  ];
-
-  const filterChips: { key: StateFilter | "Suspended" | "Leeches"; label: string }[] = [
-    { key: "", label: "All" },
-    { key: "New", label: "New" },
-    { key: "Learning", label: "Learning" },
-    { key: "Review", label: "Review" },
-    { key: "Suspended", label: "Suspended" },
-    { key: "Leeches", label: "Leeches" },
+  const sortLabels: [SortField, string][] = DECK_MANAGER_SORTS.map(({ value, shortLabel }) => [value, shortLabel]);
+  const filterChips = DECK_MANAGER_CATEGORIES.map(({ value: key, label }) => ({ key, label }));
+  const hasNonDefaultSort = sortField !== "due_date" || sortDir !== "asc";
+  const filterSortActive = Boolean(stateFilter) || hasNonDefaultSort;
+  const sortSummary = hasNonDefaultSort
+    ? `${DECK_MANAGER_SORTS.find(({ value }) => value === sortField)?.label ?? "Due"} ${sortDir === "asc" ? "ascending" : "descending"}`
+    : "";
+  const browseSummary = searchQuery || stateFilter || hasNonDefaultSort
+    ? `${expandedCards.length} of ${allDeckCards.length} cards${searchQuery ? " · search" : ""}${stateFilter ? ` · ${stateFilter}` : ""}${sortSummary ? ` · ${sortSummary}` : ""}`
+    : `${inlineStats?.total ?? 0} cards · ${inlineStats?.dueToday ?? 0} due`;
+  const visibleDeckPickerDecks = sortedDecks.filter((deck) =>
+    deck.name.toLocaleLowerCase().includes(deckPickerQuery.trim().toLocaleLowerCase()),
+  );
+  const mobileBulkActions: BulkActionItem[] = [
+    {
+      id: "suspend",
+      label: "Suspend",
+      icon: <Prohibit className="h-4 w-4" />,
+      onClick: () => void handleBulkSuspend(),
+      variant: "muted",
+    },
+    {
+      id: "unsuspend",
+      label: "Unsuspend",
+      icon: <Play className="h-4 w-4" />,
+      onClick: () => void handleBulkUnsuspend(),
+      variant: "muted",
+    },
+    {
+      id: "delete",
+      label: "Delete",
+      icon: <Trash className="h-4 w-4" />,
+      onClick: () => {
+        const count = selectedIds.size;
+        confirmDialog.confirm({
+          title: `Delete ${count} cards?`,
+          message: "This cannot be undone.",
+          variant: "danger",
+          onConfirm: () => void handleBulkDelete(),
+        });
+      },
+      variant: "destructive",
+    },
+    {
+      id: "retag",
+      label: "Retag",
+      icon: <Tag className="h-4 w-4" />,
+      onClick: () => {
+        setAddRetagTags("");
+        setRemoveRetagTags("");
+        setMobileSurface("retag");
+      },
+      showInOverflowOnly: true,
+    },
   ];
 
   return (
     <>
     <div className="flex flex-col h-full bg-background">
-      {/* Compact header */}
-      <div className="flex items-center gap-2 px-3 py-1.5 border-b border-border flex-shrink-0">
-        <button
-          onClick={onBack}
-          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="h-3.5 w-3.5" />
-          {t("review.backToHome")}
-        </button>
-        <span className="text-border">·</span>
-        <h2 className="text-base font-semibold">{t("review.deckManager.title")}</h2>
-        <span className={"text-[10px] text-muted-foreground ml-auto tabular-nums"}>
-          {allCards.length} cards · {decks.length} decks
-        </span>
-      </div>
-
-      {/* Mobile deck picker */}
-      {isMobile && decks.length > 0 && (
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-border flex-shrink-0">
-          <select
-            value={expandedDeckId ?? ""}
-            onChange={(e) => setExpandedDeckId(e.target.value || null)}
-            className="flex-1 text-sm bg-muted/60 border border-border rounded-md px-2 py-1.5 text-foreground"
-          >
-            <option value="">Select a deck…</option>
-            {sortedDecks.map((deck) => {
-              const counts = deckCardCounts.get(deck.id);
-              return (
-                <option key={deck.id} value={deck.id}>
-                  {deck.name} ({counts?.total ?? 0})
-                </option>
-              );
-            })}
-          </select>
+      {isMobile ? (
+        <header aria-label={t("review.deckManager.title")} className="deck-manager-mobile-header flex-shrink-0 border-b border-border bg-background">
+          <div className="flex min-h-16 items-center gap-1 px-2">
+            <button
+              type="button"
+              aria-label={selectionMode ? "Exit card selection" : t("review.backToHome")}
+              onClick={() => selectionMode ? exitSelectionMode() : onBack()}
+              className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+            >
+              <ArrowLeft className="h-5 w-5" aria-hidden="true" />
+            </button>
+            {selectionMode ? (
+              <>
+                <div className="min-w-0 flex-1" aria-live="polite">
+                  <h2 className="truncate text-base font-semibold">{selectedIds.size} selected</h2>
+                  <p className="truncate text-xs text-muted-foreground">Select cards</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleSelectAll}
+                  disabled={expandedCards.length === 0}
+                  className="min-h-12 shrink-0 rounded-lg px-2 text-xs font-medium text-primary disabled:opacity-50"
+                >
+                  {expandedCards.length > 0 && expandedCards.every((card) => selectedIds.has(card.id)) ? "Deselect all" : "Select all results"}
+                </button>
+                <button
+                  type="button"
+                  onClick={exitSelectionMode}
+                  className="min-h-12 shrink-0 rounded-lg px-2 text-sm font-medium text-primary"
+                >
+                  Done
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  aria-label={expandedDeck ? `Choose deck. ${expandedDeck.name}. ${browseSummary}` : "Choose a deck"}
+                  aria-expanded={mobileSurface === "deck-picker"}
+                  onClick={openDeckPicker}
+                  disabled={decks.length === 0}
+                  className="flex min-h-14 min-w-0 flex-1 flex-col items-start justify-center rounded-lg px-2 text-left hover:bg-muted/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-60"
+                >
+                  <span className="flex max-w-full items-center gap-1">
+                    <span className="max-w-full truncate text-base font-semibold">{expandedDeck?.name ?? "Choose a deck"}</span>
+                    <CaretDown className="h-4 w-4 shrink-0" aria-hidden="true" />
+                  </span>
+                  <span className="max-w-full truncate text-xs text-muted-foreground" aria-live="polite">{browseSummary}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void handleStudyNow()}
+                  disabled={!expandedDeck || !onStartReview}
+                  className="flex min-h-12 shrink-0 items-center gap-1 rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+                >
+                  <GraduationCap className="h-5 w-5" aria-hidden="true" />
+                  Study
+                </button>
+                <button
+                  type="button"
+                  aria-label="Deck actions"
+                  onClick={openMobileActions}
+                  disabled={!expandedDeck}
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-40"
+                >
+                  <DotsThreeVertical className="h-5 w-5" aria-hidden="true" />
+                </button>
+              </>
+            )}
+          </div>
+          <div className="flex min-h-14 items-center gap-2 border-t border-border/60 px-3 py-1">
+            <div className="relative min-w-0 flex-1">
+              <MagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              <input
+                type="search"
+                aria-label="Search cards"
+                value={searchQuery}
+                onChange={(event) => handleSearchChange(event.target.value)}
+                placeholder={t("review.deckManager.searchPlaceholder")}
+                disabled={!expandedDeck}
+                className="h-12 w-full rounded-xl border border-border bg-background pl-9 pr-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
+              />
+            </div>
+            <button
+              type="button"
+              aria-label={`Filter & sort${filterSortActive ? ", active settings" : ""}`}
+              aria-pressed={filterSortActive}
+              onClick={openFilterSheet}
+              disabled={!expandedDeck}
+              className={`flex min-h-12 shrink-0 items-center gap-1.5 rounded-xl border px-3 text-sm font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50 ${filterSortActive ? "border-primary text-primary" : "border-border text-foreground"}`}
+            >
+              <ArrowsVertical className="h-4 w-4" aria-hidden="true" />
+              <span>Filter &amp; sort</span>
+              {filterSortActive && <span className="rounded-full border border-current px-1.5 text-[10px] font-bold">Active</span>}
+            </button>
+          </div>
+        </header>
+      ) : (
+        <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-1.5">
+          <button onClick={onBack} className="flex items-center gap-1 text-sm text-muted-foreground transition-colors hover:text-foreground">
+            <ArrowLeft className="h-3.5 w-3.5" />
+            {t("review.backToHome")}
+          </button>
+          <span className="text-border">·</span>
+          <h2 className="text-base font-semibold">{t("review.deckManager.title")}</h2>
+          <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">{allCards.length} cards · {decks.length} decks</span>
         </div>
       )}
 
@@ -844,7 +1045,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
                           <CaretRight className="h-3 w-3 text-muted-foreground flex-shrink-0" />
                         )}
                         <div className="flex-1 min-w-0">
-                            {renamingDeckId === deck.id ? (
+                            {!isMobile && renamingDeckId === deck.id ? (
                               <input
                                 autoFocus
                                 value={renameValue}
@@ -895,6 +1096,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
             <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
               {expandedDeck ? (
                 <>
+                  {!isMobile && <div className="flex shrink-0 flex-col">
                   {/* Deck header with name */}
                   <div className="px-3 py-1.5 border-b border-border/50 flex items-center gap-2 flex-shrink-0">
                     <h3 className="text-base font-semibold">{expandedDeck.name}</h3>
@@ -953,16 +1155,17 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
                         <input
                           type="text"
                           value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
+                          onChange={(e) => handleSearchChange(e.target.value)}
                           placeholder={t("review.deckManager.searchPlaceholder")}
                           className="w-full pl-7 pr-6 py-1.5 text-sm rounded-md border border-border bg-background focus:outline-none focus:ring-1 focus:ring-primary"
                         />
                         {searchQuery && (
                           <button
-                            onClick={() => setSearchQuery("")}
-                            className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                            aria-label="Clear search"
+                            onClick={() => handleSearchChange("")}
+                            className="absolute right-0.5 top-1/2 flex h-10 w-10 -translate-y-1/2 items-center justify-center text-muted-foreground hover:text-foreground"
                           >
-                            <X className="h-3 w-3" />
+                            <X className="h-4 w-4" />
                           </button>
                         )}
                       </div>
@@ -1021,16 +1224,13 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
                     {/* Filter chips */}
                     <div className={"flex items-center gap-1 " + (isMobile ? "flex-wrap" : "")}>
                       {filterChips.map(({ key, label }) => {
-                          const count = key === "" ? stateFilterCounts.all
-                            : key === "Suspended" ? stateFilterCounts.Suspended
-                            : key === "Leeches" ? stateFilterCounts.Leeches
-                            : key === "Learning" ? stateFilterCounts.Learning
-                            : (stateFilterCounts as Record<string, number>)[key] ?? 0;
+                          const count = stateFilterCounts[key];
                           const isActive = stateFilter === key;
                           return (
                             <button
                               key={key || "all"}
-                              onClick={() => setStateFilter(isActive ? "" : (key as StateFilter))}
+                              aria-pressed={isActive}
+                              onClick={() => handleStateFilterChange(isActive ? "" : key)}
                               className={`text-xs px-2 py-0.5 rounded border transition-colors tabular-nums whitespace-nowrap ${
                                 isActive
                                   ? "border-primary bg-primary/10 text-primary"
@@ -1155,17 +1355,31 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
                     )}
                     {!isMobile && <div className="w-5 flex-shrink-0" />}
                   </div>
+                  </div>}
 
                   {/* Card list */}
-                  <div className="flex-1 min-h-0 overflow-y-auto">
+                  <div
+                    ref={listRef}
+                    className={`flex-1 min-h-0 overflow-y-auto ${isMobile && selectedIds.size > 0 ? "pb-[calc(9rem+env(safe-area-inset-bottom,0px))]" : ""}`}
+                  >
                     {expandedCards.length === 0 ? (
                       <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
                         <FolderOpen className="h-8 w-8" />
-                        <p className="text-xs">
-                          {searchQuery || stateFilter
-                            ? "No cards match your filters"
-                            : t("review.deckManager.emptyDeck")}
-                        </p>
+                        {searchQuery || stateFilter ? (
+                          <>
+                            <p className="text-sm">No cards match your search or filters.</p>
+                            <button type="button" onClick={clearSearchAndFilters} className="min-h-11 rounded-lg border border-border px-4 text-sm text-primary hover:bg-muted">
+                              Clear search and filters
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-sm">{t("review.deckManager.emptyDeck")}</p>
+                            <button type="button" onClick={() => void handleNewCard()} className="min-h-11 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground">
+                              New card
+                            </button>
+                          </>
+                        )}
                       </div>
                     ) : isMobile ? (
                       /* Simple scrollable list on mobile — VirtualList needs precise container height */
@@ -1179,6 +1393,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
                             onToggleSelect={handleToggleSelect}
                             onExpand={handleExpandCard}
                             isMobile={isMobile}
+                            selectionMode={selectionMode}
                             onEditInStudio={onEditInStudio}
                             onSuspend={handleCardSuspend}
                             onUnsuspend={handleCardUnsuspend}
@@ -1205,6 +1420,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
                                 onToggleSelect={handleToggleSelect}
                                 onExpand={handleExpandCard}
                                 isMobile={isMobile}
+                                selectionMode={selectionMode}
                                 onEditInStudio={onEditInStudio}
                                 onSuspend={handleCardSuspend}
                                 onUnsuspend={handleCardUnsuspend}
@@ -1369,6 +1585,270 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
           </>
         );
       })()}
+      {isMobile && selectionMode && (
+        <ResponsiveBulkActionBar
+          selectedCount={selectedIds.size}
+          totalCount={expandedCards.length}
+          selectedCountLabel={`${selectedIds.size} selected`}
+          onClearSelection={() => setSelectedIds(new Set())}
+          actions={mobileBulkActions}
+          className="deck-manager-bulk-action-bar"
+          overflowSheetTitle={`${selectedIds.size} selected`}
+        />
+      )}
+
+      <ResponsiveDialogSheet
+        open={isMobile && mobileSurface === "deck-picker"}
+        onClose={() => setMobileSurface(null)}
+        title="Choose a deck"
+        description="Select a deck to browse its cards. Closing this sheet keeps your current list unchanged."
+        presentation="sheet"
+        className="deck-manager-sheet"
+      >
+        <div className="space-y-3">
+          <label className="block">
+            <span className="sr-only">Search decks</span>
+            <input
+              type="search"
+              aria-label="Search decks"
+              value={deckPickerQuery}
+              onChange={(event) => setDeckPickerQuery(event.target.value)}
+              placeholder="Find a deck…"
+              className="h-12 w-full rounded-xl border border-border bg-background px-4 text-base focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+            />
+          </label>
+          <div role="listbox" aria-label="Decks" className="divide-y divide-border">
+            {visibleDeckPickerDecks.map((deck) => {
+              const counts = deckCardCounts.get(deck.id);
+              const selected = expandedDeckId === deck.id;
+              return (
+                <button
+                  key={deck.id}
+                  type="button"
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => handleSwitchDeck(deck.id)}
+                  className={`flex min-h-14 w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-muted ${selected ? "bg-primary/10 text-primary" : "text-foreground"}`}
+                >
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-sm font-medium" title={deck.name}>{deck.name}</span>
+                    <span className="block text-xs text-muted-foreground">
+                      {counts?.total ?? 0} {(counts?.total ?? 0) === 1 ? "card" : "cards"} · {counts?.dueToday ?? 0} due
+                    </span>
+                  </span>
+                  {selected && <span className="shrink-0 text-sm font-semibold">Selected</span>}
+                </button>
+              );
+            })}
+            {visibleDeckPickerDecks.length === 0 && (
+              <p className="py-6 text-center text-sm text-muted-foreground">No decks match that search.</p>
+            )}
+          </div>
+        </div>
+      </ResponsiveDialogSheet>
+
+      <ResponsiveDialogSheet
+        open={isMobile && mobileSurface === "filters"}
+        onClose={() => setMobileSurface(null)}
+        title="Filter & sort"
+        description="Choose a category and sort order, then apply them together. Counts cover the whole deck."
+        presentation="sheet"
+        className="deck-manager-sheet"
+        footer={(
+          <div className="flex w-full items-center justify-between gap-3">
+            <button
+              type="button"
+              onClick={() => { setFilterDraft(""); setSortFieldDraft("due_date"); setSortDirDraft("asc"); }}
+              className="min-h-12 rounded-xl px-4 text-sm font-medium text-primary hover:bg-muted"
+            >
+              Reset
+            </button>
+            <button type="button" onClick={applyFilterDraft} className="min-h-12 rounded-xl bg-primary px-6 text-sm font-semibold text-primary-foreground">
+              Apply
+            </button>
+          </div>
+        )}
+      >
+        <div className="space-y-6">
+          <fieldset className="space-y-1">
+            <legend className="mb-2 text-sm font-semibold">Category</legend>
+            {DECK_MANAGER_CATEGORIES.map(({ value, label }) => (
+              <label key={value || "all"} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-2 hover:bg-muted">
+                <input
+                  type="radio"
+                  name="deck-manager-category"
+                  value={value}
+                  checked={filterDraft === value}
+                  onChange={() => setFilterDraft(value)}
+                  className="h-4 w-4 accent-primary"
+                />
+                <span className="flex-1 text-sm">{label}</span>
+                <span className="tabular-nums text-sm text-muted-foreground">{stateFilterCounts[value]}</span>
+              </label>
+            ))}
+          </fieldset>
+          <fieldset className="space-y-1">
+            <legend className="mb-2 text-sm font-semibold">Sort by</legend>
+            {DECK_MANAGER_SORTS.map(({ value, label }) => (
+              <label key={value} className="flex min-h-12 cursor-pointer items-center gap-3 rounded-lg px-2 hover:bg-muted">
+                <input
+                  type="radio"
+                  name="deck-manager-sort"
+                  value={value}
+                  checked={sortFieldDraft === value}
+                  onChange={() => setSortFieldDraft(value)}
+                  className="h-4 w-4 accent-primary"
+                />
+                <span className="text-sm">{label}</span>
+              </label>
+            ))}
+          </fieldset>
+          <fieldset>
+            <legend className="mb-2 text-sm font-semibold">Direction</legend>
+            <div className="grid grid-cols-2 gap-2">
+              {(["asc", "desc"] as const).map((direction) => (
+                <button
+                  key={direction}
+                  type="button"
+                  aria-pressed={sortDirDraft === direction}
+                  onClick={() => setSortDirDraft(direction)}
+                  className={`min-h-12 rounded-xl border px-3 text-sm font-medium ${sortDirDraft === direction ? "border-primary bg-primary/10 text-primary" : "border-border text-foreground"}`}
+                >
+                  {direction === "asc" ? "Ascending ↑" : "Descending ↓"}
+                </button>
+              ))}
+            </div>
+          </fieldset>
+        </div>
+      </ResponsiveDialogSheet>
+
+      <ResponsiveDialogSheet
+        open={isMobile && mobileSurface === "actions"}
+        onClose={() => setMobileSurface(null)}
+        title={expandedDeck ? `${expandedDeck.name} actions` : "Deck actions"}
+        description={expandedDeck ? `${allDeckCards.length} cards in this deck` : undefined}
+        presentation="sheet"
+        className="deck-manager-sheet"
+      >
+        {expandedDeck && (
+          <div className="grid gap-2">
+            <MobileDeckAction icon={<Stack className="h-5 w-5" />} label="Deck statistics" onClick={() => setMobileSurface("statistics")} />
+            <MobileDeckAction icon={<Plus className="h-5 w-5" />} label="New card" onClick={() => void handleNewCard()} />
+            <MobileDeckAction icon={<CheckCircle className="h-5 w-5" />} label="Select cards" onClick={enterSelectionMode} />
+            <MobileDeckAction icon={<Upload className="h-5 w-5" />} label="Export" onClick={() => setMobileSurface("export")} />
+            <MobileDeckAction icon={<PencilSimple className="h-5 w-5" />} label="Rename deck" onClick={() => handleDeckRename(expandedDeck.id)} />
+            <MobileDeckAction icon={<Copy className="h-5 w-5" />} label="Duplicate deck" onClick={() => handleDeckDuplicate(expandedDeck.id)} />
+            {(deckCardCounts.get(expandedDeck.id)?.suspended ?? 0) < allDeckCards.length && (
+              <MobileDeckAction icon={<Pause className="h-5 w-5" />} label="Suspend active cards" onClick={() => { setMobileSurface(null); void handleDeckSuspendAll(expandedDeck.id); }} />
+            )}
+            {(deckCardCounts.get(expandedDeck.id)?.suspended ?? 0) > 0 && (
+              <MobileDeckAction icon={<Play className="h-5 w-5" />} label="Unsuspend cards" onClick={() => { setMobileSurface(null); void handleDeckUnsuspendAll(expandedDeck.id); }} />
+            )}
+            <MobileDeckAction icon={<Trash className="h-5 w-5" />} label="Delete deck" destructive onClick={() => handleDeckDelete(expandedDeck.id)} />
+          </div>
+        )}
+      </ResponsiveDialogSheet>
+
+      <ResponsiveDialogSheet
+        open={isMobile && mobileSurface === "statistics"}
+        onClose={() => setMobileSurface(null)}
+        title="Deck statistics"
+        description={`${expandedDeck?.name ?? "Deck"} · whole-deck totals`}
+        presentation="sheet"
+        className="deck-manager-sheet"
+      >
+        {inlineStats && (
+          <dl className="grid grid-cols-2 gap-3">
+            {[
+              ["Total cards", inlineStats.total],
+              ["Due today", inlineStats.dueToday],
+              ["New", inlineStats.newCards],
+              ["Learning", inlineStats.learningCards],
+              ["Mature", allDeckCards.filter((card) => card.state === "Review" && card.interval >= 21).length],
+              ["Retention", `${Math.round(inlineStats.retentionRate * 100)}%`],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-xl border border-border bg-background p-4">
+                <dt className="text-xs text-muted-foreground">{label}</dt>
+                <dd className="mt-1 text-xl font-semibold tabular-nums text-foreground">{value}</dd>
+              </div>
+            ))}
+          </dl>
+        )}
+      </ResponsiveDialogSheet>
+
+      <ResponsiveDialogSheet
+        open={isMobile && mobileSurface === "export"}
+        onClose={() => setMobileSurface(null)}
+        title="Export deck"
+        description={`${expandedDeck?.name ?? "Deck"} · ${allDeckCards.length} cards · exports the whole deck`}
+        presentation="sheet"
+        className="deck-manager-sheet"
+      >
+        <div className="grid gap-2">
+          <MobileDeckAction icon={<Download className="h-5 w-5" />} label="Anki Package (.apkg)" onClick={() => expandedDeck && void handleDeckExportApkg(expandedDeck.id)} />
+          <MobileDeckAction icon={<Upload className="h-5 w-5" />} label="Tab-separated text (.txt)" onClick={() => expandedDeck && void handleDeckExportCsv(expandedDeck.id)} />
+        </div>
+      </ResponsiveDialogSheet>
+
+      <ResponsiveDialogSheet
+        open={isMobile && mobileSurface === "rename"}
+        onClose={() => { setMobileSurface(null); setRenamingDeckId(null); setRenameValue(""); }}
+        title="Rename deck"
+        description="Choose a name for this deck."
+        presentation="sheet"
+        className="deck-manager-sheet"
+        footer={(
+          <div className="flex w-full justify-end gap-2">
+            <button type="button" onClick={() => { setMobileSurface(null); setRenamingDeckId(null); setRenameValue(""); }} className="min-h-12 rounded-xl px-4 text-sm">Cancel</button>
+            <button type="button" onClick={commitRename} disabled={!renameValue.trim()} className="min-h-12 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:opacity-50">Save</button>
+          </div>
+        )}
+      >
+        <label className="block space-y-2">
+          <span className="text-sm font-medium">Deck name</span>
+          <input
+            autoFocus
+            type="text"
+            value={renameValue}
+            onChange={(event) => setRenameValue(event.target.value)}
+            onKeyDown={(event) => { if (event.key === "Enter") commitRename(); }}
+            className="h-12 w-full rounded-xl border border-border bg-background px-4 text-base focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+          />
+        </label>
+      </ResponsiveDialogSheet>
+
+      <ResponsiveDialogSheet
+        open={isMobile && mobileSurface === "retag"}
+        onClose={() => setMobileSurface(null)}
+        title="Retag selected cards"
+        description={`${selectedIds.size} selected · separate multiple tags with commas`}
+        presentation="sheet"
+        className="deck-manager-sheet"
+        footer={(
+          <div className="flex w-full justify-end gap-2">
+            <button type="button" onClick={() => setMobileSurface(null)} className="min-h-12 rounded-xl px-4 text-sm">Cancel</button>
+            <button
+              type="button"
+              onClick={() => handleBulkRetag(addRetagTags.split(",").map((tag) => tag.trim()).filter(Boolean), removeRetagTags.split(",").map((tag) => tag.trim()).filter(Boolean))}
+              disabled={!addRetagTags.trim() && !removeRetagTags.trim()}
+              className="min-h-12 rounded-xl bg-primary px-5 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+            >
+              Apply
+            </button>
+          </div>
+        )}
+      >
+        <div className="space-y-4">
+          <label className="block space-y-2">
+            <span className="text-sm font-medium">Add tags</span>
+            <input type="text" value={addRetagTags} onChange={(event) => setAddRetagTags(event.target.value)} placeholder="tag-one, tag-two" className="h-12 w-full rounded-xl border border-border bg-background px-4 text-base" />
+          </label>
+          <label className="block space-y-2">
+            <span className="text-sm font-medium">Remove tags</span>
+            <input type="text" value={removeRetagTags} onChange={(event) => setRemoveRetagTags(event.target.value)} placeholder="tag-one, tag-two" className="h-12 w-full rounded-xl border border-border bg-background px-4 text-base" />
+          </label>
+        </div>
+      </ResponsiveDialogSheet>
       <ConfirmDialog
         isOpen={confirmDialog.isOpen}
         onClose={confirmDialog.close}
@@ -1402,6 +1882,30 @@ function StatPill({ icon, label, value, color, highlight }: {
         </div>
       </div>
     </div>
+  );
+}
+
+function MobileDeckAction({
+  icon,
+  label,
+  onClick,
+  destructive = false,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  onClick: () => void;
+  destructive?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex min-h-12 w-full items-center gap-3 rounded-xl border border-border bg-background px-4 py-2 text-left text-sm font-medium hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary ${destructive ? "text-destructive" : "text-foreground"}`}
+    >
+      <span className="flex h-6 w-6 shrink-0 items-center justify-center" aria-hidden="true">{icon}</span>
+      <span className="min-w-0 flex-1">{label}</span>
+      <CaretRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+    </button>
   );
 }
 

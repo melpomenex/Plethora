@@ -1843,6 +1843,40 @@
    ========================================================================== */
 
 /* Ensure all fixed bottom-anchored elements float above the bottom nav bar on mobile/tablet */
+:root[data-presentation="phone"] .deck-manager-bulk-action-bar,
+:root[data-presentation="tablet"] .deck-manager-bulk-action-bar {
+  z-index: calc(var(--overlay-backdrop-z, 1050) - 1) !important;
+}
+
+:root[data-presentation="phone"] .deck-manager-bulk-action-bar button,
+:root[data-presentation="tablet"] .deck-manager-bulk-action-bar button {
+  min-height: 48px;
+}
+
+:root[data-presentation="phone"] .deck-manager-mobile-header button,
+:root[data-presentation="tablet"] .deck-manager-mobile-header button,
+:root[data-presentation="phone"] .adaptive-dialog-panel.deck-manager-sheet button,
+:root[data-presentation="tablet"] .adaptive-dialog-panel.deck-manager-sheet button {
+  min-height: 48px;
+}
+
+:root[data-presentation="phone"] .deck-manager-mobile-header button[aria-label="Deck actions"],
+:root[data-presentation="tablet"] .deck-manager-mobile-header button[aria-label="Deck actions"] {
+  min-width: 48px;
+}
+
+:root[data-presentation="phone"] .adaptive-dialog-panel.deck-manager-sheet .adaptive-icon-button,
+:root[data-presentation="tablet"] .adaptive-dialog-panel.deck-manager-sheet .adaptive-icon-button {
+  min-width: 48px;
+  min-height: 48px;
+}
+
+:root[data-presentation="phone"] .adaptive-dialog-panel.deck-manager-sheet,
+:root[data-presentation="tablet"] .adaptive-dialog-panel.deck-manager-sheet {
+  background: var(--color-surface-container-high, var(--color-card));
+  color: var(--color-on-surface, var(--color-foreground));
+}
+
 :root[data-presentation="phone"] .toast-container,
 :root[data-presentation="tablet"] .toast-container,
 :root[data-presentation="phone"] .audio-review-pill,

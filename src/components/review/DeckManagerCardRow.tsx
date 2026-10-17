@@ -16,6 +16,7 @@ interface DeckManagerCardRowProps {
   onToggleSelect: (id: string) => void;
   onExpand: (id: string) => void;
   isMobile?: boolean;
+  selectionMode?: boolean;
   onEditInStudio?: (card: LearningItem) => void;
   onSuspend: (cardId: string) => void;
   onUnsuspend: (cardId: string) => void;
@@ -89,6 +90,7 @@ export const DeckManagerCardRow = memo(function DeckManagerCardRow({
   onToggleSelect,
   onExpand,
   isMobile = false,
+  selectionMode = false,
   onEditInStudio,
   onSuspend,
   onUnsuspend,
@@ -112,9 +114,9 @@ export const DeckManagerCardRow = memo(function DeckManagerCardRow({
     (e: React.MouseEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      setContextMenuPos({ x: e.clientX, y: e.clientY });
+      if (!selectionMode) setContextMenuPos({ x: e.clientX, y: e.clientY });
     },
-    []
+    [selectionMode]
   );
 
   const handleOpenMenu = useCallback(
@@ -152,9 +154,10 @@ export const DeckManagerCardRow = memo(function DeckManagerCardRow({
     (e: React.KeyboardEvent) => {
       if (!isMobile || (e.key !== "Enter" && e.key !== " ")) return;
       e.preventDefault();
-      onExpand(card.id);
+      if (selectionMode) onToggleSelect(card.id);
+      else onExpand(card.id);
     },
-    [card.id, isMobile, onExpand]
+    [card.id, isMobile, onExpand, onToggleSelect, selectionMode]
   );
 
   return (
@@ -164,12 +167,14 @@ export const DeckManagerCardRow = memo(function DeckManagerCardRow({
         isExpanded ? "bg-muted/30" : ""
       } ${card.is_suspended ? "opacity-50" : ""}`}
       tabIndex={isMobile ? 0 : undefined}
-      role={isMobile ? "button" : undefined}
-      aria-expanded={isMobile ? isExpanded : undefined}
-      onClick={() => onExpand(card.id)}
+      role={isMobile ? (selectionMode ? "checkbox" : "button") : undefined}
+      aria-label={isMobile && selectionMode ? `Select ${card.question.replace(/<[^>]*>/g, "").trim()}` : undefined}
+      aria-checked={isMobile && selectionMode ? isSelected : undefined}
+      aria-expanded={isMobile && !selectionMode ? isExpanded : undefined}
+      onClick={() => isMobile && selectionMode ? onToggleSelect(card.id) : onExpand(card.id)}
       onKeyDown={handleKeyDown}
       onContextMenu={handleContextMenu}
-      onTouchStart={handleTouchStart}
+      onTouchStart={selectionMode ? undefined : handleTouchStart}
       onTouchEnd={handleTouchEnd}
       onTouchMove={handleTouchEnd}
     >
@@ -177,6 +182,9 @@ export const DeckManagerCardRow = memo(function DeckManagerCardRow({
       {!isMobile && (
         <div className="w-4 flex-shrink-0">
           <button
+            type="button"
+            aria-label={`Select ${truncatedQ}`}
+            aria-pressed={isSelected}
             onClick={(e) => {
               e.stopPropagation();
               onToggleSelect(card.id);
@@ -190,6 +198,15 @@ export const DeckManagerCardRow = memo(function DeckManagerCardRow({
             {isSelected && <Check className="h-2.5 w-2.5" />}
           </button>
         </div>
+      )}
+
+      {isMobile && selectionMode && (
+        <span
+          aria-hidden="true"
+          className={`flex h-6 w-6 shrink-0 items-center justify-center rounded border ${isSelected ? "border-primary bg-primary text-primary-foreground" : "border-border bg-background"}`}
+        >
+          {isSelected && <Check className="h-4 w-4" />}
+        </span>
       )}
 
       {/* Question text */}

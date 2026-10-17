@@ -1,0 +1,46 @@
+# Validation
+
+## Pre-edit baseline attempt
+
+Captured the existing Deck Manager in the local Vite browser at **390 × 844 CSS px**, normal text (**16 px**), with the browser keyboard closed. The root presentation mode was `phone`; the Deck Manager content region measured **786 px** high (the remaining viewport height belongs to the app shell/navigation).
+
+The browser backend started with **0 decks and 0 cards**. The screen showed “No decks yet. Create one or import a deck to get started.” There was no first card or card-list viewport to measure, so first-card offset, list viewport height, and complete visible rows are **not available**. The repository contains no supplied long-title seven-card or mixed-state fixture. The capture therefore records the reachable pre-edit state, but it is not a populated-deck baseline and task 1.1 remains incomplete pending a reproducible fixture/runtime.
+
+Runtime: local Vite browser app, not a native Tauri device. A screenshot of this empty state was captured during the implementation session; the viewport and DOM measurements above were read from the live page.
+
+## Post-edit responsive capture
+
+For populated-state validation, I created a browser-only test deck named `Long Title Example: This Is Your Brain on Music and the Science of Listening` with the tag `codex-deck-manager-validation` and seven New cards. This was a test fixture created after the pre-edit capture, not a repository-supplied fixture; it has no mixed card states. I inspected the local Vite browser at normal text size (**16 px**, computed root font size) with the keyboard closed. The viewport height was **844 CSS px** for the width comparison. The header is **122 px** high, and the first card row begins at **y = 122 px**, so the offset from the viewport top is 122 px. The scrollable list viewport, measured from the header bottom to the top of the bottom navigation, is **656.5 px**. All seven 61 px rows are fully visible. Document width equals viewport width at all measured sizes.
+
+| Viewport | Header | First row top | List viewport | Full rows visible | Horizontal overflow | Header/search target height |
+| --- | ---: | ---: | ---: | ---: | --- | ---: |
+| 320 × 844 | 122 px | 122 px | 656.5 px | 7 | No | 48 px |
+| 360 × 844 | 122 px | 122 px | 656.5 px | 7 | No | 48 px |
+| 390 × 844 | 122 px | 122 px | 656.5 px | 7 | No | 48 px |
+| 412 × 844 | 122 px | 122 px | 656.5 px | 7 | No | 48 px |
+| 430 × 844 | 122 px | 122 px | 656.5 px | 7 | No | 48 px |
+
+I also inspected the deck-actions sheet at **430 × 844** and **320 × 720**. At 430 × 844, its Close control and all eight action rows measured 48 px high. At 320 × 720, the long title wrapped cleanly and its action list scrolled within the sheet above the bottom navigation. After reopening the sheet, Escape dismissed only that topmost sheet and returned focus to the Deck actions trigger. Browser screenshots were visually reviewed inline; no separate image file was saved. The populated after-measurements are now available, but the pre-edit browser had no deck/card fixture, so the same-fixture before/after comparison and task 1.1 remain incomplete.
+
+## Verification results
+
+- `npx vitest run src/components/review/__tests__/deckManagerModel.test.ts src/components/review/__tests__/DeckManager.mobile.test.tsx src/components/adaptive/__tests__/adaptivePrimitives.test.tsx --reporter=dot --silent` — **passed**, 3 files / 23 tests. Coverage includes category counts/membership, all six sort fields in both directions, mobile browsing/actions/selection, and desktop presentation.
+- `npx eslint src/components/review/DeckManager.tsx src/components/review/DeckManagerCardRow.tsx src/components/review/deckManagerModel.ts src/components/review/__tests__/deckManagerModel.test.ts src/components/review/__tests__/DeckManager.mobile.test.tsx` — **passed**.
+- The focused component interaction test opened and saved the Rename deck form from Deck actions. In the live mobile browser, Escape closed only the open actions sheet, returned focus to its Deck actions trigger, and kept Deck Manager open.
+- `npx tsc --noEmit --pretty false` — **failed on unrelated pre-existing assistant conversation changes** under `src/lib/ai/assistant/conversations/` (including missing `importLegacy` and `AppendAttemptInput`, plus repository result type errors). The output contained no diagnostics for the Deck Manager files changed by this task.
+- `npx openspec validate simplify-mobile-deck-manager --strict` — **passed**.
+- `npm run bench:check` — two runs failed in unrelated benchmark suites. The first run reported precision scheduler, Anki import, audio recent passage, reader speech index build, and document snapshot regressions. The second reported command palette recent-selection, precision scheduler (2.19× baseline), and tabs DOM rerender. The failure set changed between runs; no Deck Manager benchmark or production performance code changed, so no baseline was edited. `node scripts/check-bundle-budget.mjs` passed (entry 5 KB, one PDF worker, total 24.5 MB).
+- Android build host: Mac Mini `mini@100.72.61.107`. The isolated worktree, Gradle cache, Cargo target, temporary files, and APK were placed under `/Volumes/external`; the external volume had **411 GiB free** after packaging. SDK `/opt/homebrew/share/android-commandlinetools`, NDK `27.2.12479018`, and Temurin JDK 17 were used.
+- Android build: `npm run tauri:android:build` generated the native Android project and `aarch64-linux-android` release library. Its initial Gradle Kotlin compile exposed a stale `MainActivity : TauriActivity()` reference: the vendored Wry 0.55.1 generator supplies `WryActivity`. Updated the superclass and explanatory comment in `src-tauri/gen/android/app/src/main/java/com/plethora/app/MainActivity.kt`. With the generated project and native library in the external worktree, `./gradlew app:assembleUniversalRelease --console=plain -PplethoraNativeBackEnabled=true -PplethoraSkipRustBuild=true` completed successfully (694 actionable tasks; 31 executed, 663 up to date). SHA-256 checks confirmed the external worktree's `DeckManager.tsx`, `DeckManagerCardRow.tsx`, and `deckManagerModel.ts` match the local sources. The acceptance flag is required while physical native Back acceptance remains outstanding; the Gradle skip avoided an unnecessary third Rust compilation after Tauri had already produced the library.
+- APK: `/Volumes/external/mac-mini/builds/plethora-deck-manager-android-2026-10-17/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk`, **143 MiB**, SHA-256 `ffef7048436e8dd3e723a6cc2fc5bcf4ef15cc6eb5ed9605b2741e8e3b3c4565`. `aapt dump badging` reports `com.plethora.app` version `3.3.0`; `apksigner verify --verbose` confirms APK Signature Scheme v2. The final direct Gradle build passed. A redundant full-wrapper pass was stopped during its extra Cargo release compile after this APK was successfully built and verified.
+- Native device verification: the Mac Mini and local ADB both see the Pixel 9 Pro XL. It already has `com.plethora.app` version `3.3.0`. The installed APK's signing certificate SHA-256 is `7e5df003dd45df3adf373296616bdb15eec4ad577736d805b3e9c3429a711266`; this new APK is signed with `6e3a3503f1876010a774cbc0461a2a025c6be24eee8a4b492f4d40c7fa3bec5e`. Android will reject an in-place update across these keys. Replacing the installation would require uninstalling first, which would remove its local app data, so the existing installation was left untouched. System Back, keyboard avoidance, status/navigation insets, and native modal/dock layering remain pending. iOS runtime validation is unavailable.
+
+## Follow-up automated verification
+
+Added focused cases for the picker search and counts, selection state and list-scroll lifecycle, deleted/no-deck/empty/loading/no-results recovery, opening Card Details versus keyboard selection, selection of all filtered results, mobile-to-desktop presentation cleanup, selected-only bulk suspend/delete, export cancellation and failure, and list-position restoration after Card Details. Added coverage that the overflow-only Retag action is reachable from the responsive mobile bulk bar. Fixed singular picker wording from “1 cards” to “1 card”.
+
+- `npx vitest run src/components/review/__tests__/deckManagerModel.test.ts src/components/review/__tests__/DeckManager.mobile.test.tsx src/components/adaptive/__tests__/adaptivePrimitives.test.tsx src/components/common/__tests__/ResponsiveBulkActionBar.test.tsx src/components/common/__tests__/mobileBulkSelectionLayout.test.tsx src/components/review/__tests__/MobileCardDetailsSurface.test.tsx --reporter=dot --silent` — **passed**, 6 files / 49 tests.
+- `npx eslint src/components/review/DeckManager.tsx src/components/review/DeckManagerCardRow.tsx src/components/review/deckManagerModel.ts src/components/review/__tests__/deckManagerModel.test.ts src/components/review/__tests__/DeckManager.mobile.test.tsx src/components/common/__tests__/ResponsiveBulkActionBar.test.tsx` — **passed**.
+- `npx openspec validate simplify-mobile-deck-manager --strict` and `git diff --check` — **passed**.
+
+These checks verify the browser/component behavior and do not replace the still-pending native keyboard, system Back, safe-area inset, and modal/dock layering checks listed above.

@@ -74,6 +74,27 @@ describe("ResponsiveBulkActionBar", () => {
     expect(sampleActions[3].onClick).toHaveBeenCalled();
   });
 
+  it("keeps overflow-only actions reachable from the mobile bar", () => {
+    const onRetag = vi.fn();
+    render(
+      <ResponsiveBulkActionBar
+        selectedCount={1}
+        actions={[
+          { id: "suspend", label: "Suspend", onClick: vi.fn() },
+          { id: "unsuspend", label: "Unsuspend", onClick: vi.fn() },
+          { id: "delete", label: "Delete", onClick: vi.fn() },
+          { id: "retag", label: "Retag", onClick: onRetag, showInOverflowOnly: true },
+        ]}
+        forceMobile
+      />
+    );
+
+    expect(screen.queryByText("Retag")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("More actions"));
+    fireEvent.click(screen.getByText("Retag"));
+    expect(onRetag).toHaveBeenCalledOnce();
+  });
+
   it("renders custom children when passed", () => {
     render(
       <ResponsiveBulkActionBar selectedCount={1}>
