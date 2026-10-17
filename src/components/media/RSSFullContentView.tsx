@@ -1,3 +1,4 @@
+import { useResolvedThemeAppearance } from '../../themes/appearanceContext';
 import {
   rssReadingStyle,
   resolveRssPreferences,
@@ -198,7 +199,7 @@ export function RSSFullContentView({
   const [error, setError] = useState<string | null>(null);
   const [isStale, setIsStale] = useState(false);
 
-  // Global theme from UI Store
+  const appearance = useResolvedThemeAppearance();
   const globalTheme = useUIStore((state) => state.theme);
 
   // Reader Customization States (with localStorage persistence)
@@ -364,9 +365,11 @@ export function RSSFullContentView({
   }
 
   return (
-    <div className={`h-full flex flex-col transition-colors duration-200 relative ${themeClasses[activeTheme]}`}>
+    <div data-paper-surface={theme === 'system' ? 'reading' : undefined}
+      style={theme === 'system' && appearance ? rssReadingStyle(preferences, appearance) : undefined}
+      className={`h-full flex flex-col transition-colors duration-200 relative ${theme === 'system' && appearance ? 'text-foreground' : themeClasses[activeTheme]}`}>
       {/* Header with actions */}
-      <div className={`flex items-center justify-between px-4 py-3 border-b backdrop-blur-md z-10 transition-colors duration-200 ${headerThemeClasses[activeTheme]}`}>
+      <div className={`flex items-center justify-between px-4 py-3 border-b backdrop-blur-md z-10 transition-colors duration-200 ${theme === 'system' && appearance ? 'bg-surface text-foreground border-border' : headerThemeClasses[activeTheme]}`}>
         <div className="flex items-center gap-3">
           {content && (
             <>
@@ -612,7 +615,7 @@ export function RSSFullContentView({
       >
         <div
           className="rss-reading-width transition-all duration-150"
-          style={rssReadingStyle(preferences)}
+          style={rssReadingStyle(preferences, appearance)}
         >
           <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground mb-4">
             {effective.show_feed_icon && feed && (feed.icon || feed.imageUrl) && (

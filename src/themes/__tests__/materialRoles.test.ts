@@ -130,7 +130,9 @@ describe("deriveMaterialRoles", () => {
     for (const theme of builtInThemes) {
       const roles = deriveMaterialRoles(theme.colors, theme.variant);
 
-      const merged = { ...theme.colors };
+      const merged = Object.fromEntries(Object.entries(theme.colors).map(([key, value]) => [
+        key.replace(/[A-Z]/g, letter => '-' + letter.toLowerCase()), value,
+      ]));
       for (const [k, v] of Object.entries(roles)) merged[k] = v;
 
       // Every role resolves to a parseable color.
@@ -164,14 +166,14 @@ describe("deriveMaterialRoles", () => {
       // Text pairs meet AA (on-variant gets 4.0 latitude for high-saturation
       // novelty themes' decorative text tiers, matching their source styling).
       const pairs: Array<[string, string]> = [
-        ["onSecondaryContainer" in merged ? merged.onSecondaryContainer : roles["on-secondary-container"], roles["secondary-container"]],
-        [roles["on-tertiary-container"], roles["tertiary-container"]],
-        [merged.onSurface, merged.surface],
+        [merged["on-secondary-container"], merged["secondary-container"]],
+        [merged["on-tertiary-container"], merged["tertiary-container"]],
+        [merged["on-surface"], merged.surface],
       ];
       for (const [fg, bg] of pairs) {
         expect(pairContrast(fg, bg), `${theme.id} pair ${fg}/${bg}`).toBeGreaterThanOrEqual(4.0);
       }
-      expect(roleLuminance(roles["on-surface-variant"])).toBeGreaterThanOrEqual(0);
+      expect(roleLuminance(merged["on-surface-variant"])).toBeGreaterThanOrEqual(0);
     }
   });
 });

@@ -1,0 +1,124 @@
+{
+  "version": 1,
+  "preset": "legal-pad-archival-v1",
+  "source": {
+    "url": "https://ambientcg.com/a/Paper006",
+    "license": "CC0-1.0",
+    "width": 4096,
+    "height": 4096,
+    "bitDepth": 8,
+    "sha256": "af0af55979c5651ca5643abbedc3dc2746c3a7c89994abc4728b8e5ccd5dff39"
+  },
+  "processing": {
+    "engine": "sharp 0.34.5",
+    "workingSize": 2048,
+    "grainBlurSigma": "max(2,width/128)",
+    "alphaMax": 8,
+    "macroAlphaMax": 3,
+    "tileCssPx": 512,
+    "macroCssPx": 1536,
+    "upscaled": false
+  },
+  "files": [
+    {
+      "name": "grain-subtle-512.webp",
+      "width": 512,
+      "height": 512,
+      "bytes": 50980,
+      "sha256": "25910d53628c7028e5b5f74bab73e73ebd7cf21c03fda32f46f3eaac64785bcb",
+      "profile": "sRGB",
+      "format": "webp"
+    },
+    {
+      "name": "grain-fallback-512.png",
+      "width": 512,
+      "height": 512,
+      "bytes": 61391,
+      "sha256": "ccedf6d946c3455689cb38bbe9b439a207d3ff1e402325c59b6f0ae76217e7a5",
+      "profile": "sRGB",
+      "format": "png"
+    },
+    {
+      "name": "grain-subtle-1024.webp",
+      "width": 1024,
+      "height": 1024,
+      "bytes": 187074,
+      "sha256": "c54d845b09987e67dee903c396fad6aa414244584085fff26517de73e3f8e146",
+      "profile": "sRGB",
+      "format": "webp"
+    },
+    {
+      "name": "grain-authentic-512.webp",
+      "width": 512,
+      "height": 512,
+      "bytes": 57466,
+      "sha256": "3e63b53bd5e14e232735ea4cccdc001acc786590badda0dc24488e46e037b5cf",
+      "profile": "sRGB",
+      "format": "webp"
+    },
+    {
+      "name": "grain-authentic-1024.webp",
+      "width": 1024,
+      "height": 1024,
+      "bytes": 178558,
+      "sha256": "89318033ce56d08775299a644b1aa3da90af3fc5b5ba5a938a11413bad7d0810",
+      "profile": "sRGB",
+      "format": "webp"
+    },
+    {
+      "name": "grain-authentic-1536.webp",
+      "width": 1536,
+      "height": 1536,
+      "bytes": 258998,
+      "sha256": "9b90d8d2f4c126ea4886f7a1943af3ad2b37d3872b210237ebe5ad100f81e6b9",
+      "profile": "sRGB",
+      "format": "webp"
+    },
+    {
+      "name": "grain-maximum-1024.webp",
+      "width": 1024,
+      "height": 1024,
+      "bytes": 171926,
+      "sha256": "1be3508c52323f21b9f1f9d7d803258e0878ff03a1abc74e6b9543c0fd94baff",
+      "profile": "sRGB",
+      "format": "webp"
+    },
+    {
+      "name": "grain-maximum-1536.webp",
+      "width": 1536,
+      "height": 1536,
+      "bytes": 229126,
+      "sha256": "ded56cbe800f47a53d20df119022351edbf4cd40318b47dfe3f2279f9122cafb",
+      "profile": "sRGB",
+      "format": "webp"
+    },
+    {
+      "name": "grain-maximum-2048.webp",
+      "width": 2048,
+      "height": 2048,
+      "bytes": 386564,
+      "sha256": "10ffc6ff1f9fade4cae9586a4cd834bdde82a226d892aa68a3ef3550e685e0b0",
+      "profile": "sRGB",
+      "format": "webp"
+    },
+    {
+      "name": "variation-512.webp",
+      "width": 512,
+      "height": 512,
+      "bytes": 1236,
+      "sha256": "6e4fc22df0a9ed8f6a0819fd85c0438ff81a48167be2d79d170a75247f9902d4",
+      "profile": "sRGB",
+      "format": "webp"
+    },
+    {
+      "name": "variation-512.png",
+      "width": 512,
+      "height": 512,
+      "bytes": 1679,
+      "sha256": "907bce98b1087b33d905eba5fa9a1af6767e60064336ab661dcc38294951167d",
+      "profile": "sRGB",
+      "format": "png"
+    }
+  ],
+  "totalBytes": 1584998
+}

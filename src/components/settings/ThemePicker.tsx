@@ -1,3 +1,5 @@
+import { PaperAppearanceControls } from './PaperAppearanceControls';
+import { PaperMaterialPreview } from './PaperMaterialPreview';
 /**
  * Theme Picker Component
  * Compact, searchable/filterable theme selector with near-instant live preview.
@@ -40,6 +42,7 @@ interface ThemePickerProps {
 
 /** A compact swatch strip built from a theme's key palette colors. */
 function ThemeSwatch({ theme, className }: { theme: Theme; className?: string }) {
+  if(theme.material?.kind === "paper") return <PaperMaterialPreview theme={theme} compact/>;
   const colors = [
     theme.colors.primary,
     theme.colors.secondary || theme.colors.primary,
@@ -499,6 +502,8 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
       </div>
 
       {/* Theme Gallery Modal (secondary "browse all") */}
+      <PaperAppearanceControls />
+
       {showGallery && (
         <ThemeGallery
           onClose={() => setShowGallery(false)}

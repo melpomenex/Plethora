@@ -3874,7 +3874,7 @@ export function PDFViewer({
   return (
     <div
       ref={outerContainerRef}
-      className="flex flex-col h-full min-h-0 bg-background"
+      className="flex flex-col h-full min-h-0 bg-background" data-paper-surface="chrome"
       onKeyDown={handleKeyDown}
       tabIndex={0}
     >
@@ -4160,6 +4160,7 @@ export function PDFViewer({
                 dir={mobilePreferences.reflowDirection}
                 data-image-scaling={mobilePreferences.reflowImageScaling}
                 data-reader-theme={mobilePreferences.reflowTheme}
+                data-paper-surface={mobilePreferences.reflowTheme === "system" ? "reading" : undefined}
                 style={{
                   paddingInline: `${mobilePreferences.reflowMargin}px`,
                   colorScheme: mobilePreferences.reflowTheme === "system" ? undefined : mobilePreferences.reflowTheme,

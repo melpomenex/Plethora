@@ -2826,7 +2826,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
 
   return (
     <div
-      className={`flex flex-col h-full max-h-full min-h-0 overflow-hidden bg-card ${position === "right" ? "border-l" : "border-r"} border-border relative ${className}`}
+      data-paper-surface="chrome" className={`flex flex-col h-full max-h-full min-h-0 overflow-hidden bg-card ${position === "right" ? "border-l" : "border-r"} border-border relative ${className}`}
       style={{ width: fillContainer ? "100%" : isCollapsed ? "auto" : width }}
       onContextMenu={(e) => handleContextMenu(e)}
     >
@@ -3416,7 +3416,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       )}
 
       {/* Input Area */}
-      <div data-assistant-composer className="flex-shrink-0 p-3 border-t border-border bg-card relative">
+      <div data-paper-surface="inset" data-assistant-composer className="flex-shrink-0 p-3 border-t border-border bg-card relative">
         <div className="flex flex-col gap-2">
           {/* Image Preview Strip */}
           {attachedImages.length > 0 && (

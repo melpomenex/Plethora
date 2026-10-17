@@ -144,7 +144,7 @@ export function ExtractReader({ extractId, documentId, documentTitle }: ExtractR
   );
 
   return (
-    <div className="h-full w-full overflow-y-auto bg-background">
+    <div className="h-full w-full overflow-y-auto bg-background" data-paper-surface="reading">
       <div className="mx-auto max-w-3xl px-6 py-8">
         {/* Header: source title + open-source action */}
         <div className="flex items-start justify-between gap-4 mb-6">

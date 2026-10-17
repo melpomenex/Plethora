@@ -1,3 +1,5 @@
+import { useResolvedThemeAppearance } from '../../themes/appearanceContext';
+import { paperReaderCss } from '../../themes/paperMaterialCss';
 import { RatingOrb } from "../review/RatingOrb";
 import type { VideoViewerContext } from "../../lib/ai/assistant/scopes";
 import { lazy as lazyTranslation, Suspense as TranslationSuspense } from "react";
@@ -6263,6 +6265,7 @@ export function DocumentViewer({
     viewerSearchSupported,
   ]);
 
+  const appearance = useResolvedThemeAppearance();
   const htmlSettings = settings.documents.htmlSettings;
   const appliedReaderTheme = useMemo(
     () =>
@@ -6285,14 +6288,15 @@ export function DocumentViewer({
         .forEach((element) => element.remove());
       // Canonical articles were stripped during preparation. Avoid touching their
       // article nodes here so theme previews preserve highlights and selection.
-      if (readerKind !== 'canonical-article') {
+      if (readerKind !== 'canonical-article' && doc.documentElement.dataset.appearancePrepared !== 'true') {
         doc.querySelectorAll('[style]').forEach((element) => element.removeAttribute('style'));
       }
 
+      doc.documentElement.dataset.appearancePrepared = 'true';
       const style = ensureReaderStylesheet(doc);
 
       const rootStyle = getComputedStyle(document.documentElement);
-      const tokens = resolveReaderThemeTokens(
+      const tokens = appearance?.readerTokens ?? resolveReaderThemeTokens(
         {
           background: rootStyle.getPropertyValue('--color-background').trim(),
           surface: rootStyle.getPropertyValue('--color-card').trim(),
@@ -6314,6 +6318,8 @@ export function DocumentViewer({
           ? buildArticleReaderStyles(tokens, htmlSettings)
           : buildCompatibilityReaderStyles(readerKind, tokens, htmlSettings);
 
+      style.textContent += paperReaderCss(appearance);
+
       if (readerKind === 'canonical-article') {
         syncCanonicalOverflowAccessibility(doc);
         frame.contentWindow?.requestAnimationFrame(() => {
@@ -6325,6 +6331,7 @@ export function DocumentViewer({
     }
   }, [
     appliedReaderTheme,
+    appearance,
     htmlReaderClassification.kind,
     htmlSettings,
     isOcrHtml,

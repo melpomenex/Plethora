@@ -343,7 +343,7 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
                 : "Relearning";
 
     return (
-        <div ref={containerRef} className="h-full w-full flex flex-col items-center justify-center p-8 bg-gradient-to-b from-background to-muted/30">
+        <div data-paper-surface="inset" ref={containerRef} className="h-full w-full flex flex-col items-center justify-center p-8 bg-gradient-to-b from-background to-muted/30">
             {/* Card Type Badge */}
             <div className="absolute top-6 left-6 flex items-center gap-2">
                 <span className="px-3 py-1.5 bg-purple-500/20 text-purple-400 rounded-lg text-sm font-medium">

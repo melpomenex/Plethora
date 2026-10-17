@@ -1,3 +1,6 @@
+import { useResolvedThemeAppearance } from '../../themes/appearanceContext';
+import { paperReaderCss } from '../../themes/paperMaterialCss';
+import { preserveEpubPublisherStyles, restoreEpubPublisherStyles, epubUsesPublisherAppearance, setEpubDefaultStyleEnabled } from './epubAppearance';
 import { epubAnnotationTargetsAtPoint, type ReaderContextMenuPayload, type PersistedEpubHighlight } from "./annotationContextMenu";
 import { useEffect, useRef, useState, useCallback, type MouseEvent } from "react";
 import type { EpubSelectionContext, SelectionContext } from "../../types/selection";
@@ -684,7 +687,11 @@ export function EPUBViewer({
   const activeSyncHighlightRef = useRef<string | null>(null);
   const syncNavigatingRef = useRef(false);
 
-  const { theme } = useTheme();
+  const { theme: committedTheme, appliedTheme } = useTheme();
+  const theme = appliedTheme ?? committedTheme;
+  const appearance = useResolvedThemeAppearance();
+  const appearanceRef = useRef(appearance);
+  appearanceRef.current = appearance;
   const themeRef = useRef(theme);
   const { t } = useI18n();
   const { settings, updateSettings } = useSettingsStore();
@@ -818,11 +825,11 @@ export function EPUBViewer({
   const resolveReaderPalette = useCallback(() => {
     const cs = typeof window !== "undefined" ? getComputedStyle(document.documentElement) : null;
     const currentTheme = themeRef.current;
-    const rawBgColor =
+    const rawBgColor = appearanceRef.current?.readerTokens.background ||
       currentTheme?.colors?.background ||
       cs?.getPropertyValue("--color-background").trim() ||
       "#ffffff";
-    const textColor =
+    const textColor = appearanceRef.current?.readerTokens.foreground ||
       currentTheme?.colors?.onBackground ||
       currentTheme?.colors?.text ||
       cs?.getPropertyValue("--color-foreground").trim() ||
@@ -851,6 +858,12 @@ export function EPUBViewer({
   const applyContentOverrides = useCallback((contents: any) => {
     if (!contents || !contents.document) return;
     const doc = contents.document as globalThis.Document;
+    preserveEpubPublisherStyles(doc);
+    const publisher=epubUsesPublisherAppearance(contents, renditionRef.current?.book ?? book, settingsRef.current?.documents.epubSettings.appearance,
+      themeRef.current?.material?.kind === "paper" && isEpubCoverSection(contents, renditionRef.current || rendition || book));
+    setEpubDefaultStyleEnabled(doc,!publisher);
+    if(publisher) {restoreEpubPublisherStyles(doc);return;}
+    delete doc.documentElement.dataset.epubPublisherRestored;
 
     const { rawBgColor, textColor, primaryColor, borderColor, isDark, fontFamily } = resolveReaderPalette();
 
@@ -982,10 +995,10 @@ export function EPUBViewer({
         display: block !important;
         flex-shrink: 1 !important;
       }
-      body *:not(.epub-persisted-highlight):not(.epub-search-highlight):not(.epub-search-highlight-active):not(.epub-sync-highlight) {
+      ${themeRef.current?.material?.kind === 'paper' ? '' : `body *:not(.epub-persisted-highlight):not(.epub-search-highlight):not(.epub-search-highlight-active):not(.epub-sync-highlight) {
         color: ${textColor} !important;
         background-color: transparent !important;
-      }
+      }` }
       .epub-persisted-highlight {
         border-radius: 0.12rem !important;
       }
@@ -1088,6 +1101,9 @@ export function EPUBViewer({
       ` : ""}
     `;
 
+    style.textContent += paperReaderCss(appearanceRef.current);
+    const nonce=document.querySelector<HTMLStyleElement>('#plethora-style-nonce')?.nonce;
+    if(nonce) style.nonce=nonce;
     const targetHead = doc.head || doc.querySelector("head") || doc.documentElement;
     if (targetHead) {
       targetHead.appendChild(style);
@@ -1114,7 +1130,7 @@ export function EPUBViewer({
         rootEl.style.setProperty("color", textColor, "important");
       }
       if (bodyEl) {
-        bodyEl.style.setProperty("background-color", bgColor, "important");
+        bodyEl.style.setProperty("background-color", appearanceRef.current?.paper ? "transparent" : bgColor, "important");
         bodyEl.style.setProperty("color", textColor, "important");
         bodyEl.style.setProperty("font-family", fontFamily, "important");
         bodyEl.style.setProperty("font-size", `${fontSizeRef.current}px`, "important");
@@ -1198,6 +1214,8 @@ export function EPUBViewer({
     try {
       const doc = contents?.document as globalThis.Document | undefined;
       if (!doc?.documentElement || !doc.body) return false;
+      if(epubUsesPublisherAppearance(contents,book,settingsRef.current?.documents.epubSettings.appearance,
+        themeRef.current?.material?.kind === "paper" && isEpubCoverSection(contents,renditionRef.current || book))) return true;
       const win = contents?.window ?? doc.defaultView ?? null;
       if (!win || typeof win.getComputedStyle !== "function") return false;
       const { rawBgColor, textColor } = resolveReaderPalette();
@@ -1208,7 +1226,7 @@ export function EPUBViewer({
       const htmlBg = win.getComputedStyle(doc.documentElement).backgroundColor;
       const bodyBg = win.getComputedStyle(doc.body).backgroundColor;
       const bodyColor = win.getComputedStyle(doc.body).color;
-      const ok = colorsMatch(htmlBg, bgColor) && colorsMatch(bodyBg, bgColor) && colorsMatch(bodyColor, textColor);
+      const ok = colorsMatch(htmlBg, bgColor) && (appearanceRef.current?.paper ? bodyBg === "rgba(0, 0, 0, 0)" : colorsMatch(bodyBg, bgColor)) && colorsMatch(bodyColor, textColor);
       epubDiag("verify", { ok, htmlBg, bodyBg, bodyColor, expectedBg: bgColor, expectedFg: textColor });
       return ok;
     } catch {
@@ -1220,6 +1238,7 @@ export function EPUBViewer({
   // taken from the argument, then the synchronously-assigned renditionRef,
   // and only as a last resort the React state — the initialization path must
   // never wait for setRendition() to commit.
+  const lastReaderAppearanceRef=useRef(epubSettings.appearance ?? 'app');
   const applyRenditionTheme = useCallback((targetRendition?: any) => {
     const r = targetRendition ?? renditionRef.current ?? rendition;
     if (!r) return;
@@ -1243,7 +1262,10 @@ export function EPUBViewer({
       })(),
     });
 
-    r.themes.default({
+    const readerAppearance=settingsRef.current?.documents.epubSettings.appearance ?? 'app';
+    const restoreLocation=lastReaderAppearanceRef.current !== readerAppearance ? r.currentLocation?.()?.start?.cfi : null;
+    lastReaderAppearanceRef.current=readerAppearance;
+    const renditionRules = {
       html: {
         "background": `${bg} !important`,
         "background-color": `${bg} !important`,
@@ -1278,7 +1300,9 @@ export function EPUBViewer({
         "max-width": "100% !important",
         "font-family": `${fontFamily} !important`,
       },
-    });
+    };
+    if(themeRef.current?.material?.kind === 'paper') delete renditionRules['*'];
+    r.themes.default(renditionRules);
     r.themes.select("default");
 
     try {
@@ -1287,6 +1311,9 @@ export function EPUBViewer({
       });
     } catch {
       // Ignore if contents are not ready yet
+    }
+    if(restoreLocation) {
+      Promise.resolve(r.display(restoreLocation)).catch(error=>console.warn('EPUB appearance location restore failed',error));
     }
     // V2: typography/resize changes invalidate selection geometry — anchored
     // UI must reposition from fresh geometry or dismiss, never stay stale.
@@ -1681,6 +1708,9 @@ export function EPUBViewer({
             // inline styles on documentElement/body (applyContentOverrides).
             applyContentOverrides(contents);
 
+            const publisher=epubUsesPublisherAppearance(contents,epubBook,settingsRef.current?.documents.epubSettings.appearance,
+              themeRef.current?.material?.kind === "paper" && isEpubCoverSection(contents,renditionRef.current || epubBook));
+            if(!publisher) {
             // Remove publisher stylesheets — but NEVER epub.js's own theme
             // layer ([id^="epubjs-inserted-css-"], e.g.
             // style#epubjs-inserted-css-default created by
@@ -1714,6 +1744,7 @@ export function EPUBViewer({
             // document is enough).
 
             // TEMPORARY diagnostics (fix-mobile-epub-theme-regression task 1.2).
+            }
             epubDiag("content hook", {
               spineIndex: contents.section?.index,
               override: !!contents.document.getElementById("epub-override-styles"),
@@ -2423,7 +2454,7 @@ export function EPUBViewer({
   // Re-apply styles when settings or theme change
   useEffect(() => {
     applyRenditionTheme();
-  }, [applyRenditionTheme, epubSettings.fontFamily, epubSettings.fontSize, epubSettings.lineHeight, theme, settings.appearance?.fontFamily]);
+  }, [applyRenditionTheme, epubSettings.fontFamily, epubSettings.fontSize, epubSettings.lineHeight, epubSettings.appearance, theme, appearance, settings.appearance?.fontFamily]);
 
   const removeSearchAnnotations = useCallback((cfis: string[]) => {
     if (!rendition || cfis.length === 0) return;
@@ -3493,6 +3524,11 @@ export function EPUBViewer({
             )}
           >
             <div className="p-3 space-y-2">
+              <label className="block text-xs text-muted-foreground mb-3">{t('paper.readerAppearance')}
+                <select aria-label="Reader appearance" className="block w-full bg-input text-foreground border border-border rounded p-2 mt-1"
+                  value={epubSettings.appearance ?? 'app'} onChange={e=>updateEpubSettings({appearance:e.target.value as 'app'|'publisher'})}>
+                  <option value="app">{t('paper.appTheme')}</option><option value="publisher">{t('paper.originalBook')}</option>
+                </select></label>
               <div className="text-xs font-medium text-muted-foreground mb-2">{t("viewer.fontSize")}</div>
               <div className="flex items-center gap-2">
                 <button

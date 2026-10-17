@@ -8,7 +8,7 @@
 // Cache namespace renamed to `plethora-` in the Phase B storage migration;
 // the activate handler purges every legacy `incrementum-*` cache. Bump the
 // version number to rotate precached content.
-const VERSION = 'plethora-v1';
+const VERSION = 'plethora-v2-paper';
 
 // Disable SW on localhost/dev (unregister and bypass all caching)
 const IS_DEV_HOST = self.location.hostname === 'localhost' || self.location.hostname === '127.0.0.1';
@@ -51,6 +51,8 @@ const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/manifest.json',
+  '/theme-materials/legal-pad/v1/grain-fallback-512.png',
+  '/theme-materials/legal-pad/v1/variation-512.png',
   '/apple-touch-icon.png',
   '/icons/sprout-192x192.png',
   '/icons/sprout-512x512.png',

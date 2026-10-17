@@ -1,3 +1,4 @@
+import type { ResolvedThemeAppearance } from '../themes/resolveThemeAppearance';
 import type { CSSProperties } from "react";
 import type { FeedItem } from "../api/rss";
 
@@ -143,7 +144,7 @@ export function resolveRssPreferences(
     )
   );
 }
-export function rssReadingStyle(input?: RssUserPreferenceUpdate | null): CSSProperties {
+export function rssReadingStyle(input?: RssUserPreferenceUpdate | null, appearance?: ResolvedThemeAppearance | null): CSSProperties {
   const p = resolveRssPreferences(input ?? {});
   const palette = (
     {
@@ -160,6 +161,14 @@ export function rssReadingStyle(input?: RssUserPreferenceUpdate | null): CSSProp
     "--reading-line-height": p.line_height,
     "--reading-text-align": p.text_align,
     "--reading-max-width": `${p.content_width}ch`,
+    ...(!palette && appearance ? {
+      backgroundColor: appearance.readerTokens.background,
+      color: appearance.readerTokens.foreground,
+      "--color-background": appearance.readerTokens.background,
+      "--color-foreground": appearance.readerTokens.foreground,
+      "--color-muted-foreground": appearance.readerTokens.mutedForeground,
+      "--reader-link": appearance.readerTokens.link,
+    } : {}),
     ...(palette
       ? {
           backgroundColor: palette[0],

@@ -31,6 +31,15 @@
          reader styles can inherit it after React removes the boot frame. -->
     <style id="plethora-style-nonce"></style>
     <script>
+      try {
+        if(localStorage.getItem('plethora-last-theme') === 'legal-pad') {
+          document.documentElement.style.setProperty('--app-boot-background','#F5DF85');
+          document.documentElement.style.setProperty('--app-boot-foreground','#30271F');
+          document.documentElement.style.backgroundColor='#F5DF85';
+        }
+      } catch { /* Storage can be unavailable; the normal fallback remains readable. */ }
+    </script>
+    <script>
       (function () {
         const isDevHost =
           location.hostname === "localhost" ||
@@ -75,7 +84,7 @@
           position: fixed;
           inset: 0;
           z-index: 9000;
-          background: #0a0a0a;
+          background: var(--app-boot-background, #0a0a0a);
           display: flex;
           align-items: center;
           justify-content: center;

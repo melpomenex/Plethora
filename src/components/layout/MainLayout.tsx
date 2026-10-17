@@ -71,7 +71,7 @@ function AppShellRoot({
   className?: string;
 }) {
   return (
-    <div
+    <div data-paper-surface="chrome"
       {...tourAnchor("shellRoot")}
       className={cn(
         "app-shell relative flex min-h-0 w-full h-full overflow-hidden bg-background",

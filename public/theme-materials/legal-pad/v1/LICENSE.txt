@@ -1,0 +1,8 @@
+Source: Paper006 by ambientCG, https://ambientcg.com/a/Paper006
+License: Creative Commons CC0 1.0 Universal
+License information: https://docs.ambientcg.com/license/
+License legal code: https://creativecommons.org/publicdomain/zero/1.0/legalcode
+The color-map source is distributed under CC0, including modification and redistribution.
+Downloaded from https://ambientcg.com/get?file=Paper006_4K-PNG.zip on 2026-10-17.
+Original color map: 4096x4096 RGB 8-bit. This is not an HDR image or a calibrated yellow-paper scan.
+Only the source fiber structure is used; paper colors are controlled by the theme palette.

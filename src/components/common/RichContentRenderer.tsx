@@ -1,3 +1,7 @@
+import type { ResolvedThemeAppearance } from '../../themes/resolveThemeAppearance';
+import { useResolvedThemeAppearance } from '../../themes/appearanceContext';
+import { paperReaderCss } from '../../themes/paperMaterialCss';
+import { ensureReaderStylesheet } from '../viewer/htmlReader/readerStylesheet';
 /**
  * RichContentRenderer - Safely renders rich HTML content with theme-aware styling
  *
@@ -198,6 +202,7 @@ export function RichContentRenderer({
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeHeight, setIframeHeight] = useState(100);
   const [isLoading, setIsLoading] = useState(true);
+  const appearance = useResolvedThemeAppearance();
 
   // Markdown in, rich out: when no stored html_content exists but the plain
   // content carries annotation markup (bold/italic/bullets), it renders
@@ -223,6 +228,8 @@ export function RichContentRenderer({
       };
     }
   }, [effectiveHtml, expanded, mode]);
+
+  useLiveRichAppearance(iframeRef, appearance, mode === 'full' && expanded, effectiveHtml);
 
   if (!effectiveHtml || mode === "text-only") {
     return (
@@ -301,3 +308,22 @@ export function RichContentRenderer({
 }
 
 export default RichContentRenderer;
+
+function useLiveRichAppearance(iframeRef: {current:HTMLIFrameElement|null}, appearance:ResolvedThemeAppearance|null, active:boolean, content:string|undefined) {
+  useEffect(() => {
+    const frame=iframeRef.current;
+    if(!frame || !active || !appearance) return;
+    const update=()=>{
+      const doc=frame.contentDocument;
+      if(!doc?.body) return;
+      const tokens=appearance.readerTokens;
+      const base=createIframeDocument('', {background:tokens.background,foreground:tokens.foreground,
+        primary:tokens.link,muted:tokens.mutedSurface,mutedForeground:tokens.mutedForeground,border:tokens.border});
+      const parsed=new DOMParser().parseFromString(base,'text/html');
+      ensureReaderStylesheet(doc).textContent=(parsed.querySelector('style')?.textContent || '')+paperReaderCss(appearance);
+    };
+    update(); frame.addEventListener('load',update);
+    return ()=>frame.removeEventListener('load',update);
+  },[appearance,content,active]);
+
+}

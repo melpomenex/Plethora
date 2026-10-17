@@ -1002,7 +1002,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
             </div>
           </div>
         ) : (
-          <div className="bg-surface-container">
+          <div className="bg-surface-container" data-paper-surface="chrome">
             <div
               onMouseDown={handleWindowDragRequest}
               className="flex items-center px-2 py-1 gap-1"

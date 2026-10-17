@@ -14,7 +14,7 @@ export function AdaptiveAppScaffold({
   useVisualViewport();
   return (
     <div
-      className="adaptive-shell-root"
+      className="adaptive-shell-root" data-paper-surface="chrome"
       data-mobile-shell={mobile ? "true" : "false"}
       data-fullscreen={fullscreen ? "true" : "false"}
     >

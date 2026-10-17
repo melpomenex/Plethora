@@ -1,0 +1,46 @@
+/* Shared paper owners. Never clear generic bg-background fills or tint media. */
+:root[data-theme-material="paper"] body,
+:root[data-theme-material="paper"] #root { background-color: var(--color-background); }
+:root[data-theme-material="paper"] [data-paper-surface] {
+  background-image: var(--paper-variation), var(--paper-grain);
+  background-size: 1536px 1536px, 512px 512px;
+  background-position: 0 0, 0 0;
+  background-repeat: repeat, repeat;
+  background-attachment: scroll;
+}
+:root[data-theme-material="paper"] [data-paper-surface="reading"] {
+  /* Host readers with unknown/custom gutters omit the margin rather than cross text. */
+  --paper-margin: none;
+  background-color: var(--color-background);
+  background-image: var(--paper-margin), var(--paper-rule), var(--paper-variation), var(--paper-grain);
+  background-size: 100% 100%, 100% 32px, 1536px 1536px, 512px 512px;
+  background-position: 0 0, 0 24px, 0 0, 0 0;
+  background-repeat: no-repeat, repeat, repeat, repeat;
+}
+:root[data-theme-material="paper"] [data-paper-surface="inset"] { background-color: var(--color-card); }
+:root[data-theme-material="paper"] [data-paper-surface="chrome"] { background-color: var(--color-surface); }
+:root[data-theme-material="paper"] [data-paper-disabled="true"] { background-image: none; }
+:root[data-theme-material="paper"] [data-paper-surface="reading"]:dir(rtl) { --paper-margin: none; }
+@media (max-width:359px) {
+  :root[data-theme-material="paper"] { --paper-margin:none; }
+}
+@media (forced-colors:active),(prefers-contrast:more) {
+  :root [data-paper-surface] { background-image:none!important; }
+}
+:root[data-display-mode="eink"] [data-paper-surface] { background-image:none!important; }
+:root[data-theme-material="paper"] [data-paper-surface="reading"] .rss-reading-prose a {
+  color:var(--reader-link,var(--color-link));text-decoration:underline;text-underline-offset:2px;
+}
+:root[data-theme-material="paper"] [data-paper-surface="reading"] .rss-reading-prose :is(pre,th,td,code) {
+  background-color:var(--color-card);color:var(--color-foreground);
+}
+/* Shared existing primitive owners include portals outside the app shell. */
+:root[data-theme-material="paper"] :is(.md-dialog-surface,.command-hub-panel,.mobile-assistant-sheet) {
+  background-image:var(--paper-variation),var(--paper-grain);
+  background-size:1536px 1536px,512px 512px;
+}
+/* Existing semantic card primitives own independent opaque paper surfaces. */
+:root[data-theme-material="paper"] :is(.bg-card,.md-card) {
+  background-image:var(--paper-variation),var(--paper-grain);
+  background-size:1536px 1536px,512px 512px;
+}

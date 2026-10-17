@@ -409,3 +409,5 @@ export const obsidianNoirTheme: Theme = {
     }
   `,
 };
+
+export { legalPadTheme } from './legalPad';

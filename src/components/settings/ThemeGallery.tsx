@@ -1,3 +1,4 @@
+import { PaperMaterialPreview } from './PaperMaterialPreview';
 /**
  * Theme Gallery Component
  * Shows visual previews of themes with mini UI mockups
@@ -26,6 +27,7 @@ interface ThemeGalleryProps {
  * Mini UI mockup showing theme in action
  */
 function ThemePreview({ theme }: { theme: Theme }) {
+  if(theme.material?.kind === "paper") return <PaperMaterialPreview theme={theme}/>;
   return (
     <div
       className="w-full h-32 rounded-lg overflow-hidden border relative"

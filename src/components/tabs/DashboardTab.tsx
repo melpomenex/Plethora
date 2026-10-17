@@ -338,7 +338,7 @@ export function DashboardTab() {
   const hasNoDocuments = (stats?.total_documents ?? documents.length) === 0;
 
   return (
-    <SafeScrollContainer className="bg-background" data-responsive-surface="dashboard">
+    <SafeScrollContainer className="bg-background" data-responsive-surface="dashboard" data-paper-surface="chrome">
       <div className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8 pb-24 md:pb-8">
         <AdaptiveContentHeader
           className="px-0 pt-5 pb-5 md:pt-7 md:pb-7"

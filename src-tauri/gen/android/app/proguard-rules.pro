@@ -19,3 +19,9 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# Tauri resolves this inherited entry point from native code during startup.
+# R8 cannot see the JNI lookup, so preserve the method in release APKs.
+-keepclassmembers class com.plethora.app.TauriActivity {
+    public app.tauri.plugin.PluginManager getPluginManager();
+}

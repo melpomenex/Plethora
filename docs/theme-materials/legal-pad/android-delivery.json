@@ -1,0 +1,53 @@
+{
+  "source_archive_sha256": "6d8605171fb419ff82806fbe26b8d1e0b69dc89be5d5e5eb00faf149ff771365",
+  "copied_source_files_verified": 8703,
+  "generated_bridge": {
+    "file": "generated/TauriActivity.kt",
+    "source": "Mini working Android project",
+    "sha256": "3fc5f252a934cb3f3667ac7c43a013ed45acb123bbf399e0a6e433e975bda1b2",
+    "common_generated_files_equal": 9
+  },
+  "apk": {
+    "apk": "/Volumes/external/mac-mini/Code/legal-pad-build-20261017/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk",
+    "bytes": 71472159,
+    "abis": [
+      "arm64-v8a"
+    ],
+    "sha256": "9ac53264312e07152bb1e08a011df40b4032c2d5b1e5fef32b079d9dca915cad",
+    "certificate_sha256": "7e5df003dd45df3adf373296616bdb15eec4ad577736d805b3e9c3429a711266",
+    "certificate_matches_installed": true,
+    "jni_method_preserved": "com.plethora.app.TauriActivity.getPluginManager()",
+    "jni_method_verified_in_dex": true,
+    "r8_keep_rule": "src-tauri/gen/android/app/proguard-rules.pro",
+    "package": "package: name='com.plethora.app' versionCode='3003000' versionName='3.3.0' platformBuildVersionName='16' platformBuildVersionCode='36' compileSdkVersion='36' compileSdkVersionCodename='16'"
+  },
+  "installation": {
+    "verified_at_utc": "2026-10-17T23:39:57Z",
+    "installed_apk_sha256": "9ac53264312e07152bb1e08a011df40b4032c2d5b1e5fef32b079d9dca915cad",
+    "matches_verified_candidate": true,
+    "install_method": "adb install -r",
+    "package_evidence": [
+      "versionCode=3003000 minSdk=26 targetSdk=36",
+      "versionName=3.3.0",
+      "lastUpdateTime=2026-10-17 17:39:45"
+    ],
+    "ui_testing": "User chose install only; fixed replacement not launched"
+  },
+  "device": {
+    "model": "Pixel 9 Pro XL",
+    "os": "Android 17",
+    "webview": "app.vanadium.webview 155.0.8059.84.0",
+    "physical_size": "1008x2244",
+    "physical_density": 360,
+    "css_dpr": "not measured"
+  },
+  "launch_crash_fix": {
+    "reported_exception": "NoSuchMethodError: MainActivity.getPluginManager()",
+    "cause": "R8 removed the JNI-reflected method from the release DEX",
+    "fixed_by": "Targeted keep rule for TauriActivity.getPluginManager()",
+    "working_apk_comparison": "The previously working installed APK contains the method; crashing APK did not",
+    "rebuilt_dex_contains_method": true,
+    "reinstalled_at_utc": "2026-10-17T23:39:45Z"
+  },
+  "acceptance": "Fixed signed APK installed and verified byte-for-byte; user launch/UI check remains pending"
+}

@@ -1,3 +1,5 @@
+import { legalPadTheme } from './legalPad';
+export { legalPadTheme } from './legalPad';
 /**
  * Built-in Themes
  * Migrated from Incrementum-CPP QSS themes
@@ -4739,6 +4741,7 @@ export const alpineSnowTheme: Theme = {
 
 // Export all built-in themes
 export const builtInThemes: Theme[] = [
+  legalPadTheme,
   ...legacyIndexThemes,
   modernDarkTheme,
   materialYouTheme,

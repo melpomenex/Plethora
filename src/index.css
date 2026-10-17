@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "katex/dist/katex.min.css";
 @import "./styles/reading.css";
+@import "./styles/paper-material.css";
 
 /* Hide scrollbar but keep scroll functionality */
 .scrollbar-none {

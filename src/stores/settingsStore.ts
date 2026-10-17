@@ -1,3 +1,4 @@
+import { normalizeMaterialPreferences, type MaterialPreferences } from '../themes/materials';
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { migratedGetItem } from "../lib/brandMigration";
@@ -194,6 +195,7 @@ export interface PDFSettings {
  * EPUB Settings
  */
 interface EPUBSettings {
+  appearance?: "app" | "publisher";
   fontSize: number;
   fontFamily: "serif" | "sans-serif" | "monospace";
   lineHeight: number;
@@ -289,6 +291,7 @@ export interface SmartTaggingSettings {
  * Appearance Settings
  */
 interface AppearanceSettings {
+  materialPreferences?: MaterialPreferences;
   theme: "light" | "dark" | "system";
   fontSize: number;
   fontFamily: string;
@@ -1630,6 +1633,9 @@ export const useSettingsStore = create<SettingsState>()(
               [category]: {
                 ...state.settings[category],
                 ...nextCategory,
+                ...(category === "appearance" && "materialPreferences" in updates
+                  ? { materialPreferences: normalizeMaterialPreferences(updates.materialPreferences) }
+                  : {}),
                 // The sidebar width is user-facing only within its min/max range;
                 // clamp here (single source of truth) so the toolbar CSS variable
                 // and any other consumer never see an out-of-range value.
@@ -1858,7 +1864,10 @@ export const useSettingsStore = create<SettingsState>()(
           ...defaultSettings,
           ...persisted,
           general: { ...defaultSettings.general, ...persisted.general },
-          appearance: { ...defaultSettings.appearance, ...persisted.appearance },
+          appearance: {
+            ...defaultSettings.appearance, ...persisted.appearance,
+            materialPreferences: normalizeMaterialPreferences(persisted.appearance?.materialPreferences),
+          },
           interface: {
             ...defaultSettings.interface,
             ...persisted.interface,

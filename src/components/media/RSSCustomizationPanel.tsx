@@ -325,7 +325,7 @@ function DisplayTab({
         <RadioGroup
           value={preferences.theme_mode || "system"}
           options={[
-            { value: "system", label: "System", description: "Match system preference" },
+            { value: "system", label: "App theme", description: "Follow the selected application theme" },
             { value: "light", label: "Light", description: "Always light theme" },
             { value: "dark", label: "Dark", description: "Always dark theme" },
           ]}

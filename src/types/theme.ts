@@ -1,3 +1,4 @@
+import type { PaperMaterial } from '../themes/materials';
 /**
  * Theme System Types
  * Based on Incrementum-CPP QSS themes
@@ -135,6 +136,7 @@ export interface Theme {
   radius: ThemeRadius;
   shadows: ThemeShadows;
   effects?: ThemeEffects;
+  material?: PaperMaterial;
   customCSS?: string;
 }
 
@@ -142,6 +144,8 @@ export type ThemeId = string;
 
 export interface ThemeContextValue {
   theme: Theme;
+  /** The actual preview or committed theme currently applied to readers/chrome. */
+  appliedTheme: Theme;
   themes: Theme[];
   setTheme: (themeId: ThemeId) => void;
   addCustomTheme: (theme: Theme) => void;
@@ -163,6 +167,7 @@ export interface ThemeContextValue {
  * Built-in theme IDs
  */
 export const BUILTIN_THEMES = {
+  LEGAL_PAD: 'legal-pad',
   MODERN_DARK: 'modern-dark',
   MATERIAL_YOU: 'material-you',
   SNOW: 'snow',

@@ -53,16 +53,16 @@ function bestBlackOrWhite(background: Rgb): Rgb {
   return contrastRatio(BLACK, background) >= contrastRatio(WHITE, background) ? BLACK : WHITE;
 }
 
-function ensureContrast(candidate: Rgb | null, background: Rgb, minimum: number): Rgb {
+function ensureContrast(candidate: Rgb | null, background: Rgb, minimum: number, bounds: Rgb[] = []): Rgb {
   // Leave a small margin so rounding the resolved color to 8-bit hex cannot
   // move a just-passing float below the required ratio.
   const targetRatio = minimum + 0.05;
   const start = candidate ?? bestBlackOrWhite(background);
-  if (contrastRatio(start, background) >= targetRatio) return start;
+  if ([background, ...bounds].every(base => contrastRatio(start, base) >= targetRatio)) return start;
   const target = bestBlackOrWhite(background);
   for (let step = 1; step <= 20; step += 1) {
     const adjusted = mix(start, target, step / 20);
-    if (contrastRatio(adjusted, background) >= targetRatio) return adjusted;
+    if ([background, ...bounds].every(base => contrastRatio(adjusted, base) >= targetRatio)) return adjusted;
   }
   return target;
 }
@@ -78,7 +78,8 @@ function firstOpaque(values: Array<string | undefined>, base: Rgb): Rgb | null {
 /** Resolve opaque, measured reader colors from applied CSS and theme fallbacks. */
 export function resolveReaderThemeTokens(
   applied: AppliedReaderColors,
-  theme: Theme
+  theme: Theme,
+  textureBounds: string[] = []
 ): ReaderThemeTokens {
   const stableBase = theme.variant === 'light' ? WHITE : { r: 10, g: 15, b: 24 };
   const background =
@@ -94,13 +95,14 @@ export function resolveReaderThemeTokens(
       surface
     ) ?? surface;
 
+  const bounds = textureBounds.map(value => opaqueColor(value, background)).filter((value): value is Rgb => value !== null);
   const foreground = ensureContrast(
     firstOpaque(
       [applied.foreground, theme.colors.onBackground, theme.colors.text, theme.colors.onSurface],
       background
     ),
     background,
-    4.5
+    4.5, bounds
   );
   const mutedForeground = ensureContrast(
     firstOpaque(
@@ -108,28 +110,28 @@ export function resolveReaderThemeTokens(
       background
     ) ?? foreground,
     background,
-    4.5
+    4.5, bounds
   );
   // Link deliberately prefers the applied/theme link token over primary.
   const link = ensureContrast(
     firstOpaque([applied.link, theme.colors.link], background) ?? foreground,
     background,
-    4.5
+    4.5, bounds
   );
   const accent = ensureContrast(
     firstOpaque([applied.accent, theme.colors.modeAccent, theme.colors.primary], background) ?? link,
     background,
-    3
+    3, bounds
   );
   const focus = ensureContrast(
     firstOpaque([applied.focus, theme.colors.link, theme.colors.primary], background) ?? accent,
     background,
-    3
+    3, bounds
   );
   const border = ensureContrast(
     firstOpaque([applied.border, theme.colors.border, theme.colors.outline], background),
     background,
-    3
+    3, bounds
   );
 
   return {

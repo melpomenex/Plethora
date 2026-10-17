@@ -459,7 +459,7 @@ export function MobileNavigation({
 
   return (
     <>
-    <nav ref={navRef} className={`mobile-bottom-nav ${hidden ? "hidden" : ""}`} aria-hidden={hidden}>
+    <nav data-paper-surface="chrome" ref={navRef} className={`mobile-bottom-nav ${hidden ? "hidden" : ""}`} aria-hidden={hidden}>
       {availablePrimaryNavItems.map((item) => {
         const active = activeTab?.type === item.tabType;
         const badge =
@@ -532,7 +532,7 @@ export function MobileNavigation({
         >
           <div 
             ref={moreSheetRef}
-            className="mobile-more-sheet"
+            className="mobile-more-sheet" data-paper-surface="chrome"
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"

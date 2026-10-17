@@ -149,7 +149,7 @@ const ScreenshotOverlay = lazy(() => import("./routes/screenshot-overlay").then(
 
 function PageLoader() {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0a0a0a', color: '#fff' }}>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--app-boot-background, #0a0a0a)', color: 'var(--app-boot-foreground, #fff)' }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{ width: 32, height: 32, border: '3px solid #333', borderTopColor: '#6366f1', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto' }}></div>
         <p style={{ marginTop: 16, fontSize: 14 }}>Loading...</p>
@@ -241,7 +241,7 @@ class ErrorBoundary extends React.Component<{ children: React.ReactNode }, { has
   render() {
     if (this.state.hasError) {
       return (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#0a0a0a', color: '#fff', flexDirection: 'column' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--app-boot-background, #0a0a0a)', color: 'var(--app-boot-foreground, #fff)', flexDirection: 'column' }}>
           <h1>Something went wrong</h1>
           <p style={{ color: '#f00' }}>{this.state.error?.message}</p>
           <pre style={{ background: '#111', padding: 16, borderRadius: 8, marginTop: 16, fontSize: 12 }}>{this.state.error?.stack?.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>
@@ -551,8 +551,8 @@ reactRoot.render(
     <QueryClientProvider client={queryClient}>
       <PresentationProvider>
         <LanguageProfileProvider>
-        <ThemeProvider>
-          <BatteryProvider>
+        <BatteryProvider>
+          <ThemeProvider>
           <HashRouter>
             <Suspense fallback={<PageLoader />}>
               <Routes>
@@ -591,8 +591,8 @@ reactRoot.render(
               </StartupExperienceBoundary>
             </Suspense>
           </HashRouter>
-          </BatteryProvider>
-        </ThemeProvider>
+          </ThemeProvider>
+        </BatteryProvider>
         </LanguageProfileProvider>
       </PresentationProvider>
     </QueryClientProvider>

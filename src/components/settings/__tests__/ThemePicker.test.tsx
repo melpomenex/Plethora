@@ -44,7 +44,7 @@ describe("ThemePicker", () => {
     expect(await screen.findByText("Dracula")).toBeInTheDocument();
     expect(screen.getByText("Midnight")).toBeInTheDocument();
     // The panel reports the full count (176 built-in + any custom themes).
-    expect(screen.getAllByText("177 themes").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("178 themes").length).toBeGreaterThan(0);
   });
 
   it("filters the list by search text", async () => {

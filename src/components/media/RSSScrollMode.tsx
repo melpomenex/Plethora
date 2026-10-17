@@ -1,3 +1,4 @@
+import { useResolvedThemeAppearance } from '../../themes/appearanceContext';
 import { getRssPreferencesAuto } from "../../api/rss";
 import {
   rssReadingStyle,
@@ -238,6 +239,7 @@ export function RSSScrollMode({
 }: RSSScrollModeProps) {
   const [loadedPreferences, setLoadedPreferences] = useState<RssUserPreferenceUpdate | null>(null);
   const preferences = suppliedPreferences ?? loadedPreferences;
+  const appearance = useResolvedThemeAppearance();
   useEffect(() => {
     if (suppliedPreferences) return;
     let cancelled = false;
@@ -2073,7 +2075,8 @@ export function RSSScrollMode({
         {/* Article content */}
         {renderedItem && (
           <article
-            style={rssReadingStyle(preferences)}
+            data-paper-surface={(!preferences?.theme_mode || preferences.theme_mode === "system") ? "reading" : undefined}
+            style={rssReadingStyle(preferences, appearance)}
             key={`${renderedItem.feed.id}-${renderedItem.item.id}`}
             className={cn(
               "h-full w-full max-w-4xl mx-auto overflow-hidden transition-all duration-300",
@@ -2268,7 +2271,8 @@ export function RSSScrollMode({
               ) : (
                 <div
                   ref={contentRef}
-                  style={rssReadingStyle(preferences)}
+                  data-paper-surface={(!preferences?.theme_mode || preferences.theme_mode === "system") ? "reading" : undefined}
+            style={rssReadingStyle(preferences, appearance)}
                   className="rss-reading-prose rss-reading-width flex-1 min-h-0 overflow-y-auto rss-article-content prose prose-base md:prose-lg max-w-none dark:prose-invert select-text pb-2"
                   onClick={(e) => {
                     const target = e.target as HTMLElement;

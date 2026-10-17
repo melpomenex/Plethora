@@ -1,3 +1,4 @@
+import { useResolvedThemeAppearance } from '../../themes/appearanceContext';
 import { useRegisterMobileAssistant } from "../assistant/mobile/MobileAssistantContext";
 import { buildRssAssistantContext } from "./rssAssistantContext";
 import { rssReadingStyle, filterRssArticles, sortRssArticles } from "../../types/rssCustomization";
@@ -1764,7 +1765,8 @@ export function RSSReader() {
     articleMenu.handleRowKeyDown(e, () => buildArticleMenuItems(feed, item));
   };
 
-  const readingStyles = useMemo(() => rssReadingStyle(preferences), [preferences]);
+  const appearance = useResolvedThemeAppearance();
+  const readingStyles = useMemo(() => rssReadingStyle(preferences, appearance), [preferences, appearance]);
 
   const rssVirtualizer = useVirtualizer({
     count: items.length,
@@ -3100,7 +3102,7 @@ export function RSSReader() {
                             onSavePreferences={handleSavePreferences}
                           />
                         ) : (
-                          <div className="reading-surface" style={readingStyles}>
+                          <div className="reading-surface" data-paper-surface={(!preferences?.theme_mode || preferences.theme_mode === "system") ? "reading" : undefined} style={readingStyles}>
                             <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground mb-4 reading-meta">
                               {(preferences?.show_feed_icon ?? true) && selectedItemFeed && getFeedIcon(selectedItemFeed) && <img src={getFeedIcon(selectedItemFeed)} alt="" className="w-4 h-4 rounded-sm"/>}
                               {(preferences?.show_date ?? true) && (

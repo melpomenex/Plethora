@@ -1,3 +1,7 @@
+import { useAppliedAppearance } from '../themes/useAppliedAppearance';
+import { legalPadTheme } from '../themes/legalPad';
+import { ResolvedAppearanceContext } from '../themes/appearanceContext';
+import { normalizeThemeMaterial } from '../themes/materials';
 /**
  * Theme Provider Context
  * Manages theme state and CSS variable injection
@@ -219,7 +223,11 @@ function loadCustomThemes(): Theme[] {
   try {
     const stored = migratedGetItem("plethora-custom-themes");
     if (stored) {
-      return JSON.parse(stored);
+      const parsed = JSON.parse(stored);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((item) => item && typeof item === 'object').map((item) => ({
+        ...item, material: normalizeThemeMaterial(item.material),
+      }));
     }
   } catch (error) {
     console.error("Failed to load custom themes:", error);
@@ -271,7 +279,7 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
   // themes/builtin module ships in its own chunk instead of the initial bundle.
   const [themes, setThemes] = useState<Theme[]>(() => {
     const customThemes = loadCustomThemes();
-    const initialBuiltins = [obsidianNoirTheme, biolumeAbyssTheme, superGameBroTheme, milkyMatchaTheme, plethoraLaunchTheme];
+    const initialBuiltins = [obsidianNoirTheme, biolumeAbyssTheme, superGameBroTheme, milkyMatchaTheme, plethoraLaunchTheme, legalPadTheme];
     // De-duplicate in case a custom theme shadows a fallback id.
     const seen = new Set(initialBuiltins.map((t) => t.id));
     const merged = [...initialBuiltins, ...customThemes.filter((t) => !seen.has(t.id))];
@@ -292,7 +300,7 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
   // persisting custom themes. Pre-seeded with the eagerly-loaded fallback ids;
   // populated with the full set once the catalog loads.
   const builtinThemeIdsRef = useRef<Set<string>>(
-    new Set([obsidianNoirTheme.id, biolumeAbyssTheme.id, superGameBroTheme.id, milkyMatchaTheme.id, plethoraLaunchTheme.id])
+    new Set([obsidianNoirTheme.id, biolumeAbyssTheme.id, superGameBroTheme.id, milkyMatchaTheme.id, plethoraLaunchTheme.id, legalPadTheme.id])
   );
 
   const currentTheme = themes.find((t) => t.id === currentThemeId) || themes[0];
@@ -301,6 +309,8 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
   // notice against the actual active theme.
   const appliedTheme =
     (previewThemeId !== null && themes.find((t) => t.id === previewThemeId)) || currentTheme;
+
+  const appearance = useAppliedAppearance(appliedTheme);
 
   // Lazy-load the full built-in theme catalog on mount. Until it resolves, the
   // app renders with the active/default fallback theme; once loaded, the catalog
@@ -406,6 +416,7 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
   const importTheme = (themeJson: string): Theme => {
     try {
       const theme = JSON.parse(themeJson) as Theme;
+      theme.material = normalizeThemeMaterial(theme.material);
 
       if (!theme.id || !theme.name || !theme.colors) {
         throw new Error("Invalid theme structure");
@@ -429,6 +440,7 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
 
   const value: ThemeContextValue = {
     theme: currentTheme,
+    appliedTheme,
     themes,
     setTheme,
     addCustomTheme,
@@ -440,7 +452,7 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
     commitPreview,
   };
 
-  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+  return <ThemeContext.Provider value={value}><ResolvedAppearanceContext.Provider value={appearance}>{children}</ResolvedAppearanceContext.Provider></ThemeContext.Provider>;
 }
 
 /**

@@ -1368,9 +1368,9 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
       onBundleDetected={handleBundleDetected}
       className="h-full"
     >
-      <div className="h-full flex flex-col bg-cream">
+      <div className="h-full flex flex-col bg-cream" data-paper-surface="chrome">
         {/* Header */}
-        <div className="border-b border-border bg-card p-3 sm:p-4" data-responsive-surface="documents">
+        <div className="border-b border-border bg-card p-3 sm:p-4" data-responsive-surface="documents" data-paper-surface="chrome">
           <AdaptiveContentHeader
             className="p-0 pb-3"
             title={t("documentsView.title")}

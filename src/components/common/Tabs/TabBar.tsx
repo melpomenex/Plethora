@@ -355,7 +355,7 @@ function TabBarImpl({
       <div
         ref={containerRef}
         onMouseDown={handleWindowDragRequest}
-        className="flex items-center bg-surface-container-low border-b border-surface-container-highest"
+        data-paper-surface="chrome" className="flex items-center bg-surface-container-low border-b border-surface-container-highest"
       >
         {/* Left scroll button - compact in narrow mode */}
         <button

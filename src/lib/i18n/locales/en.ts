@@ -1,6 +1,19 @@
 export type Dict = Record<string, string>;
 
 export const en: Dict = {
+  "paper.appearance": "Paper appearance",
+  "paper.detail": "Paper detail",
+  "paper.subtle": "Subtle",
+  "paper.authentic": "Authentic",
+  "paper.maximum": "Maximum",
+  "paper.ruling": "Notebook ruling",
+  "paper.margin": "Red margin",
+  "paper.reduced": "Detail reduced for this device.",
+  "paper.reset": "Reset paper appearance",
+  "paper.readerAppearance": "Reader appearance",
+  "paper.appTheme": "App theme",
+  "paper.originalBook": "Original book",
+
   "commandPalette.openReaderFirst": "Open a document before running this reader action.",
   "commandPalette.openPdfFirst": "Open a PDF document before toggling reflow.",
   "commandPalette.cleanupFailed": "Could not update {count} documents. Check storage and retry.",
