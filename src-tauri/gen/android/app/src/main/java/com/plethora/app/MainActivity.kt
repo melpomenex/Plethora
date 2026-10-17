@@ -21,7 +21,7 @@ import app.tauri.plugin.PluginManager
 import com.plethora.app.BuildConfig
 import com.plethora.navigation.NavigationBackController
 
-class MainActivity : WryActivity() {
+class MainActivity : TauriActivity() {
     private val startupTrace = StartupTrace()
 
     // Holds the WebView's pending media permission request while we wait for
@@ -62,7 +62,7 @@ class MainActivity : WryActivity() {
 
         // Register the activity-result launchers that plugins (e.g. folder-import's
         // SAF folder picker) use via Plugin.startActivityForResult(). The generated
-        // WryActivity wires every other PluginManager lifecycle hook (onResume,
+        // TauriActivity wires every other PluginManager lifecycle hook (onResume,
         // onPause, …) but omits onActivityCreate, so the launchers stay lateinit
         // and any plugin call to startActivityForResult() crashes with
         // "lateinit property startActivityForResultLauncher has not been initialized".
