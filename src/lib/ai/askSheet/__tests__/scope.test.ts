@@ -99,6 +99,7 @@ describe("task 1.1 — cited sources carry deep-link metadata", () => {
       retriever: new FakeSemanticRetriever([CHUNK_A, CHUNK_B]),
       provider,
       composition: LIBRARY_COMPOSITION,
+      loadDocumentMetadata: async () => ({}),
     });
 
     expect(result.sources).toHaveLength(1);
@@ -191,6 +192,7 @@ describe("task 1.2 — scope resolution", () => {
       composition: LIBRARY_COMPOSITION,
       provider,
       retrieve: retrieve as typeof import("../../../../api/ai-learning").retrieveFromLibrary,
+      loadDocumentMetadata: async () => ({}),
     });
 
     expect(seen).toEqual([undefined]);
@@ -259,6 +261,7 @@ describe("task 5.2 — retrieval-only mode", () => {
       composition: { ...LIBRARY_COMPOSITION, generatorKind: "none" },
       provider,
       retriever: new FakeSemanticRetriever([CHUNK_A]),
+      loadDocumentMetadata: async () => ({}),
     });
 
     expect(provider.callCount).toBe(0);

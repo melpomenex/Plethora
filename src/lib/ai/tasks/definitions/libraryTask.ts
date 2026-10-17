@@ -220,8 +220,22 @@ export interface AskLibraryCitedSource {
   sourceId?: string;
   text: string;
   headingPath: string[];
-  location: RetrievalResult["location"];
+  /**
+   * Retrieval locator. Absent for a selection source: a captured passage has
+   * no chunk identity and its position belongs to the caller's snapshot.
+   */
+  location?: RetrievalResult["location"];
   score: number;
+  /**
+   * The `[N]` number the prompt actually assigned to this source. Never
+   * recomputed after filtering (defect A4): a sole surviving original `[3]`
+   * stays 3.
+   */
+  referenceNumber: number;
+  /** The model's validated supporting quote for this source. */
+  quote: string;
+  /** Where this source came from; selection evidence is first class (A3). */
+  origin: "library" | "selection";
 }
 
 export interface AskLibraryResult {
@@ -274,7 +288,7 @@ export interface AskLibraryOptions {
  * retrieval failures propagate before generation (never answer ungrounded).
  */
 function citedFromBudgeted(budgeted: RetrievalResult[]): AskLibraryCitedSource[] {
-  return budgeted.map((r) => ({
+  return budgeted.map((r, index) => ({
     chunkId: r.chunkId,
     documentId: r.documentId,
     documentTitle: r.documentTitle,
@@ -284,6 +298,10 @@ function citedFromBudgeted(budgeted: RetrievalResult[]): AskLibraryCitedSource[]
     headingPath: r.headingPath,
     location: r.location,
     score: r.score,
+    // Retrieval-only output numbers chunks in supplied order.
+    referenceNumber: index + 1,
+    quote: r.text,
+    origin: "library" as const,
   }));
 }
 
@@ -322,10 +340,12 @@ export async function askLibrary(options: AskLibraryOptions): Promise<AskLibrary
         includeSpotlight: options.retrieve == null,
       });
 
-  // Privacy-eligible chunks: known exclusions always drop, but a document
-  // whose metadata cannot be loaded (deleted mid-flight, synthetic spotlight
-  // ids) is not silently discarded — only explicit isAiExcluded / isLocalOnly
-  // boundaries remove evidence.
+  // Privacy-eligible chunks (fail closed, defect A7): known exclusions always
+  // drop, and a document whose authorization metadata cannot be loaded is
+  // denied outright — an unresolved identity must never become fetchable
+  // evidence or a cloud prompt. (Legitimate ephemeral viewer content never
+  // reaches this path: it is owned by the live viewer capability and is not a
+  // library hit.)
   const metadata = new Map(
     await Promise.all(
       [...new Set(retrieval.results.map((hit) => hit.documentId))].map(async (id) => {
@@ -339,7 +359,7 @@ export async function askLibrary(options: AskLibraryOptions): Promise<AskLibrary
   );
   const privacyEligible = retrieval.results.filter((hit) => {
     const doc = metadata.get(hit.documentId);
-    if (!doc) return true;
+    if (!doc) return false;
     return (
       !doc.isAiExcluded &&
       !(doc.isLocalOnly && composition.generatorKind === "cloud" && configured?.provider !== "ollama")
@@ -452,22 +472,54 @@ export async function askLibrary(options: AskLibraryOptions): Promise<AskLibrary
   );
 
   // The validator dropped fabricated refs; map the surviving ones back to
-  // their retrieval results so the UI can render navigable source chips.
-  const byId = new Map(budgeted.map((r) => [r.chunkId, r]));
+  // their retrieval results *with the original prompt ordinal* so citation
+  // numbers are never compacted after filtering (defect A4). The selection
+  // passage is a first-class cited source when the model cites it (A3).
+  const byId = new Map(
+    budgeted.map((r, index) => [r.chunkId, { result: r, referenceNumber: index + 1 }] as const),
+  );
+  const selectionChunks = budgeted.length;
   const cited: AskLibraryCitedSource[] = run.output.sourceRefs
-    .map((ref) => byId.get(ref.refId))
-    .filter((r): r is RetrievalResult => r !== undefined)
-    .map((r) => ({
-      chunkId: r.chunkId,
-      documentId: r.documentId,
-      documentTitle: r.documentTitle,
-      sourceType: r.sourceType,
-      sourceId: r.sourceId,
-      text: r.text,
-      headingPath: r.headingPath,
-      location: r.location,
-      score: r.score,
-    }));
+    .flatMap((ref): AskLibraryCitedSource[] => {
+      const hit = byId.get(ref.refId);
+      if (hit) {
+        return [{
+          chunkId: hit.result.chunkId,
+          documentId: hit.result.documentId,
+          documentTitle: hit.result.documentTitle,
+          sourceType: hit.result.sourceType,
+          sourceId: hit.result.sourceId,
+          text: hit.result.text,
+          headingPath: hit.result.headingPath,
+          location: hit.result.location,
+          score: hit.result.score,
+          referenceNumber: hit.referenceNumber,
+          quote: ref.quote,
+          origin: "library",
+        }];
+      }
+      if (ref.refId === "selection-context" && options.contextPassage) {
+        // The selected passage was supplied after the numbered chunks, so its
+        // prompt ordinal follows them. Its document identity comes from the
+        // caller's restriction when unambiguous; otherwise it stays
+        // selection-only (never a fabricated library lookup).
+        const selectionDocumentId =
+          options.filters?.documentIds?.length === 1 ? options.filters.documentIds[0] : undefined;
+        return [{
+          chunkId: "selection-context",
+          documentId: selectionDocumentId ?? "",
+          sourceType: "selection",
+          text: options.contextPassage,
+          headingPath: [],
+          score: 1,
+          referenceNumber: selectionChunks + 1,
+          quote: ref.quote,
+          origin: "selection",
+        }];
+      }
+      return [];
+    })
+    .sort((a, b) => a.referenceNumber - b.referenceNumber);
 
   return {
     answer: run.output,

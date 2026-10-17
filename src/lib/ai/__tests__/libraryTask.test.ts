@@ -8,6 +8,7 @@ vi.mock("../../../api/documents", () => ({ getDocument: vi.fn(async (id: string)
 import { describe, expect, it } from "vitest";
 import { askLibrary, askLibraryTask, dedupeRetrievedChunks, fitChunksToContextBudget } from "../tasks/definitions/libraryTask";
 import { FakeSemanticRetriever } from "../__fixtures__/FakePlatformProviders";
+import { FakeAIProvider } from "../__fixtures__/FakeAIProvider";
 import {
   validateLibraryAnswer,
   quoteIsGroundedIn,
@@ -300,6 +301,116 @@ describe("LibraryAnswer type surface", () => {
   });
 });
 
+describe("citation identity — original numbers, quotes, selection evidence (task 3.1)", () => {
+  function fourChunks(): RetrievalResult[] {
+    return [
+      chunk("c1", "First chunk about spaced repetition.", 0),
+      chunk("c2", "Second chunk about active recall.", 1),
+      chunk("c3", "Third chunk answering the question precisely.", 2),
+      chunk("c4", "Fourth chunk about unrelated scheduling details.", 3),
+    ];
+  }
+
+  it("keeps the original prompt ordinal when only source 3 survives (defect A4)", async () => {
+    const provider = new FakeAIProvider({
+      capabilities: { structuredGeneration: true },
+      responses: [{
+        requestId: "fake-structured",
+        structured: {
+          answer: "The third chunk answers it [3].",
+          sourceRefs: [
+            // Cite only chunk 3; the others are dropped by validation.
+            { refId: "c3", quote: "Third chunk answering the question precisely." },
+            // A fabricated ref is dropped too.
+            { refId: "c99", quote: "Not a real chunk." },
+          ],
+          evidenceLevel: "supported",
+        },
+        text: "",
+      }],
+    });
+    const result = await askLibrary({
+      query: "Which chunk answers this?",
+      retriever: new FakeSemanticRetriever(fourChunks()),
+      composition: { retrieverId: "ai_learning", generatorKind: "ondevice", namespace: "library" },
+      loadDocumentMetadata: async () => ({}),
+      provider,
+    });
+    expect(result.sources.map((source) => source.chunkId)).toEqual(["c3"]);
+    // The surviving source keeps number 3; it was prompt source [3].
+    expect(result.sources[0].referenceNumber).toBe(3);
+    // Filtering did not compact the numbering: there is no 1 or 2.
+    expect(result.sources.map((source) => source.referenceNumber)).not.toContain(1);
+    expect(result.sources.map((source) => source.referenceNumber)).not.toContain(2);
+    // The validated quote travels with the source.
+    expect(result.sources[0].quote).toBe("Third chunk answering the question precisely.");
+    expect(result.sources[0].origin).toBe("library");
+    expect(result.answer.sourceRefs.map((ref) => ref.refId)).toEqual(["c3"]);
+  });
+
+  it("keeps a selection-only citation as first-class evidence (defect A3)", async () => {
+    const provider = new FakeAIProvider({
+      capabilities: { structuredGeneration: true },
+      responses: [{
+        requestId: "fake-structured",
+        structured: {
+          answer: "The selected passage explains it [2].",
+          sourceRefs: [
+            { refId: "selection-context", quote: "The user selected this passage" },
+          ],
+          evidenceLevel: "supported",
+        },
+        text: "",
+      }],
+    });
+    const result = await askLibrary({
+      query: "Explain the selected passage",
+      contextPassage: "The user selected this passage about grounding.",
+      retriever: new FakeSemanticRetriever([chunk("c1", "An unrelated chunk that retrieves but is not cited.", 0)]),
+      composition: { retrieverId: "ai_learning", generatorKind: "ondevice", namespace: "library" },
+      loadDocumentMetadata: async () => ({}),
+      provider,
+      filters: { documentIds: ["doc-1"] },
+    });
+    const selection = result.sources.find((source) => source.origin === "selection");
+    expect(selection).toBeDefined();
+    expect(selection!.chunkId).toBe("selection-context");
+    expect(selection!.referenceNumber).toBe(2); // follows the single supplied chunk
+    expect(selection!.quote).toBe("The user selected this passage");
+    // A selection with an unambiguous restriction inherits its document id;
+    // no fabricated library lookup occurs.
+    expect(selection!.documentId).toBe("doc-1");
+    expect(result.answer.evidenceLevel).toBe("supported");
+  });
+
+  it("a selection citation without a single-document restriction stays selection-only", async () => {
+    const provider = new FakeAIProvider({
+      capabilities: { structuredGeneration: true },
+      responses: [{
+        requestId: "fake-structured",
+        structured: {
+          answer: "From the selection [1].",
+          sourceRefs: [{ refId: "selection-context", quote: "The user selected this passage" }],
+          evidenceLevel: "supported",
+        },
+        text: "",
+      }],
+    });
+    const result = await askLibrary({
+      query: "Explain this",
+      contextPassage: "The user selected this passage",
+      retriever: new FakeSemanticRetriever([]),
+      composition: { retrieverId: "ai_learning", generatorKind: "ondevice", namespace: "library" },
+      loadDocumentMetadata: async () => ({}),
+      provider,
+    });
+    const selection = result.sources.find((source) => source.origin === "selection");
+    expect(selection).toBeDefined();
+    expect(selection!.documentId).toBe("");
+    expect(selection!.referenceNumber).toBe(1);
+  });
+});
+
 describe("askLibrary privacy eligibility", () => {
   const composition = {
     retrieverId: "ai_learning",
@@ -318,13 +429,30 @@ describe("askLibrary privacy eligibility", () => {
     expect(result.answer.evidenceLevel).toBe("none");
   });
 
-  it("keeps chunks when metadata cannot be resolved instead of silently emptying the library", async () => {
+  it("denies chunks whose authorization metadata cannot be resolved (fail closed, A7)", async () => {
+    // Defect A7: an unresolved identity must never become evidence or a cloud
+    // prompt. The previous behavior (keeping the chunk) was the defect.
     const result = await askLibrary({
       query: "What is spaced repetition?",
       retriever: new FakeSemanticRetriever([chunk("c1", CHUNK_A)]),
       composition,
       loadDocumentMetadata: async () => null,
     });
+    expect(result.sources).toEqual([]);
+    expect(result.answer.evidenceLevel).toBe("none");
+  });
+
+  it("keeps legacy retrieval-only chunks readable without inventing evidence", async () => {
+    const result = await askLibrary({
+      query: "What is spaced repetition?",
+      retriever: new FakeSemanticRetriever([chunk("c1", CHUNK_A)]),
+      composition,
+      loadDocumentMetadata: async () => ({}),
+    });
     expect(result.sources.map((source) => source.chunkId)).toEqual(["c1"]);
+    // The cited source now carries its original prompt ordinal and quote.
+    expect(result.sources[0].referenceNumber).toBe(1);
+    expect(result.sources[0].origin).toBe("library");
+    expect(result.sources[0].quote).toBe(CHUNK_A);
   });
 });

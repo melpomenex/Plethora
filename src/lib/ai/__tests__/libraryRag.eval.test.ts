@@ -39,6 +39,8 @@ describe("library-rag eval fixtures through the real pipeline (design D29)", () 
         query: fixture.query,
         retrieve: fakeRetrieve({ results: fixture.retrieved, mode: "semantic", candidatesScanned: 42 }),
         provider,
+        // Resolvable authorization metadata: unresolved ids fail closed (A7).
+        loadDocumentMetadata: async () => ({}),
       });
 
       // Structural semantics: evidence level matches the label and exactly
@@ -74,6 +76,7 @@ describe("library-rag eval fixtures through the real pipeline (design D29)", () 
         query: fixture.query,
         retrieve: fakeRetrieve({ results: fixture.retrieved, mode: "semantic", candidatesScanned: 0 }),
         provider,
+        loadDocumentMetadata: async () => ({}),
       });
       const request = provider.requests[0];
       expect(request.systemInstruction).toContain("untrusted_source");
@@ -99,6 +102,8 @@ describe("library-rag eval fixtures through the real pipeline (design D29)", () 
       query: fixture.query,
       retrieve: fakeRetrieve({ results: fixture.retrieved, mode: "semantic", candidatesScanned: 1 }),
       provider,
+      // Resolvable authorization metadata: unresolved ids fail closed (A7).
+      loadDocumentMetadata: async () => ({}),
     });
     expect(result.answer.sourceRefs).toEqual([]);
     expect(result.answer.evidenceLevel).toBe("none");
@@ -114,6 +119,8 @@ describe("library-rag eval fixtures through the real pipeline (design D29)", () 
       query: fixture.query,
       retrieve: fakeRetrieve({ results: fixture.retrieved, mode: "semantic", candidatesScanned: 2 }),
       provider,
+      // Resolvable authorization metadata: unresolved ids fail closed (A7).
+      loadDocumentMetadata: async () => ({}),
     });
     const request = provider.requests[0];
     expect(request.text).toContain('<untrusted_source id="chunk-osmo-1">');
@@ -127,6 +134,8 @@ describe("library-rag eval fixtures through the real pipeline (design D29)", () 
       query: fixture.query,
       retrieve: fakeRetrieve({ results: fixture.retrieved, mode: "semantic", candidatesScanned: 1 }),
       provider,
+      // Resolvable authorization metadata: unresolved ids fail closed (A7).
+      loadDocumentMetadata: async () => ({}),
     });
     expect(result.run.validationOutcome).toBe("native-structured");
     expect(provider.requests[0].schemaName).toBe("libraryAnswer");
@@ -146,6 +155,9 @@ describe("library-rag eval fixtures through the real pipeline (design D29)", () 
         query: "What is osmosis?",
         retrieve: fakeRetrieve({ results: oneChunk, mode: "semantic", candidatesScanned: 1 }),
         provider,
+        // Resolvable ids so the malformed-output path (not the A7 denial
+        // path) is what fails closed here.
+        loadDocumentMetadata: async () => ({}),
       })
     ).rejects.toSatisfy((err: unknown) => isAIError(err) && err.category === "InvalidStructuredOutput");
     expect(provider.callCount).toBe(2);
@@ -159,6 +171,8 @@ describe("library-rag eval fixtures through the real pipeline (design D29)", () 
       query: "anything at all",
       retrieve: fakeRetrieve({ results: [], mode: "lexicalOnly", candidatesScanned: 0 }),
       provider,
+      // Resolvable authorization metadata: unresolved ids fail closed (A7).
+      loadDocumentMetadata: async () => ({}),
     });
     expect(result.answer.evidenceLevel).toBe("none");
     expect(result.answer.sourceRefs).toEqual([]);

@@ -44,6 +44,8 @@ describe("askLibrary composition", () => {
         generatorKind: "none",
         namespace: RAG_NAMESPACE_LIBRARY,
       },
+      // Resolvable authorization metadata: unresolved ids fail closed (A7).
+      loadDocumentMetadata: async () => ({}),
     });
     expect(result.retrievalOnly).toBe(true);
     expect(result.sources.map((s) => s.chunkId)).toEqual(["c1"]);

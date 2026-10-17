@@ -10,6 +10,7 @@
 
 import { requestPaidConsent } from "../../../utils/aiBillingConsent";
 import { ensureCloudAiDisclosure } from "../../privacy/cloudAiDisclosure";
+import { resolveDestination } from "./turnPolicy";
 
 export interface PrivacySubjectDocument {
   id: string;
@@ -27,6 +28,14 @@ export interface EnforceAssistantPrivacyOptions {
   strictLocalOnly?: boolean;
   /** Whether source content is actually being attached to the request. */
   attachingSourceContent?: boolean;
+  /**
+   * The resolved destination from `turnPolicy.resolveDestination`. When
+   * present it wins over the provider-name guess so a remote custom endpoint
+   * cannot inherit on-device guarantees from its label (design D4).
+   */
+  destination?: { locality: "on-device" | "remote"; localityReason?: string };
+  /** Configured endpoint, used to resolve locality when `destination` is absent. */
+  baseUrl?: string;
 }
 
 export interface PrivacyGateResult {
@@ -59,8 +68,24 @@ export function isLocalAiProviderId(providerId: string): boolean {
 export async function enforceAssistantPrivacyAndConsent(
   options: EnforceAssistantPrivacyOptions,
 ): Promise<PrivacyGateResult> {
+  // Destination-truth locality: an explicit resolved destination wins; when
+  // absent, fall back to endpoint-aware resolution before the legacy name
+  // check so `ollama` with a remote baseUrl is treated as remote.
+  const resolved =
+    options.destination
+      ? { locality: options.destination.locality, reason: options.destination.localityReason }
+      : resolveDestination({
+          providerId: options.providerId,
+          model: options.model,
+          baseUrl: options.baseUrl,
+        });
   const isLocal =
-    options.isLocalProvider ?? isLocalAiProviderId(options.providerId);
+    options.isLocalProvider ??
+    (resolved.locality === "on-device" ||
+      // Legacy name-based fallback only when no destination evidence exists.
+      (options.baseUrl === undefined &&
+        options.destination === undefined &&
+        isLocalAiProviderId(options.providerId)));
   const docs = (options.documents ?? []).filter(
     (d): d is PrivacySubjectDocument => Boolean(d),
   );

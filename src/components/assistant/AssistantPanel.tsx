@@ -1771,11 +1771,35 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         systemInstruction: [provider.systemPrompt, toolInstruction].filter(Boolean).join("\n\n"),
         userImages: imagesStripped ? undefined : currentUserImages?.map((image) => image.dataUrl),
         libraryExecutor: async ({ rewrittenQuery, history, contextPassage, contextBudgetTokens, k }) => {
-          const [{ askLibrary }, { resolveEmbeddingConfigForRag }] = await Promise.all([
+          const [{ askLibrary }, { resolveEmbeddingConfigForRag }, guards] = await Promise.all([
             import("../../lib/ai/tasks/definitions/libraryTask"), import("./ragConfig"),
+            import("../../lib/ai/assistant/retrievalGuards"),
           ]);
           const config = await resolveEmbeddingConfigForRag();
-          return askLibrary({ query: rewrittenQuery, history, contextPassage, contextBudgetTokens, k, config });
+          // Defect A2 fix: the sidebar must pass the same frozen restriction
+          // the plan shows. A strict Document scope without ids refuses
+          // retrieval rather than searching the whole library.
+          const frozen =
+            guards.frozenSetForScope(scope, {
+              documentId: llmContext?.documentId,
+              selectionDocumentId: pinnedSelection?.documentId,
+            }) ?? (scope === "library" ? { kind: "library" as const } : null);
+          if (!frozen) {
+            throw new guards.RetrievalDeniedError(
+              "Document scope has no resolvable document id; refusing to widen to the library",
+              "scope_requires_restriction",
+            );
+          }
+          const filters = guards.resolveRetrievalFilters(scope, frozen);
+          return askLibrary({
+            query: rewrittenQuery,
+            history,
+            contextPassage,
+            contextBudgetTokens,
+            k,
+            config,
+            filters,
+          });
         },
       });
       setSuggestSwitchToChat(Boolean(response.suggestSwitchToChat));

@@ -25,6 +25,7 @@ import {
   enforceAssistantPrivacyAndConsent,
   type PrivacySubjectDocument,
 } from "./privacyGate";
+import { resolveDestination } from "./turnPolicy";
 import {
   type AssistantRequestDiagnostics,
   type AssistantScope,
@@ -157,6 +158,14 @@ export async function runAssistantTurn(
     cloudFallback: request.cloudFallback,
     model: request.model,
     attachingSourceContent: hasSourceContent || request.scope !== "chat",
+    // Destination truth: resolve locality from the configured endpoint so a
+    // remote custom Ollama/custom endpoint never inherits on-device labels.
+    baseUrl: request.baseUrl,
+    destination: resolveDestination({
+      providerId: request.provider,
+      model: request.model,
+      baseUrl: request.baseUrl,
+    }),
   });
 
   if (!privacy.allowed) {

@@ -15,7 +15,7 @@ vi.mock("../../../../utils/youtubeTranscriptBrowser", () => ({ fetchYouTubeTrans
 const chat = () => vi.fn(async (_args: Parameters<NonNullable<AssistantTurnRequest["chatExecutor"]>>[0]) => ({ content: "A clear explanation." }));
 const base = { scope: "chat" as const, provider: "ollama", userQuestion: "Explain this", configuredContextTokens: 16384 };
 const rag = (): AskLibraryResult => ({ answer: { answer: "Paper B extends A [1]", evidenceLevel: "supported", sourceRefs: [{ refId: "b", quote: "Paper B extends A" }] },
-  sources: [{ chunkId: "b", documentId: "b", sourceType: "document", text: "Paper B extends A", headingPath: [], score: 1, location: { documentId: "b", sourceType: "text", ordinal: 0, startOffset: 0, endOffset: 17 } }],
+  sources: [{ chunkId: "b", documentId: "b", sourceType: "document", text: "Paper B extends A", headingPath: [], score: 1, location: { documentId: "b", sourceType: "text", ordinal: 0, startOffset: 0, endOffset: 17 }, referenceNumber: 2, quote: "Paper B extends A", origin: "library" }],
   mode: "semantic", droppedChunks: 0, candidatesScanned: 1, composition: { retrieverId: "ai_learning", generatorKind: "none", namespace: "library" }, retrievalOnly: false,
   run: { taskId: "ask-library", output: { answer: "Paper B extends A [1]", sourceRefs: [{ refId: "b", quote: "Paper B extends A" }], evidenceLevel: "supported" }, text: "", providerId: "fake", providerKind: "ondevice", requestedModelClass: "full", servedModelClass: "full", fallbackPath: "none", validationOutcome: "text" } });
 beforeEach(() => vi.clearAllMocks());

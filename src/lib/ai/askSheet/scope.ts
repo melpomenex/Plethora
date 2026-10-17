@@ -51,6 +51,8 @@ export interface AskInScopeOptions {
   composition?: RagComposition;
   /** Retriever override (tests / platform-specific). */
   retriever?: SemanticRetriever;
+  /** Metadata resolver for retrieval eligibility (resolved ids required, A7). */
+  loadDocumentMetadata?: (id: string) => Promise<{ isAiExcluded?: boolean; isLocalOnly?: boolean } | null>;
   /** Retrieval override (tests). */
   retrieve?: typeof retrieveFromLibrary;
 }
@@ -74,6 +76,7 @@ export async function askInScope(options: AskInScopeOptions): Promise<AskLibrary
     provider: options.provider,
     kind: options.kind,
     composition,
+    loadDocumentMetadata: options.loadDocumentMetadata,
   };
 
   if (options.scope === "passage") {

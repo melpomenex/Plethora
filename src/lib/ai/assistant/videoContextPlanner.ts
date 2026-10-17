@@ -2,6 +2,19 @@ import type { YouTubeTranscriptSegment } from "../../transcript/sourceChain";
 import type { ConversationHistoryTurn } from "./promptBuilder";
 
 export type VideoSegment = Pick<YouTubeTranscriptSegment, "start" | "duration" | "text">;
+/**
+ * Transcript acquisition status, tracked separately from the selected
+ * coverage (task 2.8). A partial transcript never becomes "full" merely
+ * because the text that *is* available happens to fit the budget.
+ */
+export type TranscriptAcquisition =
+  | "loading"
+  | "ready-full"
+  | "ready-indexed"
+  | "partial"
+  | "unavailable"
+  | "failed";
+
 export interface VideoContextInput {
   segments: readonly VideoSegment[];
   query: string;
@@ -11,6 +24,12 @@ export interface VideoContextInput {
   selection?: string;
   conversationHistory?: readonly ConversationHistoryTurn[];
   semanticChunks?: readonly { text: string; start: number; end: number; score: number }[];
+  /** Acquisition status; defaults to `ready-full` for legacy callers. */
+  acquisition?: TranscriptAcquisition;
+  /** Whether a failed/partial acquisition may be retried. */
+  retryable?: boolean;
+  /** Where the available transcript actually ends, when partial. */
+  coveredUntilSeconds?: number;
 }
 export interface VideoContextPlan {
   mode: "full" | "timestamp" | "playback" | "retrieval" | "map-reduce" | "unavailable";
@@ -18,6 +37,48 @@ export interface VideoContextPlan {
   content: string;
   chunkCount: number;
   timeRangeCovered?: { startSeconds: number; endSeconds: number };
+  /** Echoed acquisition status for honest disclosure downstream. */
+  acquisitionStatus: TranscriptAcquisition;
+  /** True only when the plan covers the *complete* transcript. */
+  fullTranscript: boolean;
+  /** Honest limitations ("transcript is partial up to 04:12"). */
+  limitations: string[];
+  /** A retry is offered when acquisition failed or was partial. */
+  retryable: boolean;
+}
+
+function finalize(
+  plan: Omit<VideoContextPlan, "acquisitionStatus" | "fullTranscript" | "limitations" | "retryable"> & {
+    limitations?: string[];
+  },
+  input: VideoContextInput,
+): VideoContextPlan {
+  const acquisition = input.acquisition ?? "ready-full";
+  const limitations = [...(plan.limitations ?? [])];
+  let fullTranscript = plan.coverage === "full" && (acquisition === "ready-full" || acquisition === "ready-indexed");
+  if (acquisition === "partial" || acquisition === "loading" || acquisition === "failed" || acquisition === "unavailable") {
+    fullTranscript = false;
+    const until =
+      input.coveredUntilSeconds !== undefined
+        ? ` (available up to ${formatVideoTimestamp(input.coveredUntilSeconds)})`
+        : "";
+    if (acquisition === "partial") {
+      limitations.push(`The transcript is partial${until}; it may be missing later speech.`);
+    } else if (acquisition === "loading") {
+      limitations.push("The transcript is still loading; only the available portion is used.");
+    } else if (acquisition === "failed") {
+      limitations.push(`Transcript acquisition failed${until}.`);
+    } else {
+      limitations.push("No transcript is available for this video.");
+    }
+  }
+  return {
+    ...plan,
+    acquisitionStatus: acquisition,
+    fullTranscript,
+    limitations,
+    retryable: Boolean(input.retryable) || acquisition === "failed" || acquisition === "partial",
+  };
 }
 export function formatVideoTimestamp(seconds: number): string {
   const total = Math.max(0, Math.floor(seconds));
@@ -70,14 +131,24 @@ function indexTranscript(segments: readonly VideoSegment[]): TranscriptIndex {
 /** Cached lexical index; playback ticks never tokenize the transcript. */
 export function planVideoContext(input: VideoContextInput): VideoContextPlan {
   const index = indexTranscript(input.segments);
-  if (!index.windows.length) return { mode: "unavailable", coverage: "none", content: "", chunkCount: 0 };
+  if (!index.windows.length) {
+    return finalize({ mode: "unavailable", coverage: "none", content: "", chunkCount: 0 }, input);
+  }
   const budget = Math.max(0, input.sourceBudgetTokens) * 4;
   const range = { startSeconds: index.windows[0].start, endSeconds: index.windows.at(-1)!.end };
-  if (index.full.length <= budget) return { mode: "full", coverage: "full", content: index.full, chunkCount: index.windows.length, timeRangeCovered: range };
+  if (index.full.length <= budget) {
+    return finalize(
+      { mode: "full", coverage: "full", content: index.full, chunkCount: index.windows.length, timeRangeCovered: range },
+      input,
+    );
+  }
   const references = parseTimestampReferences(input.query);
   const playback = input.currentTime != null && /\b(just (?:say|said)|this part|this passage|right now|speaker.*here|mean.*that|currently|playing)\b/i.test(input.query);
   if (!references.length && !playback && /\b(summar(?:y|ize)|main arguments|key takeaways|whole video|full outline|entire video|overview)\b/i.test(input.query)) {
-    return { mode: "map-reduce", coverage: "none", content: "", chunkCount: index.windows.length, timeRangeCovered: range };
+    return finalize(
+      { mode: "map-reduce", coverage: "none", content: "", chunkCount: index.windows.length, timeRangeCovered: range },
+      input,
+    );
   }
   const terms = [...new Set(words(`${input.query} ${input.selection ?? ""}`))];
   const ranked = index.windows.map((window, ordinal) => {
@@ -104,6 +175,16 @@ export function planVideoContext(input: VideoContextInput): VideoContextPlan {
     }
   }
   const selected = [...chosen].sort(([a], [b]) => a - b).map(([, window]) => window);
-  return { mode: references.length ? "timestamp" : playback ? "playback" : "retrieval", coverage: selected.length ? references.length || playback ? "window" : "chunks" : "none", content: selected.map((w) => w.text).join("\n\n"), chunkCount: selected.length,
-    timeRangeCovered: selected.length ? { startSeconds: selected[0].start, endSeconds: selected.at(-1)!.end } : undefined };
+  return finalize(
+    {
+      mode: references.length ? "timestamp" : playback ? "playback" : "retrieval",
+      coverage: selected.length ? (references.length || playback ? "window" : "chunks") : "none",
+      content: selected.map((w) => w.text).join("\n\n"),
+      chunkCount: selected.length,
+      timeRangeCovered: selected.length
+        ? { startSeconds: selected[0].start, endSeconds: selected.at(-1)!.end }
+        : undefined,
+    },
+    input,
+  );
 }

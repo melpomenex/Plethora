@@ -102,7 +102,7 @@ describe("runAssistantTurn (Unified Assistant Orchestrator)", () => {
   });
 
   it("rewrites follow-up queries with history in Library scope", async () => {
-    const libraryExecutor = vi.fn(async ({ rewrittenQuery }) => ({
+    const libraryExecutor = vi.fn(async ({ rewrittenQuery }): Promise<import("../../tasks/definitions/libraryTask").AskLibraryResult> => ({
       answer: {
         answer: `Compared sources using query: ${rewrittenQuery} [1]`,
         sourceRefs: [{ refId: "chunk-1", quote: "Sparse attention reduces O(n^2)" }],
@@ -118,6 +118,9 @@ describe("runAssistantTurn (Unified Assistant Orchestrator)", () => {
           headingPath: ["Introduction"],
           location: { sourceType: "pdf" as const, documentId: "doc-2", startOffset: 0, endOffset: 100, pageNumber: 2, ordinal: 0 },
           score: 0.92,
+          referenceNumber: 1,
+          quote: 'Sparse attention reduces O(n^2) complexity to O(n).',
+          origin: "library",
         },
       ],
       droppedChunks: 0,

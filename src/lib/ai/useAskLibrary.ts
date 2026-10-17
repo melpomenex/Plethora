@@ -19,13 +19,24 @@ import { toAIError } from "./errors";
 import { resolveLibraryRagComposition } from "./resolveLibraryRag";
 import { onDeviceRunLabel } from "./privacyIndicator";
 
+export interface AskLibraryCallOptions {
+  contextPassage?: string;
+  /**
+   * Frozen authorized document restriction for this ask (task 2.4). Callers
+   * with a strict/passage context MUST pass the ids they actually authorized;
+   * omitting them means a deliberate whole-library ask. An empty array is
+   * refused rather than treated as unrestricted.
+   */
+  documentIds?: string[];
+}
+
 export interface UseAskLibrary {
   running: boolean;
   /** Human-readable failure (typed AIError message when available). */
   error: string | null;
   result: AskLibraryResult | null;
   /** Ask a question; aborts any in-flight ask. */
-  ask: (query: string, options?: { contextPassage?: string }) => Promise<void>;
+  ask: (query: string, options?: AskLibraryCallOptions) => Promise<void>;
   reset: () => void;
   /** Privacy chip for this run (null when cloud fallback or no generator). */
   privacyLabel: string | null;
@@ -41,7 +52,7 @@ export function useAskLibrary(): UseAskLibrary {
   useEffect(() => () => abortRef.current?.abort(), []);
 
   const ask = useCallback(
-    async (query: string, options: { contextPassage?: string } = {}) => {
+    async (query: string, options: AskLibraryCallOptions = {}) => {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
@@ -50,6 +61,10 @@ export function useAskLibrary(): UseAskLibrary {
       setError(null);
       setResult(null);
       try {
+        // An explicit empty restriction is refused, never widened.
+        if (options.documentIds !== undefined && options.documentIds.length === 0) {
+          throw new Error("askLibrary.restrictedSetEmpty");
+        }
         // Embedding config resolution is best-effort: without a configured
         // cloud/Ollama provider the backend's on-device default applies and
         // retrieval degrades to lexical-only instead of failing.
@@ -61,6 +76,7 @@ export function useAskLibrary(): UseAskLibrary {
           contextPassage: options.contextPassage,
           signal: controller.signal,
           composition,
+          filters: options.documentIds ? { documentIds: [...options.documentIds] } : undefined,
         });
         if (controller.signal.aborted) return;
         setResult(next);
