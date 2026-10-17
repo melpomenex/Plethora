@@ -2455,7 +2455,7 @@ R: Configuración → Copia de seguridad → Exportar, o use Anki sync para expo
 
 ## Registro de cambios
 
-Consulte [CHANGELOG.md](https://github.com/melpomenex/incrementum-tauri/blob/main/CHANGELOG.md) para conocer el historial de versiones y las actualizaciones.
+Consulte [CHANGELOG.md](https://github.com/melpomenex/Plethora/blob/main/CHANGELOG.md) para conocer el historial de versiones y las actualizaciones.
 
 ---
 

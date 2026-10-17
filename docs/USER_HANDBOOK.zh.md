@@ -2446,7 +2446,7 @@ A：设置 → 备份 → 导出，或使用 Anki 同步导出为 .apkg 格式�
 
 ## 变更日志
 
-请参阅 [CHANGELOG.md](https://github.com/melpomenex/incrementum-tauri/blob/main/CHANGELOG.md) 了解版本历史记录和更新。
+请参阅 [CHANGELOG.md](https://github.com/melpomenex/Plethora/blob/main/CHANGELOG.md) 了解版本历史记录和更新。
 
 ---
 

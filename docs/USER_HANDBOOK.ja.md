@@ -2450,7 +2450,7 @@ A: 設定 → バックアップ → エクスポート、または Anki 同期�
 
 ## 変更履歴
 
-バージョン履歴と更新については、[CHANGELOG.md](https://github.com/melpomenex/incrementum-tauri/blob/main/CHANGELOG.md) を参照してください。
+バージョン履歴と更新については、[CHANGELOG.md](https://github.com/melpomenex/Plethora/blob/main/CHANGELOG.md) を参照してください。
 
 ---
 
