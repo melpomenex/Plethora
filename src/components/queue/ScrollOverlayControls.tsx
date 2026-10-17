@@ -26,6 +26,9 @@ import {
   ArrowDown,
 } from "@phosphor-icons/react";
 import { cn } from "../../utils";
+import { RatingOrb, type RatingOrbAction } from "../review/RatingOrb";
+import { useBottomControlsGeometry } from "../mobile/BottomControlsGeometry";
+import { useRatingDockBounds } from "./useRatingDockBounds";
 import { emitInteractionFeedback, emitUserInteraction } from "../../lib/feedback/orchestrator";
 
 interface ScrollOverlayControlsProps {
@@ -151,20 +154,6 @@ function getPriorityPreset(slider: number) {
   return PRIORITY_PRESETS[0];
 }
 
-const getTooltipClass = (pos: "left" | "right" | "top" | "bottom") => {
-  switch (pos) {
-    case "left":
-      return "absolute left-full ml-3 top-1/2 -translate-y-1/2 px-2.5 py-1 bg-black/90 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-200 translate-x-[-4px] group-hover:translate-x-0 whitespace-nowrap shadow-md border border-white/10 z-50 pointer-events-none";
-    case "top":
-      return "absolute top-full mt-3 left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/90 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-200 translate-y-[-4px] group-hover:translate-y-0 whitespace-nowrap shadow-md border border-white/10 z-50 pointer-events-none";
-    case "bottom":
-      return "absolute bottom-full mb-3 left-1/2 -translate-x-1/2 px-2.5 py-1 bg-black/90 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-200 translate-y-[4px] group-hover:translate-y-0 whitespace-nowrap shadow-md border border-white/10 z-50 pointer-events-none";
-    case "right":
-    default:
-      return "absolute right-full mr-3 top-1/2 -translate-y-1/2 px-2.5 py-1 bg-black/90 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-all duration-200 translate-x-[4px] group-hover:translate-x-0 whitespace-nowrap shadow-md border border-white/10 z-50 pointer-events-none";
-  }
-};
-
 export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   showControls,
   showRatingControls = true,
@@ -210,6 +199,11 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   prioritySlider,
   labels,
 }: ScrollOverlayControlsProps) {
+  const bottomGeometry = useBottomControlsGeometry();
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const footerRef = useRef<HTMLDivElement>(null);
+  useRatingDockBounds(overlayRef, headerRef, footerRef, bottomGeometry, showControls && showRatingControls);
   const isTouchDevice = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
   
   // Dragging and Snapping Logic for Rating Orbs
@@ -373,9 +367,11 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
     <>
     {/* Queue chrome fades with showControls. Rating actions have their own
         visibility gate so mobile readers can summon them with a long press. */}
-    <div className={cn("fixed inset-0 pointer-events-none transition-all duration-300 z-50", showControls ? "opacity-100 visible" : "opacity-0 invisible")}>
+    <div ref={overlayRef} inert={bottomGeometry?.blocked || undefined} aria-hidden={bottomGeometry?.blocked || undefined}
+      style={bottomGeometry ? { top: bottomGeometry.viewportTop, height: bottomGeometry.viewportHeight, bottom: "auto" } : undefined}
+      className={cn("fixed inset-0 pointer-events-none transition-all duration-300 z-50", showControls ? "opacity-100 visible" : "opacity-0 invisible")}>
       {/* Top Bar */}
-      <div className="absolute top-0 left-0 right-0 pt-[calc(16px+env(safe-area-inset-top,0px))] px-4 pb-4 bg-gradient-to-b from-black/50 to-transparent pointer-events-none">
+      <div ref={headerRef} className="absolute top-0 left-0 right-0 pt-[calc(16px+env(safe-area-inset-top,0px))] px-4 pb-4 bg-gradient-to-b from-black/50 to-transparent pointer-events-none">
         <div className="flex items-center justify-between max-w-7xl mx-auto">
           <div className="flex items-center gap-3 pointer-events-auto">
             <button
@@ -564,245 +560,54 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
         </div>
       )}
 
-      {/* Side/Floating Rating Controls */}
+      {/* Shared presentation retains this reader's grading and docking handlers. */}
       {showRatingControls && (showRatingButtons || itemType === "flashcard" || itemType === "extract") && (() => {
-        const isDraggingActive = dragPos !== null;
-        
-        let snapClasses = "";
-        let layoutClasses = "";
-        
-        if (!isDraggingActive) {
-          switch (ratingOrbsPosition) {
-            case "left":
-              snapClasses = "left-6 top-1/2 -translate-y-1/2";
-              layoutClasses = "flex-col";
-              break;
-            case "top":
-              snapClasses = "top-28 left-1/2 -translate-x-1/2";
-              layoutClasses = "flex-row items-center";
-              break;
-            case "bottom":
-              snapClasses = "bottom-28 left-1/2 -translate-x-1/2";
-              layoutClasses = "flex-row items-center";
-              break;
-            case "right":
-            default:
-              snapClasses = "right-6 top-1/2 -translate-y-1/2";
-              layoutClasses = "flex-col";
-              break;
-          }
-        }
-
         const isHorizontal = ratingOrbsPosition === "top" || ratingOrbsPosition === "bottom";
-
-        const DragHandle = () => (
-          <div
-            onMouseDown={(e) => startDrag(e.clientX, e.clientY, e.currentTarget.parentElement!)}
-            onTouchStart={(e) => {
-              if (e.touches && e.touches[0]) {
-                startDrag(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget.parentElement!);
-              }
-            }}
-            className={cn(
-              "flex items-center justify-center p-2 text-white/40 hover:text-white cursor-grab active:cursor-grabbing rounded-lg hover:bg-white/10 transition-colors",
-              isHorizontal ? "mr-1 border-r border-white/10 pr-2" : "mb-1 border-b border-white/10 pb-2"
-            )}
-            title="Drag to move panel"
-          >
-            {isHorizontal ? <DotsSix className="w-5 h-5" /> : <DotsSixVertical className="w-5 h-5" />}
+        const dismiss = { action: "dismiss" as RatingOrbAction, title: labels?.dismissTitle ?? "Dismiss", icon: EyeSlash, run: onDismiss };
+        const actions = itemType === "flashcard" || itemType === "extract" ? [dismiss]
+          : itemType === "document" && !isNewDocument ? [
+            { action: "again" as RatingOrbAction, title: labels?.againTitle ?? "Again", icon: WarningCircle, run: () => onRate(1) },
+            { action: "hard" as RatingOrbAction, title: labels?.hardTitle ?? "Hard", icon: Star, run: () => onRate(2) },
+            { action: "good" as RatingOrbAction, title: labels?.goodTitle ?? "Good", icon: CheckCircle, run: () => onRate(3) },
+            { action: "easy" as RatingOrbAction, title: labels?.easyTitle ?? "Easy", icon: Sparkle, run: () => onRate(4) },
+            dismiss,
+          ] : [
+            { action: "good" as RatingOrbAction, title: itemType === "document" ? labels?.markAsReadGood ?? "Mark as read (Good)" : labels?.markAsRead ?? "Mark as read", icon: CheckCircle, run: () => onRate(3) },
+            ...(itemType === "document" ? [dismiss] : []),
+          ];
+        return <div
+          data-rating-dock data-edge={ratingOrbsPosition} data-horizontal={isHorizontal}
+          style={dragPos ? { position: "fixed", left: dragPos.x, top: dragPos.y, bottom: "auto", transform: "none", zIndex: 100 } : undefined}
+          className={cn("rating-dock absolute", isHorizontal ? "left-1/2 -translate-x-1/2 flex-row" : "-translate-y-1/2 flex-col",
+            ratingOrbsPosition === "left" && "left-6", ratingOrbsPosition === "right" && "right-6")}
+        >
+          <div className="rating-dock-actions">
+            {actions.map(({ action, title, icon: Icon, run }) => <RatingOrb key={action} action={action} title={title}
+              onClick={run} disabled={isRating}
+              onPointerDown={() => emitInteractionFeedback("queue.orb-pressed", { orbType: action }, {
+                interactionId: `queue:orb-press:${action}:${Date.now()}`, origin: "user",
+              })}><Icon aria-hidden="true" /></RatingOrb>)}
           </div>
-        );
-
-        const PositionConfig = () => (
-          <div className={cn("relative flex items-center justify-center", isHorizontal ? "ml-1 pl-2 border-l border-white/10" : "mt-1 pt-2 border-t border-white/10")}>
-            <button
-              onClick={() => setShowPositionMenu(!showPositionMenu)}
-              className="p-2 rounded-lg text-white/40 hover:text-white hover:bg-white/10 transition-colors"
-              title="Change panel edge"
-            >
-              <ArrowsOutCardinal className="w-5 h-5" />
+          <div className="rating-dock-utilities">
+            <button type="button" className="rating-dock-utility rating-dock-drag" title="Drag to move panel" aria-label="Drag to move panel"
+              onMouseDown={e => startDrag(e.clientX, e.clientY, e.currentTarget.closest<HTMLElement>("[data-rating-dock]")!)}
+              onTouchStart={e => { if (e.touches[0]) startDrag(e.touches[0].clientX, e.touches[0].clientY, e.currentTarget.closest<HTMLElement>("[data-rating-dock]")!); }}>
+              {isHorizontal ? <DotsSix size={20} /> : <DotsSixVertical size={20} />}
             </button>
-            {showPositionMenu && (
-              <div
-                className={cn(
-                  "absolute bg-slate-900/95 border border-white/10 rounded-xl p-2 flex gap-1.5 shadow-xl z-50 backdrop-blur-md",
-                  ratingOrbsPosition === "left" && "left-full ml-2 top-1/2 -translate-y-1/2 flex-col",
-                  ratingOrbsPosition === "right" && "right-full mr-2 top-1/2 -translate-y-1/2 flex-col",
-                  ratingOrbsPosition === "top" && "top-full mt-2 left-1/2 -translate-x-1/2 flex-row",
-                  ratingOrbsPosition === "bottom" && "bottom-full mb-2 left-1/2 -translate-x-1/2 flex-row"
-                )}
-              >
-                <button onClick={() => { onUpdateRatingOrbsPosition?.("left"); setShowPositionMenu(false); emitInteractionFeedback("queue.orbs-docked", { position: "left" }, { interactionId: `queue:orb-docked:left:${Date.now()}`, origin: "user" }); }} className={cn("p-1.5 rounded-md hover:bg-white/10 text-white/70 hover:text-white transition-colors", ratingOrbsPosition === "left" && "bg-white/20 text-white")} title="Move Left"><ArrowLeft className="w-4 h-4" /></button>
-                <button onClick={() => { onUpdateRatingOrbsPosition?.("top"); setShowPositionMenu(false); emitInteractionFeedback("queue.orbs-docked", { position: "top" }, { interactionId: `queue:orb-docked:top:${Date.now()}`, origin: "user" }); }} className={cn("p-1.5 rounded-md hover:bg-white/10 text-white/70 hover:text-white transition-colors", ratingOrbsPosition === "top" && "bg-white/20 text-white")} title="Move Top"><ArrowUp className="w-4 h-4" /></button>
-                <button onClick={() => { onUpdateRatingOrbsPosition?.("bottom"); setShowPositionMenu(false); emitInteractionFeedback("queue.orbs-docked", { position: "bottom" }, { interactionId: `queue:orb-docked:bottom:${Date.now()}`, origin: "user" }); }} className={cn("p-1.5 rounded-md hover:bg-white/10 text-white/70 hover:text-white transition-colors", ratingOrbsPosition === "bottom" && "bg-white/20 text-white")} title="Move Bottom"><ArrowDown className="w-4 h-4" /></button>
-                <button onClick={() => { onUpdateRatingOrbsPosition?.("right"); setShowPositionMenu(false); emitInteractionFeedback("queue.orbs-docked", { position: "right" }, { interactionId: `queue:orb-docked:right:${Date.now()}`, origin: "user" }); }} className={cn("p-1.5 rounded-md hover:bg-white/10 text-white/70 hover:text-white transition-colors", ratingOrbsPosition === "right" && "bg-white/20 text-white")} title="Move Right"><ArrowRight className="w-4 h-4" /></button>
-              </div>
-            )}
+            <button type="button" className="rating-dock-utility" title="Change panel edge" aria-label="Change panel edge"
+              aria-expanded={showPositionMenu} onClick={() => setShowPositionMenu(!showPositionMenu)}><ArrowsOutCardinal size={20} /></button>
           </div>
-        );
-
-        const handleOrbPointerDown = (orbType: "again" | "hard" | "good" | "easy" | "dismiss") => {
-          emitInteractionFeedback("queue.orb-pressed", { orbType }, {
-            interactionId: `queue:orb-press:${orbType}:${Date.now()}`,
-            origin: "user",
-          });
-        };
-
-        const getOrbClass = (colorFromTo: string, glowColor: string, hoverColors: string) => {
-          return cn(
-            "group relative p-3 rounded-full border border-white/20 border-t-white/40 border-b-white/5",
-            "backdrop-blur-md shadow-lg disabled:opacity-50 disabled:cursor-not-allowed",
-            "transition-all duration-300 ease-out hover:scale-115 active:scale-95",
-            `bg-gradient-to-br ${colorFromTo} hover:${hoverColors}`,
-            `shadow-[0_0_15px_${glowColor}] hover:shadow-[0_0_25px_${glowColor}]`
-          );
-        };
-
-        const topHighlight = (
-          <div className="absolute top-1 left-1/2 -translate-x-1/2 w-8 h-3 bg-white/20 rounded-full filter blur-[0.5px] pointer-events-none" />
-        );
-
-        const style = isDraggingActive
-          ? { position: "fixed" as const, left: dragPos.x, top: dragPos.y, transform: "none", zIndex: 100 }
-          : undefined;
-
-        return (
-          <div
-            style={style}
-            className={cn(
-              "absolute flex gap-3 pointer-events-auto p-2 bg-gradient-to-br from-slate-900/75 to-slate-900/40 backdrop-blur-md rounded-2xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.37)] transition-all duration-200 ease-out select-none",
-              snapClasses,
-              layoutClasses
-            )}
-          >
-            {/* Drag Handle */}
-            <DragHandle />
-
-            {/* Ratings Orbs — documents/extracts always rate on the four-grade
-                scale (the FSRS-6 engagement scheduler), so the orb rail stays
-                regardless of the flashcard algorithm. */}
-            <div className={cn("flex gap-3", layoutClasses)}>
-              {itemType === "flashcard" || itemType === "extract" ? (
-                <button
-                  type="button"
-                  onPointerDown={() => handleOrbPointerDown("dismiss")}
-                  onClick={onDismiss}
-                  disabled={isRating}
-                  className={getOrbClass("from-slate-500/80 to-slate-600/80", "rgba(148,163,184,0.3)", "from-slate-400 to-slate-500")}
-                  title={labels?.dismissTitle ?? "Dismiss"}
-                >
-                  {topHighlight}
-                  <EyeSlash className="w-6 h-6 text-white" />
-                  <span className={getTooltipClass(ratingOrbsPosition)}>{labels?.dismissLabel ?? "Dismiss"}</span>
-                </button>
-              ) : itemType === "document" && !isNewDocument ? (
-                <>
-                  <button
-                    type="button"
-                    onPointerDown={() => handleOrbPointerDown("again")}
-                    onClick={() => onRate(1)}
-                    disabled={isRating}
-                    className={getOrbClass("from-red-500/85 to-red-600/85", "rgba(239,68,68,0.4)", "from-red-400 to-red-500")}
-                    title={labels?.againTitle ?? "Again"}
-                  >
-                    {topHighlight}
-                    <WarningCircle className="w-6 h-6 text-white" />
-                    <span className={getTooltipClass(ratingOrbsPosition)}>{labels?.again ?? "Again"}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onPointerDown={() => handleOrbPointerDown("hard")}
-                    onClick={() => onRate(2)}
-                    disabled={isRating}
-                    className={getOrbClass("from-orange-500/85 to-orange-600/85", "rgba(249,115,22,0.4)", "from-orange-400 to-orange-500")}
-                    title={labels?.hardTitle ?? "Hard"}
-                  >
-                    {topHighlight}
-                    <Star className="w-6 h-6 text-white" />
-                    <span className={getTooltipClass(ratingOrbsPosition)}>{labels?.hard ?? "Hard"}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onPointerDown={() => handleOrbPointerDown("good")}
-                    onClick={() => onRate(3)}
-                    disabled={isRating}
-                    className={getOrbClass("from-blue-500/85 to-blue-600/85", "rgba(59,130,246,0.4)", "from-blue-400 to-blue-500")}
-                    title={labels?.goodTitle ?? "Good"}
-                  >
-                    {topHighlight}
-                    <CheckCircle className="w-6 h-6 text-white" />
-                    <span className={getTooltipClass(ratingOrbsPosition)}>{labels?.good ?? "Good"}</span>
-                  </button>
-                  <button
-                    type="button"
-                    onPointerDown={() => handleOrbPointerDown("easy")}
-                    onClick={() => onRate(4)}
-                    disabled={isRating}
-                    className={getOrbClass("from-green-500/85 to-green-600/85", "rgba(34,197,94,0.4)", "from-green-400 to-green-500")}
-                    title={labels?.easyTitle ?? "Easy"}
-                  >
-                    {topHighlight}
-                    <Sparkle className="w-6 h-6 text-white" />
-                    <span className={getTooltipClass(ratingOrbsPosition)}>{labels?.easy ?? "Easy"}</span>
-                  </button>
-                  {itemType === "document" && (
-                    <button
-                      type="button"
-                      onPointerDown={() => handleOrbPointerDown("dismiss")}
-                      onClick={onDismiss}
-                      disabled={isRating}
-                      className={getOrbClass("from-slate-500/80 to-slate-600/80", "rgba(148,163,184,0.3)", "from-slate-400 to-slate-500")}
-                      title={labels?.dismissTitle ?? "Dismiss"}
-                    >
-                      {topHighlight}
-                      <EyeSlash className="w-6 h-6 text-white" />
-                      <span className={getTooltipClass(ratingOrbsPosition)}>{labels?.dismissLabel ?? "Dismiss"}</span>
-                    </button>
-                  )}
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onPointerDown={() => handleOrbPointerDown("good")}
-                    onClick={() => onRate(3)}
-                    disabled={isRating}
-                    className={getOrbClass("from-orange-500/85 to-orange-600/85", "rgba(249,115,22,0.4)", "from-orange-400 to-orange-500")}
-                    title={itemType === "document" ? (labels?.markAsReadGood ?? "Mark as read (Good)") : (labels?.markAsRead ?? "Mark as read")}
-                  >
-                    {topHighlight}
-                    <CheckCircle className="w-6 h-6 text-white" />
-                    <span className={getTooltipClass(ratingOrbsPosition)}>
-                      {itemType === "document" ? (labels?.markAsReadGood ?? "Mark as read (Good)") : (labels?.markAsRead ?? "Mark as read")}
-                    </span>
-                  </button>
-                  {itemType === "document" && (
-                    <button
-                      type="button"
-                      onPointerDown={() => handleOrbPointerDown("dismiss")}
-                      onClick={onDismiss}
-                      disabled={isRating}
-                      className={getOrbClass("from-slate-500/80 to-slate-600/80", "rgba(148,163,184,0.3)", "from-slate-400 to-slate-500")}
-                      title={labels?.dismissTitle ?? "Dismiss"}
-                    >
-                      {topHighlight}
-                      <EyeSlash className="w-6 h-6 text-white" />
-                      <span className={getTooltipClass(ratingOrbsPosition)}>{labels?.dismissLabel ?? "Dismiss"}</span>
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Quick Position Snapper */}
-            <PositionConfig />
-          </div>
-        );
+          {showPositionMenu && <div className="rating-placement-menu" role="group" aria-label="Panel edge">
+            {([ ["left", ArrowLeft, "Move Left"], ["top", ArrowUp, "Move Top"], ["bottom", ArrowDown, "Move Bottom"], ["right", ArrowRight, "Move Right"] ] as const).map(([position, Icon, title]) =>
+              <button key={position} type="button" title={title} aria-label={title} aria-pressed={ratingOrbsPosition === position}
+                onClick={() => { onUpdateRatingOrbsPosition?.(position); setShowPositionMenu(false); emitInteractionFeedback("queue.orbs-docked", { position }, { interactionId: `queue:orb-docked:${position}:${Date.now()}`, origin: "user" }); }}><Icon size={20} /></button>)}
+          </div>}
+        </div>;
       })()}
 
       {/* Bottom Navigation (desktop/PWA layout — vertical carets) */}
       {!isMobile && (
-        <div className={cn("absolute left-1/2 -translate-x-1/2 flex flex-col gap-2 pointer-events-auto", isTouchDevice ? "bottom-[calc(24px+env(safe-area-inset-bottom,0px))]" : "bottom-6")}>
+        <div ref={footerRef} className={cn("absolute left-1/2 -translate-x-1/2 flex flex-col gap-2 pointer-events-auto", isTouchDevice ? "bottom-[calc(24px+env(safe-area-inset-bottom,0px))]" : "bottom-6")}>
           <button onClick={onGoToPrevious} disabled={currentIndex === 0} className={cn("p-3 rounded-full bg-black/40 backdrop-blur-sm hover:bg-black/60 transition-all shadow-lg", currentIndex === 0 && "opacity-30 cursor-not-allowed")} title={labels?.previousDocument ?? "Previous"}>
             <CaretUp className="w-6 h-6 text-white" />
           </button>

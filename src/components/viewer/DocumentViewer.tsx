@@ -1,3 +1,4 @@
+import { RatingOrb } from "../review/RatingOrb";
 import type { VideoViewerContext } from "../../lib/ai/assistant/scopes";
 import { lazy as lazyTranslation, Suspense as TranslationSuspense } from "react";
 import { usePaletteSelection, getPaletteSelection, type PaletteSelection } from "../../commandPalette/selectionTranslation";
@@ -8496,85 +8497,55 @@ export function DocumentViewer({
         {!shouldHideRatingOrbs && viewMode === "document" && docType !== "pdf" && docType !== "youtube" && docType !== "audio" && isDocumentInQueue && (
           <div className="absolute right-4 top-1/2 -translate-y-1/2 flex flex-col gap-3 pointer-events-auto z-40">
             {!hasDocumentHistory ? (
-              <button
-                type="button"
+              <RatingOrb
                 onPointerDown={() => emitInteractionFeedback("queue.orb-pressed", { orbType: "good" }, { interactionId: `queue:orb-press:good:${Date.now()}`, origin: "user" })}
                 onClick={() => handleRating(3)}
-                className="group relative p-4 rounded-full bg-orange-500/80 backdrop-blur-sm hover:bg-orange-500 hover:scale-110 transition-all shadow-lg active:scale-95"
-                title={t("queueScroll.markAsReadGood")}
+                action="good" title={t("queueScroll.markAsReadGood")}
               >
-                <CheckCircle className="w-7 h-7 text-white" />
-                <span className="absolute right-full mr-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                  {t("queueScroll.markAsReadGood")}
-                </span>
-              </button>
+                <CheckCircle className="w-7 h-7" />
+              </RatingOrb>
             ) : (
               <>
-                <button
-                  type="button"
+                <RatingOrb
                   onPointerDown={() => emitInteractionFeedback("queue.orb-pressed", { orbType: "again" }, { interactionId: `queue:orb-press:again:${Date.now()}`, origin: "user" })}
                   onClick={() => handleRating(1)}
-                  className="group p-3 rounded-full bg-red-500/80 backdrop-blur-sm hover:bg-red-500 hover:scale-110 transition-all shadow-lg active:scale-95"
-                  title={t("queueScroll.againTitle")}
+                  action="again" title={t("queueScroll.againTitle")}
                 >
-                  <WarningCircle className="w-6 h-6 text-white" />
-                  <span className="absolute right-full mr-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    {t("queueScroll.again")}
-                  </span>
-                </button>
+                  <WarningCircle className="w-6 h-6" />
+                </RatingOrb>
 
-                <button
-                  type="button"
+                <RatingOrb
                   onPointerDown={() => emitInteractionFeedback("queue.orb-pressed", { orbType: "hard" }, { interactionId: `queue:orb-press:hard:${Date.now()}`, origin: "user" })}
                   onClick={() => handleRating(2)}
-                  className="group p-3 rounded-full bg-orange-500/80 backdrop-blur-sm hover:bg-orange-500 hover:scale-110 transition-all shadow-lg active:scale-95"
-                  title={t("queueScroll.hardTitle")}
+                  action="hard" title={t("queueScroll.hardTitle")}
                 >
-                  <Star className="w-6 h-6 text-white" />
-                  <span className="absolute right-full mr-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    {t("queueScroll.hard")}
-                  </span>
-                </button>
+                  <Star className="w-6 h-6" />
+                </RatingOrb>
 
-                <button
-                  type="button"
+                <RatingOrb
                   onPointerDown={() => emitInteractionFeedback("queue.orb-pressed", { orbType: "good" }, { interactionId: `queue:orb-press:good:${Date.now()}`, origin: "user" })}
                   onClick={() => handleRating(3)}
-                  className="group p-3 rounded-full bg-blue-500/80 backdrop-blur-sm hover:bg-blue-500 hover:scale-110 transition-all shadow-lg active:scale-95"
-                  title={t("queueScroll.goodTitle")}
+                  action="good" title={t("queueScroll.goodTitle")}
                 >
-                  <CheckCircle className="w-6 h-6 text-white" />
-                  <span className="absolute right-full mr-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    {t("queueScroll.good")}
-                  </span>
-                </button>
+                  <CheckCircle className="w-6 h-6" />
+                </RatingOrb>
 
-                <button
-                  type="button"
+                <RatingOrb
                   onPointerDown={() => emitInteractionFeedback("queue.orb-pressed", { orbType: "easy" }, { interactionId: `queue:orb-press:easy:${Date.now()}`, origin: "user" })}
                   onClick={() => handleRating(4)}
-                  className="group p-3 rounded-full bg-green-500/80 backdrop-blur-sm hover:bg-green-500 hover:scale-110 transition-all shadow-lg active:scale-95"
-                  title={t("queueScroll.easyTitle")}
+                  action="easy" title={t("queueScroll.easyTitle")}
                 >
-                  <Sparkle className="w-6 h-6 text-white" />
-                  <span className="absolute right-full mr-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    {t("queueScroll.easy")}
-                  </span>
-                </button>
+                  <Sparkle className="w-6 h-6" />
+                </RatingOrb>
 
                 {/* Dismiss */}
-                <button
-                  type="button"
+                <RatingOrb
                   onPointerDown={() => emitInteractionFeedback("queue.orb-pressed", { orbType: "dismiss" }, { interactionId: `queue:orb-press:dismiss:${Date.now()}`, origin: "user" })}
                   onClick={handleDismiss}
-                  className="group p-3 rounded-full bg-slate-500/80 backdrop-blur-sm hover:bg-slate-500 hover:scale-110 transition-all shadow-lg active:scale-95 mt-2"
-                  title={t("queueScroll.dismissTitle")}
+                  action="dismiss" title={t("queueScroll.dismissTitle")}
                 >
-                  <EyeSlash className="w-6 h-6 text-white" />
-                  <span className="absolute right-full mr-3 top-1/2 -translate-y-1/2 px-2 py-1 bg-black/80 text-white text-xs rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap">
-                    {t("queueScroll.dismissLabel")}
-                  </span>
-                </button>
+                  <EyeSlash className="w-6 h-6" />
+                </RatingOrb>
               </>
             )}
           </div>

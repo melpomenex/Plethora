@@ -19,6 +19,7 @@ import { AdaptiveAppScaffold } from "../layout/AdaptiveAppScaffold";
 import { requestApplicationBack } from "../../lib/applicationBack";
 import { nativePlatform } from "../../lib/tauri";
 import { startNativeBackBridge } from "../../lib/nativeBackBridge";
+import { BottomControlsGeometryProvider } from "./BottomControlsGeometry";
 
 interface MobileLayoutWrapperProps {
   children: React.ReactNode;
@@ -102,6 +103,7 @@ export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
 
   return (
     <MobileAssistantContextProvider>
+    <BottomControlsGeometryProvider>
     <AdaptiveAppScaffold mobile fullscreen={isFullscreen}>
       {/* PWA Components */}
       <PWAInstallPrompt />
@@ -124,6 +126,7 @@ export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
       />
       <MobileAssistantHost navRef={navRef} fullscreen={isFullscreen} />
     </AdaptiveAppScaffold>
+    </BottomControlsGeometryProvider>
     </MobileAssistantContextProvider>
   );
 }

@@ -99,7 +99,7 @@ describe("ScrollOverlayControls Rating Orbs Snap Positioning", () => {
     const { container } = render(
       <ScrollOverlayControls {...defaultProps} ratingOrbsPosition="top" />
     );
-    const docControl = container.querySelector(".top-28");
+    const docControl = container.querySelector('[data-rating-dock][data-edge="top"]');
     expect(docControl).toBeInTheDocument();
     expect(docControl?.className).toContain("flex-row");
   });
@@ -108,7 +108,7 @@ describe("ScrollOverlayControls Rating Orbs Snap Positioning", () => {
     const { container } = render(
       <ScrollOverlayControls {...defaultProps} ratingOrbsPosition="bottom" />
     );
-    const docControl = container.querySelector(".bottom-28");
+    const docControl = container.querySelector('[data-rating-dock][data-edge="bottom"]');
     expect(docControl).toBeInTheDocument();
     expect(docControl?.className).toContain("flex-row");
   });
@@ -141,6 +141,34 @@ describe("ScrollOverlayControls Rating Orbs Snap Positioning", () => {
     // Click "Move Left" and assert callbacks
     fireEvent.click(screen.getByTitle("Move Left"));
     expect(onUpdate).toHaveBeenCalledWith("left");
+  });
+
+  it("retains grades, dismiss behavior and disabled state in the shared themed orbs", () => {
+    const onRate = vi.fn();
+    const onDismiss = vi.fn();
+    const view = render(<ScrollOverlayControls {...defaultProps} onRate={onRate} onDismiss={onDismiss} />);
+    for (const label of ["Again", "Hard", "Good", "Easy"]) fireEvent.click(screen.getByRole("button", { name: label }));
+    expect(onRate.mock.calls).toEqual([[1], [2], [3], [4]]);
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(onDismiss).toHaveBeenCalledOnce();
+    view.rerender(<ScrollOverlayControls {...defaultProps} isRating onRate={onRate} />);
+    expect(screen.getByRole("button", { name: "Good" })).toBeDisabled();
+  });
+
+  it("snaps a dragged rail to bottom and does not persist again on automatic layout updates", async () => {
+    const feedback = vi.spyOn(await import("../../../lib/feedback/orchestrator"), "emitInteractionFeedback");
+    const onUpdate = vi.fn();
+    const view = render(<ScrollOverlayControls {...defaultProps} onUpdateRatingOrbsPosition={onUpdate} />);
+    fireEvent.mouseDown(screen.getByRole("button", { name: "Drag to move panel" }), { clientX: 200, clientY: 100 });
+    fireEvent.mouseUp(window, { clientX: 200, clientY: window.innerHeight - 1 });
+    expect(onUpdate).toHaveBeenCalledExactlyOnceWith("bottom");
+    expect(feedback).toHaveBeenCalledWith("queue.orbs-docked", { position: "bottom" }, expect.any(Object));
+    const calls = feedback.mock.calls.length;
+    view.rerender(<ScrollOverlayControls {...defaultProps} ratingOrbsPosition="bottom" onUpdateRatingOrbsPosition={onUpdate} />);
+    fireEvent.resize(window);
+    expect(onUpdate).toHaveBeenCalledTimes(1);
+    expect(feedback).toHaveBeenCalledTimes(calls);
+    feedback.mockRestore();
   });
 });
 

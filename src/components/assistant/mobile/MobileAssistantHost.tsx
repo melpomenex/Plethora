@@ -12,6 +12,7 @@ import { useAssistantSheetGesture } from "./useAssistantSheetGesture";
 import { AssistantSheetMotion } from "./motion";
 import { assistantPillBottom, readAssistantViewport } from "./viewport";
 import "./mobile-assistant.css";
+import { usePublishBottomControls, visibleControlTop } from "../../mobile/BottomControlsGeometry";
 const Panel = lazy(() => import("../AssistantPanel").then(module => ({ default: module.AssistantPanel })));
 
 export function MobileAssistantHost({ navRef, fullscreen }: { navRef: RefObject<HTMLElement | null>; fullscreen: boolean }) {
@@ -54,6 +55,8 @@ export function MobileAssistantHost({ navRef, fullscreen }: { navRef: RefObject<
   const open = detent !== "closed";
   currentDetent.current = detent; currentPreview.current = preview;
   const available = foreground && !fullscreen && !active.review && !active.registration?.unavailableReason && active.registration?.controlsVisible !== false && !unrelatedInput && overlayPriority <= (open || preview || exiting ? 60 : 0);
+  usePublishBottomControls({ viewport, navRef, pillRef, pillVisible: available && !open && !exiting && !preview,
+    blocked: open || preview || exiting, fullscreen });
 
   const close = useCallback(() => {
     currentDetent.current = "closed";
@@ -113,11 +116,12 @@ export function MobileAssistantHost({ navRef, fullscreen }: { navRef: RefObject<
       const next = readAssistantViewport();
       setViewport(old => JSON.stringify(old) === JSON.stringify(next) ? old : next);
       const nav = navRef.current;
-      setNavTop(nav && !nav.hidden && getComputedStyle(nav).display !== "none" ? nav.getBoundingClientRect().top : undefined);
+      setNavTop(visibleControlTop(nav, next.top, next.top + next.height));
     };
     read();
     const rootObserver = new MutationObserver(read);
     rootObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["style", "class"] });
+    if (navRef.current) rootObserver.observe(navRef.current, { attributes: true, attributeFilter: ["class", "hidden", "aria-hidden"] });
     const resize = new ResizeObserver(read);
     if (navRef.current) resize.observe(navRef.current);
     return () => { rootObserver.disconnect(); resize.disconnect(); };

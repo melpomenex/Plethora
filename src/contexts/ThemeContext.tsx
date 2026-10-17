@@ -15,6 +15,7 @@ import { biolumeAbyssTheme, superGameBroTheme, milkyMatchaTheme, plethoraLaunchT
 import { makeOpaque } from "../themes/color";
 import { deriveMaterialRoles } from "../themes/materialRoles";
 import { resolveModeAccent } from "../themes/modeAccent";
+import { resolveRatingColors } from "../themes/ratingColors";
 import { loadGoogleFont } from "../utils/fonts";
 import { migratedGetItem } from "../lib/brandMigration";
 import { invokeCommand } from "../lib/tauri";
@@ -79,6 +80,9 @@ function applyThemeToDOM(theme: Theme, fontFamilyOverride?: string | null): void
   const materialRoles = deriveMaterialRoles(theme.colors, theme.variant);
   Object.entries(materialRoles).forEach(([key, value]) => {
     root.style.setProperty(`--color-${key.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase())}`, value);
+  });
+  Object.entries(resolveRatingColors(theme.colors, theme.variant, materialRoles)).forEach(([key, value]) => {
+    root.style.setProperty(`--color-${key}`, value);
   });
 
   const defaultOpaque = theme.variant === "dark" ? "#121426" : "#ffffff";
