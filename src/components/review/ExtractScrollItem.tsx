@@ -24,6 +24,8 @@ import {
 } from "../../api/extracts";
 import { generateProgressiveSummaries } from "../../api/ai";
 import { useI18n } from "../../lib/i18n";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { resolveExtractDisplay } from "../../lib/extractDisclosure";
 import { cn } from "../../utils";
 import { renderMarkdown } from "../../utils/markdown";
 
@@ -51,6 +53,11 @@ export function ExtractScrollItem({
     onUpdate
 }: ExtractScrollItemProps) {
     const { t } = useI18n();
+    // Opt-in: progressive summaries are never generated (or shown) unless the
+    // user asked for them in Settings → AI → Summarization.
+    const summariesEnabled = useSettingsStore(
+        (state) => state.settings.ai.aiControls.extractProgressiveSummaries
+    );
     const [content, setContent] = useState(extract.content);
     const [notes, setNotes] = useState(extract.notes ?? "");
     const [saveStatus, setSaveStatus] = useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
@@ -60,6 +67,7 @@ export function ExtractScrollItem({
     const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isMountedRef = useRef(true);
     const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+    const [summaryGenerationFinished, setSummaryGenerationFinished] = useState(false);
     const [summaryError, setSummaryError] = useState<string | null>(null);
     const [summaries, setSummaries] = useState(extract.progressive_summaries ?? []);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; selectedText: string } | null>(null);
@@ -80,8 +88,10 @@ export function ExtractScrollItem({
         return modified > created + 1000 || saveStatus === "saved";
     }, [extract.date_created, extract.date_modified, saveStatus]);
 
-    // Generate progressive summaries on mount if needed
+    // Generate progressive summaries on mount if needed — never unless the
+    // user opted in.
     useEffect(() => {
+        if (!summariesEnabled) return;
         if (
             extract.max_disclosure_level > 0 &&
             (!extract.progressive_summaries || extract.progressive_summaries.length === 0)
@@ -103,10 +113,11 @@ export function ExtractScrollItem({
                 .finally(() => {
                     if (isMountedRef.current) {
                         setIsGeneratingSummary(false);
+                        setSummaryGenerationFinished(true);
                     }
                 });
         }
-    }, [extract.id, extract.max_disclosure_level, t]);
+    }, [extract.id, extract.max_disclosure_level, summariesEnabled, t]);
 
     useEffect(() => {
         isMountedRef.current = true;
@@ -204,61 +215,30 @@ export function ExtractScrollItem({
         };
     }, []);
 
-    const getDisplayContent = (): { text: string; isSummary: boolean; levelLabel: string | null } => {
-        const maxLevel = extract.max_disclosure_level;
-        const currentLevel = extract.progressive_disclosure_level;
+    const display = resolveExtractDisplay({
+        content,
+        maxLevel: extract.max_disclosure_level,
+        currentLevel: extract.progressive_disclosure_level,
+        summaries,
+        summariesEnabled,
+        isGenerating: isGeneratingSummary,
+        hasError: summaryError !== null,
+        generationFinished: summaryGenerationFinished,
+    });
 
-        // Progressive disclosure disabled
-        if (maxLevel <= 0) {
-            return { text: extract.content, isSummary: false, levelLabel: null };
-        }
-
-        // Already at or past max level - show full content
-        if (currentLevel >= maxLevel) {
-            return { text: extract.content, isSummary: false, levelLabel: t("extractScrollItem.fullContent") };
-        }
-
-        // First half of levels use AI summaries
-        const numAiLevels = Math.ceil(maxLevel / 2);
-
-        if (currentLevel < numAiLevels) {
-            if (summaries.length > 0) {
-                const summaryIndex = Math.min(currentLevel, summaries.length - 1);
-                const summary = summaries[summaryIndex];
-                return {
-                    text: summary.summary,
-                    isSummary: true,
-                    levelLabel: t("extractScrollItem.aiSummaryLevel", { current: currentLevel + 1, total: maxLevel }),
-                };
-            }
-            // No summaries yet (still generating or failed) - fall through to text reveal
-            if (isGeneratingSummary) {
-                return { text: "", isSummary: true, levelLabel: null };
-            }
-            if (summaryError) {
-                return { text: extract.content, isSummary: false, levelLabel: null };
-            }
-        }
-
-        // Progressive text reveal phase (second half of levels)
-        const textLevels = maxLevel - numAiLevels;
-        const textLevelIndex = currentLevel - numAiLevels;
-        const fraction = (textLevelIndex + 1) / (textLevels + 1);
-        const charCount = Math.floor(extract.content.length * fraction);
-        let cutoff = charCount;
-        if (cutoff < extract.content.length) {
-            const nextSpace = extract.content.indexOf(" ", cutoff);
-            if (nextSpace !== -1 && nextSpace < cutoff + 50) {
-                cutoff = nextSpace;
-            }
-        }
-        const isFull = cutoff >= extract.content.length;
-        return {
-            text: isFull ? extract.content : extract.content.slice(0, cutoff) + "...",
-            isSummary: false,
-            levelLabel: isFull ? t("extractScrollItem.fullContent") : t("extractScrollItem.revealingPercent", { count: Math.round(fraction * 100) }),
-        };
-    };
+    const contentLevelLabel =
+        display.kind === "summary" && display.stage !== null
+            ? t("extractScrollItem.aiSummaryLevel", {
+                  current: display.stage,
+                  total: extract.max_disclosure_level,
+              })
+            : display.kind === "partial" && display.fraction !== null
+              ? t("extractScrollItem.revealingPercent", {
+                    count: Math.round(display.fraction * 100),
+                })
+              : display.kind === "full" && display.stage !== null
+                ? t("extractScrollItem.fullContent")
+                : null;
 
     const handleCreateCloze = () => {
         const textarea = contentRef.current;
@@ -344,10 +324,10 @@ export function ExtractScrollItem({
                                 {t("extractScrollItem.reviewedCount", { count: extract.review_count })}
                             </span>
                         )}
-                        {extract.max_disclosure_level > 0 && (
+                        {display.stage !== null && (
                             <span className="px-2 py-1.5 text-xs text-muted-foreground flex items-center gap-1.5">
                                 <Eye className="w-3 h-3" />
-                                {t("extractScrollItem.level", { current: extract.progressive_disclosure_level, total: extract.max_disclosure_level })}
+                                {t("extractScrollItem.level", { current: display.stage, total: extract.max_disclosure_level })}
                             </span>
                         )}
                     </div>
@@ -392,68 +372,64 @@ export function ExtractScrollItem({
 
                 {/* Content Editor / Progressive Disclosure */}
                 <div data-extract-scroll="true" className="bg-card border border-border rounded-2xl shadow-xl min-h-[300px] max-h-[60vh] overflow-y-auto relative">
-                    {(() => {
-                        const { text, isSummary, levelLabel } = getDisplayContent();
-
-                        // Disclosure disabled or at max level — show editable textarea
-                        if (!levelLabel || levelLabel === "Full content") {
-                            return (
-                                <textarea
-                                    ref={contentRef}
-                                    value={content}
-                                    onChange={(event) => setContent(event.target.value)}
-                                    placeholder={t("extractScrollItem.editContentPlaceholder")}
-                                    className="w-full min-h-[300px] p-10 bg-transparent text-lg leading-relaxed text-foreground outline-none resize-none"
-                                    onContextMenu={handleContextMenu}
-                                />
-                            );
-                        }
-
-                        if (isGeneratingSummary && isSummary) {
-                            return (
-                                <div className="flex flex-col items-center justify-center min-h-[300px] text-muted-foreground gap-3">
-                                    <CircleNotch className="w-6 h-6 animate-spin" />
-                                    <span className="text-sm">{t("extractScrollItem.generatingSummary")}</span>
+                    {display.kind === "full" && (
+                        <>
+                            {contentLevelLabel && (
+                                <div className="absolute top-3 right-3 z-10 px-3 py-1 rounded-lg text-xs font-medium bg-blue-500/20 text-blue-400">
+                                    {contentLevelLabel}
                                 </div>
-                            );
-                        }
+                            )}
+                            <textarea
+                                ref={contentRef}
+                                value={content}
+                                onChange={(event) => setContent(event.target.value)}
+                                placeholder={t("extractScrollItem.editContentPlaceholder")}
+                                className="w-full min-h-[300px] p-10 bg-transparent text-lg leading-relaxed text-foreground outline-none resize-none"
+                                onContextMenu={handleContextMenu}
+                            />
+                        </>
+                    )}
 
-                        if (summaryError && isSummary) {
-                            return (
-                                <div className="p-10">
-                                    <div className="text-xs text-amber-400 mb-2">{summaryError}</div>
-                                    <textarea
-                                        ref={contentRef}
-                                        value={content}
-                                        onChange={(event) => setContent(event.target.value)}
-                                        placeholder={t("extractScrollItem.editContentPlaceholder")}
-                                        className="w-full min-h-[300px] bg-transparent text-lg leading-relaxed text-foreground outline-none resize-none"
-                                        onContextMenu={handleContextMenu}
-                                    />
+                    {display.kind === "loading" && (
+                        <div className="flex flex-col items-center justify-center min-h-[300px] text-muted-foreground gap-3">
+                            <CircleNotch className="w-6 h-6 animate-spin" />
+                            <span className="text-sm">{t("extractScrollItem.generatingSummary")}</span>
+                        </div>
+                    )}
+
+                    {display.kind === "error" && (
+                        <div className="p-10">
+                            <div className="text-xs text-amber-400 mb-2">{summaryError}</div>
+                            <textarea
+                                ref={contentRef}
+                                value={content}
+                                onChange={(event) => setContent(event.target.value)}
+                                placeholder={t("extractScrollItem.editContentPlaceholder")}
+                                className="w-full min-h-[300px] bg-transparent text-lg leading-relaxed text-foreground outline-none resize-none"
+                                onContextMenu={handleContextMenu}
+                            />
+                        </div>
+                    )}
+
+                    {(display.kind === "summary" || display.kind === "partial") && (
+                        <>
+                            {contentLevelLabel && (
+                                <div className={cn(
+                                    "absolute top-3 right-3 z-10 px-3 py-1 rounded-lg text-xs font-medium",
+                                    display.kind === "summary"
+                                        ? "bg-amber-500/20 text-amber-400"
+                                        : "bg-blue-500/20 text-blue-400"
+                                )}>
+                                    {display.kind === "summary" && <Sparkle className="w-3 h-3 inline mr-1" />}
+                                    {contentLevelLabel}
                                 </div>
-                            );
-                        }
-
-                        return (
-                            <>
-                                {levelLabel && (
-                                    <div className={cn(
-                                        "absolute top-3 right-3 z-10 px-3 py-1 rounded-lg text-xs font-medium",
-                                        isSummary
-                                            ? "bg-amber-500/20 text-amber-400"
-                                            : "bg-blue-500/20 text-blue-400"
-                                    )}>
-                                        {isSummary && <Sparkle className="w-3 h-3 inline mr-1" />}
-                                        {levelLabel}
-                                    </div>
-                                )}
-                                    <div
-                                        className="p-10 text-lg leading-relaxed text-foreground prose prose-lg dark:prose-invert max-w-none"
-                                        dangerouslySetInnerHTML={{ __html: renderMarkdown(text) }}
-                                    />
-                                </>
-                            );
-                        })()}
+                            )}
+                            <div
+                                className="p-10 text-lg leading-relaxed text-foreground prose prose-lg dark:prose-invert max-w-none"
+                                dangerouslySetInnerHTML={{ __html: renderMarkdown(display.text) }}
+                            />
+                        </>
+                    )}
 
                         {hasBeenModified && (
                             <div 

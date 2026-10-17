@@ -627,3 +627,45 @@ describe("settingsStore DAQE session goal", () => {
     expect(stored.state.settings.daqe.decisionApiKeySet).toBe(false);
   });
 });
+
+describe("settingsStore extract progressive summaries opt-in", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useSettingsStore.setState({ settings: cloneDefaults() });
+  });
+
+  it("defaults the extract progressive-summary setting to off", () => {
+    expect(defaultSettings.ai.aiControls.extractProgressiveSummaries).toBe(false);
+    expect(useSettingsStore.getState().settings.ai.aiControls.extractProgressiveSummaries).toBe(false);
+  });
+
+  it("round-trips an explicit opt-in through localStorage", async () => {
+    useSettingsStore.getState().updateSettingsCategory("ai", {
+      ...useSettingsStore.getState().settings.ai,
+      aiControls: {
+        ...useSettingsStore.getState().settings.ai.aiControls,
+        extractProgressiveSummaries: true,
+      },
+    });
+
+    await useSettingsStore.persist.rehydrate();
+
+    expect(useSettingsStore.getState().settings.ai.aiControls.extractProgressiveSummaries).toBe(true);
+    const stored = JSON.parse(localStorage.getItem("plethora-settings") || "{}");
+    expect(stored.state.settings.ai.aiControls.extractProgressiveSummaries).toBe(true);
+  });
+
+  it("hydrates a persisted opt-in unchanged and leaves the other summarization fields alone", async () => {
+    localStorage.setItem("plethora-settings", JSON.stringify({
+      state: { settings: { ai: { aiControls: { extractProgressiveSummaries: true } } } },
+      version: 5,
+    }));
+
+    await useSettingsStore.persist.rehydrate();
+
+    const controls = useSettingsStore.getState().settings.ai.aiControls;
+    expect(controls.extractProgressiveSummaries).toBe(true);
+    expect(controls.autoSummarize).toBe(defaultSettings.ai.aiControls.autoSummarize);
+    expect(controls.summaryLength).toBe(defaultSettings.ai.aiControls.summaryLength);
+  });
+});

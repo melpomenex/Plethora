@@ -84,7 +84,9 @@ impl Extract {
             highlight_color: None,
             notes: None,
             progressive_disclosure_level: 0,
-            max_disclosure_level: 3,
+            // Progressive disclosure is opt-in per extract: creating one must
+            // not queue up AI summary generation on its own.
+            max_disclosure_level: 0,
             progressive_summaries: None,
             date_created: Utc::now(),
             date_modified: Utc::now(),
@@ -113,5 +115,21 @@ impl Extract {
         extract.html_content = Some(html_content);
         extract.source_url = source_url;
         extract
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Extract;
+
+    #[test]
+    fn new_extracts_do_not_opt_into_progressive_disclosure() {
+        let extract = Extract::new("doc-1".into(), "content".into());
+        assert_eq!(extract.progressive_disclosure_level, 0);
+        assert_eq!(
+            extract.max_disclosure_level, 0,
+            "creating an extract must not schedule AI summary generation"
+        );
+        assert!(extract.progressive_summaries.is_none());
     }
 }

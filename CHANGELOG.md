@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- **Extract AI summaries are now opt-in** — Progressive-disclosure summaries for extracts are generated only when *Settings → AI → Summarization → Generate AI summaries for extracts during review* is enabled (off by default). New extracts start with progressive disclosure off, choosing level 0 in the extract editor now persists, and disabling the setting shows the full extract text without deleting cached summaries.
+
 ## [3.3.0] - 2026-10-15
 
 ### Added

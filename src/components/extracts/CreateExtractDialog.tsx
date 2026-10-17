@@ -543,7 +543,9 @@ export function CreateExtractDialog({
         color: highlightColor,
         page_number: pageNumber || undefined,
         selection_context: selectionContext || undefined,
-        max_disclosure_level: progressiveLevel > 0 ? progressiveLevel : undefined,
+        // Send the raw value so choosing 0 actually disables progressive
+        // disclosure instead of being dropped as "no override".
+        max_disclosure_level: progressiveLevel,
       };
 
       const created = await createExtract(input);
@@ -591,7 +593,7 @@ export function CreateExtractDialog({
         category: category || undefined,
         tags: tags.length > 0 ? tags : undefined,
         color: highlightColor,
-        max_disclosure_level: progressiveLevel > 0 ? progressiveLevel : undefined,
+        max_disclosure_level: progressiveLevel,
       };
 
       const updated = await updateExtract(input);

@@ -612,7 +612,9 @@ export async function createExtract(ext: Partial<Extract>): Promise<Extract> {
         highlight_color: ext.highlight_color,
         notes: ext.notes,
         progressive_disclosure_level: ext.progressive_disclosure_level || 0,
-        max_disclosure_level: ext.max_disclosure_level || 3,
+        // Progressive disclosure is opt-in; an explicit 0 must survive (using
+        // `|| 3` would silently re-enable it for every browser-backend extract).
+        max_disclosure_level: ext.max_disclosure_level ?? 0,
         date_created: ext.date_created || now,
         date_modified: now,
         tags: ext.tags || [],

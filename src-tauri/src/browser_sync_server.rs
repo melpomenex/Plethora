@@ -2234,7 +2234,8 @@ async fn handle_extract_request(
         highlight_color: None,
         notes,
         progressive_disclosure_level: 0,
-        max_disclosure_level: 3,
+        // Browser captures are opt-in for progressive disclosure too.
+        max_disclosure_level: 0,
         progressive_summaries: None,
         date_created: chrono::Utc::now(),
         date_modified: chrono::Utc::now(),

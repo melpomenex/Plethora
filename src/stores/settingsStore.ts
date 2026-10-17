@@ -393,6 +393,12 @@ export interface AIControlsSettings {
   qualityThreshold: number;
   requireApproval: boolean;
   autoSummarize: boolean;
+  /**
+   * Generate AI progressive summaries for extracts while reviewing them in the
+   * Queue. Opt-in: off means the extract card shows the full text and never
+   * calls the AI provider for summaries.
+   */
+  extractProgressiveSummaries: boolean;
   summaryLength: "short" | "medium" | "long";
   includeSummaryInCards: boolean;
   maxTokensPerRequest: number;
@@ -1344,6 +1350,10 @@ export const defaultSettings: Settings = {
       qualityThreshold: 0.0,
       requireApproval: false,
       autoSummarize: false,
+      // Progressive disclosure summaries are opt-in: viewing an extract must
+      // never trigger a surprise AI call (and the provider bill that comes
+      // with it).
+      extractProgressiveSummaries: false,
       summaryLength: "medium",
       includeSummaryInCards: false,
       maxTokensPerRequest: 4096,
