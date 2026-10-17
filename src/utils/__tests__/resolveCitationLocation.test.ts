@@ -103,6 +103,32 @@ describe("resolveCitationLocation", () => {
     expect(location?.kind).toBe("html");
   });
 
+  it("refuses a repeated quote without a stored locator (unique match required, A10)", async () => {
+    // The same sentence appears twice; a first-match would jump to the wrong
+    // passage. Without a stored locator the exact occurrence is unknowable, so
+    // resolution stays unresolved rather than guessing.
+    const passage = "Spaced repetition schedules reviews at expanding intervals.";
+    const doc = makeDocument({
+      fileType: "html",
+      content: `<p>${passage}</p><p>Other text in between that is unrelated.</p><p>${passage}</p>`,
+    });
+    const location = await resolveCitationLocation(doc, passage);
+    expect(location).toBeNull();
+  });
+
+  it("resolves a repeated quote when a stored locator disambiguates it (A10)", async () => {
+    const passage = "The captured passage repeats verbatim in two chapters.";
+    const doc = makeDocument({
+      fileType: "html",
+      content: `<p>${passage}</p><p>Unrelated filler text between the repeats.</p><p>${passage}</p>`,
+    });
+    // A stored offset that validates against the quote pins the occurrence.
+    const location = await resolveCitationLocation(doc, passage, {
+      location: { startOffset: doc.content!.lastIndexOf(passage), endOffset: doc.content!.lastIndexOf(passage) + passage.length } as never,
+    });
+    expect(location).not.toBeNull();
+  });
+
   it("resolves an EPUB quote to a quote-only location", async () => {
     const doc = makeDocument({
       fileType: "epub",

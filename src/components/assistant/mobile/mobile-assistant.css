@@ -7,6 +7,9 @@
 .mobile-assistant-overlay { position: fixed; inset: var(--app-viewport-offset-top, 0px) 0 auto; height: var(--app-viewport-height, 100dvh); pointer-events: none; z-index: 1040; }
 .mobile-assistant-overlay[hidden], .mobile-assistant-pill[hidden] { display: none; }
 .mobile-assistant-scrim { position: absolute; inset: 0; background: var(--color-scrim, rgb(0 0 0 / 42%)); opacity: 0; pointer-events: auto; }
+/* Partial mode is a nonmodal region: the reader above the sheet keeps
+   receiving pointer input, so the scrim must not silently swallow it. */
+.mobile-assistant-scrim[data-nonmodal="true"] { pointer-events: none; }
 .mobile-assistant-sheet { position: absolute; bottom: env(safe-area-inset-bottom, 0px); inset-inline: 0; border-radius: var(--md-shape-extra-large) var(--md-shape-extra-large) 0 0; overflow: hidden; pointer-events: auto; will-change: transform; transform: translate3d(0, 100%, 0); overscroll-behavior: contain; }
 .mobile-assistant-sheet-header { display: flex; flex-direction: column; padding-inline: 0.25rem; flex-shrink: 0; }
 .mobile-assistant-handle { width: 100%; min-height: 24px; display: flex; align-items: center; justify-content: center; touch-action: none; }

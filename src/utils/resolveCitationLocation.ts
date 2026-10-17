@@ -73,7 +73,17 @@ export interface CitationLocationDeps {
   fetchYouTubeSegments?: (videoId: string) => Promise<Array<{ start: number; text: string }>>;
   loadStoredAudioSegments?: (documentId: string) => AudioTranscriptSegment[];
   loadWhisperSegments?: (documentId: string) => Promise<AudioTranscriptSegment[]>;
-  location?: { timestampMs?: number; timestamp_ms?: number };
+  /**
+   * Stored locator from the citation record. A stored text range is preferred
+   * when its content matches the quote (task 3.4, design D6); a stored
+   * timestamp is authoritative for media.
+   */
+  location?: {
+    timestampMs?: number;
+    timestamp_ms?: number;
+    startOffset?: number;
+    endOffset?: number;
+  };
   loadVideoTranscript?: (documentId: string) => Promise<VideoTranscriptLike | null>;
 }
 
@@ -95,17 +105,40 @@ function extractYouTubeId(urlOrId: string): string {
 }
 
 /**
- * Find the first occurrence of the normalized quote in the given (already
- * normalized) content, retrying with a shorter prefix. Returns the match
- * index, or -1.
+ * Longest window tried first; longer windows are strictly more specific.
+ * (Defect A10: a shorter-prefix *first match* could select the wrong
+ * occurrence of a repeated passage.)
+ */
+const QUOTE_PREFIX_EXTENDED_CHARS = 240;
+
+/**
+ * Find the occurrence of the normalized quote in the given (already
+ * normalized) content. The match must be **unique**:
+ *
+ *  - the longest available window is tried first, then shorter ones;
+ *  - a window with more than one occurrence is ambiguous: the exact passage
+ *    cannot be established without a stored locator, so resolution fails
+ *    rather than silently picking the first match.
+ *
+ * Returns the match index, or -1 when missing or ambiguous.
  */
 function findQuoteIndexIn(normalizedContent: string, chunkText: string): number {
   if (!normalizedContent) return -1;
-  for (const length of [QUOTE_PREFIX_CHARS, QUOTE_PREFIX_RETRY_CHARS]) {
-    const prefix = normalizeSearchText(chunkText).slice(0, length);
-    if (!prefix) return -1;
-    const index = normalizedContent.indexOf(prefix);
-    if (index !== -1) return index;
+  const normalizedQuote = normalizeSearchText(chunkText);
+  if (!normalizedQuote) return -1;
+  const lengths = [
+    Math.min(normalizedQuote.length, QUOTE_PREFIX_EXTENDED_CHARS),
+    QUOTE_PREFIX_CHARS,
+    QUOTE_PREFIX_RETRY_CHARS,
+  ];
+  for (const length of lengths) {
+    if (length <= 0 || length > normalizedQuote.length) continue;
+    const window = normalizedQuote.slice(0, length);
+    const index = normalizedContent.indexOf(window);
+    if (index === -1) continue;
+    // Ambiguous window: the passage repeats and no stored locator settled it.
+    if (normalizedContent.indexOf(window, index + 1) !== -1) return -1;
+    return index;
   }
   return -1;
 }
@@ -191,6 +224,24 @@ function resolvePdfPage(
     }
   }
   return null;
+}
+
+/**
+ * Validate a stored text-range locator against the quote. Returns the offset
+ * when the range content matches the normalized quote (containment either
+ * way), otherwise `null` so quote recovery can take over.
+ */
+function storedRangeMatches(
+  content: string,
+  startOffset: number,
+  endOffset: number,
+  quote: string,
+): boolean {
+  if (startOffset < 0 || endOffset > content.length || endOffset <= startOffset) return false;
+  const range = normalizeSearchText(content.slice(startOffset, endOffset));
+  const normalizedQuote = normalizeSearchText(quote);
+  if (!range || !normalizedQuote) return false;
+  return range.includes(normalizedQuote) || normalizedQuote.includes(range);
 }
 
 /** Index of the first segment whose text the cited chunk spans, or -1. */
@@ -322,6 +373,24 @@ export async function resolveCitationLocation(
   }
 
   const normalized = normalizeSearchText(document.content);
+
+  // Prefer the stored locator when it validates against the quote; this is
+  // the only path that can settle a *repeated* passage.
+  const storedStart = deps.location?.startOffset;
+  const storedEnd = deps.location?.endOffset;
+  const storedValidates =
+    storedStart !== undefined &&
+    storedEnd !== undefined &&
+    storedRangeMatches(document.content, storedStart, storedEnd, chunkText);
+
+  if (storedValidates) {
+    if (fileType === "epub") {
+      return { kind: "epub", cfi: "", textQuote: quoteText(chunkText, QUOTE_PREFIX_CHARS) };
+    }
+    if (fileType === "html" || fileType === "markdown") {
+      return { kind: fileType, textQuote: quoteText(chunkText, QUOTE_PREFIX_CHARS) };
+    }
+  }
 
   if (fileType === "epub") {
     const matchIndex = findQuoteIndexIn(normalized, chunkText);

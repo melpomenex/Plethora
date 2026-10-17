@@ -75,6 +75,10 @@ describe("single mobile Assistant host", () => {
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Assistant" }));
     expect(screen.getByRole("textbox")).toHaveValue("preserved");
+    // Partial (the default detent) is a nonmodal named region; expanding is
+    // the modal dialog (design D7, task 4.2).
+    expect(screen.getAllByRole("region")).toHaveLength(1);
+    fireEvent.click(screen.getAllByRole("button", { name: "Expand Assistant" })[1]);
     expect(screen.getAllByRole("dialog")).toHaveLength(1);
   });
   it("preview has no conversation or focus ownership; Back consumes it", () => {
@@ -106,12 +110,16 @@ describe("single mobile Assistant host", () => {
     reduced = false; render(fixture()); fireEvent.click(screen.getByRole("button", { name: "Assistant" })); await screen.findByRole("textbox");
     act(() => { expect(requestOverlayBack()).toBe(true); expect(requestOverlayBack()).toBe(true); });
     tick(0); tick(400);
-    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.queryByRole("region")).not.toBeInTheDocument());
     expect(requestOverlayBack()).toBe(false); expect(screen.getByRole("button", { name: "Assistant" })).toBeVisible();
     expect(mocks.feedback).toHaveBeenCalledTimes(1);
   });
   it("lets higher overlays own Back and restores reader interaction after close", async () => {
     render(fixture()); fireEvent.click(screen.getByRole("button", { name: "Assistant" })); await screen.findByRole("textbox");
+    // Partial is nonmodal: the reader stays operable and the shell is not inert.
+    expect(document.querySelector<HTMLElement>(".adaptive-shell-root")?.inert ?? false).toBe(false);
+    // Expanding owns modal focus and keeps the shell inert while open.
+    fireEvent.click(screen.getAllByRole("button", { name: "Expand Assistant" })[1]);
     expect(document.querySelector<HTMLElement>(".adaptive-shell-root")?.inert).toBe(true);
     const dismiss = vi.fn(); let cleanup: () => void;
     act(() => { cleanup = registerOverlayDismissal(() => { dismiss(); cleanup(); }, { priority: 100 }); });
@@ -120,7 +128,9 @@ describe("single mobile Assistant host", () => {
   });
   it("fullscreen suppresses invocation and closes an open presentation", async () => {
     const view = render(fixture()); fireEvent.click(screen.getByRole("button", { name: "Assistant" })); await screen.findByRole("textbox"); view.rerender(fixture(true));
-    expect(screen.queryByRole("button", { name: "Assistant" })).not.toBeInTheDocument(); expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Assistant" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(screen.queryByRole("region")).not.toBeInTheDocument();
   });
   it("keeps one chrome row: no mode tabs, no source bar, one handle", async () => {
     render(fixture()); fireEvent.click(screen.getByRole("button", { name: "Assistant" })); await screen.findByRole("textbox");

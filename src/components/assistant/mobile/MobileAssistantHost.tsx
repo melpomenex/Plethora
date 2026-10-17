@@ -65,7 +65,13 @@ export function MobileAssistantHost({ navRef, fullscreen }: { navRef: RefObject<
     setExiting(true);
     motion.settle(0, reducedMotion(), () => { setExiting(false); setCommitted(false); pillRef.current?.style.removeProperty("transform"); });
   }, [motion]);
-  const dialogRef = useDialogFocus(committed, close, closeRef, { priority: 60, global: true });
+  // Back/Escape dismissal is owned whenever the sheet is open; Tab
+  // containment only while it is modal (expanded/transitioning).
+  const dialogRef = useDialogFocus(committed, close, closeRef, {
+    priority: 60,
+    global: true,
+    containFocus: detent === "expanded" || preview,
+  });
   const commit = (target: AssistantDetent, id: string, kind: "tap" | "drag" | "handle") => {
     if (target === "closed") { close(); return; }
     const previous = currentDetent.current;
@@ -169,8 +175,14 @@ export function MobileAssistantHost({ navRef, fullscreen }: { navRef: RefObject<
     return () => observer.disconnect();
   }, [open, mounted]);
   useEffect(() => { if (fullscreen && open) close(); }, [fullscreen, open, close]);
+  // Modal ownership belongs to the EXPANDED detent only (design D7). A
+  // partial sheet is a named nonmodal region: the reader above its bounds
+  // keeps receiving pointer input, and the shell is not made inert. During
+  // the expand/collapse transition (`exiting`/`preview`) ownership is held so
+  // focus cannot escape mid-animation.
+  const modalOwned = open && (detent === "expanded" || exiting || preview);
   useEffect(() => {
-    if (!open && !exiting) return;
+    if (!modalOwned) return;
     const root = document.querySelector<HTMLElement>(".adaptive-shell-root");
     const previousInert = root?.inert;
     if (root) root.inert = true;
@@ -179,7 +191,7 @@ export function MobileAssistantHost({ navRef, fullscreen }: { navRef: RefObject<
     const previousOverflow = content?.style.overflow;
     if (content) content.style.overflow = "hidden";
     return () => { if (root) root.inert = previousInert ?? false; if (content) content.style.overflow = previousOverflow ?? ""; };
-  }, [open, exiting]);
+  }, [modalOwned]);
 
   return createPortal(<><div className="mobile-assistant-layer" style={{ top: viewport.top, height: viewport.height }}>
     <div className="mobile-assistant-pill-position" style={{ bottom: assistantPillBottom(viewport, navTop) }}>
@@ -189,10 +201,20 @@ export function MobileAssistantHost({ navRef, fullscreen }: { navRef: RefObject<
       </button>
     </div>
     </div><div className="mobile-assistant-overlay" hidden={!open && !preview && !exiting}>
-      <div ref={scrimRef} className="mobile-assistant-scrim" aria-hidden="true" onClick={() => { if (performance.now() - beganOpen.current >= 350) close(); }} />
+      <div
+        ref={scrimRef}
+        className="mobile-assistant-scrim"
+        aria-hidden="true"
+        data-nonmodal={detent !== "expanded" ? "true" : undefined}
+        onClick={() => {
+          // Only a modal (expanded) scrim dismisses on tap; partial mode passes
+          // pointer input through to the reader.
+          if (detent === "expanded" && performance.now() - beganOpen.current >= 350) close();
+        }}
+      />
       <div ref={element => { surfaceRef.current = element; dialogRef.current = element; }} id="mobile-assistant-dialog"
         className={`mobile-assistant-sheet ${dialogSurface}`} style={{ height: panelHeight.current || assistantDetentHeight(initialAssistantDetent(geometry), geometry) }}
-        role={committed ? "dialog" : undefined} aria-modal={committed ? true : undefined} aria-labelledby="mobile-assistant-heading" tabIndex={-1} data-gesture-lock>
+        role={committed && detent === "expanded" ? "dialog" : "region"} aria-modal={committed && detent === "expanded" ? true : undefined} aria-labelledby="mobile-assistant-heading" tabIndex={-1} data-gesture-lock>
         {/* One chrome row only: the handle stay; the panel below owns context, scope and close. */}
         <div className="mobile-assistant-sheet-header">
           <button type="button" className="mobile-assistant-handle md-state" aria-label={detent === "partial" ? t("assistant.expandSheet") : t("assistant.collapseSheet")} {...handle.bindings}><span aria-hidden="true" /></button>

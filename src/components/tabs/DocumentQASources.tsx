@@ -48,11 +48,38 @@ interface CachedResolution {
   openDocumentId: string;
 }
 
-/** Session-scoped resolution cache: (documentId, chunkIndex) -> cached result. */
+/**
+ * Session-scoped resolution cache keyed by immutable source identity + quote
+ * (task 3.4/A10): `documentId:chunkIndex:quoteDigest`. Including the quote
+ * means two references to the same chunk with different supporting quotes do
+ * not share a resolution, and a changed quote invalidates the entry.
+ */
 const resolutionCache = new Map<string, CachedResolution>();
 
+/** Bound the cache so long sessions cannot grow it without limit. */
+const RESOLUTION_CACHE_MAX_ENTRIES = 200;
+
+/** FNV-1a digest of the cited quote text. */
+function quoteDigest(citation: RagHit): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < citation.chunkText.length; i++) {
+    hash ^= citation.chunkText.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(16);
+}
+
 function cacheKey(citation: RagHit): string {
-  return `${citation.documentId}:${citation.chunkIndex}`;
+  return `${citation.documentId}:${citation.chunkIndex}:${quoteDigest(citation)}`;
+}
+
+function rememberResolution(key: string, value: CachedResolution): void {
+  resolutionCache.set(key, value);
+  if (resolutionCache.size > RESOLUTION_CACHE_MAX_ENTRIES) {
+    // Oldest insertion first; the cache is a convenience, not authority.
+    const oldest = resolutionCache.keys().next().value;
+    if (oldest !== undefined) resolutionCache.delete(oldest);
+  }
 }
 
 function contentVersion(document: Document): string {
@@ -116,7 +143,30 @@ export function DocumentQASources({ citations }: { citations: RagHit[] }) {
     [citations]
   );
 
+  // Resolve lazily: a footer that is scrolled out of view (or inside a
+  // collapsed message) must not trigger whole-document scans. When
+  // IntersectionObserver is unavailable (tests, older WebViews) resolution
+  // stays eager, which is the previous behavior.
+  const [resolutionsEnabled, setResolutionsEnabled] = useState(
+    () => typeof IntersectionObserver === "undefined"
+  );
+  const containerRef = useRef<HTMLOListElement | null>(null);
   useEffect(() => {
+    if (resolutionsEnabled) return;
+    const node = containerRef.current;
+    if (!node || typeof IntersectionObserver === "undefined") return;
+    const observer = new IntersectionObserver(
+      (observed) => {
+        if (observed.some((entry) => entry.isIntersecting)) setResolutionsEnabled(true);
+      },
+      { rootMargin: "120px" }
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [resolutionsEnabled]);
+
+  useEffect(() => {
+    if (!resolutionsEnabled) return;
     const run = ++runRef.current;
     const immediate: Record<string, Resolution> = {};
     for (const { citation, key } of entries) {
@@ -173,7 +223,7 @@ export function DocumentQASources({ citations }: { citations: RagHit[] }) {
         }
         const location = await resolveCitationLocation(target, citation.chunkText);
         if (run !== runRef.current) return;
-        resolutionCache.set(key, { version, location, openDocumentId });
+        rememberResolution(key, { version, location, openDocumentId });
         setResolutions((prev) => ({
           ...prev,
           [key]:
@@ -243,7 +293,7 @@ export function DocumentQASources({ citations }: { citations: RagHit[] }) {
       <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground mb-1.5">
         {translate("qaSources.heading")}
       </div>
-      <ol className="space-y-1">
+      <ol className="space-y-1" ref={containerRef}>
         {entries.map(({ citation, key }, index) => {
           const resolution = resolutions[key];
           const location = resolution?.state === "located" ? resolution.location : undefined;

@@ -97,13 +97,17 @@ export function Dialog({
   );
 }
 
-export function useDialogFocus(open: boolean, onClose: () => void, initialFocusRef?: RefObject<HTMLElement | null>, options?: { priority?: number; global?: boolean }) {
+export function useDialogFocus(open: boolean, onClose: () => void, initialFocusRef?: RefObject<HTMLElement | null>, options?: { priority?: number; global?: boolean; containFocus?: boolean }) {
   const paneId = usePaneId();
   const tabId = useTabId();
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  // Whether Tab is contained. A nonmodal region (e.g. the mobile Assistant's
+  // partial detent) keeps Back/Escape ownership but must let focus leave.
+  const containFocusRef = useRef(options?.containFocus ?? true);
+  containFocusRef.current = options?.containFocus ?? true;
 
   useEffect(() => {
     if (!open) return;
@@ -127,7 +131,7 @@ export function useDialogFocus(open: boolean, onClose: () => void, initialFocusR
         closeRef.current();
         return;
       }
-      if (event.key !== "Tab" || !panelRef.current) return;
+      if (event.key !== "Tab" || !panelRef.current || !containFocusRef.current) return;
       const focusable = Array.from(
         panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE),
       );

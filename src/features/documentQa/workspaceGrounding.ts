@@ -3,6 +3,7 @@ import { useLLMProvidersStore } from "../../stores/llmProvidersStore";
 import type { Document } from "../../types/document";
 import type { Message, RagHit } from "../../stores/documentQAStore";
 import type { AskLibraryResult } from "../../lib/ai/tasks/definitions/libraryTask";
+import { citedSourcesToCitations, citationsToRagHits } from "../../lib/ai/assistant/citations";
 
 /** Resolve against current metadata at send time, never widen an empty filter. */
 export function eligibleQaSources(documents: Document[], requestedIds: string[], collectionId: string, cloud: boolean): Document[] {
@@ -13,12 +14,32 @@ export function eligibleQaSources(documents: Document[], requestedIds: string[],
 }
 
 export function groundedQaMessage(result: AskLibraryResult, scope: NonNullable<Message["submittedScope"]>): Message {
-  const cited = new Set(result.answer.sourceRefs.map((ref) => ref.refId));
-  // Keep original numeric references even when uncited retrieval hits are omitted.
-  const citations: RagHit[] = result.sources.flatMap((source, index) => cited.has(source.chunkId) ? [{
-    documentId: source.documentId, documentTitle: source.documentTitle ?? source.documentId,
-    chunkIndex: source.location.ordinal, chunkText: source.text, score: source.score, citationNumber: index + 1,
-  }] : []);
+  // Shared citation adapter (task 3.2). The cited set is exactly the model's
+  // validated refs; `referenceNumber` carries the original prompt ordinal so
+  // filtering never renumbers survivors (defect A4). A legacy result without
+  // those fields still renders, numbered by position.
+  const citedRefs = new Set(result.answer.sourceRefs.map((ref) => ref.refId));
+  // Numbering: the source's stored `referenceNumber` when present; otherwise
+  // its position in the supplied array, which for legacy results is the
+  // original prompt ordinal (uncited hits included).
+  const numbered = result.sources
+    .map((source, originalIndex) => ({ source, originalIndex }))
+    .filter(({ source }) => citedRefs.has(source.chunkId));
+  const citations: RagHit[] = citedSourcesToCitations(
+    numbered.map(({ source, originalIndex }) => ({
+      ...source,
+      referenceNumber: source.referenceNumber ?? originalIndex + 1,
+      quote: source.quote ?? source.text,
+      origin: source.origin ?? "library",
+    })),
+  ).map((citation, index) => ({
+    documentId: citation.documentId ?? numbered[index]?.source.documentId ?? "",
+    documentTitle: citation.title ?? numbered[index]?.source.documentTitle ?? "",
+    chunkIndex: numbered[index]?.source.location?.ordinal ?? 0,
+    chunkText: citation.quote ?? "",
+    score: numbered[index]?.source.score ?? 1,
+    citationNumber: citation.displayNumber,
+  }));
   const documentIds = [...new Set(citations.map((source) => source.documentId))];
   return {
     id: `assistant-${crypto.randomUUID()}`, role: "assistant", timestamp: Date.now(),

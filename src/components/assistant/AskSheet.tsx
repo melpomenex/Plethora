@@ -4,6 +4,7 @@ import { useDocumentStore } from "../../stores/documentStore";
 import { useMobileAssistantBlock } from "./mobile/MobileAssistantContext";
 import { AssistantScopeSelector } from "./AssistantScopeSelector";
 import { runConfiguredAssistantTurn } from "../../lib/ai/assistant/configuredTurn";
+import { citedSourceToCitation, citationsToRagHits } from "../../lib/ai/assistant/citations";
 import type { AssistantScope } from "../../lib/ai/assistant/scopes";
 import type { ConversationHistoryTurn } from "../../lib/ai/assistant/promptBuilder";
 /**
@@ -93,12 +94,16 @@ function parseQuestions(output: string, max: number): string[] {
 }
 
 function toRagHit(source: AskLibraryCitedSource): RagHit {
+  // Shared citation adapter (task 3.2): preserves the original prompt number
+  // and the validated quote instead of renumbering by array position.
+  const [hit] = citationsToRagHits([citedSourceToCitation(source)]);
   return {
-    documentId: source.documentId,
-    documentTitle: source.documentTitle ?? source.documentId,
-    chunkIndex: source.location.ordinal,
-    chunkText: source.text,
+    documentId: hit.documentId,
+    documentTitle: hit.documentTitle,
+    chunkIndex: source.location?.ordinal ?? 0,
+    chunkText: hit.chunkText,
     score: source.score,
+    citationNumber: hit.citationNumber,
   };
 }
 
