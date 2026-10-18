@@ -644,5 +644,141 @@ describe("CreateAudioEditionDialog", () => {
       vi.unstubAllGlobals();
     }
   });
+
+  it("selects Fal.ai preset, populates Fal voices, displays cost, and gates speed slider", async () => {
+    render(
+      <CreateAudioEditionDialog
+        isOpen={true}
+        onClose={vi.fn()}
+        document={{ ...dummyDocSummary, content: "Chapter 1\nA complete chapter for synthesis." }}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
+    });
+
+    const falButton = screen.getByRole("button", { name: /Fal\.ai \/ Cloud/i });
+    expect(falButton).toBeInTheDocument();
+    fireEvent.click(falButton);
+
+    const voiceSelect = screen.getByTestId("voice-select") as HTMLSelectElement;
+    expect(voiceSelect.value).toBe("Vivian");
+    expect(within(voiceSelect).getByRole("option", { name: /Vivian/i })).toBeInTheDocument();
+    expect(within(voiceSelect).getByRole("option", { name: /Serena/i })).toBeInTheDocument();
+
+    // Cost estimate should not say Free for cloud Fal provider
+    expect(screen.queryByText(/^Free$/i)).not.toBeInTheDocument();
+
+    // Speed slider should be disabled when Advanced is shown
+    fireEvent.click(screen.getByRole("button", { name: /Show Advanced Settings/i }));
+    const slider = screen.getByRole("slider") as HTMLInputElement;
+    expect(slider).toBeDisabled();
+    expect(screen.getByText(/Speed is not supported by Fal\.ai models and is ignored/i)).toBeInTheDocument();
+  });
+
+  it("lists Fal.ai in the Advanced provider dropdown and updates selection", async () => {
+    render(
+      <CreateAudioEditionDialog
+        isOpen={true}
+        onClose={vi.fn()}
+        document={{ ...dummyDocSummary, content: "Chapter 1\nA complete chapter for synthesis." }}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Show Advanced Settings/i }));
+    const providerSelect = screen
+      .getAllByRole("combobox")
+      .find((el) => within(el as HTMLElement).queryByRole("option", { name: /Fal\.ai \(Cloud\)/i })) as HTMLSelectElement;
+    expect(providerSelect).toBeInTheDocument();
+
+    fireEvent.change(providerSelect, { target: { value: "fal" } });
+
+    const voiceSelect = screen.getByTestId("voice-select") as HTMLSelectElement;
+    await waitFor(() => {
+      expect(voiceSelect.value).toBe("Vivian");
+    });
+
+    const slider = screen.getByRole("slider") as HTMLInputElement;
+    expect(slider).toBeDisabled();
+    expect(screen.getByText(/Speed is not supported by Fal\.ai models and is ignored/i)).toBeInTheDocument();
+  });
+
+  it("auditions with Fal.ai voice omitting speed parameter", async () => {
+    const playMock = vi
+      .spyOn(window.HTMLMediaElement.prototype, "play")
+      .mockResolvedValue(undefined as any);
+
+    try {
+      render(
+        <CreateAudioEditionDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          document={{ ...dummyDocSummary, content: "Chapter 1\nA complete chapter for synthesis." }}
+        />
+      );
+
+      await waitFor(() => {
+        expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /Fal\.ai \/ Cloud/i }));
+      fireEvent.click(screen.getByTestId("audition-voice-button"));
+
+      await waitFor(() => {
+        expect(audioEditionsApi.auditionVoicePreview).toHaveBeenCalledWith(
+          expect.any(String),
+          "fal",
+          "fal-ai/qwen-3-tts/text-to-speech/1.7b",
+          "Vivian",
+          expect.objectContaining({ speed: undefined })
+        );
+      });
+    } finally {
+      playMock.mockRestore();
+    }
+  });
+
+  it("creates Audio Edition with Fal.ai provider and dispatches generation job", async () => {
+    vi.spyOn(useAudioEditionGenerationStore.getState(), "startJob").mockImplementation(async () => {});
+
+    render(
+      <CreateAudioEditionDialog
+        isOpen={true}
+        onClose={vi.fn()}
+        document={{ ...dummyDocSummary, content: "Chapter 1\nA complete chapter for synthesis." }}
+      />
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /Fal\.ai \/ Cloud/i }));
+
+    const createButton = screen.getByRole("button", { name: /Create Audio Edition/i });
+    expect(createButton).not.toBeDisabled();
+    fireEvent.click(createButton);
+
+    await waitFor(() => {
+      expect(audioEditionsApi.createAudioEdition).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: "fal",
+          model: "fal-ai/qwen-3-tts/text-to-speech/1.7b",
+          voice: "Vivian",
+          qualityPreset: "fal",
+          generationSettings: expect.objectContaining({
+            speed: undefined,
+          }),
+        }),
+        expect.any(Array)
+      );
+      expect(useAudioEditionGenerationStore.getState().startJob).toHaveBeenCalled();
+    });
+  });
 });
 

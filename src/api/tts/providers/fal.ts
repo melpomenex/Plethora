@@ -74,7 +74,7 @@ export const falAdapter: TTSProviderAdapter = {
   async synthesize(ctx, request) {
     const input: Record<string, unknown> = {
       text: request.text,
-      prompt: request.preset?.prompt,
+      prompt: (request.preset?.prompt as string | undefined) || request.instructions,
       temperature: request.preset?.temperature,
       top_p: request.preset?.topP,
       top_k: request.preset?.topK,

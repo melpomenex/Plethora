@@ -324,7 +324,7 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
                 // (no speed parameter; Turbo ignores it). Sequential dispatch
                 // bounds inference latency and VRAM on small local GPUs.
                 const isChatterbox = edition.provider === CHATTERBOX_PROVIDER_ID;
-                const requestSpeed = isChatterbox ? undefined : parsedSettings.speed || 1.0;
+                const requestSpeed = isChatterbox || edition.provider === "fal" ? undefined : parsedSettings.speed || 1.0;
                 const requestFormat = isChatterbox ? "wav" : "mp3";
                 const texts = isChatterbox
                   ? splitTextForChatterbox(textToSynthesize)

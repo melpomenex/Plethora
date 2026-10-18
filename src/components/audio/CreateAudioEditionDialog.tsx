@@ -16,6 +16,7 @@ import {
   Lightning,
   CircleNotch,
   User,
+  Cloud,
 } from "@phosphor-icons/react";
 import type { Document } from "../../types/document";
 import type { QualityPreset, AudioEdition } from "../../types/audioEdition";
@@ -145,6 +146,7 @@ export function CreateAudioEditionDialog({
   const [instructions, setInstructions] = useState<string>("");
 
   const isChatterboxPath = provider === CHATTERBOX_PROVIDER_ID;
+  const isFalPath = provider === "fal";
   // Tracks whether the user hand-picked a Chatterbox voice: while untouched,
   // freshly enumerated voices upgrade the "default" fallback automatically.
   const chatterboxVoiceTouchedRef = useRef(false);
@@ -281,6 +283,11 @@ export function CreateAudioEditionDialog({
       setModel(CHATTERBOX_MODEL_ID);
       chatterboxVoiceTouchedRef.current = false;
       setVoice(dynamicVoices[0]?.id || CHATTERBOX_DEFAULT_VOICE);
+    } else if (newQuality === "fal") {
+      setProvider("fal");
+      const falSettings = getProviderSettings(settings.tts, "fal");
+      setModel(falSettings.modelId || "fal-ai/qwen-3-tts/text-to-speech/1.7b");
+      setVoice(falSettings.voiceId || "Vivian");
     }
   };
 
@@ -310,8 +317,9 @@ export function CreateAudioEditionDialog({
       setModel("playai-tts");
       setVoice("Fiora");
     } else if (newProvider === "fal") {
-      setModel("fal-ai/qwen-3-tts/text-to-speech/1.7b");
-      setVoice("Vivian");
+      const falSettings = getProviderSettings(settings.tts, "fal");
+      setModel(falSettings.modelId || "fal-ai/qwen-3-tts/text-to-speech/1.7b");
+      setVoice(falSettings.voiceId || "Vivian");
     }
   };
 
@@ -346,6 +354,11 @@ export function CreateAudioEditionDialog({
       setModel(CHATTERBOX_MODEL_ID);
       chatterboxVoiceTouchedRef.current = false;
       setVoice(dynamicVoices[0]?.id || CHATTERBOX_DEFAULT_VOICE);
+    } else if (quality === "fal") {
+      setProvider("fal");
+      const falSettings = getProviderSettings(settings.tts, "fal");
+      setModel(falSettings.modelId || "fal-ai/qwen-3-tts/text-to-speech/1.7b");
+      setVoice(falSettings.voiceId || "Vivian");
     }
   }, [quality]);
 
@@ -405,9 +418,9 @@ export function CreateAudioEditionDialog({
 
   const { savedVoiceProfiles, standardVoices, availableVoices } = useMemo(() => {
     const userProfiles = (settings.tts?.voiceProfiles || [])
-      .filter((p) => p.provider === provider && p.voice && p.kind !== "builtin")
+      .filter((p) => p.provider === provider && (p.voice || p.speakerEmbeddingUrl) && p.kind !== "builtin")
       .map((p) => ({
-        id: p.voice!,
+        id: (p.voice || p.id)!,
         name: p.name,
         gender: "Custom",
         description: "Saved Profile",
@@ -539,7 +552,7 @@ export function CreateAudioEditionDialog({
 
     try {
       const audioBlob = await auditionVoicePreview(sampleText, provider, model, voice, {
-        speed: isChatterboxPath ? undefined : speed,
+        speed: isChatterboxPath || isFalPath ? undefined : speed,
         instructions,
         responseFormat: isChatterboxPath ? "wav" : undefined,
       });
@@ -646,7 +659,7 @@ export function CreateAudioEditionDialog({
         voice,
         qualityPreset: quality,
         generationSettings: {
-          speed,
+          speed: isFalPath ? undefined : speed,
           instructions,
         },
         totalDurationSec: estimation.estimatedDurationSec,
@@ -796,7 +809,7 @@ export function CreateAudioEditionDialog({
             <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
               Quality & Voice Profile
             </label>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3">
               {/* Fast */}
               <button
                 type="button"
@@ -874,6 +887,26 @@ export function CreateAudioEditionDialog({
                 <span className="font-semibold text-sm">Chatterbox / Local</span>
                 <span className="text-[11px] text-muted-foreground mt-1">
                   Free, local GPU narration · voice cloning
+                </span>
+              </button>
+
+              {/* Fal.ai */}
+              <button
+                type="button"
+                onClick={() => handleQualityChange("fal")}
+                className={`flex flex-col items-start p-3.5 rounded-xl border text-left transition-all col-span-2 sm:col-span-1 ${
+                  quality === "fal" && !showAdvanced
+                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm"
+                    : "border-border hover:border-muted-foreground/40 bg-card"
+                }`}
+              >
+                <div className="flex items-center gap-1.5 text-amber-500 font-medium text-xs mb-1">
+                  <Cloud size={14} weight="fill" />
+                  <span>Fal.ai</span>
+                </div>
+                <span className="font-semibold text-sm">Fal.ai / Cloud</span>
+                <span className="text-[11px] text-muted-foreground mt-1">
+                  Cloud neural narration · voice cloning
                 </span>
               </button>
             </div>
@@ -991,6 +1024,7 @@ export function CreateAudioEditionDialog({
                       <option value="openrouter">OpenRouter</option>
                       <option value="elevenlabs">ElevenLabs</option>
                       <option value="openai">OpenAI</option>
+                      <option value="fal">Fal.ai (Cloud)</option>
                       <option value={CHATTERBOX_PROVIDER_ID}>Chatterbox (Local)</option>
                       <option value="system">System Default</option>
                     </select>
@@ -1028,14 +1062,25 @@ export function CreateAudioEditionDialog({
                     max="2.0"
                     step="0.05"
                     value={speed}
-                    disabled={isChatterboxPath}
-                    title={isChatterboxPath ? "Chatterbox Turbo has no speed parameter" : undefined}
+                    disabled={isChatterboxPath || isFalPath}
+                    title={
+                      isChatterboxPath
+                        ? "Chatterbox Turbo has no speed parameter"
+                        : isFalPath
+                        ? "Fal.ai models do not support speed parameter"
+                        : undefined
+                    }
                     onChange={(e) => setSpeed(parseFloat(e.target.value))}
                     className="w-full mt-1.5 disabled:opacity-40"
                   />
                   {isChatterboxPath && (
                     <p className="text-[11px] text-muted-foreground mt-1">
                       Speed is not supported by Chatterbox Turbo and is ignored.
+                    </p>
+                  )}
+                  {isFalPath && (
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Speed is not supported by Fal.ai models and is ignored.
                     </p>
                   )}
                 </div>
