@@ -667,7 +667,7 @@ export function AudiobooksTab() {
 
         {/* Filters and sorting */}
         <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-1.5 bg-background border border-border rounded-lg p-1">
+          <div className="flex flex-wrap items-center gap-1.5 bg-background border border-border rounded-lg p-1">
             {(["all", "not_started", "in_progress", "finished", "dnf"] as const).map((status) => (
               <button
                 key={status}
@@ -707,7 +707,7 @@ export function AudiobooksTab() {
           anchor sources, not listenable editions, so they are hidden. */}
       {documentEditions.length > 0 && (
         <div className="mb-8">
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex flex-wrap items-center gap-2 mb-3">
             <SpeakerHigh className="w-4 h-4 text-primary" />
             <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
               Audio Editions ({documentEditions.length})
@@ -716,7 +716,7 @@ export function AudiobooksTab() {
               — TTS editions of documents in your library
             </span>
           </div>
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {documentEditions.map(({ edition, document: doc, job }) => {
               const sections = edition.sections ?? [];
               const readyCount = sections.filter((s) => s.generationStatus === "ready").length;
@@ -778,13 +778,13 @@ export function AudiobooksTab() {
                   key={edition.id}
                   data-testid={`edition-card-${edition.id}`}
                   onContextMenu={(e) => handleEditionContextMenu(e, edition, doc, job)}
-                  className="flex flex-col gap-2 p-3 bg-card border border-border rounded-xl hover:border-primary/40 transition-colors select-none"
+                  className="flex flex-col gap-2 p-3 min-w-0 bg-card border border-border rounded-xl hover:border-primary/40 transition-colors select-none"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     <div className="p-2 rounded-lg bg-primary/10 text-primary shrink-0">
                       <BookOpen className="w-5 h-5" />
                     </div>
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 basis-40">
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium truncate">{doc?.title ?? "Document"}</span>
                         <span
@@ -801,7 +801,7 @@ export function AudiobooksTab() {
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-1 shrink-0">
+                    <div className="flex items-center gap-1 shrink-0 ml-auto">
                       {isGenerating && (
                         <button
                           onClick={() => useAudioEditionGenerationStore.getState().pauseJob(edition.id)}
