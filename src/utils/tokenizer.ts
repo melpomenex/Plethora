@@ -1,6 +1,6 @@
 type Tokenizer = {
-  encode: (text: string) => number[];
-  decode: (tokens: number[]) => string;
+  encode: (text: string) => number[] | Uint32Array;
+  decode: (tokens: number[] | Uint32Array) => Uint8Array | string;
 };
 
 let tokenizerCache: Tokenizer | null = null;
@@ -19,6 +19,12 @@ async function getTokenizer(model?: string): Promise<Tokenizer> {
 
   tokenizerCache = encoding;
   return encoding;
+}
+
+function decodeTokens(tokenizer: Tokenizer, tokens: number[] | Uint32Array): string {
+  const decoded = tokenizer.decode(tokens);
+  if (typeof decoded === "string") return decoded;
+  return new TextDecoder().decode(decoded);
 }
 
 export async function countTokens(text: string, model?: string): Promise<number> {
@@ -54,7 +60,7 @@ export async function trimToTokenWindow(
         if (end - start < maxTokens && start > 0) {
           start = Math.max(0, end - maxTokens);
         }
-        return tokenizer.decode(tokens.slice(start, end));
+        return decodeTokens(tokenizer, tokens.slice(start, end));
       }
     }
 
@@ -71,10 +77,10 @@ export async function trimToTokenWindow(
       const slicedText = text.slice(alignedStart);
       const slicedTokens = tokenizer.encode(slicedText);
       if (slicedTokens.length <= maxTokens) return slicedText;
-      return tokenizer.decode(slicedTokens.slice(0, maxTokens));
+      return decodeTokens(tokenizer, slicedTokens.slice(0, maxTokens));
     }
 
-    return tokenizer.decode(tokens.slice(0, maxTokens));
+    return decodeTokens(tokenizer, tokens.slice(0, maxTokens));
   } catch {
     const fallbackChars = Math.max(1, maxTokens * 4);
     if (scrollPercent && scrollPercent > 0) {
