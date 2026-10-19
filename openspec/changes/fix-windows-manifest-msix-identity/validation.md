@@ -103,3 +103,21 @@ printed success. Reproduced and fixed locally:
 
 Both verifier scripts now reset `$LASTEXITCODE` after a passing run, so a supplementary tool can
 never decide a step's result — while genuine verification failures still fail loudly.
+
+## Green runner result and the v3.4.0 release
+
+- **Windows test build `39262746798` (972d24d) — completed / success.** All 23 steps passed,
+  including `Verify Windows bundles (sidecars + embedded manifest + smoke launch)`; the artifact
+  `plethora-windows-test-972d24d…` (239 MB) carries `Plethora_3.4.0_x64-setup.exe`, the identity
+  package (`Identity/@Version` 3.4.0.0, signed), `plethora-identity-dev.cer` and the generated
+  `installer.nsi`.
+- The first v3.4.0 release leg failed at the same verification step (it was built before the
+  exit-code fix) and its upload was skipped, so the release had no Windows installer. Its documented
+  backfill path was used: `release.yml` with `version_tag=v3.4.0`, `build_ref=main`,
+  `windows_only=true` → **run `39281944700`, completed / success**, verification passed and
+  `Upload Windows bundles` ran. The release now carries `Plethora_3.4.0_x64-setup.exe`
+  (239,307,599 bytes) and its `.sig`, and `latest.json` lists `windows-x86_64` at version 3.4.0.
+
+Tasks 3.4 and 5.4 are closed by this evidence. What still needs a Windows VM: 3.3, 3.5, 3.6, 4.3 and
+7.1–7.4 (the loader launch on a clean image with a visible window, install/upgrade/uninstall of the
+identity registration, the two trust outcomes, and the end-to-end repair).
