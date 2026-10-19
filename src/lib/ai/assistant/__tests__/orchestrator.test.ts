@@ -395,4 +395,23 @@ describe("runAssistantTurn (Unified Assistant Orchestrator)", () => {
     expect(res.sourceCoverage).toBe("chunks");
     expect(res.transcriptStatus).toBe("unavailable");
   });
+
+  it("preserves an explicitly supplied non-transcript source on a video turn", async () => {
+    const chatExecutor = vi.fn(async (_args: ChatExecutorArgs) => ({ content: "ok" }));
+
+    await runAssistantTurn({
+      scope: "chat",
+      userQuestion: "Create flashcards from the supplied Assistant response context.",
+      sourceType: "video",
+      sourceId: "video-1",
+      sourceContent: "UNIQUE_ANSWER_SENTINEL: RoPE uses rotations.",
+      explicitSourceContent: true,
+      provider: "openai",
+      chatExecutor,
+    });
+
+    expect(chatExecutor).toHaveBeenCalledTimes(1);
+    const context = chatExecutor.mock.calls[0][0].context;
+    expect(context.content).toContain("UNIQUE_ANSWER_SENTINEL");
+  });
 });

@@ -1533,6 +1533,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       if (sourceContentOverride) {
         finalResolvedContent = sourceContentOverride;
         contextContent = sourceContentOverride;
+        sourceCoverageForRequest = "full";
         resolvedUserPrompt = effectivePrompt;
       } else {
       finalResolvedContent = resolvedContext.content ?? "";
@@ -1748,6 +1749,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           scope, userQuestion: appleFmUserPrompt, sourceType: llmContext?.type,
           sourceId: llmContext?.documentId, sourceTitle: assistantDocumentTitle,
           sourceContent: contextContent, sourceCoverage: sourceCoverageForRequest,
+          explicitSourceContent: Boolean(sourceContentOverride),
           playbackTimeSeconds: llmContext?.position?.currentTime,
           history: (contextData.conversationHistory as Message[]).map((m) => ({ ...m, images: m.images?.map((image) => image.dataUrl) })), tools: getAvailableTools(),
           provider: "apple-foundation", isTwentyRules, twentyRulesPrompt: buildTwentyRulesSystemPrompt(),
@@ -1807,6 +1809,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         sourceTitle: assistantDocumentTitle, sourceUrl: llmContext?.url,
         sourceContent: contextContent, selectionExcerpt: pinnedSelection?.excerpt ?? llmContext?.selection,
         sourceCoverage: sourceCoverageForRequest,
+        explicitSourceContent: Boolean(sourceContentOverride),
         playbackTimeSeconds: llmContext?.position?.currentTime, transcriptStatus: llmContext?.transcriptStatus,
         documentsForPrivacyCheck: privacyDocuments ?? (llmContext?.documentId && !llmContext.documentId.startsWith("extract:") ? [await getDocument(llmContext.documentId)] : []),
         strictLocalOnly: useSettingsStore.getState().settings.ai.strictLocalOnly,

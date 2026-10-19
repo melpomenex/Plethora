@@ -53,6 +53,12 @@ export interface AssistantTurnRequest {
   previousSourceId?: string;
   previousSourceTitle?: string;
   sourceContent?: string | Uint8Array;
+  /**
+   * The caller already resolved `sourceContent` (for example, a clicked
+   * Assistant answer used as formulation material). It is not a video
+   * transcript, so the video source planner must not reparse it or replace it.
+   */
+  explicitSourceContent?: boolean;
   videoSegments?: readonly VideoSegment[];
   selectionExcerpt?: string;
   sectionFocusLabel?: string;
@@ -202,6 +208,7 @@ export async function runAssistantTurn(
 
   if (
     request.sourceType === "video" &&
+    !request.explicitSourceContent &&
     (request.scope !== "library" || request.completeTranscriptSource)
   ) {
     const video = await resolveVideoSourceContext({

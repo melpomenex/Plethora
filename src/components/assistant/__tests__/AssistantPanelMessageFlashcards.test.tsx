@@ -180,6 +180,31 @@ describe("AssistantPanel message flashcard action", () => {
     expect(screen.getByText(/create flashcards from this response/i)).toBeInTheDocument();
   });
 
+  it("preserves the clicked response as source on a video context", async () => {
+    seedConversation([
+      { id: "assistant-video", role: "assistant", content: "UNIQUE_VIDEO_ANSWER_TEXT", timestamp: 1 },
+    ], "video:doc-1");
+
+    render(
+      <AssistantPanel
+        context={{
+          type: "video",
+          documentId: "doc-1",
+          content: "[00:05] UNIQUE_TRANSCRIPT_TEXT",
+          transcriptStatus: "ready-full",
+          metadata: { title: "Group Theory Video", videoId: "video-1" },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /create flashcards from this response/i }));
+
+    await waitFor(() => expect(llmMocks.chatWithContext).toHaveBeenCalledTimes(1));
+    const [, , , llmContext] = llmMocks.chatWithContext.mock.calls[0];
+    expect(llmContext.content).toContain("UNIQUE_VIDEO_ANSWER_TEXT");
+    expect(llmContext.content).not.toContain("UNIQUE_TRANSCRIPT_TEXT");
+  });
+
   it("preserves document deck tagging from captured context", async () => {
     seedConversation([
       { id: "assistant-1", role: "assistant", content: "Groups are sets with an operation.", timestamp: 1 },
