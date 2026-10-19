@@ -80,6 +80,106 @@ function Find-SdkTool {
   return $null
 }
 
+function Get-EmbeddedManifestXml {
+  <# Reads RT_MANIFEST resource 1 straight out of a PE file.
+     No external tool: mt.exe is not on every machine, its resource-argument
+     syntax is easy to get wrong, and an extraction failure here previously threw
+     away the tool's own error text — which is exactly the diagnostic this gate
+     exists to produce. Pure .NET byte parsing, verified against real builds of
+     plethora-tauri.exe and pdf-reflow-diag.exe. #>
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [switch]$Trace
+  )
+
+  $bytes = [System.IO.File]::ReadAllBytes($Path)
+  $u16 = { param($o) [BitConverter]::ToUInt16($bytes, [int]$o) }
+  $u32 = { param($o) [BitConverter]::ToUInt32($bytes, [int]$o) }
+  # Not `$trace`: PowerShell variable names are case-insensitive, so it would
+  # overwrite the [switch]$Trace parameter.
+  $emitTrace = { param($m) if ($Trace) { Write-Host "    $m" } }
+
+  if ((& $u16 0) -ne 0x5A4D) { throw "$Path is not a PE file (no MZ signature)" }
+  $pe = [int](& $u32 0x3C)
+  $coff = $pe + 4
+  $numSections = [int](& $u16 ($coff + 2))
+  $sizeOptional = [int](& $u16 ($coff + 16))
+  $opt = $coff + 20
+  $magic = & $u16 $opt
+  if ($magic -eq 0x20B) { $ddStart = $opt + 112 }
+  elseif ($magic -eq 0x10B) { $ddStart = $opt + 96 }
+  else { throw "$Path has an unsupported optional header magic (0x$('{0:X}' -f $magic))" }
+  $resRva = [int](& $u32 ($ddStart + 2 * 8))   # data directory 2 = resource table
+  if ($resRva -eq 0) { throw "$Path has no resource directory" }
+
+  $sections = @()
+  $sh = $opt + $sizeOptional
+  for ($i = 0; $i -lt $numSections; $i++) {
+    $s = $sh + $i * 40
+    $sections += [pscustomobject]@{
+      Va   = [int](& $u32 ($s + 12))
+      Size = [int][Math]::Max((& $u32 ($s + 8)), (& $u32 ($s + 16)))
+      Raw  = [int](& $u32 ($s + 20))
+    }
+  }
+  function Convert-RvaToOffset([int]$rva) {
+    foreach ($section in $sections) {
+      if ($rva -ge $section.Va -and $rva -lt ($section.Va + $section.Size)) {
+        return $rva - $section.Va + $section.Raw
+      }
+    }
+    throw "RVA 0x$('{0:X}' -f $rva) in $Path is outside every section"
+  }
+
+  # One resource-directory level. Entry targets are RVAs relative to the
+  # directory itself, so every hop converts RVA -> file offset.
+  function Read-ResourceLevel([int]$directoryOffset) {
+    $named = [int](& $u16 ($directoryOffset + 12))
+    $ids = [int](& $u16 ($directoryOffset + 14))
+    & $emitTrace ("directory at 0x{0:X}: named={1} ids={2}" -f $directoryOffset, $named, $ids)
+    $entries = @()
+    for ($i = 0; $i -lt ($named + $ids); $i++) {
+      $entry = $directoryOffset + 16 + $i * 8
+      $nameOrId = & $u32 $entry
+      $next = & $u32 ($entry + 4)
+      $isDirectory = (($next -band 0x80000000) -ne 0)
+      $childRva = $resRva + ($next -band 0x7FFFFFFF)
+      $name = $null
+      $id = $null
+      if (($nameOrId -band 0x80000000) -ne 0) {
+        $nameOffset = Convert-RvaToOffset ($resRva + ($nameOrId -band 0x7FFFFFFF))
+        $length = [int](& $u16 $nameOffset)
+        $name = [System.Text.Encoding]::Unicode.GetString($bytes, $nameOffset + 2, $length * 2)
+      } else {
+        $id = [int]$nameOrId
+      }
+      $entries += [pscustomobject]@{
+        Id          = $id
+        Name        = $name
+        IsDirectory = $isDirectory
+        Target      = (Convert-RvaToOffset $childRva)
+      }
+    }
+    return $entries
+  }
+
+  $manifestTypes = Read-ResourceLevel (Convert-RvaToOffset $resRva) | Where-Object { $_.Id -eq 24 }
+  $manifestType = $manifestTypes | Select-Object -First 1
+  if (-not $manifestType) { throw "$Path embeds no RT_MANIFEST resource (type 24): it would receive no application manifest." }
+  $nameEntry = Read-ResourceLevel $manifestType.Target | Where-Object { $_.Id -eq 1 } | Select-Object -First 1
+  if (-not $nameEntry) { throw "$Path has no RT_MANIFEST resource with ID 1 (CREATEPROCESS_MANIFEST_RESOURCE_ID)." }
+  $dataEntry = Read-ResourceLevel $nameEntry.Target | Where-Object { -not $_.IsDirectory } | Select-Object -First 1
+  if (-not $dataEntry) { throw "$Path has an RT_MANIFEST resource with no data." }
+
+  $dataRva = [int](& $u32 $dataEntry.Target)
+  $dataSize = [int](& $u32 ($dataEntry.Target + 4))
+  & $emitTrace ("manifest data: rva=0x{0:X} size={1} bytes" -f $dataRva, $dataSize)
+  # The resource data can carry padding around the XML (real builds of both
+  # executables ship a leading and a trailing space), which [xml] rejects because
+  # an XML declaration must be the first node. Trim before parsing.
+  return [System.Text.Encoding]::UTF8.GetString($bytes, (Convert-RvaToOffset $dataRva), $dataSize).Trim()
+}
+
 function Get-IdentityPackageValues {
   <# Reads Identity/@Name, Identity/@Publisher, Identity/@Version and
      Applications/Application[0]/@Id out of an AppxManifest.xml inside a .msix.
@@ -124,7 +224,7 @@ function Get-EmbeddedMsixState {
   <# Structural view of the <msix> element of an application manifest. #>
   param([Parameter(Mandatory = $true)][string]$ManifestXml)
 
-  $document = [xml]$ManifestXml
+  $document = [xml]$ManifestXml.Trim()
   $msix = $document.SelectSingleNode("/*[local-name()='assembly']/*[local-name()='msix']")
   if ($null -eq $msix) {
     return @{ Present = $false }
@@ -382,10 +482,12 @@ if ($missing.Count -gt 0) {
   throw "Bundle is missing executable(s) that must carry the application manifest: $($missing -join ', ')"
 }
 
+# Optional: the schema cross-check below only runs when the Windows SDK is
+# present. The manifest itself is read by Get-EmbeddedManifestXml, so an
+# unwritable or absent mt.exe can no longer make the gate unusable.
 $mt = Find-SdkTool 'mt.exe'
-if (-not $mt) {
-  throw 'mt.exe not found. Install the Windows SDK: an unverifiable embedded manifest is exactly what this gate exists to prevent.'
-}
+if ($mt) { Write-Host "mt.exe for the supplementary schema check: $mt" }
+else { Write-Warning 'mt.exe not found (Windows SDK); skipping the supplementary schema check. The structural assertions below are authoritative.' }
 
 foreach ($name in $Executables) {
   $exe = Join-Path $RootPath $name
@@ -396,18 +498,26 @@ foreach ($name in $Executables) {
 
   $extracted = Join-Path ([System.IO.Path]::GetTempPath()) ("plethora-manifest-" + [guid]::NewGuid() + '.manifest')
   try {
-    Write-Host "Extracting RT_MANIFEST from $name ..."
-    & $mt "-inputresource:$exe;#1" "-out:$extracted" | Out-Null
-    if (-not (Test-Path -LiteralPath $extracted)) {
-      throw "mt.exe could not extract an RT_MANIFEST resource from $exe (the executable would not receive package identity)."
-    }
-    $manifestXml = Get-Content -LiteralPath $extracted -Raw
+    Write-Host "Reading the embedded RT_MANIFEST from $name ..."
+    $manifestXml = Get-EmbeddedManifestXml -Path $exe
+    if (-not $manifestXml) { throw "the embedded manifest of $exe is empty" }
 
-    Write-Host '  schema conformance (mt.exe -validate_manifest) ...'
-    $validation = & $mt "-manifest:$extracted" '-validate_manifest' 2>&1
-    if ($LASTEXITCODE -ne 0) {
-      Write-Warning ("mt.exe -validate_manifest reported an issue for $name (supplementary check; the attribute assertions below are " +
-        "authoritative): " + ($validation -join ' '))
+    if ($mt) {
+      # Supplementary: mt.exe validates against the fusion schema. Its exit code
+      # and output are reported verbatim — a silent failure here is what made the
+      # first run of this gate uninformative.
+      $extraction = & $mt "-inputresource:$exe;#1" "-out:$extracted" 2>&1
+      if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $extracted)) {
+        Write-Warning ("mt.exe could not extract the manifest for $name (exit $LASTEXITCODE): " + ($extraction -join ' ').Trim())
+      } else {
+        $validation = & $mt "-manifest:$extracted" '-validate_manifest' 2>&1
+        if ($LASTEXITCODE -ne 0) {
+          Write-Warning ("mt.exe -validate_manifest reported an issue for $name (supplementary; the structural assertions below are " +
+            "authoritative): " + ($validation -join ' ').Trim())
+        } else {
+          Write-Host '  schema conformance: mt.exe -validate_manifest passed'
+        }
+      }
     }
 
     $state = Assert-ManifestIdentity -Label $name -ManifestXml $manifestXml -Expected @{

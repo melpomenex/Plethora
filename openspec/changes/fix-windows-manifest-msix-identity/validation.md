@@ -45,3 +45,32 @@ The two that decide the change's acceptance:
 Also outstanding by design (not a task): a production signing decision for `PlethoraIdentity.msix`.
 Until a certificate the user's machine already trusts signs it, the installer correctly skips
 registration and identity-dependent Windows AI features stay off.
+
+## Windows runner evidence (run 39222548979, commit 608c046)
+
+The Windows test build ran on a real `windows-latest` runner. Everything passed except the first
+version of the manifest gate, which failed on its own `mt.exe` invocation — the build itself, the
+identity package and the installer were all produced and uploaded:
+
+| Step | Result |
+| --- | --- |
+| `Assert Windows identity metadata is in sync` | success (version sync gate works in CI) |
+| `Build Windows sparse identity package` | success — `PlethoraIdentity.msix` built with `Identity/@Version="3.3.0.0"`, `AppxSignature.p7x` present |
+| `Export identity certificate (public half)` | success — `CN=Plethora Sparse Dev`, self-signed (VM trust step available) |
+| `Build Tauri application (Windows, NSIS)` | success — `Plethora_3.3.0_x64-setup.exe` (239 MB) |
+| `Assert installer hooks were wired in` | success — generated `installer.nsi` line 28 includes `installer-hooks.nsh`, lines 4774/4819 insert the POSTINSTALL/PREUNINSTALL macros, lines 4681-4682 pack `register-sparse-identity.ps1` and `PlethoraIdentity.msix` |
+| `Verify the manifest gate itself (self-test)` | success |
+| `Verify Windows bundles` | **failure**: the gate's `mt.exe -inputresource:…;#1` call extracted nothing, and the script discarded mt's error text |
+
+**Root cause and fix (verified here on Linux, on the artifact from that run):** the embedded
+manifests were fine — `llvm-readobj --coff-resources` shows `RT_MANIFEST` ID 1 in both executables,
+and reading the resource directly returns the corrected childless `<msix>` element with
+`assemblyIdentity version="3.3.0.0"`. The gate now reads the PE resource itself
+(`Get-EmbeddedManifestXml`, pure .NET; two bugs found and fixed while testing it against these real
+binaries: resource-directory RVAs were being used as file offsets, and the resource data carries
+padding that `[xml]` rejects until trimmed). `mt.exe` is now a supplementary schema check whose
+output and exit code are reported instead of swallowed, and its absence no longer fails the gate.
+
+Running the fixed gate against the executables extracted from that installer, with the shipped
+`PlethoraIdentity.msix` and registration helper, reports `identity OK` for both and
+`Windows manifest verification passed.`
