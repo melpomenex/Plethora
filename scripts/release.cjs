@@ -215,6 +215,38 @@ try {
   });
   fs.unlinkSync(notesFile);
 
+  // Re-attach browser extension XPI if present
+  try {
+    const tmpFiles = fs.readdirSync('/tmp');
+    const xpi = tmpFiles.find(f => f.startsWith('PLETHORA-browser-sync-') && f.endsWith('.signed.xpi'));
+    if (xpi) {
+      const xpiPath = path.join('/tmp', xpi);
+      console.log(`Uploading signed browser extension ${xpiPath} to release v${newVersion}...`);
+      execSync(`gh release upload v${newVersion} "${xpiPath}" --clobber`, { stdio: 'inherit', cwd: rootDir });
+      console.log('Browser extension attached successfully.');
+    }
+  } catch (err) {
+    console.warn('Note: Browser extension upload encountered an issue:', err.message);
+  }
+
+  // Dispatch GitHub Actions mobile-build to compile and attach the Android APK
+  console.log('Dispatching GitHub Actions mobile build (APK)...');
+  try {
+    execSync(`gh workflow run mobile-build.yml -f release_tag=v${newVersion}`, { stdio: 'inherit', cwd: rootDir });
+    console.log(`Dispatched mobile-build.yml with release_tag=v${newVersion}`);
+  } catch (err) {
+    console.warn(`Warning: Failed to dispatch mobile-build.yml: ${err.message}`);
+  }
+
+  // Dispatch GitHub Actions release workflow for desktop platforms
+  console.log('Dispatching GitHub Actions release workflow...');
+  try {
+    execSync(`gh workflow run release.yml -f version_tag=v${newVersion}`, { stdio: 'inherit', cwd: rootDir });
+    console.log(`Dispatched release.yml with version_tag=v${newVersion}`);
+  } catch (err) {
+    console.warn(`Warning: Failed to dispatch release.yml: ${err.message}`);
+  }
+
   console.log(`\nRelease v${newVersion} successfully created!`);
 } catch (err) {
   console.error('Git/GitHub release step failed:', err.message);

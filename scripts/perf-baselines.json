@@ -257,6 +257,9 @@
     },
     "sourcePlan page context": {
       "cost": 0.0001927
+    },
+    "assistant invocation seeded trajectories": {
+      "cost": 0.1205
     }
   }
 }
