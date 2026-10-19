@@ -115,6 +115,20 @@ function Assert-RequiredSidecars {
   } else {
     throw "$Label missing non-empty PlethoraIdentity.msix (Windows sparse package identity)"
   }
+
+  # Presence is not launchability. The embedded application manifest is what the
+  # Windows loader parses before main() runs: the 3.3.0 installer shipped a valid
+  # bundle whose executables could not start, because their <msix> element used
+  # the package-manifest form (child <publisherIdentity>/<packageIdentity>
+  # elements) instead of the application-manifest form (a childless element with
+  # packageName/publisher/applicationId). Every check above passed anyway, so the
+  # gate below extracts the manifest from each shipped executable, compares its
+  # identity with this package, and smoke-launches the executables.
+  try {
+    & (Join-Path $PSScriptRoot "verify-windows-manifests.ps1") -RootPath $RootPath -IdentityMsix $identityMsix.FullName
+  } catch {
+    throw "$Label embedded manifest verification failed: $($_.Exception.Message)"
+  }
 }
 
 if ($msiFiles) {

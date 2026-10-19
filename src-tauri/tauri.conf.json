@@ -159,6 +159,11 @@
       "minimumSystemVersion": "10.13",
       "entitlements": null,
       "signingIdentity": null
+    },
+    "windows": {
+      "nsis": {
+        "installerHooks": "windows/installer-hooks.nsh"
+      }
     }
   },
   "plugins": {

@@ -157,6 +157,10 @@ mod windows;
 #[cfg(target_os = "windows")]
 mod winrt;
 
+/// Package-identity policy and diagnostics that must be testable without a
+/// Windows host (see `windows/sparse_package.rs` for the platform parts).
+pub mod sparse_identity;
+
 mod commands {
     use super::*;
 

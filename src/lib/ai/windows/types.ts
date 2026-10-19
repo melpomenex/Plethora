@@ -27,10 +27,31 @@ export interface WindowsLmDiagnostics {
   lafTokenConfigured?: boolean;
   lafAttestationConfigured?: boolean;
   ocrReadyState?: number | null;
+  /** @deprecated Superseded by `sparseIdentity`, which carries the same paths plus the last registration outcome. */
   sparseMsixCandidates?: string[];
+  /** Sparse identity package state: candidate paths and the last registration attempt. */
+  sparseIdentity?: WindowsSparseIdentityDiagnostics;
   checkedAt?: number;
   platform?: string;
   reason?: string;
+}
+
+/** Outcome of the last sparse identity registration attempt (`windows_lm_diagnostics`). */
+export interface WindowsSparseIdentityDiagnostics {
+  packageName?: string;
+  candidates?: string[];
+  lastAttempt?: {
+    /** Whether PowerShell was actually invoked. */
+    attempted?: boolean;
+    outcome?: "registered" | "already_registered" | "skipped" | "failed";
+    /** Why no attempt happened (only for `skipped`). */
+    skippedReason?: string;
+    msixPath?: string;
+    externalLocation?: string;
+    /** Windows error code, e.g. `0x800B0109` for an untrusted certificate. */
+    errorCode?: string;
+    errorMessage?: string;
+  } | null;
 }
 
 export function unavailableWindowsFeature(reason: string): WindowsFeatureState {

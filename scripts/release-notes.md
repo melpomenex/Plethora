@@ -1,17 +1,14 @@
-### Added
-- **Command Palette** — Rebuilt the palette as a themed command hub for searching and launching actions across Plethora.
+### Fixed
 
-<img src="https://raw.githubusercontent.com/melpomenex/Plethora/main/docs/release-assets/v3.3.0/command-palette.png" alt="Command palette" width="720">
+- **Windows: the application could not start at all** — The Windows installer for 3.3.0 shipped `plethora-tauri.exe` with an invalid embedded application manifest: its package-identity element used the *package* manifest form (`<publisherIdentity>` / `<packageIdentity>` children) instead of the *application* manifest form the Windows loader requires (a single empty `<msix>` element with `packageName`, `publisher` and `applicationId`). Windows' Side-by-Side activation context generator rejected the whole manifest and aborted the process **before any application code ran**, so the only symptom was the dialog *"The application has failed to start because its side-by-side configuration is incorrect…"* (`SideBySide` event ID 62, error 14001) — no window, no log file, no crash dump. `pdf-reflow-diag.exe` was affected identically. Fixed here, together with a release check that extracts the manifest of every shipped Windows executable, compares its identity with the packaged `PlethoraIdentity.msix`, and smoke-launches both executables, so an unlaunchable build cannot be published again.
+- **Windows: identity metadata now tracks the application version** — The sparse identity package and the embedded manifest were frozen at `2.7.0.0` while the application was at `3.3.0` (only the PE version resource followed `tauri.conf.json`). `tauri.conf.json` is now the single source: `scripts/sync-windows-identity.mjs` regenerates the identity metadata, fails on drift in `npm run test:scripts` and in the release workflow, and both Windows packaging scripts assert the version before packing.
+- **Windows: the identity package is registered by the installer** — 3.3.0 shipped `PlethoraIdentity.msix` but nothing ever registered it, so Windows AI features could never become active. The NSIS installer now registers it per-user with `Add-AppxPackage -ExternalLocation <install dir>` and the uninstaller removes it. Registration is attempted only when the package's signing chain is already trusted by your machine — the installer never installs a certificate into your trust stores — and a skipped registration never fails the installation.
+- **Windows: unusable identity diagnostics** — The in-app registration path called a package-manager type that does not exist in the PowerShell projection and could not await the WinRT operation, so it always failed with a generic message. It now uses the documented `Add-AppxPackage` command and reports the actual OS result — package path, install directory, outcome, and the error code (for example `0x800B0109` for an untrusted certificate) — through **Settings → On-device AI → Diagnostics**.
 
-- **Document Q&A — Ask your library** — Open library questions in a grounded workspace, choose source collections, and get answers from matching passages with citations.
+### Before you update (Windows users on 3.3.0)
 
-<img src="https://raw.githubusercontent.com/melpomenex/Plethora/main/docs/release-assets/v3.3.0/document-qa.png" alt="Document Q&A — Ask your library" width="720">
-
-- **Capture activity** — Added saved browser links to the Dashboard capture activity, alongside captured content.
-- **Windows transcription acceleration** — Added GPU acceleration for transcription on Windows.
-
-### Fixed & Improved
-- **Dashboard and tab recovery** — Fixed dashboard reopening and detached tabs after split collapse, and unified capture activity.
-- **Queue navigation** — Restored the Back to Queue and Go to Dashboard actions, improved mobile queue detail scrolling and dismissal, and preserved the volume rocker for queue audio.
-- **EPUB covers** — Improved cover sizing and section selection so covers fit the reader correctly.
-- **Default theme** — Set Obsidian Noir as the default theme.
+- A 3.3.0 installation **cannot update itself**: the executable never starts, so the in-app updater cannot run. Download the current installer from this release and install it over the existing copy; your library, settings and review history are preserved.
+- **Do not** try to fix this by reinstalling the Microsoft Visual C++ Redistributable, running `sfc /scannow`, or re-registering DLLs. The failure happens before any DLL is loaded and the manifest's only dependency is part of Windows — those steps cannot change the outcome. The confirming evidence is `SideBySide` event ID 62 in the Application event log; see **docs/USER_HANDBOOK.md → Troubleshooting** for the exact commands.
+- If you cannot reinstall immediately, the manifest can be patched in place with the Windows SDK: extract it with
+  `mt.exe -inputresource:"D:\Plethora\plethora-tauri.exe";#1 -out:%TEMP%\plethora.manifest`, replace the `<msix>` block with the attribute form shown in **docs/USER_HANDBOOK.md → Troubleshooting**, and write it back with
+  `mt.exe -manifest %TEMP%\plethora.manifest -outputresource:"D:\Plethora\plethora-tauri.exe";#1`. This is unsupported and will be overwritten by any future installer.

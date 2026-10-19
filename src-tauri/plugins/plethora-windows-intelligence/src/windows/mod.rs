@@ -147,6 +147,11 @@ fn preflight_inference() -> Result<(), Error> {
 
 pub fn lm_diagnostics() -> serde_json::Value {
     let snap = capabilities_snapshot();
+    let sparse_candidates = sparse_package::sparse_msix_candidates();
+    let sparse_identity = crate::sparse_identity::diagnostics_payload(
+        sparse_package::last_registration_report().as_ref(),
+        &sparse_candidates,
+    );
     serde_json::json!({
         "windowsOs": snap.windows_os,
         "packageIdentity": snap.package_identity,
@@ -162,10 +167,14 @@ pub fn lm_diagnostics() -> serde_json::Value {
         "lafAttestationConfigured": std::env::var(winrt::LAF_ATTESTATION_ENV)
             .map(|v| !v.trim().is_empty())
             .unwrap_or(false),
-        "sparseMsixCandidates": sparse_package::sparse_msix_candidates()
-            .into_iter()
+        // `sparseMsixCandidates` is kept for the existing diagnostics UI;
+        // `sparseIdentity` carries the same candidates plus the outcome of the
+        // last registration attempt (with the OS error code when it failed).
+        "sparseMsixCandidates": sparse_candidates
+            .iter()
             .map(|p| p.display().to_string())
             .collect::<Vec<_>>(),
+        "sparseIdentity": sparse_identity,
         "checkedAt": snap.checked_at,
     })
 }

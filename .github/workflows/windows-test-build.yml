@@ -1,8 +1,52 @@
 name: Windows Test Build
 
-# Only run on test branches - faster builds for debugging Windows issues
+# Windows-only NSIS test build: push a fix, build it on a GitHub runner, download
+# the installer, and test it on a real VM — without cutting a release.
+#
+# It mirrors the Windows leg of the Release workflow (Vulkan SDK, Windows App
+# SDK for the Phi Silica bridge, sidecar provisioning, bundled sparse identity
+# package, identity-metadata assertion, same build env) and stops short of
+# publishing. It ends with the repository's Windows verification, which extracts
+# the embedded application manifest from every shipped executable, compares its
+# identity with the packaged PlethoraIdentity.msix, and smoke-launches both
+# executables — the check that would have caught 3.3.0 shipping an executable
+# that could not start at all.
+#
+# HOW TO RUN
+#   gh workflow run windows-test-build.yml --ref <branch>
+#   gh run list --workflow="Windows Test Build" --limit 1
+#   gh run download <run-id> -D ./win-test        # all artifacts of that run
+#
+# WHAT YOU GET
+#   plethora-windows-test-<sha>
+#     ├─ *-setup.exe                  the NSIS installer to run on the VM
+#     ├─ PlethoraIdentity.msix        bundled sparse identity package
+#     ├─ plethora-identity-dev.cer    PUBLIC half of its signing certificate
+#     └─ installer.nsi                generated NSIS script (hook evidence)
+#
+# ON THE VM — what to check
+#   1. Install; launch plethora-tauri.exe. A window must open. If you instead get
+#      "side-by-side configuration is incorrect", the manifest regressed: check
+#      the Application event log for SideBySide event ID 62.
+#   2. Launch pdf-reflow-diag.exe with no arguments: it must print its usage line.
+#   3. Identity is expected to be OFF in this build. The package is signed with a
+#      development certificate created on the runner, so the installer refuses to
+#      register it (by design — it never installs a root of trust). To exercise
+#      the registered path: import the shipped public certificate into the
+#      current user's TrustedPeople store, then reinstall:
+#          Import-Certificate -FilePath .\plethora-identity-dev.cer `
+#            -CertStoreLocation Cert:\CurrentUser\TrustedPeople
+#          Get-AppxPackage -Name Plethora.Plethora   # should list the package
+#      Never do this on a machine you care about; it is a throwaway test VM step.
+
 on:
   workflow_dispatch:
+    inputs:
+      verify_bundles:
+        description: 'Run scripts/verify-windows-bundles.ps1 (includes the embedded-manifest gate and the smoke launch)'
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -11,6 +55,13 @@ jobs:
   build-windows:
     name: Build Windows (Test)
     runs-on: windows-latest
+    # Job-level for the same reason as in Release: `npm run build` triggers the
+    # prebuild hook that runs download-sidecars.js, and without these it takes
+    # its early exit and never creates the pocket-tts / notebooklm sidecars —
+    # the bundler then fails on a missing resource path.
+    env:
+      NOTEBOOKLM_BUNDLE_RUNTIME: "1"
+      POCKET_TTS_BUNDLE_RUNTIME: "1"
 
     steps:
       - name: Checkout repository
@@ -50,53 +101,126 @@ jobs:
       - name: Build sidecar binaries (if missing)
         run: node scripts/download-sidecars.js
 
-      - name: Disable updater signing for test builds
+      # Downloaded tarballs can carry the Mark-of-the-Web, which makes Defender
+      # treat the sidecar runtime DLLs as untrusted and makes them disappear
+      # between provisioning and makensis.
+      - name: Strip Mark-of-the-Web from sidecar files
+        shell: pwsh
+        run: Get-ChildItem -Path src-tauri/bin -Recurse -File -ErrorAction SilentlyContinue | Unblock-File
+
+      - name: Install Windows App SDK (Phi Silica bridge)
         shell: pwsh
         run: |
-          $configPath = "src-tauri\tauri.conf.json"
-          $config = Get-Content $configPath -Raw | ConvertFrom-Json
-          $config.plugins.updater.active = $false
-          $config | ConvertTo-Json -Depth 32 | Set-Content $configPath
-          Write-Host "Updater signing disabled for test build"
+          nuget install Microsoft.WindowsAppSDK -OutputDirectory $env:USERPROFILE\.nuget\packages -ExcludeVersion
+          echo "WINDOWS_APP_SDK_ROOT=$env:USERPROFILE\.nuget\packages\Microsoft.WindowsAppSDK" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
-      - name: Build Tauri application (Windows)
-        uses: tauri-apps/tauri-action@v0
-        with:
-          args: --bundles nsis
+      # tauri.conf.json's version owns the identity metadata (embedded manifest
+      # <msix> values + Identity/@Version in both Package.appxmanifest files).
+      # Fail before building anything if they drifted.
+      - name: Assert Windows identity metadata is in sync
+        run: node scripts/sync-windows-identity.mjs
+
+      - name: Build Windows sparse identity package
+        shell: pwsh
+        run: ./scripts/build-windows-sparse-package.ps1
+
+      # The certificate's public half, so the VM can opt into the registered
+      # identity path. The private key never leaves the runner.
+      - name: Export identity certificate (public half) for VM testing
+        shell: pwsh
+        run: |
+          $pfx = "src-tauri/windows/sparse/out/plethora-sparse-dev.pfx"
+          $cert = New-Object System.Security.Cryptography.X509Certificates.X509Certificate2($pfx, "plethora-dev")
+          Export-Certificate -Cert $cert -FilePath "src-tauri/windows/sparse/out/plethora-identity-dev.cer" | Out-Null
+          Write-Host "Exported public certificate for: $($cert.Subject)"
+
+      - name: Build Tauri application (Windows, NSIS)
+        run: npx tauri build --bundles nsis
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NOTEBOOKLM_BUNDLE_RUNTIME: "1"
           LIBSQLITE3_SYS_USE_PKG_CONFIG: "0"
           SQLITE3_STATIC: "1"
           VCPKGRS_DYNAMIC: "0"
           SQLX_OFFLINE: "true"
+          CARGO_BUILD_JOBS: "2"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+          CARGO_PROFILE_RELEASE_LTO: "thin"
 
-      - name: Verify Windows bundles include NotebookLM runtime
+      # The identity package must have been produced by the pack step: without it
+      # the bundle ships no identity at all (verify-windows-manifests.ps1 then
+      # also checks, on the extracted bundle, that both it and the registration
+      # helper really landed next to the executables).
+      - name: Assert identity package was produced
         shell: pwsh
         run: |
-          ./scripts/verify-windows-bundles.ps1
+          $msix = Get-ChildItem -Path src-tauri/windows/sparse/out -Filter 'PlethoraIdentity.msix' -File -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $msix -or $msix.Length -eq 0) {
+            throw "src-tauri/windows/sparse/out/PlethoraIdentity.msix is missing or empty; the sparse package build did not run."
+          }
+          Write-Host "identity package: $($msix.FullName) ($($msix.Length) bytes)"
 
-      - name: List bundle directory (debug)
+      - name: Assert installer hooks were wired in
+        shell: pwsh
         run: |
-          echo "=== Bundle directory contents ==="
-          Get-ChildItem -Path "src-tauri\target\release\bundle" -Recurse -File | Select-Object -First 20
-        shell: powershell
+          $nsi = Get-ChildItem -Path src-tauri/target/release -Recurse -Filter installer.nsi -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $nsi) { throw "No generated installer.nsi found; cannot confirm the identity-registration hooks were included." }
+          $text = Get-Content $nsi.FullName -Raw
+          if ($text -notmatch 'installer-hooks\.nsh') {
+            throw "Generated installer.nsi does not include installer-hooks.nsh; NSIS_HOOK_POSTINSTALL would never run and the identity package would never be registered."
+          }
+          Write-Host "installer.nsi includes installer-hooks.nsh ($($nsi.FullName))"
+          ($text -split "`n" | Select-String -Pattern 'NSIS_HOOK_(POST|PRE)INSTALL|register-sparse-identity' | Select-Object -First 8) | ForEach-Object { Write-Host $_.Line.Trim() }
 
-      - name: Upload Windows artifacts
+      # Proves the checker itself still rejects the 3.3.0 manifest shape and an
+      # identity mismatch — the gate's logic, exercised on every build before it
+      # is trusted to judge the artifacts below.
+      - name: Verify the manifest gate itself (self-test)
+        shell: pwsh
+        run: ./scripts/verify-windows-manifests.ps1 -SelfTest
+
+      - name: Verify Windows bundles (sidecars + embedded manifest + smoke launch)
+        if: ${{ inputs.verify_bundles }}
+        shell: pwsh
+        run: ./scripts/verify-windows-bundles.ps1
+
+      - name: Debug — list bundles
+        if: always()
+        shell: pwsh
+        run: Get-ChildItem -Path src-tauri/target/release/bundle -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 25 FullName, Length | Format-Table -AutoSize
+
+      # On failure too: an installer that failed verification is exactly what you
+      # want to dissect on a local VM.
+      - name: Upload Windows installer + identity package
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: plethora-windows-test
+          name: plethora-windows-test-${{ github.sha }}
           path: |
-            src-tauri/target/**/release/bundle/**
-            src-tauri/target/*/release/plethora.exe
+            src-tauri/target/**/release/bundle/**/*.exe
+            src-tauri/target/release/**/installer.nsi
+            src-tauri/windows/sparse/out/*.msix
+            src-tauri/windows/sparse/out/*.cer
           if-no-files-found: warn
-          retention-days: 7
+          retention-days: 14
 
       - name: Build summary
+        if: always()
+        shell: pwsh
         run: |
-          echo "### Windows Test Build Complete! :rocket:" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          echo "**Branch:** ${{ github.ref_name }}" >> $env:GITHUB_STEP_SUMMARY
-          echo "**Commit:** ${{ github.sha }}" >> $env:GITHUB_STEP_SUMMARY
-          echo "" >> $env:GITHUB_STEP_SUMMARY
-          echo "Download the artifact from the Actions tab and test on Windows!" >> $env:GITHUB_STEP_SUMMARY
+          # Single-quoted strings: GitHub substitutes its expressions into this
+          # script before PowerShell runs it, and single quotes keep the markdown
+          # backticks literal (a double-quoted here-string would need an
+          # unindented terminator and would treat backticks as escapes).
+          Add-Content $env:GITHUB_STEP_SUMMARY '### Windows test build — ${{ job.status }}'
+          Add-Content $env:GITHUB_STEP_SUMMARY ''
+          Add-Content $env:GITHUB_STEP_SUMMARY 'Branch `${{ github.ref_name }}` · commit `${{ github.sha }}`'
+          Add-Content $env:GITHUB_STEP_SUMMARY ''
+          Add-Content $env:GITHUB_STEP_SUMMARY 'Download the installer and the identity certificate:'
+          Add-Content $env:GITHUB_STEP_SUMMARY ''
+          Add-Content $env:GITHUB_STEP_SUMMARY '```'
+          Add-Content $env:GITHUB_STEP_SUMMARY 'gh run download ${{ github.run_id }} -D ./win-test'
+          Add-Content $env:GITHUB_STEP_SUMMARY '```'
+          Add-Content $env:GITHUB_STEP_SUMMARY ''
+          Add-Content $env:GITHUB_STEP_SUMMARY 'On the VM: install, launch `plethora-tauri.exe` (a window must open — a side-by-side dialog means the embedded manifest regressed), then run `pdf-reflow-diag.exe` with no arguments (it must print its usage line).'
+          Add-Content $env:GITHUB_STEP_SUMMARY ''
+          Add-Content $env:GITHUB_STEP_SUMMARY 'Identity is expected to be **off**: the package is signed with a development certificate the VM does not trust, so the installer skips registration on purpose. Import `plethora-identity-dev.cer` into `Cert:\CurrentUser\TrustedPeople` and reinstall to exercise the registered path.'
