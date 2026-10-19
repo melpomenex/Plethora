@@ -812,4 +812,14 @@ describe("Document Q&A workspace entry", () => {
     expect(screen.getByRole("button", { name: "Choose sources" })).toHaveTextContent("Research source 2999");
     expect(getDocument).not.toHaveBeenCalled(); expect(extractDocumentText).not.toHaveBeenCalled(); expect(askLibrary).not.toHaveBeenCalled();
   });
+
+  it("renders the scope selector adjacent to composer sources rather than as an isolated root column", () => {
+    const { container } = render(<DocumentQATab />);
+    const workspace = container.querySelector(".document-qa-workspace");
+    expect(workspace).toBeInTheDocument();
+    // Verify the first child of the root workspace is NOT the scope picker wrapper div
+    expect(workspace?.children[0]?.querySelector?.('[role="group"][aria-label="Assistant scope"]')).toBeNull();
+    // Verify the scope picker exists adjacent to the composer sources
+    expect(screen.getByRole("group", { name: "Assistant scope" })).toBeInTheDocument();
+  });
 });

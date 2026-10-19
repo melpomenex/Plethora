@@ -1721,10 +1721,6 @@ export function DocumentQATab() {
 
   return (
     <div className="document-qa-workspace flex h-full min-h-0 bg-surface text-on-surface">
-      <div className="flex flex-wrap items-center gap-2 px-3 py-2">
-        <AssistantScopeSelector value={assistantScope} onChange={setAssistantScope} disabled={isProcessing} />
-        {suggestSwitchToChat && assistantScope !== "chat" && <Button variant="text" onClick={() => setAssistantScope("chat")}>Switch to Chat</Button>}
-      </div>
       <DocumentQaHistory sessions={workspace.sessions} activeId={workspace.activeId} busy={isProcessing}
         onNew={handleNewChat} onResume={workspace.resume} onRename={workspace.rename} onDelete={workspace.remove}
         open={historyOpen} onClose={() => setHistoryOpen(false)} />
@@ -2101,11 +2097,17 @@ export function DocumentQATab() {
             <Button variant="text" onClick={openWorkspaceSettings}>{t("qaWorkspace.configure")}</Button>
           </div>}
           <div className="mb-2 flex min-w-0 flex-wrap items-center gap-2">
+            <AssistantScopeSelector value={assistantScope} onChange={setAssistantScope} disabled={isProcessing} />
             <span className="text-sm text-on-surface-variant">{t("qaWorkspace.sources")}</span>
             <Button variant="tonal" className="min-w-0 max-w-full justify-start whitespace-normal px-3 text-left" disabled={isProcessing}
               aria-label={t("qaWorkspace.chooseSources")} onClick={() => setSourcePickerOpen(true)}>
               <BookOpen className="shrink-0" aria-hidden="true" /><span className="min-w-0 break-words">{effectiveScopeLabel}</span>
             </Button>
+            {suggestSwitchToChat && assistantScope !== "chat" && (
+              <Button variant="text" disabled={isProcessing} onClick={() => { setAssistantScope("chat"); setSuggestSwitchToChat(false); }}>
+                Switch to Chat
+              </Button>
+            )}
           </div>
       {/* Mention badges, chapter detection, section focus - new tree-aware */}
       {(mentions.length > 0 || detectedChapter || selectedSections.length > 0) && (
