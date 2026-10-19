@@ -85,6 +85,7 @@ export async function askInScope(options: AskInScopeOptions): Promise<AskLibrary
     return askLibrary({
       ...shared,
       contextPassage: options.contextPassage,
+      evidenceScope: "passage",
       retrieve: async () => EMPTY_RETRIEVAL,
     });
   }
@@ -106,6 +107,7 @@ export async function askInScope(options: AskInScopeOptions): Promise<AskLibrary
     contextPassage: options.contextPassage,
     retriever: options.retriever,
     retrieve: options.retrieve,
+    evidenceScope: options.scope === "document" ? "document" : "library",
   });
 }
 

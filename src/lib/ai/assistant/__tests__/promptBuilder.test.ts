@@ -115,6 +115,46 @@ describe("assembleAssistantPrompt", () => {
 
     expect(assembled.contextContentForBackend).toContain("&lt;/untrusted_source>");
   });
+
+  it("limits contradictory exhaustive claims when only a window of the source is supplied", () => {
+    const assembled = assembleAssistantPrompt({
+      scope: "document",
+      userQuestion: "Summarize this document",
+      sourceId: "doc-long",
+      sourceContent: "The region of the document around the reader's position.",
+      sourceCoverage: "window",
+    });
+
+    expect(assembled.contextContentForBackend).toContain("Source Coverage: window");
+    expect(assembled.systemPrompt).toContain("SOURCE COVERAGE LIMIT");
+    expect(assembled.systemPrompt).toContain("do not claim to have reviewed, summarized, or searched the whole source");
+    expect(assembled.diagnostics.sourceStatus.coverage).toBe("window");
+  });
+
+  it("limits exhaustive claims when the evidence is retrieved chunks", () => {
+    const assembled = assembleAssistantPrompt({
+      scope: "library",
+      userQuestion: "What do my notes say about spacing?",
+      sourceId: "doc-1",
+      sourceContent: "A retrieved passage about spacing.",
+      sourceCoverage: "chunks",
+    });
+
+    expect(assembled.systemPrompt).toContain("SOURCE COVERAGE LIMIT");
+    expect(assembled.systemPrompt).toContain("retrieved passages");
+  });
+
+  it("does not add a coverage limit for full-source answers", () => {
+    const assembled = assembleAssistantPrompt({
+      scope: "document",
+      userQuestion: "Summarize this document",
+      sourceId: "doc-1",
+      sourceContent: "The whole short document.",
+      sourceCoverage: "full",
+    });
+
+    expect(assembled.systemPrompt).not.toContain("SOURCE COVERAGE LIMIT");
+  });
 });
 
 describe("rewriteFollowUpQueryWithHistory", () => {

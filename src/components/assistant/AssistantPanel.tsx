@@ -6,6 +6,8 @@ import { MOBILE_ASSISTANT_CONVERSATION_KEY, type MobileAssistantPresentation, ty
 import { assistantSourceProvenance, authorizeAssistantHistory, mergeAssistantProvenance } from "./mobile/provenance";
 import { AssistantScopeSelector } from "./AssistantScopeSelector";
 import { runAssistantTurn } from "../../lib/ai/assistant/orchestrator";
+import { isWholeDocumentRequest } from "../../lib/ai/assistant/documentIntent";
+import { countTokens } from "../../utils/tokenizer";
 import { isAssistantScope, type AssistantScope } from "../../lib/ai/assistant/scopes";
 import { parseAssistantToolCalls, normalizeAssistantToolParameters } from "../../lib/ai/assistant/toolCallParser";
 import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, type ReactNode } from "react";
@@ -1500,11 +1502,13 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
             status: "ready" as const,
             content: sourceContentOverride,
             source: "document" as const,
+            coverage: undefined,
           }
         : llmContext?.resolveForPrompt
           ? await llmContext.resolveForPrompt(prompt)
           : {
               status: llmContext?.status ?? "ready",
+              coverage: undefined,
               content: typeof llmContext?.content === "string" ? llmContext.content : undefined,
               source: (llmContext?.source as any) ?? "document",
               message: llmContext?.statusMessage,
@@ -1523,6 +1527,8 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       let selectionTruncated = false;
       let contextContent = "";
       let usedDocumentFallback = false;
+      /** How much of the active document the supplied content covers. */
+      let sourceCoverageForRequest: "full" | "window" | "chunks" | undefined;
 
       if (sourceContentOverride) {
         finalResolvedContent = sourceContentOverride;
@@ -1682,6 +1688,45 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         // honest missing-evidence response with a Switch to Chat action.
         contextContent = "";
       }
+
+      // Document scope: whole-document requests (summarize/overview/"what is
+      // this about") are served from the largest affordable evidence. The
+      // resolved context may be a bounded window around the reader position;
+      // when the canonical full text fits the prompt budget it is strictly
+      // better grounding for the whole document. Oversized documents keep the
+      // window and are marked partial so the answer cannot claim exhaustiveness.
+      if (scope === "document") {
+        sourceCoverageForRequest = resolvedContext.coverage;
+        if (
+          isWholeDocumentRequest(effectivePrompt) &&
+          !sourceContentOverride &&
+          !hasExplicitSelectionContext &&
+          sectionNodes.length === 0
+        ) {
+          const realDocumentId =
+            llmContext?.documentId && !llmContext.documentId.startsWith("extract:")
+              ? llmContext.documentId
+              : null;
+          if (realDocumentId) {
+            try {
+              const fullText = (await loadDocumentQaText(realDocumentId, { getDocument, extractDocumentText })).trim();
+              if (fullText) {
+                const fullTokens = await countTokens(fullText);
+                if (fullTokens <= effectiveContextWindow) {
+                  finalResolvedContent = fullText;
+                  contextContent = fullText;
+                  sourceCoverageForRequest = "full";
+                } else if (!sourceCoverageForRequest) {
+                  sourceCoverageForRequest = "window";
+                }
+              }
+            } catch {
+              // Full-text loading failed: keep the resolved window and its
+              // coverage marker; the answer stays honestly partial.
+            }
+          }
+        }
+      }
       }
 
       if (isAppleFmAssistantProvider(effectiveProvider)) {
@@ -1702,7 +1747,8 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         const fmResponse = await runAssistantTurn({
           scope, userQuestion: appleFmUserPrompt, sourceType: llmContext?.type,
           sourceId: llmContext?.documentId, sourceTitle: assistantDocumentTitle,
-          sourceContent: contextContent, playbackTimeSeconds: llmContext?.position?.currentTime,
+          sourceContent: contextContent, sourceCoverage: sourceCoverageForRequest,
+          playbackTimeSeconds: llmContext?.position?.currentTime,
           history: (contextData.conversationHistory as Message[]).map((m) => ({ ...m, images: m.images?.map((image) => image.dataUrl) })), tools: getAvailableTools(),
           provider: "apple-foundation", isTwentyRules, twentyRulesPrompt: buildTwentyRulesSystemPrompt(),
           documentsForPrivacyCheck: privacyDocuments ?? (context?.documentId ? [await getDocument(context.documentId)] : []),
@@ -1760,6 +1806,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         sourceType: llmContext?.type ?? "general", sourceId: llmContext?.documentId,
         sourceTitle: assistantDocumentTitle, sourceUrl: llmContext?.url,
         sourceContent: contextContent, selectionExcerpt: pinnedSelection?.excerpt ?? llmContext?.selection,
+        sourceCoverage: sourceCoverageForRequest,
         playbackTimeSeconds: llmContext?.position?.currentTime, transcriptStatus: llmContext?.transcriptStatus,
         documentsForPrivacyCheck: privacyDocuments ?? (llmContext?.documentId && !llmContext.documentId.startsWith("extract:") ? [await getDocument(llmContext.documentId)] : []),
         strictLocalOnly: useSettingsStore.getState().settings.ai.strictLocalOnly,
@@ -1799,6 +1846,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
             k,
             config,
             filters,
+            evidenceScope: scope === "library" ? "library" : "document",
           });
         },
       });

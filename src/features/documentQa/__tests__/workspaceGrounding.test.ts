@@ -58,3 +58,38 @@ describe("Q&A source contracts", () => {
     expect(message.content).toBe("Supported [2].");
   });
 });
+
+describe("Document-scope grounding", () => {
+  const documentScope = { label: "Selected document", documentIds: ["eligible"], webSearch: false, conversationScope: "document" as const };
+
+  it("answers from the selected document text when its chunks are not indexed", async () => {
+    const message = await askQaKnowledge({
+      ...options,
+      scope: documentScope,
+      loadDocumentText: async () => "Selected document text about spaced repetition.",
+      chatExecutor: async ({ context }) => ({ content: `Answer from: ${context.content}` }),
+    });
+
+    expect(mocks.ask).not.toHaveBeenCalled();
+    expect(message.content).toContain("Selected document text about spaced repetition");
+    expect(message.citations).toBeUndefined();
+    expect(message.evidence?.level).toBe("supported");
+    expect(message.sourceDocuments).toEqual(["eligible"]);
+  });
+
+  it("falls back to document-restricted retrieval when the text cannot be loaded", async () => {
+    const message = await askQaKnowledge({
+      ...options,
+      scope: documentScope,
+      loadDocumentText: async () => "",
+      chatExecutor: async () => { throw new Error("generation must not run without evidence"); },
+    });
+
+    expect(mocks.ask).toHaveBeenCalledWith(expect.objectContaining({
+      filters: { documentIds: ["eligible"] },
+      evidenceScope: "document",
+    }));
+    expect(message.citations).toHaveLength(1);
+    expect(message.content).toBe("Supported [2].");
+  });
+});

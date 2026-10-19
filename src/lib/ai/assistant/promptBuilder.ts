@@ -285,6 +285,16 @@ export function assembleAssistantPrompt(
     );
   }
 
+  // 9. Coverage honesty: a bounded window or chunk set is NOT the whole source,
+  // and the model must not claim exhaustive review of it.
+  if (hasSourceText && (input.sourceCoverage === "window" || input.sourceCoverage === "chunks")) {
+    systemSections.push(
+      input.sourceCoverage === "window"
+        ? "SOURCE COVERAGE LIMIT: The supplied source content is only a bounded window of the source, not the whole source. Answer from the supplied window, do not claim to have reviewed, summarized, or searched the whole source, and state the limitation when asked about material outside it."
+        : "SOURCE COVERAGE LIMIT: The supplied source content is a set of retrieved passages, not the whole source. Do not claim to have reviewed, summarized, or searched the whole source.",
+    );
+  }
+
   const contextContentForBackend = sourceBlocks.join("\n\n");
 
   const systemPrompt = systemSections.join("\n\n");

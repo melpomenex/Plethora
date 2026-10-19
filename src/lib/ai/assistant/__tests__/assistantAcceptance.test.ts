@@ -107,3 +107,38 @@ describe("assistant acceptance: YouTube scenarios 11–20", () => {
     const viewer = await resolveVideoSourceContext(input); const queue = await resolveVideoSourceContext({ ...input }); expect(queue).toEqual(viewer); expect(queue.content).toContain("Current passage");
   });
 });
+describe("assistant acceptance: Document-scope grounding regression", () => {
+  it("answers a summary from the open document when the document is not indexed", async () => {
+    const chatExecutor = chat();
+    const libraryExecutor = vi.fn(async (): Promise<AskLibraryResult> => ({
+      answer: { answer: "The library does not appear to contain material relevant to this question.", sourceRefs: [], evidenceLevel: "none" },
+      sources: [],
+      droppedChunks: 0,
+      mode: "semantic",
+      candidatesScanned: 0,
+      composition: { retrieverId: "ai_learning", generatorKind: "cloud", namespace: "library" },
+      retrievalOnly: true,
+      run: {} as never,
+    }));
+
+    const result = await runAssistantTurn({
+      ...base,
+      scope: "document",
+      userQuestion: "summarize this document",
+      sourceType: "document",
+      sourceId: "quanta-attention",
+      sourceTitle: "Is Attention the Essence of Intelligence?",
+      sourceContent: "Sentences with pronouns such as “it” illustrate the challenge that attention overcomes.",
+      chatExecutor,
+      libraryExecutor,
+    });
+
+    expect(libraryExecutor).not.toHaveBeenCalled();
+    expect(chatExecutor).toHaveBeenCalledOnce();
+    expect(chatExecutor.mock.calls[0][0].context.content).toContain("attention overcomes");
+    expect(result.answer).not.toContain("does not appear to contain material relevant");
+    expect(result.rawContent).not.toContain("does not appear to contain material relevant");
+    expect(result.suggestSwitchToChat).toBe(false);
+    expect(result.evidenceLevel).toBe("supported");
+  });
+});

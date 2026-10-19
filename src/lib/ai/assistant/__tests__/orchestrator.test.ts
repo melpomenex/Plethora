@@ -152,4 +152,132 @@ describe("runAssistantTurn (Unified Assistant Orchestrator)", () => {
     expect(res.citations).toHaveLength(1);
     expect(res.evidenceLevel).toBe("supported");
   });
+
+  it("uses live document content in Document scope instead of replacing it with retrieval", async () => {
+    const chatExecutor = vi.fn(async (_args: { context: { content?: string } }) => ({
+      content: "A summary grounded in the open document.",
+    }));
+    const libraryExecutor = vi.fn(async (): Promise<never> => {
+      throw new Error("retrieval must not run while live document evidence exists");
+    });
+
+    const res = await runAssistantTurn({
+      scope: "document",
+      userQuestion: "summarize this document",
+      sourceType: "document",
+      sourceId: "doc-open",
+      sourceTitle: "Open Document",
+      sourceContent: "The open document's full text about attention mechanisms.",
+      provider: "openai",
+      chatExecutor,
+      libraryExecutor,
+    });
+
+    expect(libraryExecutor).not.toHaveBeenCalled();
+    expect(chatExecutor).toHaveBeenCalledTimes(1);
+    expect(chatExecutor.mock.calls[0][0].context.content).toContain(
+      "attention mechanisms",
+    );
+    expect(res.answer).toContain("grounded in the open document");
+    expect(res.evidenceLevel).toBe("supported");
+    expect(res.suggestSwitchToChat).toBe(false);
+  });
+
+  it("answers a selection-only Document-scope turn without retrieval", async () => {
+    const chatExecutor = vi.fn(async () => ({ content: "Answer from the selection." }));
+    const libraryExecutor = vi.fn(async (): Promise<never> => {
+      throw new Error("retrieval must not run while a selection grounds the turn");
+    });
+
+    const res = await runAssistantTurn({
+      scope: "document",
+      userQuestion: "What does this passage mean?",
+      sourceType: "document",
+      sourceId: "doc-open",
+      selectionExcerpt: "The selected sentence about Q, K, and V.",
+      provider: "openai",
+      chatExecutor,
+      libraryExecutor,
+    });
+
+    expect(libraryExecutor).not.toHaveBeenCalled();
+    expect(res.evidenceLevel).toBe("supported");
+  });
+
+  it("falls back to document-restricted retrieval when Document scope has no live evidence", async () => {
+    const libraryExecutor = vi.fn(async (): Promise<import("../../tasks/definitions/libraryTask").AskLibraryResult> => ({
+      answer: {
+        answer: "Sparse attention reduces complexity [1]",
+        sourceRefs: [{ refId: "chunk-1", quote: "Sparse attention reduces complexity" }],
+        evidenceLevel: "supported" as const,
+      },
+      sources: [
+        {
+          chunkId: "chunk-1",
+          documentId: "doc-1",
+          documentTitle: "Attention Notes",
+          sourceType: "document",
+          text: "Sparse attention reduces complexity.",
+          headingPath: [],
+          location: { sourceType: "text" as const, documentId: "doc-1", startOffset: 0, endOffset: 36, ordinal: 0 },
+          score: 0.9,
+          referenceNumber: 1,
+          quote: "Sparse attention reduces complexity.",
+          origin: "library" as const,
+        },
+      ],
+      droppedChunks: 0,
+      mode: "semantic" as const,
+      candidatesScanned: 3,
+      composition: { retrieverId: "ai_learning" as const, generatorKind: "cloud" as const, namespace: "library" as const },
+      retrievalOnly: false,
+      run: {} as never,
+    }));
+
+    const res = await runAssistantTurn({
+      scope: "document",
+      userQuestion: "What does this document say about sparse attention?",
+      sourceType: "document",
+      sourceId: "doc-1",
+      sourceContent: "",
+      provider: "openai",
+      libraryExecutor,
+    });
+
+    expect(libraryExecutor).toHaveBeenCalledTimes(1);
+    expect(res.citations).toHaveLength(1);
+    expect(res.evidenceLevel).toBe("supported");
+  });
+
+  it("keeps the honest Switch-to-Chat outcome when live content and retrieval both yield nothing", async () => {
+    const libraryExecutor = vi.fn(async (): Promise<import("../../tasks/definitions/libraryTask").AskLibraryResult> => ({
+      answer: {
+        answer: "No relevant material was found.",
+        sourceRefs: [],
+        evidenceLevel: "none" as const,
+      },
+      sources: [],
+      droppedChunks: 0,
+      mode: "semantic" as const,
+      candidatesScanned: 0,
+      composition: { retrieverId: "ai_learning" as const, generatorKind: "cloud" as const, namespace: "library" as const },
+      retrievalOnly: true,
+      run: {} as never,
+    }));
+
+    const res = await runAssistantTurn({
+      scope: "document",
+      userQuestion: "What does this document say about quantum gravity?",
+      sourceType: "document",
+      sourceId: "doc-1",
+      sourceContent: "",
+      provider: "openai",
+      libraryExecutor,
+    });
+
+    expect(libraryExecutor).toHaveBeenCalledTimes(1);
+    expect(res.evidenceLevel).toBe("none");
+    expect(res.suggestSwitchToChat).toBe(true);
+    expect(res.citations).toEqual([]);
+  });
 });

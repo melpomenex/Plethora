@@ -456,3 +456,51 @@ describe("askLibrary privacy eligibility", () => {
     expect(result.sources[0].quote).toBe(CHUNK_A);
   });
 });
+
+describe("askLibrary empty-evidence copy follows the searched scope", () => {
+  const composition = {
+    retrieverId: "ai_learning",
+    generatorKind: "cloud",
+    namespace: "library",
+  } as const;
+
+  async function askEmpty(evidenceScope?: "library" | "document" | "passage") {
+    return askLibrary({
+      query: "What does this source say about quantum gravity?",
+      retriever: new FakeSemanticRetriever([]),
+      composition,
+      loadDocumentMetadata: async () => ({}),
+      evidenceScope,
+    });
+  }
+
+  it("defaults to the library wording and never invokes a model", async () => {
+    const result = await askEmpty();
+    expect(result.answer.answer).toBe(
+      "The library does not appear to contain material relevant to this question.",
+    );
+    expect(result.answer.evidenceLevel).toBe("none");
+    expect(result.retrievalOnly).toBe(true);
+    // Retrieval-only provenance proves no generator ran.
+    expect(result.run.providerId).toBe("retrieval-only");
+    expect(result.run.output.answer).toBe(result.answer.answer);
+  });
+
+  it("speaks for the document in Document scope", async () => {
+    const result = await askEmpty("document");
+    expect(result.answer.answer).toBe(
+      "This document does not appear to contain material relevant to this question.",
+    );
+    expect(result.answer.answer).not.toContain("library");
+    expect(result.run.output.answer).toBe(result.answer.answer);
+  });
+
+  it("speaks for the passage in Passage scope", async () => {
+    const result = await askEmpty("passage");
+    expect(result.answer.answer).toBe(
+      "The selected passage does not appear to contain material relevant to this question.",
+    );
+    expect(result.answer.answer).not.toContain("library");
+    expect(result.run.output.answer).toBe(result.answer.answer);
+  });
+});

@@ -243,14 +243,22 @@ export async function runAssistantTurn(
     };
   }
 
-  // 4. Library Scope (or RAG-backed Document Scope when libraryExecutor is provided and no tool-only override)
+  // 4. Grounded retrieval: Library scope always retrieves, and Document scope
+  //    retrieves ONLY as a fallback when the active source's live evidence is
+  //    unavailable. Live evidence (loaded document text, transcript, focused
+  //    section, selection) is the strongest grounding and must not be replaced
+  //    by — or overridden with — possibly empty retrieval results.
   const wantsToolExecution =
     Boolean(request.isTwentyRules) ||
     /\b(flashcards?|clozes?|extracts?|create_qa_card|create_cloze_card|batch_create_cards)\b/i.test(
       request.userQuestion,
     );
 
-  if ((request.scope === "library" || request.scope === "document") && request.libraryExecutor && !wantsToolExecution) {
+  const needsRetrievalGrounding =
+    request.scope === "library" ||
+    (request.scope === "document" && !hasSourceContent);
+
+  if (needsRetrievalGrounding && request.libraryExecutor && !wantsToolExecution) {
     const rewrittenQuery = rewriteFollowUpQueryWithHistory(
       request.userQuestion,
       request.history,

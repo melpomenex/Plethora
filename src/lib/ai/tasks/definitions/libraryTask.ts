@@ -270,6 +270,12 @@ export interface AskLibraryOptions {
   config?: EmbeddingConfig;
   /** Extra untrusted context (e.g. the selection that prompted the ask). */
   contextPassage?: string;
+  /**
+   * Which evidence scope the zero-chunk honest answer speaks for. Defaults to
+   * "library" for back-compat; Document scope must not claim the library lacks
+   * material while the active document is the searched scope.
+   */
+  evidenceScope?: "library" | "document" | "passage";
   signal?: AbortSignal;
   /** Explicit provider injection (tests / FakeAIProvider eval runs). */
   provider?: AIProvider;
@@ -281,6 +287,24 @@ export interface AskLibraryOptions {
   composition?: RagComposition;
   /** Fake/native semantic retriever; used when composition.retrieverId is not ai_learning. */
   retriever?: SemanticRetriever;
+}
+
+/**
+ * Honest zero-evidence copy per searched scope. The searched scope decides the
+ * claim: Document scope must never say the library lacks material, and Passage
+ * scope must never blame a document or the library.
+ */
+const EMPTY_EVIDENCE_ANSWERS: Record<
+  NonNullable<AskLibraryOptions["evidenceScope"]>,
+  string
+> = {
+  library: "The library does not appear to contain material relevant to this question.",
+  document: "This document does not appear to contain material relevant to this question.",
+  passage: "The selected passage does not appear to contain material relevant to this question.",
+};
+
+function emptyEvidenceAnswer(options: AskLibraryOptions): string {
+  return EMPTY_EVIDENCE_ANSWERS[options.evidenceScope ?? "library"];
 }
 
 /**
@@ -371,17 +395,19 @@ export async function askLibrary(options: AskLibraryOptions): Promise<AskLibrary
 
   // Nothing survived retrieval: answer honestly without invoking a model —
   // there is nothing to ground on, and a zero-chunk prompt invites
-  // fabrication (spec: "the library does not appear to cover it").
+  // fabrication (spec: "the library does not appear to cover it"). The copy
+  // speaks for the searched scope (evidenceScope), so a Document-scope miss
+  // never claims the library lacks material.
   // Exception: when the caller supplied a context passage (e.g. the AskSheet
   // passage scope), the passage itself is grounding — generate from it as
   // long as a generator is available. With generatorKind "none" there is no
   // generator, so the honest-empty answer still applies.
   const hasGroundingPassage = Boolean(options.contextPassage?.trim());
   if (budgeted.length === 0 && (!hasGroundingPassage || composition.generatorKind === "none")) {
+    const honestAnswer = emptyEvidenceAnswer(options);
     return {
       answer: {
-        answer:
-          "The library does not appear to contain material relevant to this question.",
+        answer: honestAnswer,
         sourceRefs: [],
         evidenceLevel: "none",
       },
@@ -394,8 +420,7 @@ export async function askLibrary(options: AskLibraryOptions): Promise<AskLibrary
       run: {
         taskId: askLibraryTask.id,
         output: {
-          answer:
-            "The library does not appear to contain material relevant to this question.",
+          answer: honestAnswer,
           sourceRefs: [],
           evidenceLevel: "none",
         },

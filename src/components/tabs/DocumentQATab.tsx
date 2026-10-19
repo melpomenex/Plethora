@@ -1677,7 +1677,7 @@ export function DocumentQATab() {
         systemInstruction: provider.systemPrompt,
         libraryExecutor: assistantScope === "library" ? async ({ rewrittenQuery, history, contextPassage, contextBudgetTokens, k }) => {
           const [{ askLibrary }, { resolveEmbeddingConfigForRag }] = await Promise.all([import("../../lib/ai/tasks/definitions/libraryTask"), import("../assistant/ragConfig")]);
-          return askLibrary({ query: rewrittenQuery, history, contextPassage, contextBudgetTokens, k, config: await resolveEmbeddingConfigForRag().catch(() => undefined), filters: { documentIds: eligible.map((doc) => doc.id) } });
+          return askLibrary({ query: rewrittenQuery, history, contextPassage, contextBudgetTokens, k, config: await resolveEmbeddingConfigForRag().catch(() => undefined), filters: { documentIds: eligible.map((doc) => doc.id) }, evidenceScope: "library" });
         } : undefined,
       });
       setSuggestSwitchToChat(Boolean(response.suggestSwitchToChat));

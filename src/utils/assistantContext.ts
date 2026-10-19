@@ -16,6 +16,13 @@ export interface ResolvedAssistantContext {
   content?: string;
   source: AssistantContextSource;
   message?: string;
+  /**
+   * How much of the source the content actually covers. "window" means a
+   * bounded slice (reader position / PDF page window), "full" means the whole
+   * loaded source fits the budget. Adapters forward this so prompts never
+   * present a window as the whole source.
+   */
+  coverage?: "full" | "window" | "chunks";
 }
 
 interface ResolvePdfAssistantContextParams {

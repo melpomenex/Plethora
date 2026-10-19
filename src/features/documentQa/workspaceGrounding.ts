@@ -1,4 +1,5 @@
-import { runAssistantTurn } from "../../lib/ai/assistant/orchestrator";
+import { runAssistantTurn, type AssistantTurnRequest } from "../../lib/ai/assistant/orchestrator";
+import { trimToTokenWindow } from "../../utils/tokenizer";
 import { useLLMProvidersStore } from "../../stores/llmProvidersStore";
 import type { Document } from "../../types/document";
 import type { Message, RagHit } from "../../stores/documentQAStore";
@@ -53,6 +54,10 @@ export function groundedQaMessage(result: AskLibraryResult, scope: NonNullable<M
 export async function askQaKnowledge(options: {
   history?: import("../../lib/ai/assistant/promptBuilder").ConversationHistoryTurn[];
   question: string; scope: NonNullable<Message["submittedScope"]>; collectionId: string; contextPassage?: string;
+  /** Test/alternate seam for the canonical document text loader. */
+  loadDocumentText?: (documentId: string) => Promise<string>;
+  /** Test seam for provider execution (matches the orchestrator contract). */
+  chatExecutor?: AssistantTurnRequest["chatExecutor"];
 }): Promise<Message> {
   const [{ askLibrary }, { resolveLibraryRagComposition }, { resolveEmbeddingConfigForRag }, { useDocumentStore }, { useCollectionStore }] = await Promise.all([
     import("../../lib/ai/tasks/definitions/libraryTask"), import("../../lib/ai/resolveLibraryRag"),
@@ -68,18 +73,71 @@ export async function askQaKnowledge(options: {
   const documentIds = documents.map((doc) => doc.id);
   let libraryResult: AskLibraryResult | undefined;
   const configured = useLLMProvidersStore.getState().providers.find((provider) => provider.enabled);
+  const turnScope =
+    options.scope.conversationScope ??
+    (documentIds.length === 1 ? "document" : "library");
+
+  // Document scope answers from the selected document's own text — evidence
+  // the user can see — and falls back to document-restricted retrieval only
+  // when that text cannot be resolved. This keeps the workspace honest when
+  // the document is not (yet) in the semantic index.
+  let sourceContent = "";
+  let sourceCoverage: "full" | "window" | undefined;
+  if (turnScope === "document" && documentIds.length === 1) {
+    try {
+      const load = options.loadDocumentText ?? (async (documentId: string) => {
+        const [{ getDocument, extractDocumentText }, { loadDocumentQaText }] = await Promise.all([
+          import("../../api/documents"), import("./sectionContextRequest"),
+        ]);
+        return loadDocumentQaText(documentId, { getDocument, extractDocumentText });
+      });
+      const loaded = (await load(documentIds[0])).trim();
+      if (loaded) {
+        const contextTokens =
+          configured?.contextWindowTokens && configured.contextWindowTokens > 0
+            ? configured.contextWindowTokens
+            : 16384;
+        const sourceBudget = Math.max(512, Math.floor(contextTokens * 0.6));
+        const trimmed = await trimToTokenWindow(loaded, sourceBudget);
+        sourceContent = trimmed;
+        sourceCoverage = trimmed === loaded ? "full" : "window";
+      }
+    } catch {
+      sourceContent = "";
+    }
+  }
+
   const turn = await runAssistantTurn({
-    scope: options.scope.conversationScope ?? (documentIds.length === 1 ? "document" : "library"),
+    scope: turnScope,
     userQuestion: options.question, history: options.history, selectionExcerpt: options.contextPassage,
+    sourceContent, sourceCoverage,
     provider: composition.generatorKind === "cloud" ? configured?.provider ?? "openai" : "ondevice",
     configuredContextTokens: configured?.contextWindowTokens,
     documentsForPrivacyCheck: documents,
+    chatExecutor: options.chatExecutor,
     libraryExecutor: async ({ rewrittenQuery, history, contextBudgetTokens, k }) => {
       libraryResult = await askLibrary({ query: rewrittenQuery, history, contextBudgetTokens, k, config, composition,
-        filters: { documentIds }, contextPassage: options.contextPassage });
+        filters: { documentIds }, contextPassage: options.contextPassage,
+        evidenceScope: turnScope === "document" ? "document" : "library" });
       return libraryResult;
     },
   });
-  if (!libraryResult) throw new Error("qaWorkspace.sourceUnavailable");
-  return { ...groundedQaMessage(libraryResult, { ...options.scope, documentIds }), content: turn.answer };
+  if (libraryResult) {
+    return { ...groundedQaMessage(libraryResult, { ...options.scope, documentIds }), content: turn.answer };
+  }
+  if (!turn.answer.trim()) throw new Error("qaWorkspace.sourceUnavailable");
+  // Answered from the document's own text (no retrieval ran). No fabricated
+  // citations: the source is the selected document itself.
+  return {
+    id: `assistant-${crypto.randomUUID()}`, role: "assistant", timestamp: Date.now(),
+    content: turn.answer,
+    sourceDocuments: [documentIds[0]],
+    submittedScope: { ...options.scope, documentIds },
+    evidence: {
+      level: turn.evidenceLevel ?? "supported",
+      retrievalOnly: false,
+      mode: "semantic",
+      documentCount: 1,
+    },
+  };
 }

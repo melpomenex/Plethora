@@ -6,6 +6,7 @@ import { runAssistantTurn, type AssistantTurnRequest } from "./orchestrator";
 import { getDocument } from "../../../api/documents";
 import { loadDocumentQaText } from "../../../features/documentQa/sectionContextRequest";
 import { extractDocumentText } from "../../../api/documents";
+import { trimToTokenWindow } from "../../../utils/tokenizer";
 
 /** Shared configured adapter for surfaces that do not expose their own provider picker. */
 export async function runConfiguredAssistantTurn(options: Omit<AssistantTurnRequest, "provider"> & {
@@ -17,15 +18,29 @@ export async function runConfiguredAssistantTurn(options: Omit<AssistantTurnRequ
   const path = await resolveAiPath("prompt");
   const configured = useLLMProvidersStore.getState().providers.find((provider) => provider.enabled);
   const provider = path === "ondevice" ? "ondevice" : configured?.provider ?? "ondevice";
+  const configuredContextTokens = path === "ondevice" ? 4096 : configured?.contextWindowTokens;
   let sourceContent = options.sourceContent;
+  let sourceCoverage = options.sourceCoverage;
   if (!sourceContent && options.scope !== "library" && ids.length === 1) {
-    try { sourceContent = await loadDocumentQaText(ids[0], { getDocument, extractDocumentText }); }
+    try {
+      // Canonical full text for the selected document. Document scope answers
+      // from this live evidence; retrieval remains the fallback when the text
+      // cannot be resolved (orchestrator decides with the frozen ids).
+      const loaded = (await loadDocumentQaText(ids[0], { getDocument, extractDocumentText })).trim()
+        || "";
+      if (loaded) {
+        const sourceBudget = Math.max(512, Math.floor((configuredContextTokens ?? 16384) * 0.6));
+        const trimmed = await trimToTokenWindow(loaded, sourceBudget);
+        sourceContent = trimmed;
+        sourceCoverage = trimmed === loaded ? "full" : "window";
+      }
+    }
     catch { sourceContent = ""; }
   }
   return runAssistantTurn({
-    ...options, sourceContent, provider, model: configured?.model, apiKey: configured?.apiKey,
+    ...options, sourceContent, sourceCoverage, provider, model: configured?.model, apiKey: configured?.apiKey,
     baseUrl: configured?.baseUrl, maxOutputTokens: configured?.maxTokens,
-    configuredContextTokens: path === "ondevice" ? 4096 : configured?.contextWindowTokens,
+    configuredContextTokens,
     memoryEnabled: settings.ai.memoryEnabled, strictLocalOnly: settings.ai.strictLocalOnly,
     documentsForPrivacyCheck: documents,
     sourceType: documents[0]?.fileType === "youtube" || documents[0]?.fileType === "video" ? "video" : options.sourceType,
@@ -46,7 +61,8 @@ export async function runConfiguredAssistantTurn(options: Omit<AssistantTurnRequ
       ]);
       const [composition, config] = await Promise.all([resolveLibraryRagComposition(), resolveEmbeddingConfigForRag().catch(() => undefined)]);
       return askLibrary({ query: rewrittenQuery, history, contextPassage, contextBudgetTokens, k, composition, config,
-        filters: ids.length ? { documentIds: ids } : undefined, signal: options.signal });
+        filters: ids.length ? { documentIds: ids } : undefined, signal: options.signal,
+        evidenceScope: options.scope === "document" ? "document" : "library" });
     } : undefined,
   });
 }

@@ -162,6 +162,9 @@ export function DocumentViewer({
   const pwaAssistantSide = useSettingsStore((state) => state.settings.ai.pwaAssistantButtonSide);
   const [documentContent, setDocumentContent] = useState<string | undefined>(undefined);
   const [assistantContent, setAssistantContent] = useState<string | undefined>(undefined);
+  // Coverage is read through assistantCoverageRef inside resolveContextForPrompt;
+  // the render value is not consumed directly.
+  const [, setAssistantCoverage] = useState<"full" | "window" | undefined>(undefined);
   const [assistantStatus, setAssistantStatus] = useState<"ready" | "loading" | "unavailable">("loading");
   const [assistantStatusMessage, setAssistantStatusMessage] = useState<string | undefined>(undefined);
   const [assistantSource, setAssistantSource] = useState<string | undefined>(undefined);
@@ -184,6 +187,7 @@ export function DocumentViewer({
   const scrollStateRef = useRef(scrollState);
   const documentContentRef = useRef<string | undefined>(documentContent);
   const assistantContentRef = useRef<string | undefined>(assistantContent);
+  const assistantCoverageRef = useRef<"full" | "window" | undefined>(undefined);
   const currentDocRef = useRef(currentDoc);
 
   // Global master opt-in (settings v11): Language Learning surfaces exist
@@ -352,6 +356,8 @@ export function DocumentViewer({
     if (videoContext?.videoId) {
       const transcript = videoContext.transcript?.trim();
       setAssistantContent(transcript || undefined);
+      setAssistantCoverage(transcript ? "full" : undefined);
+      assistantCoverageRef.current = transcript ? "full" : undefined;
       setAssistantStatus(transcript ? "ready" : videoContext.transcriptStatus === "loading" ? "loading" : "unavailable");
       setAssistantStatusMessage(transcript ? undefined : "Transcript unavailable");
       setAssistantSource(transcript ? "video-transcript" : undefined);
@@ -363,6 +369,8 @@ export function DocumentViewer({
 
     if (!baseContent) {
       setAssistantContent(undefined);
+      setAssistantCoverage(undefined);
+      assistantCoverageRef.current = undefined;
       setAssistantStatus(currentDoc?.fileType === "pdf" ? "loading" : "unavailable");
       setAssistantStatusMessage(
         currentDoc?.fileType === "pdf"
@@ -378,7 +386,10 @@ export function DocumentViewer({
     trimToTokenWindow(baseContent, maxTokens, aiModel, selection, debouncedScrollPercent)
       .then((trimmed) => {
         if (isActive) {
+          const coverage = trimmed === baseContent ? "full" : "window";
           setAssistantContent(trimmed);
+          setAssistantCoverage(coverage);
+          assistantCoverageRef.current = coverage;
           setAssistantStatus("ready");
           setAssistantStatusMessage(undefined);
           setAssistantSource(currentDoc?.fileType === "pdf" ? "pdf-window" : "document");
@@ -387,6 +398,8 @@ export function DocumentViewer({
       .catch(() => {
         if (isActive) {
           setAssistantContent(baseContent.slice(0, maxTokens * 4));
+          setAssistantCoverage("window");
+          assistantCoverageRef.current = "window";
           setAssistantStatus("ready");
           setAssistantStatusMessage(undefined);
           setAssistantSource(currentDoc?.fileType === "pdf" ? "pdf-window" : "document");
@@ -422,11 +435,13 @@ export function DocumentViewer({
         return {
           ...resolution,
           content: trimmed,
+          coverage: trimmed === resolution.content ? "full" : "window",
         };
       } catch {
         return {
           ...resolution,
           content: resolution.content.slice(0, maxTokens * 4),
+          coverage: "window",
         };
       }
     }
@@ -459,20 +474,25 @@ export function DocumentViewer({
         return {
           ...resolution,
           content: trimmed,
+          coverage: trimmed === resolution.content ? "full" : "window",
         };
       } catch {
         return {
           ...resolution,
           content: resolution.content.slice(0, maxTokens * 4),
+          coverage: "window",
         };
       }
     }
 
-    return resolveGenericAssistantContext(
-      assistantContentRef.current,
-      "document",
-      activeSelection,
-    );
+    return {
+      ...resolveGenericAssistantContext(
+        assistantContentRef.current,
+        "document",
+        activeSelection,
+      ),
+      coverage: assistantCoverageRef.current,
+    };
   }, [aiModel, contextWindowTokens, settings.documents.ocr.autoExtractOnLoad, settings.documents.ocr.autoOCR]);
 
   const assistantContext = useMemo<AssistantContext>(() => {
