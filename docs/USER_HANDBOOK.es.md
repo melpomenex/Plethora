@@ -2276,6 +2276,39 @@ La función **Intervalo de vista previa** le muestra exactamente cuándo aparece
 2. **Verifique la ruta binaria**: configure la ruta binaria de Ollama si no está en la ubicación predeterminada
 3. **Permisos de Linux**: Es posible que necesite `sudo` para instalar o ejecutar el servicio Ollama
 
+#### Windows: «La aplicación no se pudo iniciar porque su configuración en paralelo no es correcta»
+
+**Síntomas:** En Windows, `plethora-tauri.exe` (o `pdf-reflow-diag.exe`) no abre ninguna ventana. En su lugar aparece un cuadro de diálogo que indica que la configuración en paralelo («side-by-side configuration») de la aplicación no es correcta y sugiere `sxstrace.exe`. No se escribe nada en los registros de Plethora, porque el proceso se detiene **antes de que se ejecute cualquier código de la aplicación**.
+
+**Confirmación:** Abre el Visor de eventos → Registros de Windows → Aplicación y busca `SideBySide`, identificador de evento 62, con un mensaje como:
+
+```
+Activation context generation failed for "...\plethora-tauri.exe".
+Error in manifest or policy file "...\plethora-tauri.exe" on line 1.
+The required attribute "packageName" is missing from element "msix".
+```
+
+```powershell
+Get-WinEvent -LogName Application -MaxEvents 300 |
+  Where-Object { $_.ProviderName -eq 'SideBySide' } |
+  Select-Object -First 3 TimeCreated, Id, Message | Format-List
+```
+
+**Causa:** El **manifiesto de aplicación incrustado** del ejecutable no cumple el esquema del manifiesto. Por eso el generador de contextos de activación en paralelo de Windows rechaza todo el manifiesto en la línea 1 y cancela la creación del proceso. Es un defecto de empaquetado del build que instalaste, no un problema de tu equipo. Está corregido a partir de Plethora 3.3.1 para el instalador de Windows.
+
+**Soluciones:**
+1. **Instala el Plethora actual para Windows**: descarga el instalador más reciente e instálalo sobre la copia existente. Una instalación 3.3.0 defectuosa no puede actualizarse sola, porque la aplicación no arranca: hay que descargar y reinstalar; tu biblioteca y tus ajustes se conservan.
+2. **Comprueba qué instalaste** (opcional, requiere las herramientas de línea de comandos del Windows SDK): extrae el manifiesto y mira el elemento `<msix>`:
+   ```
+   mt.exe -inputresource:"C:\Ruta\A\plethora-tauri.exe";#1 -out:%TEMP%\plethora.manifest
+   ```
+   Un manifiesto correcto contiene un único elemento `<msix ... />` vacío con los atributos `packageName`, `publisher` y `applicationId`.
+3. **No** reinstales Microsoft Visual C++ Redistributable, ni ejecutes `sfc /scannow`, ni vuelvas a registrar DLL. El fallo ocurre antes de que se cargue ninguna DLL, y el manifiesto solo depende del ensamblado Microsoft Common Controls, que forma parte de Windows. Esos pasos no pueden cambiar el resultado, y el texto del error no apunta a ellos.
+
+**Notas:**
+- La identidad de paquete (funciones de IA de Windows) solo está disponible si se puede registrar el paquete de identidad que se distribuye con el instalador, lo que requiere que esté firmado por un certificado en el que tu equipo ya confíe. Si no se puede registrar, Plethora funciona con normalidad y solo quedan inactivas las funciones de IA de Windows que dependen de la identidad — Ajustes → IA en el dispositivo indica el motivo.
+- A partir de Windows 10 2004, ese mismo elemento del manifiesto es el que concede esa identidad; en sistemas anteriores la aplicación se ejecuta sin ella.
+
 ### Obteniendo ayuda
 
 **Recursos:**

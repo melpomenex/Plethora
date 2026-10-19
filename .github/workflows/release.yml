@@ -251,6 +251,18 @@ jobs:
           nuget install Microsoft.WindowsAppSDK -OutputDirectory $env:USERPROFILE\.nuget\packages -ExcludeVersion
           echo "WINDOWS_APP_SDK_ROOT=$env:USERPROFILE\.nuget\packages\Microsoft.WindowsAppSDK" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+      # The application version in tauri.conf.json owns the Windows identity
+      # metadata: it drives the PE FILEVERSION/PRODUCTVERSION resource through
+      # tauri-build *and* the sparse package identity (the <msix> element in
+      # windows/app.manifest plus Identity/@Version in Package.appxmanifest).
+      # A drift between those two is how the 3.3.0 installer shipped 3.3.0
+      # binaries whose embedded manifest still declared 2.7.0.0 — and the
+      # identity version must also move forward for package updates to
+      # re-register. Fail here, before either artifact is produced.
+      - name: Assert Windows identity metadata is in sync
+        if: matrix.os == 'windows'
+        run: node scripts/sync-windows-identity.mjs
+
       - name: Build Windows sparse identity package
         if: matrix.os == 'windows'
         shell: pwsh

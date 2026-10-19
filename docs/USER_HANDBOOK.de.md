@@ -2278,6 +2278,39 @@ Die Funktion **Vorschauintervall** zeigt Ihnen genau an, wann jede Karte für al
 2. **Binärpfad prüfen**: Legen Sie den Ollama-Binärpfad fest, wenn er nicht am Standardspeicherort ist
 3. **Linux-Berechtigungen**: Möglicherweise benötigen Sie „sudo“, um den Ollama-Dienst zu installieren oder auszuführen
 
+#### Windows: „Die Anwendung konnte nicht gestartet werden, da die parallele Konfiguration nicht korrekt ist"
+
+**Symptome:** Unter Windows öffnet `plethora-tauri.exe` (oder `pdf-reflow-diag.exe`) kein Fenster. Stattdessen erscheint ein Dialog, der besagt, dass die parallele Konfiguration („side-by-side configuration") der Anwendung nicht korrekt ist, und `sxstrace.exe` vorschlägt. In den Plethora-Protokollen steht nichts, weil der Prozess **beendet wird, bevor Anwendungscode ausgeführt wird**.
+
+**Bestätigung:** Öffnen Sie die Ereignisanzeige → Windows-Protokolle → Anwendung und suchen Sie nach `SideBySide`, Ereignis-ID 62, mit einer Meldung wie:
+
+```
+Activation context generation failed for "...\plethora-tauri.exe".
+Error in manifest or policy file "...\plethora-tauri.exe" on line 1.
+The required attribute "packageName" is missing from element "msix".
+```
+
+```powershell
+Get-WinEvent -LogName Application -MaxEvents 300 |
+  Where-Object { $_.ProviderName -eq 'SideBySide' } |
+  Select-Object -First 3 TimeCreated, Id, Message | Format-List
+```
+
+**Ursache:** Das **eingebettete Anwendungsmanifest** der ausführbaren Datei entspricht nicht dem Manifestschema. Der Side-by-Side-Generator von Windows verwirft deshalb das gesamte Manifest in Zeile 1 und bricht die Prozesserstellung ab. Das ist ein Paketierungsfehler des installierten Builds und kein Problem Ihres PCs. Ab Plethora 3.3.1 ist er für den Windows-Installer behoben.
+
+**Lösungen:**
+1. **Aktuelles Plethora für Windows installieren**: Laden Sie den neuesten Installer herunter und installieren Sie ihn über die vorhandene Kopie. Eine defekte 3.3.0-Installation kann sich nicht selbst aktualisieren, weil die App gar nicht startet — das Herunterladen und Neuinstallieren ist erforderlich; Bibliothek und Einstellungen bleiben erhalten.
+2. **Prüfen, was installiert ist** (optional, erfordert die Kommandozeilentools des Windows SDK): Extrahieren Sie das Manifest und sehen Sie sich das `<msix>`-Element an:
+   ```
+   mt.exe -inputresource:"C:\Pfad\Zu\plethora-tauri.exe";#1 -out:%TEMP%\plethora.manifest
+   ```
+   Ein fehlerfreies Manifest enthält ein einzelnes, leeres `<msix ... />`-Element mit den Attributen `packageName`, `publisher` und `applicationId`.
+3. **Nicht** das Microsoft Visual C++ Redistributable neu installieren, `sfc /scannow` ausführen oder DLLs neu registrieren. Der Fehler tritt auf, bevor eine DLL geladen wird, und das Manifest hat als einzige Abhängigkeit die Microsoft Common Controls-Assembly, die Teil von Windows ist. Diese Schritte können das Ergebnis nicht ändern, und der Fehlertext weist nicht darauf hin.
+
+**Hinweise:**
+- Die Paketidentität (Windows-KI-Funktionen) steht nur zur Verfügung, wenn das mit dem Installer ausgelieferte Identitätspaket registriert werden kann, was ein von Ihrem Rechner bereits vertrautes Signaturzertifikat erfordert. Kann es nicht registriert werden, läuft Plethora normal und nur die identitätsabhängigen Windows-KI-Funktionen bleiben aus — Einstellungen → On-Device-KI zeigt den Grund.
+- Ab Windows 10 2004 ist genau dieses Manifest-Element für diese Identität verantwortlich; auf älteren Systemen läuft die Anwendung ohne sie.
+
 ### Hilfe bekommen
 
 **Ressourcen:**

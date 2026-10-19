@@ -2295,6 +2295,39 @@ The **Preview Interval** feature shows you exactly when each card will appear ne
 2. **Check binary path**: Set the Ollama Binary Path if not in default location
 3. **Linux permissions**: You may need `sudo` to install or run the Ollama service
 
+#### Windows: "The application has failed to start because its side-by-side configuration is incorrect"
+
+**Symptoms:** On Windows, `plethora-tauri.exe` (or `pdf-reflow-diag.exe`) never opens a window. Instead you get a dialog that says the application's side-by-side configuration is incorrect and suggests `sxstrace.exe`. Nothing is written to Plethora's own logs, because the process is stopped **before any application code runs**.
+
+**Confirmation:** Open Event Viewer → Windows Logs → Application and look for `SideBySide`, event ID 62, with a message like:
+
+```
+Activation context generation failed for "...\plethora-tauri.exe".
+Error in manifest or policy file "...\plethora-tauri.exe" on line 1.
+The required attribute "packageName" is missing from element "msix".
+```
+
+```powershell
+Get-WinEvent -LogName Application -MaxEvents 300 |
+  Where-Object { $_.ProviderName -eq 'SideBySide' } |
+  Select-Object -First 3 TimeCreated, Id, Message | Format-List
+```
+
+**Cause:** The executable's **embedded application manifest** does not conform to the manifest schema, so Windows' Side-by-Side activation context generator rejects the whole manifest at line 1 and aborts process creation. This is a packaging defect in the build you installed, not a problem with your PC. It is fixed from Plethora 3.3.1 onward for the Windows installer.
+
+**Solutions:**
+1. **Install the current Plethora for Windows**: download the latest installer and install over the existing copy. On a broken 3.3.0 install the app cannot start at all, so it cannot update itself — the download-and-reinstall step is required, and your library and settings are kept.
+2. **Confirm what you installed** (optional, needs the Windows SDK command-line tools): extract the manifest and look at the `<msix>` element:
+   ```
+   mt.exe -inputresource:"C:\Path\To\plethora-tauri.exe";#1 -out:%TEMP%\plethora.manifest
+   ```
+   A healthy manifest contains a single, empty `<msix ... />` element with `packageName`, `publisher` and `applicationId` attributes.
+3. **Do not** reinstall the Microsoft Visual C++ Redistributable, run `sfc /scannow`, or re-register DLLs. The failure happens before any DLL is loaded, and the manifest's only dependency is the Microsoft Common Controls assembly that is part of Windows. These steps cannot change the outcome, and the error text does not point at them.
+
+**Notes:**
+- Package identity (Windows AI features) only becomes available when the identity package shipped with the installer can be registered, which requires it to be signed by a certificate your machine already trusts. If it cannot be registered, Plethora runs normally and only the identities-dependent Windows AI features stay off — Settings → On-device AI shows why.
+- On Windows 10 2004 and later the same manifest element is what grants that identity; on older systems the application runs without it.
+
 ### Getting Help
 
 **Resources:**

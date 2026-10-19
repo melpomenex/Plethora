@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
-  <assemblyIdentity version="2.7.0.0" processorArchitecture="*" name="Plethora.Plethora" type="win32" />
+  <assemblyIdentity version="3.3.0.0" processorArchitecture="*" name="Plethora.Plethora" type="win32" />
   <dependency>
     <dependentAssembly>
       <assemblyIdentity
@@ -12,10 +12,25 @@
         language="*" />
     </dependentAssembly>
   </dependency>
-  <msix xmlns="urn:schemas-microsoft-com:msix.v1">
-    <publisherIdentity name="CN=Plethora Sparse Dev" publisher="CN=Plethora Sparse Dev" />
-    <packageIdentity name="Plethora.Plethora" publisher="CN=Plethora Sparse Dev" version="2.7.0.0" processorArchitecture="neutral" />
-  </msix>
+  <!--
+    Package identity for the sparse (external-location) identity package that
+    NSIS installs ship as PlethoraIdentity.msix.
+
+    The Windows loader requires the APPLICATION-manifest form: a childless
+    element carrying packageName / publisher / applicationId, whose values must
+    match the identity package manifest's Identity/@Name, Identity/@Publisher
+    and Applications/Application/@Id. Shipping the package-manifest (AppxManifest)
+    form here — child <publisherIdentity>/<packageIdentity> elements — makes the
+    Side-by-Side activation context generator reject the whole manifest
+    (ERROR_SXS_CANT_GEN_ACTCTX / 14001, SideBySide event ID 62) before main()
+    runs, so the process never starts.
+
+    https://learn.microsoft.com/windows/win32/sbscs/application-manifests#msix
+  -->
+  <msix xmlns="urn:schemas-microsoft-com:msix.v1"
+        packageName="Plethora.Plethora"
+        publisher="CN=Plethora Sparse Dev"
+        applicationId="Plethora" />
   <application xmlns="urn:schemas-microsoft-com:asm.v3">
     <windowsSettings>
       <activeCodePage xmlns="http://schemas.microsoft.com/SMI/2019/WindowsSettings">UTF-8</activeCodePage>

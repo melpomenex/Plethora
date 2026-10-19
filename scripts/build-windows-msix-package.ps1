@@ -1,8 +1,12 @@
 # Builds a full MSIX desktop package from a release NSIS staging directory.
 # Store signing requires a production certificate — this script uses the same dev cert as sparse identity.
+#
+# The packaged version is asserted against src-tauri/tauri.conf.json (the single
+# source of identity metadata, propagated by scripts/sync-windows-identity.mjs)
+# rather than defaulted here: the old `-Version 2.7.0.0` default let the Store
+# package declare an identity years behind the application.
 param(
   [Parameter(Mandatory = $true)][string]$StageDir,
-  [string]$Version = "2.7.0.0",
   [string]$OutDir = "src-tauri/windows/msix/out"
 )
 
@@ -11,6 +15,25 @@ $Root = Split-Path -Parent $PSScriptRoot
 $MsixDir = Join-Path $Root "src-tauri/windows/msix"
 $SparseAssets = Join-Path $Root "src-tauri/windows/sparse/Assets"
 $AssetsDir = Join-Path $MsixDir "Assets"
+
+# --- identity version assertion (single source of truth) --------------------
+$TauriConfPath = Join-Path $Root "src-tauri/tauri.conf.json"
+$AppVersion = (Get-Content $TauriConfPath -Raw | ConvertFrom-Json).version
+if (-not $AppVersion) {
+  throw "src-tauri/tauri.conf.json has no version; cannot derive the MSIX package version."
+}
+$VersionParts = @($AppVersion.Split('.'))
+while ($VersionParts.Count -lt 4) { $VersionParts += '0' }
+$ExpectedVersion = ($VersionParts -join '.')
+
+[xml]$MsixManifestXml = Get-Content (Join-Path $MsixDir "Package.appxmanifest") -Raw
+$DeclaredVersion = $MsixManifestXml.Package.Identity.Version
+if ($DeclaredVersion -ne $ExpectedVersion) {
+  throw ("MSIX package version '$DeclaredVersion' in src-tauri/windows/msix/Package.appxmanifest " +
+    "does not match application version '$ExpectedVersion' (from src-tauri/tauri.conf.json). " +
+    "Fix with: node scripts/sync-windows-identity.mjs --write")
+}
+Write-Host "MSIX package version asserted: $DeclaredVersion"
 
 if (-not (Test-Path $StageDir)) {
   Write-Error "Stage directory not found: $StageDir"

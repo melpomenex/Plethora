@@ -1,7 +1,12 @@
 # Builds and signs the Plethora sparse identity package for NSIS installs.
 # Requires Windows SDK MakeAppx + SignTool (Visual Studio Build Tools).
+#
+# The identity version is OWNED by src-tauri/tauri.conf.json and propagated by
+# scripts/sync-windows-identity.mjs. This script asserts agreement instead of
+# carrying a default of its own: the old `-Version 2.7.0.0` default let the
+# packaged identity drift years behind the application, and a dead parameter
+# never failed because nothing compared it with the packed manifest.
 param(
-  [string]$Version = "2.7.0.0",
   [string]$OutDir = "src-tauri/windows/sparse/out"
 )
 
@@ -10,6 +15,26 @@ $Root = Split-Path -Parent $PSScriptRoot
 $SparseDir = Join-Path $Root "src-tauri/windows/sparse"
 $Manifest = Join-Path $SparseDir "Package.appxmanifest"
 $AssetsDir = Join-Path $SparseDir "Assets"
+
+# --- identity version assertion (single source of truth) --------------------
+$TauriConfPath = Join-Path $Root "src-tauri/tauri.conf.json"
+$AppVersion = (Get-Content $TauriConfPath -Raw | ConvertFrom-Json).version
+if (-not $AppVersion) {
+  throw "src-tauri/tauri.conf.json has no version; cannot derive the identity package version."
+}
+$VersionParts = @($AppVersion.Split('.'))
+while ($VersionParts.Count -lt 4) { $VersionParts += '0' }
+$ExpectedVersion = ($VersionParts -join '.')
+
+[xml]$ManifestXml = Get-Content $Manifest -Raw
+$DeclaredVersion = $ManifestXml.Package.Identity.Version
+if ($DeclaredVersion -ne $ExpectedVersion) {
+  throw ("Identity package version '$DeclaredVersion' in src-tauri/windows/sparse/Package.appxmanifest " +
+    "does not match application version '$ExpectedVersion' (from src-tauri/tauri.conf.json). " +
+    "Fix with: node scripts/sync-windows-identity.mjs --write")
+}
+Write-Host "Identity package version asserted: $DeclaredVersion"
+
 
 if (-not (Test-Path $AssetsDir)) {
   New-Item -ItemType Directory -Path $AssetsDir -Force | Out-Null
