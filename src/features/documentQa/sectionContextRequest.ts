@@ -6,7 +6,7 @@ export interface DocumentQaRequestContent {
 export async function loadDocumentQaText(
   documentId: string,
   loaders: {
-    getDocument: (id: string) => Promise<{ content?: string | null; fileType?: string; filePath?: string } | null | undefined>;
+    getDocument: (id: string) => Promise<{ content?: string | null; fileType?: string; filePath?: string; metadata?: any } | null | undefined>;
     extractDocumentText: (id: string) => Promise<{ content?: string | null } | null | undefined>;
   },
 ): Promise<string> {
@@ -14,14 +14,37 @@ export async function loadDocumentQaText(
   if (document?.fileType === "youtube") {
     const videoId = document.filePath?.match(/(?:v=|youtu\.be\/|embed\/)([\w-]{11})/)?.[1] ?? document.filePath;
     if (videoId) {
-      const { invokeCommand } = await import("../../lib/tauri");
-      const segments = await invokeCommand<Array<{ start: number; text: string }>>("get_youtube_transcript_by_id", { videoId, documentId });
-      return segments.map((segment) => `[${Math.floor(segment.start / 60)}:${String(Math.floor(segment.start % 60)).padStart(2, "0")}] ${segment.text}`).join("\n");
+      try {
+        const { invokeCommand } = await import("../../lib/tauri");
+        const segments = await invokeCommand<Array<{ start: number; text: string }>>("get_youtube_transcript_by_id", { videoId, documentId });
+        if (Array.isArray(segments) && segments.length > 0) {
+          return segments.map((segment) => `[${Math.floor(segment.start / 60)}:${String(Math.floor(segment.start % 60)).padStart(2, "0")}] ${segment.text}`).join("\n");
+        }
+      } catch (err) {
+        console.warn("Failed to load YouTube transcript for document:", documentId, err);
+      }
     }
   }
-  if (document?.content?.trim()) return document.content;
+  if (document?.metadata?.xThread) {
+    const xThread = document.metadata.xThread;
+    if (typeof xThread.structuredText === "string" && xThread.structuredText.trim()) {
+      return xThread.structuredText.trim();
+    }
+    if (Array.isArray(xThread.posts) && xThread.posts.length > 0) {
+      try {
+        const { resolveTwitterThreadAssistantContext } = await import("../../utils/assistantContext");
+        const resolved = resolveTwitterThreadAssistantContext(document as any);
+        if (typeof resolved.content === "string" && resolved.content.trim()) {
+          return resolved.content.trim();
+        }
+      } catch (err) {
+        console.warn("Failed to resolve X thread context for document:", documentId, err);
+      }
+    }
+  }
+  if (typeof document?.content === "string" && document.content.trim()) return document.content.trim();
   const extracted = await loaders.extractDocumentText(documentId);
-  return extracted?.content?.trim() ? extracted.content : "";
+  return typeof extracted?.content === "string" && extracted.content.trim() ? extracted.content.trim() : "";
 }
 
 /**

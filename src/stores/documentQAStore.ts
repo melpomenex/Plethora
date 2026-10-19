@@ -48,6 +48,10 @@ export interface Message {
     retrievalOnly: boolean;
     mode: "semantic" | "lexicalOnly";
     documentCount: number;
+    /** What the supplied source content covered (full transcript, synthesis, bounded window/chunks). */
+    coverage?: "full" | "hierarchical-full" | "window" | "chunks" | "none";
+    /** Transcript acquisition status when the answer grounded on a video source. */
+    transcriptStatus?: import("../lib/ai/assistant/scopes").TranscriptAvailabilityStatus;
   };
 }
 

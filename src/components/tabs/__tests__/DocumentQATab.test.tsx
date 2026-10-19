@@ -729,7 +729,7 @@ describe("Document Q&A workspace entry", () => {
     await waitFor(() => expect(askLibrary).toHaveBeenCalledWith(expect.objectContaining({ query: "Explain cells", filters: { documentIds: ["doc-1"] } })));
     await screen.findByText("Cells share a common structure [1].");
     view.unmount(); render(<DocumentQATab />);
-    expect(screen.getByText("Source documents: 1")).toBeInTheDocument();
+    expect(screen.getByText(/Source documents: 1/)).toBeInTheDocument();
     const answer = useDocumentQAStore.getState().messages.find((message) => message.role === "assistant");
     expect(answer?.submittedScope?.label).toBe("Biology Textbook");
     expect(answer?.citations?.[0].citationNumber).toBe(1);
@@ -821,5 +821,82 @@ describe("Document Q&A workspace entry", () => {
     expect(workspace?.children[0]?.querySelector?.('[role="group"][aria-label="Assistant scope"]')).toBeNull();
     // Verify the scope picker exists adjacent to the composer sources
     expect(screen.getByRole("group", { name: "Assistant scope" })).toBeInTheDocument();
+  });
+});
+
+describe("DocumentQATab transcript coverage disclosure", () => {
+  const assistantWithEvidence = (id: string, evidence: QAMessage["evidence"]): QAMessage => ({
+    id,
+    role: "assistant",
+    content: "The video's main claim is precise neural control.",
+    timestamp: 2_000,
+    sourceDocuments: ["doc-1"],
+    evidence,
+  });
+
+  it("renders the actual transcript coverage beside the evidence summary", async () => {
+    const session = createSession({
+      selectedDocumentId: "doc-1",
+      messages: [
+        assistantWithEvidence("assistant-full", {
+          level: "supported",
+          retrievalOnly: false,
+          mode: "semantic",
+          documentCount: 1,
+          coverage: "hierarchical-full",
+          transcriptStatus: "ready-full",
+        }),
+      ],
+    });
+    saveSessions([session]);
+    setActiveSessionId(session.id);
+
+    render(<DocumentQATab />);
+
+    expect(await screen.findByText(/Source documents: 1 · Full-transcript synthesis/)).toBeInTheDocument();
+  });
+
+  it("discloses an unavailable transcript instead of presenting fragments as the video", async () => {
+    const session = createSession({
+      selectedDocumentId: "doc-1",
+      messages: [
+        assistantWithEvidence("assistant-no-transcript", {
+          level: "weak",
+          retrievalOnly: false,
+          mode: "semantic",
+          documentCount: 1,
+          coverage: "chunks",
+          transcriptStatus: "unavailable",
+        }),
+      ],
+    });
+    saveSessions([session]);
+    setActiveSessionId(session.id);
+
+    render(<DocumentQATab />);
+
+    expect(await screen.findByText(/Transcript unavailable/)).toBeInTheDocument();
+    expect(screen.getByText(/Selected passages/)).toBeInTheDocument();
+  });
+
+  it("renders legacy evidence without coverage fields unchanged", async () => {
+    const session = createSession({
+      selectedDocumentId: "doc-1",
+      messages: [
+        assistantWithEvidence("assistant-legacy", {
+          level: "supported",
+          retrievalOnly: false,
+          mode: "semantic",
+          documentCount: 2,
+        }),
+      ],
+    });
+    saveSessions([session]);
+    setActiveSessionId(session.id);
+
+    render(<DocumentQATab />);
+
+    expect(await screen.findByText("Source documents: 2")).toBeInTheDocument();
+    expect(screen.queryByText(/Full transcript|Selected passages|Transcript unavailable/)).toBeNull();
   });
 });

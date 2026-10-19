@@ -25,6 +25,7 @@ import {
   type ResearchArtifactDraft,
 } from "../../features/documentQa/notebooklmResearch";
 import { createDocumentQaRequestContent, loadDocumentQaText } from "../../features/documentQa/sectionContextRequest";
+import { isVideoDocumentFileType, truncateLegacyQaContext } from "../../features/documentQa/legacyContextWindow";
 import {
   BookOpen,
   Check,
@@ -888,14 +889,15 @@ export function DocumentQATab() {
         };
       }
 
-      // If document has content, use it (with truncation if needed)
+      // If document has content, use it (with truncation if needed). Video
+      // transcripts are never head-sliced: the video planner decides coverage.
       if (documentContent) {
         const maxTokens = contextWindowTokens && contextWindowTokens > 0 ? contextWindowTokens : 4000;
-        const maxChars = maxTokens * 4;
-        let content = documentContent;
-        if (content.length > maxChars) {
-          content = content.slice(0, maxChars) + "\n\n[Content truncated due to length...]";
-        }
+        const content = truncateLegacyQaContext(
+          documentContent,
+          maxTokens,
+          isVideoDocumentFileType(doc?.fileType),
+        );
         return {
           content: `Document: ${docTitle}\n\n${content}`,
           isChapterSpecific: false,
@@ -977,14 +979,14 @@ export function DocumentQATab() {
     // Combine contents
     let combined = results.map(r => r.content).join("\n\n---\n\n");
 
-    // Rough token estimation and truncation
+    // Rough token estimation and truncation. A single video document is
+    // exempt (complete-transcript grounding); mixed or non-video sets keep the
+    // legacy bounded context.
     const maxTokens = contextWindowTokens && contextWindowTokens > 0 ? contextWindowTokens : 4000;
-    const estimatedCharsPerToken = 4;
-    const maxChars = maxTokens * estimatedCharsPerToken;
-
-    if (combined.length > maxChars) {
-      combined = combined.slice(0, maxChars) + "\n\n[Content truncated due to length...]";
-    }
+    const singleVideoDocument =
+      documentIds.length === 1 &&
+      isVideoDocumentFileType(documents.find((document) => document.id === documentIds[0])?.fileType);
+    combined = truncateLegacyQaContext(combined, maxTokens, singleVideoDocument);
 
     return {
       content: combined,
@@ -1508,7 +1510,7 @@ export function DocumentQATab() {
         addMessage({ id: `assistant-${Date.now()}`, role: "assistant", timestamp: Date.now(), submittedScope,
           content: parsed.answer, thinking: parsed.thinking || undefined,
           citations: result.citations?.map((source, index) => ({ documentId: source.documentId, documentTitle: source.documentTitle ?? source.documentId, chunkIndex: source.location.ordinal, chunkText: source.text, score: source.score, citationNumber: index + 1 })),
-          evidence: result.evidenceLevel ? { level: result.evidenceLevel, retrievalOnly: false, mode: "semantic", documentCount: new Set(result.citations?.map((source) => source.documentId)).size } : undefined,
+          evidence: result.evidenceLevel ? { level: result.evidenceLevel, retrievalOnly: false, mode: "semantic", documentCount: new Set(result.citations?.map((source) => source.documentId)).size, coverage: result.sourceCoverage, transcriptStatus: result.transcriptStatus } : undefined,
         });
         restoreRetryRef.current = null;
         return;
@@ -1667,7 +1669,7 @@ export function DocumentQATab() {
       const response = await runAssistantTurn({
         scope: assistantScope, userQuestion: String(userPrompt.content),
         sourceContent: requestContent.contextContent, sourceId: mentionedDocumentIds[0], sourceTitle: sourceLabel,
-        sourceType: targetDocument?.fileType === "youtube" ? "video" : "document", selectionExcerpt: contextPassage,
+        sourceType: isVideoDocumentFileType(targetDocument?.fileType) ? "video" : "document", selectionExcerpt: contextPassage,
         history: conversationHistory.map((message) => ({ role: message.role, content: String(message.content) })),
         provider: provider.provider, model: provider.model, apiKey: provider.apiKey, baseUrl: provider.baseUrl,
         temperature: provider.temperature, maxOutputTokens: provider.maxTokens, configuredContextTokens: provider.contextWindowTokens,
@@ -1984,6 +1986,11 @@ export function DocumentQATab() {
                           and must not gain a second footer). */}
                       {message.evidence && <p className="mt-3 text-xs text-on-surface-variant">
                         {t("qaWorkspace.sourcesCount", { count: message.evidence.documentCount })}
+                        {message.evidence.coverage === "full" && ` · ${t("qaWorkspace.coverageFullTranscript")}`}
+                        {message.evidence.coverage === "hierarchical-full" && ` · ${t("qaWorkspace.coverageHierarchicalTranscript")}`}
+                        {message.evidence.coverage === "window" && ` · ${t("qaWorkspace.coverageWindow")}`}
+                        {message.evidence.coverage === "chunks" && !message.evidence.retrievalOnly && ` · ${t("qaWorkspace.coverageChunks")}`}
+                        {(message.evidence.transcriptStatus === "unavailable" || message.evidence.transcriptStatus === "failed") && ` · ${t("qaWorkspace.transcriptUnavailable")}`}
                         {message.evidence.retrievalOnly && ` · ${t("qaWorkspace.retrievalOnly")}`}
                         {message.evidence.level === "weak" && ` · ${t("qaWorkspace.weakEvidence")}`}
                         {message.evidence.level === "none" && ` · ${t("qaWorkspace.noEvidence")}`}

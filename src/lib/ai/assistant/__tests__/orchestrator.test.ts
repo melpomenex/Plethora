@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { runAssistantTurn } from "../orchestrator";
+import { runAssistantTurn, type AssistantTurnRequest } from "../orchestrator";
+
+type ChatExecutorArgs = Parameters<NonNullable<AssistantTurnRequest["chatExecutor"]>>[0];
 
 describe("runAssistantTurn (Unified Assistant Orchestrator)", () => {
   it("allows unrelated general-knowledge questions in Chat scope even when document context is empty", async () => {
@@ -279,5 +281,118 @@ describe("runAssistantTurn (Unified Assistant Orchestrator)", () => {
     expect(res.evidenceLevel).toBe("none");
     expect(res.suggestSwitchToChat).toBe(true);
     expect(res.citations).toEqual([]);
+  });
+
+  const retrievalFallback = async (): Promise<import("../../tasks/definitions/libraryTask").AskLibraryResult> => ({
+    answer: {
+      answer: "Sparse attention reduces complexity [1]",
+      sourceRefs: [{ refId: "chunk-1", quote: "Sparse attention reduces complexity" }],
+      evidenceLevel: "supported" as const,
+    },
+    sources: [
+      {
+        chunkId: "chunk-1",
+        documentId: "video-1",
+        documentTitle: "Video",
+        sourceType: "video",
+        text: "Sparse attention reduces complexity.",
+        headingPath: [],
+        location: { sourceType: "text" as const, documentId: "video-1", startOffset: 0, endOffset: 36, ordinal: 0, timestampMs: 5000 },
+        score: 0.9,
+        referenceNumber: 1,
+        quote: "Sparse attention reduces complexity.",
+        origin: "library" as const,
+      },
+    ],
+    droppedChunks: 0,
+    mode: "semantic" as const,
+    candidatesScanned: 3,
+    composition: { retrieverId: "ai_learning" as const, generatorKind: "cloud" as const, namespace: "library" as const },
+    retrievalOnly: false,
+    run: {} as never,
+  });
+
+  it("grounds a library-scope single-video complete-transcript turn without retrieval", async () => {
+    const chatExecutor = vi.fn(async (_args: ChatExecutorArgs) => ({
+      content: "The transcript's main claim is precise neural control [00:05].",
+    }));
+    const libraryExecutor = vi.fn(async (): Promise<never> => {
+      throw new Error("retrieval must not replace the complete transcript");
+    });
+
+    const res = await runAssistantTurn({
+      scope: "library",
+      userQuestion: "What is the main claim of this video?",
+      sourceType: "video",
+      sourceId: "video-1",
+      sourceTitle: "Video",
+      sourceContent:
+        "[00:05] Channelrhodopsin lets light control neurons.\n[00:10] The main claim is precise neural control.",
+      completeTranscriptSource: true,
+      provider: "openai",
+      chatExecutor,
+      libraryExecutor,
+    });
+
+    expect(libraryExecutor).not.toHaveBeenCalled();
+    expect(res.sourceCoverage).toBe("full");
+    expect(res.transcriptStatus).toBe("ready-full");
+    const system = chatExecutor.mock.calls[0][0].messages.find((message) => message.role === "system");
+    expect(String(system?.content)).not.toContain("SOURCE COVERAGE LIMIT");
+  });
+
+  it("composes hierarchical coverage for an over-budget single-video turn and never slices the tail", async () => {
+    const lines = Array.from({ length: 320 }, (_, i) => `[${Math.floor(i / 60)}:${String(i % 60).padStart(2, "0")}] line ${i} about optogenetics and neural circuits in detail.`);
+    lines.push("[166:30] CLOSING_SENTINEL the final remark.");
+    const chatExecutor = vi.fn(async (_args: ChatExecutorArgs) => ({
+      content: "Synthesized answer across the whole video.",
+    }));
+    const libraryExecutor = vi.fn(async (): Promise<never> => {
+      throw new Error("retrieval must not replace complete-transcript coverage");
+    });
+
+    const res = await runAssistantTurn({
+      scope: "library",
+      userQuestion: "What does the video say about neural circuits?",
+      sourceType: "video",
+      sourceId: "video-1",
+      sourceTitle: "Video",
+      sourceContent: lines.join("\n"),
+      completeTranscriptSource: true,
+      provider: "openai",
+      chatExecutor,
+      libraryExecutor,
+    });
+
+    expect(libraryExecutor).not.toHaveBeenCalled();
+    expect(res.sourceCoverage).toBe("hierarchical-full");
+    const summarizeInputs = chatExecutor.mock.calls
+      .map((call) => String(call[0]?.context?.content ?? ""))
+      .join("\n");
+    expect(summarizeInputs).toContain("CLOSING_SENTINEL");
+    const finalSystem = chatExecutor.mock.calls.at(-1)![0].messages.find((message) => message.role === "system");
+    expect(String(finalSystem?.content)).not.toContain("SOURCE COVERAGE LIMIT");
+  });
+
+  it("falls back to document-restricted retrieval when a complete-transcript video has no transcript", async () => {
+    const chatExecutor = vi.fn(async () => ({ content: "Fragment answer." }));
+    const libraryExecutor = vi.fn(retrievalFallback);
+
+    const res = await runAssistantTurn({
+      scope: "library",
+      userQuestion: "What does this video say about sparse attention?",
+      sourceType: "video",
+      sourceId: "video-1",
+      sourceContent: "",
+      completeTranscriptSource: true,
+      transcriptStatus: "unavailable",
+      provider: "openai",
+      chatExecutor,
+      libraryExecutor,
+    });
+
+    expect(libraryExecutor).toHaveBeenCalledTimes(1);
+    expect(res.sourceCoverage).toBe("chunks");
+    expect(res.transcriptStatus).toBe("unavailable");
   });
 });

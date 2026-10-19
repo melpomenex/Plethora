@@ -30,6 +30,14 @@ export interface VideoContextInput {
   retryable?: boolean;
   /** Where the available transcript actually ends, when partial. */
   coveredUntilSeconds?: number;
+  /**
+   * Complete-coverage turns (a single video source in Document Q&A): an
+   * over-budget question that targets no bounded region must cover the whole
+   * transcript through hierarchical synthesis rather than a retrieval set.
+   */
+  requireCompleteCoverage?: boolean;
+  /** Internal fallback switch: false disables hierarchical synthesis so a bounded retrieval plan can answer. */
+  allowMapReduce?: boolean;
 }
 export interface VideoContextPlan {
   mode: "full" | "timestamp" | "playback" | "retrieval" | "map-reduce" | "unavailable";
@@ -144,7 +152,24 @@ export function planVideoContext(input: VideoContextInput): VideoContextPlan {
   }
   const references = parseTimestampReferences(input.query);
   const playback = input.currentTime != null && /\b(just (?:say|said)|this part|this passage|right now|speaker.*here|mean.*that|currently|playing)\b/i.test(input.query);
-  if (!references.length && !playback && /\b(summar(?:y|ize)|main arguments|key takeaways|whole video|full outline|entire video|overview)\b/i.test(input.query)) {
+  const allowMapReduce = input.allowMapReduce !== false;
+  const summaryIntent = /\b(summar(?:y|ize)|main arguments|key takeaways|whole video|full outline|entire video|overview)\b/i.test(input.query);
+  if (allowMapReduce && !references.length && !playback && summaryIntent) {
+    return finalize(
+      { mode: "map-reduce", coverage: "none", content: "", chunkCount: index.windows.length, timeRangeCovered: range },
+      input,
+    );
+  }
+  // Complete-coverage turns never settle for a bounded fragment set while
+  // hierarchical synthesis can cover every window: an ordinary question whose
+  // evidence may lie anywhere must be answered from the whole transcript.
+  if (
+    allowMapReduce &&
+    input.requireCompleteCoverage &&
+    !references.length &&
+    !playback &&
+    !input.selection?.trim()
+  ) {
     return finalize(
       { mode: "map-reduce", coverage: "none", content: "", chunkCount: index.windows.length, timeRangeCovered: range },
       input,

@@ -25,6 +25,26 @@ describe("video context planning", () => {
   it("requests synthesis for over-budget whole-video questions", () => {
     expect(planVideoContext({ segments: longTranscript, query: "main arguments across the whole video", sourceBudgetTokens: 700 }).mode).toBe("map-reduce");
   });
+  it("requests complete-coverage synthesis for ordinary over-budget questions on a complete-transcript turn", () => {
+    const plan = planVideoContext({ segments: longTranscript, query: "Explain quantum entanglement", sourceBudgetTokens: 700, requireCompleteCoverage: true });
+    expect(plan.mode).toBe("map-reduce");
+    expect(plan.chunkCount).toBeGreaterThan(0);
+  });
+  it("keeps bounded strategies for timestamp and playback questions on a complete-transcript turn", () => {
+    const timestamped = planVideoContext({ segments: longTranscript, query: "Explain 42:00", sourceBudgetTokens: 1000, requireCompleteCoverage: true });
+    expect(timestamped.mode).toBe("timestamp");
+    expect(timestamped.content).toContain("[42:");
+    const playback = planVideoContext({ segments: longTranscript, query: "What did they just say?", currentTime: 2060, sourceBudgetTokens: 700, requireCompleteCoverage: true });
+    expect(playback.mode).toBe("playback");
+    expect(playback.content).toContain("[34:");
+  });
+  it("falls back to retrieval windows when hierarchical synthesis is disabled or unavailable", () => {
+    const fallback = planVideoContext({ segments: longTranscript, query: "Explain quantum entanglement", sourceBudgetTokens: 700, requireCompleteCoverage: true, allowMapReduce: false });
+    expect(fallback.mode).toBe("retrieval");
+    expect(fallback.content).toContain("Late finding");
+    const summaryFallback = planVideoContext({ segments: longTranscript, query: "main arguments across the whole video", sourceBudgetTokens: 700, allowMapReduce: false });
+    expect(summaryFallback.mode).toBe("retrieval");
+  });
   it("merges semantic relevance into lexical ranking", () => {
     const plan = planVideoContext({ segments: longTranscript, query: "an unknown synonym", sourceBudgetTokens: 700, semanticChunks: [{ start: 6900, end: 6960, score: 1, text: "quantum" }] });
     expect(plan.content).toContain("Late finding");

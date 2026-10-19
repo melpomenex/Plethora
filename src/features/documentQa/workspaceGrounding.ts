@@ -47,7 +47,7 @@ export function groundedQaMessage(result: AskLibraryResult, scope: NonNullable<M
     content: result.answer.answer, citations: citations.length ? citations : undefined,
     sourceDocuments: documentIds.length ? documentIds : undefined,
     submittedScope: scope,
-    evidence: { level: result.answer.evidenceLevel, retrievalOnly: result.retrievalOnly, mode: result.mode, documentCount: documentIds.length },
+    evidence: { level: result.answer.evidenceLevel, retrievalOnly: result.retrievalOnly, mode: result.mode, documentCount: documentIds.length, coverage: result.sources.length ? "chunks" : "none" },
   };
 }
 
@@ -59,9 +59,10 @@ export async function askQaKnowledge(options: {
   /** Test seam for provider execution (matches the orchestrator contract). */
   chatExecutor?: AssistantTurnRequest["chatExecutor"];
 }): Promise<Message> {
-  const [{ askLibrary }, { resolveLibraryRagComposition }, { resolveEmbeddingConfigForRag }, { useDocumentStore }, { useCollectionStore }] = await Promise.all([
+  const [{ askLibrary }, { resolveLibraryRagComposition }, { resolveEmbeddingConfigForRag }, { useDocumentStore }, { useCollectionStore }, { useSettingsStore }] = await Promise.all([
     import("../../lib/ai/tasks/definitions/libraryTask"), import("../../lib/ai/resolveLibraryRag"),
     import("../../components/assistant/ragConfig"), import("../../stores/documentStore"), import("../../stores/collectionStore"),
+    import("../../stores/settingsStore"),
   ]);
   const [composition, config] = await Promise.all([resolveLibraryRagComposition(), resolveEmbeddingConfigForRag().catch(() => undefined)]);
   if (useCollectionStore.getState().activeCollectionId !== options.collectionId) throw new Error("qaWorkspace.collectionChanged");
@@ -73,17 +74,28 @@ export async function askQaKnowledge(options: {
   const documentIds = documents.map((doc) => doc.id);
   let libraryResult: AskLibraryResult | undefined;
   const configured = useLLMProvidersStore.getState().providers.find((provider) => provider.enabled);
+  const settings = useSettingsStore.getState().settings;
   const turnScope =
     options.scope.conversationScope ??
     (documentIds.length === 1 ? "document" : "library");
+  // A non-chat turn whose eligible sources resolve to exactly one video
+  // document is a complete-transcript turn: its whole stored transcript is the
+  // evidence, and the assistant planner decides full vs. hierarchical coverage.
+  // The scope label the user chose stays untouched.
+  const singleVideoSource =
+    turnScope !== "chat" &&
+    documents.length === 1 &&
+    (documents[0].fileType === "youtube" || documents[0].fileType === "video");
 
   // Document scope answers from the selected document's own text — evidence
   // the user can see — and falls back to document-restricted retrieval only
   // when that text cannot be resolved. This keeps the workspace honest when
-  // the document is not (yet) in the semantic index.
+  // the document is not (yet) in the semantic index. A single-video turn never
+  // trims: the video planner evaluates the complete transcript and composes
+  // hierarchical coverage when it exceeds the model budget.
   let sourceContent = "";
   let sourceCoverage: "full" | "window" | undefined;
-  if (turnScope === "document" && documentIds.length === 1) {
+  if ((turnScope === "document" && documentIds.length === 1) || singleVideoSource) {
     try {
       const load = options.loadDocumentText ?? (async (documentId: string) => {
         const [{ getDocument, extractDocumentText }, { loadDocumentQaText }] = await Promise.all([
@@ -93,14 +105,18 @@ export async function askQaKnowledge(options: {
       });
       const loaded = (await load(documentIds[0])).trim();
       if (loaded) {
-        const contextTokens =
-          configured?.contextWindowTokens && configured.contextWindowTokens > 0
-            ? configured.contextWindowTokens
-            : 16384;
-        const sourceBudget = Math.max(512, Math.floor(contextTokens * 0.6));
-        const trimmed = await trimToTokenWindow(loaded, sourceBudget);
-        sourceContent = trimmed;
-        sourceCoverage = trimmed === loaded ? "full" : "window";
+        if (singleVideoSource) {
+          sourceContent = loaded;
+        } else {
+          const contextTokens =
+            configured?.contextWindowTokens && configured.contextWindowTokens > 0
+              ? configured.contextWindowTokens
+              : 16384;
+          const sourceBudget = Math.max(512, Math.floor(contextTokens * 0.6));
+          const trimmed = await trimToTokenWindow(loaded, sourceBudget);
+          sourceContent = trimmed;
+          sourceCoverage = trimmed === loaded ? "full" : "window";
+        }
       }
     } catch {
       sourceContent = "";
@@ -109,10 +125,32 @@ export async function askQaKnowledge(options: {
 
   const turn = await runAssistantTurn({
     scope: turnScope,
-    userQuestion: options.question, history: options.history, selectionExcerpt: options.contextPassage,
-    sourceContent, sourceCoverage,
+    userQuestion: options.question,
+    history: options.history,
+    selectionExcerpt: options.contextPassage,
+    sourceContent,
+    sourceCoverage,
+    sourceId: documentIds[0],
+    sourceTitle: documents[0]?.title,
+    sourceType:
+      documents[0]?.fileType === "youtube" || documents[0]?.fileType === "video"
+        ? "video"
+        : "document",
+    completeTranscriptSource: singleVideoSource,
+    transcriptStatus: singleVideoSource
+      ? sourceContent
+        ? ("ready-full" as const)
+        : ("unavailable" as const)
+      : undefined,
     provider: composition.generatorKind === "cloud" ? configured?.provider ?? "openai" : "ondevice",
+    model: configured?.model,
+    apiKey: configured?.apiKey,
+    baseUrl: configured?.baseUrl,
+    maxOutputTokens: configured?.maxTokens,
+    temperature: configured?.temperature,
     configuredContextTokens: configured?.contextWindowTokens,
+    memoryEnabled: settings.ai.memoryEnabled,
+    strictLocalOnly: settings.ai.strictLocalOnly,
     documentsForPrivacyCheck: documents,
     chatExecutor: options.chatExecutor,
     libraryExecutor: async ({ rewrittenQuery, history, contextBudgetTokens, k }) => {
@@ -123,7 +161,16 @@ export async function askQaKnowledge(options: {
     },
   });
   if (libraryResult) {
-    return { ...groundedQaMessage(libraryResult, { ...options.scope, documentIds }), content: turn.answer };
+    const grounded = groundedQaMessage(libraryResult, { ...options.scope, documentIds });
+    return {
+      ...grounded,
+      content: turn.answer,
+      evidence: {
+        ...(grounded.evidence ?? { level: "weak" as const, retrievalOnly: true, mode: "semantic" as const, documentCount: 0 }),
+        ...(turn.sourceCoverage ? { coverage: turn.sourceCoverage } : {}),
+        ...(turn.transcriptStatus ? { transcriptStatus: turn.transcriptStatus } : {}),
+      },
+    };
   }
   if (!turn.answer.trim()) throw new Error("qaWorkspace.sourceUnavailable");
   // Answered from the document's own text (no retrieval ran). No fabricated
@@ -138,6 +185,8 @@ export async function askQaKnowledge(options: {
       retrievalOnly: false,
       mode: "semantic",
       documentCount: 1,
+      coverage: turn.sourceCoverage,
+      transcriptStatus: turn.transcriptStatus,
     },
   };
 }

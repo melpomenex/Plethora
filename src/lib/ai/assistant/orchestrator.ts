@@ -52,7 +52,7 @@ export interface AssistantTurnRequest {
   sourceUrl?: string;
   previousSourceId?: string;
   previousSourceTitle?: string;
-  sourceContent?: string;
+  sourceContent?: string | Uint8Array;
   videoSegments?: readonly VideoSegment[];
   selectionExcerpt?: string;
   sectionFocusLabel?: string;
@@ -62,6 +62,13 @@ export interface AssistantTurnRequest {
   sourceChunkCount?: number;
   timeRangeCovered?: { startSeconds: number; endSeconds: number };
   playbackTimeSeconds?: number;
+  /**
+   * Single-video turn whose complete stored transcript must ground the answer:
+   * the video planner runs even in `Library` scope, retrieval does not replace
+   * planner-provided coverage, and unbounded over-budget questions compose
+   * hierarchical full-transcript coverage instead of a bounded fragment set.
+   */
+  completeTranscriptSource?: boolean;
   documentsForPrivacyCheck?: ReadonlyArray<PrivacySubjectDocument | null | undefined>;
   strictLocalOnly?: boolean;
   provider: LLMProvider | string;
@@ -122,6 +129,10 @@ export interface AssistantTurnResult {
   suggestSwitchToChat?: boolean;
   rollingSummaryText?: string;
   diagnostics: AssistantRequestDiagnostics;
+  /** What the supplied source content actually covered, for honest evidence display. */
+  sourceCoverage?: "full" | "window" | "chunks" | "hierarchical-full" | "none";
+  /** Transcript acquisition status when the turn grounded on a video source. */
+  transcriptStatus?: TranscriptAvailabilityStatus;
 }
 
 export function resolveDynamicRagBudget(promptBudgetTokens: number): {
@@ -146,8 +157,15 @@ export function resolveDynamicRagBudget(promptBudgetTokens: number): {
 export async function runAssistantTurn(
   request: AssistantTurnRequest,
 ): Promise<AssistantTurnResult> {
+  const normalizedSourceContent =
+    typeof request.sourceContent === "string"
+      ? request.sourceContent
+      : request.sourceContent instanceof Uint8Array
+        ? new TextDecoder().decode(request.sourceContent)
+        : "";
+  request = { ...request, sourceContent: normalizedSourceContent };
   let hasSourceContent = Boolean(
-    request.sourceContent?.trim() || request.selectionExcerpt?.trim(),
+    normalizedSourceContent.trim() || request.selectionExcerpt?.trim(),
   );
 
   // 1. Enforce unified privacy & cloud disclosure gate
@@ -182,13 +200,17 @@ export async function runAssistantTurn(
     applyOllamaDefaultGuard: request.provider === "ollama",
   });
 
-  if (request.sourceType === "video" && request.scope !== "library") {
+  if (
+    request.sourceType === "video" &&
+    (request.scope !== "library" || request.completeTranscriptSource)
+  ) {
     const video = await resolveVideoSourceContext({
-      videoId: request.sourceId ?? "active-video", content: request.sourceContent,
+      videoId: request.sourceId ?? "active-video", content: normalizedSourceContent,
       segments: request.videoSegments, query: request.userQuestion,
       currentTime: request.playbackTimeSeconds, selection: request.selectionExcerpt,
       sourceBudgetTokens: Math.max(64, Math.floor(policy.promptBudgetTokens * 0.55)),
       cacheNamespace: `${request.provider}:${request.model ?? ""}`,
+      requireCompleteCoverage: request.completeTranscriptSource === true,
       retrieveChunks: request.sourceId ? async () => {
         const [{ retrieveFromLibrary }, { resolveEmbeddingConfigForRag }] = await Promise.all([import("../../../api/ai-learning"), import("../../../components/assistant/ragConfig")]);
         const result = await retrieveFromLibrary(request.userQuestion, { filters: { documentIds: [request.sourceId!] }, k: 12, config: await resolveEmbeddingConfigForRag().catch(() => undefined), includeSpotlight: false });
@@ -209,10 +231,11 @@ export async function runAssistantTurn(
         return result.content;
       },
     });
-    request = { ...request, sourceContent: video.content, sourceCoverage: video.coverage,
+    const videoContent = typeof video.content === "string" ? video.content : "";
+    request = { ...request, sourceContent: videoContent, sourceCoverage: video.coverage,
       sourceChunkCount: video.chunkCount, timeRangeCovered: video.timeRangeCovered,
-      transcriptStatus: video.content ? "ready-full" : request.transcriptStatus ?? "unavailable" };
-    hasSourceContent = Boolean(video.content || request.selectionExcerpt?.trim());
+      transcriptStatus: videoContent ? "ready-full" : request.transcriptStatus ?? "unavailable" };
+    hasSourceContent = Boolean(videoContent || request.selectionExcerpt?.trim());
   }
 
   // 3. Handle strict Document scope when source content is completely unavailable
@@ -240,6 +263,10 @@ export async function runAssistantTurn(
       suggestSwitchToChat: true,
       rollingSummaryText: assembled.rollingSummaryText,
       diagnostics: assembled.diagnostics,
+      sourceCoverage: "none",
+      transcriptStatus:
+        request.transcriptStatus ??
+        (request.sourceType === "video" ? "unavailable" : undefined),
     };
   }
 
@@ -254,9 +281,18 @@ export async function runAssistantTurn(
       request.userQuestion,
     );
 
+  // A complete-transcript video turn that already produced grounded planner
+  // content must not be replaced by retrieval fragments; retrieval remains the
+  // fallback when the planner could not produce content (e.g. no transcript).
+  const completeTranscriptGrounding =
+    Boolean(request.completeTranscriptSource) &&
+    request.sourceType === "video" &&
+    hasSourceContent;
+
   const needsRetrievalGrounding =
-    request.scope === "library" ||
-    (request.scope === "document" && !hasSourceContent);
+    !completeTranscriptGrounding &&
+    (request.scope === "library" ||
+      (request.scope === "document" && !hasSourceContent));
 
   if (needsRetrievalGrounding && request.libraryExecutor && !wantsToolExecution) {
     const rewrittenQuery = rewriteFollowUpQueryWithHistory(
@@ -303,12 +339,18 @@ export async function runAssistantTurn(
       suggestSwitchToChat: ragResult.answer.evidenceLevel === "none",
       rollingSummaryText: assembled.rollingSummaryText,
       diagnostics: assembled.diagnostics,
+      sourceCoverage: ragResult.sources.length > 0 ? "chunks" : "none",
+      transcriptStatus: request.transcriptStatus,
     };
   }
 
   // 5. If in Library scope with tool intent (e.g., "Create 5 flashcards from my library on X"),
   // retrieve library chunks first if libraryExecutor is available and sourceContent is empty!
-  let effectiveSourceContent = request.sourceContent;
+  // Source content is normalized to a string at entry; re-narrow after the
+  // video branch may have replaced it.
+  const requestSourceContent =
+    typeof request.sourceContent === "string" ? request.sourceContent : normalizedSourceContent;
+  let effectiveSourceContent = requestSourceContent;
   let citedSources: AskLibraryResult["sources"] | undefined;
   if (
     (request.scope === "library" || (request.scope === "document" && !effectiveSourceContent?.trim())) &&
@@ -414,5 +456,7 @@ export async function runAssistantTurn(
     suggestSwitchToChat: false,
     rollingSummaryText: assembled.rollingSummaryText,
     diagnostics: assembled.diagnostics,
+    sourceCoverage: request.sourceCoverage,
+    transcriptStatus: request.transcriptStatus,
   };
 }

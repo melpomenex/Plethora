@@ -43,7 +43,7 @@ export interface ComposablePromptInput {
   sourceId?: string;
   previousSourceId?: string;
   previousSourceTitle?: string;
-  sourceContent?: string;
+  sourceContent?: string | Uint8Array;
   selectionExcerpt?: string;
   sectionFocusLabel?: string;
   webSearchContext?: string;
@@ -155,8 +155,14 @@ export function rewriteFollowUpQueryWithHistory(
 export function assembleAssistantPrompt(
   input: ComposablePromptInput,
 ): AssembledAssistantPrompt {
+  const rawSourceContent =
+    typeof input.sourceContent === "string"
+      ? input.sourceContent
+      : input.sourceContent instanceof Uint8Array
+        ? new TextDecoder().decode(input.sourceContent)
+        : "";
   const sourceType = input.sourceType ?? "general";
-  const hasSourceText = Boolean(input.sourceContent?.trim() || input.selectionExcerpt?.trim());
+  const hasSourceText = Boolean(rawSourceContent.trim() || input.selectionExcerpt?.trim());
 
   // 1. Core Identity
   const systemSections: string[] = [CORE_ASSISTANT_IDENTITY];
@@ -252,7 +258,7 @@ export function assembleAssistantPrompt(
     );
   }
 
-  if (input.sourceContent?.trim()) {
+  if (rawSourceContent.trim()) {
     const headerLines: string[] = [];
     if (input.sourceTitle) {
       headerLines.push(`Source Title: ${input.sourceTitle}`);
@@ -272,8 +278,8 @@ export function assembleAssistantPrompt(
     }
     const bodyWithHeader =
       headerLines.length > 0
-        ? `${headerLines.join("\n")}\n\n${input.sourceContent.trim()}`
-        : input.sourceContent.trim();
+        ? `${headerLines.join("\n")}\n\n${rawSourceContent.trim()}`
+        : rawSourceContent.trim();
     sourceBlocks.push(
       wrapUntrustedBlock(input.sourceId || "active-source", bodyWithHeader),
     );

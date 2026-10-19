@@ -2004,6 +2004,76 @@ mod canonical_transcript_tests {
                 .is_none()
         );
     }
+    /// A long transcript must persist every segment: no cap, no head slice.
+    /// Sentinels at the first/middle/last positions prove the tail survives.
+    #[tokio::test]
+    async fn persist_canonical_transcript_keeps_every_segment() {
+        let repo = repo().await;
+        sqlx::query("INSERT INTO documents VALUES ('doc-long','https://youtube.com/watch?v=longvideo123','youtube',NULL)")
+            .execute(repo.pool())
+            .await
+            .unwrap();
+        let segment_count = 1000u64;
+        let mut segments: Vec<TranscriptSegment> = (0..segment_count)
+            .map(|i| TranscriptSegment {
+                start: i as f64 * 10.0,
+                duration: 10.0,
+                text: format!("segment {}", i),
+                words: None,
+            })
+            .collect();
+        segments[0].text = "first sentinel".into();
+        segments[500].text = "middle sentinel".into();
+        segments[(segment_count - 1) as usize].text = "last sentinel".into();
+
+        persist_canonical_youtube_transcript(
+            &repo,
+            Some("doc-long"),
+            "longvideo123",
+            Some("en"),
+            &segments,
+            None,
+        )
+        .await
+        .unwrap();
+
+        let stored_json: String =
+            sqlx::query_scalar("SELECT segments_json FROM youtube_transcripts WHERE video_id='longvideo123'")
+                .fetch_one(repo.pool())
+                .await
+                .unwrap();
+        let roundtripped: Vec<TranscriptSegment> = serde_json::from_str(&stored_json).unwrap();
+        assert_eq!(roundtripped.len(), segments.len());
+        for (stored, original) in roundtripped.iter().zip(segments.iter()) {
+            assert_eq!(stored.start, original.start);
+            assert_eq!(stored.text, original.text);
+        }
+
+        // The searchable text is the complete `[M:SS]` join of every non-empty
+        // segment — byte-equal to both the canonical column and documents.content.
+        let expected = segments
+            .iter()
+            .map(|s| {
+                let seconds = s.start.floor() as u64;
+                format!("[{}:{:02}] {}", seconds / 60, seconds % 60, s.text.trim())
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        let stored_text: String =
+            sqlx::query_scalar("SELECT transcript FROM youtube_transcripts WHERE video_id='longvideo123'")
+                .fetch_one(repo.pool())
+                .await
+                .unwrap();
+        assert_eq!(stored_text, expected);
+        assert!(stored_text.ends_with("[166:30] last sentinel"));
+        let document_content: String =
+            sqlx::query_scalar("SELECT content FROM documents WHERE id='doc-long'")
+                .fetch_one(repo.pool())
+                .await
+                .unwrap();
+        assert_eq!(document_content, expected);
+    }
+
     #[tokio::test]
     async fn negative_cache_expires_after_one_day() {
         let repo = repo().await;

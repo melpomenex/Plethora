@@ -5,6 +5,7 @@ import { runTask } from "../tasks/runTask";
 import { runAssistantTurn, type AssistantTurnRequest } from "./orchestrator";
 import { getDocument } from "../../../api/documents";
 import { loadDocumentQaText } from "../../../features/documentQa/sectionContextRequest";
+import { isVideoDocumentFileType } from "../../../features/documentQa/legacyContextWindow";
 import { extractDocumentText } from "../../../api/documents";
 import { trimToTokenWindow } from "../../../utils/tokenizer";
 
@@ -21,6 +22,7 @@ export async function runConfiguredAssistantTurn(options: Omit<AssistantTurnRequ
   const configuredContextTokens = path === "ondevice" ? 4096 : configured?.contextWindowTokens;
   let sourceContent = options.sourceContent;
   let sourceCoverage = options.sourceCoverage;
+  let completeTranscriptSource = options.completeTranscriptSource;
   if (!sourceContent && options.scope !== "library" && ids.length === 1) {
     try {
       // Canonical full text for the selected document. Document scope answers
@@ -29,16 +31,23 @@ export async function runConfiguredAssistantTurn(options: Omit<AssistantTurnRequ
       const loaded = (await loadDocumentQaText(ids[0], { getDocument, extractDocumentText })).trim()
         || "";
       if (loaded) {
-        const sourceBudget = Math.max(512, Math.floor((configuredContextTokens ?? 16384) * 0.6));
-        const trimmed = await trimToTokenWindow(loaded, sourceBudget);
-        sourceContent = trimmed;
-        sourceCoverage = trimmed === loaded ? "full" : "window";
+        if (isVideoDocumentFileType(documents[0]?.fileType)) {
+          // Complete-transcript turn: never head-slice a video transcript; the
+          // video planner composes full or hierarchical coverage.
+          sourceContent = loaded;
+          completeTranscriptSource = true;
+        } else {
+          const sourceBudget = Math.max(512, Math.floor((configuredContextTokens ?? 16384) * 0.6));
+          const trimmed = await trimToTokenWindow(loaded, sourceBudget);
+          sourceContent = trimmed;
+          sourceCoverage = trimmed === loaded ? "full" : "window";
+        }
       }
     }
     catch { sourceContent = ""; }
   }
   return runAssistantTurn({
-    ...options, sourceContent, sourceCoverage, provider, model: configured?.model, apiKey: configured?.apiKey,
+    ...options, sourceContent, sourceCoverage, completeTranscriptSource, provider, model: configured?.model, apiKey: configured?.apiKey,
     baseUrl: configured?.baseUrl, maxOutputTokens: configured?.maxTokens,
     configuredContextTokens,
     memoryEnabled: settings.ai.memoryEnabled, strictLocalOnly: settings.ai.strictLocalOnly,

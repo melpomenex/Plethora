@@ -207,3 +207,40 @@ describe("Document Q&A focused-section provider boundary", () => {
     expect(request.contextContent).not.toMatch(/^Contents$/m);
   });
 });
+
+describe("Document Q&A transcript repair", () => {
+  it("repairs an empty stored YouTube transcript by fetching the canonical segments", async () => {
+    const getDocument = vi.fn().mockResolvedValue({
+      fileType: "youtube",
+      filePath: "https://www.youtube.com/watch?v=abc12345678",
+      content: "",
+    });
+    mockInvokeCommand.mockResolvedValue([
+      { start: 0, text: "Opening line" },
+      { start: 7200, text: "Closing line from the final minutes" },
+    ]);
+
+    const content = await loadDocumentQaText("video-doc", { getDocument, extractDocumentText: vi.fn() });
+
+    expect(mockInvokeCommand).toHaveBeenCalledWith(
+      "get_youtube_transcript_by_id",
+      expect.objectContaining({ videoId: "abc12345678", documentId: "video-doc" }),
+    );
+    // The repaired transcript is complete: first and last segments survive.
+    expect(content).toContain("[0:00] Opening line");
+    expect(content).toContain("[120:00] Closing line from the final minutes");
+  });
+
+  it("falls back to persisted document content when repair stays empty", async () => {
+    const getDocument = vi.fn().mockResolvedValue({
+      fileType: "youtube",
+      filePath: "https://youtu.be/abc12345678",
+      content: "[0:00] Persisted transcript line",
+    });
+    mockInvokeCommand.mockResolvedValue([]);
+
+    const content = await loadDocumentQaText("video-doc", { getDocument, extractDocumentText: vi.fn() });
+
+    expect(content).toBe("[0:00] Persisted transcript line");
+  });
+});
