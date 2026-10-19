@@ -88,8 +88,18 @@ test("dev wrapper defaults PLETHORA_GPU_MODE=auto", () => {
 test("main.rs routes through the graphics policy and keeps the sandbox disable", () => {
   assert.match(
     mainRsSource,
-    /graphics::init\(\)/,
+    /graphics::init_with_diagnostics\(\)/,
     "main.rs Linux env setup must go through the graphics module",
+  );
+  assert.match(
+    mainRsSource,
+    /linux_runtime::initialize\(\)/,
+    "AppImage runtime cleanup must run before the graphics policy",
+  );
+  assert.ok(
+    mainRsSource.indexOf("linux_runtime::initialize()") <
+      mainRsSource.indexOf("graphics::init_with_diagnostics()"),
+    "AppImage parent environment must be sanitized before graphics initialization",
   );
   assert.match(
     mainRsSource,

@@ -53,19 +53,35 @@ dev` — the dev wrapper no longer disables acceleration on its own.
 
 ### How the policy decides
 
-1. `PLETHORA_GPU_MODE` override (see below) wins over everything.
-2. If `LIBGL_ALWAYS_SOFTWARE=1` is set, compatibility mode is used.
-3. If `glxinfo -B` reports a software rasterizer (`llvmpipe`, `softpipe`,
-   `swrast`), compatibility mode is used.
-4. If the renderer is NVIDIA, hardware stays on but the DMABUF renderer is
-   disabled (the WebKitGTK/NVIDIA DMABUF breakage: X11 white-screen EGL
-   imports, and on Wayland the compositor kills the client with
-   `Gdk-Message: Error 71 (Protocol error) dispatching to Wayland display`).
-5. Otherwise — including when `glxinfo` is not installed — hardware
-   acceleration stays enabled. Without `glxinfo`, the policy first checks for
-   the proprietary NVIDIA kernel module (`/sys/module/nvidia`, applying the
-   same DMABUF disable as step 4), then scans `/sys/class/drm` for a real GPU
-   device and only falls back to software when none is found.
+1. `PLETHORA_GPU_MODE=software` selects the compatibility fallback. `hardware`
+   keeps hardware acceleration enabled while still allowing a narrowly
+   detected NVIDIA/Wayland synchronization setting. `auto` uses detection.
+2. In auto mode, `LIBGL_ALWAYS_SOFTWARE=1` or a software renderer
+   (`llvmpipe`, `softpipe`, `swrast`) selects compatibility mode.
+3. With NVIDIA and WebKitGTK before 2.54 (or an unavailable runtime version),
+   the policy sets `WEBKIT_DISABLE_DMABUF_RENDERER=1`, retaining hardware
+   acceleration and compositing.
+4. With NVIDIA, WebKitGTK 2.54 or newer, and an observable native Wayland
+   backend, DMA-BUF stays enabled and the policy sets
+   `__NV_DISABLE_EXPLICIT_SYNC=1` unless the environment already supplied a
+   value. This targets the Wayland protocol-error report without applying a
+   Wayland-only setting to X11.
+5. With modern WebKitGTK on X11 or an unknown display backend, the policy keeps
+   DMA-BUF and does not set the NVIDIA explicit-sync variable. AMD, Intel, and
+   other hardware renderers keep acceleration enabled. If `glxinfo` is
+   unavailable, the policy checks the NVIDIA kernel module and then DRM device
+   nodes.
+
+The WebKitGTK 2.54 source path for `WEBKIT_DISABLE_DMABUF_RENDERER=1` returns
+before installing the shared-memory renderer transport; the separate
+`WEBKIT_DMABUF_RENDERER_FORCE_SHM=1` option keeps accelerated backing-store
+support while avoiding the hardware DMA-BUF transport. Plethora does not set
+that option without target evidence. Tauri's current Linux guidance documents
+`__NV_DISABLE_EXPLICIT_SYNC=1` for NVIDIA Wayland protocol errors.
+
+The main Tauri window remains transparent. This change does not assume
+transparency caused the reported stale paints; compare target rendering before
+considering a Linux-only opaque native surface.
 
 ### Overrides
 
@@ -77,19 +93,21 @@ PLETHORA_GPU_MODE=software  # always use the compatibility fallback
 
 ### Diagnostics
 
-Each startup appends exactly one decision line to the early startup log
-(`$TMPDIR/plethora-startup.log`), e.g.:
+Each startup appends one concise decision line to
+`/tmp/plethora-startup.log`. Values describe environment configuration, not a
+driver/compositor handshake, for example:
 
 ```
-[graphics] backend=hardware reason=glxinfo-hardware dmabuf=enabled
-[graphics] backend=compatibility reason=software-renderer dmabuf=disabled
+[graphics] requested=auto effective=hardware reason=nvidia-wayland-explicit-sync display=wayland webkit=2.54 renderer="NVIDIA ..." dmabuf-env=unset:unset explicit-sync-env=1:policy acceleration-policy=ondemand:policy
 ```
 
-Common reasons: `glxinfo-hardware`, `dri-device-present` (no `glxinfo`
-installed but a GPU device node exists), `software-renderer`,
-`nvidia-dmabuf`, `nvidia-module` (no `glxinfo` installed, NVIDIA kernel
-module present), `no-gpu-detected`, `gpu-detection-unavailable`, `user-forced-software-gl`,
-`override-hardware`, `override-software`.
+`glxinfo-hardware`, `dri-device-present`, `software-renderer`,
+`nvidia-legacy-dmabuf-off`, `nvidia-wayland-explicit-sync`,
+`nvidia-modern-no-sync-policy`, `no-gpu-detected`,
+`gpu-detection-unavailable`, `user-forced-software-gl`, `override-hardware`,
+and `override-software`. Each relevant variable is marked `inherited`, `policy`,
+or `unset`. Set `PLETHORA_LINUX_DIAGNOSTICS=1` to append the full set of
+WebKitGTK/NVIDIA environment values.
 
 The sandbox disable (`WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS=1`, required for
 YouTube iframe playback) and the bundled GStreamer codec setup are independent

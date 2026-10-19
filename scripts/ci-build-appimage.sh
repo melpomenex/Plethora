@@ -15,6 +15,34 @@ RUNTIME_FILE="$WORK_DIR/runtime-x86_64"
 
 EXPECTED_APPIMAGE="$(node -e 'const c=require("./src-tauri/tauri.conf.json"); console.log(`src-tauri/target/release/bundle/appimage/${c.productName}_${c.version}_amd64.AppImage`)')"
 
+# Do not let a failed Tauri invocation fall through to packaging yesterday's
+# AppDir. Move any prior bundle aside so only this invocation can produce the
+# AppDir used below. Keep the prior bundle recoverable if packaging fails.
+mkdir -p "$APPIMAGE_DIR"
+APPDIR_BACKUP_DIR=""
+if [[ -d "$APPDIR" ]]; then
+  APPDIR_BACKUP_DIR="$(mktemp -d "$APPIMAGE_DIR/.Plethora.AppDir.previous.XXXXXX")"
+  mv "$APPDIR" "$APPDIR_BACKUP_DIR/Plethora.AppDir"
+fi
+PACKAGE_OUT_DIR=""
+build_succeeded=0
+cleanup_appimage_build() {
+  if [[ -n "$PACKAGE_OUT_DIR" && -d "$PACKAGE_OUT_DIR" ]]; then
+    rm -rf "$PACKAGE_OUT_DIR"
+  fi
+  if [[ "$build_succeeded" == "1" ]]; then
+    if [[ -n "$APPDIR_BACKUP_DIR" ]]; then
+      rm -rf "$APPDIR_BACKUP_DIR"
+    fi
+  elif [[ ! -d "$APPDIR" && -n "$APPDIR_BACKUP_DIR" && -d "$APPDIR_BACKUP_DIR/Plethora.AppDir" ]]; then
+    mv "$APPDIR_BACKUP_DIR/Plethora.AppDir" "$APPDIR"
+    rmdir "$APPDIR_BACKUP_DIR" 2>/dev/null || true
+  elif [[ -n "$APPDIR_BACKUP_DIR" && -d "$APPDIR_BACKUP_DIR/Plethora.AppDir" ]]; then
+    echo "Previous AppDir preserved at $APPDIR_BACKUP_DIR/Plethora.AppDir"
+  fi
+}
+trap cleanup_appimage_build EXIT
+
 echo "Building AppImage with tauri..."
 build_rc=0
 APPIMAGE_EXTRACT_AND_RUN=1 NO_STRIP=1 npm run tauri -- build --bundles appimage || build_rc=$?
@@ -24,6 +52,10 @@ fi
 
 if [[ ! -d "$APPDIR" ]]; then
   echo "Expected AppDir missing at $APPDIR"
+  exit 1
+fi
+if [[ ! -x "$APPDIR/usr/bin/plethora-tauri" ]]; then
+  echo "Tauri build did not produce the executable AppDir binary: $APPDIR/usr/bin/plethora-tauri"
   exit 1
 fi
 
@@ -83,8 +115,8 @@ bundle_gstreamer_plugins() {
   fi
 
   if [[ -z "$GST_PLUGINS_DIR" || ! -d "$GST_PLUGINS_DIR" ]]; then
-    echo "Warning: Could not find GStreamer plugins directory. YouTube playback may not work."
-    return 0
+    echo "Required GStreamer plugin directory could not be found."
+    return 1
   fi
 
   echo "Found GStreamer plugins at: $GST_PLUGINS_DIR"
@@ -92,6 +124,7 @@ bundle_gstreamer_plugins() {
   # Create destination directory
   local GST_DEST="$APPDIR/usr/lib/gstreamer-1.0"
   mkdir -p "$GST_DEST"
+  find "$GST_DEST" -maxdepth 1 -type f -name '*.so' -delete
 
   # Essential plugins for YouTube/video playback
   # - libgstcoreelements.so (required)
@@ -132,14 +165,49 @@ bundle_gstreamer_plugins() {
     "libgstdav1d.so"
     "libgstva.so"
   )
+  local REQUIRED_PLUGINS=(
+    "libgstcoreelements.so"
+    "libgstplayback.so"
+    "libgstlibav.so"
+    "libgstvideoconvertscale.so"
+    "libgstaudioconvert.so"
+    "libgstaudioresample.so"
+    "libgstisomp4.so"
+    "libgsttypefindfunctions.so"
+    "libgstapp.so"
+  )
 
   local copied=0
   for plugin in "${PLUGINS[@]}"; do
     if [[ -f "$GST_PLUGINS_DIR/$plugin" ]]; then
-      cp -L "$GST_PLUGINS_DIR/$plugin" "$GST_DEST/" 2>/dev/null || true
+      if ! cp -L "$GST_PLUGINS_DIR/$plugin" "$GST_DEST/"; then
+        echo "Failed to copy GStreamer plugin: $plugin"
+        return 1
+      fi
       ((copied++)) || true
+    else
+      for required in "${REQUIRED_PLUGINS[@]}"; do
+        if [[ "$plugin" == "$required" ]]; then
+          echo "Required GStreamer plugin missing from $GST_PLUGINS_DIR: $plugin"
+          return 1
+        fi
+      done
     fi
   done
+
+  if [[ $copied -eq 0 ]]; then
+    echo "No GStreamer plugins were copied from $GST_PLUGINS_DIR"
+    return 1
+  fi
+
+  local plugin_set_id
+  plugin_set_id="$(cd "$GST_DEST" && sha256sum ./*.so | sha256sum | awk '{print $1}')"
+  if [[ ! "$plugin_set_id" =~ ^[[:xdigit:]]{64}$ ]]; then
+    echo "Could not derive a GStreamer plugin-set identity"
+    return 1
+  fi
+  mkdir -p "$APPDIR/usr/share/plethora"
+  printf '%s\n' "$plugin_set_id" > "$APPDIR/usr/share/plethora/gstreamer-plugin-set-id"
 
   # Bundle the codec libraries these plugins link against (ffmpeg, libvpx,
   # dav1d, aom). linuxdeploy never sees the plugin files — they are copied
@@ -180,6 +248,12 @@ bundle_gstreamer_plugins() {
 }
 
 bundle_gstreamer_plugins
+
+PLUGIN_SET_ID_PATH="$APPDIR/usr/share/plethora/gstreamer-plugin-set-id"
+if [[ ! -s "$PLUGIN_SET_ID_PATH" ]] || ! grep -Eq '^[[:xdigit:]]{64}$' "$PLUGIN_SET_ID_PATH"; then
+  echo "GStreamer plugin-set manifest is missing or invalid: $PLUGIN_SET_ID_PATH"
+  exit 1
+fi
 
 # Fix absolute symlinks in the AppDir (Python stdlib, linuxdeploy artifacts, etc.)
 # Absolute symlinks break on user machines since they point to CI runner paths.
@@ -225,16 +299,19 @@ if [[ -n "$desktop_file" ]]; then
   fi
 fi
 
-rm -f "$ROOT_DIR/Plethora-x86_64.AppImage"
-rm -f "$EXPECTED_APPIMAGE"
-ARCH=x86_64 "$APPIMAGETOOL_BIN" --runtime-file "$RUNTIME_FILE" "$ROOT_DIR/$APPDIR"
+PACKAGE_OUT_DIR="$(mktemp -d "$APPIMAGE_DIR/.appimage-package.XXXXXX")"
+(
+  cd "$PACKAGE_OUT_DIR"
+  ARCH=x86_64 "$APPIMAGETOOL_BIN" --runtime-file "$RUNTIME_FILE" "$ROOT_DIR/$APPDIR"
+)
 
-if [[ ! -f "$ROOT_DIR/Plethora-x86_64.AppImage" ]]; then
-  echo "appimagetool packaging did not produce Plethora-x86_64.AppImage"
+PACKAGED_APPIMAGE="$PACKAGE_OUT_DIR/Plethora-x86_64.AppImage"
+if [[ ! -f "$PACKAGED_APPIMAGE" ]]; then
+  echo "appimagetool packaging did not produce $PACKAGED_APPIMAGE"
   exit 1
 fi
 
-mv -f "$ROOT_DIR/Plethora-x86_64.AppImage" "$EXPECTED_APPIMAGE"
+mv -f "$PACKAGED_APPIMAGE" "$EXPECTED_APPIMAGE"
 
 if [[ ! -f "$EXPECTED_APPIMAGE" ]]; then
   echo "Expected AppImage missing: $EXPECTED_APPIMAGE"
@@ -243,3 +320,5 @@ fi
 
 echo "Final AppImage:"
 ls -lh "$EXPECTED_APPIMAGE"
+echo "AppImage path: $ROOT_DIR/$EXPECTED_APPIMAGE"
+build_succeeded=1

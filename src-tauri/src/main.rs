@@ -33,58 +33,80 @@ fn main() {
     {
         use plethora_tauri_lib::graphics::GraphicsBackend;
 
+        // Sanitize AppRun's Python paths and configure multimedia paths before
+        // any graphics or webview initialization can spawn helper processes.
+        let runtime = plethora_tauri_lib::linux_runtime::initialize();
+        early_log(&format!(
+            "[runtime] appimage={} python-sanitized={} gst-plugin-cache={} gst-plugin-dir={} gst-registry={}",
+            runtime.appimage,
+            if runtime.sanitized_python_keys.is_empty() {
+                "none".to_string()
+            } else {
+                runtime.sanitized_python_keys.join(",")
+            },
+            runtime.gst_plugin_cache,
+            runtime
+                .gst_plugin_dir
+                .as_deref()
+                .map(|path| path.display().to_string())
+                .unwrap_or_else(|| "system-default".to_string()),
+            std::env::var("GST_REGISTRY").unwrap_or_else(|_| "gstreamer-default".to_string()),
+        ));
+
         // Disable sandbox (required for YouTube iframe playback on WebKitGTK 2.44+)
         std::env::set_var("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS", "1");
 
-        // Conditional GPU acceleration (D8), owned by the graphics policy
-        // module: healthy GPUs keep hardware acceleration, software
-        // rasterizers get the compatibility variable set, NVIDIA drops only
-        // the DMABUF renderer (tauri#9394 plus the Wayland Error 71 protocol
-        // kill), and PLETHORA_GPU_MODE=hardware/software overrides detection.
-        let decision = plethora_tauri_lib::graphics::init();
+        // Conditional GPU acceleration is owned by the graphics policy
+        // module. It runs before any webview exists and leaves hardware
+        // acceleration enabled on supported GPUs.
+        let diagnostics = plethora_tauri_lib::graphics::init_with_diagnostics();
+        let decision = diagnostics.decision;
+        let setting = |key: &str| {
+            diagnostics
+                .settings
+                .iter()
+                .find(|setting| setting.key == key)
+                .map(|setting| {
+                    format!(
+                        "{}:{}",
+                        setting.value.as_deref().unwrap_or("unset"),
+                        setting.source
+                    )
+                })
+                .unwrap_or_else(|| "unavailable".to_string())
+        };
+        let webkit_version = diagnostics
+            .webkit_version
+            .map(|(major, minor)| format!("{major}.{minor}"))
+            .unwrap_or_else(|| "unknown".to_string());
+        let renderer = diagnostics
+            .renderer
+            .as_deref()
+            .unwrap_or("unknown")
+            .replace('\n', " ");
         early_log(&format!(
-            "[graphics] backend={} reason={} dmabuf={}",
+            "[graphics] requested={} effective={} reason={} display={} webkit={} renderer={:?} dmabuf-env={} explicit-sync-env={} acceleration-policy={}",
+            diagnostics.requested_mode.as_str(),
             match decision.backend {
                 GraphicsBackend::Hardware => "hardware",
                 GraphicsBackend::Compatibility => "compatibility",
             },
             decision.reason,
-            if decision.disable_dmabuf {
-                "disabled"
-            } else {
-                "enabled"
-            },
+            diagnostics.display_backend.as_str(),
+            webkit_version,
+            renderer,
+            setting("WEBKIT_DISABLE_DMABUF_RENDERER"),
+            setting("__NV_DISABLE_EXPLICIT_SYNC"),
+            setting("WEBKIT_HARDWARE_ACCELERATION_POLICY"),
         ));
-
-        // Point GStreamer at bundled plugins when running from an AppImage.
-        // The AppImage runtime REPLACES GST_PLUGIN_SYSTEM_PATH_1_0 with the
-        // bundled directory, hiding the host's system plugins entirely — so
-        // codecs and sinks missing from the bundle (VP9/AV1, PipeWire) never
-        // resolve. Re-append the conventional system paths; bundled plugins
-        // stay first in the list, and GStreamer skips individual plugins that
-        // fail to load.
-        if let Ok(appdir) = std::env::var("APPDIR") {
-            let plugin_path = format!("{appdir}/usr/lib/gstreamer-1.0");
-            std::env::set_var("GST_PLUGIN_PATH", &plugin_path);
-            std::env::set_var("GST_REGISTRY", "/dev/null");
-
-            let mut parts: Vec<String> = std::env::var("GST_PLUGIN_SYSTEM_PATH_1_0")
-                .unwrap_or_default()
-                .split(':')
-                .filter(|p| !p.is_empty())
-                .map(|p| p.to_string())
-                .collect();
-            for dir in [
-                "/usr/lib/gstreamer-1.0",
-                "/usr/lib/x86_64-linux-gnu/gstreamer-1.0",
-                "/usr/lib64/gstreamer-1.0",
-            ] {
-                if std::path::Path::new(dir).is_dir() && !parts.iter().any(|p| p == dir) {
-                    parts.push(dir.to_string());
-                }
-            }
-            if !parts.is_empty() {
-                std::env::set_var("GST_PLUGIN_SYSTEM_PATH_1_0", parts.join(":"));
+        if std::env::var("PLETHORA_LINUX_DIAGNOSTICS").ok().as_deref() == Some("1") {
+            for value in &diagnostics.settings {
+                early_log(&format!(
+                    "[graphics-env] {}={} source={}",
+                    value.key,
+                    value.value.as_deref().unwrap_or("unset"),
+                    value.source,
+                ));
             }
         }
     }

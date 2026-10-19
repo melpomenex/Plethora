@@ -22,6 +22,9 @@ mod generator;
 // Linux graphics policy: single owner of the WebKitGTK acceleration env
 // decision (PLETHORA_GPU_MODE), applied from main() before any webview.
 pub mod graphics;
+// Linux AppImage parent environment setup must run before WebKit/GStreamer
+// can start helper processes. Other targets use a no-op implementation.
+pub mod linux_runtime;
 mod integrations;
 mod ipc_compat;
 mod kindle_clippings;

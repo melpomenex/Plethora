@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-10-19
+goal: Produce a validated local AppImage with deterministic Linux runtime and
+  graphics policy.
