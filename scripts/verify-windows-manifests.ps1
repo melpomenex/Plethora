@@ -503,15 +503,26 @@ foreach ($name in $Executables) {
     if (-not $manifestXml) { throw "the embedded manifest of $exe is empty" }
 
     if ($mt) {
-      # Supplementary: mt.exe validates against the fusion schema. Its exit code
-      # and output are reported verbatim — a silent failure here is what made the
-      # first run of this gate uninformative.
+      # Supplementary schema cross-check. It is informational on purpose: mt.exe
+      # cannot read the manifest resource of these builds at all
+      # ("c101008c: An illegal character was encountered" — the resource payload
+      # carries padding), so a failure here must never look like a failed gate or
+      # leak into the process exit code.
       $extraction = & $mt "-inputresource:$exe;#1" "-out:$extracted" 2>&1
-      if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $extracted)) {
-        Write-Warning ("mt.exe could not extract the manifest for $name (exit $LASTEXITCODE): " + ($extraction -join ' ').Trim())
+      $mtExit = $LASTEXITCODE
+      $LASTEXITCODE = 0
+      if ($mtExit -ne 0 -or -not (Test-Path -LiteralPath $extracted)) {
+        $detail = ($extraction -join ' ').Trim()
+        if ($detail -match 'c101008c') {
+          Write-Host "  mt.exe cannot read this resource payload (exit $mtExit, c101008c) — known limitation; the reader above is authoritative."
+        } else {
+          Write-Warning ("mt.exe could not extract the manifest for $name (exit $mtExit): $detail")
+        }
       } else {
         $validation = & $mt "-manifest:$extracted" '-validate_manifest' 2>&1
-        if ($LASTEXITCODE -ne 0) {
+        $mtValidateExit = $LASTEXITCODE
+        $LASTEXITCODE = 0
+        if ($mtValidateExit -ne 0) {
           Write-Warning ("mt.exe -validate_manifest reported an issue for $name (supplementary; the structural assertions below are " +
             "authoritative): " + ($validation -join ' ').Trim())
         } else {
@@ -543,4 +554,10 @@ if (-not $SkipSmoke) {
   }
 }
 
+# The gate signals failure by throwing, never by a native command's exit code.
+# `pwsh -Command` (what `shell: pwsh` runs) takes the process exit code from
+# $LASTEXITCODE, so a failing supplementary tool would otherwise fail a passing
+# verification — which is exactly what happened on the first green run of this
+# gate.
+$global:LASTEXITCODE = 0
 Write-Host 'Windows manifest verification passed.'

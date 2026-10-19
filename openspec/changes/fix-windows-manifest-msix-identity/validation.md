@@ -74,3 +74,32 @@ output and exit code are reported instead of swallowed, and its absence no longe
 Running the fixed gate against the executables extracted from that installer, with the shipped
 `PlethoraIdentity.msix` and registration helper, reports `identity OK` for both and
 `Windows manifest verification passed.`
+
+## Second runner iteration (run 39242443549, v3.4.0 build)
+
+The gate now reads manifests itself, and on the Windows runner it reported:
+
+- `identity OK` for `plethora-tauri.exe` **and** `pdf-reflow-diag.exe`, against the packaged
+  `PlethoraIdentity.msix` (identity version `3.4.0.0`).
+- **`plethora-tauri.exe stayed alive for 5s and logged no SideBySide error (PASS)`** — on a real
+  Windows loader, with no identity package registered, the executable starts.
+- `pdf-reflow-diag.exe printed its usage output and exited 2 (PASS: application code ran)`.
+- `Windows manifest verification passed.` and `Windows bundle verification passed.`
+- The supplementary `mt.exe` read failed with `c101008c: An illegal character was encountered` for
+  both executables — the same reason it produced nothing in the first iteration. mt.exe cannot read
+  these resource payloads; the direct PE reader can, which is why the gate no longer depends on it.
+
+The step still exited non-zero: GitHub's `shell: pwsh` handler ends a step script with
+`exit $LASTEXITCODE`, and the failed supplementary mt.exe left 31 there — after both scripts had
+printed success. Reproduced and fixed locally:
+
+| Check | Result |
+| --- | --- |
+| Pre-fix gate + runner exit rule (control) | exit **31** (the CI failure) |
+| Fixed gate + same rule | exit **0** |
+| Identity mismatch in the packaged .msix (real failure) | exit **1**, naming field, declared and expected value |
+| Non-PE executable (fake bundle) | exit **1**, "is not a PE file (no MZ signature)" |
+| `-SelfTest` | passes |
+
+Both verifier scripts now reset `$LASTEXITCODE` after a passing run, so a supplementary tool can
+never decide a step's result — while genuine verification failures still fail loudly.

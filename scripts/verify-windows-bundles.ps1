@@ -198,4 +198,8 @@ if ($exeFiles) {
   Write-Host "No NSIS bundles found; continuing with MSI verification."
 }
 
+# Same rule as verify-windows-manifests.ps1: this script reports failure by
+# throwing; informational native commands (7z listings, process launches) must
+# not decide the process exit code under `pwsh -Command`.
+$global:LASTEXITCODE = 0
 Write-Host "Windows bundle verification passed."
