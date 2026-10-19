@@ -189,6 +189,22 @@ jobs:
         if: matrix.os == 'macos'
         run: brew install create-dmg
 
+      # pocket-tts only publishes wheels for Python >=3.10,<3.15. The macOS
+      # runner's Homebrew `python3` rolls forward with the image (3.14 on
+      # 2026-10-15, 3.15 on 2026-10-19) and pip then refuses to resolve the
+      # package ("Could not find a version that satisfies the requirement
+      # pocket-tts"), failing the macOS leg before it builds anything. Pin a
+      # known-good interpreter and hand it to scripts/download-sidecars.js
+      # explicitly instead of trusting whatever `python3` points at.
+      - name: Pin macOS Python for bundled runtimes
+        if: matrix.os == 'macos'
+        run: |
+          brew install python@3.13
+          PYTHON_BIN="$(brew --prefix python@3.13)/bin/python3.13"
+          test -x "$PYTHON_BIN"
+          "$PYTHON_BIN" --version
+          echo "PLETHORA_PYTHON=$PYTHON_BIN" >> "$GITHUB_ENV"
+
       # macOS code signing - Option 1: Ad-hoc signing (no certificate needed)
       - name: Import ad-hoc signing (macOS)
         if: matrix.os == 'macos'

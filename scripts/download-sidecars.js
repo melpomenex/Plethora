@@ -696,23 +696,102 @@ function findFileRecursive(rootDir, fileName) {
   return null;
 }
 
-function resolvePythonCommand() {
+// pocket-tts publishes `Requires-Python: >=3.10,<3.15`. Pointing pip at a
+// newer interpreter does not fail with a version error — it fails with
+// "Could not find a version that satisfies the requirement pocket-tts (from
+// versions: none)" after a long download, which is what broke the macOS
+// release leg when the runner's Homebrew python3 rolled from 3.14 to 3.15.
+// Select an interpreter inside the supported window instead of trusting
+// whatever `python3` currently points at, and let CI pin one explicitly via
+// PLETHORA_PYTHON.
+const PYTHON_MIN_MAJOR = 3;
+const PYTHON_MIN_MINOR = 10;
+const PYTHON_MAX_MAJOR = 3;
+const PYTHON_MAX_MINOR_EXCLUSIVE = 15;
+
+function isCompatiblePythonVersion(major, minor) {
+  if (major < PYTHON_MIN_MAJOR || major > PYTHON_MAX_MAJOR) {
+    return false;
+  }
+  if (major === PYTHON_MIN_MAJOR && minor < PYTHON_MIN_MINOR) {
+    return false;
+  }
+  if (major === PYTHON_MAX_MAJOR && minor >= PYTHON_MAX_MINOR_EXCLUSIVE) {
+    return false;
+  }
+  return true;
+}
+
+function probePythonVersion(pythonCmd) {
+  let output;
+  try {
+    // No `%`-formatting here: this command is interpreted by cmd.exe on
+    // Windows, where stray percent signs are expanded by the shell.
+    output = execSync(
+      `${pythonCmd} -c "import sys;print(str(sys.version_info[0])+'.'+str(sys.version_info[1]))"`,
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] },
+    ).trim();
+  } catch {
+    return null;
+  }
+  const match = /^(\d+)\.(\d+)$/.exec(output);
+  if (!match) {
+    return null;
+  }
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  if (!isCompatiblePythonVersion(major, minor)) {
+    return null;
+  }
+  return { command: pythonCmd, version: `${major}.${minor}` };
+}
+
+let cachedPythonCommand;
+
+function resolvePythonCommand({ refresh = false } = {}) {
+  if (cachedPythonCommand !== undefined && !refresh) {
+    return cachedPythonCommand;
+  }
+
+  const candidates = [];
+  if (process.env.PLETHORA_PYTHON) {
+    candidates.push(process.env.PLETHORA_PYTHON);
+  }
   if (process.platform === 'win32') {
-    try {
-      execSync('py -3 --version', { stdio: 'ignore' });
-      return 'py -3';
-    } catch {
-      // keep trying fallbacks
+    // The py launcher can pin an exact minor version; `py -3` picks the
+    // newest, which may be outside pocket-tts's supported window.
+    for (const minor of [13, 12, 11, 10]) {
+      candidates.push(`py -3.${minor}`);
+    }
+    candidates.push('py -3', 'python3', 'python');
+  } else {
+    for (const name of ['python3.13', 'python3.12', 'python3.11', 'python3.10', 'python3', 'python']) {
+      if (commandExists(name)) {
+        candidates.push(name);
+      }
     }
   }
 
-  if (commandExists('python3')) {
-    return 'python3';
+  const rejected = [];
+  for (const candidate of candidates) {
+    const probe = probePythonVersion(candidate);
+    if (probe) {
+      console.log(`Using Python ${probe.version} (${probe.command}) for bundled Python runtimes.`);
+      cachedPythonCommand = candidate;
+      return cachedPythonCommand;
+    }
+    rejected.push(candidate);
   }
-  if (commandExists('python')) {
-    return 'python';
+
+  if (rejected.length > 0) {
+    console.warn(
+      `No usable Python ${PYTHON_MIN_MAJOR}.${PYTHON_MIN_MINOR}-${PYTHON_MAX_MAJOR}.${PYTHON_MAX_MINOR_EXCLUSIVE - 1} ` +
+        `interpreter found (pocket-tts requires >=3.10,<3.15); tried: ${rejected.join(', ')}. ` +
+        'Bundled runtimes fall back to the launcher wrapper.',
+    );
   }
-  return null;
+  cachedPythonCommand = null;
+  return cachedPythonCommand;
 }
 
 function notebookLMRuntimeLayout(targetTriple) {
