@@ -59,7 +59,6 @@ import {
   setRssPreferencesAuto,
   getRssPreferencesAuto,
   fetchArticleFullContent,
-  generateArticleExcerpt,
   type RssUserPreference,
   cleanupOldRssArticlesAuto,
   getFeedIcon,
@@ -84,12 +83,13 @@ import { RSSScrollMode } from "./RSSScrollMode";
 import { RSSFullContentView } from "./RSSFullContentView";
 import { FeedSettingsDialog } from "./FeedSettingsDialog";
 import { MagazineLayout, GridLayout } from "./ArticleLayouts";
+import { RSSListArticleCard } from "./RSSListArticleCard";
+import { iconButtonVariants } from "../md3/IconButton";
 import { useI18n } from "../../lib/i18n";
 import { isTauri, openExternal } from "../../lib/tauri";
 import { sanitizeHtml } from "../common/RichContentRenderer";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { useToast } from "../common/Toast";
-import { IntelligenceIndicator } from "./IntelligenceIndicator";
 import { TrainingMenu } from "./TrainingMenu";
 import { KeyboardShortcutProvider } from "./KeyboardShortcutProvider";
 import { usePaletteActionListener, usePaletteContextProvider } from "../../commandPalette/paletteActionEvents";
@@ -628,15 +628,25 @@ export function RSSReader() {
     }
   }, [items, selectedItem, selectedItemFeed, userClosedReader]);
 
-  // Scroll active item into view
+  // Keep the selected feed object current when article state (read/favorite)
+  // is updated in the feeds array; the items memo derives from this object.
   useEffect(() => {
+    if (!selectedFeed) return;
+    const updated = feeds.find((feed) => feed.id === selectedFeed.id);
+    if (updated && updated !== selectedFeed) setSelectedFeed(updated);
+  }, [feeds, selectedFeed]);
+
+  // Scroll active item into view. List delegates scrolling to its virtualizer
+  // so there is exactly one scroll authority while rows change height.
+  useEffect(() => {
+    if (articleLayout === "list") return;
     if (selectedItem?.id) {
       const activeEl = document.querySelector(`[data-article-id="${selectedItem.id}"]`);
       if (activeEl) {
         activeEl.scrollIntoView({ block: "nearest", behavior: "smooth" });
       }
     }
-  }, [selectedItem?.id]);
+  }, [selectedItem?.id, articleLayout]);
 
   useEffect(() => {
     if (!isMobile) return;
@@ -1777,24 +1787,184 @@ export function RSSReader() {
     [selectedItem?.content, selectedItem?.description],
   );
 
+  const [isRssListScrolling, setIsRssListScrolling] = useState(false);
+  const rssListItemKey = useCallback(
+    (index: number) => {
+      const entry = items[index];
+      return entry ? JSON.stringify([entry.feed.id, entry.item.id]) : `index-${index}`;
+    },
+    [items],
+  );
   const rssVirtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => rssListParentRef.current,
-    estimateSize: () => 96,
+    estimateSize: () => 176,
     overscan: 10,
+    getItemKey: rssListItemKey,
+    onChange: (instance) => setIsRssListScrolling(instance.isScrolling),
   });
+  // Instance property (not a constructor option in @tanstack/virtual-core
+  // 3.13): only correct the scroll offset for rows wholly above the viewport.
+  // Visible rows grow downward without pulling the reading position.
+  rssVirtualizer.shouldAdjustScrollPositionOnItemSizeChange = (row, _delta, instance) =>
+    row.end <= (instance.scrollOffset ?? 0);
 
   useEffect(() => {
+    if (articleLayout !== "list") return;
     if (!selectedItem) return;
     const idx = items.findIndex(({ item }) => item.id === selectedItem.id);
     if (idx >= 0) {
       try {
-        rssVirtualizer.scrollToIndex(idx, { align: "auto" });
+        rssVirtualizer.scrollToIndex(idx, { align: "auto", behavior: "auto" });
       } catch {
         // ignore
       }
     }
-  }, [selectedItem?.id]);
+  }, [selectedItem?.id, articleLayout]);
+
+  // Presentation/scope identity: a scope change remounts local disclosure even
+  // when the same article id survives in both scopes.
+  const rssListScopeKey = useMemo(
+    () =>
+      JSON.stringify({
+        activeCollectionId,
+        viewMode,
+        selectedFeedId: selectedFeed?.id ?? null,
+        selectedFolderId,
+        readingListId: activeReadingListFeeds?.id ?? null,
+        readingListFeeds: activeReadingListFeeds
+          ? Array.from(activeReadingListFeeds.feedIds).sort()
+          : [],
+        selectedTagIds: Array.from(selectedTagIds).sort(),
+        selectedTagFilter,
+        searchQuery,
+        intelligenceFilter,
+        showDisliked,
+        articleLayout,
+        view_mode: preferences?.view_mode ?? null,
+        density: preferences?.density ?? null,
+        show_thumbnails: preferences?.show_thumbnails ?? null,
+        thumbnail_size: preferences?.thumbnail_size ?? null,
+        card_height: preferences?.card_height ?? null,
+        excerpt_length: preferences?.excerpt_length ?? null,
+        show_author: preferences?.show_author ?? null,
+        show_date: preferences?.show_date ?? null,
+        show_feed_icon: preferences?.show_feed_icon ?? null,
+        sort_by: preferences?.sort_by ?? null,
+        sort_order: preferences?.sort_order ?? null,
+      }),
+    [
+      activeCollectionId,
+      viewMode,
+      selectedFeed?.id,
+      selectedFolderId,
+      activeReadingListFeeds,
+      selectedTagIds,
+      selectedTagFilter,
+      searchQuery,
+      intelligenceFilter,
+      showDisliked,
+      articleLayout,
+      preferences,
+    ],
+  );
+
+  const renderListArticleActions = (feed: Feed, item: FeedItem) => (
+    <>
+      {!item.fullContent && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            void fetchArticleFullContent(item.id, item.link);
+          }}
+          onKeyDown={(e) => articleMenuKeyDown(feed, item, e)}
+          className={cn(iconButtonVariants({ size: "md" }), "rss-list-control")}
+          title="Fetch full content"
+          aria-label="Fetch full content"
+        >
+          <Download className="rss-list-control-icon" aria-hidden="true" />
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          handleToggleFavorite(feed, item);
+        }}
+        onKeyDown={(e) => articleMenuKeyDown(feed, item, e)}
+        className={cn(iconButtonVariants({ size: "md" }), "rss-list-control")}
+        title={item.favorite ? t("rssReader.removeFavorite") : t("rssReader.addFavorite")}
+        aria-label={item.favorite ? t("rssReader.removeFavorite") : t("rssReader.addFavorite")}
+        aria-pressed={item.favorite}
+        data-rss-list-action="favorite"
+      >
+        {item.favorite ? (
+          <Star className="rss-list-control-icon rss-list-star--active" aria-hidden="true" />
+        ) : (
+          <Star className="rss-list-control-icon" aria-hidden="true" />
+        )}
+      </button>
+      <a
+        href={item.link}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          void handleOpenOriginal(item.link);
+        }}
+        onKeyDown={(e) => articleMenuKeyDown(feed, item, e)}
+        className={cn(iconButtonVariants({ size: "md" }), "rss-list-control")}
+        title={t("rssReader.openOriginal")}
+        aria-label={t("rssReader.openOriginal")}
+      >
+        <ArrowSquareOut className="rss-list-control-icon" aria-hidden="true" />
+      </a>
+      {item.read && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            void handleMarkUnread(feed, item);
+          }}
+          onKeyDown={(e) => articleMenuKeyDown(feed, item, e)}
+          className={cn(iconButtonVariants({ size: "md" }), "rss-list-control")}
+          title="Mark as unread"
+          aria-label="Mark as unread"
+        >
+          <EyeSlash className="rss-list-control-icon" aria-hidden="true" />
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setShowTrainingMenu(true);
+          setTrainingMenuPosition({ x: e.clientX, y: e.clientY });
+        }}
+        onKeyDown={(e) => articleMenuKeyDown(feed, item, e)}
+        className={cn(iconButtonVariants({ size: "md" }), "rss-list-control")}
+        title={t("training.trainIntelligenceTitle")}
+        aria-label={t("training.trainIntelligenceTitle")}
+      >
+        <GraduationCap className="rss-list-control-icon" aria-hidden="true" />
+      </button>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setSelectedItem(item);
+          setSelectedItemFeed(feed);
+          setShowTagInput(true);
+        }}
+        onKeyDown={(e) => articleMenuKeyDown(feed, item, e)}
+        className={cn(iconButtonVariants({ size: "md" }), "rss-list-control")}
+        title="Tag article"
+        aria-label="Tag article"
+      >
+        <Tag className="rss-list-control-icon" aria-hidden="true" />
+      </button>
+    </>
+  );
 
   // Scroll mode view - render before main layout
   if (scrollMode) {
@@ -2669,7 +2839,7 @@ export function RSSReader() {
             <div
               className={`w-full ${
                 (!isMobile && (selectedItem !== null || articleLayout === "list")) ? "lg:w-[420px]" : "lg:flex-1"
-              } border-b lg:border-b-0 lg:border-r border-border/70 flex-col min-h-0 transition-all duration-300 ease-in-out ${showItemsList ? "flex" : "hidden"}`}
+              } border-b lg:border-b-0 lg:border-r border-border/70 flex-col min-h-0 min-w-0 transition-all duration-300 ease-in-out ${showItemsList ? "flex" : "hidden"}`}
             >
               {/* Tag filter sidebar for saved stories */}
               {viewMode === "favorites" && tags.length > 0 && (
@@ -2844,73 +3014,30 @@ export function RSSReader() {
                   />
                 </div>
               ) : (
-                <div ref={rssListParentRef} className="flex-1 overflow-y-auto transition-all duration-300">
+                <div ref={rssListParentRef} className="rss-list-viewport flex-1 overflow-y-auto">
                   <div style={{ height: `${rssVirtualizer.getTotalSize()}px`, position: "relative" }} className={`mx-auto w-full ${selectedItem ? "" : "max-w-4xl"}`}>
                     {rssVirtualizer.getVirtualItems().map((virtualRow) => {
                       const entry = items[virtualRow.index];
                       if (!entry) return null;
                       const { feed, item } = entry;
-                      const imageUrl = item.thumbnail || (item.enclosure?.type?.startsWith("image/") ? item.enclosure.url : undefined);
-                      const viewModePref = preferences?.view_mode || "card";
-                      const isCompactView = viewModePref === "compact";
-                      const density = preferences?.density || "normal";
-                      const paddingClass = density === "compact" ? "px-3 py-2" : density === "comfortable" ? "px-5 py-4" : isCompactView ? "px-3 py-1.5" : "px-4 py-3";
-                      const excerptLen = preferences?.excerpt_length ?? 150;
-                      const height = preferences?.card_height || "normal";
-                      const largeImage = preferences?.thumbnail_size === "large" && viewModePref === "card";
                       return (
-                        <div
-                          key={`${feed.id}-${item.id}`}
-                          data-index={virtualRow.index}
-                          ref={rssVirtualizer.measureElement}
-                          style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${virtualRow.start}px)` }}
-                        >
-                          <article
-                            data-article-id={item.id}
-                            onClick={() => handleItemClick(feed, item)}
-                            onContextMenu={(e) => openArticleMenu(feed, item, e)}
-                            className={`group border-b border-border/60 hover:bg-muted/40 cursor-pointer transition-all ${paddingClass} ${selectedItem?.id === item.id ? "bg-muted/50 border-l-2 border-primary" : "border-l-2 border-transparent"}`}
-                          >
-                            <div className={`flex gap-3 ${viewModePref === "card" ? "flex-wrap" : "items-start"}`}>
-                              <div className={`${isCompactView ? "mt-1" : "mt-2"} flex items-center gap-1.5 flex-shrink-0`}>
-                                <div className={`h-2 w-2 rounded-full ${item.read ? "bg-muted" : "bg-orange-500"}`} />
-                                <IntelligenceIndicator score={item.intelligenceScore} />
-                              </div>
-                              {!isCompactView && (preferences?.show_thumbnails ?? true) && imageUrl && (
-                                <div className={`${largeImage ? "w-full h-40 order-first" : viewModePref === "card" ? "w-24 h-16" : "w-16 h-12"} rounded-md overflow-hidden bg-muted/70 flex-shrink-0 border border-border/60`}>
-                                  <img src={imageUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
-                                </div>
-                              )}
-                              <div className="flex-1 min-w-0">
-                                <h3 className={`text-sm font-semibold ${isCompactView ? "" : "mb-1"} ${item.read ? "text-muted-foreground" : "text-foreground"}`}>{item.title}</h3>
-                                {!isCompactView && height !== "compact" && (item.fullContent || item.description) && (
-                                  <p className={`text-xs text-muted-foreground mb-2 ${height === "tall" ? "line-clamp-6" : "line-clamp-2"}`}>
-                                    {item.fullContent ? generateArticleExcerpt(item.fullContent, excerptLen) : generateArticleExcerpt(item.description || "", excerptLen)}
-                                  </p>
-                                )}
-                                <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                                  {(preferences?.show_feed_icon ?? true) && getFeedIcon(feed) && (
-                                    <img src={getFeedIcon(feed)} alt="" className="w-3.5 h-3.5 rounded-sm object-cover flex-shrink-0" loading="lazy" />
-                                  )}
-                                  <span className="font-medium truncate">{feed.title}</span>
-                                  {(preferences?.show_author ?? true) && item.author && (<><span>•</span><span className="truncate">by {item.author}</span></>)}
-                                  {(preferences?.show_date ?? true) && (<><span>•</span><span>{formatFeedDate(item.pubDate)}</span></>)}
-                                  {item.fullContent && (<span className="flex items-center gap-1 text-blue-500"><span>•</span><TextT className="w-3 h-3" /><span>Full</span></span>)}
-                                </div>
-                              </div>
-                              <div className="flex items-center gap-1 opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity">
-                                {!item.fullContent && (
-                                  <button onClick={(e) => { e.stopPropagation(); void fetchArticleFullContent(item.id, item.link); }} className="p-1.5 text-blue-600 hover:text-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/30 rounded transition-colors" title="Fetch full content"><Download className="w-4 h-4" /></button>
-                                )}
-                                <button onClick={(e) => { e.stopPropagation(); handleToggleFavorite(feed, item); }} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/70 rounded transition-colors" title={item.favorite ? t("rssReader.removeFavorite") : t("rssReader.addFavorite")}>{item.favorite ? <Star className="w-4 h-4 text-yellow-500 fill-yellow-500" /> : <Star className="w-4 h-4" />}</button>
-                                <a href={item.link} onClick={(e) => { e.preventDefault(); e.stopPropagation(); void handleOpenOriginal(item.link); }} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/70 rounded transition-colors" title={t("rssReader.openOriginal")}><ArrowSquareOut className="w-4 h-4" /></a>
-                                {item.read && (<button onClick={(e) => { e.stopPropagation(); void handleMarkUnread(feed, item); }} className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/70 rounded transition-colors" title="Mark as unread"><EyeSlash className="w-4 h-4" /></button>)}
-                                <button onClick={(e) => { e.stopPropagation(); setShowTrainingMenu(true); setTrainingMenuPosition({ x: e.clientX, y: e.clientY }); }} className="p-1.5 text-muted-foreground hover:text-emerald-500 hover:bg-emerald-500/10 rounded transition-colors" title={t("training.trainIntelligenceTitle")}><GraduationCap className="w-4 h-4" /></button>
-                                <button onClick={(e) => { e.stopPropagation(); setSelectedItem(item); setSelectedItemFeed(feed); setShowTagInput(true); }} className="p-1.5 text-muted-foreground hover:text-primary hover:bg-primary/10 rounded transition-colors" title="Tag article"><Tag className="w-4 h-4" /></button>
-                              </div>
-                            </div>
-                          </article>
-                        </div>
+                        <RSSListArticleCard
+                          key={`${rssListScopeKey}:${feed.id}:${item.id}`}
+                          feed={feed}
+                          item={item}
+                          preferences={preferences}
+                          selected={selectedItem?.id === item.id}
+                          index={virtualRow.index}
+                          start={virtualRow.start}
+                          isScrolling={isRssListScrolling}
+                          measureElement={rssVirtualizer.measureElement}
+                          actions={renderListArticleActions(feed, item)}
+                          onSelect={(selectedFeedEntry, selectedItemEntry) =>
+                            void handleItemClick(selectedFeedEntry, selectedItemEntry)
+                          }
+                          onContextMenu={(e) => openArticleMenu(feed, item, e)}
+                          onMenuKeyDown={(e) => articleMenuKeyDown(feed, item, e)}
+                        />
                       );
                     })}
                   </div>
@@ -2921,7 +3048,7 @@ export function RSSReader() {
             {/* Article preview / Dashboard */}
             {(selectedItem || (!isMobile && articleLayout === "list")) && (
               <div
-                className={`flex-1 flex flex-col min-h-0 bg-card/40 transition-all duration-300 ${showReader ? "flex" : "hidden"}`}
+                className={`flex-1 flex flex-col min-h-0 min-w-0 bg-card/40 transition-all duration-300 ${showReader ? "flex" : "hidden"}`}
               >
                 {selectedItem ? (
                   <>

@@ -7,6 +7,12 @@ declare global {
       setPreferences: (patch: RssUserPreferenceUpdate) => void;
       setView: (view: string) => void;
       reload: () => Promise<void>;
+      setListWidth: (width: number) => void;
+      setCardFixture: (patch: Record<string, unknown>) => void;
+      setTheme: (id: string) => void;
+      getThemes: () => string[];
+      getActions: () => Array<Record<string, unknown>>;
+      resetActions: () => void;
     };
   }
 }
@@ -198,7 +204,7 @@ test("standard virtualized articles scroll at every density and presentation", a
     })) });
   });
   for (const view_mode of ["card", "list", "compact"]) {
-    for (const [density, padding] of [["compact", "8px"], ["normal", view_mode === "compact" ? "6px" : "12px"], ["comfortable", "16px"]]) {
+    for (const [density, padding] of [["compact", "8px"], ["normal", "12px"], ["comfortable", "16px"]]) {
       await page.evaluate(() => window.rssHarness.setView("basic"));
       await expect(page.locator("[data-article-id]")).toHaveCount(0);
       await page.evaluate(async patch => {
@@ -207,8 +213,16 @@ test("standard virtualized articles scroll at every density and presentation", a
       }, { density, view_mode, sort_by: "title", sort_order: "asc" });
       const first = page.locator('[data-article-id="virtual-0"]');
       await expect(first).toHaveCSS("padding-top", padding);
-      if (view_mode === "compact") await expect(first.locator("p")).toHaveCount(0);
-      else await expect(first.locator("p")).toBeVisible();
+      // List defers excerpts to deliberate disclosure, in every presentation.
+      await expect(first.locator(".rss-list-details")).toBeHidden();
+      await expect(first.locator(".rss-list-title")).toBeVisible();
+      if (view_mode === "compact") {
+        await expect(first.locator(".rss-list-excerpt")).toHaveCount(0);
+      } else {
+        await expect(first.locator(".rss-list-excerpt")).toBeHidden();
+        await first.getByRole("button", { name: "Show article details" }).click();
+        await expect(first.locator(".rss-list-excerpt")).toBeVisible();
+      }
       // The nearest scroll container owns virtual row measurements.
       const scroller = await first.evaluateHandle(el => {
         let parent = el.parentElement;

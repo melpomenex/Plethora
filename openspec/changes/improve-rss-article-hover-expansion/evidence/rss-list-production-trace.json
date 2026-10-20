@@ -1,0 +1,10 @@
+{
+  "mode": "production bundle (vite build of the harness entry)",
+  "fixture": "1,000 deterministic articles, 20 feeds, 420px List pane, 1200x800 browser viewport",
+  "mountedAtStart": 15,
+  "mountedAt900": 25,
+  "expanded": "true",
+  "collapsed": "false",
+  "longTasks": [],
+  "disclosureLongTasksOver50": []
+}

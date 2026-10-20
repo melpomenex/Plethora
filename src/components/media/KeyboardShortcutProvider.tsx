@@ -24,13 +24,37 @@ export function KeyboardShortcutProvider({ onAction, enabled = true }: KeyboardS
       // Don't capture shortcuts when command palette is open
       if (useUIStore.getState().commandPaletteOpen) return;
 
+      const target = e.target;
+      const targetElement = target instanceof Element ? target : null;
+
+      // Native controls inside a List card own unmodified Enter/Space (and the
+      // anchor's native activation) even when the key has been remapped as an
+      // article shortcut. This listener runs in capture phase, so descendant
+      // stopPropagation cannot protect these controls on its own.
+      const listCard = targetElement?.closest("[data-rss-list-card]");
+      if (listCard) {
+        const unmodified = !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey;
+        if (
+          unmodified &&
+          (e.key === "Enter" || e.key === " " || e.key === "Spacebar") &&
+          targetElement.closest("button, a[href]")
+        ) {
+          return;
+        }
+        // Let the card's local disclosure handler dismiss an expanded card
+        // before generic Escape shortcuts see the event.
+        if (unmodified && e.key === "Escape" && listCard.getAttribute("data-expanded") === "true") {
+          return;
+        }
+      }
+
       // Don't capture when typing in inputs
-      const target = e.target as HTMLElement;
       if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.tagName === "SELECT" ||
-        target.isContentEditable
+        targetElement &&
+        (targetElement.tagName === "INPUT" ||
+          targetElement.tagName === "TEXTAREA" ||
+          targetElement.tagName === "SELECT" ||
+          (targetElement as HTMLElement).isContentEditable)
       ) {
         // Allow Escape and specific shortcuts even in inputs
         if (e.key !== "Escape") return;

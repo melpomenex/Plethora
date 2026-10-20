@@ -1,0 +1,10 @@
+{
+  "cssViewportWidth": 720,
+  "simulatedZoom": "200% of a 1440px physical window (720px CSS viewport)",
+  "listWidth": 420,
+  "scrollWidth": 420,
+  "clientWidth": 420,
+  "actionControls": 7,
+  "titleWidth": 386,
+  "horizontalOverflow": false
+}
