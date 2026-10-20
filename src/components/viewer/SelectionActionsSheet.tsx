@@ -28,15 +28,40 @@ import { useI18n } from "../../lib/i18n";
 import { useAiAvailability } from "../../lib/ai/useAiAvailability";
 import { useAskLibrary } from "../../lib/ai/useAskLibrary";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { runPrerequisiteAnalysis } from "../../lib/ai/tasks/definitions/prerequisiteTask";
-import type { PrerequisiteAnalysis } from "../../lib/ai/schemas/prerequisite";
+import {
+  ConceptRelationshipAnalysisOwner,
+  EMPTY_PREREQUISITES_MESSAGE,
+  acceptRelationshipDraft,
+  dismissRelationshipLink,
+  discoverRelatedContent,
+  editRelationshipLink,
+  removeRelationshipLink,
+  saveRelationshipDrafts,
+  type PrerequisiteConceptResult,
+  type RelatedContentResult,
+  type RelationshipAnalysisOutcome,
+  type RelationshipDraft,
+} from "../../lib/ai/concepts/relationships";
+import {
+  activityText,
+  coverageLimitationText,
+  evidenceCoverageText,
+} from "../../lib/ai/concepts/coverage";
+import {
+  acceptConceptLink,
+  listConceptLinksFor,
+  listConceptLinksTargeting,
+  type ConceptLink,
+} from "../../api/concept-links";
+import { CONCEPT_RELATION_TYPES } from "../../api/concept-links";
+import type { ChunkLocation } from "../../api/ai-learning";
+import { openConceptInKnowledgeGraph } from "../graph/conceptProjection";
 import { appleFmWarmup } from "../../lib/ai/apple/foundation";
 import { isAppleOsPlatform } from "../../lib/ai/apple/capabilities";
 import {
   getOnDeviceRequirementStatus,
   isOnDeviceAiSupportedPlatform,
   requestModelDownload,
-  toOnDeviceAiError,
   warmUpOnDevicePrompt,
 } from "../../lib/ai/onDeviceAI";
 import { hasCloudProvider, requestCloudFallback, canOfferCloudRetryForSafety } from "../../lib/ai/provider";
@@ -76,6 +101,8 @@ export interface LearnThisContext {
   documentTitle?: string;
   /** Existing extract the selection belongs to, when there is one. */
   extractId?: string;
+  /** Current source content revision (document content hash), when known. */
+  sourceRevision?: string;
   /** Selection context payload recorded with provenance. */
   selectionContext?: unknown;
 }
@@ -186,8 +213,25 @@ export function passageAroundSelection(selection: Selection | null, text: string
   );
 }
 
-function SelectionMarkdown({ content }: { content: string }) {
-  const html = useMemo(() => renderMarkdown(content), [content]);
+/** Safe, short provenance summary for a saved concept link. */
+function linkProvenanceSummary(link: ConceptLink): string | null {
+  const parts: string[] = [];
+  if (link.analysisId) parts.push(`analysis ${link.analysisId}`);
+  if (link.provenanceJson) {
+    try {
+      const value = JSON.parse(link.provenanceJson) as Record<string, unknown>;
+      for (const key of ["taskId", "providerId", "modelClass", "policyVersion"]) {
+        const field = value[key];
+        if (typeof field === "string" && field.trim()) parts.push(field);
+      }
+    } catch {
+      // Malformed legacy provenance is displayed as unknown, never thrown.
+    }
+  }
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
+function SelectionMarkdown({ content }: { content: string }) {  const html = useMemo(() => renderMarkdown(content), [content]);
   const safeHtml = useMemo(
     () =>
       DOMPurify.sanitize(html, {
@@ -282,12 +326,14 @@ export function SelectionActionsSheet({
   const aiSocraticTutorEnabled = useSettingsStore((s) => s.settings.features.aiSocraticTutor);
   // "Prerequisites" analysis flag
   const aiPrerequisitesEnabled = useSettingsStore((s) => s.settings.features.aiPrerequisites);
+  // Concept links / related content is INDEPENDENT of prerequisites.
+  const aiConceptLinksEnabled = useSettingsStore((s) => s.settings.features.aiConceptLinks);
   const library = useAskLibrary();
   const { reset: resetLibrary } = library;
 
-  const [mode, setMode] = useState<"menu" | "asking" | "result" | "library" | "prerequisites">(
-    initialQuestion ? "library" : "menu"
-  );
+  const [mode, setMode] = useState<
+    "menu" | "asking" | "result" | "library" | "prerequisites" | "related"
+  >(initialQuestion ? "library" : "menu");
   const [action, setAction] = useState<SelectionAiAction>("explain");
   const [question, setQuestion] = useState(initialQuestion ?? "");
   const [output, setOutput] = useState("");
@@ -299,7 +345,19 @@ export function SelectionActionsSheet({
   const [showTutor, setShowTutor] = useState(false);
   const [prereqRunning, setPrereqRunning] = useState(false);
   const [prereqError, setPrereqError] = useState<string | null>(null);
-  const [prereqResult, setPrereqResult] = useState<PrerequisiteAnalysis | null>(null);
+  const [prereqResult, setPrereqResult] = useState<RelationshipAnalysisOutcome | null>(null);
+  const [savedDraftLinks, setSavedDraftLinks] = useState<Record<string, ConceptLink>>({});
+  const [linkActionState, setLinkActionState] = useState<
+    Record<string, "saving" | "saved" | "error">
+  >({});
+  const [savedLinks, setSavedLinks] = useState<ConceptLink[]>([]);
+  const [editingLinkId, setEditingLinkId] = useState<string | null>(null);
+  const linkRetryRef = useRef<Record<string, () => void>>({});
+  const [editRelation, setEditRelation] = useState("related-to");
+  const [editConfidence, setEditConfidence] = useState(0.8);
+  const [relatedRunning, setRelatedRunning] = useState(false);
+  const [relatedResult, setRelatedResult] = useState<RelatedContentResult | null>(null);
+  const [relatedError, setRelatedError] = useState<string | null>(null);
   const [downloadState, setDownloadState] = useState<"idle" | "downloadable" | "downloading">(
     "idle"
   );
@@ -309,6 +367,9 @@ export function SelectionActionsSheet({
   const [languageContext, setLanguageContext] = useState<ReturnType<typeof buildLearnerContext> | null>(null);
 
   const abortRef = useRef<AbortController | null>(null);
+  const relationshipOwnerRef = useRef<ConceptRelationshipAnalysisOwner | null>(null);
+  const relatedAbortRef = useRef<AbortController | null>(null);
+  const analysisEpochRef = useRef(0);
   // `||`, not `??`: a surface with no reachable surrounding text (EPUB/HTML
   // render in an iframe) passes an empty string, and an empty passage would
   // make every adapter throw `invalid_argument`. A palette handoff may carry
@@ -330,6 +391,16 @@ export function SelectionActionsSheet({
     setPrereqRunning(false);
     setPrereqError(null);
     setPrereqResult(null);
+    setSavedDraftLinks({});
+    setLinkActionState({});
+    setSavedLinks([]);
+    setEditingLinkId(null);
+    setRelatedRunning(false);
+    setRelatedResult(null);
+    setRelatedError(null);
+    analysisEpochRef.current += 1;
+    relatedAbortRef.current?.abort();
+    relationshipOwnerRef.current?.cancel();
     setExtractSaveState("idle");
     resetLibrary();
   }, [resetLibrary]);
@@ -349,7 +420,22 @@ export function SelectionActionsSheet({
     setQuestion(initialQuestion);
   }, [open, initialQuestion]);
 
-  useEffect(() => () => abortRef.current?.abort(), []);
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    relatedAbortRef.current?.abort();
+    relationshipOwnerRef.current?.cancel();
+  }, []);
+
+  // A replacement selection/source invalidates in-flight relationship work.
+  useEffect(() => {
+    analysisEpochRef.current += 1;
+    relationshipOwnerRef.current?.cancel();
+    relatedAbortRef.current?.abort();
+    setPrereqRunning(false);
+    setPrereqResult(null);
+    setRelatedRunning(false);
+    setRelatedResult(null);
+  }, [text, sourcePassage]);
 
   useEffect(() => {
     let disposed = false;
@@ -465,32 +551,293 @@ export function SelectionActionsSheet({
     start(action, question, true);
   }, [action, question, start, t]);
 
+  const refreshSavedLinks = useCallback(
+    async (outcome: RelationshipAnalysisOutcome) => {
+      const rows = new Map<string, ConceptLink>();
+      const add = (links: ConceptLink[]) => {
+        for (const link of links) rows.set(link.id, link);
+      };
+      try {
+        if (learnThis?.documentId) {
+          add(await listConceptLinksFor("document", learnThis.documentId, false));
+          add(await listConceptLinksTargeting("document", learnThis.documentId, false));
+        }
+        for (const prerequisite of outcome.prerequisites) {
+          if (!prerequisite.conceptId) continue;
+          add(await listConceptLinksFor("concept", prerequisite.conceptId, false));
+          add(await listConceptLinksTargeting("concept", prerequisite.conceptId, false));
+        }
+      } catch {
+        return;
+      }
+      setSavedLinks((prev) => {
+        const byId = new Map(prev.map((link) => [link.id, link]));
+        for (const link of rows.values()) byId.set(link.id, link);
+        return [...byId.values()].slice(0, 40);
+      });
+    },
+    [learnThis?.documentId]
+  );
+
   const startPrerequisites = useCallback(() => {
+    const epoch = ++analysisEpochRef.current;
     setMode("prerequisites");
     setPrereqRunning(true);
     setPrereqError(null);
     setPrereqResult(null);
+    setSavedDraftLinks({});
+    setLinkActionState({});
+    setSavedLinks([]);
+    setEditingLinkId(null);
 
-    void runPrerequisiteAnalysis({
-      passage: sourcePassage,
-      documentTitle: learnThis?.documentTitle,
-    })
-      .then((run) => {
-        setPrereqResult(run.analysis);
+    if (!aiPrerequisitesEnabled && !aiConceptLinksEnabled) {
+      setPrereqError("Prerequisite analysis is disabled in Settings.");
+      setPrereqRunning(false);
+      return;
+    }
+
+    if (!relationshipOwnerRef.current) {
+      relationshipOwnerRef.current = new ConceptRelationshipAnalysisOwner({
+        prerequisitesEnabled: aiPrerequisitesEnabled,
+        linksEnabled: aiConceptLinksEnabled,
+      });
+    } else {
+      relationshipOwnerRef.current.cancel();
+      relationshipOwnerRef.current = new ConceptRelationshipAnalysisOwner({
+        prerequisitesEnabled: aiPrerequisitesEnabled,
+        linksEnabled: aiConceptLinksEnabled,
+      });
+    }
+
+    void relationshipOwnerRef.current
+      .start({
+        passage: sourcePassage,
+        documentTitle: learnThis?.documentTitle,
+        documentId: learnThis?.documentId,
+        sourceRevision: learnThis?.sourceRevision,
+      })
+      .then((outcome) => {
+        // Late results never replace another selection/analysis.
+        if (epoch !== analysisEpochRef.current) return;
+        if (outcome.status === "cancelled") return;
+        setPrereqResult(outcome);
         setPrereqRunning(false);
+        if (outcome.status === "denied") {
+          setPrereqError("Remote processing was not authorized; no analysis was run.");
+        } else if (outcome.error) {
+          setPrereqError(outcome.error);
+        }
+        void refreshSavedLinks(outcome);
       })
       .catch((err) => {
-        setPrereqError(toOnDeviceAiError(err).message || String(err));
+        if (epoch !== analysisEpochRef.current) return;
+        setPrereqError(formatAIErrorMessage(err));
         setPrereqRunning(false);
       });
-  }, [sourcePassage, learnThis?.documentTitle]);
+  }, [
+    aiConceptLinksEnabled,
+    aiPrerequisitesEnabled,
+    learnThis?.documentId,
+    learnThis?.documentTitle,
+    learnThis?.sourceRevision,
+    sourcePassage,
+    refreshSavedLinks,
+  ]);
+
+  const saveAllDrafts = useCallback(async () => {
+    if (!prereqResult) return;
+    const unsaved = prereqResult.drafts.filter((draft) => !savedDraftLinks[draft.id]);
+    if (unsaved.length === 0) return;
+    setLinkActionState((prev) => {
+      const next = { ...prev };
+      for (const draft of unsaved) next[draft.id] = "saving";
+      return next;
+    });
+    try {
+      const saved = await saveRelationshipDrafts(prereqResult.analysis.analysisId, unsaved);
+      setSavedDraftLinks((prev) => {
+        const next = { ...prev };
+        for (const row of saved.results) next[row.draft.id] = row.link;
+        return next;
+      });
+      setLinkActionState((prev) => {
+        const next = { ...prev };
+        for (const draft of unsaved) next[draft.id] = "saved";
+        return next;
+      });
+      const links = saved.results.map((row) => row.link);
+      setSavedLinks((prev) => {
+        const byId = new Map(prev.map((link) => [link.id, link]));
+        for (const link of links) byId.set(link.id, link);
+        return [...byId.values()];
+      });
+    } catch (error) {
+      setLinkActionState((prev) => {
+        const next = { ...prev };
+        for (const draft of unsaved) next[draft.id] = "error";
+        return next;
+      });
+      setPrereqError(formatAIErrorMessage(error));
+    }
+  }, [prereqResult, savedDraftLinks]);
+
+  const acceptDraft = useCallback(
+    async (draft: RelationshipDraft) => {
+      if (!prereqResult) return;
+      setLinkActionState((prev) => ({ ...prev, [draft.id]: "saving" }));
+      try {
+        const link = await acceptRelationshipDraft(
+          prereqResult.analysis.analysisId,
+          draft,
+          savedDraftLinks[draft.id] ?? null
+        );
+        if (!link) throw new Error("No link was created.");
+        setSavedDraftLinks((prev) => ({ ...prev, [draft.id]: link }));
+        setLinkActionState((prev) => ({ ...prev, [draft.id]: "saved" }));
+        setSavedLinks((prev) => [link, ...prev.filter((row) => row.id !== link.id)]);
+      } catch (error) {
+        setLinkActionState((prev) => ({ ...prev, [draft.id]: "error" }));
+        linkRetryRef.current[draft.id] = () => void acceptDraft(draft);
+        setPrereqError(formatAIErrorMessage(error));
+      }
+    },
+    [prereqResult, savedDraftLinks]
+  );
+
+  const dismissDraft = useCallback(
+    async (draft: RelationshipDraft) => {
+      if (!prereqResult) return;
+      setLinkActionState((prev) => ({ ...prev, [draft.id]: "saving" }));
+      try {
+        // A dismissal is an explicit durable action: persist the pending row
+        // (so its canonical fingerprint survives restart) then dismiss it.
+        let link = savedDraftLinks[draft.id] ?? null;
+        if (!link) {
+          const saved = await saveRelationshipDrafts(prereqResult.analysis.analysisId, [draft]);
+          link = saved.results[0]?.link ?? null;
+        }
+        if (link) await dismissRelationshipLink(link.id);
+        setPrereqResult((prev) =>
+          prev
+            ? { ...prev, drafts: prev.drafts.filter((row) => row.id !== draft.id) }
+            : prev
+        );
+        setSavedLinks((prev) => prev.filter((row) => row.id !== link?.id));
+        setLinkActionState((prev) => ({ ...prev, [draft.id]: "saved" }));
+      } catch (error) {
+        setLinkActionState((prev) => ({ ...prev, [draft.id]: "error" }));
+        linkRetryRef.current[draft.id] = () => void dismissDraft(draft);
+        setPrereqError(formatAIErrorMessage(error));
+      }
+    },
+    [prereqResult, savedDraftLinks]
+  );
+
+  const acceptSavedLink = useCallback(async (link: ConceptLink) => {
+    setLinkActionState((prev) => ({ ...prev, [link.id]: "saving" }));
+    try {
+      const accepted = await acceptConceptLink(link.id);
+      if (!accepted) throw new Error("Link not found.");
+      setSavedLinks((prev) => prev.map((row) => (row.id === accepted.id ? accepted : row)));
+      setLinkActionState((prev) => ({ ...prev, [link.id]: "saved" }));
+    } catch (error) {
+      setLinkActionState((prev) => ({ ...prev, [link.id]: "error" }));
+      linkRetryRef.current[link.id] = () => void acceptSavedLink(link);
+      setPrereqError(formatAIErrorMessage(error));
+    }
+  }, []);
+
+  const dismissSavedLink = useCallback(async (link: ConceptLink) => {
+    setLinkActionState((prev) => ({ ...prev, [link.id]: "saving" }));
+    try {
+      await dismissRelationshipLink(link.id);
+      setSavedLinks((prev) => prev.filter((row) => row.id !== link.id));
+    } catch (error) {
+      setLinkActionState((prev) => ({ ...prev, [link.id]: "error" }));
+      linkRetryRef.current[link.id] = () => void dismissSavedLink(link);
+      setPrereqError(formatAIErrorMessage(error));
+    }
+  }, []);
+
+  const removeSavedLink = useCallback(async (link: ConceptLink) => {
+    setLinkActionState((prev) => ({ ...prev, [link.id]: "saving" }));
+    try {
+      await removeRelationshipLink(link.id);
+      setSavedLinks((prev) => prev.filter((row) => row.id !== link.id));
+      setLinkActionState((prev) => {
+        const next = { ...prev };
+        delete next[link.id];
+        return next;
+      });
+    } catch (error) {
+      setLinkActionState((prev) => ({ ...prev, [link.id]: "error" }));
+      linkRetryRef.current[link.id] = () => void removeSavedLink(link);
+      setPrereqError(formatAIErrorMessage(error));
+    }
+  }, []);
+
+  const applyLinkEdit = useCallback(
+    async (link: ConceptLink) => {
+      setLinkActionState((prev) => ({ ...prev, [link.id]: "saving" }));
+      try {
+        const result = await editRelationshipLink({
+          linkId: link.id,
+          relationType: editRelation,
+          confidence: editConfidence,
+        });
+        if (result.outcome !== "updated" || !result.link) {
+          throw new Error("This relationship conflicts with an existing link.");
+        }
+        setSavedLinks((prev) => prev.map((row) => (row.id === link.id ? result.link! : row)));
+        setEditingLinkId(null);
+        setLinkActionState((prev) => ({ ...prev, [link.id]: "saved" }));
+      } catch (error) {
+        setLinkActionState((prev) => ({ ...prev, [link.id]: "error" }));
+        linkRetryRef.current[link.id] = () => void applyLinkEdit(link);
+        setPrereqError(formatAIErrorMessage(error));
+      }
+    },
+    [editConfidence, editRelation]
+  );
+
+  const startRelatedContent = useCallback(() => {
+    setMode("related");
+    setRelatedRunning(true);
+    setRelatedResult(null);
+    setRelatedError(null);
+    relatedAbortRef.current?.abort();
+    const controller = new AbortController();
+    relatedAbortRef.current = controller;
+    const epoch = ++analysisEpochRef.current;
+    void discoverRelatedContent({
+      passage: sourcePassage,
+      documentId: learnThis?.documentId,
+      signal: controller.signal,
+    })
+      .then((result) => {
+        if (epoch !== analysisEpochRef.current || controller.signal.aborted) return;
+        setRelatedResult(result);
+        setRelatedRunning(false);
+        if (result.error) setRelatedError(result.error);
+      })
+      .catch((error) => {
+        if (epoch !== analysisEpochRef.current || controller.signal.aborted) return;
+        setRelatedError(formatAIErrorMessage(error));
+        setRelatedRunning(false);
+      });
+  }, [learnThis?.documentId, sourcePassage]);
 
   // Back/Cancel returns to the action list, unless there is no list to return
   // to because the caller drove us straight into one action.
   const cancel = useCallback(() => {
     abortRef.current?.abort();
     abortRef.current = null;
+    analysisEpochRef.current += 1;
+    relationshipOwnerRef.current?.cancel();
+    relatedAbortRef.current?.abort();
     setRunning(false);
+    setPrereqRunning(false);
+    setRelatedRunning(false);
     if (initialAction) onClose();
     else setMode("menu");
   }, [initialAction, onClose]);
@@ -537,6 +884,65 @@ export function SelectionActionsSheet({
     setDownloadState("downloading");
     void requestModelDownload("all").catch(() => setDownloadState("downloadable"));
   }, []);
+
+  const navigateEvidence = useCallback(
+    (ref: { documentId?: string; text: string; locator: unknown }) => {
+      if (!ref.documentId) return;
+      const locator = ref.locator as { kind?: string; [key: string]: unknown };
+      let location: ChunkLocation | undefined;
+      if (locator?.kind === "chunk") {
+        location = {
+          sourceType: String(locator.sourceType ?? "text") as ChunkLocation["sourceType"],
+          documentId: ref.documentId,
+          ordinal: Number(locator.ordinal ?? 0),
+          startOffset: Number(locator.startOffset ?? 0),
+          endOffset: Number(locator.endOffset ?? 0),
+          pageNumber: locator.pageNumber as number | undefined,
+          cfiRange: locator.cfiRange as string | undefined,
+          headingPath: locator.headingPath as string[] | undefined,
+          timestampMs: locator.timestampMs as number | undefined,
+          endTimestampMs: locator.endTimestampMs as number | undefined,
+        };
+      } else if (locator?.kind === "extract") {
+        location = {
+          sourceType: String(locator.sourceType ?? "text") as ChunkLocation["sourceType"],
+          documentId: ref.documentId,
+          ordinal: 0,
+          startOffset: 0,
+          endOffset: 0,
+          pageNumber: locator.pageNumber as number | undefined,
+          extractId: locator.extractId as string | undefined,
+        };
+      } else if (locator?.kind === "annotation") {
+        location = {
+          sourceType: String(locator.sourceType ?? "text") as ChunkLocation["sourceType"],
+          documentId: ref.documentId,
+          ordinal: 0,
+          startOffset: 0,
+          endOffset: 0,
+          pageNumber: locator.pageNumber as number | undefined,
+          anchorId: locator.annotationId as string | undefined,
+        };
+      } else if (locator?.kind === "card" && locator.pageNumber != null) {
+        location = {
+          sourceType: "pdf",
+          documentId: ref.documentId,
+          ordinal: 0,
+          startOffset: 0,
+          endOffset: 0,
+          pageNumber: Number(locator.pageNumber),
+          extractId: locator.extractId as string | undefined,
+        };
+      }
+      const text =
+        locator?.kind === "card" && typeof locator.snippet === "string" && locator.snippet.trim()
+          ? locator.snippet
+          : ref.text;
+      onClose();
+      void openLibrarySource(ref.documentId, text, location);
+    },
+    [onClose]
+  );
 
   if (!open) return null;
 
@@ -593,6 +999,7 @@ export function SelectionActionsSheet({
     libraryRagEnabled: aiLibraryRagEnabled,
     socraticTutorEnabled: aiSocraticTutorEnabled,
     prerequisitesEnabled: aiPrerequisitesEnabled,
+    linksEnabled: aiConceptLinksEnabled,
   });
   const coreActions = sheetActions.filter((a) => !isAiSelectionAction(a));
   const aiSectionActions = sheetActions.filter(isAiSelectionAction);
@@ -692,6 +1099,15 @@ export function SelectionActionsSheet({
               <Icon className="w-5 h-5" />
             </span>
             {label || "Find prerequisites"}
+          </button>
+        );
+      case "relatedContent":
+        return (
+          <button key={action.id} className={mobileSheetItemClass} onClick={track(startRelatedContent)}>
+            <span aria-hidden="true">
+              <Icon className="w-5 h-5" />
+            </span>
+            {label && label !== "aiLearning.relatedContent" ? label : "Find related content"}
           </button>
         );
       default:
@@ -927,21 +1343,451 @@ export function SelectionActionsSheet({
 
             {prereqResult && !prereqRunning && (
               <div className="space-y-2.5 pt-1">
-                {prereqResult.prerequisites.length === 0 ? (
-                  <p className="text-xs text-muted-foreground py-2">
-                    This passage appears self-contained and does not require missing foundational concepts.
+                {prereqResult.status === "empty" ? (
+                  <p className="text-xs text-muted-foreground py-2" data-testid="prereq-empty">
+                    {prereqResult.emptyMessage ?? EMPTY_PREREQUISITES_MESSAGE}
                   </p>
-                ) : (
+                ) : prereqResult.prerequisites.length === 0 ? null : (
                   <div className="space-y-2">
-                    {prereqResult.prerequisites.map((p, idx) => (
-                      <div key={idx} className="p-2.5 bg-muted/30 border border-border rounded-lg text-xs space-y-1">
-                        <div className="font-semibold text-foreground">
-                          {p.concept}
+                    <p className="text-[11px] text-muted-foreground" data-testid="coverage-summary">
+                      {`${prereqResult.prerequisites.filter((p) => p.coverage?.evidenceCoverage === "supported").length} of ${prereqResult.prerequisites.length} prerequisites have direct indexed evidence`}
+                    </p>
+                    {prereqResult.prerequisites.map((p: PrerequisiteConceptResult) => {
+                      const coverage = p.coverage;
+                      return (
+                        <div
+                          key={p.conceptKey}
+                          data-testid="prereq-concept"
+                          className="p-2.5 bg-muted/30 border border-border rounded-lg text-xs space-y-1.5"
+                        >
+                          <div className="font-semibold text-foreground">{p.concept}</div>
+                          <p className="text-muted-foreground leading-relaxed">{p.why}</p>
+
+                          {coverage && (
+                            <div className="space-y-1.5 border-t border-border/60 pt-1.5">
+                              <div className="flex flex-wrap gap-1.5">
+                                <span
+                                  data-testid="coverage-badge"
+                                  className="inline-flex rounded px-1.5 py-0.5 bg-primary/10 text-primary"
+                                >
+                                  {evidenceCoverageText(coverage.evidenceCoverage)}
+                                </span>
+                                <span
+                                  data-testid="activity-badge"
+                                  className="inline-flex rounded px-1.5 py-0.5 bg-muted text-muted-foreground"
+                                >
+                                  {activityText(coverage.activity)}
+                                </span>
+                                <span
+                                  data-testid="index-badge"
+                                  className="inline-flex rounded px-1.5 py-0.5 bg-muted text-muted-foreground"
+                                >
+                                  {`index: ${coverage.indexCompleteness}`}
+                                </span>
+                              </div>
+
+                              {coverage.evidenceRefs.length > 0 && (
+                                <div className="space-y-1">
+                                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                    {`Evidence (${coverage.evidenceRefs.length})`}
+                                  </p>
+                                  {coverage.evidenceRefs.map((ref) => (
+                                    <button
+                                      key={`${ref.kind}:${ref.id}`}
+                                      type="button"
+                                      data-testid="evidence-row"
+                                      disabled={!ref.documentId}
+                                      onClick={() => navigateEvidence(ref)}
+                                      className="w-full text-left flex items-start gap-2 rounded-md px-1.5 py-1 hover:bg-muted/70 disabled:opacity-60"
+                                    >
+                                      <span className="mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">
+                                        {ref.strength === "direct" ? "D" : "M"}
+                                      </span>
+                                      <span className="min-w-0 flex-1">
+                                        <span className="block truncate font-medium text-foreground">
+                                          {ref.documentTitle ?? ref.kind}
+                                        </span>
+                                        <span className="block truncate text-[11px] text-muted-foreground">
+                                          {ref.kind} · {ref.strength} · {ref.text.slice(0, 90)}
+                                        </span>
+                                      </span>
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
+
+                              {coverage.limitations.length > 0 && (
+                                <ul className="space-y-0.5 text-[11px] text-muted-foreground">
+                                  {coverage.limitations.slice(0, 3).map((limitation) => (
+                                    <li key={limitation}>{coverageLimitationText(limitation)}</li>
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <p className="text-muted-foreground leading-relaxed">{p.why}</p>
-                      </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {prereqResult.status === "coverage-only" && (
+                  <p className="text-[11px] text-muted-foreground" data-testid="coverage-only-note">
+                    Relationship suggestions are off; showing evidence coverage only. Nothing was
+                    saved.
+                  </p>
+                )}
+
+                {prereqResult.drafts.filter((draft) => !savedDraftLinks[draft.id]).length > 0 && (
+                  <div className="space-y-1.5 border-t border-border/70 pt-2">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      AI suggestions (not saved)
+                    </p>
+                    {prereqResult.drafts
+                      .filter((draft) => !savedDraftLinks[draft.id])
+                      .map((draft) => {
+                      const state = linkActionState[draft.id];
+                      return (
+                        <div
+                          key={draft.id}
+                          data-testid="relationship-draft"
+                          className="rounded-lg border border-border bg-background p-2 text-xs space-y-1"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium text-foreground truncate">
+                              {draft.source.label} → {draft.target.label}
+                            </span>
+                            <span className="shrink-0 text-[11px] text-muted-foreground">
+                              {Math.round(draft.confidence * 100)}%
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">
+                            {draft.relationType} · AI suggested
+                          </p>
+                          <p className="text-muted-foreground leading-relaxed">{draft.rationale}</p>
+                          <div className="flex gap-1.5 pt-0.5">
+                            <button
+                              type="button"
+                              className="rounded border border-border px-2 py-1 text-[11px] text-foreground disabled:opacity-50"
+                              disabled={state === "saving"}
+                              onClick={() => void acceptDraft(draft)}
+                            >
+                              {state === "error" ? "Retry accept" : "Accept"}
+                            </button>
+                            <button
+                              type="button"
+                              className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground disabled:opacity-50"
+                              disabled={state === "saving"}
+                              onClick={() => void dismissDraft(draft)}
+                            >
+                              Dismiss
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                    <button
+                      type="button"
+                      data-testid="save-suggestions"
+                      className="w-full rounded-lg border border-border px-3 py-2 text-[13px] text-foreground disabled:opacity-50"
+                      disabled={Object.values(linkActionState).some((state) => state === "saving")}
+                      onClick={() => void saveAllDrafts()}
+                    >
+                      {Object.values(linkActionState).some((state) => state === "error")
+                        ? "Retry saving suggestions"
+                        : "Save suggestions"}
+                    </button>
+                  </div>
+                )}
+
+                {savedLinks.length > 0 && (
+                  <div className="space-y-1.5 border-t border-border/70 pt-2">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Relationships
+                    </p>
+                    {savedLinks.map((link) => {
+                      const state = linkActionState[link.id];
+                      const confirmed = link.createdBy === "user";
+                      const knownConcept = prereqResult.prerequisites.find(
+                        (p) => p.conceptId && (p.conceptId === link.sourceId || p.conceptId === link.targetId)
+                      );
+                      return (
+                        <div
+                          key={link.id}
+                          data-testid="saved-link"
+                          className="rounded-lg border border-border bg-background p-2 text-xs space-y-1"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-medium text-foreground truncate">
+                              {knownConcept?.concept ?? `${link.sourceKind} → ${link.targetKind}`}
+                            </span>
+                            <span className="shrink-0 text-[11px] text-muted-foreground">
+                              {confirmed ? "Confirmed" : "AI suggested"}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground">
+                            {link.relationType} · {Math.round(link.confidence * 100)}% ·{" "}
+                            {link.origin === "unknown" ? "origin unknown" : `origin ${link.origin}`}
+                          </p>
+                          {linkProvenanceSummary(link) && (
+                            <p className="text-[10px] text-muted-foreground/80">
+                              {linkProvenanceSummary(link)}
+                            </p>
+                          )}
+
+                          {editingLinkId === link.id ? (
+                            <div className="space-y-1.5 pt-0.5">
+                              <select
+                                aria-label="Relationship type"
+                                className="w-full rounded border border-border bg-background px-2 py-1 text-[12px]"
+                                value={editRelation}
+                                onChange={(event) => setEditRelation(event.target.value)}
+                              >
+                                {CONCEPT_RELATION_TYPES.map((relation) => (
+                                  <option key={relation} value={relation}>
+                                    {relation}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                aria-label="Confidence"
+                                type="number"
+                                min={0}
+                                max={1}
+                                step={0.05}
+                                value={editConfidence}
+                                onChange={(event) => setEditConfidence(Number(event.target.value))}
+                                className="w-full rounded border border-border bg-background px-2 py-1 text-[12px]"
+                              />
+                              <div className="flex gap-1.5">
+                                <button
+                                  type="button"
+                                  className="rounded border border-border px-2 py-1 text-[11px] disabled:opacity-50"
+                                  disabled={state === "saving"}
+                                  onClick={() => void applyLinkEdit(link)}
+                                >
+                                  Save edit
+                                </button>
+                                <button
+                                  type="button"
+                                  className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground"
+                                  onClick={() => setEditingLinkId(null)}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="flex flex-wrap gap-1.5 pt-0.5">
+                              {!confirmed && (
+                                <button
+                                  type="button"
+                                  className="rounded border border-border px-2 py-1 text-[11px] disabled:opacity-50"
+                                  disabled={state === "saving"}
+                                  onClick={() => void acceptSavedLink(link)}
+                                >
+                                  Accept
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="rounded border border-border px-2 py-1 text-[11px]"
+                                onClick={() => {
+                                  setEditingLinkId(link.id);
+                                  setEditRelation(link.relationType);
+                                  setEditConfidence(link.confidence);
+                                }}
+                              >
+                                Edit
+                              </button>
+                              {!confirmed && (
+                                <button
+                                  type="button"
+                                  className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground disabled:opacity-50"
+                                  disabled={state === "saving"}
+                                  onClick={() => void dismissSavedLink(link)}
+                                >
+                                  Dismiss
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                className="rounded border border-border px-2 py-1 text-[11px] text-destructive disabled:opacity-50"
+                                disabled={state === "saving"}
+                                onClick={() => void removeSavedLink(link)}
+                              >
+                                Remove
+                              </button>
+                              {knownConcept?.conceptId && (
+                                <button
+                                  type="button"
+                                  className="rounded border border-border px-2 py-1 text-[11px] text-muted-foreground"
+                                  onClick={() => {
+                                    onClose();
+                                    void openConceptInKnowledgeGraph(knownConcept.conceptId!);
+                                  }}
+                                >
+                                  Open concept
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          {state === "error" && (
+                            <button
+                              type="button"
+                              className="text-[11px] text-destructive underline"
+                              onClick={() => {
+                                setEditingLinkId(null);
+                                const retry = linkRetryRef.current[link.id];
+                                if (retry) retry();
+                                else void refreshSavedLinks(prereqResult);
+                              }}
+                            >
+                              Retry
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-2">
+              {prereqResult && !prereqRunning && (
+                <button
+                  type="button"
+                  data-testid="reanalyze"
+                  className="flex-1 rounded-lg border border-border px-3 py-2 text-[14px] text-foreground hover:bg-muted"
+                  onClick={startPrerequisites}
+                >
+                  Reanalyze
+                </button>
+              )}
+              <button
+                className="flex-1 rounded-lg border border-border px-3 py-2 text-[14px] text-foreground hover:bg-muted"
+                onClick={cancel}
+              >
+                {t("selectionSheet.back")}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {mode === "related" && (
+          <div className="px-4 pb-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <button
+                className="p-1 -ml-1 text-muted-foreground hover:text-foreground"
+                aria-label={t("selectionSheet.back")}
+                onClick={cancel}
+              >
+                <ArrowLeft className="w-5 h-5" aria-hidden="true" />
+              </button>
+              <span className="text-sm font-medium text-foreground">
+                {t("aiLearning.relatedContent") || "Related content"}
+              </span>
+            </div>
+
+            {preview && (
+              <p className="text-[13px] leading-snug text-muted-foreground line-clamp-3">{preview}</p>
+            )}
+
+            {relatedRunning && (
+              <div className="flex items-center gap-2 py-4 text-xs text-muted-foreground">
+                <ArrowsClockwise className="w-4 h-4 animate-spin text-primary" />
+                <span>Searching indexed library evidence…</span>
+              </div>
+            )}
+
+            {relatedError && (
+              <div className="space-y-2">
+                <p className="text-[13px] text-destructive">{relatedError}</p>
+                <button
+                  type="button"
+                  className="rounded-lg border border-border px-3 py-2 text-[13px] text-foreground"
+                  onClick={startRelatedContent}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+
+            {relatedResult && !relatedRunning && (
+              <div className="space-y-2.5 pt-1">
+                {relatedResult.status === "empty" && (
+                  <p className="text-xs text-muted-foreground py-2" data-testid="related-empty">
+                    No related indexed material was found for this passage.
+                  </p>
+                )}
+                {relatedResult.status === "unavailable" && (
+                  <p className="text-xs text-muted-foreground py-2" data-testid="related-unavailable">
+                    Related material could not be searched without the required local or approved
+                    remote access.
+                  </p>
+                )}
+
+                {relatedResult.items.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Source evidence
+                    </p>
+                    {relatedResult.items.map((item) => (
+                      <button
+                        key={`${item.kind}:${item.id}`}
+                        type="button"
+                        data-testid="related-item"
+                        onClick={() => navigateEvidence(item)}
+                        className="w-full text-left flex items-start gap-2 rounded-md border border-border px-2 py-1.5 hover:bg-muted/70"
+                      >
+                        <span className="mt-px inline-flex h-4 w-4 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-semibold text-primary">
+                          {item.kind === "card" ? "C" : item.kind === "extract" ? "E" : "D"}
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-xs font-medium text-foreground">
+                            {item.documentTitle ?? item.documentId}
+                          </span>
+                          <span className="block truncate text-[11px] text-muted-foreground">
+                            {item.text.slice(0, 120)}
+                          </span>
+                        </span>
+                      </button>
                     ))}
                   </div>
+                )}
+
+                {relatedResult.concepts.length > 0 && (
+                  <div className="space-y-1.5 border-t border-border/70 pt-2">
+                    <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                      Confirmed concepts
+                    </p>
+                    {relatedResult.concepts.map((concept) => (
+                      <button
+                        key={`${concept.conceptId}:${concept.relationType}`}
+                        type="button"
+                        data-testid="related-concept"
+                        onClick={() => {
+                          onClose();
+                          void openConceptInKnowledgeGraph(concept.conceptId);
+                        }}
+                        className="w-full text-left rounded-md border border-border px-2 py-1.5 text-xs hover:bg-muted/70"
+                      >
+                        <span className="font-medium text-foreground">{concept.name}</span>
+                        <span className="ml-1.5 text-[11px] text-muted-foreground">
+                          {concept.relationType}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {relatedResult.limitations.length > 0 && (
+                  <ul className="text-[11px] text-muted-foreground space-y-0.5">
+                    {relatedResult.limitations.slice(0, 3).map((limitation) => (
+                      <li key={limitation}>{coverageLimitationText(limitation)}</li>
+                    ))}
+                  </ul>
                 )}
               </div>
             )}

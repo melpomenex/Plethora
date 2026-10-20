@@ -12,6 +12,13 @@ import { NodeDetailView } from "../components/graph/NodeDetailView";
 import { GraphNodeType, type GraphNode, type GraphEdge, type GraphData, LayoutAlgorithm } from "../components/graph/KnowledgeGraph";
 import { getDocument, updateDocument, deleteDocument } from "../api/documents";
 import { updateExtract, deleteExtract } from "../api/extracts";
+import { listConcepts, listConfirmedConceptLinks, CONCEPT_LINKS_CHANGED_EVENT } from "../api/concept-links";
+import {
+  buildConceptGraphProjection,
+  conceptNodeId,
+  consumeConceptFocus,
+  subscribeConceptFocus,
+} from "../components/graph/conceptProjection";
 import { useCollectionStore } from "../stores/collectionStore";
 import { useTabsStore } from "../stores/tabsStore";
 import { useReviewStore } from "../stores/reviewStore";
@@ -90,9 +97,15 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
 
     try {
       const collectionId = captureConnection ? null : activeCollectionId;
-      const documents = await invokeCommand<any[]>("get_documents", { collectionId: collectionId ?? null });
-      const extracts = await invokeCommand<any[]>("get_extracts", { documentId: null });
-      const learningItems = await invokeCommand<any[]>("get_all_learning_items");
+      const [documents, extracts, learningItems, concepts, confirmedConceptLinks] = await Promise.all([
+        invokeCommand<any[]>("get_documents", { collectionId: collectionId ?? null }),
+        invokeCommand<any[]>("get_extracts", { documentId: null }),
+        invokeCommand<any[]>("get_all_learning_items"),
+        // Confirmed concept projection is additive: a backend without these
+        // commands must not break the existing graph.
+        listConcepts().catch(() => []),
+        listConfirmedConceptLinks().catch(() => []),
+      ]);
 
       const inActiveCollection = (documentId?: string | null) => {
         if (!collectionId) return true;
@@ -176,6 +189,25 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
         }
       });
 
+      // Confirmed concept projection (change
+      // `complete-knowledge-relationships-and-coverage`): only endorsed live
+      // links become graph edges. Pending AI suggestions are excluded here so
+      // they never inflate authoritative counts.
+      const conceptProjection = buildConceptGraphProjection({
+        concepts,
+        links: confirmedConceptLinks,
+      });
+      const nodeIds = new Set(nodes.map((node) => node.id));
+      for (const conceptNode of conceptProjection.nodes) {
+        if (nodeIds.has(conceptNode.id)) continue;
+        nodes.push(conceptNode);
+        nodeIds.add(conceptNode.id);
+      }
+      for (const edge of conceptProjection.edges) {
+        if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) continue;
+        edges.push(edge);
+      }
+
       if (captureConnection) {
         const source = `extract-${captureConnection.fromId}`;
         const target = `extract-${captureConnection.toId}`;
@@ -217,6 +249,31 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
   useEffect(() => {
     loadGraphData();
   }, [loadGraphData]);
+
+  // Confirmed link mutations (accept/dismiss/edit/remove) refresh backlinks
+  // immediately; failure leaves the previous graph visible and the UI offers
+  // Retry at the mutation site.
+  useEffect(() => {
+    const handler = () => {
+      void loadGraphData();
+    };
+    window.addEventListener(CONCEPT_LINKS_CHANGED_EVENT, handler);
+    return () => window.removeEventListener(CONCEPT_LINKS_CHANGED_EVENT, handler);
+  }, [loadGraphData]);
+
+  // Concept focus handoff from the selection sheet. The request may arrive
+  // before the graph has loaded; keep it until the concept node exists.
+  useEffect(() => {
+    const pending = consumeConceptFocus();
+    const apply = (conceptId: string) => {
+      const nodeId = conceptNodeId(conceptId);
+      if (graphData.nodes.some((node) => node.id === nodeId)) {
+        setSelectedNode(nodeId);
+      }
+    };
+    if (pending) apply(pending);
+    return subscribeConceptFocus(apply);
+  }, [graphData.nodes]);
 
   // Apply filters
   const filteredData = useMemo(() => {
@@ -270,6 +327,7 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
       [GraphNodeType.Category]: 0,
       [GraphNodeType.Tag]: 0,
       [GraphNodeType.Rss]: 0,
+      [GraphNodeType.Concept]: 0,
     };
     graphData.nodes.forEach((node) => {
       counts[node.type]++;
@@ -336,6 +394,9 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
           closable: true,
         });
         void useReviewStore.getState().startReviewAtItem(node.id.replace("card-", ""));
+        break;
+      case GraphNodeType.Concept:
+        setSelectedNode(node.id);
         break;
     }
   }, [addTab]);

@@ -2,7 +2,7 @@
 
 use crate::algorithms::document_scheduler::DocumentScheduler;
 use crate::database::{ItemActivityRepository, Repository};
-use crate::error::Result;
+use crate::error::{PlethoraError, Result};
 use crate::models::item_activity::{ActivityItemType, ActivitySurface, ItemActivityEvent};
 use crate::models::{Extract, ItemType, LearningItem, ReviewRating};
 use chrono::{Duration, Utc};
@@ -23,9 +23,10 @@ pub async fn submit_extract_review(
     time_taken: i32,
     repo: State<'_, Repository>,
 ) -> Result<Extract> {
-    let mut extract = repo.get_extract(&extract_id).await?.ok_or_else(|| {
-        crate::error::PlethoraError::NotFound(format!("Extract {}", extract_id))
-    })?;
+    let mut extract = repo
+        .get_extract(&extract_id)
+        .await?
+        .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Extract {}", extract_id)))?;
 
     let now = Utc::now();
     let scheduler = DocumentScheduler::default_params();
@@ -38,7 +39,10 @@ pub async fn submit_extract_review(
 
     let current_stability = extract.memory_state.as_ref().map(|ms| ms.stability);
     let current_difficulty = extract.memory_state.as_ref().map(|ms| ms.difficulty);
-    let current_stability_fast = extract.memory_state.as_ref().and_then(|ms| ms.stability_fast);
+    let current_stability_fast = extract
+        .memory_state
+        .as_ref()
+        .and_then(|ms| ms.stability_fast);
 
     let result = scheduler.schedule_document_with_fast_stability(
         ReviewRating::from(rating),
@@ -122,11 +126,42 @@ pub async fn create_cloze_from_extract(
     extract_id: String,
     cloze_text: String,
     cloze_ranges: Vec<(usize, usize)>,
+    // Narrow retry-safe acceptance identity (agent learning proposals).
+    acceptance_id: Option<String>,
+    proposal_id: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
-    let extract = repo.get_extract(&extract_id).await?.ok_or_else(|| {
-        crate::error::PlethoraError::NotFound(format!("Extract {}", extract_id))
-    })?;
+    // Idempotent retry: the same acceptance pair returns the committed row.
+    if let (Some(acceptance), Some(proposal)) = (&acceptance_id, &proposal_id) {
+        if let Some(existing) =
+            crate::commands::learning_item::find_learning_item_by_acceptance_key(
+                acceptance, proposal, &repo,
+            )
+            .await?
+        {
+            return Ok(existing);
+        }
+        // Scoped text-proposal duplicate enforcement for the agent path. The
+        // legacy Learn-this path (no proposal id) keeps its historical
+        // behavior.
+        let duplicate: Option<(String,)> = sqlx::query_as(
+            "SELECT id FROM learning_items WHERE extract_id = ?1 AND lower(COALESCE(cloze_text, '')) = lower(?2) LIMIT 1",
+        )
+        .bind(&extract_id)
+        .bind(&cloze_text)
+        .fetch_optional(repo.pool())
+        .await?;
+        if let Some((duplicate_id,)) = duplicate {
+            return Err(PlethoraError::InvalidInput(format!(
+                "Potential duplicate cloze detected ({duplicate_id})."
+            )));
+        }
+    }
+
+    let extract = repo
+        .get_extract(&extract_id)
+        .await?
+        .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Extract {}", extract_id)))?;
 
     let mut item = LearningItem::from_extract(
         extract.id.clone(),
@@ -138,6 +173,8 @@ pub async fn create_cloze_from_extract(
 
     item.cloze_text = Some(cloze_text);
     item.cloze_ranges = Some(cloze_ranges);
+    item.acceptance_id = acceptance_id.filter(|value| !value.trim().is_empty());
+    item.proposal_id = proposal_id.filter(|value| !value.trim().is_empty());
     item.tags = extract.tags.clone();
 
     // Add "cloze" tag if not present
@@ -145,10 +182,68 @@ pub async fn create_cloze_from_extract(
         item.tags.push("cloze".to_string());
     }
 
-    repo.create_learning_item(&item).await
+    match repo.create_learning_item(&item).await {
+        Ok(created) => Ok(created),
+        Err(error) => {
+            // Concurrent retry: unique (acceptance_id, proposal_id) index.
+            if let (Some(acceptance), Some(proposal)) = (&item.acceptance_id, &item.proposal_id) {
+                if let Some(existing) =
+                    crate::commands::learning_item::find_learning_item_by_acceptance_key(
+                        acceptance, proposal, &repo,
+                    )
+                    .await?
+                {
+                    return Ok(existing);
+                }
+            }
+            Err(error)
+        }
+    }
 }
 
 /// Get all extracts that are due for review or are new
+/// Bounded recent-extract read for the learning agent (task 1.3). Filters to
+/// the frozen documents and returns at most 50 rows; never lists the whole
+/// extract table into the WebView.
+#[tauri::command]
+pub async fn get_recent_extracts_bounded(
+    document_ids: Option<Vec<String>>,
+    limit: Option<i64>,
+    repo: State<'_, Repository>,
+) -> Result<Vec<Extract>> {
+    let limit = limit.unwrap_or(10).clamp(1, 50);
+    let (sql, bindings) = match document_ids.filter(|ids| !ids.is_empty()) {
+        Some(ids) => {
+            let placeholders: Vec<String> = (0..ids.len()).map(|_| "?".to_string()).collect();
+            (
+                format!(
+                    "SELECT * FROM extracts WHERE document_id IN ({}) ORDER BY date_modified DESC LIMIT {}",
+                    placeholders.join(","),
+                    limit
+                ),
+                ids,
+            )
+        }
+        None => (
+            format!(
+                "SELECT * FROM extracts ORDER BY date_modified DESC LIMIT {}",
+                limit
+            ),
+            Vec::new(),
+        ),
+    };
+    let mut query = sqlx::query(&sql);
+    for id in bindings {
+        query = query.bind(id);
+    }
+    let rows = query.fetch_all(repo.pool()).await?;
+    let mut extracts = Vec::with_capacity(rows.len());
+    for row in &rows {
+        extracts.push(Repository::row_to_extract(row)?);
+    }
+    Ok(extracts)
+}
+
 #[tauri::command]
 pub async fn get_reviewable_extracts(repo: State<'_, Repository>) -> Result<Vec<Extract>> {
     let now = Utc::now();
@@ -196,9 +291,10 @@ pub async fn create_qa_from_extract(
     answer: String,
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
-    let extract = repo.get_extract(&extract_id).await?.ok_or_else(|| {
-        crate::error::PlethoraError::NotFound(format!("Extract {}", extract_id))
-    })?;
+    let extract = repo
+        .get_extract(&extract_id)
+        .await?
+        .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Extract {}", extract_id)))?;
 
     let mut item = LearningItem::from_extract(
         extract.id.clone(),

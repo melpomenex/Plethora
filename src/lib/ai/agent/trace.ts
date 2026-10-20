@@ -22,6 +22,7 @@ export type AgentRunEndReason =
   | AgentBoundReason
   | "cancelled"
   | "invalid-turn"
+  | "blocked"
   | "error";
 
 export interface AgentTraceEntry {

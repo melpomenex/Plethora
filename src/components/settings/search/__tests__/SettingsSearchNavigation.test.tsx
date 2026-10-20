@@ -166,4 +166,33 @@ describe("Settings search target navigation", () => {
     expect(document.activeElement).toBe(target);
     expect(document.querySelector('[data-settings-search-target="never.target"]')).toBeNull();
   });
+
+  it("reveals an existing target on demand without a search request", async () => {
+    function RevealProbe() {
+      const { revealTarget } = useSettingsSearchNavigation();
+      return (
+        <button type="button" onClick={() => revealTarget("test.target")}>
+          Recover
+        </button>
+      );
+    }
+    render(
+      <SettingsSearchNavigationProvider request={null} activeSection="general">
+        <RevealProbe />
+        <div data-settings-search-scroller>
+          <SettingsSearchTarget id="test.target" label="Test target">
+            <span>Target</span>
+          </SettingsSearchTarget>
+        </div>
+      </SettingsSearchNavigationProvider>,
+    );
+    const target = document.querySelector('[data-settings-search-target="test.target"]') as HTMLElement;
+    act(() => {
+      screen.getByRole("button", { name: "Recover" }).click();
+    });
+    expect(document.activeElement).toBe(target);
+    // Navigation only: no arrival marker, no search match decoration.
+    expect(target).not.toHaveAttribute("data-settings-search-arrival");
+    expect(target).not.toHaveTextContent("Search match");
+  });
 });

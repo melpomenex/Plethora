@@ -4328,6 +4328,424 @@ pub const MIGRATIONS: &[Migration] = &[
             ON ai_conversation_import_journal(owner_profile_id, origin, id);
         "#,
     ),
+    // Session ingestion owns media independently of transcription and TTS editions.
+    Migration::new(
+        "123_recording_session_ownership",
+        r#"
+        CREATE TABLE recording_sessions (
+            id TEXT PRIMARY KEY NOT NULL,
+            document_id TEXT NOT NULL UNIQUE REFERENCES documents(id) ON DELETE CASCADE,
+            origin TEXT NOT NULL CHECK(origin IN ('recorded', 'file', 'transcript', 'url')),
+            content_type TEXT NOT NULL,
+            profile_json TEXT NOT NULL DEFAULT '{}' CHECK(json_valid(profile_json)),
+            capture_state TEXT NOT NULL DEFAULT 'idle' CHECK(capture_state IN
+                ('idle', 'requesting-permission', 'recording', 'paused', 'interrupted',
+                 'finalizing', 'saved', 'recoverable', 'failed', 'discarded')),
+            ingestion_state TEXT NOT NULL DEFAULT 'staging' CHECK(ingestion_state IN
+                ('staging', 'saved', 'partial', 'failed', 'cancelled')),
+            transcript_id INTEGER REFERENCES transcripts(id) ON DELETE SET NULL,
+            media_asset_id TEXT REFERENCES media_assets(id) ON DELETE SET NULL,
+            transcript_revision INTEGER NOT NULL DEFAULT 0 CHECK(transcript_revision >= 0),
+            overview_json TEXT CHECK(overview_json IS NULL OR json_valid(overview_json)),
+            overview_revision INTEGER CHECK(overview_revision IS NULL OR overview_revision >= 0),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            version INTEGER NOT NULL DEFAULT 1 CHECK(version > 0)
+        );
+        CREATE INDEX idx_recording_sessions_updated ON recording_sessions(updated_at, id);
+
+        CREATE TABLE media_assets (
+            id TEXT PRIMARY KEY NOT NULL,
+            session_id TEXT NOT NULL REFERENCES recording_sessions(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL CHECK(kind IN ('original', 'capture', 'derived')),
+            relative_path TEXT NOT NULL CHECK(length(relative_path) > 0
+                AND relative_path NOT LIKE '/%' AND instr(relative_path, ':') = 0
+                AND instr(relative_path, char(92)) = 0 AND instr(relative_path, char(0)) = 0
+                AND relative_path != '..' AND relative_path NOT LIKE '../%'
+                AND relative_path NOT LIKE '%/../%' AND relative_path NOT LIKE '%/..'),
+            mime TEXT NOT NULL,
+            byte_length INTEGER NOT NULL DEFAULT 0 CHECK(byte_length >= 0),
+            sha256 TEXT CHECK(sha256 IS NULL OR
+                (length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*')),
+            duration_ms INTEGER CHECK(duration_ms IS NULL OR duration_ms >= 0),
+            state TEXT NOT NULL DEFAULT 'staging' CHECK(state IN
+                ('staging', 'ready', 'partial', 'missing', 'deleting')),
+            source_url TEXT,
+            source_adapter TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(session_id, relative_path)
+        );
+        CREATE INDEX idx_media_assets_hash ON media_assets(sha256, kind);
+        CREATE INDEX idx_media_assets_session ON media_assets(session_id, id);
+
+        CREATE TRIGGER recording_session_asset_insert BEFORE INSERT ON recording_sessions
+        WHEN NEW.media_asset_id IS NOT NULL AND NOT EXISTS
+            (SELECT 1 FROM media_assets WHERE id = NEW.media_asset_id AND session_id = NEW.id)
+        BEGIN
+            SELECT RAISE(ABORT, 'Recording asset belongs to another session');
+        END;
+        CREATE TRIGGER recording_session_asset_update BEFORE UPDATE OF media_asset_id ON recording_sessions
+        WHEN NEW.media_asset_id IS NOT NULL AND NOT EXISTS
+            (SELECT 1 FROM media_assets WHERE id = NEW.media_asset_id AND session_id = NEW.id)
+        BEGIN
+            SELECT RAISE(ABORT, 'Recording asset belongs to another session');
+        END;
+        CREATE TRIGGER recording_asset_owner_immutable BEFORE UPDATE OF session_id ON media_assets
+        WHEN NEW.session_id != OLD.session_id
+        BEGIN
+            SELECT RAISE(ABORT, 'Recording asset ownership is immutable');
+        END;
+
+        CREATE TABLE recording_parts (
+            asset_id TEXT NOT NULL REFERENCES media_assets(id) ON DELETE CASCADE,
+            writer_epoch TEXT NOT NULL,
+            sequence INTEGER NOT NULL CHECK(sequence >= 0),
+            relative_path TEXT NOT NULL CHECK(length(relative_path) > 0),
+            byte_length INTEGER NOT NULL CHECK(byte_length >= 0),
+            sha256 TEXT NOT NULL CHECK(length(sha256) = 64 AND sha256 NOT GLOB '*[^0-9a-f]*'),
+            start_ms INTEGER NOT NULL CHECK(start_ms >= 0),
+            duration_ms INTEGER NOT NULL CHECK(duration_ms >= 0),
+            format_json TEXT NOT NULL CHECK(json_valid(format_json)),
+            committed_at TEXT NOT NULL,
+            PRIMARY KEY(asset_id, sequence),
+            UNIQUE(asset_id, writer_epoch, sequence),
+            UNIQUE(asset_id, relative_path)
+        );
+
+        CREATE TABLE recording_session_markers (
+            id TEXT PRIMARY KEY NOT NULL,
+            session_id TEXT NOT NULL REFERENCES recording_sessions(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL CHECK(kind IN
+                ('interesting', 'confusing', 'recent-extract', 'card-candidate', 'bookmark')),
+            media_ms INTEGER NOT NULL CHECK(media_ms >= 0),
+            window_ms INTEGER NOT NULL DEFAULT 0 CHECK(window_ms >= 0),
+            part_sequence INTEGER CHECK(part_sequence IS NULL OR part_sequence >= 0),
+            note TEXT,
+            evidence_json TEXT CHECK(evidence_json IS NULL OR json_valid(evidence_json)),
+            state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN
+                ('pending', 'resolved', 'needs-confirmation')),
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_recording_markers_session
+            ON recording_session_markers(session_id, media_ms, id);
+
+        -- File deletion is journaled separately; this row survives owner deletion.
+        CREATE TABLE recording_cleanup_journal (
+            id TEXT PRIMARY KEY NOT NULL,
+            session_id TEXT REFERENCES recording_sessions(id) ON DELETE SET NULL,
+            asset_id TEXT REFERENCES media_assets(id) ON DELETE SET NULL,
+            relative_path TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'completed', 'failed')),
+            error_code TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_recording_cleanup_status ON recording_cleanup_journal(status, created_at);
+        "#,
+    ),
+    Migration::new(
+        "124_canonical_session_segments",
+        r#"
+        ALTER TABLE transcripts ADD COLUMN session_id TEXT
+            REFERENCES recording_sessions(id) ON DELETE SET NULL;
+        ALTER TABLE transcripts ADD COLUMN revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0);
+        CREATE INDEX idx_transcripts_session ON transcripts(session_id);
+
+        -- Preserve AUTOINCREMENT's high-water mark, including deleted legacy IDs.
+        CREATE TEMP TABLE _recording_segment_sequence AS
+            SELECT COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'transcript_segments'), 0) AS seq;
+        CREATE TABLE transcript_segments_recording (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            transcript_id INTEGER NOT NULL REFERENCES transcripts(id) ON DELETE CASCADE,
+            start_ms INTEGER,
+            end_ms INTEGER,
+            text TEXT NOT NULL,
+            confidence REAL,
+            words_json TEXT,
+            segment_key TEXT NOT NULL DEFAULT '',
+            ordinal INTEGER NOT NULL DEFAULT -1 CHECK(ordinal >= -1),
+            speaker_id TEXT,
+            timing_kind TEXT NOT NULL DEFAULT 'measured' CHECK(timing_kind IN ('measured', 'imported', 'none')),
+            revision INTEGER NOT NULL DEFAULT 0 CHECK(revision >= 0),
+            metadata_json TEXT,
+            CHECK((timing_kind = 'none' AND start_ms IS NULL AND end_ms IS NULL) OR
+                (timing_kind IN ('measured', 'imported') AND start_ms IS NOT NULL AND end_ms IS NOT NULL
+                 AND start_ms >= 0 AND end_ms >= start_ms))
+        );
+        INSERT INTO transcript_segments_recording
+            (id, transcript_id, start_ms, end_ms, text, confidence, words_json, segment_key, ordinal)
+        SELECT id, transcript_id, start_ms, end_ms, text, confidence, words_json,
+            'legacy:' || id, ROW_NUMBER() OVER (PARTITION BY transcript_id ORDER BY start_ms, id) - 1
+        FROM transcript_segments;
+        DROP TABLE transcript_segments;
+        ALTER TABLE transcript_segments_recording RENAME TO transcript_segments;
+        INSERT INTO sqlite_sequence(name, seq)
+            SELECT 'transcript_segments', (SELECT seq FROM _recording_segment_sequence)
+            WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'transcript_segments');
+        UPDATE sqlite_sequence SET seq = MAX(seq, (SELECT seq FROM _recording_segment_sequence))
+            WHERE name = 'transcript_segments';
+        DROP TABLE _recording_segment_sequence;
+
+        CREATE INDEX idx_transcript_segments_time ON transcript_segments(transcript_id, start_ms);
+        CREATE UNIQUE INDEX idx_transcript_segments_checkpoint
+            ON transcript_segments(transcript_id, start_ms, end_ms, text);
+        CREATE UNIQUE INDEX idx_transcript_segments_keys ON transcript_segments(transcript_id, segment_key);
+        CREATE INDEX idx_transcript_segments_ordinal ON transcript_segments(transcript_id, ordinal, id);
+
+        -- Legacy timed writers omit the new fields. Each inserted row is assigned
+        -- its durable legacy ID before the next row, including multi-row batches.
+        CREATE TRIGGER transcript_segment_legacy_identity AFTER INSERT ON transcript_segments
+        WHEN NEW.segment_key = '' OR NEW.ordinal = -1
+        BEGIN
+            UPDATE transcript_segments SET
+                segment_key = CASE WHEN NEW.segment_key = '' THEN 'legacy:' || NEW.id ELSE NEW.segment_key END,
+                ordinal = CASE WHEN NEW.ordinal = -1 THEN
+                    (SELECT COALESCE(MAX(ordinal), -1) + 1 FROM transcript_segments
+                     WHERE transcript_id = NEW.transcript_id AND id != NEW.id)
+                    ELSE NEW.ordinal END
+            WHERE id = NEW.id;
+        END;
+        "#,
+    ),
+    // Migration 125: concept-link origin + lifecycle metadata
+    // (change `complete-knowledge-relationships-and-coverage`).
+    //
+    // Additive on purpose:
+    // - `origin` is IMMUTABLE creation provenance (`ai`/`user`); legacy rows
+    //   default to `unknown` and are never guessed retroactively.
+    // - `analysis_id` backs the five-proposals-per-analysis cap; `source_revision`
+    //   records the evidence revision a proposal was derived from.
+    // - `endorsed_at`/`dismissed_at`/`updated_at` make endorsement and
+    //   dismissal history inspectable without rewriting `created_by` facts.
+    //
+    // Legacy duplicate reconciliation keeps exactly one LIVE row per
+    // fingerprint, preferring an endorsed (`created_by = 'user'`) row, then the
+    // earliest. Dismissed rows are retained so dismissal history survives.
+    // The partial unique index then blocks concurrent duplicate live inserts
+    // while still allowing multiple historical dismissed rows.
+    Migration::new(
+        "125_add_concept_link_origin_lifecycle",
+        r#"
+        ALTER TABLE concept_links ADD COLUMN origin TEXT NOT NULL DEFAULT 'unknown';
+        ALTER TABLE concept_links ADD COLUMN analysis_id TEXT;
+        ALTER TABLE concept_links ADD COLUMN source_revision TEXT;
+        ALTER TABLE concept_links ADD COLUMN endorsed_at TEXT;
+        ALTER TABLE concept_links ADD COLUMN dismissed_at TEXT;
+        ALTER TABLE concept_links ADD COLUMN updated_at TEXT;
+
+        DELETE FROM concept_links
+        WHERE is_dismissed = 0
+          AND proposal_fingerprint IS NOT NULL
+          AND trim(proposal_fingerprint) <> ''
+          AND id <> (
+              SELECT keeper.id
+              FROM concept_links keeper
+              WHERE keeper.proposal_fingerprint = concept_links.proposal_fingerprint
+                AND keeper.is_dismissed = 0
+              ORDER BY CASE WHEN keeper.created_by = 'user' THEN 0 ELSE 1 END,
+                       keeper.created_at ASC,
+                       keeper.id ASC
+              LIMIT 1
+          );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_concept_links_live_fingerprint
+            ON concept_links(proposal_fingerprint)
+            WHERE proposal_fingerprint IS NOT NULL
+              AND trim(proposal_fingerprint) <> ''
+              AND is_dismissed = 0;
+        CREATE INDEX IF NOT EXISTS idx_concept_links_origin_created
+            ON concept_links(origin, created_at);
+        CREATE INDEX IF NOT EXISTS idx_concept_links_analysis
+            ON concept_links(analysis_id);
+        "#,
+    ),
+    // Migration 126: passage-score metadata + durable dismissal keys
+    // (change `complete-reader-extract-worthiness-integration`).
+    // Additive only. `passage_scores` stays a derived cache keyed by the full
+    // versioned passage digest; existing rows remain readable with NULL
+    // metadata (treated as cache misses by the reader). No source text, source
+    // geometry or document identifiers are stored here. Dismissals store only
+    // opaque ids/revisions and cascade with the document.
+    Migration::new(
+        "126_add_passage_score_metadata_and_dismissals",
+        r#"
+        ALTER TABLE passage_scores ADD COLUMN reason TEXT;
+        ALTER TABLE passage_scores ADD COLUMN classifier_version TEXT;
+        ALTER TABLE passage_scores ADD COLUMN model_revision TEXT;
+        ALTER TABLE passage_scores ADD COLUMN normalization_version TEXT;
+        CREATE INDEX IF NOT EXISTS idx_passage_scores_created_at
+            ON passage_scores(created_at);
+
+        CREATE TABLE IF NOT EXISTS passage_score_dismissals (
+            document_id TEXT NOT NULL,
+            source_revision TEXT NOT NULL,
+            passage_id TEXT NOT NULL,
+            classifier_version TEXT NOT NULL,
+            dismissed_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (document_id, source_revision, passage_id, classifier_version),
+            FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_passage_score_dismissals_document
+            ON passage_score_dismissals(document_id, source_revision);
+        "#,
+    ),
+    Migration::new(
+        "127_document_source_privacy",
+        r#"
+        ALTER TABLE documents ADD COLUMN is_local_only INTEGER NOT NULL DEFAULT 0 CHECK(is_local_only IN (0, 1));
+        ALTER TABLE documents ADD COLUMN is_ai_excluded INTEGER NOT NULL DEFAULT 0 CHECK(is_ai_excluded IN (0, 1));
+        ALTER TABLE documents ADD COLUMN privacy_version INTEGER NOT NULL DEFAULT 1 CHECK(privacy_version > 0);
+        UPDATE documents SET
+            is_local_only = CASE WHEN json_valid(metadata) THEN COALESCE(json_extract(metadata, '$.isLocalOnly') = 1, 0) ELSE 0 END,
+            is_ai_excluded = CASE WHEN json_valid(metadata) THEN COALESCE(json_extract(metadata, '$.isAiExcluded') = 1, 0) ELSE 0 END;
+
+        -- Derived entities inherit the current source policy without a second
+        -- mutable privacy flag on cards/extracts/reviews/images.
+        CREATE VIEW document_sync_ownership AS
+            SELECT 'document' AS entity_type, id AS entity_id, id AS document_id FROM documents
+            UNION ALL SELECT 'extract', id, document_id FROM extracts
+            UNION ALL SELECT 'learning_item', id, document_id FROM learning_items
+            UNION ALL SELECT 'learning_item', li.id, e.document_id
+                FROM learning_items li JOIN extracts e ON e.id = li.extract_id
+            UNION ALL SELECT 'review_result', r.id, li.document_id
+                FROM review_results r JOIN learning_items li ON li.id = r.item_id
+            UNION ALL SELECT 'review_result', r.id, e.document_id
+                FROM review_results r JOIN learning_items li ON li.id = r.item_id
+                JOIN extracts e ON e.id = li.extract_id
+            UNION ALL SELECT 'image_asset', j.value, li.document_id
+                FROM learning_items li,
+                json_each(CASE WHEN json_valid(li.image_asset_ids) THEN li.image_asset_ids ELSE '[]' END) j
+            UNION ALL SELECT 'image_asset', j.value, e.document_id
+                FROM learning_items li JOIN extracts e ON e.id = li.extract_id,
+                json_each(CASE WHEN json_valid(li.image_asset_ids) THEN li.image_asset_ids ELSE '[]' END) j;
+
+        -- Retain restricted ownership if an extract/document link is removed.
+        -- IDs only; an explicit source policy change clears its bindings.
+        CREATE TABLE private_sync_ownership (
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            source_document_id TEXT NOT NULL,
+            PRIMARY KEY(entity_type, entity_id, source_document_id)
+        );
+        CREATE INDEX idx_private_sync_source ON private_sync_ownership(source_document_id);
+        CREATE VIEW card_index_restrictions AS
+            SELECT o.entity_id AS card_id, o.document_id AS source_document_id, d.is_local_only, d.is_ai_excluded
+                FROM document_sync_ownership o JOIN documents d ON d.id = o.document_id
+                WHERE o.entity_type = 'learning_item'
+            UNION ALL SELECT entity_id, source_document_id, 1, 0 FROM private_sync_ownership
+                WHERE entity_type = 'learning_item';
+        INSERT INTO private_sync_ownership
+            SELECT DISTINCT o.entity_type, o.entity_id, o.document_id
+            FROM document_sync_ownership o JOIN documents d ON d.id = o.document_id
+            WHERE d.is_local_only = 1;
+
+        DELETE FROM sync_outbox WHERE EXISTS (
+            SELECT 1 FROM document_sync_ownership o JOIN documents d ON d.id = o.document_id
+            WHERE o.entity_type = sync_outbox.entity_type AND o.entity_id = sync_outbox.entity_id
+                AND d.is_local_only = 1
+        );
+        DELETE FROM semantic_chunks WHERE document_id IN (SELECT id FROM documents WHERE is_ai_excluded = 1);
+
+        CREATE TRIGGER document_privacy_changed AFTER UPDATE OF is_local_only, is_ai_excluded ON documents
+        WHEN NEW.is_local_only != OLD.is_local_only OR NEW.is_ai_excluded != OLD.is_ai_excluded
+        BEGIN
+            UPDATE documents SET privacy_version = OLD.privacy_version + 1 WHERE id = NEW.id;
+            DELETE FROM private_sync_ownership WHERE source_document_id = NEW.id AND NEW.is_local_only = 0;
+            INSERT OR IGNORE INTO private_sync_ownership
+                SELECT entity_type, entity_id, document_id FROM document_sync_ownership
+                WHERE document_id = NEW.id AND NEW.is_local_only = 1;
+            DELETE FROM sync_outbox WHERE NEW.is_local_only = 1 AND EXISTS (
+                SELECT 1 FROM private_sync_ownership o WHERE o.source_document_id = NEW.id
+                    AND o.entity_type = sync_outbox.entity_type AND o.entity_id = sync_outbox.entity_id
+            );
+            DELETE FROM semantic_chunks WHERE document_id = NEW.id AND NEW.is_ai_excluded = 1;
+            DELETE FROM semantic_chunks WHERE source_type = 'card'
+                AND (NEW.is_local_only = 1 OR NEW.is_ai_excluded = 1) AND source_id IN (
+                    SELECT entity_id FROM document_sync_ownership WHERE document_id = NEW.id AND entity_type = 'learning_item'
+                );
+        END;
+        CREATE TRIGGER document_privacy_retain_before_delete BEFORE DELETE ON documents
+        WHEN OLD.is_local_only = 1
+        BEGIN
+            INSERT OR IGNORE INTO private_sync_ownership
+                SELECT entity_type, entity_id, document_id FROM document_sync_ownership WHERE document_id = OLD.id;
+        END;
+        CREATE TRIGGER extract_privacy_retain_before_delete BEFORE DELETE ON extracts
+        BEGIN
+            INSERT OR IGNORE INTO private_sync_ownership
+                SELECT o.entity_type, o.entity_id, o.document_id FROM document_sync_ownership o
+                JOIN documents d ON d.id = o.document_id
+                WHERE o.document_id = OLD.document_id AND d.is_local_only = 1;
+        END;
+        CREATE TRIGGER card_privacy_retain_before_reparent BEFORE UPDATE OF document_id, extract_id ON learning_items
+        BEGIN
+            INSERT OR IGNORE INTO private_sync_ownership
+                SELECT o.entity_type, o.entity_id, o.document_id FROM document_sync_ownership o
+                JOIN documents d ON d.id = o.document_id
+                WHERE d.is_local_only = 1 AND o.document_id IN (
+                    SELECT document_id FROM document_sync_ownership WHERE entity_type = 'learning_item' AND entity_id = OLD.id
+                );
+        END;
+        -- Metadata patches from older clients may add a restriction, never
+        -- remove one. Explicit policy changes clear these legacy JSON keys.
+        CREATE TRIGGER document_privacy_metadata AFTER UPDATE OF metadata ON documents
+        WHEN json_valid(NEW.metadata)
+        BEGIN
+            UPDATE documents SET
+                is_local_only = MAX(is_local_only, COALESCE(json_extract(NEW.metadata, '$.isLocalOnly') = 1, 0)),
+                is_ai_excluded = MAX(is_ai_excluded, COALESCE(json_extract(NEW.metadata, '$.isAiExcluded') = 1, 0))
+            WHERE id = NEW.id;
+        END;
+        -- An in-flight indexer cannot repopulate an excluded source after
+        -- restriction changed while it was chunking or awaiting inference.
+        CREATE TRIGGER document_privacy_chunk_insert BEFORE INSERT ON semantic_chunks
+        WHEN EXISTS (SELECT 1 FROM documents WHERE id = NEW.document_id AND is_ai_excluded = 1)
+        BEGIN
+            SELECT RAISE(ABORT, 'Document excluded from AI');
+        END;
+        "#,
+    ),
+    // Migration 128: narrow retry-safe acceptance identity for agent learning
+    // proposals. Additive: old callers leave both columns NULL and keep the
+    // existing occlusion batch semantics (no duplicate enforcement change).
+    // The lead allocated this identity; the registry is keyed by name, and a
+    // concurrently landed 123_* recording migration keeps its own name.
+    Migration::new(
+        "128_add_learning_item_acceptance_idempotency",
+        r#"
+        ALTER TABLE learning_items ADD COLUMN acceptance_id TEXT;
+        ALTER TABLE learning_items ADD COLUMN proposal_id TEXT;
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_learning_items_acceptance_proposal
+            ON learning_items(acceptance_id, proposal_id)
+            WHERE acceptance_id IS NOT NULL AND proposal_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_learning_items_acceptance
+            ON learning_items(acceptance_id)
+            WHERE acceptance_id IS NOT NULL;
+        "#,
+    ),
+    // Migration 129: session transcription queue executor claims and leases (Task 0.11 / OpenSpec D6).
+    Migration::new(
+        "129_transcription_queue_session_claims",
+        r#"
+        ALTER TABLE transcription_queue ADD COLUMN session_id TEXT;
+        ALTER TABLE transcription_queue ADD COLUMN asset_id TEXT;
+        ALTER TABLE transcription_queue ADD COLUMN transcript_revision INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE transcription_queue ADD COLUMN executor TEXT;
+        ALTER TABLE transcription_queue ADD COLUMN plan_json TEXT;
+        ALTER TABLE transcription_queue ADD COLUMN lease_owner TEXT;
+        ALTER TABLE transcription_queue ADD COLUMN lease_expires_at INTEGER;
+        ALTER TABLE transcription_queue ADD COLUMN cancel_epoch INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE transcription_queue ADD COLUMN blocked_reason TEXT;
+        ALTER TABLE transcription_queue ADD COLUMN authorization_json TEXT;
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_transcription_queue_active_session
+            ON transcription_queue(session_id, transcript_revision)
+            WHERE session_id IS NOT NULL AND status IN ('pending', 'processing');
+
+        CREATE INDEX IF NOT EXISTS idx_transcription_queue_executor_lease
+            ON transcription_queue(executor, lease_expires_at, status);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
@@ -4579,6 +4997,322 @@ mod tests {
     use super::*;
     use sqlx::Row;
 
+    const RECORDING_OWNERSHIP_MIGRATION: &str = "123_recording_session_ownership";
+
+    #[tokio::test]
+    async fn recording_privacy_upgrade_retains_legacy_restrictions_and_orphan_ownership() {
+        let pool = pool_migrated_up_to("127_document_source_privacy").await;
+        sqlx::query("INSERT INTO documents (id, title, file_path, file_type, date_added, date_modified, metadata) VALUES ('private', 'Private', 'private.wav', 'audio', '2026-10-20', '2026-10-20', '{\"isLocalOnly\":true,\"isAiExcluded\":true}'), ('public', 'Public', 'public.wav', 'audio', '2026-10-20', '2026-10-20', NULL)")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO extracts (id, document_id, content, date_created, date_modified) VALUES ('private-extract', 'private', 'Private quote', '2026-10-20', '2026-10-20')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO learning_items (id, document_id, extract_id, item_type, question, due_date, date_created, date_modified) VALUES ('cross-card', 'public', 'private-extract', 'flashcard', 'Private question', '2026-10-20', '2026-10-20', '2026-10-20')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO sync_outbox (change_id, entity_type, entity_id, operation, payload, hlc, created_at, sync_status) VALUES ('pending-private', 'learning_item', 'cross-card', 'update', X'7B7D', '1:0', 1, 'pending')")
+            .execute(&pool).await.unwrap();
+        run_migrations(&pool).await.unwrap();
+        let policy: (bool, bool, i64) = sqlx::query_as("SELECT is_local_only, is_ai_excluded, privacy_version FROM documents WHERE id = 'private'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(policy, (true, true, 1));
+        let pending: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM sync_outbox WHERE entity_id = 'cross-card'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(pending, 0);
+        // Existing source deletion cascades to linked cards. Retention flows
+        // explicitly detach first; policy must survive that detachment.
+        sqlx::query("UPDATE learning_items SET extract_id = NULL WHERE id = 'cross-card'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM extracts WHERE id = 'private-extract'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM documents WHERE id = 'private'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let retained: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM private_sync_ownership WHERE entity_type = 'learning_item' AND entity_id = 'cross-card' AND source_document_id = 'private'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(retained, 1);
+        let question: String =
+            sqlx::query_scalar("SELECT question FROM learning_items WHERE id = 'cross-card'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(question, "Private question");
+        assert!(sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn recording_canonical_upgrade_keeps_segment_ids_words_indexes_and_sequence() {
+        let pool = pool_migrated_up_to("124_canonical_session_segments").await;
+        sqlx::query("INSERT INTO transcripts (id, book_id, chapter_id, model_used, language, status) VALUES (1, 'legacy', 'legacy', 'fake-local', 'en', 'completed')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO transcript_segments (id, transcript_id, start_ms, end_ms, text, confidence, words_json) VALUES (5, 1, 100, 500, 'Riemannian', 0.8, '[{\"word\":\"Riemannian\",\"start_ms\":100,\"end_ms\":500}]'), (901, 1, 600, 700, 'deleted', NULL, NULL)")
+            .execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM transcript_segments WHERE id = 901")
+            .execute(&pool)
+            .await
+            .unwrap();
+        run_migrations(&pool).await.unwrap();
+        run_migrations(&pool).await.unwrap();
+        let row: (i64, String, i64, i64, String, Option<f64>, Option<String>) = sqlx::query_as(
+            "SELECT id, segment_key, ordinal, start_ms, text, confidence, words_json FROM transcript_segments WHERE id = 5"
+        ).fetch_one(&pool).await.unwrap();
+        assert_eq!(
+            (row.0, row.1.as_str(), row.2, row.3, row.4.as_str()),
+            (5, "legacy:5", 0, 100, "Riemannian")
+        );
+        assert_eq!(row.5, Some(0.8));
+        assert!(row.6.unwrap().contains("Riemannian"));
+        sqlx::query("INSERT INTO transcript_segments (transcript_id, start_ms, end_ms, text) VALUES (1, 800, 900, 'legacy next'), (1, 900, 1000, 'legacy again')")
+            .execute(&pool).await.unwrap();
+        let next: Vec<(i64, String, i64)> = sqlx::query_as(
+            "SELECT id, segment_key, ordinal FROM transcript_segments WHERE id > 5 ORDER BY id",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(next[0].0 > 901);
+        assert_eq!(next[0].1, format!("legacy:{}", next[0].0));
+        assert_eq!((next[0].2, next[1].2), (1, 2));
+        for index in [
+            "idx_transcript_segments_time",
+            "idx_transcript_segments_checkpoint",
+            "idx_transcript_segments_keys",
+            "idx_transcript_segments_ordinal",
+        ] {
+            let count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = ?1",
+            )
+            .bind(index)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            assert_eq!(count, 1);
+        }
+        assert!(sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn recording_canonical_untimed_rows_are_not_legacy_playback_positions() {
+        let pool = pool_migrated_up_to("124_canonical_session_segments").await;
+        run_migrations(&pool).await.unwrap();
+        sqlx::query("INSERT INTO transcripts (id, book_id, chapter_id, model_used, language, status) VALUES (1, 'session', 'session', 'import', 'en', 'completed')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO transcript_segments (transcript_id, text, segment_key, ordinal, timing_kind) VALUES (1, 'E = mc² 🤔', '1:text:0', 0, 'none')")
+            .execute(&pool).await.unwrap();
+        let row: (Option<i64>, Option<i64>, Option<f64>, String) = sqlx::query_as("SELECT start_ms, end_ms, confidence, text FROM transcript_segments WHERE segment_key = '1:text:0'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(row, (None, None, None, "E = mc² 🤔".into()));
+        let timed_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM transcript_segments WHERE transcript_id = 1 AND start_ms IS NOT NULL AND end_ms IS NOT NULL")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(timed_count, 0);
+        assert!(sqlx::query("INSERT INTO transcript_segments (transcript_id, start_ms, end_ms, text, segment_key, timing_kind) VALUES (1, 0, 0, 'fake timing', 'bad', 'none')")
+            .execute(&pool).await.is_err());
+        assert!(sqlx::query("INSERT INTO transcript_segments (transcript_id, text, segment_key, timing_kind) VALUES (1, 'duplicate key', '1:text:0', 'none')")
+            .execute(&pool).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn recording_canonical_rebuild_preserves_empty_table_high_water_mark() {
+        let pool = pool_migrated_up_to("124_canonical_session_segments").await;
+        sqlx::query("INSERT INTO transcripts (id, book_id, chapter_id, model_used, language, status) VALUES (1, 'empty', 'empty', 'local', 'en', 'completed')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO transcript_segments (id, transcript_id, start_ms, end_ms, text) VALUES (901, 1, 0, 100, 'deleted')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM transcript_segments")
+            .execute(&pool)
+            .await
+            .unwrap();
+        run_migrations(&pool).await.unwrap();
+        sqlx::query("INSERT INTO transcript_segments (transcript_id, start_ms, end_ms, text) VALUES (1, 0, 100, 'new')")
+            .execute(&pool).await.unwrap();
+        let id: i64 = sqlx::query_scalar("SELECT id FROM transcript_segments")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert!(id > 901);
+    }
+
+    /// Freeze the old projection before upgrade: additive columns are not
+    /// mutations of existing user fields and must not create false failures.
+    async fn recording_user_fields(pool: &Pool<Sqlite>) -> Vec<(String, String)> {
+        let mut projections = Vec::new();
+        for table in [
+            "documents",
+            "extracts",
+            "learning_items",
+            "review_sessions",
+            "review_results",
+        ] {
+            let columns = sqlx::query(&format!("PRAGMA table_info({table})"))
+                .fetch_all(pool)
+                .await
+                .unwrap();
+            let fields = columns
+                .iter()
+                .map(|row| {
+                    let name: String = row.get("name");
+                    format!("'{name}', \"{name}\"")
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            projections.push((table.to_owned(), fields));
+        }
+        projections
+    }
+
+    async fn recording_user_data_hash(
+        pool: &Pool<Sqlite>,
+        projections: &[(String, String)],
+    ) -> String {
+        use sha2::{Digest, Sha256};
+        let mut digest = Sha256::new();
+        for (table, fields) in projections {
+            let rows: Vec<String> = sqlx::query_scalar(&format!(
+                "SELECT json_object({fields}) FROM {table} ORDER BY id"
+            ))
+            .fetch_all(pool)
+            .await
+            .unwrap();
+            digest.update(table.as_bytes());
+            digest.update(serde_json::to_vec(&rows).unwrap());
+        }
+        format!("{:x}", digest.finalize())
+    }
+
+    async fn seed_recording_owner(pool: &Pool<Sqlite>, suffix: &str) {
+        sqlx::query("INSERT INTO documents (id, title, file_path, file_type, date_added, date_modified) VALUES (?1, 'Recording', 'pending', 'audio', '2026-10-20', '2026-10-20')")
+            .bind(format!("doc-{suffix}")).execute(pool).await.unwrap();
+        sqlx::query("INSERT INTO recording_sessions (id, document_id, origin, content_type, created_at, updated_at) VALUES (?1, ?2, 'recorded', 'lecture', '2026-10-20', '2026-10-20')")
+            .bind(format!("session-{suffix}")).bind(format!("doc-{suffix}"))
+            .execute(pool).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn recording_ownership_upgrade_preserves_all_seeded_user_rows() {
+        let pool = pool_migrated_up_to(RECORDING_OWNERSHIP_MIGRATION).await;
+        sqlx::query("INSERT INTO documents (id, title, file_path, file_type, date_added, date_modified) VALUES ('legacy-doc', 'Lecture', '/audio/legacy.wav', 'audio', '2026-01-01', '2026-01-01')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO extracts (id, document_id, content, date_created, date_modified) VALUES ('legacy-extract', 'legacy-doc', 'Original quotation', '2026-01-01', '2026-01-01')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO learning_items (id, document_id, extract_id, item_type, question, answer, due_date, date_created, date_modified, review_count, memory_state_stability, memory_state_difficulty, state) VALUES ('legacy-card', 'legacy-doc', 'legacy-extract', 'qa', 'Original question?', 'Original answer', '2026-11-01', '2026-01-01', '2026-01-01', 7, 12.5, 4.5, 'review')")
+            .execute(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO review_sessions (id, start_time) VALUES ('legacy-review', '2026-01-01')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO review_results (id, session_id, item_id, rating, time_taken, new_due_date, new_interval, new_ease_factor, timestamp) VALUES ('legacy-result', 'legacy-review', 'legacy-card', 3, 12, '2026-11-01', 7, 2.5, '2026-01-01')")
+            .execute(&pool).await.unwrap();
+        let projections = recording_user_fields(&pool).await;
+        let before = recording_user_data_hash(&pool, &projections).await;
+        run_migrations(&pool).await.unwrap();
+        run_migrations(&pool).await.unwrap();
+        assert_eq!(before, recording_user_data_hash(&pool, &projections).await);
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM _schema_migrations WHERE name = ?1")
+                .bind(RECORDING_OWNERSHIP_MIGRATION)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(count, 1);
+        assert!(sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
+    #[tokio::test]
+    async fn recording_ownership_constraints_prevent_cross_session_links_and_duplicate_parts() {
+        let pool = pool_migrated_up_to(RECORDING_OWNERSHIP_MIGRATION).await;
+        run_migrations(&pool).await.unwrap();
+        seed_recording_owner(&pool, "a").await;
+        seed_recording_owner(&pool, "b").await;
+        sqlx::query("INSERT INTO media_assets (id, session_id, kind, relative_path, mime, created_at) VALUES ('asset-a', 'session-a', 'capture', 'capture.wav', 'audio/wav', '2026-10-20')")
+            .execute(&pool).await.unwrap();
+        assert!(sqlx::query(
+            "UPDATE recording_sessions SET media_asset_id = 'asset-a' WHERE id = 'session-b'"
+        )
+        .execute(&pool)
+        .await
+        .is_err());
+        sqlx::query(
+            "UPDATE recording_sessions SET media_asset_id = 'asset-a' WHERE id = 'session-a'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        assert!(sqlx::query(
+            "UPDATE media_assets SET session_id = 'session-b' WHERE id = 'asset-a'"
+        )
+        .execute(&pool)
+        .await
+        .is_err());
+        assert!(sqlx::query("INSERT INTO recording_sessions (id, document_id, origin, content_type, created_at, updated_at) VALUES ('duplicate', 'doc-a', 'file', 'meeting', 'now', 'now')")
+            .execute(&pool).await.is_err());
+        assert!(sqlx::query("INSERT INTO media_assets (id, session_id, kind, relative_path, mime, created_at) VALUES ('bad-path', 'session-a', 'original', '../outside.wav', 'audio/wav', 'now')")
+            .execute(&pool).await.is_err());
+        let insert = "INSERT INTO recording_parts (asset_id, writer_epoch, sequence, relative_path, byte_length, sha256, start_ms, duration_ms, format_json, committed_at) VALUES ('asset-a', 'epoch-a', 0, 'parts/0.wav', 320, ?1, 0, 10, '{}', 'now') ON CONFLICT(asset_id, sequence) DO NOTHING";
+        for _ in 0..2 {
+            sqlx::query(insert)
+                .bind("a".repeat(64))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM recording_parts")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+        assert!(sqlx::query("INSERT INTO recording_session_markers (id, session_id, kind, media_ms, created_at) VALUES ('bad-marker', 'session-a', 'flashcard', 0, 'now')")
+            .execute(&pool).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn recording_ownership_deletion_retains_cleanup_journal_and_checks_foreign_keys() {
+        let pool = pool_migrated_up_to(RECORDING_OWNERSHIP_MIGRATION).await;
+        run_migrations(&pool).await.unwrap();
+        seed_recording_owner(&pool, "a").await;
+        sqlx::query("INSERT INTO media_assets (id, session_id, kind, relative_path, mime, created_at) VALUES ('asset-a', 'session-a', 'capture', 'capture.wav', 'audio/wav', 'now')")
+            .execute(&pool).await.unwrap();
+        sqlx::query(
+            "UPDATE recording_sessions SET media_asset_id = 'asset-a' WHERE id = 'session-a'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query("INSERT INTO recording_cleanup_journal (id, session_id, asset_id, relative_path, created_at, updated_at) VALUES ('cleanup-a', 'session-a', 'asset-a', 'session-a/capture.wav', 'now', 'now')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("DELETE FROM documents WHERE id = 'doc-a'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let retained: (Option<String>, Option<String>, String) = sqlx::query_as("SELECT session_id, asset_id, status FROM recording_cleanup_journal WHERE id = 'cleanup-a'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(retained, (None, None, "pending".into()));
+        assert!(sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&pool)
+            .await
+            .unwrap()
+            .is_empty());
+    }
+
     /// Name of the migration that adds per-item activity history. The
     /// upgrade test stops just short of it so it can seed a realistic
     /// pre-change database first.
@@ -4741,18 +5475,32 @@ mod tests {
     #[tokio::test]
     async fn practice_reveal_migration_upgrades_existing_and_fresh_databases() {
         let pool = pool_migrated_up_to("100_language_practice_attempt_revealed").await;
-        run_migrations(&pool).await.expect("apply practice reveal migration");
-        run_migrations(&pool).await.expect("repeat practice reveal migration");
+        run_migrations(&pool)
+            .await
+            .expect("apply practice reveal migration");
+        run_migrations(&pool)
+            .await
+            .expect("repeat practice reveal migration");
 
         let columns = sqlx::query("PRAGMA table_info(language_practice_attempts)")
             .fetch_all(&pool)
             .await
             .expect("inspect practice attempts");
-        let revealed = columns.iter().find(|row| row.get::<String, _>("name") == "revealed");
-        assert!(revealed.is_some(), "existing databases gain the revealed column");
+        let revealed = columns
+            .iter()
+            .find(|row| row.get::<String, _>("name") == "revealed");
+        assert!(
+            revealed.is_some(),
+            "existing databases gain the revealed column"
+        );
         assert_eq!(revealed.unwrap().get::<String, _>("dflt_value"), "0");
         for name in ["media_id", "start_ms", "end_ms"] {
-            assert!(columns.iter().any(|row| row.get::<String, _>("name") == name), "existing databases gain {name}");
+            assert!(
+                columns
+                    .iter()
+                    .any(|row| row.get::<String, _>("name") == name),
+                "existing databases gain {name}"
+            );
         }
         let (index_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND name = 'idx_language_practice_attempts_media_range'")
             .fetch_one(&pool)
@@ -4774,12 +5522,15 @@ mod tests {
             .fetch_all(&pool)
             .await
             .expect("inspect practice attempts after rollback");
-        assert!(!columns.iter().any(|row| row.get::<String, _>("name") == "temporary_failure_marker"));
-        let (tracked,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM _schema_migrations WHERE name = ?1")
-            .bind(migration.name)
-            .fetch_one(&pool)
-            .await
-            .expect("inspect migration tracking after rollback");
+        assert!(!columns
+            .iter()
+            .any(|row| row.get::<String, _>("name") == "temporary_failure_marker"));
+        let (tracked,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM _schema_migrations WHERE name = ?1")
+                .bind(migration.name)
+                .fetch_one(&pool)
+                .await
+                .expect("inspect migration tracking after rollback");
         assert_eq!(tracked, 0);
     }
 
@@ -4804,33 +5555,49 @@ mod tests {
         run_migrations(&pool).await.expect("apply migration 103");
 
         // Verify algorithm_type values updated
-        let (algo_18,): (String,) = sqlx::query_as("SELECT algorithm_type FROM learning_items WHERE id = 'item-sm18'")
-            .fetch_one(&pool)
-            .await
-            .expect("query item-sm18");
+        let (algo_18,): (String,) =
+            sqlx::query_as("SELECT algorithm_type FROM learning_items WHERE id = 'item-sm18'")
+                .fetch_one(&pool)
+                .await
+                .expect("query item-sm18");
         assert_eq!(algo_18, "adaptive");
 
-        let (algo_20,): (String,) = sqlx::query_as("SELECT algorithm_type FROM learning_items WHERE id = 'item-sm20'")
-            .fetch_one(&pool)
-            .await
-            .expect("query item-sm20");
+        let (algo_20,): (String,) =
+            sqlx::query_as("SELECT algorithm_type FROM learning_items WHERE id = 'item-sm20'")
+                .fetch_one(&pool)
+                .await
+                .expect("query item-sm20");
         assert_eq!(algo_20, "precision");
 
         // Verify renamed tables exist
-        for table in ["arena_state", "arena_m2_optimizer", "arena_m3_matrices", "arena_model_params"] {
-            let (count,): (i64,) = sqlx::query_as(&format!("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{table}'"))
-                .fetch_one(&pool)
-                .await
-                .expect("check table exists");
+        for table in [
+            "arena_state",
+            "arena_m2_optimizer",
+            "arena_m3_matrices",
+            "arena_model_params",
+        ] {
+            let (count,): (i64,) = sqlx::query_as(&format!(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{table}'"
+            ))
+            .fetch_one(&pool)
+            .await
+            .expect("check table exists");
             assert_eq!(count, 1, "table {table} should exist");
         }
 
         // Verify dropped tables do not exist
-        for table in ["sm20_matrices", "sm20_recall_cells", "sm20_optimizer_profiles", "sm20_arena"] {
-            let (count,): (i64,) = sqlx::query_as(&format!("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{table}'"))
-                .fetch_one(&pool)
-                .await
-                .expect("check table does not exist");
+        for table in [
+            "sm20_matrices",
+            "sm20_recall_cells",
+            "sm20_optimizer_profiles",
+            "sm20_arena",
+        ] {
+            let (count,): (i64,) = sqlx::query_as(&format!(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = '{table}'"
+            ))
+            .fetch_one(&pool)
+            .await
+            .expect("check table does not exist");
             assert_eq!(count, 0, "table {table} should be dropped");
         }
     }
@@ -4964,18 +5731,14 @@ mod tests {
 
         // The new dwell columns are nullable and default to NULL: a pre-117 row
         // reads as "never measured", never as a fabricated 0.
-        let (idle, scroll, density, exit): (
-            Option<i64>,
-            Option<f64>,
-            Option<f64>,
-            Option<String>,
-        ) = sqlx::query_as(
-            "SELECT idle_time_ms, scroll_depth_ratio, interaction_density, exit_action
+        let (idle, scroll, density, exit): (Option<i64>, Option<f64>, Option<f64>, Option<String>) =
+            sqlx::query_as(
+                "SELECT idle_time_ms, scroll_depth_ratio, interaction_density, exit_action
              FROM item_activity_log WHERE id = 'act-1'",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("seeded row survives");
+            )
+            .fetch_one(&pool)
+            .await
+            .expect("seeded row survives");
         assert_eq!(idle, None, "idle_time_ms is untracked, not zero");
         assert_eq!(scroll, None, "scroll_depth_ratio is untracked, not zero");
         assert_eq!(density, None, "interaction_density is untracked, not zero");
@@ -5234,10 +5997,12 @@ mod tests {
             .expect("seed canonical row");
         // Re-running migrations finds 122 already recorded and does nothing.
         run_migrations(&pool).await.expect("second application");
-        let (owner,): (String,) = sqlx::query_as("SELECT owner_profile_id FROM ai_conversations WHERE id = 'conv-canonical'")
-            .fetch_one(&pool)
-            .await
-            .expect("read canonical row");
+        let (owner,): (String,) = sqlx::query_as(
+            "SELECT owner_profile_id FROM ai_conversations WHERE id = 'conv-canonical'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("read canonical row");
         assert_eq!(owner, "local:device-a");
     }
 
@@ -5262,5 +6027,201 @@ mod tests {
         assert_eq!(title, "Canonical title");
         assert_eq!(created, "2026-08-01T00:00:00.000Z");
         assert_eq!(modified, "2026-08-02T00:00:00.000Z");
+    }
+
+    /// Migration 123 is additive and enforces the narrow acceptance identity.
+    #[tokio::test]
+    async fn learning_item_acceptance_migration_is_additive_and_unique() {
+        let pool = pool_migrated_up_to("128_add_learning_item_acceptance_idempotency").await;
+        run_migrations(&pool).await.expect("apply migration 123");
+
+        let (acceptance_column,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM pragma_table_info('learning_items') WHERE name = 'acceptance_id'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("acceptance column");
+        assert_eq!(acceptance_column, 1);
+
+        let (proposal_column,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM pragma_table_info('learning_items') WHERE name = 'proposal_id'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("proposal column");
+        assert_eq!(proposal_column, 1);
+
+        // An old caller (no keys) remains fully compatible.
+        sqlx::query(
+            "INSERT INTO learning_items (id, item_type, question, date_created, date_modified, due_date) VALUES ('legacy-item', 'flashcard', 'Legacy?', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .expect("legacy insert");
+        let (null_keys,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM learning_items WHERE id = 'legacy-item' AND acceptance_id IS NULL AND proposal_id IS NULL",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("legacy row");
+        assert_eq!(null_keys, 1);
+
+        sqlx::query(
+            "INSERT INTO learning_items (id, item_type, question, date_created, date_modified, due_date, acceptance_id, proposal_id) VALUES ('agent-item-1', 'flashcard', 'Agent?', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z', 'run-1', 'run-1:p1')",
+        )
+        .execute(&pool)
+        .await
+        .expect("agent insert");
+
+        let duplicate = sqlx::query(
+            "INSERT INTO learning_items (id, item_type, question, date_created, date_modified, due_date, acceptance_id, proposal_id) VALUES ('agent-item-2', 'flashcard', 'Other?', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z', 'run-1', 'run-1:p1')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            duplicate.is_err(),
+            "the (acceptance_id, proposal_id) pair must be unique"
+        );
+
+        // A second proposal in the same acceptance run is allowed.
+        sqlx::query(
+            "INSERT INTO learning_items (id, item_type, question, date_created, date_modified, due_date, acceptance_id, proposal_id) VALUES ('agent-item-3', 'flashcard', 'Second?', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', '2026-01-02T00:00:00Z', 'run-1', 'run-1:p2')",
+        )
+        .execute(&pool)
+        .await
+        .expect("second proposal insert");
+
+        // Re-running migrations (tracking row present) is a no-op.
+        run_migrations(&pool).await.expect("second application");
+    }
+
+    #[tokio::test]
+    async fn migration_125_preserves_endorsements_and_dismissals_and_labels_legacy_origin_unknown()
+    {
+        let pool = pool_migrated_up_to("125_add_concept_link_origin_lifecycle").await;
+
+        sqlx::query(
+            "INSERT INTO concepts (id, name, normalized_name) VALUES ('c1', 'A', 'a'), ('c2', 'B', 'b')",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed concepts");
+
+        // Legacy rows predate origin/lifecycle columns. `fp-dup` deliberately
+        // has both an endorsed row and a later AI duplicate.
+        for (id, fingerprint, created_by, dismissed) in [
+            ("legacy-endorsed", Some("fp-dup"), "user", 0),
+            ("legacy-ai-dupe", Some("fp-dup"), "ai", 0),
+            ("legacy-dismissed", Some("fp-dismissed"), "ai", 1),
+            ("legacy-null", None, "ai", 0),
+        ] {
+            sqlx::query(
+                "INSERT INTO concept_links (id, source_kind, source_id, target_kind, target_id, \
+                 relation_type, confidence, created_by, created_at, is_dismissed, proposal_fingerprint) \
+                 VALUES (?1, 'document', 'doc-1', 'concept', 'c1', 'related-to', 0.8, ?2, ?3, ?4, ?5)",
+            )
+            .bind(id)
+            .bind(created_by)
+            .bind(if id == "legacy-endorsed" {
+                "2026-01-02T00:00:00Z"
+            } else {
+                "2026-01-01T00:00:00Z"
+            })
+            .bind(dismissed)
+            .bind(fingerprint)
+            .execute(&pool)
+            .await
+            .expect("seed legacy link");
+        }
+
+        run_migrations(&pool).await.expect("apply 125");
+
+        // Endorsed row wins the duplicate reconciliation.
+        let live: Vec<(String, String)> = sqlx::query_as(
+            "SELECT id, origin FROM concept_links \
+             WHERE proposal_fingerprint = 'fp-dup' AND is_dismissed = 0 ORDER BY id",
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("live duplicates");
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].0, "legacy-endorsed");
+        assert_eq!(live[0].1, "unknown", "legacy origin is never guessed");
+
+        // Dismissal history survives and also remains origin unknown.
+        let dismissed: (String, String) = sqlx::query_as(
+            "SELECT id, origin FROM concept_links WHERE proposal_fingerprint = 'fp-dismissed'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("dismissed row");
+        assert_eq!(dismissed.0, "legacy-dismissed");
+        assert_eq!(dismissed.1, "unknown");
+
+        // New notifications/lifecycle columns exist and default correctly for
+        // legacy rows.
+        let (origin, endorsed_at): (String, Option<String>) = sqlx::query_as(
+            "SELECT origin, endorsed_at FROM concept_links WHERE id = 'legacy-endorsed'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("legacy lifecycle");
+        assert_eq!(origin, "unknown");
+        assert!(endorsed_at.is_none());
+
+        // The partial unique index blocks concurrent live duplicates…
+        let duplicate = sqlx::query(
+            "INSERT INTO concept_links (id, source_kind, source_id, target_kind, target_id, \
+             relation_type, confidence, created_by, created_at, is_dismissed, proposal_fingerprint, origin) \
+             VALUES ('new-dupe', 'document', 'doc-1', 'concept', 'c1', 'related-to', 0.8, 'ai', \
+                     '2026-01-03T00:00:00Z', 0, 'fp-dup', 'ai')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(duplicate.is_err(), "only one live row per fingerprint");
+
+        // …while multiple dismissed history rows remain allowed.
+        for id in ["dismissed-a", "dismissed-b"] {
+            sqlx::query(
+                "INSERT INTO concept_links (id, source_kind, source_id, target_kind, target_id, \
+                 relation_type, confidence, created_by, created_at, is_dismissed, proposal_fingerprint, origin) \
+                 VALUES (?1, 'document', 'doc-1', 'concept', 'c1', 'related-to', 0.8, 'ai', \
+                         '2026-01-03T00:00:00Z', 1, 'fp-history', 'ai')",
+            )
+            .bind(id)
+            .execute(&pool)
+            .await
+            .expect("dismissed history rows are not uniqueness-limited");
+        }
+    }
+
+    #[tokio::test]
+    async fn migration_rollback_keeps_concept_link_schema_intact() {
+        let pool = pool_migrated_up_to("125_add_concept_link_origin_lifecycle").await;
+        run_migrations(&pool).await.expect("apply 125");
+
+        let bad = Migration::new(
+            "999_rollback_probe",
+            "ALTER TABLE concept_links ADD COLUMN rollback_probe TEXT; THIS IS NOT SQL;",
+        );
+        assert!(apply_migration(&pool, &bad).await.is_err());
+
+        let columns = sqlx::query("PRAGMA table_info(concept_links)")
+            .fetch_all(&pool)
+            .await
+            .expect("inspect concept_links");
+        assert!(
+            !columns
+                .iter()
+                .any(|row| row.get::<String, _>("name") == "rollback_probe"),
+            "failed migration must roll back its DDL"
+        );
+        let (tracked,): (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM _schema_migrations WHERE name = '999_rollback_probe'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("tracking row");
+        assert_eq!(tracked, 0);
     }
 }

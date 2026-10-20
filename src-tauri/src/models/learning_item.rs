@@ -108,6 +108,13 @@ pub struct LearningItem {
     /// cards with no originating source.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_reference: Option<String>,
+    /// Retry-safe acceptance identity for agent learning proposals. The pair
+    /// (acceptance_id, proposal_id) is unique; a retried create returns the
+    /// originally committed row instead of duplicating it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub acceptance_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proposal_id: Option<String>,
 }
 
 fn default_priority_slider() -> i32 {
@@ -168,6 +175,8 @@ impl LearningItem {
             priority_score: 0.0,
             priority_explicitly_set: false,
             source_reference: None,
+            acceptance_id: None,
+            proposal_id: None,
         }
     }
 

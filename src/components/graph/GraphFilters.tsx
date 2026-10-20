@@ -94,6 +94,13 @@ const NODE_TYPE_CONFIG = {
     textColor: "text-orange-500",
     icon: "📡",
   },
+  [GraphNodeType.Concept]: {
+    labelKey: "Concepts",
+    color: "bg-yellow-500",
+    borderColor: "border-yellow-500",
+    textColor: "text-yellow-500",
+    icon: "🔗",
+  },
 };
 
 export function GraphFilterControls({
@@ -585,6 +592,7 @@ export function calculateGraphStatistics(
     [GraphNodeType.Category]: 0,
     [GraphNodeType.Tag]: 0,
     [GraphNodeType.Rss]: 0,
+    [GraphNodeType.Concept]: 0,
   };
 
   nodes.forEach((node) => {

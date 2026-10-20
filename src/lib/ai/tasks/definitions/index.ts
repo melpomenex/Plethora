@@ -14,3 +14,4 @@ export * from "./tutorTask";
 export * from "./askPlethoraTask";
 export * from "./smartTaggingContext";
 export * from "./smartTaggingTask";
+export * from "./relationshipTask";

@@ -123,6 +123,19 @@ import { useTabsStore } from "../../stores/tabsStore";
 import { useIsActiveTab } from "../common/Tabs";
 import { cn } from "../../utils";
 import { SemanticGraphPanel } from "../review/SemanticGraphPanel";
+import { useDocumentStore } from "../../stores/documentStore";
+import { useToastExtract } from "../../hooks/useToastExtract";
+import { CreateExtractDialog } from "../extracts/CreateExtractDialog";
+import { FlashcardStudioModal } from "../review/FlashcardStudioModal";
+import { LearnThisProposalSheet } from "../learn/LearnThisProposalSheet";
+import { ensureRssArticleDocument } from "./rssArticleDocument";
+import { usePassageScoring } from "../viewer/passageScoring/usePassageScoring";
+import { PassageScoreOverlay } from "../viewer/passageScoring/PassageScoreOverlay";
+import { DomBlockPassageAdapter } from "../viewer/passageScoring/adapters/domBlocks";
+import { buildRenderedSourceText } from "../viewer/passageScoring/adapters/sourceText";
+import { sha256Short } from "../viewer/passageScoring/hash";
+import type { PassageActionHandlers } from "../viewer/passageScoring/usePassageScoring";
+import type { PassageAdapter, PassageLocator } from "../viewer/passageScoring/types";
 
 type ViewMode = "all" | "unread" | "favorites" | "search";
 
@@ -1766,6 +1779,230 @@ export function RSSReader() {
   // ensure a backing library document for the article). ----
   const rssSelection = useRssSelectionMenu(selectedItemFeed, selectedItem);
 
+  // ── Passage extract-worthiness (change
+  // `complete-reader-extract-worthiness-integration`) ────────────────────────
+  // RSS never invents a library document id: durable actions appear only when
+  // an article already has a real backing document. Otherwise the suggestion
+  // offers the explicit import flow.
+  const passageDocuments = useDocumentStore((state) => state.documents);
+  const passageAddDocument = useDocumentStore((state) => state.addDocument);
+  const passageUpdateDocument = useDocumentStore((state) => state.updateDocument);
+  const { createInstantExtract: createPassageExtract } = useToastExtract();
+  const [rssPassageRoot, setRssPassageRoot] = useState<HTMLElement | null>(null);
+  const [rssFullContentRoot, setRssFullContentRoot] = useState<HTMLElement | null>(null);
+  const [rssPassageFlashSeed, setRssPassageFlashSeed] = useState<{
+    key: string;
+    documentId: string;
+    excerpt: string;
+    draftCardType: "qa" | "cloze";
+    resetDraftCards: boolean;
+    autoEditDraft: boolean;
+  } | null>(null);
+  const [rssPassageLearn, setRssPassageLearn] = useState<{
+    text: string;
+    documentId: string;
+  } | null>(null);
+  const [rssPassageExtract, setRssPassageExtract] = useState<{
+    text: string;
+    documentId: string;
+  } | null>(null);
+
+  const rssArticleContent =
+    selectedItem?.content || selectedItem?.description || "";
+  const rssArticleFilePath = selectedItem
+    ? selectedItem.link || `rss:${selectedItem.id}`
+    : null;
+  const rssArticleDocumentId = useMemo(
+    () =>
+      rssArticleFilePath
+        ? passageDocuments.find((doc) => doc.filePath === rssArticleFilePath)?.id
+        : undefined,
+    [passageDocuments, rssArticleFilePath]
+  );
+  const rssPassageSourceRevision = useMemo(() => {
+    if (!selectedItem) return "";
+    return [
+      "rss-rev1",
+      selectedItem.feedId,
+      selectedItem.id,
+      showFullContent ? "full" : "reader",
+      selectedItem.fullContentFetchedAt ?? "",
+      sha256Short(rssArticleContent, 16),
+    ].join(":");
+  }, [
+    selectedItem?.feedId,
+    selectedItem?.id,
+    selectedItem?.fullContentFetchedAt,
+    showFullContent,
+    rssArticleContent,
+  ]);
+
+  useEffect(() => {
+    if (showFullContent) {
+      setRssPassageRoot(null);
+      return;
+    }
+    setRssPassageRoot(rssSelection.contentRef.current);
+  }, [selectedItem?.id, showFullContent, rssArticleContent, rssSelection.contentRef]);
+
+  const rssPassageAdapterKey = useMemo(
+    () =>
+      [
+        "rss-passage",
+        rssPassageSourceRevision,
+        rssArticleDocumentId ?? "ephemeral",
+        showFullContent ? "full" : "reader",
+        rssPassageRoot ? "reader-root" : "no-reader-root",
+        rssFullContentRoot ? "full-root" : "no-full-root",
+      ].join("|"),
+    [
+      rssPassageSourceRevision,
+      rssArticleDocumentId,
+      showFullContent,
+      rssPassageRoot,
+      rssFullContentRoot,
+    ]
+  );
+
+  const rssPassageAdapterFactory = useCallback((): PassageAdapter | null => {
+    if (!selectedItem) return null;
+    const root = showFullContent ? rssFullContentRoot : rssPassageRoot;
+    const doc = root?.ownerDocument ?? null;
+    if (!root || !doc) return null;
+    const ownerToken = `rss:${selectedItemFeed?.id ?? selectedItem.feedId}:${selectedItem.id}:${
+      showFullContent ? "full" : "reader"
+    }`;
+    return new DomBlockPassageAdapter({
+      ownerToken,
+      sourceRevision: rssPassageSourceRevision,
+      kind: "rss",
+      documentId: rssArticleDocumentId,
+      articleId: selectedItem.id,
+      articleRevision: rssPassageSourceRevision,
+      roots: [{ doc, root }],
+      sourceText: () =>
+        buildRenderedSourceText(
+          showFullContent
+            ? (selectedItem.fullContent ?? selectedItem.content ?? selectedItem.description)
+            : rssArticleContent,
+          "html"
+        ),
+    });
+  }, [
+    selectedItem,
+    selectedItemFeed?.id,
+    showFullContent,
+    rssFullContentRoot,
+    rssPassageRoot,
+    rssPassageSourceRevision,
+    rssArticleDocumentId,
+    rssArticleContent,
+  ]);
+
+  const rssPassageEnsureDocument = useCallback(async (): Promise<string | null> => {
+    if (!selectedItem) return null;
+    if (rssArticleDocumentId) return rssArticleDocumentId;
+    try {
+      const id = await ensureRssArticleDocument(selectedItemFeed, selectedItem, {
+        documents: passageDocuments,
+        addDocument: passageAddDocument,
+        updateDocument: passageUpdateDocument,
+      });
+      return id;
+    } catch (error) {
+      toast.error(
+        "Could not import article",
+        error instanceof Error ? error.message : undefined
+      );
+      return null;
+    }
+  }, [
+    selectedItem,
+    selectedItemFeed,
+    rssArticleDocumentId,
+    passageDocuments,
+    passageAddDocument,
+    passageUpdateDocument,
+    toast,
+  ]);
+
+  const rssPassageHandlers = useMemo<PassageActionHandlers>(
+    () => ({
+      canCreateObjects: Boolean(rssArticleDocumentId),
+      learnThisEnabled: settings.features.aiLearnThis !== false,
+      createExtract: ({ text }) => {
+        if (!rssArticleDocumentId) return;
+        setRssPassageExtract({ text, documentId: rssArticleDocumentId });
+      },
+      createFlashcard: ({ text }) => {
+        if (!rssArticleDocumentId) return;
+        setRssPassageFlashSeed({
+          key: `rss-passage-card-${selectedItem?.id ?? "article"}-${Date.now()}`,
+          documentId: rssArticleDocumentId,
+          excerpt: text,
+          draftCardType: "qa",
+          resetDraftCards: true,
+          autoEditDraft: true,
+        });
+      },
+      createCloze: ({ text }) => {
+        if (!rssArticleDocumentId) return;
+        setRssPassageFlashSeed({
+          key: `rss-passage-cloze-${selectedItem?.id ?? "article"}-${Date.now()}`,
+          documentId: rssArticleDocumentId,
+          excerpt: text,
+          draftCardType: "cloze",
+          resetDraftCards: true,
+          autoEditDraft: true,
+        });
+      },
+      learnThis: ({ text }) => {
+        if (!rssArticleDocumentId) return;
+        setRssPassageLearn({ text, documentId: rssArticleDocumentId });
+      },
+      highlight: ({ snapshot, text }) => {
+        if (!rssArticleDocumentId) return;
+        const locator: PassageLocator = snapshot.locator;
+        const startOffset = "startOffset" in locator ? locator.startOffset : 0;
+        const endOffset = "endOffset" in locator ? locator.endOffset : text.length;
+        void createPassageExtract({
+          documentId: rssArticleDocumentId,
+          text,
+          color: "yellow",
+          selectionContext: {
+            type: "text",
+            surface: "html",
+            documentId: rssArticleDocumentId,
+            startOffset,
+            endOffset,
+            selectedText: text,
+            anchor: { textQuote: { exact: text, prefix: "", suffix: "" } },
+          },
+        });
+      },
+    }),
+    [rssArticleDocumentId, settings.features.aiLearnThis, selectedItem?.id, createPassageExtract]
+  );
+
+  const rssPassageScoring = usePassageScoring({
+    documentId: rssArticleDocumentId,
+    documentTitle: selectedItem?.title,
+    sourceRevision: rssPassageSourceRevision,
+    adapterFactory: rssPassageAdapterFactory,
+    adapterKey: rssPassageAdapterKey,
+    isForeground: isActiveTab,
+    featureEnabled: settings.features.aiExtractWorthiness !== false,
+    durable: Boolean(rssArticleDocumentId),
+    handlers: rssPassageHandlers,
+  });
+
+  const rssPassageImport = useCallback(() => {
+    void (async () => {
+      const id = await rssPassageEnsureDocument();
+      if (id) toast.success(t("ai.passageScoring.imported"));
+    })();
+  }, [rssPassageEnsureDocument, toast]);
+
   // Shared entry points for all three article layouts (list / magazine /
   // grid) so every layout offers the identical menu for the same article.
   const openArticleMenu = (feed: Feed, item: FeedItem, e: React.MouseEvent) => {
@@ -3236,6 +3473,7 @@ export function RSSReader() {
                             feed={selectedItemFeed}
                             preferences={preferences}
                             onSavePreferences={handleSavePreferences}
+                            onContentRoot={setRssFullContentRoot}
                           />
                         ) : (
                           <div className="reading-surface" data-paper-surface={(!preferences?.theme_mode || preferences.theme_mode === "system") ? "reading" : undefined} style={readingStyles}>
@@ -3281,6 +3519,49 @@ export function RSSReader() {
                         </div>
                       )}
                       {rssSelection.overlays}
+                      <PassageScoreOverlay
+                        results={rssPassageScoring.results}
+                        projectRects={rssPassageScoring.projectRects}
+                        narrow={isMobile}
+                        visible={rssPassageScoring.visible}
+                        openPassageId={rssPassageScoring.openPassageId}
+                        onOpen={rssPassageScoring.openSuggestion}
+                        onClose={rssPassageScoring.closeSuggestion}
+                        onAction={(action, passageId) => {
+                          void rssPassageScoring.performAction(action, passageId);
+                        }}
+                        onDismiss={(passageId) => {
+                          void rssPassageScoring.dismiss(passageId);
+                        }}
+                        onShowSource={rssPassageScoring.showSource}
+                        statusReasonKey={rssPassageScoring.statusReasonKey}
+                        canCreateObjects={Boolean(rssArticleDocumentId)}
+                        learnThisEnabled={settings.features.aiLearnThis !== false}
+                        importRequired={!rssArticleDocumentId}
+                        onImportRequired={rssPassageImport}
+                      />
+                      <FlashcardStudioModal
+                        isOpen={!!rssPassageFlashSeed}
+                        onClose={() => setRssPassageFlashSeed(null)}
+                        seed={rssPassageFlashSeed}
+                      />
+                      <LearnThisProposalSheet
+                        open={!!rssPassageLearn}
+                        text={rssPassageLearn?.text ?? ""}
+                        passage={rssPassageLearn?.text ?? ""}
+                        documentId={rssPassageLearn?.documentId}
+                        documentTitle={selectedItem?.title}
+                        onClose={() => setRssPassageLearn(null)}
+                      />
+                      {rssPassageExtract ? (
+                        <CreateExtractDialog
+                          documentId={rssPassageExtract.documentId}
+                          selectedText={rssPassageExtract.text}
+                          isOpen
+                          onClose={() => setRssPassageExtract(null)}
+                          onCreate={() => setRssPassageExtract(null)}
+                        />
+                      ) : null}
                     </div>
                   </>
                 ) : (

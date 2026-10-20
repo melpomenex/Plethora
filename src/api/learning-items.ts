@@ -33,6 +33,9 @@ export interface LearningItem {
   algorithm_state?: string;
   /** Serialized `CardSourceReference` JSON — provenance for extract-less cards. */
   source_reference?: string | null;
+  /** Retry-safe acceptance identity recorded at creation (agent proposals). */
+  acceptance_id?: string | null;
+  proposal_id?: string | null;
 }
 
 export interface CreateLearningItemInput {
@@ -49,6 +52,13 @@ export interface CreateLearningItemInput {
   /** Serialized via `serializeCardSourceReference`; ignored when `extract_id` is set. */
   source_reference?: string;
   allow_duplicate?: boolean;
+  /**
+   * Retry-safe acceptance identity (agent learning proposals). The backend
+   * enforces uniqueness on (acceptance_id, proposal_id) and returns the
+   * originally created row when the same keys are submitted again.
+   */
+  acceptance_id?: string;
+  proposal_id?: string;
 }
 
 export type { CardSourceReference };
@@ -177,6 +187,8 @@ export async function createLearningItem(input: CreateLearningItemInput): Promis
     interactionMetadata: input.interaction_metadata,
     sourceReference: input.source_reference,
     allowDuplicate: input.allow_duplicate,
+    acceptanceId: input.acceptance_id,
+    proposalId: input.proposal_id,
   });
   return item;
 }
@@ -195,9 +207,56 @@ export async function createLearningItemsBatch(
   inputs: CreateLearningItemInput[],
 ): Promise<LearningItem[]> {
   const items = await invokeCommand<LearningItem[]>("create_learning_items_batch", {
-    items: inputs,
+    items: inputs.map((input) => ({
+      item_type: input.item_type,
+      question: input.question,
+      answer: input.answer,
+      cloze_text: input.cloze_text,
+      extract_id: input.extract_id,
+      document_id: input.document_id,
+      tags: input.tags,
+      image_asset_ids: input.image_asset_ids,
+      interaction_metadata: input.interaction_metadata,
+      source_reference: input.source_reference,
+      acceptance_id: input.acceptance_id,
+      proposal_id: input.proposal_id,
+    })),
   });
   return items;
+}
+
+/**
+ * Bounded, server-filtered card read for the learning agent (task 1.3).
+ *
+ * Never materializes the whole library: the SQL applies the optional text and
+ * document filters and a hard LIMIT. Used by the frozen agent environment for
+ * duplicate checks / existing-card lookups.
+ */
+export async function searchLearningItemsBounded(options: {
+  query?: string;
+  documentIds?: string[];
+  limit?: number;
+} = {}): Promise<LearningItem[]> {
+  return await invokeCommand<LearningItem[]>("search_learning_items_bounded", {
+    query: options.query,
+    documentIds: options.documentIds,
+    limit: options.limit ?? 20,
+  });
+}
+
+/** Bounded due-item read for agent "what should I review" answers. */
+export async function getDueLearningItemsBounded(limit = 20): Promise<LearningItem[]> {
+  return await invokeCommand<LearningItem[]>("get_due_learning_items_bounded", { limit });
+}
+
+/**
+ * Reconcile an ambiguous acceptance transport failure: returns every card
+ * already committed under this acceptance id, without creating anything.
+ */
+export async function getLearningItemsByAcceptanceKey(acceptanceId: string): Promise<LearningItem[]> {
+  return await invokeCommand<LearningItem[]>("get_learning_items_by_acceptance_key", {
+    acceptanceId,
+  });
 }
 
 export async function checkSemanticDuplicateCandidates(

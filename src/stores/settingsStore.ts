@@ -1587,6 +1587,31 @@ export const defaultSettings: Settings = {
 };
 
 /**
+ * Presence-aware feature-flag reconciliation (F0 task 3.1).
+ *
+ * - An absent key takes the current default.
+ * - An explicit boolean — including `false` — is preserved exactly.
+ * - A corrupted/non-boolean value falls back to the default instead of being
+ *   coerced into a truthy string.
+ *
+ * There is deliberately no readiness value here: readiness is derived, never
+ * persisted, and a stored flag is a preference only.
+ */
+export function mergeFeaturePreferences(
+  persisted: Partial<FeatureFlags> | undefined
+): FeatureFlags {
+  const merged = { ...defaultSettings.features };
+  if (!persisted || typeof persisted !== "object") return merged;
+  for (const key of Object.keys(defaultSettings.features) as Array<keyof FeatureFlags>) {
+    const value = (persisted as Record<string, unknown>)[key];
+    if (typeof value === "boolean") {
+      merged[key] = value;
+    }
+  }
+  return merged;
+}
+
+/**
  * Settings Store State
  */
 interface SettingsState {
@@ -2014,7 +2039,7 @@ export const useSettingsStore = create<SettingsState>()(
           podcastQueue: { ...defaultSettings.podcastQueue, ...persisted.podcastQueue },
           rssSummary: { ...defaultSettings.rssSummary, ...persisted.rssSummary },
           youtube: { ...defaultSettings.youtube, ...persisted.youtube },
-          features: { ...defaultSettings.features, ...persisted.features },
+          features: mergeFeaturePreferences(persisted.features),
           foundryLocal: {
             ...defaultSettings.foundryLocal,
             ...persisted.foundryLocal,
@@ -2043,6 +2068,11 @@ export const useSettingsStore = create<SettingsState>()(
         if (!Array.isArray(merged.learning.lapseSteps)) {
           merged.learning.lapseSteps = defaultSettings.learning.lapseSteps;
         }
+        // Readiness is derived on every probe. A persisted readiness blob (from
+        // an older/newer build or a hand-edited store) is never authoritative:
+        // drop it so a stale green badge cannot survive a restart.
+        delete (merged as unknown as Record<string, unknown>).featureReadiness;
+        delete (merged as unknown as Record<string, unknown>).featureSummaries;
         if (!Array.isArray(merged.rssQueue.includedFeedIds)) {
           merged.rssQueue.includedFeedIds = [];
         }

@@ -275,6 +275,23 @@
       "cost": 9.989,
       "tolerance": 1.5,
       "reason": "improve-settings-search: initial baseline for the typo-tolerant path (font siez) over 1,000 seeded synthetic entries."
+    },
+    "passageScoring/digest-2400-chars": {
+      "cost": 0.5546,
+      "reason": "complete-reader-extract-worthiness-integration: initial baseline (anchor-calibrated full local bench:check run) for the full versioned SHA-256 passage identity over 16 seeded 2,400-character passages (normalization + digest). This is the per-candidate idle-time cost, not a scroll-path cost."
+    },
+    "passageScoring/normalize-1200-chars": {
+      "cost": 0.1884,
+      "reason": "complete-reader-extract-worthiness-integration: initial baseline (anchor-calibrated full local bench:check run) for normalization of 16 seeded reflow-wrapped ~1,200-character blocks before digesting."
+    },
+    "passageScoring/queue-8-push-pop": {
+      "cost": 0.008359,
+      "tolerance": 1.6,
+      "reason": "complete-reader-extract-worthiness-integration: initial baseline for the bounded 8-candidate queue under repeated fill/drain rounds. Wider tolerance because the per-op cost is a handful of nanoseconds and GC-sensitive."
+    },
+    "passageScoring/sha256-2400-chars": {
+      "cost": 0.3521,
+      "reason": "complete-reader-extract-worthiness-integration: initial baseline (anchor-calibrated full local bench:check run) for the self-contained SHA-256 primitive alone over 16 seeded 2,400-character passages."
     }
   }
 }

@@ -1,5 +1,6 @@
 /**
- * Constrained-agent tool layer types (design D25, task 8.1).
+ * Constrained-agent tool layer types (design D25, tasks 8.1 + complete-agent
+ * 3.1).
  *
  * Every tool is a typed record with:
  *  - a `name` + model-facing `description`;
@@ -12,9 +13,16 @@
  * `<untrusted_source>` fence before it re-enters a prompt (D9), and tools
  * never execute writes — proposal tools only accumulate candidates in the
  * session for the user-approval UIs.
+ *
+ * Source binding (task 3.1): the application owns source identity. Read tools
+ * register the records they returned in the run's `AgentEvidenceMap` and hand
+ * back opaque `sourceHandles`; proposal tools resolve only those handles (or
+ * exact text from those records). `proposalId` is assigned by the session, not
+ * by the model.
  */
 
 import type { ValidationOutcome } from "../../schemas/common";
+import type { AgentEvidenceMap } from "../evidence";
 
 /** Tool categories the loop tracks (retrieval tools consume hop budget). */
 export type AgentToolCategory = "read" | "retrieval" | "propose";
@@ -37,6 +45,21 @@ export interface AgentSourceRef {
   title?: string;
   /** Human-readable locator (heading path, page, question side, …). */
   locator?: string;
+  /** Source revision at freeze time when known. */
+  contentVersion?: string;
+}
+
+/**
+ * A source a proposal is grounded in. `handle` is the application-assigned
+ * evidence handle the model cited; `text` is the exact source text captured
+ * for validation and persistence (never model-authored).
+ */
+export interface AgentProposalSourceRef extends AgentSourceRef {
+  handle: string;
+  /** Frozen source revision/hash for stale-source checks. */
+  sourceRevision?: string;
+  /** Exact supporting source text (bounded by the tool that produced it). */
+  text: string;
 }
 
 export interface AgentToolResult {
@@ -59,6 +82,15 @@ export interface AgentToolProposalBase {
   kind: "extract" | "flashcard" | "cloze" | "occlusion" | "tag";
   /** Where the proposal came from (current selection / recent context). */
   sourceText: string;
+  /** Application-assigned identity (`<runId>:p<n>`), never model input. */
+  proposalId: string;
+  /** Sources resolved from the run evidence map (at least one). */
+  sourceRefs: AgentProposalSourceRef[];
+  /** Revision of the frozen sources this proposal was generated from. */
+  sourceRevision?: string;
+  /** Verbatim quote supporting the proposal (bounded, ≤300 chars used). */
+  evidenceQuote?: string;
+  createdAt: number;
 }
 
 export interface AgentExtractProposal extends AgentToolProposalBase {
@@ -74,6 +106,11 @@ export interface AgentCardProposal extends AgentToolProposalBase {
   answer: string;
   cardType: string;
   documentId?: string;
+  /** Optional concept label used for the 2-per-concept preview cap. */
+  concept?: string;
+  /** Application-derived concept keys (never a raw model id). */
+  conceptKeys?: string[];
+  tags?: string[];
 }
 
 export interface AgentOcclusionProposal extends AgentToolProposalBase {
@@ -96,13 +133,31 @@ export type AgentProposal =
   | AgentOcclusionProposal
   | AgentTagProposal;
 
+/** What a proposal tool submits; the session assigns identity/timestamp. */
+export type AgentProposalInput =
+  | Omit<AgentExtractProposal, "proposalId" | "createdAt">
+  | Omit<AgentCardProposal, "proposalId" | "createdAt">
+  | Omit<AgentOcclusionProposal, "proposalId" | "createdAt">
+  | Omit<AgentTagProposal, "proposalId" | "createdAt">;
+
 /** Per-run mutable session state proposal tools accumulate into. */
 export interface AgentSessionRuntime {
+  /** Stable run identity used for proposal ids/target ids. */
+  runId: string;
   /** Accumulated proposals, capped by bounds (≤ 20) regardless of output. */
   proposals: AgentProposal[];
   /** True once the proposal cap rejected an attempt (loop explains it). */
   proposalCapHit: boolean;
-  addProposal(proposal: AgentProposal): boolean;
+  /** Per-run source evidence (handles → exact records). */
+  evidence: AgentEvidenceMap;
+  /** Frozen source revision for proposals. */
+  sourceRevision?: string;
+  /** Set when the run ended/cancelled: late tools cannot add proposals. */
+  closed: boolean;
+  /** Assigns identity; returns null when the cap/closed state rejects it. */
+  addProposal(proposal: AgentProposalInput): AgentProposal | null;
+  /** Close the session so late async proposals are discarded. */
+  close(): void;
 }
 
 /** Injected environment: every external API the tools touch. */
@@ -120,7 +175,34 @@ export interface AgentSelectionSummary {
   documentId?: string;
 }
 
+export interface AgentSectionContext {
+  documentId: string;
+  title?: string;
+  /** Bounded section text resolved at submit. */
+  text: string;
+  locator?: string;
+  sourceRevision?: string;
+}
+
+export interface AgentCardQuery {
+  /** Server-side text filter over question/answer/cloze/tags. */
+  text?: string;
+  /** Restrict to the run's frozen documents. */
+  documentIds?: string[];
+  /** Hard row cap (tools clamp further). */
+  limit?: number;
+}
+
 export interface AgentEnvironment {
+  /**
+   * "frozen": tools must only cite evidence registered during this run and
+   *           document reads are restricted to the frozen source set.
+   * "global": legacy/injected test environment (document tools read the
+   *           current global context). Production runs always use "frozen".
+   */
+  sourceScope?: "global" | "frozen";
+  /** Frozen source-set revision stamped onto proposals/evidence. */
+  sourceRevision?: string;
   /** Semantic retrieval (FTS5 lexical fallback inside the Rust command). */
   retrieve(
     query: string,
@@ -141,6 +223,19 @@ export interface AgentEnvironment {
   }>;
   getDocument(): AgentDocumentSummary | null;
   getSelection(): AgentSelectionSummary | null;
+  /**
+   * The complete frozen attached-source set. A multi-document run uses this
+   * to disclose exactly which papers are in scope (and which are missing).
+   */
+  listSources?(): Array<{
+    attachmentId: string;
+    documentId?: string;
+    title: string;
+    contentVersion?: string;
+    role?: "optional" | "required" | "strict";
+  }>;
+  /** Frozen section/chapter context when the run resolved one. */
+  getSectionContext?(): Promise<AgentSectionContext | null>;
   /** Recently touched extracts, newest first (the "what I just read" proxy). */
   getRecentExtracts(limit: number): Promise<
     Array<{
@@ -151,8 +246,11 @@ export interface AgentEnvironment {
       dateModified: string;
     }>
   >;
-  /** All cards (the tools filter + clamp client-side). */
-  getCards(): Promise<
+  /**
+   * Bounded card reads. Production implementations MUST filter server-side
+   * and never materialize the whole library; `documentIds` is the frozen set.
+   */
+  getCards(options?: AgentCardQuery): Promise<
     Array<{
       id: string;
       question: string;
@@ -165,14 +263,16 @@ export interface AgentEnvironment {
       lapses: number;
       lastReviewDate?: string;
       tags: string[];
+      documentId?: string;
     }>
   >;
-  getDueCards(): Promise<
+  getDueCards(limit?: number): Promise<
     Array<{
       id: string;
       question: string;
       itemType: string;
       dueDate: string;
+      documentId?: string;
     }>
   >;
   /** Aggregate review statistics (counts only — no user content). */
@@ -190,11 +290,17 @@ export interface AgentEnvironment {
   getImageAsset(
     assetId: string
   ): Promise<{ id: string; fileName?: string } | null>;
+  /** Abort signal used by tools to stop before registering proposals. */
+  signal?: AbortSignal;
+  /** Remaining run milliseconds (tools can refuse more work when exhausted). */
+  remainingMs?(): number;
 }
 
 export interface AgentToolContext {
   session: AgentSessionRuntime;
   env: AgentEnvironment;
+  /** Run signal (Stop/source/conversation/flag/unmount/deadline). */
+  signal?: AbortSignal;
 }
 
 export interface AgentToolDefinition<I = Record<string, unknown>> {

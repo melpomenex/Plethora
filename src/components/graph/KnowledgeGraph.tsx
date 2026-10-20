@@ -18,6 +18,8 @@ export enum GraphNodeType {
   Category = "category",
   Tag = "tag",
   Rss = "rss",
+  /** Confirmed cross-document concept (additive; same renderer/layout). */
+  Concept = "concept",
 }
 
 /**

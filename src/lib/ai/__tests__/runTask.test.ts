@@ -4,7 +4,7 @@ import { clearTaskRegistry, registerTask } from "../tasks/registry";
 import { FakeAIProvider } from "../__fixtures__/FakeAIProvider";
 import { UNTRUSTED_CONTAINMENT_CLAUSE } from "../tasks/containment";
 import { PREREQUISITE_ANALYSIS_SCHEMA } from "../schemas/prerequisite";
-import { clearTaskDiagnostics, getTaskDiagnostics } from "../diagnostics";
+import { clearTaskDiagnostics, getTaskDiagnostics, clearFeatureDiagnostics, getFeatureSummary } from "../diagnostics";
 import { AIError } from "../errors";
 import type { AITaskDefinition, ValidationOutcome } from "../tasks/types";
 import type { PrerequisiteAnalysis } from "../schemas/prerequisite";
@@ -74,6 +74,7 @@ function aiResponse(text: string, extra: Record<string, unknown> = {}) {
 beforeEach(() => {
   clearTaskRegistry();
   clearTaskDiagnostics();
+  clearFeatureDiagnostics();
 });
 
 afterEach(() => {
@@ -384,6 +385,67 @@ describe("diagnostics emission (design D8)", () => {
     const entry = getTaskDiagnostics()[0];
     expect(entry.retrievalCount).toBe(3);
     expect(entry.chunkIds).toEqual(["c1", "c2", "c3"]);
+  });
+
+  it("correlates a generation-stage feature observation without claiming completion", async () => {
+    const provider = new FakeAIProvider({ responses: [aiResponse("out")] });
+    await runTask(textTask({ id: "learn-this" }), { q: "SECRET SOURCE TEXT" }, {
+      provider,
+      observation: {
+        featureId: "learn-this",
+        runId: "run-1",
+        capabilityRevision: "rev-1",
+      },
+    });
+    const summary = getFeatureSummary("learn-this", "rev-1")!;
+    expect(summary.stages.generation?.outcome).toBe("success");
+    // Generation success is not persistence/navigation success.
+    expect(summary.stages.persistence).toBeUndefined();
+    expect(summary.stages.navigation).toBeUndefined();
+    expect(summary.lastSuccessAt).toBeGreaterThan(0);
+    const serialized = JSON.stringify(summary);
+    expect(serialized).not.toContain("SECRET SOURCE TEXT");
+  });
+
+  it("records a failed generation observation with a safe category", async () => {
+    const provider = new FakeAIProvider({
+      responses: [new Error("boom sk-live-SECRET /Users/private")],
+    });
+    await expect(
+      runTask(textTask({ id: "learn-this" }), { q: "x" }, {
+        provider,
+        observation: {
+          featureId: "learn-this",
+          runId: "run-2",
+          capabilityRevision: "rev-2",
+        },
+      })
+    ).rejects.toBeInstanceOf(AIError);
+    const summary = getFeatureSummary("learn-this", "rev-2")!;
+    expect(summary.stages.generation?.outcome).toBe("failed");
+    const serialized = JSON.stringify(summary);
+    expect(serialized).not.toContain("sk-live-SECRET");
+    expect(serialized).not.toContain("/Users/private");
+  });
+
+  it("records cancellation as cancelled, not failure", async () => {
+    const provider = new FakeAIProvider({ responses: [aiResponse("never")] });
+    const controller = new AbortController();
+    controller.abort();
+    await expect(
+      runTask(textTask({ id: "learn-this" }), { q: "x" }, {
+        provider,
+        signal: controller.signal,
+        observation: {
+          featureId: "learn-this",
+          runId: "run-3",
+          capabilityRevision: "rev-3",
+        },
+      })
+    ).rejects.toBeInstanceOf(AIError);
+    const summary = getFeatureSummary("learn-this", "rev-3")!;
+    expect(summary.stages.generation?.outcome).toBe("cancelled");
+    expect(summary.lastErrorAt).toBeUndefined();
   });
 });
 

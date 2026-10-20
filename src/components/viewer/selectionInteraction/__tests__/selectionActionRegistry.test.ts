@@ -110,6 +110,17 @@ describe("selectionActionRegistry", () => {
     ]);
   });
 
+  it("keeps concept links independent of prerequisite inference", () => {
+    expect(
+      ids("sheet", { aiAvailable: true, prerequisitesEnabled: true, linksEnabled: false })
+    ).not.toContain("relatedContent");
+    const linksOnly = ids("sheet", { prerequisitesEnabled: false, linksEnabled: true });
+    expect(linksOnly).toContain("relatedContent");
+    expect(linksOnly).not.toContain("prerequisites");
+    // Related discovery is retrieval-first and does not need a generation path.
+    expect(ids("sheet", { linksEnabled: true })).toContain("relatedContent");
+  });
+
   it("defines every descriptor exactly once with a label key per surface it appears on", () => {
     const seen = new Set<string>();
     for (const action of SELECTION_ACTIONS) {

@@ -134,6 +134,38 @@ import {
   type CapturedDocumentContext,
   ASSISTANT_MESSAGE_FLASHCARD_UNAVAILABLE_KEY,
 } from "../../features/assistant/assistantMessageFlashcards";
+import {
+  LearningAgentProposals,
+  type LearningAgentRunView,
+} from "./LearningAgentProposals";
+import {
+  bindLearningAgentPlan,
+  inferLearningAgentScope,
+  preflightLearningAgent,
+  resolveLearningAgentScope,
+  runLearningAgent,
+  type LearningAgentDocumentInput,
+  type LearningAgentScopeKind,
+  type LearningAgentSectionInput,
+} from "../../lib/ai/assistant/learningAgent";
+import {
+  buildAgentDraftArtifact,
+  hydrateAgentDraftArtifact,
+} from "../../lib/ai/assistant/learningAgentAcceptance";
+import {
+  consumeLearningAgentMode,
+  learningAgentAvailability,
+  LEARNING_AGENT_AVAILABILITY_MESSAGES,
+  subscribeLearningAgentMode,
+} from "../../lib/ai/assistant/learningAgentHandoff";
+import { hasCloudProvider } from "../../lib/ai/provider";
+import { useFeatureReadiness } from "../../lib/ai/features/useFeatureReadiness";
+import type {
+  AgentDraftArtifact,
+  SelectionSnapshot,
+} from "../../lib/ai/assistant/conversations/types";
+import { decodeAgentDraftArtifact } from "../../lib/ai/assistant/conversations/serialize";
+import { Menu } from "../md3/Menu";
 
 export interface AssistantContext {
   type: "document" | "web" | "video" | "general";
@@ -185,6 +217,11 @@ interface Message {
   images?: AttachedImage[];
   toolCalls?: ToolCall[];
   sourceContext?: SectionSourceReference;
+  /**
+   * Learning Agent review artifact. Rendered by the dedicated proposals
+   * component; never parsed as legacy tool calls or dispatched to MCP writes.
+   */
+  agentRun?: LearningAgentRunView;
 }
 
 interface ToolCall {
@@ -241,6 +278,8 @@ interface StoredConversation {
   messages: Message[];
   input: string;
   updatedAt: number;
+  /** Optional versioned agent draft (no controllers/transcripts). */
+  agentDraft?: AgentDraftArtifact;
 }
 
 type StoredConversationMap = Record<string, StoredConversation>;
@@ -286,6 +325,7 @@ const readStoredConversations = (): StoredConversationMap => {
         scope: isAssistantScope(candidate.scope) ? candidate.scope : "chat",
         input: typeof candidate.input === "string" ? candidate.input : "",
         updatedAt: typeof candidate.updatedAt === "number" ? candidate.updatedAt : Date.now(),
+        agentDraft: decodeAgentDraftArtifact(candidate.agentDraft) ?? undefined,
       };
     });
     return normalized;
@@ -297,7 +337,34 @@ const readStoredConversations = (): StoredConversationMap => {
 
 const writeStoredConversations = (conversations: StoredConversationMap) => {
   try {
-    localStorage.setItem(ASSISTANT_CONVERSATIONS_KEY, JSON.stringify(conversations));
+    // Persist review drafts, not whole source passages: the agent artifact
+    // already keeps source references/statuses, and a restored run re-reads
+    // its cited records before anything can be saved.
+    const sanitized: StoredConversationMap = {};
+    for (const [key, conversation] of Object.entries(conversations)) {
+      sanitized[key] = {
+        ...conversation,
+        messages: conversation.messages.map((message) =>
+          message.agentRun
+            ? {
+                ...message,
+                agentRun: {
+                  ...message.agentRun,
+                  restored: true,
+                  proposals: message.agentRun.proposals.map((proposal) => ({
+                    ...proposal,
+                    sourceRefs: proposal.sourceRefs.map(({ text: _text, ...source }) => ({
+                      ...source,
+                      text: "",
+                    })),
+                  })),
+                },
+              }
+            : message
+        ),
+      };
+    }
+    localStorage.setItem(ASSISTANT_CONVERSATIONS_KEY, JSON.stringify(sanitized));
   } catch (error) {
     console.warn("Failed to persist assistant conversation:", error);
   }
@@ -492,6 +559,52 @@ export function AssistantPanel({
   const [scope, setScope] = useState<AssistantScope>("chat");
   const [suggestSwitchToChat, setSuggestSwitchToChat] = useState(false);
   const configuredProvidersList = useLLMProvidersStore((state) => state.providers);
+
+  // ── Learning Agent (explicit secondary mode) ──────────────────────────
+  // Ordinary chat keeps its existing path; only this mode invokes the agent
+  // adapter, and its output never enters parseToolCalls/legacy dispatch.
+  const [composerMode, setComposerMode] = useState<"chat" | "agent">("chat");
+  const [agentScope, setAgentScope] = useState<LearningAgentScopeKind | undefined>();
+  const [agentSourceDocs, setAgentSourceDocs] = useState<LearningAgentDocumentInput[]>([]);
+  const [isAgentSourceMenuOpen, setIsAgentSourceMenuOpen] = useState(false);
+  const agentSourceMenuRef = useRef<HTMLButtonElement>(null);
+  const [agentProgress, setAgentProgress] = useState<{
+    runId: string;
+    turn: number;
+    proposals: number;
+    lastTool?: string;
+  } | null>(null);
+  const [agentNotice, setAgentNotice] = useState<string | null>(null);
+  const [agentCloudRetry, setAgentCloudRetry] = useState<
+    | {
+        intent: string;
+        documents: LearningAgentDocumentInput[];
+        selection?: SelectionSnapshot;
+        section?: LearningAgentSectionInput;
+      }
+    | null
+  >(null);
+  const [agentDraft, setAgentDraft] = useState<AgentDraftArtifact | undefined>();
+  const [agentRevokedSourceIds, setAgentRevokedSourceIds] = useState<string[]>([]);
+  const agentAbortRef = useRef<AbortController | null>(null);
+  const agentRunTokenRef = useRef<string | null>(null);
+  const agentFrozenSignatureRef = useRef<string | null>(null);
+  const learningAgentReadiness = useFeatureReadiness("learning-agent");
+  const aiAgentFeatureEnabled = useSettingsStore(
+    (state) => state.settings.features?.aiAgent !== false
+  );
+  const agentAvailability = useMemo(
+    () => learningAgentAvailability(),
+    [configuredProvidersList, aiAgentFeatureEnabled]
+  );
+  const agentReadinessRow = learningAgentReadiness.rows[0];
+  const agentUnavailableReason = !agentAvailability.available
+    ? LEARNING_AGENT_AVAILABILITY_MESSAGES[
+        agentAvailability.reason === "ready" ? "setup-required" : agentAvailability.reason
+      ]
+    : agentReadinessRow && agentReadinessRow.status !== "ready"
+      ? agentReadinessRow.limitations[0] ?? t("assistant.agent.modeBlocked")
+      : null;
 
   // Document sections for # mentions
   const {
@@ -921,11 +1034,80 @@ export function AssistantPanel({
 
   useEffect(() => {
     requestEpochRef.current += 1;
+    // A conversation switch stops the run: its frozen envelope belongs to the
+    // previous conversation and can never append here or trigger fallback.
+    agentAbortRef.current?.abort();
+    agentAbortRef.current = null;
+    agentRunTokenRef.current = null;
+    agentFrozenSignatureRef.current = null;
+    setAgentProgress(null);
+    setAgentCloudRetry(null);
+    setAgentNotice(null);
+    setAgentSourceDocs([]);
+    setAgentScope(undefined);
+    setAgentRevokedSourceIds([]);
     activeConversationKeyRef.current = sessionKey;
     const stored = readStoredConversations()[sessionKey];
     setHydratedSessionKey(sessionKey);
     setIsLoading(false);
-    setMessages(stored?.messages ?? []);
+    const storedMessages = stored?.messages ?? [];
+    // Restore the optional agent artifact as a STOPPED draft. It is never
+    // auto-executed; the proposals component revalidates sources on mount.
+    let restoredMessages = storedMessages;
+    if (stored?.agentDraft) {
+      const { runId, candidates } = stored.agentDraft;
+      const hydrated = hydrateAgentDraftArtifact(stored.agentDraft);
+      const saved = Object.fromEntries(hydrated.savedIds);
+      const accepted = [...hydrated.accepted];
+      const alreadyShown = storedMessages.some((message) => message.agentRun?.runId === runId);
+      if (alreadyShown) {
+        restoredMessages = storedMessages.map((message) =>
+          message.agentRun?.runId === runId
+            ? {
+                ...message,
+                agentRun: {
+                  ...message.agentRun,
+                  restored: true,
+                  partial: true,
+                  savedIds: saved,
+                  acceptedProposalIds: accepted,
+                },
+              }
+            : message
+        );
+      } else if (candidates.length > 0) {
+        restoredMessages = [
+          ...storedMessages,
+          {
+            id: `agent-restored-${runId}`,
+            role: "assistant" as const,
+            content: t("assistant.agent.restored"),
+            timestamp: Date.now(),
+            agentRun: {
+              runId,
+              conversationId: stored.agentDraft.conversationId,
+              intent: stored.agentDraft.intent,
+              scope: stored.agentDraft.scope,
+              sources: stored.agentDraft.sources,
+              selection: stored.agentDraft.selection,
+              sectionTitle: stored.agentDraft.sectionTitle,
+              proposals: hydrated.proposals,
+              provider: "unknown",
+              modelClass: "full",
+              capabilityRevision: "restored",
+              endReason: stored.agentDraft.endReason,
+              explanation: stored.agentDraft.explanation,
+              partial: true,
+              restored: true,
+              savedIds: saved,
+              acceptedProposalIds: accepted,
+            },
+          },
+        ];
+      }
+    }
+    setMessages(restoredMessages);
+    setAgentDraft(stored?.agentDraft);
     setScope(stored?.scope ?? "chat");
     setInput(stored?.input ?? "");
     historyDraftRef.current = stored?.input ?? "";
@@ -943,6 +1125,7 @@ export function AssistantPanel({
       scope,
       input,
       updatedAt: Date.now(),
+      agentDraft,
     };
     writeStoredConversations(conversations);
 
@@ -959,7 +1142,7 @@ export function AssistantPanel({
         publishConversationTimerRef.current = null;
       }, 500);
     }
-  }, [messages, input, scope, hydratedSessionKey, sessionKey, isMobileSession]);
+  }, [messages, input, scope, agentDraft, hydratedSessionKey, sessionKey, isMobileSession]);
 
   // When a conversation arrives from another device, reload the active
   // conversation from localStorage (the entity already wrote it there) so the
@@ -1385,6 +1568,10 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 
   const handleSendMessage = async () => {
     if ((!input.trim() && attachedImages.length === 0) || isLoading) return;
+    if (composerMode === "agent") {
+      await handleSendAgentMessage();
+      return;
+    }
 
     const userInput = input;
     const images = attachedImages.length > 0 ? [...attachedImages] : undefined;
@@ -1401,6 +1588,437 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       restoreInputOnError: userInput,
     });
   };
+
+  /* ── Learning Agent submit path ─────────────────────────────────────────
+   * Ordinary chat above is untouched. Everything below uses the frozen
+   * envelope + adapter and never calls parseToolCalls/executeToolCalls. */
+
+  const currentAgentSourceSignature = useCallback(
+    () =>
+      [
+        context?.documentId ?? "",
+        selectedSectionNodes.map((node) => node.id).join(","),
+        (context?.selection ?? pinnedSelection?.excerpt ?? "").slice(0, 120),
+        agentSourceDocs.map((document) => document.id).join(","),
+      ].join("|"),
+    [context?.documentId, context?.selection, pinnedSelection?.excerpt, selectedSectionNodes, agentSourceDocs]
+  );
+
+  /** Resolve current library records by frozen ids (never the global doc). */
+  const collectAgentDocuments = useCallback((): LearningAgentDocumentInput[] => {
+    const documents: LearningAgentDocumentInput[] = [];
+    const seen = new Set<string>();
+    const add = (documentId?: string) => {
+      if (!documentId || documentId.startsWith("extract:") || seen.has(documentId)) return;
+      const document = useDocumentStore
+        .getState()
+        .documents.find((candidate) => candidate.id === documentId);
+      seen.add(documentId);
+      if (!document) {
+        // The currently attached reader document may not be hydrated into the
+        // store yet; freeze its id/title rather than silently dropping it.
+        if (documentId === context?.documentId) {
+          documents.push({
+            id: documentId,
+            title: assistantDocumentTitle ?? "Attached document",
+          });
+        }
+        return;
+      }
+      documents.push({
+        id: document.id,
+        title: document.title,
+        contentVersion: document.contentHash,
+        fileType: document.fileType,
+        isLocalOnly: document.isLocalOnly,
+        isAiExcluded: document.isAiExcluded,
+      });
+    };
+    add(context?.documentId);
+    for (const document of agentSourceDocs) add(document.id);
+    return documents;
+  }, [context?.documentId, assistantDocumentTitle, agentSourceDocs]);
+
+  const buildAgentSelection = useCallback((): SelectionSnapshot | undefined => {
+    const excerpt = context?.selection?.trim() || pinnedSelection?.excerpt?.trim();
+    if (!excerpt) return undefined;
+    const documentId =
+      context?.documentId && !context.documentId.startsWith("extract:")
+        ? context.documentId
+        : pinnedSelection?.documentId;
+    const page = context?.position?.pageNumber;
+    return {
+      originalText: excerpt,
+      documentId,
+      title: pinnedSelection?.documentTitle ?? assistantDocumentTitle,
+      locator: page && page > 0 ? { page } : undefined,
+    };
+  }, [context?.selection, context?.documentId, context?.position?.pageNumber, pinnedSelection, assistantDocumentTitle]);
+
+  const buildAgentSection = useCallback((): LearningAgentSectionInput | undefined => {
+    const node = selectedSectionNodes[0];
+    if (!node) return undefined;
+    const documentId = node.documentId ?? context?.documentId ?? "";
+    const text = (node.content || "").trim().slice(0, 12_000);
+    if (!documentId || !text) return undefined;
+    return {
+      documentId,
+      title: node.title,
+      text,
+      sectionId: node.id,
+      locator: {
+        sectionId: node.id,
+        page: node.page,
+        anchor: node.href,
+      },
+    };
+  }, [selectedSectionNodes, context?.documentId]);
+
+  const appendAgentSystemMessage = useCallback(
+    (conversationKeyAtStart: string, content: string) => {
+      appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [
+        ...prev,
+        {
+          id: `agent-system-${Date.now()}`,
+          role: "system",
+          content,
+          timestamp: Date.now(),
+        },
+      ]);
+    },
+    []
+  );
+
+  const stopLearningAgent = useCallback(() => {
+    agentAbortRef.current?.abort();
+    setAgentNotice(t("assistant.agent.stopped"));
+  }, [t]);
+
+  const submitLearningAgentRequest = useCallback(
+    async (request: {
+      intent: string;
+      documents: LearningAgentDocumentInput[];
+      selection?: SelectionSnapshot;
+      section?: LearningAgentSectionInput;
+      scope?: LearningAgentScopeKind;
+      forceKind?: "ondevice" | "cloud";
+      explicitRetry?: boolean;
+      userInput?: string;
+    }) => {
+      if (isLoading) return;
+      const conversationKeyAtStart = `${activeConversationKeyRef.current}:${requestEpochRef.current}`;
+      const ownerRevision = requestEpochRef.current;
+      const userText = request.userInput ?? request.intent;
+
+      appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [
+        ...prev,
+        {
+          id: `user-${Date.now()}`,
+          role: "user",
+          content: userText,
+          timestamp: Date.now(),
+        },
+      ]);
+      setIsLoading(true);
+      setAgentNotice(null);
+      setAgentCloudRetry(null);
+      setAgentRevokedSourceIds([]);
+
+      const scope = inferLearningAgentScope(request.intent, {
+        explicit: request.scope,
+        documentCount: request.documents.length,
+        hasSection: Boolean(request.section),
+        hasSelection: Boolean(request.selection),
+      });
+      const prepared = resolveLearningAgentScope({
+        conversationId: activeConversationKeyRef.current,
+        ownerRevision,
+        intent: request.intent,
+        scope,
+        documents: request.documents,
+        primaryDocumentId: request.documents[0]?.id,
+        selection: request.selection,
+        section: request.section,
+      });
+      if (prepared.ok === false) {
+        appendAgentSystemMessage(
+          conversationKeyAtStart,
+          prepared.reason === "needs-section"
+            ? t("assistant.agent.needSection")
+            : prepared.message
+        );
+        setInput(userText);
+        setIsLoading(false);
+        return;
+      }
+
+      const preflight = await preflightLearningAgent({
+        documents: request.documents,
+        forceKind: request.forceKind,
+        explicitDestinationRetry: request.explicitRetry,
+      });
+      if (
+        conversationKeyAtStart !==
+        `${activeConversationKeyRef.current}:${requestEpochRef.current}`
+      ) {
+        return;
+      }
+      if (!preflight.ok || !preflight.provider) {
+        appendAgentSystemMessage(
+          conversationKeyAtStart,
+          `${t("assistant.agent.preflightBlocked", {
+            reason: preflight.blockers.map((blocker) => blocker.message).join(" "),
+          })}${
+            preflight.embedding?.limitation
+              ? ` ${t("assistant.agent.embeddingDegraded", {
+                  reason: preflight.embedding.limitation,
+                })}`
+              : ""
+          }`
+        );
+        setInput(userText);
+        setIsLoading(false);
+        return;
+      }
+
+      const run = bindLearningAgentPlan(prepared.run, preflight);
+      const controller = new AbortController();
+      agentAbortRef.current?.abort();
+      agentAbortRef.current = controller;
+      agentRunTokenRef.current = run.runId;
+      agentFrozenSignatureRef.current = currentAgentSourceSignature();
+      setAgentProgress({ runId: run.runId, turn: 0, proposals: 0 });
+
+      const isCurrentRun = () =>
+        agentRunTokenRef.current === run.runId &&
+        conversationKeyAtStart ===
+          `${activeConversationKeyRef.current}:${requestEpochRef.current}`;
+
+      try {
+        const outcome = await runLearningAgent(run, {
+          provider: preflight.provider,
+          signal: controller.signal,
+          capabilityRevision: preflight.capabilityRevision,
+          onEvent: (event) => {
+            if (!isCurrentRun()) return;
+            if (event.type === "turn-start") {
+              setAgentProgress((prev) =>
+                prev ? { ...prev, turn: event.turn } : prev
+              );
+            } else if (event.type === "proposal-added") {
+              setAgentProgress((prev) =>
+                prev ? { ...prev, proposals: event.total } : prev
+              );
+            } else if (event.type === "tool-result") {
+              setAgentProgress((prev) =>
+                prev ? { ...prev, lastTool: event.displayDigest } : prev
+              );
+            }
+          },
+        });
+
+        // Late results after Stop/conversation switch/source change never
+        // render and never persist.
+        if (!isCurrentRun()) return;
+
+        const result = outcome.result;
+        const proposals = result.proposals;
+        const view: LearningAgentRunView = {
+          runId: run.runId,
+          conversationId: run.conversationId,
+          intent: run.intent,
+          scope: run.scope,
+          sources: run.sources,
+          selection: run.selection,
+          sectionTitle: run.section?.title,
+          proposals,
+          provider: run.generation.providerId,
+          modelClass: "full",
+          capabilityRevision: preflight.capabilityRevision,
+          endReason: result.endReason,
+          explanation: result.explanation,
+          partial: result.endReason !== "final-answer",
+          restored: false,
+        };
+        const answer =
+          result.answer.trim() ||
+          result.explanation ||
+          t("assistant.agent.noAnswer");
+        const assistantMessage: Message = {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: answer,
+          timestamp: Date.now(),
+          agentRun: proposals.length > 0 ? view : undefined,
+        };
+        appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [
+          ...prev,
+          assistantMessage,
+        ]);
+
+        if (proposals.length > 0) {
+          setAgentDraft(
+            buildAgentDraftArtifact({
+              runId: run.runId,
+              conversationId: run.conversationId,
+              intent: run.intent,
+              scope: run.scope,
+              sources: run.sources,
+              selection: run.selection,
+              sectionTitle: run.section?.title,
+              proposals,
+              partial: result.endReason !== "final-answer",
+              endReason: result.endReason,
+              explanation: result.explanation,
+            })
+          );
+        }
+
+        if (result.endReason === "cancelled" || result.endReason === "blocked") {
+          setAgentNotice(result.explanation ?? t("assistant.agent.stopped"));
+        }
+        if (
+          result.endReason === "error" &&
+          run.generation.kind === "ondevice" &&
+          hasCloudProvider()
+        ) {
+          setAgentCloudRetry({
+            intent: run.intent,
+            documents: request.documents,
+            selection: request.selection,
+            section: request.section,
+          });
+          setAgentNotice(t("assistant.agent.retryCloudHint"));
+        }
+      } catch (error) {
+        if (!isCurrentRun()) return;
+        appendAgentSystemMessage(
+          conversationKeyAtStart,
+          `${t("assistant.agent.error")} ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      } finally {
+        if (isCurrentRun()) {
+          setIsLoading(false);
+          setAgentProgress(null);
+          agentAbortRef.current = null;
+          agentRunTokenRef.current = null;
+          agentFrozenSignatureRef.current = null;
+        }
+      }
+    },
+    [
+      agentSourceDocs,
+      appendAgentSystemMessage,
+      appendMessagesIfSameConversation,
+      assistantDocumentTitle,
+      currentAgentSourceSignature,
+      isLoading,
+      t,
+    ]
+  );
+
+  const handleSendAgentMessage = useCallback(async () => {
+    const userInput = input.trim();
+    if (!userInput || isLoading) return;
+    const documents = collectAgentDocuments();
+    const selection = buildAgentSelection();
+    const section = buildAgentSection();
+    if (agentSourceDocs.length > 0 && documents.length < agentSourceDocs.length) {
+      setAgentNotice(
+        t("assistant.agent.partialSources", {
+          missing: agentSourceDocs.length - documents.length,
+        })
+      );
+    }
+      setInput("");
+    historyDraftRef.current = "";
+    setHistoryIndex(null);
+    setShowSectionPopup(false);
+    setSectionQuery("");
+    await submitLearningAgentRequest({
+      intent: userInput,
+      documents,
+      selection,
+      section,
+      scope: agentScope,
+      userInput,
+    });
+  }, [
+    agentScope,
+    agentSourceDocs.length,
+    buildAgentSection,
+    buildAgentSelection,
+    collectAgentDocuments,
+    input,
+    isLoading,
+    submitLearningAgentRequest,
+    t,
+  ]);
+
+  const retryLearningAgentOnCloud = useCallback(async () => {
+    const retry = agentCloudRetry;
+    if (!retry || isLoading) return;
+    setAgentCloudRetry(null);
+    await submitLearningAgentRequest({
+      intent: retry.intent,
+      documents: retry.documents,
+      selection: retry.selection,
+      section: retry.section,
+      forceKind: "cloud",
+      explicitRetry: true,
+      userInput: retry.intent,
+    });
+  }, [agentCloudRetry, isLoading, submitLearningAgentRequest]);
+
+  // Explicit mode handoff from the command palette: select the mode, never
+  // send a request.
+  useEffect(() => {
+    const apply = () => {
+      const request = consumeLearningAgentMode();
+      if (!request) return;
+      setComposerMode("agent");
+      setTimeout(() => textareaRef.current?.focus(), 0);
+    };
+    apply();
+    return subscribeLearningAgentMode(() => apply());
+  }, []);
+
+  // Feature flag off stops the run (no further generation/tool work).
+  useEffect(() => {
+    if (aiAgentFeatureEnabled) return;
+    agentAbortRef.current?.abort();
+    agentAbortRef.current = null;
+    agentRunTokenRef.current = null;
+    setAgentProgress(null);
+    setComposerMode("chat");
+  }, [aiAgentFeatureEnabled]);
+
+  // Source changes (attachment/selection/section/document) stop the run; the
+  // frozen envelope can never silently follow the new source.
+  useEffect(() => {
+    if (!agentAbortRef.current) return;
+    const signature = currentAgentSourceSignature();
+    if (
+      agentFrozenSignatureRef.current &&
+      signature !== agentFrozenSignatureRef.current
+    ) {
+      agentAbortRef.current.abort();
+      setAgentNotice(
+        "Stopped: the attached source or selection changed. Start a new run with the new scope."
+      );
+    }
+  }, [currentAgentSourceSignature]);
+
+  // Unmount/teardown stops the run and invalidates its result token.
+  useEffect(
+    () => () => {
+      agentRunTokenRef.current = null;
+      agentAbortRef.current?.abort();
+    },
+    []
+  );
 
   const handleCreateFlashcardsFromMessage = (sourceMessage: Message) => {
     const ineligibility = getFlashcardIneligibilityReason(sourceMessage);
@@ -2635,6 +3253,10 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
   const handleClearChat = () => {
     dictation.cancel();
     requestEpochRef.current += 1;
+    agentAbortRef.current?.abort();
+    agentAbortRef.current = null;
+    setAgentProgress(null);
+    setAgentDraft(undefined);
     setIsLoading(false);
     setMessages([]);
     if (isMobileSession) {
@@ -2980,6 +3602,61 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             </button>
 
             <AssistantScopeSelector value={scope} onChange={setScope} disabled={isLoading} compact={isMobilePresentation} variant={isMobilePresentation ? "menu" : "segmented"} />
+
+            {/* Explicit secondary Learning Agent mode. Ordinary chat is the
+                default; this only selects the agent path on submit. */}
+            <div
+              role="group"
+              aria-label={t("assistant.agent.modeLabel")}
+              data-assistant-mode-toggle
+              className="inline-flex shrink-0 items-center rounded-full border border-border bg-muted/40 p-0.5"
+            >
+              <button
+                type="button"
+                aria-label={t("assistant.mode.agentOff")}
+                aria-pressed={composerMode === "chat"}
+                onClick={() => {
+                  setComposerMode("chat");
+                  setAgentScope(undefined);
+                  setAgentNotice(null);
+                }}
+                disabled={isLoading}
+                className={`md-state rounded-full font-medium outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 ${
+                  mobilePresentation ? "min-h-8 px-2 text-[11px]" : "min-h-8 px-2.5 text-[11px]"
+                } ${composerMode === "chat" ? "bg-background text-foreground" : "text-muted-foreground"}`}
+              >
+                {t("assistant.mode.chat")}
+              </button>
+              <button
+                type="button"
+                aria-pressed={composerMode === "agent"}
+                aria-label={t("assistant.mode.agent")}
+                data-agent-mode-toggle
+                onClick={() => {
+                  if (agentUnavailableReason) {
+                    setAgentNotice(
+                      t("assistant.mode.unavailable", { reason: agentUnavailableReason })
+                    );
+                    return;
+                  }
+                  setComposerMode("agent");
+                }}
+                disabled={isLoading}
+                title={
+                  agentUnavailableReason
+                    ? t("assistant.mode.unavailable", { reason: agentUnavailableReason })
+                    : t("assistant.mode.agentHint")
+                }
+                className={`md-state inline-flex items-center gap-1 rounded-full font-medium outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 ${
+                  mobilePresentation ? "min-h-8 px-2 text-[11px]" : "min-h-8 px-2.5 text-[11px]"
+                } ${composerMode === "agent" ? "bg-background text-foreground" : "text-muted-foreground"}`}
+              >
+                <Lightbulb className="h-3 w-3" aria-hidden="true" />
+                {mobilePresentation
+                  ? t("assistant.mode.agentShort")
+                  : t("assistant.mode.agent")}
+              </button>
+            </div>
 
             {/* AI Engine Center Dropdown */}
             {isModelDropdownOpen && (
@@ -3339,6 +4016,20 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 )}
               </div>
 
+              {/* Learning Agent review artifact — rendered outside legacy tool
+                  execution; it can never enter parseToolCalls/MCP dispatch. */}
+              {message.agentRun && (
+                <div className="mt-2 w-full max-w-[95%]">
+                  <LearningAgentProposals
+                    run={{
+                      ...message.agentRun,
+                      revokedSourceIds: agentRevokedSourceIds,
+                    }}
+                    onArtifactChange={(artifact) => setAgentDraft(artifact)}
+                  />
+                </div>
+              )}
+
               {/* Message Actions - always visible on assistant answers */}
               {message.role === "assistant" && (
                 <div className="flex items-center gap-0.5 mt-1 opacity-100 transition-opacity motion-reduce:transition-none">
@@ -3363,6 +4054,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                       || isLoading
                       || flashcardGeneratingMessageId === message.id
                     }
+                    hidden={Boolean(message.agentRun)}
                     className="inline-flex items-center gap-1 px-1.5 py-1 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded disabled:opacity-40 disabled:pointer-events-none"
                     aria-label={t(ASSISTANT_MESSAGE_FLASHCARD_DISPLAY_KEY)}
                     title={
@@ -3544,6 +4236,215 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             </div>
           )}
 
+          {/* Learning Agent scope chips + example intents (mode only) */}
+          {composerMode === "agent" && (
+            <div data-learning-agent-composer className="space-y-2 rounded-lg border border-primary/20 bg-primary/5 p-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11px] font-medium text-foreground">
+                  {t("assistant.agent.sourcesTitle")}
+                </p>
+                <button
+                  ref={agentSourceMenuRef}
+                  type="button"
+                  className="md-state rounded-full border border-border bg-background px-2 py-0.5 text-[11px] text-foreground"
+                  aria-haspopup="menu"
+                  aria-expanded={isAgentSourceMenuOpen}
+                  onClick={() => setIsAgentSourceMenuOpen((open) => !open)}
+                  disabled={isLoading}
+                >
+                  + {t("assistant.agent.addSource")}
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {collectAgentDocuments().map((document) => (
+                  <span
+                    key={document.id}
+                    data-agent-source-chip={document.id}
+                    className="inline-flex max-w-full items-center gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-[11px] text-foreground"
+                  >
+                    <FileText className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+                    <span className="truncate">{document.title}</span>
+                    <button
+                      type="button"
+                      aria-label={t("assistant.agent.removeSource", { title: document.title })}
+                      className="text-muted-foreground hover:text-foreground"
+                      onClick={() => {
+                        setAgentSourceDocs((prev) =>
+                          prev.filter((candidate) => candidate.id !== document.id)
+                        );
+                        // Revoke this source for existing frozen drafts too;
+                        // approval stays blocked until a new run revalidates it.
+                        setAgentRevokedSourceIds((prev) =>
+                          prev.includes(document.id) ? prev : [...prev, document.id]
+                        );
+                      }}
+                      disabled={isLoading}
+                    >
+                      <X className="h-3 w-3" aria-hidden="true" />
+                    </button>
+                  </span>
+                ))}
+                {collectAgentDocuments().length === 0 && (
+                  <span className="text-[11px] text-muted-foreground">
+                    {t("assistant.agent.needSource")}
+                  </span>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {(
+                  [
+                    ["section", t("assistant.agent.example.section")],
+                    ["document", t("assistant.agent.example.document")],
+                    ["library", t("assistant.agent.example.library")],
+                    ["library", t("assistant.agent.example.related")],
+                    ["papers", t("assistant.agent.example.papers")],
+                  ] as Array<[LearningAgentScopeKind, string]>
+                ).map(([scopeKind, label]) => (
+                  <button
+                    key={`${scopeKind}:${label}`}
+                    type="button"
+                    data-agent-example={scopeKind}
+                    className="rounded-full bg-background/70 px-2 py-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+                    onClick={() => {
+                      setAgentScope(scopeKind);
+                      setInput(label);
+                      textareaRef.current?.focus();
+                    }}
+                    disabled={isLoading}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {agentUnavailableReason && (
+                <div className="flex items-center gap-2" role="status">
+                  <p className="flex-1 text-[11px] text-amber-700 dark:text-amber-300">
+                    {t("assistant.mode.unavailable", { reason: agentUnavailableReason })}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleOpenSettingsToAI}
+                    className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-foreground"
+                  >
+                    {t("assistant.mode.setup")}
+                  </button>
+                </div>
+              )}
+              {agentDraft && (
+                <p className="text-[10px] text-muted-foreground">
+                  {t("assistant.agent.draftRestoredHint")}
+                </p>
+              )}
+            </div>
+          )}
+
+          {composerMode === "agent" && agentProgress && (
+            <div
+              data-agent-progress
+              role="status"
+              className="flex items-center gap-2 rounded-lg border border-border bg-background px-2.5 py-1.5 text-xs"
+            >
+              <CircleNotch className="h-3.5 w-3.5 animate-spin text-primary" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-medium text-foreground">
+                  {t("assistant.agent.progress", { turn: agentProgress.turn })}
+                  {" · "}
+                  {t("assistant.agent.proposals", { count: agentProgress.proposals })}
+                </p>
+                {agentProgress.lastTool && (
+                  <p className="truncate text-[11px] text-muted-foreground">
+                    {t("assistant.agent.tool", { tool: agentProgress.lastTool })}
+                  </p>
+                )}
+              </div>
+              <button
+                type="button"
+                data-agent-stop
+                onClick={stopLearningAgent}
+                className="md-state shrink-0 rounded-full border border-border px-3 py-1 text-[11px] font-medium text-foreground"
+              >
+                {t("assistant.agent.stop")}
+              </button>
+            </div>
+          )}
+
+          {agentNotice && (
+            <div
+              data-agent-notice
+              role="status"
+              className="flex items-start gap-2 rounded-lg border border-border bg-muted/50 px-2.5 py-1.5 text-[11px] text-foreground"
+            >
+              <span className="flex-1">{agentNotice}</span>
+              {agentCloudRetry && !isLoading && (
+                <button
+                  type="button"
+                  onClick={() => void retryLearningAgentOnCloud()}
+                  className="shrink-0 rounded-full bg-primary px-2 py-0.5 text-primary-foreground"
+                >
+                  {t("assistant.agent.retryCloud")}
+                </button>
+              )}
+              <button
+                type="button"
+                aria-label={t("common.dismiss")}
+                onClick={() => setAgentNotice(null)}
+                className="shrink-0 rounded p-0.5 text-muted-foreground"
+              >
+                <X className="h-3 w-3" aria-hidden="true" />
+              </button>
+            </div>
+          )}
+
+          <Menu
+            open={isAgentSourceMenuOpen}
+            onClose={() => setIsAgentSourceMenuOpen(false)}
+            anchorRef={agentSourceMenuRef}
+            label={t("assistant.agent.sourcesTitle")}
+            items={useDocumentStore
+              .getState()
+              .documents.filter(
+                (document) =>
+                  !document.isArchived &&
+                  !document.isAiExcluded &&
+                  !collectAgentDocuments().some((attached) => attached.id === document.id)
+              )
+              .sort((a, b) => (a.dateModified < b.dateModified ? 1 : -1))
+              .slice(0, 12)
+              .map((document) => ({
+                key: document.id,
+                label: document.title,
+                onSelect: () => {
+                  setAgentSourceDocs((prev) =>
+                    prev.some((candidate) => candidate.id === document.id)
+                      ? prev
+                      : [
+                          ...prev,
+                          {
+                            id: document.id,
+                            title: document.title,
+                            contentVersion: document.contentHash,
+                            fileType: document.fileType,
+                            isLocalOnly: document.isLocalOnly,
+                            isAiExcluded: document.isAiExcluded,
+                          },
+                        ]
+                  );
+                  setAgentRevokedSourceIds((prev) =>
+                    prev.filter((id) => id !== document.id)
+                  );
+                  // Picking multiple papers explicitly is a multi-paper scope.
+                  setAgentScope((current) =>
+                    current === "papers" ||
+                    agentSourceDocs.length >= 1 ||
+                    document.id !== context?.documentId
+                      ? "papers"
+                      : current
+                  );
+                  setIsAgentSourceMenuOpen(false);
+                },
+              }))}
+          />
+
           {/* Available Tools Hint (desktop; the mobile add menu owns this discovery) */}
           {!mobilePresentation && <div className="text-xs text-muted-foreground flex items-center gap-1">
             <Sparkle className="w-3 h-3" />
@@ -3607,7 +4508,13 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               onKeyDown={handleKeyDown}
               onFocus={() => { setIsInputFocused(true); setSectionsArmed(true); }}
               onBlur={() => setIsInputFocused(false)}
-              placeholder={attachedImages.length > 0 ? "Ask about the attached image(s)..." : "Ask about your document, or type /help for commands..."}
+              placeholder={
+                composerMode === "agent"
+                  ? t("assistant.agent.placeholder")
+                  : attachedImages.length > 0
+                    ? "Ask about the attached image(s)..."
+                    : "Ask about your document, or type /help for commands..."
+              }
               className={mobilePresentation
                 ? "max-h-40 min-h-11 flex-1 resize-none bg-transparent px-1 py-2.5 text-foreground text-sm focus:outline-none"
                 : "flex-1 px-3 py-2 bg-background border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary text-foreground text-sm"}
@@ -3646,6 +4553,8 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 <button
                   onClick={handleSendMessage}
                   disabled={!canSend}
+                  aria-label="Send message"
+                  data-agent-send
                   className="px-2 py-1 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                 >
                   {isLoading ? (

@@ -20,8 +20,12 @@ import type {
   AgentSelectionSummary,
 } from "./tools/types";
 import { getImageAssetById } from "../../../api/image-registry";
-import { getDueItems, getAllLearningItems } from "../../../api/learning-items";
-import { getExtracts } from "../../../api/extracts";
+import {
+  getDueLearningItemsBounded,
+  searchLearningItemsBounded,
+  type LearningItem,
+} from "../../../api/learning-items";
+import { getRecentExtractsBounded } from "../../../api/extract-review";
 import { getReviewStatistics } from "../../../api/algorithm";
 import { retrieveFromLibrary } from "../../../api/ai-learning";
 
@@ -80,40 +84,32 @@ export function createDefaultAgentEnvironment(): AgentEnvironment {
     getDocument: () => context().getDocument(),
     getSelection: () => context().getSelection(),
     getRecentExtracts: async (limit) => {
-      const extracts = await getExtracts(null);
-      return [...extracts]
-        .sort((a, b) => (a.date_modified < b.date_modified ? 1 : -1))
-        .slice(0, limit)
-        .map((e) => ({
-          id: e.id,
-          documentId: e.document_id,
-          content: e.content,
-          dateModified: e.date_modified,
-        }));
-    },
-    getCards: async () => {
-      const items = await getAllLearningItems();
-      return items.map((item) => ({
-        id: item.id,
-        question: item.question,
-        answer: item.answer,
-        clozeText: item.cloze_text,
-        itemType: item.item_type,
-        state: item.state,
-        dueDate: item.due_date,
-        reviewCount: item.review_count,
-        lapses: item.lapses,
-        lastReviewDate: item.last_review_date,
-        tags: item.tags,
+      const extracts = await getRecentExtractsBounded({ limit });
+      return extracts.slice(0, limit).map((e) => ({
+        id: e.id,
+        documentId: e.document_id,
+        content: e.content,
+        dateModified: e.date_modified,
       }));
     },
-    getDueCards: async () => {
-      const due = await getDueItems();
-      return due.map((item) => ({
+    // Bounded server-filtered reads: the agent never materializes the whole
+    // library (task 1.3). Without a filter the hard cap still applies.
+    getCards: async (options) => {
+      const items = await searchLearningItemsBounded({
+        query: options?.text,
+        documentIds: options?.documentIds,
+        limit: Math.min(options?.limit ?? 20, 50),
+      });
+      return items.map(mapLearningItemToAgentCard);
+    },
+    getDueCards: async (limit) => {
+      const due = await getDueLearningItemsBounded(Math.min(limit ?? 10, 50));
+      return due.map((item: LearningItem) => ({
         id: item.id,
         question: item.question,
         itemType: item.item_type,
         dueDate: item.due_date,
+        documentId: item.document_id,
       }));
     },
     getReviewStats: async () => {
@@ -133,5 +129,25 @@ export function createDefaultAgentEnvironment(): AgentEnvironment {
       const asset = await getImageAssetById(assetId);
       return asset ? { id: asset.id, fileName: asset.file_name } : null;
     },
+  };
+}
+
+/** Shared LearningItem → agent card projection (bounded reads). */
+export function mapLearningItemToAgentCard(item: LearningItem): Awaited<
+  ReturnType<AgentEnvironment["getCards"]>
+>[number] {
+  return {
+    id: item.id,
+    question: item.question,
+    answer: item.answer,
+    clozeText: item.cloze_text,
+    itemType: item.item_type,
+    state: item.state,
+    dueDate: item.due_date,
+    reviewCount: item.review_count,
+    lapses: item.lapses,
+    lastReviewDate: item.last_review_date,
+    tags: item.tags,
+    documentId: item.document_id,
   };
 }

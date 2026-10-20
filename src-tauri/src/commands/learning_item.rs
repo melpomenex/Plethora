@@ -5,7 +5,7 @@ use crate::database::{find_node_id_in_tx, unlink_node_in_tx, ElementKind, Reposi
 use crate::error::{PlethoraError, Result};
 use crate::generator::LearningItemGenerator;
 use crate::models::{ItemState, ItemType, LearningItem};
-use crate::sync::outbox::mark_dirty;
+use crate::sync::journal::journal_entity;
 use crate::sync::types::{EntityType, SyncOperation};
 use sqlx::Row;
 use std::collections::{HashMap, HashSet};
@@ -245,10 +245,31 @@ pub async fn create_learning_item(
     // context remains the authoritative anchor.
     source_reference: Option<String>,
     allow_duplicate: Option<bool>,
+    // Narrow retry-safe acceptance identity (agent learning proposals). A
+    // retried call with the same pair returns the originally committed row.
+    acceptance_id: Option<String>,
+    proposal_id: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
+    // Idempotent retry: return the committed row before any duplicate check.
+    if let (Some(acceptance), Some(proposal)) = (&acceptance_id, &proposal_id) {
+        if let Some(existing) =
+            find_learning_item_by_acceptance_key(acceptance, proposal, &repo).await?
+        {
+            return Ok(existing);
+        }
+    }
+    let acceptance_key = acceptance_id.clone();
+    let proposal_key = proposal_id.clone();
+
     if !allow_duplicate.unwrap_or(false) {
-        let candidates = find_duplicate_candidates(&question, 3, &repo).await?;
+        // Agent text proposals use a bounded candidate read; legacy/manual
+        // creates keep the existing whole-library check.
+        let candidates = if acceptance_id.is_some() {
+            find_duplicate_candidates_bounded(&question, 3, &repo).await?
+        } else {
+            find_duplicate_candidates(&question, 3, &repo).await?
+        };
         if !candidates.is_empty() && candidates[0].similarity >= 0.85 {
             return Err(PlethoraError::InvalidInput(format!(
                 "Potential duplicate detected ({}: {:.0}% similarity). Set allow_duplicate=true to save anyway.",
@@ -273,6 +294,8 @@ pub async fn create_learning_item(
     item.tags = tags.unwrap_or_default();
     item.image_asset_ids = image_asset_ids.unwrap_or_default();
     item.interaction_metadata = interaction_metadata;
+    item.acceptance_id = acceptance_id.filter(|value| !value.trim().is_empty());
+    item.proposal_id = proposal_id.filter(|value| !value.trim().is_empty());
     // Extract linkage is the primary provenance; only anchor extract-less
     // cards so the two paths never disagree about where a card came from.
     if extract_id.is_none() {
@@ -291,7 +314,21 @@ pub async fn create_learning_item(
             }
         }
     }
-    let created = repo.create_learning_item(&item).await?;
+    let created = match repo.create_learning_item(&item).await {
+        Ok(created) => created,
+        Err(error) => {
+            // Concurrent retry: the unique (acceptance_id, proposal_id) index
+            // let the other transaction win. Return its committed row.
+            if let (Some(acceptance), Some(proposal)) = (&acceptance_key, &proposal_key) {
+                if let Some(existing) =
+                    find_learning_item_by_acceptance_key(acceptance, proposal, &repo).await?
+                {
+                    return Ok(existing);
+                }
+            }
+            return Err(error);
+        }
+    };
     if let Some(prerequisites) = prerequisite_item_ids {
         store_learning_item_prerequisites(&created.id, &prerequisites, &repo).await?;
     }
@@ -321,6 +358,13 @@ pub struct CreateLearningItemBatchEntry {
     pub interaction_metadata: Option<serde_json::Value>,
     #[serde(rename = "source_reference")]
     pub source_reference: Option<String>,
+    /// Narrow acceptance identity for agent text proposals. Entries WITHOUT a
+    /// proposal_id (e.g. every occlusion-composer row) keep the historical
+    /// no-duplicate-check batch semantics.
+    #[serde(rename = "acceptance_id")]
+    pub acceptance_id: Option<String>,
+    #[serde(rename = "proposal_id")]
+    pub proposal_id: Option<String>,
 }
 
 /// Create several cards in one transaction (all or none), reporting the whole
@@ -332,26 +376,70 @@ pub async fn create_learning_items_batch(
     items: Vec<CreateLearningItemBatchEntry>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<LearningItem>> {
-    let mut to_create: Vec<LearningItem> = Vec::with_capacity(items.len());
-    for entry in items {
+    // 1. Resolve already-committed rows for retried acceptance keys. This is
+    //    the retry-safe path: only unsaved proposals are inserted.
+    let mut results: Vec<Option<LearningItem>> = vec![None; items.len()];
+    for (index, entry) in items.iter().enumerate() {
+        if let (Some(acceptance), Some(proposal)) = (&entry.acceptance_id, &entry.proposal_id) {
+            if let Some(existing) =
+                find_learning_item_by_acceptance_key(acceptance, proposal, &repo).await?
+            {
+                results[index] = Some(existing);
+            }
+        }
+    }
+
+    // 2. Scoped text-proposal duplicate enforcement. Only entries carrying an
+    //    application-assigned proposal id are checked; occlusion batches are
+    //    intentionally unchanged.
+    for (index, entry) in items.iter().enumerate() {
+        if results[index].is_some() || entry.proposal_id.is_none() {
+            continue;
+        }
+        let candidates = find_duplicate_candidates_bounded(&entry.question, 3, &repo).await?;
+        if !candidates.is_empty() && candidates[0].similarity >= 0.85 {
+            return Err(PlethoraError::InvalidInput(format!(
+                "Potential duplicate detected for proposal {} ({}: {:.0}% similarity).",
+                entry.proposal_id.as_deref().unwrap_or("unknown"),
+                candidates[0].id,
+                candidates[0].similarity * 100.0
+            )));
+        }
+    }
+
+    // 3. Build and insert only the missing rows.
+    let mut to_create: Vec<LearningItem> = Vec::new();
+    let mut create_indices: Vec<usize> = Vec::new();
+    for (index, entry) in items.iter().enumerate() {
+        if results[index].is_some() {
+            continue;
+        }
         let item_type = match entry.item_type.as_str() {
             "flashcard" => ItemType::Flashcard,
             "cloze" => ItemType::Cloze,
             "qa" => ItemType::Qa,
             _ => ItemType::Basic,
         };
-        let mut item = LearningItem::new(item_type, entry.question);
+        let mut item = LearningItem::new(item_type, entry.question.clone());
         item.extract_id = entry.extract_id.clone();
-        item.document_id = entry.document_id;
-        item.answer = entry.answer;
-        item.cloze_text = entry.cloze_text;
-        item.tags = entry.tags.unwrap_or_default();
-        item.image_asset_ids = entry.image_asset_ids.unwrap_or_default();
-        item.interaction_metadata = entry.interaction_metadata;
+        item.document_id = entry.document_id.clone();
+        item.answer = entry.answer.clone();
+        item.cloze_text = entry.cloze_text.clone();
+        item.tags = entry.tags.clone().unwrap_or_default();
+        item.image_asset_ids = entry.image_asset_ids.clone().unwrap_or_default();
+        item.interaction_metadata = entry.interaction_metadata.clone();
+        item.acceptance_id = entry
+            .acceptance_id
+            .clone()
+            .filter(|value| !value.trim().is_empty());
+        item.proposal_id = entry
+            .proposal_id
+            .clone()
+            .filter(|value| !value.trim().is_empty());
         // Same rule as the single create: extract linkage wins; the serialized
         // source reference only anchors extract-less cards.
         if entry.extract_id.is_none() {
-            item.source_reference = entry.source_reference;
+            item.source_reference = entry.source_reference.clone();
         }
         if item.extract_id.is_some() && item.document_id.is_none() {
             if let Some(ext_id) = &item.extract_id {
@@ -361,13 +449,69 @@ pub async fn create_learning_items_batch(
             }
         }
         to_create.push(item);
+        create_indices.push(index);
     }
 
-    let created = repo.create_learning_items_batch(&to_create).await?;
-    for item in &created {
-        append_daily_note_learning_item_link(&item.id, &item.question, &repo).await?;
+    if !to_create.is_empty() {
+        let created = match repo.create_learning_items_batch(&to_create).await {
+            Ok(created) => created,
+            Err(error) => {
+                // Concurrent retry: if another transaction committed the same
+                // acceptance keys, reconcile and return those rows instead of
+                // failing the whole batch.
+                let mut recovered: Vec<LearningItem> = Vec::with_capacity(items.len());
+                let mut complete = true;
+                for entry in &items {
+                    match (&entry.acceptance_id, &entry.proposal_id) {
+                        (Some(acceptance), Some(proposal)) => {
+                            match find_learning_item_by_acceptance_key(acceptance, proposal, &repo)
+                                .await?
+                            {
+                                Some(existing) => recovered.push(existing),
+                                None => {
+                                    complete = false;
+                                    break;
+                                }
+                            }
+                        }
+                        _ => {
+                            complete = false;
+                            break;
+                        }
+                    }
+                }
+                if complete {
+                    return Ok(recovered);
+                }
+                return Err(error);
+            }
+        };
+        for (offset, created_item) in created.into_iter().enumerate() {
+            if let Some(index) = create_indices.get(offset) {
+                append_daily_note_learning_item_link(
+                    &created_item.id,
+                    &created_item.question,
+                    &repo,
+                )
+                .await?;
+                results[*index] = Some(created_item);
+            }
+        }
     }
-    Ok(created)
+
+    let mut ordered = Vec::with_capacity(items.len());
+    for (index, item) in results.into_iter().enumerate() {
+        match item {
+            Some(item) => ordered.push(item),
+            None => {
+                return Err(PlethoraError::Internal(format!(
+                    "Batch acceptance lost row {}; nothing was reported as saved",
+                    index
+                )))
+            }
+        }
+    }
+    Ok(ordered)
 }
 
 /// Set a learning item's user-set priority.
@@ -394,9 +538,10 @@ pub async fn generate_learning_items_from_extract(
     extract_id: String,
     repo: State<'_, Repository>,
 ) -> Result<Vec<LearningItem>> {
-    let extract = repo.get_extract(&extract_id).await?.ok_or_else(|| {
-        crate::error::PlethoraError::NotFound(format!("Extract {}", extract_id))
-    })?;
+    let extract = repo
+        .get_extract(&extract_id)
+        .await?
+        .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Extract {}", extract_id)))?;
 
     // Generate learning items
     let generator = LearningItemGenerator::new();
@@ -449,6 +594,23 @@ pub async fn delete_learning_item(item_id: String, repo: State<'_, Repository>) 
         unlink_node_in_tx(&mut transaction, node_id).await?;
     }
 
+    let delete_payload = serde_json::json!({
+        "schema_version": 1,
+        "entity_type": "learning_item",
+        "id": item_id,
+        "deleted_at": chrono::Utc::now().to_rfc3339(),
+    });
+    journal_entity(
+        &mut transaction,
+        EntityType::LearningItem,
+        &item_id,
+        SyncOperation::Delete,
+        crate::sync::outbox::learning_item_revision(item.updated_at.as_deref()),
+        serde_json::to_vec(&delete_payload)
+            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?,
+    )
+    .await?;
+
     let deleted = sqlx::query("DELETE FROM learning_items WHERE id = ?1")
         .bind(&item_id)
         .execute(&mut *transaction)
@@ -474,23 +636,6 @@ pub async fn delete_learning_item(item_id: String, repo: State<'_, Repository>) 
         .execute(&mut *transaction)
         .await?;
     }
-
-    let delete_payload = serde_json::json!({
-        "schema_version": 1,
-        "entity_type": "learning_item",
-        "id": item_id,
-        "deleted_at": chrono::Utc::now().to_rfc3339(),
-    });
-    mark_dirty(
-        &mut transaction,
-        EntityType::LearningItem,
-        &item_id,
-        SyncOperation::Delete,
-        crate::sync::outbox::learning_item_revision(item.updated_at.as_deref()),
-        serde_json::to_vec(&delete_payload)
-            .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?,
-    )
-    .await?;
 
     transaction.commit().await?;
     Ok(())
@@ -592,12 +737,8 @@ pub async fn update_learning_item_tags(
         .await?
         .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item_id)))?;
 
-    repo.update_learning_item_tags_and_metadata(
-        &item_id,
-        &tags,
-        interaction_metadata.as_ref(),
-    )
-    .await
+    repo.update_learning_item_tags_and_metadata(&item_id, &tags, interaction_metadata.as_ref())
+        .await
 }
 
 #[tauri::command]
@@ -641,14 +782,9 @@ pub async fn revert_learning_item_version(
     let version: CardVersionEntry = serde_json::from_str(&value)
         .map_err(|e| PlethoraError::Internal(format!("Invalid version payload: {}", e)))?;
 
-    repo.update_learning_item_content(
-        &item_id,
-        &version.question,
-        version.answer.as_deref(),
-        None,
-    )
-    .await?
-    .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item_id)))
+    repo.update_learning_item_content(&item_id, &version.question, version.answer.as_deref(), None)
+        .await?
+        .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item_id)))
 }
 
 #[tauri::command]
@@ -804,6 +940,193 @@ async fn find_duplicate_candidates(
     Ok(scored)
 }
 
+/// Bounded duplicate candidates: SQL prefilter (token LIKE) + LIMIT, then the
+/// same Jaccard score used by the single-create path. Used for narrow
+/// text-proposal enforcement so an agent batch never scans the whole library.
+async fn find_duplicate_candidates_bounded(
+    question: &str,
+    limit: usize,
+    repo: &Repository,
+) -> Result<Vec<DuplicateCandidate>> {
+    let mut seen = HashSet::new();
+    let tokens: Vec<String> = tokenize(question)
+        .into_iter()
+        .filter(|token| token.len() >= 4 && seen.insert(token.clone()))
+        .take(4)
+        .collect();
+    if tokens.is_empty() {
+        return Ok(Vec::new());
+    }
+    let mut clauses = Vec::new();
+    for _ in 0..tokens.len() {
+        clauses.push(
+            "(lower(question) LIKE ? OR lower(COALESCE(answer, '')) LIKE ? OR lower(COALESCE(cloze_text, '')) LIKE ?)"
+                .to_string(),
+        );
+    }
+    let sql = format!(
+        "SELECT * FROM learning_items WHERE {} ORDER BY date_modified DESC LIMIT 200",
+        clauses.join(" OR ")
+    );
+    let mut query = sqlx::query(&sql);
+    for token in &tokens {
+        let pattern = format!("%{}%", token.to_lowercase());
+        query = query
+            .bind(pattern.clone())
+            .bind(pattern.clone())
+            .bind(pattern);
+    }
+    let rows = query.fetch_all(repo.pool()).await?;
+    let mut scored = rows
+        .iter()
+        .filter_map(|row| Repository::row_to_learning_item(row).ok())
+        .map(|item| DuplicateCandidate {
+            id: item.id,
+            question: item.question.clone(),
+            similarity: jaccard_similarity(question, &item.question),
+        })
+        .filter(|candidate| candidate.similarity >= 0.6)
+        .collect::<Vec<_>>();
+    scored.sort_by(|a, b| {
+        b.similarity
+            .partial_cmp(&a.similarity)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    scored.truncate(limit);
+    Ok(scored)
+}
+
+/// Retry-safe lookup for the narrow (acceptance_id, proposal_id) identity.
+pub(crate) async fn find_learning_item_by_acceptance_key(
+    acceptance_id: &str,
+    proposal_id: &str,
+    repo: &Repository,
+) -> Result<Option<LearningItem>> {
+    let row = sqlx::query(
+        "SELECT * FROM learning_items WHERE acceptance_id = ?1 AND proposal_id = ?2 LIMIT 1",
+    )
+    .bind(acceptance_id)
+    .bind(proposal_id)
+    .fetch_optional(repo.pool())
+    .await?;
+    match row {
+        Some(row) => Ok(Some(Repository::row_to_learning_item(&row)?)),
+        None => Ok(None),
+    }
+}
+
+/// Reconcile an ambiguous acceptance transport failure: every row already
+/// committed under this acceptance id, in creation order. Read-only.
+#[tauri::command]
+pub async fn get_learning_items_by_acceptance_key(
+    acceptance_id: String,
+    repo: State<'_, Repository>,
+) -> Result<Vec<LearningItem>> {
+    let rows = sqlx::query(
+        "SELECT * FROM learning_items WHERE acceptance_id = ?1 ORDER BY date_created ASC",
+    )
+    .bind(&acceptance_id)
+    .fetch_all(repo.pool())
+    .await?;
+    let mut items = Vec::with_capacity(rows.len());
+    for row in &rows {
+        items.push(Repository::row_to_learning_item(row)?);
+    }
+    Ok(items)
+}
+
+/// Bounded, server-filtered card read for the learning agent (task 1.3).
+/// Never returns more than 50 rows and never scans/returns the whole library.
+#[tauri::command]
+pub async fn search_learning_items_bounded(
+    query: Option<String>,
+    document_ids: Option<Vec<String>>,
+    limit: Option<i64>,
+    repo: State<'_, Repository>,
+) -> Result<Vec<LearningItem>> {
+    let limit = limit.unwrap_or(20).clamp(1, 50);
+    let mut conditions: Vec<String> = Vec::new();
+    let mut bindings: Vec<String> = Vec::new();
+
+    if let Some(text) = query
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        let mut seen = HashSet::new();
+        let tokens: Vec<String> = tokenize(text)
+            .into_iter()
+            .filter(|token| seen.insert(token.clone()))
+            .take(4)
+            .collect();
+        if tokens.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut token_clauses = Vec::new();
+        for _ in 0..tokens.len() {
+            token_clauses.push(
+                "(lower(question) LIKE ? OR lower(COALESCE(answer, '')) LIKE ? OR lower(COALESCE(cloze_text, '')) LIKE ? OR lower(tags) LIKE ?)"
+                    .to_string(),
+            );
+        }
+        for token in tokens {
+            let pattern = format!("%{}%", token.to_lowercase());
+            for _ in 0..4 {
+                bindings.push(pattern.clone());
+            }
+        }
+        conditions.push(format!("({})", token_clauses.join(" OR ")));
+    }
+
+    if let Some(ids) = document_ids.as_ref().filter(|ids| !ids.is_empty()) {
+        let placeholders: Vec<String> = (0..ids.len()).map(|_| "?".to_string()).collect();
+        conditions.push(format!("document_id IN ({})", placeholders.join(",")));
+        for id in ids {
+            bindings.push(id.clone());
+        }
+    }
+
+    let where_clause = if conditions.is_empty() {
+        "1=1".to_string()
+    } else {
+        conditions.join(" AND ")
+    };
+    let sql = format!(
+        "SELECT * FROM learning_items WHERE {} ORDER BY date_modified DESC LIMIT {}",
+        where_clause, limit
+    );
+    let mut q = sqlx::query(&sql);
+    for binding in bindings {
+        q = q.bind(binding);
+    }
+    let rows = q.fetch_all(repo.pool()).await?;
+    let mut items = Vec::with_capacity(rows.len());
+    for row in &rows {
+        items.push(Repository::row_to_learning_item(row)?);
+    }
+    Ok(items)
+}
+
+/// Bounded due-item read for the agent's "what should I review" answer.
+#[tauri::command]
+pub async fn get_due_learning_items_bounded(
+    limit: Option<i64>,
+    repo: State<'_, Repository>,
+) -> Result<Vec<LearningItem>> {
+    let limit = limit.unwrap_or(20).clamp(1, 50);
+    let now = chrono::Utc::now();
+    let sql = format!(
+        "SELECT * FROM learning_items WHERE due_date <= ? AND is_suspended = false ORDER BY due_date LIMIT {}",
+        limit
+    );
+    let rows = sqlx::query(&sql).bind(now).fetch_all(repo.pool()).await?;
+    let mut items = Vec::with_capacity(rows.len());
+    for row in &rows {
+        items.push(Repository::row_to_learning_item(row)?);
+    }
+    Ok(items)
+}
+
 #[tauri::command]
 pub async fn check_semantic_duplicate_candidates(
     question: String,
@@ -929,4 +1252,129 @@ pub async fn get_learning_items_for_postpone(
             },
         )
         .collect())
+}
+
+#[cfg(test)]
+mod acceptance_tests {
+    use super::*;
+    use crate::database::connection::Database;
+    use crate::models::{FileType, ItemType, LearningItem};
+    use std::path::PathBuf;
+
+    async fn setup_repo() -> Repository {
+        let db = Database::new(PathBuf::from(":memory:")).await.expect("db");
+        db.migrate().await.expect("migrate");
+        Repository::new(db.pool().clone())
+    }
+
+    fn card_with_key(question: &str, acceptance: &str, proposal: &str) -> LearningItem {
+        let mut item = LearningItem::new(ItemType::Flashcard, question.to_string());
+        item.answer = Some("answer".to_string());
+        item.acceptance_id = Some(acceptance.to_string());
+        item.proposal_id = Some(proposal.to_string());
+        item
+    }
+
+    #[tokio::test]
+    async fn acceptance_key_lookup_returns_the_committed_row() {
+        let repo = setup_repo().await;
+        let item = card_with_key("What is entropy?", "run-1", "run-1:p1");
+        let created = repo.create_learning_item(&item).await.expect("create");
+
+        let found = find_learning_item_by_acceptance_key("run-1", "run-1:p1", &repo)
+            .await
+            .expect("lookup");
+        assert_eq!(found.map(|row| row.id), Some(created.id));
+    }
+
+    #[tokio::test]
+    async fn duplicate_acceptance_pair_is_rejected_by_the_unique_index() {
+        let repo = setup_repo().await;
+        repo.create_learning_item(&card_with_key("First?", "run-2", "run-2:p1"))
+            .await
+            .expect("first create");
+        let duplicate = repo
+            .create_learning_item(&card_with_key("Second?", "run-2", "run-2:p1"))
+            .await;
+        assert!(
+            duplicate.is_err(),
+            "the database must protect (acceptance_id, proposal_id)"
+        );
+    }
+
+    #[tokio::test]
+    async fn different_proposals_in_one_acceptance_are_allowed() {
+        let repo = setup_repo().await;
+        repo.create_learning_item(&card_with_key("First?", "run-3", "run-3:p1"))
+            .await
+            .expect("first create");
+        repo.create_learning_item(&card_with_key("Second?", "run-3", "run-3:p2"))
+            .await
+            .expect("second create");
+        let (count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM learning_items WHERE acceptance_id = 'run-3'")
+                .fetch_one(repo.pool())
+                .await
+                .expect("count");
+        assert_eq!(count, 2);
+    }
+
+    #[tokio::test]
+    async fn legacy_rows_without_keys_stay_null_and_readable() {
+        let repo = setup_repo().await;
+        let legacy = LearningItem::new(ItemType::Flashcard, "Legacy?".to_string());
+        let created = repo.create_learning_item(&legacy).await.expect("create");
+        assert!(created.acceptance_id.is_none());
+        assert!(created.proposal_id.is_none());
+    }
+
+    #[tokio::test]
+    async fn bounded_duplicate_check_finds_a_near_duplicate_without_a_full_scan() {
+        let repo = setup_repo().await;
+        let existing = LearningItem::new(
+            ItemType::Flashcard,
+            "What is the pumping lemma for context free languages?".to_string(),
+        );
+        repo.create_learning_item(&existing).await.expect("create");
+
+        let candidates = find_duplicate_candidates_bounded(
+            "What is the pumping lemma for context free languages?",
+            3,
+            &repo,
+        )
+        .await
+        .expect("bounded duplicate check");
+        assert_eq!(
+            candidates.first().map(|row| row.id.as_str()),
+            Some(existing.id.as_str())
+        );
+    }
+
+    #[tokio::test]
+    async fn bounded_card_read_respects_document_filter_and_limit() {
+        let repo = setup_repo().await;
+        let document = crate::models::Document::new(
+            "Paper".to_string(),
+            "/tmp/paper.pdf".to_string(),
+            FileType::Pdf,
+        );
+        let document_id = document.id.clone();
+        repo.create_document(&document).await.expect("document");
+        for index in 0..4 {
+            let mut item = LearningItem::new(
+                ItemType::Flashcard,
+                format!("Question about entropy {index}?"),
+            );
+            item.document_id = Some(document_id.clone());
+            repo.create_learning_item(&item).await.expect("card");
+        }
+        let rows = sqlx::query(
+            "SELECT * FROM learning_items WHERE document_id = ?1 ORDER BY date_modified DESC LIMIT 2",
+        )
+        .bind(&document_id)
+        .fetch_all(repo.pool())
+        .await
+        .expect("bounded rows");
+        assert_eq!(rows.len(), 2);
+    }
 }

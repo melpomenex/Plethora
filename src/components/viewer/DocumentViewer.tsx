@@ -170,6 +170,18 @@ import {
 import { createScrollDismissGate, isSuppressedSelection } from "./touchSelectionDismissal";
 import { useSelectionInteraction } from "./selectionInteraction/useSelectionInteraction";
 import type { CapturedSelection, SelectionSurface } from "./selectionInteraction/machine";
+import { usePassageScoring } from "./passageScoring/usePassageScoring";
+import {
+  PassageScoreOverlay,
+} from "./passageScoring/PassageScoreOverlay";
+import type { PassageActionHandlers } from "./passageScoring/usePassageScoring";
+import type { PassageAdapter, PassageLocator } from "./passageScoring/types";
+import { PdfPassageAdapter } from "./passageScoring/adapters/pdf";
+import { PdfMappedBlockAdapter } from "./passageScoring/adapters/pdfMapped";
+import { DomBlockPassageAdapter } from "./passageScoring/adapters/domBlocks";
+import { EpubPassageAdapter, type PassageContentDocumentEntry } from "./passageScoring/adapters/epub";
+import { buildRenderedSourceText } from "./passageScoring/adapters/sourceText";
+import { sha256Short } from "./passageScoring/hash";
 import { SelectionActionBar, type SelectionBarAction } from "./selectionInteraction/SelectionActionBar";
 import {
   getSelectionActions,
@@ -368,6 +380,106 @@ function toExtractDialogColor(color?: string): string | undefined {
     default:
       return color;
   }
+}
+
+/**
+ * Anchored passage → existing navigation/extract payload. Missing mapping
+ * stays undefined; it is never guessed.
+ */
+const passageRootIds = new WeakMap<Element, number>();
+const passageObjectIds = new WeakMap<object, number>();
+let nextPassageRootId = 1;
+
+/** Stable per-element id so root replacement rebuilds the adapter, but
+ * repeated notifications with the same mounted roots do not. */
+function passageRootIdentity(root: Element | null | undefined): string {
+  if (!root) return "0";
+  let id = passageRootIds.get(root);
+  if (id === undefined) {
+    id = nextPassageRootId++;
+    passageRootIds.set(root, id);
+  }
+  return String(id);
+}
+
+/** Deterministic OCR text page split shared by rendering and passage mapping. */
+function splitOcrTextIntoPages(
+  text: string,
+  pageCount: number
+): Array<{ pageNumber: number; text: string }> {
+  if (!text.trim()) return [{ pageNumber: 1, text: "" }];
+  if (pageCount <= 1) return [{ pageNumber: 1, text }];
+  const paragraphs = text
+    .split(/\n\s*\n/)
+    .map((para) => para.trim())
+    .filter(Boolean);
+  if (paragraphs.length === 0) return [{ pageNumber: 1, text }];
+  const paragraphsPerPage = Math.max(1, Math.ceil(paragraphs.length / pageCount));
+  const pages: Array<{ pageNumber: number; text: string }> = [];
+  for (let i = 0; i < paragraphs.length; i += paragraphsPerPage) {
+    pages.push({
+      pageNumber: pages.length + 1,
+      text: paragraphs.slice(i, i + paragraphsPerPage).join("\n\n"),
+    });
+  }
+  return pages;
+}
+
+function passageObjectIdentity(value: object | null | undefined): string {
+  if (!value) return "0";
+  let id = passageObjectIds.get(value);
+  if (id === undefined) {
+    id = nextPassageRootId++;
+    passageObjectIds.set(value, id);
+  }
+  return String(id);
+}
+
+function passagePageNumber(locator: PassageLocator): number | undefined {
+  return locator.kind === "pdf" ? locator.pageNumber : undefined;
+}
+
+function selectionContextForPassage(
+  locator: PassageLocator,
+  text: string,
+  documentId: string,
+  projectedRects: Array<{ x: number; y: number; width: number; height: number }> | null
+): SelectionContext | null {
+  if (locator.kind === "pdf") {
+    return {
+      type: "pdf",
+      documentId,
+      pages: [
+        {
+          pageNumber: locator.pageNumber,
+          viewportRects: (projectedRects ?? []).map((rect) => ({
+            left: rect.x,
+            top: rect.y,
+            width: rect.width,
+            height: rect.height,
+          })),
+          pdfRects: [],
+        },
+      ],
+    } satisfies PdfSelectionContext;
+  }
+  if (locator.kind === "epub") {
+    return {
+      type: "epub",
+      documentId,
+      cfiRange: locator.cfiRange,
+      selectedText: text,
+    } satisfies EpubSelectionContext;
+  }
+  return {
+    type: "text",
+    surface: locator.kind === "markdown" ? "markdown" : "html",
+    documentId,
+    startOffset: locator.startOffset,
+    endOffset: locator.endOffset,
+    selectedText: text,
+    anchor: { textQuote: { exact: text, prefix: "", suffix: "" } },
+  } satisfies TextSelectionContext;
 }
 
 /**
@@ -1345,6 +1457,19 @@ export function DocumentViewer({
   const [askSheetRequest, setAskSheetRequest] = useState<AskSheetRequest | null>(null);
   const [askSheetOpen, setAskSheetOpen] = useState(false);
   const askSheetMobile = settings.features.askSheetMobile === true;
+  // Passage extract-worthiness: an anchored suggestion can open the existing
+  // extract editor with the exact source text, without synthesizing a DOM
+  // selection. The request carries the validated locator, never a cloned Range.
+  const [passageExtractRequest, setPassageExtractRequest] = useState<{
+    text: string;
+    locator: PassageLocator;
+    selectionContext: SelectionContext | null;
+    pageNumber?: number;
+  } | null>(null);
+  // EPUB rendition content documents registered for passage scoring (spine
+  // switches add/remove entries; geometry is derived from the live iframe).
+  const passageContentEntriesRef = useRef<PassageContentDocumentEntry[]>([]);
+  const [passageContentVersion, setPassageContentVersion] = useState(0);
   // "Learn this" proposal request from the desktop context menu (task 2.3).
   const [learnThisRequest, setLearnThisRequest] = useState<{
     text: string;
@@ -2257,6 +2382,327 @@ export function DocumentViewer({
       setIsEditExtractDialogOpen(true);
     },
   });
+
+  // ── Passage extract-worthiness (change
+  // `complete-reader-extract-worthiness-integration`) ────────────────────────
+  // A source revision changes on edits (content digest/date), never on
+  // resize/zoom/reflow. Identity is computed by the adapter from this revision.
+  const passageSourceRevision = useMemo(() => {
+    if (!currentDocument) return "";
+    const content = currentDocument.content ?? "";
+    const contentIdentity = content
+      ? sha256Short(content, 16)
+      : (currentDocument.contentHash ?? "");
+    return [
+      "rev1",
+      currentDocument.id,
+      currentDocument.dateModified,
+      docType,
+      pdfViewMode,
+      contentIdentity,
+      ocrResult ? sha256Short(ocrResult.combinedText, 12) : "",
+    ].join(":");
+  }, [
+    currentDocument?.id,
+    currentDocument?.dateModified,
+    currentDocument?.content,
+    currentDocument?.contentHash,
+    docType,
+    pdfViewMode,
+    ocrResult,
+  ]);
+
+  const passageOcrPages = useMemo(() => {
+    if (!ocrResult) return [] as Array<{ pageNumber: number; text: string }>;
+    if (ocrResult.pages.length) return ocrResult.pages;
+    if (ocrResult.format === "html") {
+      return [{ pageNumber: 1, text: ocrResult.combinedText }];
+    }
+    return splitOcrTextIntoPages(ocrResult.combinedText, ocrResult.pageCount || 1);
+  }, [ocrResult]);
+
+  const passageAdapterKey = useMemo(
+    () =>
+      [
+        "passage-adapter",
+        passageSourceRevision,
+        docType,
+        pdfViewMode,
+        viewMode,
+        pdfTextLayerRoots.map(passageRootIdentity).join(","),
+        passageObjectIdentity(pdfCanonicalPages),
+        passageObjectIdentity(ocrResult),
+        passageContentVersion,
+        isHtmlFrameReady ? "html-ready" : "html-pending",
+        iframeElement ? "iframe" : "no-iframe",
+      ].join("|"),
+    [
+      passageSourceRevision,
+      docType,
+      pdfViewMode,
+      viewMode,
+      pdfTextLayerRoots,
+      pdfCanonicalPages,
+      ocrResult,
+      passageOcrPages,
+      passageContentVersion,
+      isHtmlFrameReady,
+      iframeElement,
+    ]
+  );
+
+  const passageAdapterFactory = useCallback((): PassageAdapter | null => {
+    if (!currentDocument || viewMode !== "document") return null;
+    const revision = passageSourceRevision;
+    if (!revision) return null;
+    const ownerToken = `doc:${currentDocument.id}`;
+
+    if (docType === "pdf") {
+      if (pdfViewMode === "ocr-html") {
+        const doc = iframeElement?.contentDocument;
+        const root = doc?.body;
+        if (doc && root) {
+          return new DomBlockPassageAdapter({
+            ownerToken: `${ownerToken}:ocr-html`,
+            documentId: currentDocument.id,
+            sourceRevision: revision,
+            kind: "html",
+            roots: [{ doc, root }],
+            sourceText: () =>
+              buildRenderedSourceText(ocrResult?.combinedText ?? null, "html"),
+          });
+        }
+        // Non-HTML OCR output renders inline `.ocr-page` sections. Preserve
+        // canonical page + text-offset anchors; skip when mapping is absent.
+        const inlineRoot = containerRef.current;
+        if (inlineRoot) {
+          const pageTextByNumber = new Map(
+            passageOcrPages.map((page) => [page.pageNumber, page.text])
+          );
+          return new PdfMappedBlockAdapter({
+            ownerToken: `${ownerToken}:ocr-pages`,
+            documentId: currentDocument.id,
+            sourceRevision: revision,
+            root: inlineRoot,
+            pageSelector: ".ocr-page[data-ocr-page-number]",
+            pageNumber: (section) =>
+              Number((section as HTMLElement).dataset.ocrPageNumber),
+            pageText: (pageNumber) => pageTextByNumber.get(pageNumber) ?? null,
+          });
+        }
+        return null;
+      }
+
+      const mountedTextLayers = pdfTextLayerRoots.filter(
+        (root): root is HTMLDivElement => Boolean(root?.isConnected)
+      );
+      if (mountedTextLayers.length > 0) {
+        return new PdfPassageAdapter({
+          ownerToken: `${ownerToken}:pdf`,
+          documentId: currentDocument.id,
+          sourceRevision: revision,
+          textLayers: pdfTextLayerRoots,
+        });
+      }
+
+      // Reflow rendering replaces the fixed page layers; preserve canonical
+      // page/offset anchors when the canonical page text is available.
+      const reflowRoot = pdfScrollContainer ?? containerRef.current;
+      if (reflowRoot?.querySelector("[data-pdf-reflow-page]")) {
+        return new PdfMappedBlockAdapter({
+          ownerToken: `${ownerToken}:pdf-reflow`,
+          documentId: currentDocument.id,
+          sourceRevision: revision,
+          root: reflowRoot,
+          pageSelector: "[data-pdf-reflow-page]",
+          pageNumber: (section) => Number(section.getAttribute("data-pdf-reflow-page")),
+          pageText: (pageNumber) => {
+            const page = pdfCanonicalPages.get(pageNumber);
+            if (!page) return null;
+            const text = page.blocks
+              .map((block) => block.text)
+              .filter((value) => value.trim().length > 0)
+              .join("\n\n");
+            return text || null;
+          },
+        });
+      }
+      return null;
+    }
+
+    if (docType === "epub") {
+      const entries = passageContentEntriesRef.current;
+      if (entries.length === 0) return null;
+      return new EpubPassageAdapter({
+        ownerToken: `${ownerToken}:epub`,
+        documentId: currentDocument.id,
+        sourceRevision: revision,
+        entries,
+      });
+    }
+
+    if (docType === "markdown") {
+      const root = containerRef.current?.querySelector(
+        '[data-language-content-root="true"]'
+      );
+      const doc = root?.ownerDocument ?? null;
+      if (!root || !doc) return null;
+      return new DomBlockPassageAdapter({
+        ownerToken: `${ownerToken}:markdown`,
+        documentId: currentDocument.id,
+        sourceRevision: revision,
+        kind: "markdown",
+        roots: [{ doc, root }],
+        sourceText: () =>
+          buildRenderedSourceText(currentDocument.content ?? null, "markdown"),
+      });
+    }
+
+    if (
+      docType === "html" &&
+      isHtmlFrameReady &&
+      !isXThreadDocument(currentDocument)
+    ) {
+      const doc = iframeElement?.contentDocument;
+      const root = doc?.body;
+      if (!doc || !root) return null;
+      return new DomBlockPassageAdapter({
+        ownerToken: `${ownerToken}:html`,
+        documentId: currentDocument.id,
+        sourceRevision: revision,
+        kind: "html",
+        roots: [{ doc, root }],
+        sourceText: () =>
+          buildRenderedSourceText(currentDocument.content ?? null, "html"),
+      });
+    }
+    return null;
+  }, [
+    currentDocument,
+    viewMode,
+    passageSourceRevision,
+    docType,
+    pdfViewMode,
+    iframeElement,
+    ocrResult,
+    pdfTextLayerRoots,
+    pdfScrollContainer,
+    pdfCanonicalPages,
+    passageOcrPages,
+    isHtmlFrameReady,
+  ]);
+
+  const passageProjectedRectsRef = useRef<
+    (passageId: string) => import("./passageScoring/types").PassageProjectedRect[] | null
+  >(() => null);
+  const passageScoringRef = useRef<ReturnType<typeof usePassageScoring> | null>(null);
+
+  const passageHandlers = useMemo<PassageActionHandlers>(
+    () => ({
+      canCreateObjects:
+        docType === "pdf" ||
+        docType === "epub" ||
+        docType === "markdown" ||
+        docType === "html" ||
+        docType === "other",
+      learnThisEnabled: aiLearnThisEnabled,
+      createExtract: ({ snapshot, text }) => {
+        const context = selectionContextForPassage(
+          snapshot.locator,
+          text,
+          currentDocument?.id ?? documentId,
+          passageProjectedRectsRef.current(snapshot.passageId)
+        );
+        setPassageExtractRequest({
+          text,
+          locator: snapshot.locator,
+          selectionContext: context,
+          pageNumber: passagePageNumber(snapshot.locator),
+        });
+      },
+      createFlashcard: ({ text }) => {
+        setFlashcardStudioSeed({
+          key: `passage-card-${currentDocument?.id ?? documentId}-${Date.now()}`,
+          documentId: currentDocument?.id ?? documentId,
+          excerpt: text,
+          draftCardType: "qa",
+          resetDraftCards: true,
+          autoEditDraft: true,
+        });
+      },
+      createCloze: ({ text }) => {
+        setFlashcardStudioSeed({
+          key: `passage-cloze-${currentDocument?.id ?? documentId}-${Date.now()}`,
+          documentId: currentDocument?.id ?? documentId,
+          excerpt: text,
+          draftCardType: "cloze",
+          resetDraftCards: true,
+          autoEditDraft: true,
+        });
+      },
+      learnThis: ({ text }) => {
+        setLearnThisRequest({ text, passage: text });
+      },
+      highlight: ({ snapshot, text }) => {
+        const context = selectionContextForPassage(
+          snapshot.locator,
+          text,
+          currentDocument?.id ?? documentId,
+          passageProjectedRectsRef.current(snapshot.passageId)
+        );
+        void createInstantExtract({
+          documentId: currentDocument?.id ?? documentId,
+          text,
+          color: "yellow",
+          pageNumber: passagePageNumber(snapshot.locator),
+          selectionContext: context ?? undefined,
+        });
+      },
+    }),
+    [docType, aiLearnThisEnabled, currentDocument, documentId, createInstantExtract]
+  );
+
+  const passageScoring = usePassageScoring({
+    documentId: currentDocument?.id,
+    documentTitle: currentDocument?.title,
+    sourceRevision: passageSourceRevision,
+    adapterFactory: passageAdapterFactory,
+    adapterKey: passageAdapterKey,
+    isForeground: isTabActive && viewMode === "document",
+    featureEnabled: settings.features.aiExtractWorthiness !== false,
+    durable: true,
+    handlers: passageHandlers,
+  });
+  passageProjectedRectsRef.current = passageScoring.projectRects;
+  passageScoringRef.current = passageScoring;
+
+  useEffect(() => {
+    passageContentEntriesRef.current = [];
+    setPassageContentVersion((version) => version + 1);
+  }, [currentDocument?.id]);
+
+  // A live selection/drag pauses passage work immediately (legacy and V2
+  // selection paths both surface here).
+  useEffect(() => {
+    if (selectionController.phase !== "idle" || selectedText.trim().length > 0) {
+      passageScoringRef.current?.noteActivity("selection");
+    }
+  }, [selectionController.phase, selectedText]);
+
+  // Zoom / typography / reflow changes invalidate in-flight work but keep the
+  // stable source identity. Geometry is reprojected on the next frame.
+  useEffect(() => {
+    passageScoringRef.current?.noteActivity("reflow");
+  }, [
+    scale,
+    zoomMode,
+    markdownWidthCh,
+    settings.documents.htmlSettings.fontSize,
+    settings.documents.htmlSettings.lineHeight,
+    settings.documents.htmlSettings.fontFamily,
+  ]);
+
+
 
   /**
    * Extract Mode: turn a completed selection straight into an extract.
@@ -5458,35 +5904,7 @@ export function DocumentViewer({
     }
   };
 
-  const splitTextIntoPages = (text: string, pageCount: number) => {
-    if (!text.trim()) {
-      return [{ pageNumber: 1, text: "" }];
-    }
-
-    if (pageCount <= 1) {
-      return [{ pageNumber: 1, text }];
-    }
-
-    const paragraphs = text
-      .split(/\n\s*\n/)
-      .map((para) => para.trim())
-      .filter(Boolean);
-
-    if (paragraphs.length === 0) {
-      return [{ pageNumber: 1, text }];
-    }
-
-    const paragraphsPerPage = Math.max(1, Math.ceil(paragraphs.length / pageCount));
-    const pages: Array<{ pageNumber: number; text: string }> = [];
-
-    for (let i = 0; i < paragraphs.length; i += paragraphsPerPage) {
-      const pageNumber = pages.length + 1;
-      const chunk = paragraphs.slice(i, i + paragraphsPerPage).join("\n\n");
-      pages.push({ pageNumber, text: chunk });
-    }
-
-    return pages;
-  };
+  const splitTextIntoPages = splitOcrTextIntoPages;
 
   const renderOcrPages = () => {
     if (!ocrResult) return null;
@@ -5503,7 +5921,11 @@ export function DocumentViewer({
     return pages.map((page) => {
       const html = format === "html" ? page.text : renderMarkdown(page.text);
       return (
-        <section key={page.pageNumber} className="ocr-page mb-8">
+        <section
+          key={page.pageNumber}
+          className="ocr-page mb-8"
+          data-ocr-page-number={page.pageNumber}
+        >
           {showPageBreaks && (
             <div className="ocr-page-break text-xs uppercase tracking-widest text-muted-foreground border-b border-border pb-2 mb-4">
               Page {page.pageNumber}
@@ -7961,6 +8383,39 @@ export function DocumentViewer({
                   }
                 : undefined
             }
+            passageContentBridge={
+              settings.features.aiExtractWorthiness !== false
+                ? {
+                    invalidate: () => {
+                      passageScoringRef.current?.noteActivity("reflow");
+                    },
+                    register: (entry) => {
+                      const normalized: PassageContentDocumentEntry = {
+                        doc: entry.doc,
+                        win: entry.win,
+                        offset: entry.offset,
+                        buildSelectionContext: entry.buildSelectionContext,
+                        spineIndex: entry.spineIndex,
+                        spineHref: entry.spineHref,
+                      };
+                      passageContentEntriesRef.current = [
+                        ...passageContentEntriesRef.current.filter(
+                          (existing) => existing.doc !== entry.doc
+                        ),
+                        normalized,
+                      ];
+                      setPassageContentVersion((version) => version + 1);
+                      return () => {
+                        passageContentEntriesRef.current =
+                          passageContentEntriesRef.current.filter(
+                            (existing) => existing.doc !== entry.doc
+                          );
+                        setPassageContentVersion((version) => version + 1);
+                      };
+                    },
+                  }
+                : undefined
+            }
           />
         ) : renderEditionPlayer ? (
           mediaError && !mediaSource ? (
@@ -8916,6 +9371,21 @@ export function DocumentViewer({
         onCreate={handleExtractCreated}
       />
 
+      {/* Passage suggestion → the same extract editor, opened with the exact
+          anchored source text. No synthetic DOM selection is fabricated. */}
+      <CreateExtractDialog
+        documentId={currentDocument.id}
+        selectedText={passageExtractRequest?.text ?? ""}
+        pageNumber={passageExtractRequest?.pageNumber}
+        selectionContext={passageExtractRequest?.selectionContext ?? null}
+        isOpen={Boolean(passageExtractRequest)}
+        onClose={() => setPassageExtractRequest(null)}
+        onCreate={() => {
+          setPassageExtractRequest(null);
+          loadExtracts(currentDocument.id);
+        }}
+      />
+
       {/* Edit Extract Dialog (opened from toast "Edit" action) */}
       {editExtractFromToast && (
         <EditExtractDialog
@@ -9077,6 +9547,28 @@ export function DocumentViewer({
           sourceId={currentDocument.id}
         />
       )}
+
+      {/* Passage extract-worthiness indicator (absolute chrome; reserves no
+          document space and hides while the adapter is detached). */}
+      <PassageScoreOverlay
+        results={passageScoring.results}
+        projectRects={passageScoring.projectRects}
+        narrow={isMobileTouch}
+        visible={passageScoring.visible}
+        openPassageId={passageScoring.openPassageId}
+        onOpen={passageScoring.openSuggestion}
+        onClose={passageScoring.closeSuggestion}
+        onAction={(action, passageId) => {
+          void passageScoring.performAction(action, passageId);
+        }}
+        onDismiss={(passageId) => {
+          void passageScoring.dismiss(passageId);
+        }}
+        onShowSource={passageScoring.showSource}
+        statusReasonKey={passageScoring.statusReasonKey}
+        canCreateObjects={passageHandlers.canCreateObjects}
+        learnThisEnabled={aiLearnThisEnabled}
+      />
     </div>
   );
 }

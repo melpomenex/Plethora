@@ -31,6 +31,7 @@ import {
   Graph,
   Headphones,
   Images,
+  Lightbulb,
   ListChecks,
   MagnifyingGlass,
   Microphone,
@@ -65,6 +66,10 @@ import { useUIStore } from "../stores/uiStore";
 import { isNativeAndroid, isTauri, isMac, nativePlatform } from "../lib/tauri";
 import { fuzzyMatch } from "../utils/fuzzy";
 import { useLibraryAskHandoffStore } from "./libraryAskHandoff";
+import {
+  learningAgentAvailability,
+  requestLearningAgentMode,
+} from "../lib/ai/assistant/learningAgentHandoff";
 import { translatePaletteSelection } from "./selectionTranslation";
 import type { TranslateFn } from "./homeModel";
 import {
@@ -365,6 +370,24 @@ export function buildDefaultCommands(
       keywords: ["ask", "library", "rag", "search"],
       aliases: ["ask my library", "chat with library"],
     }),
+    ...(learningAgentAvailability().available
+      ? [
+          createCommand({
+            id: "open-learning-agent",
+            intentId: "action:learning-agent",
+            label: t("commandPalette.learningAgent"),
+            description: t("commandPalette.learningAgentDesc"),
+            icon: <Lightbulb className="w-4 h-4" />,
+            category: CommandCategory.Documents,
+            // Selects the mode in the existing Assistant; sends no request.
+            action: () => {
+              requestLearningAgentMode();
+            },
+            keywords: ["agent", "learning agent", "cards", "propose", "chapter", "cloze"],
+            aliases: ["learning agent", "agent mode", "propose cards"],
+          }),
+        ]
+      : []),
     createCommand({
       id: "record-lecture",
       intentId: "action:record-lecture",

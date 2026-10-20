@@ -2440,6 +2440,8 @@ mod tests {
             priority_score: 0.0,
             priority_explicitly_set: false,
             source_reference: None,
+            acceptance_id: None,
+            proposal_id: None,
         };
 
         // D=0.0 must be coerced away from the degenerate edge bucket.

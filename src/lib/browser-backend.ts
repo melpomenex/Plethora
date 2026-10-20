@@ -2345,6 +2345,54 @@ const commandHandlers: Record<string, CommandHandler> = {
         return toCamelCase(items);
     },
 
+    // ── Bounded agent reads (Learning Agent parity with the Tauri commands) ──
+    // These return snake_case records because the agent environment consumes
+    // the same shape as the Rust backend (`document_id`, `cloze_text`, …).
+    search_learning_items_bounded: async (args) => {
+        const query = String(args.query ?? "").trim().toLowerCase();
+        const documentIds = (args.documentIds ?? args.document_ids) as string[] | undefined;
+        const limit = Math.max(1, Math.min(100, Number(args.limit ?? 20)));
+        const items = await db.getAllLearningItems();
+        return items
+            .filter((item) => {
+                if (documentIds && documentIds.length > 0) {
+                    if (!item.document_id || !documentIds.includes(item.document_id)) return false;
+                }
+                if (!query) return true;
+                return [item.question, item.answer, item.cloze_text].some((value) =>
+                    (value ?? "").toLowerCase().includes(query)
+                );
+            })
+            .slice(0, limit);
+    },
+
+    get_due_learning_items_bounded: async (args) => {
+        const limit = Math.max(1, Math.min(100, Number(args.limit ?? 20)));
+        const items = await db.getDueLearningItems();
+        return items.slice(0, limit);
+    },
+
+    get_recent_extracts_bounded: async (args) => {
+        const documentIds = (args.documentIds ?? args.document_ids) as string[] | undefined;
+        const limit = Math.max(1, Math.min(100, Number(args.limit ?? 10)));
+        const extracts = await db.getAllExtracts();
+        return extracts
+            .filter((extract) =>
+                documentIds && documentIds.length > 0
+                    ? documentIds.includes(extract.document_id)
+                    : true
+            )
+            .sort((a, b) => (a.date_modified < b.date_modified ? 1 : -1))
+            .slice(0, limit);
+    },
+
+    get_learning_items_by_acceptance_key: async (args) => {
+        const acceptanceId = String(args.acceptanceId ?? args.acceptance_id ?? "");
+        if (!acceptanceId) return [];
+        const items = await db.getAllLearningItems();
+        return items.filter((item) => item.acceptance_id === acceptanceId);
+    },
+
     get_learning_item: async (args) => {
         const itemId = args.itemId as string;
         const item = await db.getLearningItem(itemId);
@@ -2353,6 +2401,16 @@ const commandHandlers: Record<string, CommandHandler> = {
 
     create_learning_item: async (args) => {
         const question = args.question as string;
+        const acceptanceId = (args.acceptanceId ?? args.acceptance_id) as string | undefined;
+        const proposalId = (args.proposalId ?? args.proposal_id) as string | undefined;
+        // Retry-safe agent acceptance: the same (acceptance, proposal) pair
+        // returns the committed row instead of creating a duplicate.
+        if (acceptanceId && proposalId) {
+            const existing = (await db.getAllLearningItems()).find(
+                (item) => item.acceptance_id === acceptanceId && item.proposal_id === proposalId
+            );
+            if (existing) return toCamelCase(existing);
+        }
         const allowDuplicate = Boolean(args.allowDuplicate ?? args.allow_duplicate);
         if (!allowDuplicate) {
             const allItems = await db.getAllLearningItems();
@@ -2381,6 +2439,8 @@ const commandHandlers: Record<string, CommandHandler> = {
             source_reference: (args.extractId ?? args.extract_id)
                 ? undefined
                 : ((args.sourceReference ?? args.source_reference) as string | undefined),
+            acceptance_id: acceptanceId,
+            proposal_id: proposalId,
         });
         const prerequisiteIds = (args.prerequisiteItemIds || args.prerequisite_item_ids) as string[] | undefined;
         if (Array.isArray(prerequisiteIds) && prerequisiteIds.length > 0) {
@@ -2394,8 +2454,25 @@ const commandHandlers: Record<string, CommandHandler> = {
 
     create_learning_items_batch: async (args) => {
         const rawItems = (args.items ?? args.inputs) as Array<Record<string, unknown>>;
-        const records = rawItems.map((input) =>
-            db.createLearningItemRaw({
+        const existing = await db.getAllLearningItems();
+        const byAcceptanceKey = new Map<string, (typeof existing)[number]>();
+        for (const item of existing) {
+            if (item.acceptance_id && item.proposal_id) {
+                byAcceptanceKey.set(`${item.acceptance_id}\u0000${item.proposal_id}`, item);
+            }
+        }
+        const records: ReturnType<typeof db.createLearningItemRaw>[] = [];
+        const results: Array<(typeof existing)[number]> = [];
+        for (const input of rawItems) {
+            const acceptanceId = (input.acceptanceId ?? input.acceptance_id) as string | undefined;
+            const proposalId = (input.proposalId ?? input.proposal_id) as string | undefined;
+            const key = acceptanceId && proposalId ? `${acceptanceId}\u0000${proposalId}` : null;
+            const alreadySaved = key ? byAcceptanceKey.get(key) : undefined;
+            if (alreadySaved) {
+                results.push(alreadySaved);
+                continue;
+            }
+            const record = db.createLearningItemRaw({
                 extract_id: (input.extractId ?? input.extract_id) as string | undefined,
                 document_id: (input.documentId ?? input.document_id) as string | undefined,
                 item_type: (input.itemType ?? input.item_type) as string,
@@ -2408,8 +2485,13 @@ const commandHandlers: Record<string, CommandHandler> = {
                 source_reference: (input.extractId ?? input.extract_id)
                     ? undefined
                     : ((input.sourceReference ?? input.source_reference) as string | undefined),
-            }),
-        );
+                acceptance_id: acceptanceId,
+                proposal_id: proposalId,
+            });
+            records.push(record);
+            results.push(record);
+            if (key) byAcceptanceKey.set(key, record);
+        }
         // The card writes are one IndexedDB transaction (all or nothing); the
         // derived document counts and daily-note links are applied afterwards
         // and may partially fail without affecting the persisted cards.
@@ -2423,7 +2505,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             }
             appendDailyNoteLink({ type: "learning_item", id: item.id, title: item.question });
         }
-        return records.map(toCamelCase);
+        return results.map(toCamelCase);
     },
 
     check_semantic_duplicate_candidates: async (args) => {

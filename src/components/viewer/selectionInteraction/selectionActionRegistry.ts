@@ -16,6 +16,7 @@ import {
   ChalkboardTeacher,
   Copy,
   GraduationCap,
+  Graph,
   Highlighter,
   Lightbulb,
   ListBullets,
@@ -27,6 +28,7 @@ import {
   TextT,
   Translate,
   TreeStructure,
+  X,
 } from "@phosphor-icons/react";
 
 /** Every selection action id across all menu surfaces. */
@@ -46,10 +48,22 @@ export type SelectionActionId =
   | "learnThis"
   | "askLibrary"
   | "socraticTutor"
-  | "prerequisites";
+  | "prerequisites"
+  | "relatedContent"
+  /**
+   * Passage extract-worthiness actions (additive): an anchored passage
+   * suggestion, never a synthetic DOM selection. These ids are only ordered
+   * on the `passage` surface.
+   */
+  | "passageExtract"
+  | "passageFlashcard"
+  | "passageCloze"
+  | "passageLearnThis"
+  | "passageHighlight"
+  | "passageDismiss";
 
 /** The menu surfaces that derive their items from this registry. */
-export type SelectionActionSurface = "bar" | "menu" | "sheet";
+export type SelectionActionSurface = "bar" | "menu" | "sheet" | "passage";
 
 /** AI passage actions runnable against a selection. */
 export type SelectionAiAction = Extract<
@@ -84,6 +98,12 @@ export interface SelectionActionAvailability {
   socraticTutorEnabled?: boolean;
   /** Prerequisite analysis feature flag (sheet only). */
   prerequisitesEnabled?: boolean;
+  /** Concept-link/related-content feature flag (sheet only; independent). */
+  linksEnabled?: boolean;
+  /** A validated passage snapshot backs the passage action set. */
+  passageSnapshotValid?: boolean;
+  /** The surface can persist extracts/highlights (false for ephemeral media). */
+  canCreateObjects?: boolean;
 }
 
 export interface SelectionActionDescriptor {
@@ -244,6 +264,72 @@ export const SELECTION_ACTIONS: readonly SelectionActionDescriptor[] = [
     menuGroup: 4,
     isAvailable: (surface, a) => aiActions(surface, a) && Boolean(a.prerequisitesEnabled),
   },
+  {
+    // Independent of `aiPrerequisites`: related discovery uses the shared
+    // retrieval layer and confirmed concept links, not prerequisite inference.
+    id: "relatedContent",
+    icon: Graph,
+    labelKeys: { sheet: "aiLearning.relatedContent" },
+    order: { sheet: 11 },
+    menuGroup: 4,
+    isAvailable: (_, a) => Boolean(a.linksEnabled),
+  },
+  // ── Passage extract-worthiness actions (additive, `passage` surface only) ──
+  {
+    id: "passageExtract",
+    icon: Lightbulb,
+    labelKeys: { passage: "ai.passageScoring.createExtract" },
+    order: { passage: 0 },
+    menuGroup: 1,
+    isAvailable: (_, a) =>
+      Boolean(a.passageSnapshotValid) && a.canCreateObjects !== false,
+  },
+  {
+    id: "passageLearnThis",
+    icon: GraduationCap,
+    labelKeys: { passage: "ai.passageScoring.learnThis" },
+    order: { passage: 1 },
+    menuGroup: 4,
+    isAvailable: (_, a) =>
+      Boolean(a.passageSnapshotValid) &&
+      a.canCreateObjects !== false &&
+      a.learnThisEnabled !== false,
+  },
+  {
+    id: "passageFlashcard",
+    icon: Sparkle,
+    labelKeys: { passage: "ai.passageScoring.makeFlashcard" },
+    order: { passage: 2 },
+    menuGroup: 1,
+    isAvailable: (_, a) =>
+      Boolean(a.passageSnapshotValid) && a.canCreateObjects !== false,
+  },
+  {
+    id: "passageCloze",
+    icon: TextT,
+    labelKeys: { passage: "ai.passageScoring.createCloze" },
+    order: { passage: 3 },
+    menuGroup: 1,
+    isAvailable: (_, a) =>
+      Boolean(a.passageSnapshotValid) && a.canCreateObjects !== false,
+  },
+  {
+    id: "passageHighlight",
+    icon: Highlighter,
+    labelKeys: { passage: "ai.passageScoring.highlight" },
+    order: { passage: 4 },
+    menuGroup: 1,
+    isAvailable: (_, a) =>
+      Boolean(a.passageSnapshotValid) && a.canCreateObjects !== false,
+  },
+  {
+    id: "passageDismiss",
+    icon: X,
+    labelKeys: { passage: "ai.passageScoring.dismiss" },
+    order: { passage: 5 },
+    menuGroup: 2,
+    isAvailable: (_, a) => Boolean(a.passageSnapshotValid),
+  },
 ];
 
 const DESCRIPTORS_BY_ID = new Map(SELECTION_ACTIONS.map((d) => [d.id, d]));
@@ -282,4 +368,63 @@ export function selectionActionLabelKey(
  */
 export function isAiSelectionAction(action: SelectionActionDescriptor): boolean {
   return action.menuGroup === 4;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Passage extract-worthiness action resolution                              */
+/* ------------------------------------------------------------------------- */
+
+/**
+ * The validated source snapshot an anchored passage action operates on.
+ * This is supplied by the reader controller, not by a DOM selection.
+ */
+export interface PassageActionSnapshot {
+  ownerToken: string;
+  documentId?: string;
+  sourceRevision: string;
+  passageId: string;
+  contentHash: string;
+}
+
+export type PassageActionId = Extract<
+  SelectionActionId,
+  | "passageExtract"
+  | "passageFlashcard"
+  | "passageCloze"
+  | "passageLearnThis"
+  | "passageHighlight"
+  | "passageDismiss"
+>;
+
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+/** Reject stale/partial snapshots before any learning object is created. */
+export function isValidPassageActionSnapshot(
+  snapshot: PassageActionSnapshot | null | undefined
+): snapshot is PassageActionSnapshot {
+  if (!snapshot) return false;
+  return (
+    typeof snapshot.ownerToken === "string" &&
+    snapshot.ownerToken.length > 0 &&
+    typeof snapshot.sourceRevision === "string" &&
+    snapshot.sourceRevision.length > 0 &&
+    typeof snapshot.passageId === "string" &&
+    snapshot.passageId.length > 0 &&
+    typeof snapshot.contentHash === "string" &&
+    SHA256_HEX.test(snapshot.contentHash)
+  );
+}
+
+/**
+ * Registry-derived actions for an anchored passage. Invalid snapshots yield
+ * no actions, so a stale adapter can never produce an unlinked object.
+ */
+export function getPassageScoreActions(
+  snapshot: PassageActionSnapshot | null | undefined,
+  availability: Omit<SelectionActionAvailability, "passageSnapshotValid"> = {}
+): SelectionActionDescriptor[] {
+  return getSelectionActions("passage", {
+    ...availability,
+    passageSnapshotValid: isValidPassageActionSnapshot(snapshot),
+  });
 }

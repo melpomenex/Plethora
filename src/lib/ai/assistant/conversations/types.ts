@@ -361,6 +361,13 @@ export interface Draft {
   attachments: SourceAttachment[];
   mentionTokens: MentionToken[];
   selection?: SelectionSnapshot;
+  /**
+   * Optional, versioned Learning Agent draft artifact. Holds only draft
+   * content, source references, candidate status and saved ids — never an
+   * AbortController, live capability token or raw tool transcript. Restored
+   * artifacts always require revalidation and never resume execution.
+   */
+  agentDraft?: AgentDraftArtifact;
   updatedAt: number;
 }
 
@@ -406,8 +413,93 @@ export interface ConversationRecord extends Conversation {
   messages: Message[];
   turns: Turn[];
   draft?: Draft;
+  /** Optional versioned agent draft artifact (see `AgentDraftArtifact`). */
+  agentDraft?: AgentDraftArtifact;
   /** Remote draft alternatives, offered separately, never auto-applied. */
   draftAlternatives?: DraftAlternative[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Learning Agent draft artifact (versioned, optional)                 */
+/* ------------------------------------------------------------------ */
+
+export const AGENT_DRAFT_ARTIFACT_VERSION = 1 as const;
+
+export type AgentDraftKind =
+  | "extract"
+  | "flashcard"
+  | "cloze"
+  | "occlusion"
+  | "tag";
+
+export type AgentDraftCandidateStatus =
+  | "draft"
+  | "validating"
+  | "saving"
+  | "saved"
+  | "failed"
+  | "rejected";
+
+/** A source reference on a persisted agent draft (no live capabilities). */
+export interface AgentDraftSourceRef {
+  handle: string;
+  refId: string;
+  kind: "chunk" | "card" | "document" | "extract";
+  documentId?: string;
+  title?: string;
+  locator?: string;
+  contentVersion?: string;
+}
+
+export interface AgentDraftCandidate {
+  proposalId: string;
+  kind: AgentDraftKind;
+  /** Application-assigned source handles cited by this proposal. */
+  sourceRefs: AgentDraftSourceRef[];
+  question: string;
+  answer: string;
+  cardType?: string;
+  concept?: string;
+  conceptKeys?: string[];
+  clozeText?: string;
+  tags?: string[];
+  /** Extract text / tag value / image asset id depending on kind. */
+  text?: string;
+  note?: string;
+  tag?: string;
+  itemId?: string;
+  itemQuestion?: string;
+  evidenceQuote?: string;
+  status: AgentDraftCandidateStatus;
+  /** Human-readable validation issues (duplicate/ungrounded/unavailable). */
+  issues?: string[];
+  /** Durable id once saved; retries never create a second object. */
+  savedId?: string;
+  /** Saved but source metadata still needs repair. */
+  provenancePending?: boolean;
+}
+
+/**
+ * Versioned, optional conversation artifact. Everything here is a draft or a
+ * saved-id reference; execution state (controllers/tokens/transcripts) is
+ * deliberately absent. Hydration must revalidate sources and never auto-run.
+ */
+export interface AgentDraftArtifact {
+  version: typeof AGENT_DRAFT_ARTIFACT_VERSION;
+  runId: string;
+  conversationId: string;
+  intent: string;
+  scope: "section" | "document" | "library" | "papers";
+  createdAt: number;
+  updatedAt: number;
+  sources: SourceReference[];
+  selection?: SelectionSnapshot;
+  sectionTitle?: string;
+  candidates: AgentDraftCandidate[];
+  /** True when the run ended by Stop/limit/error with drafts retained. */
+  partial?: boolean;
+  endReason?: string;
+  explanation?: string;
 }
 
 /* ------------------------------------------------------------------ */

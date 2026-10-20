@@ -87,6 +87,24 @@ const NODE_CONFIG = {
     gradient: "from-cyan-500/20 to-cyan-600/5",
     labelKey: "graph.tag",
   },
+  [GraphNodeType.Rss]: {
+    icon: Sparkle,
+    color: "orange",
+    bgColor: "bg-orange-500/10",
+    borderColor: "border-orange-500/30",
+    textColor: "text-orange-500",
+    gradient: "from-orange-500/20 to-orange-600/5",
+    labelKey: "graph.rss",
+  },
+  [GraphNodeType.Concept]: {
+    icon: Link,
+    color: "yellow",
+    bgColor: "bg-yellow-500/10",
+    borderColor: "border-yellow-500/30",
+    textColor: "text-yellow-500",
+    gradient: "from-yellow-500/20 to-yellow-600/5",
+    labelKey: "Concept",
+  },
 };
 
 const EDGE_TYPE_LABELS: Record<string, { labelKey: string; color: string }> = {
@@ -141,7 +159,12 @@ export function NodeDetailView({
     const groups: Record<string, { nodes: GraphNode[]; edges: GraphEdge[] }> = {};
 
     connectedEdges.forEach((edge) => {
-      const type = edge.type || "related";
+      // Concept relations carry their typed label; group them by relation so
+      // the detail panel shows "prerequisite-of", "supports", etc.
+      const type =
+        edge.type === "related" && edge.label
+          ? `concept:${edge.label}`
+          : edge.type || "related";
       if (!groups[type]) {
         groups[type] = { nodes: [], edges: [] };
       }
@@ -359,6 +382,9 @@ export function NodeDetailView({
                 {Object.entries(groupedConnections).map(([type, data]) => {
                   const edgeConfig = EDGE_TYPE_LABELS[type] || { labelKey: "", color: "text-slate-400" };
                   const isExpanded = expandedGroups.has(type);
+                  const conceptRelation = type.startsWith("concept:")
+                    ? type.slice("concept:".length)
+                    : null;
 
                   return (
                     <div
@@ -371,7 +397,11 @@ export function NodeDetailView({
                       >
                         <div className="flex items-center gap-2">
                           <span className={`text-sm font-medium ${edgeConfig.color}`}>
-                            {edgeConfig.labelKey ? t(edgeConfig.labelKey) : type}
+                            {conceptRelation
+                              ? conceptRelation.replace(/-/g, " ")
+                              : edgeConfig.labelKey
+                                ? t(edgeConfig.labelKey)
+                                : type}
                           </span>
                           <span className="text-xs text-muted-foreground bg-muted px-2 py-0.5 rounded-full">
                             {data.nodes.length}

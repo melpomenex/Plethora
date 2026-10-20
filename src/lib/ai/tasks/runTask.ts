@@ -15,7 +15,8 @@
  */
 
 import { estimateTokens } from "../chunkTextByTokens";
-import { recordTaskDiagnostic } from "../diagnostics";
+import { recordFeatureObservation, recordTaskDiagnostic } from "../diagnostics";
+import { normalizeProviderClass } from "../diagnostics/featureReport";
 import { AIError, isCancelledError, toAIError } from "../errors";
 import { appleFmSupportsNativeSchema } from "../apple/nativeSchemas";
 import { APPLE_FOUNDATION_PROVIDER_ID } from "../providers/appleFoundationProvider";
@@ -117,6 +118,17 @@ async function executeTask<I, O>(
   const started = Date.now();
   let firstTokenAt: number | undefined;
 
+  // A run whose owner already cancelled must not resolve a provider, probe
+  // capabilities or send content anywhere.
+  if (options.signal?.aborted) {
+    const cancelled = new AIError("Cancelled", `Task ${task.id} was cancelled before it started.`, {
+      code: "cancelled",
+      taskId: task.id,
+    });
+    recordFailure(task, options, started, cancelled, undefined, undefined);
+    throw cancelled;
+  }
+
   // ── Resolve provider (router; reasoning fallback per design D3) ──────────
   const route = options.provider
     ? {
@@ -184,6 +196,10 @@ async function executeTask<I, O>(
   let timedOut = false;
   const onOuterAbort = () => controller.abort();
   options.signal?.addEventListener("abort", onOuterAbort, { once: true });
+  // The listener does not fire for an already-aborted signal; bridge it now so
+  // a cancellation that lands between the start check and here still stops
+  // generation before it begins.
+  if (options.signal?.aborted) controller.abort();
   const timer =
     timeoutMs > 0
       ? setTimeout(() => {
@@ -247,6 +263,21 @@ async function executeTask<I, O>(
       totalLatencyMs: Date.now() - started,
       finishReason: response.finishReason,
     });
+
+    if (options.observation) {
+      recordFeatureObservation({
+        featureId: options.observation.featureId,
+        runId: options.observation.runId,
+        stage: "generation",
+        level: "operational",
+        outcome: "success",
+        durationMs: Date.now() - started,
+        capabilityRevision: options.observation.capabilityRevision,
+        providerClass: normalizeProviderClass(provider.id),
+        modelClass: route.servedModelClass,
+        smoke: options.observation.smoke,
+      });
+    }
 
     return {
       taskId: task.id,
@@ -589,6 +620,22 @@ function recordFailure<I, O>(
   capabilityHash: string | undefined,
   firstTokenAt?: number
 ): void {
+  if (options.observation) {
+    recordFeatureObservation({
+      featureId: options.observation.featureId,
+      runId: options.observation.runId,
+      stage: "generation",
+      level: "operational",
+      outcome: error.category === "Cancelled" ? "cancelled" : "failed",
+      durationMs: Date.now() - started,
+      capabilityRevision: options.observation.capabilityRevision,
+      providerClass: route?.provider ? normalizeProviderClass(route.provider.id) : undefined,
+      modelClass: route?.servedModelClass,
+      errorCategory: error.category,
+      recoveryCode: error.code,
+      smoke: options.observation.smoke,
+    });
+  }
   recordTaskDiagnostic({
     taskId: task.id,
     taskType: task.taskType ?? "prompt",

@@ -38,7 +38,6 @@ import {
   isAgentBoundsExceeded,
   MAX_AGENT_PROPOSALS,
   MAX_AGENT_TOOL_CALLS,
-  type AgentBoundsCheck,
   type AgentBoundsConfig,
   type AgentBoundsExceeded,
   type AgentBoundsTracker,
@@ -54,9 +53,12 @@ import {
   type AgentTraceEntry,
 } from "./trace";
 import { recordTaskDiagnostic } from "../diagnostics";
+import type { AgentRunDeadline } from "./deadline";
+import { createAgentEvidenceMap } from "./evidence";
 import type {
   AgentEnvironment,
   AgentProposal,
+  AgentProposalInput,
   AgentSessionRuntime,
   AgentSourceRef,
   AgentToolOutcome,
@@ -143,6 +145,41 @@ export type AgentRunEvent =
   | { type: "proposal-added"; kind: AgentProposal["kind"]; total: number }
   | { type: "turn-end"; turn: number };
 
+export interface AgentRunGuardViolation {
+  /** Stable reason key for the UI (`source-changed`, `destination-changed`, …). */
+  reason: string;
+  explanation?: string;
+}
+
+export interface AgentRunObservation {
+  /** Safe capability/config revision recorded on generation observations. */
+  capabilityRevision: string;
+  /** True for an explicit fixture smoke run. */
+  smoke?: boolean;
+}
+
+export interface AgentRunOptions {
+  intent: string;
+  /** Stable run identity; prefixes proposal ids and task target ids. */
+  runId?: string;
+  /** Environment injection (tests); defaults to the real API wiring. */
+  env?: AgentEnvironment;
+  /** Provider injection (tests / FakeAIProvider eval runs). */
+  provider?: AIProvider;
+  kind?: "ondevice" | "cloud";
+  signal?: AbortSignal;
+  /** Single absolute run deadline (preferred over the per-turn timeout). */
+  deadline?: AgentRunDeadline;
+  /** Called between turns/tools to stop on a changed source/destination. */
+  guard?: (phase: "turn" | "tool" | "final") => AgentRunGuardViolation | null;
+  /** D0 generation observations (adapter supplies the feature identity). */
+  observation?: AgentRunObservation;
+  /** Progress stream for the Assistant. */
+  onEvent?: (event: AgentRunEvent) => void;
+  /** Bounds overrides (tests). */
+  bounds?: AgentBoundsConfig;
+}
+
 export interface AgentRunResult {
   /** Final answer (model) or synthesized partial-result answer. */
   answer: string;
@@ -158,20 +195,6 @@ export interface AgentRunResult {
   providerKind?: "ondevice" | "cloud";
   /** Present when the run failed with a typed AIError (endReason "error"). */
   error?: { category: string; message: string };
-}
-
-export interface AgentRunOptions {
-  intent: string;
-  /** Environment injection (tests); defaults to the real API wiring. */
-  env?: AgentEnvironment;
-  /** Provider injection (tests / FakeAIProvider eval runs). */
-  provider?: AIProvider;
-  kind?: "ondevice" | "cloud";
-  signal?: AbortSignal;
-  /** Progress stream for the AgentSheet. */
-  onEvent?: (event: AgentRunEvent) => void;
-  /** Bounds overrides (tests). */
-  bounds?: AgentBoundsConfig;
 }
 
 /** Keep the wrapped transcript under the char budget (drop oldest). */
@@ -190,23 +213,74 @@ export function boundTranscript(
 }
 
 function createSession(
+  runId: string,
   bounds: AgentBoundsTracker,
   proposals: AgentProposal[],
-  onEvent?: (event: AgentRunEvent) => void
+  onEvent?: (event: AgentRunEvent) => void,
+  sourceRevision?: string
 ): AgentSessionRuntime {
-  return {
+  const session: AgentSessionRuntime = {
+    runId,
     proposals,
     proposalCapHit: false,
-    addProposal(proposal) {
+    evidence: createAgentEvidenceMap(sourceRevision),
+    sourceRevision,
+    closed: false,
+    addProposal(input: AgentProposalInput) {
+      if (session.closed) return null;
       if (!bounds.canAddProposal()) {
-        this.proposalCapHit = true;
-        return false;
+        session.proposalCapHit = true;
+        return null;
       }
+      const proposal = {
+        ...input,
+        proposalId: `${runId}:p${proposals.length + 1}`,
+        createdAt: Date.now(),
+      } as AgentProposal;
       proposals.push(proposal);
       onEvent?.({ type: "proposal-added", kind: proposal.kind, total: proposals.length });
-      return true;
+      return proposal;
+    },
+    close() {
+      session.closed = true;
     },
   };
+  return session;
+}
+
+/** Resolve after the run's remaining budget, for slow-tool interruption. */
+function deadlineRace<T>(
+  promise: Promise<T>,
+  deadline: AgentRunDeadline
+): Promise<
+  | { kind: "value"; value: T }
+  | { kind: "timeout" }
+  | { kind: "error"; error: unknown }
+> {
+  const remaining = deadline.remainingMs();
+  if (remaining <= 0) return Promise.resolve({ kind: "timeout" });
+  return new Promise((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      resolve({ kind: "timeout" });
+    }, remaining);
+    promise.then(
+      (value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve({ kind: "value", value });
+      },
+      (error) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve({ kind: "error", error });
+      }
+    );
+  });
 }
 
 function toolResultBlock(name: string, index: number, result: AgentToolResult): string {
@@ -225,11 +299,23 @@ const MAX_TURNS_FACTOR = 2;
  */
 export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunResult> {
   const startedAt = Date.now();
-  const bounds = createAgentBounds(options.bounds);
-  const trace = createTraceRecorder();
+  const runId = options.runId ?? `agent-${startedAt}`;
   const env = options.env ?? createDefaultAgentEnvironment();
+  const targetBase = `${runId}:${env.sourceRevision ?? "nosrc"}`;
+  const deadline = options.deadline;
+  const effectiveSignal = deadline?.signal ?? options.signal;
+  const bounds = createAgentBounds({
+    ...options.bounds,
+    ...(deadline
+      ? {
+          wallClockMs: Math.max(1, deadline.remainingMs()),
+          now: options.bounds?.now,
+        }
+      : {}),
+  });
+  const trace = createTraceRecorder();
   const proposals: AgentProposal[] = [];
-  const session = createSession(bounds, proposals, options.onEvent);
+  const session = createSession(runId, bounds, proposals, options.onEvent, env.sourceRevision);
   const sources: AgentSourceRef[] = [];
   const transcript: string[] = [];
 
@@ -239,6 +325,7 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
   let providerKind: "ondevice" | "cloud" | undefined;
   let lastAnswer: string | undefined;
   const maxTurns = (options.bounds?.maxToolCalls ?? MAX_AGENT_TOOL_CALLS) + MAX_TURNS_FACTOR;
+  let terminal = false;
 
   const finish = (
     endReason: AgentRunEndReason,
@@ -246,6 +333,11 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
     explanation?: string,
     error?: { category: string; message: string }
   ): AgentRunResult => {
+    if (!terminal) {
+      terminal = true;
+      // Late async tools/proposals can never mutate the completed run.
+      session.close();
+    }
     const runTrace: AgentTraceEntry[] = [...trace.entries()];
     const durationMs = Date.now() - startedAt;
     keepAgentTrace({
@@ -274,8 +366,8 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
       answer,
       endReason,
       explanation,
-      sources,
-      proposals,
+      sources: [...sources],
+      proposals: [...proposals],
       trace: runTrace,
       turns,
       toolCalls,
@@ -285,7 +377,48 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
     };
   };
 
+  const timeoutResult = (): AgentRunResult =>
+    finish(
+      "timeout",
+      lastAnswer ?? "",
+      "Stopped: the run reached its hard deadline. No further model turn was started."
+    );
+
+  const guardBlocked = (violation: AgentRunGuardViolation): AgentRunResult =>
+    finish(
+      "blocked",
+      lastAnswer ?? "",
+      violation.explanation ??
+        "Stopped: the run's frozen sources or destination changed. Revalidate and start a new run."
+    );
+
+  const checkBeforeStage = (phase: "turn" | "tool" | "final"): AgentRunResult | null => {
+    if (deadline?.expired()) return timeoutResult();
+    if (effectiveSignal?.aborted) {
+      return finish("cancelled", lastAnswer ?? "", "The run was cancelled.");
+    }
+    const violation = options.guard?.(phase);
+    if (violation) return guardBlocked(violation);
+    return null;
+  };
+
+  const taskTimeout = (): number | undefined => {
+    if (!deadline) return undefined;
+    return Math.max(1, Math.min(AGENT_TURN_TIMEOUT_MS, deadline.remainingMs()));
+  };
+
+  const observation = options.observation
+    ? {
+        featureId: "learning-agent" as const,
+        runId,
+        capabilityRevision: options.observation.capabilityRevision,
+        smoke: options.observation.smoke,
+      }
+    : undefined;
+
   const forcedFinal = async (note: string): Promise<string | undefined> => {
+    const blocked = checkBeforeStage("final");
+    if (blocked) return undefined;
     try {
       const run = await runTask(
         agentRunnerTask,
@@ -299,8 +432,10 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
         {
           provider: options.provider,
           kind: options.kind,
-          signal: options.signal,
-          targetId: `agent-final:${startedAt}`,
+          signal: effectiveSignal,
+          timeoutMs: taskTimeout(),
+          targetId: `agent:${targetBase}:final`,
+          observation,
         }
       );
       return run.output.finalAnswer;
@@ -312,9 +447,8 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
   let noProgressTurns = 0;
 
   for (let turn = 1; turn <= maxTurns; turn++) {
-    if (options.signal?.aborted) {
-      return finish("cancelled", lastAnswer ?? "", "The run was cancelled.");
-    }
+    const preTurn = checkBeforeStage("turn");
+    if (preTurn) return preTurn;
 
     turns = turn;
     options.onEvent?.({ type: "turn-start", turn });
@@ -335,16 +469,25 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
         {
           provider: options.provider,
           kind: options.kind,
-          signal: options.signal,
-          targetId: `agent:${startedAt}:${turn}`,
+          signal: effectiveSignal,
+          timeoutMs: taskTimeout(),
+          targetId: `agent:${targetBase}:turn:${turn}`,
+          observation,
         }
       );
       providerId = run.providerId;
       providerKind = run.providerKind;
       model = run.output;
     } catch (error) {
+      if (deadline?.expired()) return timeoutResult();
       if (isAIError(error) && error.category === "Cancelled") {
-        return finish("cancelled", lastAnswer ?? "", "The run was cancelled.");
+        return finish(
+          deadline?.expiredByDeadline() ? "timeout" : "cancelled",
+          lastAnswer ?? "",
+          deadline?.expiredByDeadline()
+            ? "Stopped: the run reached its hard deadline."
+            : "The run was cancelled."
+        );
       }
       if (isAIError(error) && error.category === "InvalidStructuredOutput") {
         return finish(
@@ -362,8 +505,23 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
     // Execute the validated tool calls under bounds.
     let executedThisTurn = 0;
     let boundHit: AgentBoundsExceeded | undefined;
+    let deadlineDuringTool = false;
+    let guardDuringTool: AgentRunGuardViolation | null = null;
 
     for (let i = 0; i < model.toolCalls.length; i++) {
+      if (deadline?.expired()) {
+        deadlineDuringTool = true;
+        break;
+      }
+      if (effectiveSignal?.aborted) {
+        return finish("cancelled", lastAnswer ?? "", "The run was cancelled.");
+      }
+      const violation = options.guard?.("tool");
+      if (violation) {
+        guardDuringTool = violation;
+        break;
+      }
+
       const call = model.toolCalls[i];
       trace.begin(call.tool, call.input);
 
@@ -400,6 +558,7 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
 
       const validated = tool.validate(call.input);
       let result: AgentToolResult;
+      const proposalCountBefore = proposals.length;
       if (!isValidOutcome(validated)) {
         result = {
           ok: false,
@@ -409,7 +568,36 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
         };
       } else {
         try {
-          result = await tool.execute(validated.value as never, { session, env });
+          const executed = deadline
+            ? await deadlineRace(
+                tool.execute(validated.value as never, {
+                  session,
+                  env,
+                  signal: effectiveSignal,
+                }),
+                deadline
+              )
+            : {
+                kind: "value" as const,
+                value: await tool.execute(validated.value as never, {
+                  session,
+                  env,
+                  signal: effectiveSignal,
+                }),
+              };
+          if (executed.kind === "timeout") {
+            trace.end("error");
+            // Close immediately so a late tool callback cannot register a
+            // proposal after the deadline, and discard anything it added.
+            proposals.length = proposalCountBefore;
+            session.close();
+            deadlineDuringTool = true;
+            break;
+          }
+          if (executed.kind === "error") {
+            throw executed.error;
+          }
+          result = executed.value;
         } catch (error) {
           result = {
             ok: false,
@@ -418,6 +606,15 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
             displayDigest: `${call.tool} failed`,
           };
         }
+      }
+
+      if (deadline?.expired()) {
+        // The tool may have completed after the deadline: discard its output
+        // and never expose late proposals.
+        proposals.length = proposalCountBefore;
+        session.close();
+        deadlineDuringTool = true;
+        break;
       }
 
       transcript.push(toolResultBlock(call.tool, toolCalls, result));
@@ -435,6 +632,9 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
 
     options.onEvent?.({ type: "turn-end", turn });
 
+    if (deadlineDuringTool) return timeoutResult();
+    if (guardDuringTool) return guardBlocked(guardDuringTool);
+
     if (model.finalAnswer !== undefined) {
       lastAnswer = model.finalAnswer;
     }
@@ -445,6 +645,7 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
         (await forcedFinal(
           "A run limit was reached. Answer now from what you have — no further tool calls."
         )) ?? lastAnswer;
+      if (deadline?.expired()) return timeoutResult();
       return finish(boundHit.reason, forced ?? "", boundHit.explanation);
     }
 

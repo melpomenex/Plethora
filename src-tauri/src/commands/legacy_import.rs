@@ -716,6 +716,8 @@ fn parse_learning_item_row(row: &sqlx::sqlite::SqliteRow) -> Result<LearningItem
             .unwrap_or(0)
             != 0,
         source_reference: row.try_get("source_reference").ok().flatten(),
+        acceptance_id: row.try_get("acceptance_id").ok().flatten(),
+        proposal_id: row.try_get("proposal_id").ok().flatten(),
     })
 }
 

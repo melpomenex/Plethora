@@ -64,6 +64,13 @@ export interface SettingsSearchNavigationState {
   arrivalTargetId: string | null;
   retry: () => void;
   dismiss: () => void;
+  /**
+   * Scroll/focus an already-registered target without a search request.
+   * Used by typed readiness-recovery routes. Navigation only: it never
+   * changes a value or starts setup. Returns false when the target is not
+   * mounted in this Settings instance.
+   */
+  revealTarget: (targetId: string) => boolean;
   registerTarget: (id: string, registration: TargetRegistration) => () => void;
 }
 
@@ -370,6 +377,15 @@ export function SettingsSearchNavigationProvider({
     setPhase("idle");
   }, []);
 
+  const revealTarget = useCallback((targetId: string): boolean => {
+    const target = registrationsRef.current.get(targetId);
+    const element = target?.getElement();
+    if (!element) return false;
+    element.scrollIntoView({ block: "center" });
+    element.focus({ preventScroll: true });
+    return true;
+  }, []);
+
   const contextValue = useMemo(
     () => ({
       phase,
@@ -377,9 +393,10 @@ export function SettingsSearchNavigationProvider({
       arrivalTargetId,
       retry,
       dismiss,
+      revealTarget,
       registerTarget,
     }),
-    [phase, missingLabel, arrivalTargetId, retry, dismiss, registerTarget],
+    [phase, missingLabel, arrivalTargetId, retry, dismiss, revealTarget, registerTarget],
   );
 
   return (
@@ -397,4 +414,13 @@ export function useSettingsSearchNavigation(): SettingsSearchNavigationState {
     );
   }
   return context;
+}
+
+/**
+ * Optional variant for panels that can render outside the Settings shell in
+ * tests or embedded surfaces. Recovery then becomes a no-op instead of
+ * throwing.
+ */
+export function useOptionalSettingsSearchNavigation(): SettingsSearchNavigationState | null {
+  return useContext(SettingsSearchNavigationContext);
 }

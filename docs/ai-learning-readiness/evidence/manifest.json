@@ -1,0 +1,11 @@
+{
+  "schemaVersion": "ai-learning-evidence-v1",
+  "releaseCommit": "PENDING",
+  "capabilityRevision": "PENDING",
+  "notes": [
+    "No physical-device, native-model, real-provider or measured device-resource evidence has been recorded yet.",
+    "Every advertised matrix cell remains pending until a record exists at each required execution layer.",
+    "Mock integration, simulator and emulator records never satisfy a physical-device or desktop-real-provider requirement."
+  ],
+  "records": []
+}

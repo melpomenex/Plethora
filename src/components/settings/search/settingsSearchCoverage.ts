@@ -100,6 +100,8 @@ export const SETTINGS_SEARCH_COVERAGE: readonly SettingsSearchCoverageRow[] = [
     section: SettingsTab.AI,
     sources: [
       "AIProviderSettings.tsx",
+      "FeatureReadinessPanel.tsx",
+      "AIDiagnosticsModal.tsx",
       "LLMProviderSettings.tsx",
       "OnDeviceAiPanel.tsx",
       "MCPServersSettings.tsx",
@@ -108,7 +110,8 @@ export const SETTINGS_SEARCH_COVERAGE: readonly SettingsSearchCoverageRow[] = [
     exclusions: [
       "API key values, endpoints, and memory contents are private values and never enter the catalog.",
       "On-device AI entries are omitted where the platform bridge is unavailable.",
-      "Consequential actions (test connection, enable all, diagnostics) are reached through their groups and never executed by search.",
+      "Consequential actions (test connection, enable all, run smoke test, export report) are revealed through their groups but are never executed or changed by search.",
+      "Diagnostic provider/model strings and observed task payloads are runtime evidence, not searchable setting values.",
     ],
   },
   {

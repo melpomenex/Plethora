@@ -36,6 +36,12 @@ interface RSSFullContentViewProps {
   feed?: Feed | null;
   preferences?: RssUserPreferenceUpdate | null;
   onSavePreferences?: (patch: RssUserPreferenceUpdate) => Promise<void>;
+  /**
+   * Reports the mounted scroll/content root for passage scoring. Read-only:
+   * the host adapter enumerates mounted blocks and projects geometry; this
+   * component's layout and selection behavior are unchanged.
+   */
+  onContentRoot?: (element: HTMLElement | null) => void;
 }
 
 function SafeHTML({
@@ -195,10 +201,16 @@ export function RSSFullContentView({
   feed,
   preferences,
   onSavePreferences,
+  onContentRoot,
 }: RSSFullContentViewProps) {
   // Text-selection menu with the same actions as document viewing.
   // No feed is available here; the article title backs document creation.
   const selection = useRssSelectionMenu(null, item);
+  useEffect(() => {
+    onContentRoot?.(selection.contentRef.current);
+    return () => onContentRoot?.(null);
+  }, [onContentRoot, item.id, item.fullContent]);
+
   const [content, setContent] = useState<string | null>(item.fullContent || null);
   const [fetchedAt, setFetchedAt] = useState<string | null>(item.fullContentFetchedAt || null);
   const [isLoading, setIsLoading] = useState(false);

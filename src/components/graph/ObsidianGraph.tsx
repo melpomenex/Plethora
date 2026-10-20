@@ -84,6 +84,12 @@ const NODE_CONFIG = {
     color: "#ea580c",
     labelKey: "graph.rss",
   },
+  [GraphNodeType.Concept]: {
+    icon: "🔗",
+    size: 18,
+    color: "#eab308",
+    labelKey: "Concepts",
+  },
 };
 
 // Edge type configuration

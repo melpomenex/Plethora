@@ -30,18 +30,25 @@ export async function submitExtractReview(
 }
 
 /**
- * Create a cloze deletion flashcard from an extract
+ * Create a cloze deletion flashcard from an extract.
+ *
+ * `acceptance` carries the narrow retry-safe identity used by agent learning
+ * proposals: the backend returns the originally created row when the same
+ * (acceptanceId, proposalId) pair is submitted again.
  */
 export async function createClozeFromExtract(
     extractId: string,
     clozeText: string,
-    clozeRanges: [number, number][]
+    clozeRanges: [number, number][],
+    acceptance?: { acceptanceId?: string; proposalId?: string }
 ): Promise<LearningItem> {
     if (!isTauri()) return desktopOnly();
     return await invokeCommand<LearningItem>("create_cloze_from_extract", {
         extractId,
         clozeText,
         clozeRanges,
+        acceptanceId: acceptance?.acceptanceId,
+        proposalId: acceptance?.proposalId,
     });
 }
 
@@ -58,6 +65,20 @@ export async function createQAFromExtract(
         extractId,
         question,
         answer,
+    });
+}
+
+/**
+ * Bounded recent-extract read for the learning agent. Filters to the frozen
+ * documents and never materializes the whole extract table.
+ */
+export async function getRecentExtractsBounded(options: {
+    documentIds?: string[];
+    limit?: number;
+} = {}): Promise<Extract[]> {
+    return await invokeCommand<Extract[]>("get_recent_extracts_bounded", {
+        documentIds: options.documentIds,
+        limit: options.limit ?? 10,
     });
 }
 

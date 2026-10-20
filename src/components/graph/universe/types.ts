@@ -46,6 +46,7 @@ export enum NodeClass {
   Beacon = 3, // category
   Halo = 4, // tag
   Pulsar = 5, // rss
+  Concept = 6, // confirmed cross-document concept
 }
 
 export const NODE_CLASS_BY_TYPE: Record<GraphNodeType, NodeClass> = {
@@ -55,6 +56,7 @@ export const NODE_CLASS_BY_TYPE: Record<GraphNodeType, NodeClass> = {
   [GraphNodeType.Category]: NodeClass.Beacon,
   [GraphNodeType.Tag]: NodeClass.Halo,
   [GraphNodeType.Rss]: NodeClass.Pulsar,
+  [GraphNodeType.Concept]: NodeClass.Concept,
 };
 
 /** Established type palette (matches the Sphere/Graph views). */
@@ -65,6 +67,7 @@ export const NODE_VISUALS: Record<NodeClass, { color: string; size: number }> = 
   [NodeClass.Beacon]: { color: "#f59e0b", size: 6.5 },
   [NodeClass.Halo]: { color: "#06b6d4", size: 3.5 },
   [NodeClass.Pulsar]: { color: "#f97316", size: 6.0 },
+  [NodeClass.Concept]: { color: "#eab308", size: 5.5 },
 };
 
 /** Per-node interaction state written into the aState buffer attribute. */

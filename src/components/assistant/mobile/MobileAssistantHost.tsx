@@ -13,6 +13,7 @@ import { AssistantSheetMotion } from "./motion";
 import { assistantPillBottom, readAssistantViewport } from "./viewport";
 import "./mobile-assistant.css";
 import { usePublishBottomControls, visibleControlTop } from "../../mobile/BottomControlsGeometry";
+import { subscribeLearningAgentMode } from "../../../lib/ai/assistant/learningAgentHandoff";
 const Panel = lazy(() => import("../AssistantPanel").then(module => ({ default: module.AssistantPanel })));
 
 export function MobileAssistantHost({ navRef, fullscreen }: { navRef: RefObject<HTMLElement | null>; fullscreen: boolean }) {
@@ -72,10 +73,10 @@ export function MobileAssistantHost({ navRef, fullscreen }: { navRef: RefObject<
     global: true,
     containFocus: detent === "expanded" || preview,
   });
-  const commit = (target: AssistantDetent, id: string, kind: "tap" | "drag" | "handle") => {
+  const commit = (target: AssistantDetent, id: string, kind: "tap" | "drag" | "handle", force = false) => {
     if (target === "closed") { close(); return; }
     const previous = currentDetent.current;
-    if (previous === "closed" && !available) { close(); return; }
+    if (previous === "closed" && !available && !force) { close(); return; }
     currentDetent.current = target;
     setMounted(true); setCommitted(true); setPreview(false); setExiting(false); setDetent(target);
     currentPreview.current = false;
@@ -107,6 +108,19 @@ export function MobileAssistantHost({ navRef, fullscreen }: { navRef: RefObject<
   const handle = useAssistantSheetGesture({ kind: "handle", enabled: open && foreground && !fullscreen && overlayPriority <= 60, identity: active.ownerKey,
     geometry, detent, onStart: () => { motion.interrupt(); }, onPreview,
     onRelease: commit, onCancel: cancel, onTap: () => commit(detent === "partial" ? "expanded" : geometry.hasPartial ? "partial" : "closed", createFeedbackInteractionId(), "handle") });
+
+  // Palette "Learning Agent" entry opens this existing sheet without sending a
+  // request; the panel consumes the same handoff and selects the mode.
+  const commitRef = useRef(commit);
+  commitRef.current = commit;
+  useEffect(
+    () =>
+      subscribeLearningAgentMode((request) => {
+        if (!request) return;
+        commitRef.current(initialAssistantDetent(geometryRef.current), createFeedbackInteractionId(), "tap", true);
+      }),
+    []
+  );
 
   useEffect(() => {
     controller?.setDismiss(() => { if (currentDetent.current !== "closed" || currentPreview.current) close(); });

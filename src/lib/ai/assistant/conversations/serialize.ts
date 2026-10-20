@@ -14,15 +14,20 @@
  */
 
 import {
+  AGENT_DRAFT_ARTIFACT_VERSION,
   CONVERSATION_RECORD_VERSION,
   isContextPolicyMode,
   isEvidenceLevel,
   isEvidenceOrigin,
   isTurnStatus,
+  type AgentDraftArtifact,
+  type AgentDraftCandidate,
+  type AgentDraftCandidateStatus,
+  type AgentDraftKind,
+  type AgentDraftSourceRef,
   type Attempt,
   type Citation,
   type ContextPolicy,
-  type Conversation,
   type ConversationRecord,
   type Draft,
   type DraftAlternative,
@@ -380,7 +385,7 @@ function decodeMessage(raw: unknown): Message | null {
 
 const DRAFT_KNOWN_KEYS = [
   "conversationId", "deviceId", "revision", "text", "attachments",
-  "mentionTokens", "selection", "updatedAt",
+  "mentionTokens", "selection", "agentDraft", "updatedAt",
 ] as const;
 
 function decodeMentionToken(raw: unknown): MentionToken | null {
@@ -414,9 +419,147 @@ export function decodeDraft(raw: unknown): Draft | null {
   };
   const selection = decodeSelectionSnapshot(raw.selection);
   if (selection) draft.selection = selection;
+  const agentDraft = decodeAgentDraftArtifact(raw.agentDraft);
+  if (agentDraft) draft.agentDraft = agentDraft;
   const extras = collectUnknownKeys(raw, DRAFT_KNOWN_KEYS);
   if (extras) (draft as Draft & { unknownFields?: unknown }).unknownFields = extras;
   return draft;
+}
+
+/* ------------------------------------------------------------------ */
+/* Learning Agent draft artifact                                       */
+/* ------------------------------------------------------------------ */
+
+const AGENT_DRAFT_KINDS: readonly AgentDraftKind[] = [
+  "extract", "flashcard", "cloze", "occlusion", "tag",
+];
+const AGENT_DRAFT_STATUSES: readonly AgentDraftCandidateStatus[] = [
+  "draft", "validating", "saving", "saved", "failed", "rejected",
+];
+const AGENT_DRAFT_SCOPES: readonly AgentDraftArtifact["scope"][] = [
+  "section", "document", "library", "papers",
+];
+
+const MAX_AGENT_DRAFT_SOURCES = 32;
+const MAX_AGENT_DRAFT_CANDIDATES = 40;
+const MAX_AGENT_DRAFT_TEXT = 12_000;
+
+function boundedText(value: unknown, max = MAX_AGENT_DRAFT_TEXT): string | undefined {
+  const text = str(value);
+  return text === undefined ? undefined : text.slice(0, max);
+}
+
+function decodeAgentDraftSourceRef(raw: unknown): AgentDraftSourceRef | null {
+  if (!isRecord(raw)) return null;
+  const handle = str(raw.handle);
+  const refId = str(raw.refId);
+  const kind = str(raw.kind);
+  if (!handle || !refId || !kind) return null;
+  if (!["chunk", "card", "document", "extract"].includes(kind)) return null;
+  return {
+    handle,
+    refId,
+    kind: kind as AgentDraftSourceRef["kind"],
+    documentId: str(raw.documentId),
+    title: str(raw.title),
+    locator: str(raw.locator),
+    contentVersion: str(raw.contentVersion),
+  };
+}
+
+function decodeAgentDraftCandidate(raw: unknown): AgentDraftCandidate | null {
+  if (!isRecord(raw)) return null;
+  const proposalId = str(raw.proposalId);
+  const kind = str(raw.kind);
+  const question = boundedText(raw.question);
+  const answer = boundedText(raw.answer) ?? "";
+  const status = str(raw.status);
+  if (!proposalId || !kind || question === undefined) return null;
+  if (!AGENT_DRAFT_KINDS.includes(kind as AgentDraftKind)) return null;
+  if (!AGENT_DRAFT_STATUSES.includes(status as AgentDraftCandidateStatus)) return null;
+  const candidate: AgentDraftCandidate = {
+    proposalId,
+    kind: kind as AgentDraftKind,
+    sourceRefs: arrayOf(raw.sourceRefs, decodeAgentDraftSourceRef) ?? [],
+    question,
+    answer,
+    status: status as AgentDraftCandidateStatus,
+  };
+  const cardType = str(raw.cardType);
+  if (cardType !== undefined) candidate.cardType = cardType;
+  const concept = str(raw.concept);
+  if (concept !== undefined) candidate.concept = concept;
+  const conceptKeys = stringArray(raw.conceptKeys);
+  if (conceptKeys) candidate.conceptKeys = conceptKeys;
+  const clozeText = boundedText(raw.clozeText);
+  if (clozeText !== undefined) candidate.clozeText = clozeText;
+  const tags = stringArray(raw.tags);
+  if (tags) candidate.tags = tags;
+  const text = boundedText(raw.text);
+  if (text !== undefined) candidate.text = text;
+  const note = boundedText(raw.note, 2_000);
+  if (note !== undefined) candidate.note = note;
+  const tag = str(raw.tag);
+  if (tag !== undefined) candidate.tag = tag;
+  const itemId = str(raw.itemId);
+  if (itemId !== undefined) candidate.itemId = itemId;
+  const itemQuestion = boundedText(raw.itemQuestion);
+  if (itemQuestion !== undefined) candidate.itemQuestion = itemQuestion;
+  const evidenceQuote = boundedText(raw.evidenceQuote, 2_000);
+  if (evidenceQuote !== undefined) candidate.evidenceQuote = evidenceQuote;
+  const issues = stringArray(raw.issues);
+  if (issues) candidate.issues = issues.slice(0, 20);
+  const savedId = str(raw.savedId);
+  if (savedId !== undefined) candidate.savedId = savedId;
+  const provenancePending = bool(raw.provenancePending);
+  if (provenancePending !== undefined) candidate.provenancePending = provenancePending;
+  return candidate;
+}
+
+/**
+ * Decode the optional agent artifact. Version/kind/status are validated and
+ * unknown shapes are dropped (honest absence), never upgraded into a runnable
+ * execution. Old conversation records without this field decode unchanged.
+ */
+export function decodeAgentDraftArtifact(raw: unknown): AgentDraftArtifact | null {
+  if (!isRecord(raw)) return null;
+  if (raw.version !== AGENT_DRAFT_ARTIFACT_VERSION) return null;
+  const runId = str(raw.runId);
+  const conversationId = str(raw.conversationId);
+  const intent = boundedText(raw.intent, 4_000);
+  const scope = str(raw.scope);
+  const createdAt = num(raw.createdAt);
+  const updatedAt = num(raw.updatedAt);
+  if (!runId || !conversationId || intent === undefined || createdAt === undefined) return null;
+  if (!scope || !AGENT_DRAFT_SCOPES.includes(scope as AgentDraftArtifact["scope"])) return null;
+  const artifact: AgentDraftArtifact = {
+    version: AGENT_DRAFT_ARTIFACT_VERSION,
+    runId,
+    conversationId,
+    intent,
+    scope: scope as AgentDraftArtifact["scope"],
+    createdAt,
+    updatedAt: updatedAt ?? createdAt,
+    sources: (arrayOf(raw.sources, decodeSourceReference) ?? []).slice(
+      0,
+      MAX_AGENT_DRAFT_SOURCES
+    ),
+    candidates: (arrayOf(raw.candidates, decodeAgentDraftCandidate) ?? []).slice(
+      0,
+      MAX_AGENT_DRAFT_CANDIDATES
+    ),
+  };
+  const selection = decodeSelectionSnapshot(raw.selection);
+  if (selection) artifact.selection = selection;
+  const sectionTitle = str(raw.sectionTitle);
+  if (sectionTitle !== undefined) artifact.sectionTitle = sectionTitle;
+  const partial = bool(raw.partial);
+  if (partial !== undefined) artifact.partial = partial;
+  const endReason = str(raw.endReason);
+  if (endReason !== undefined) artifact.endReason = endReason;
+  const explanation = boundedText(raw.explanation, 4_000);
+  if (explanation !== undefined) artifact.explanation = explanation;
+  return artifact;
 }
 
 export function decodeDraftAlternative(raw: unknown): DraftAlternative | null {
@@ -545,6 +688,7 @@ const CONVERSATION_KNOWN_KEYS = [
   "updatedAt", "revision", "contextPolicy", "activeAttachments",
   "sourceHistory", "syncPolicy", "deletedAt", "legacyAliases",
   "unknownFields", "messages", "turns", "draft", "draftAlternatives",
+  "agentDraft",
 ] as const;
 
 /**
@@ -588,6 +732,8 @@ export function decodeConversationRecord(raw: unknown): DecodeResult<Conversatio
   if (deletedAt !== undefined) record.deletedAt = deletedAt;
   const draft = decodeDraft(raw.draft);
   if (draft) record.draft = draft;
+  const agentDraft = decodeAgentDraftArtifact(raw.agentDraft);
+  if (agentDraft) record.agentDraft = agentDraft;
   const alternatives = arrayOf(raw.draftAlternatives, decodeDraftAlternative);
   if (alternatives) record.draftAlternatives = alternatives;
 

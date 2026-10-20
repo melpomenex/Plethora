@@ -17,10 +17,15 @@ import { useSettingsStore, type ActiveRecallMode } from "../../stores/settingsSt
 import { invokeCommand as invoke } from "../../lib/tauri";
 import { NumericInput } from "../common";
 import { AIDiagnosticsModal } from "./AIDiagnosticsModal";
+import { FeatureReadinessPanel } from "./FeatureReadinessPanel";
 import { useState, useEffect } from "react";
 import { useI18n } from "../../lib/i18n";
-import { getAIConfig, setApiKey, isMaskedKey } from "../../api/ai";
+import { getAIConfig, setApiKey } from "../../api/ai";
 import { useToast } from "../common/Toast";
+import { planEnableAll, buildEnableAllFeaturesPatch, activationSummaryKey } from "../../lib/ai/features/activation";
+import { useFeatureReadiness } from "../../lib/ai/features/useFeatureReadiness";
+import type { RecoveryAction } from "../../lib/ai/features/types";
+import { useOptionalSettingsSearchNavigation } from "./search/SettingsSearchNavigation";
 
 /**
  * AI Provider Settings
@@ -29,6 +34,14 @@ export function AISettings({ onChange }: { onChange: () => void }) {
   const { t } = useI18n();
   const toast = useToast();
   const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const { rows: readinessRows } = useFeatureReadiness();
+  const searchNavigation = useOptionalSettingsSearchNavigation();
+  const [enableSummary, setEnableSummary] = useState<{
+    key: string;
+    ready: number;
+    setup: number;
+    preserved: number;
+  } | null>(null);
   const providers = useLLMProvidersStore((state) => state.providers);
   const addProvider = useLLMProvidersStore((state) => state.addProvider);
   const updateProvider = useLLMProvidersStore((state) => state.updateProvider);
@@ -260,43 +273,75 @@ export function AISettings({ onChange }: { onChange: () => void }) {
         description="On-device learning tools: card generation, Socratic tutoring, Ask Library RAG, active recall, occlusion assist, and learning agent."
         searchId="ai.learningFeatures"
       >
-        <SettingsRow
-          label="Enable All AI Learning Features"
-          description="Quickly enable all on-device learning capabilities for this device"
+        <SettingsSearchTarget id="ai.enableAll" label={t("ai.activation.enableAll")}>
+          <SettingsRow
+            label={t("ai.activation.enableAll")}
+            description={t("ai.activation.enableAllDescription")}
+          >
+            <div className="flex flex-col items-end gap-1">
+              <div className="flex gap-2">
+                <button
+                  onClick={() => {
+                    const currentFlags = settings.features as unknown as Record<string, boolean>;
+                    const plan = planEnableAll(readinessRows, currentFlags);
+                    const patch = buildEnableAllFeaturesPatch(plan, currentFlags);
+                    // One update: only supported feature preferences. Provider
+                    // choice, cloud consent, paid embeddings, freeform vision
+                    // and the active-recall mode are untouched by construction.
+                    updateSettings({
+                      features: { ...settings.features, ...patch },
+                    });
+                    setEnableSummary({
+                      key: activationSummaryKey(plan.summary),
+                      ready: plan.summary.ready,
+                      setup: plan.summary.needsSetup,
+                      preserved: plan.preservedFeatureIds.length,
+                    });
+                    onChange();
+                  }}
+                  className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-medium hover:opacity-90 transition-opacity"
+                >
+                  {t("ai.activation.enableAll")}
+                </button>
+              </div>
+              {enableSummary && (
+                <p className="text-[11px] text-muted-foreground" aria-live="polite">
+                  {t(enableSummary.key, {
+                    ready: enableSummary.ready,
+                    setup: enableSummary.setup,
+                    preserved: enableSummary.preserved,
+                  })}
+                </p>
+              )}
+            </div>
+          </SettingsRow>
+        </SettingsSearchTarget>
+
+        <FeatureReadinessPanel
+          onOpenDiagnostics={() => setShowDiagnostics(true)}
+          onRecover={(action: RecoveryAction) => {
+            // Navigation only: reveal an existing control; never start setup.
+            searchNavigation?.revealTarget(action.targetId);
+          }}
+        />
+
+        <SettingsSearchTarget
+          id="ai.diagnostics"
+          label={t("aiDiagnostics.button")}
+          reveal={() => setShowDiagnostics(true)}
         >
-          <div className="flex gap-2">
-            <button
-              onClick={() => {
-                updateSettings({
-                  features: {
-                    ...settings.features,
-                    aiLearnThis: true,
-                    aiLibraryRag: true,
-                    aiSocraticTutor: true,
-                    aiOcclusionAssist: true,
-                    aiSemanticIndex: true,
-                    aiActiveRecall: true,
-                    aiAnswerAssessment: true,
-                    aiPrerequisites: true,
-                    aiConceptLinks: true,
-                    aiExtractWorthiness: true,
-                    aiAgent: true,
-                  },
-                });
-                onChange();
-              }}
-              className="px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-medium hover:opacity-90 transition-opacity"
-            >
-              Enable All
-            </button>
+          <SettingsRow
+            label={t("aiDiagnostics.button")}
+            description={t("aiDiagnostics.featuresHint")}
+          >
             <button
               onClick={() => setShowDiagnostics(true)}
               className="px-3 py-1.5 bg-muted text-foreground border border-border rounded-lg text-xs font-medium hover:bg-muted/80 transition-colors"
             >
               {t("aiDiagnostics.button")}
             </button>
-          </div>
-        </SettingsRow>
+          </SettingsRow>
+        </SettingsSearchTarget>
 
         <SettingsRow
           label="Learn this (Card Extraction)"
@@ -425,21 +470,23 @@ export function AISettings({ onChange }: { onChange: () => void }) {
         </SettingsRow>
 
         <SettingsRow
-          label="Knowledge Relationships & Prerequisites"
+          label={t("ai.feature.knowledge.prerequisites")}
           searchId="ai.prerequisites"
-          description="Identify concept dependencies, coverage levels, and cross-document concept links"
+          description={t("ai.feature.knowledge.prerequisitesDescription")}
         >
           <label className="relative inline-flex items-center cursor-pointer">
             <input
               type="checkbox"
+              aria-label={t("ai.feature.knowledge.prerequisites")}
               className="sr-only peer"
               checked={settings.features.aiPrerequisites}
               onChange={(e) => {
+                // Independent flag: changing prerequisites must never change
+                // concept-link proposals.
                 updateSettings({
                   features: {
                     ...settings.features,
                     aiPrerequisites: e.target.checked,
-                    aiConceptLinks: e.target.checked,
                   },
                 });
                 onChange();
@@ -448,6 +495,34 @@ export function AISettings({ onChange }: { onChange: () => void }) {
             <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
           </label>
         </SettingsRow>
+
+        <SettingsSearchTarget id="ai.conceptLinks" label={t("ai.feature.knowledge.conceptLinks")}>
+          <SettingsRow
+            label={t("ai.feature.knowledge.conceptLinks")}
+            description={t("ai.feature.knowledge.conceptLinksDescription")}
+          >
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                aria-label={t("ai.feature.knowledge.conceptLinks")}
+                className="sr-only peer"
+                checked={settings.features.aiConceptLinks}
+                onChange={(e) => {
+                  // Independent flag: changing concept links must never change
+                  // prerequisite analysis.
+                  updateSettings({
+                    features: {
+                      ...settings.features,
+                      aiConceptLinks: e.target.checked,
+                    },
+                  });
+                  onChange();
+                }}
+              />
+              <div className="w-11 h-6 bg-muted peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-primary/20 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+            </label>
+          </SettingsRow>
+        </SettingsSearchTarget>
 
         <SettingsRow
           label="Passage Extract-Worthiness Scoring"

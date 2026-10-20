@@ -558,6 +558,23 @@ interface EPUBViewerProps {
     }) => () => void;
     invalidate: (reason: string) => void;
   };
+  /**
+   * Passage extract-worthiness content registration (independent of selection
+   * V2). Each rendered spine document is registered with the reader's passage
+   * adapter and unregistered on teardown. No scoring happens here.
+   */
+  passageContentBridge?: {
+    /** Typography/chapter changes invalidate in-flight passage work/geometry. */
+    invalidate?: (reason: string) => void;
+    register: (entry: {
+      doc: globalThis.Document;
+      win?: Window | null;
+      offset?: () => { x: number; y: number } | null;
+      buildSelectionContext?: (range: Range, selection: Selection) => unknown;
+      spineIndex?: number;
+      spineHref?: string;
+    }) => () => void;
+  };
 }
 
 export function EPUBViewer({
@@ -595,6 +612,7 @@ export function EPUBViewer({
   embedded = false,
   onVimRuntimeChange,
   selectionInteractionBridge,
+  passageContentBridge,
 }: EPUBViewerProps) {
   const viewerRef = useRef<HTMLDivElement>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -718,6 +736,8 @@ export function EPUBViewer({
   onSelectionChangeRef.current = onSelectionChange;
   const selectionInteractionBridgeRef = useRef(selectionInteractionBridge);
   selectionInteractionBridgeRef.current = selectionInteractionBridge;
+  const passageContentBridgeRef = useRef(passageContentBridge);
+  passageContentBridgeRef.current = passageContentBridge;
   // Detachers for content-document bridge registrations (V2): cleared when
   // the rendition tears down so dead iframes drop out of the controller.
   const bridgeDetachersRef = useRef(new Set<() => void>());
@@ -1761,6 +1781,37 @@ export function EPUBViewer({
               setInitialContentThemed(true);
             }
 
+            // Passage extract-worthiness: register the rendered spine document
+            // with the reader's passage adapter. Independent of selection V2 so
+            // scoring works with either selection path. Geometry is projected
+            // on demand; this registration starts no inference.
+            const passageBridge = passageContentBridgeRef.current;
+            if (passageBridge) {
+              const classOffset = () => {
+                const frame = contents.window?.frameElement as HTMLElement | null | undefined;
+                if (!frame || typeof frame.getBoundingClientRect !== "function") return null;
+                const frameRect = frame.getBoundingClientRect();
+                return { x: frameRect.left, y: frameRect.top };
+              };
+              const detachPassage = passageBridge.register({
+                doc: contents.document,
+                win: contents.window,
+                offset: classOffset,
+                spineIndex: spineIndex >= 0 ? spineIndex : undefined,
+                spineHref: href || undefined,
+                buildSelectionContext: (range: Range) => {
+                  try {
+                    const cfi = contents.cfiFromRange?.(range);
+                    if (!cfi) return null;
+                    return { cfiRange: String(cfi) };
+                  } catch {
+                    return null;
+                  }
+                },
+              });
+              bridgeDetachersRef.current.add(detachPassage);
+            }
+
             // Selection wiring (overhaul-reader-selection-ux):
             //  - V2 bridge present: register this content document with the
             //    controller. Selection activity drives selecting/settling in
@@ -2297,6 +2348,7 @@ export function EPUBViewer({
             // over the new page.
             try {
               selectionInteractionBridgeRef.current?.invalidate("epub-relocated");
+              passageContentBridgeRef.current?.invalidate?.("epub-relocated");
               lastEpubSelectionContextRef.current = null;
             } catch { /* bridge teardown race — ignore */ }
 
@@ -2402,6 +2454,7 @@ export function EPUBViewer({
       }
       bridgeDetachersRef.current = new Set();
       try { selectionInteractionBridgeRef.current?.invalidate("epub-closed"); } catch { /* ignore */ }
+      try { passageContentBridgeRef.current?.invalidate?.("epub-closed"); } catch { /* ignore */ }
       if (savePositionTimer) {
         clearTimeout(savePositionTimer);
       }

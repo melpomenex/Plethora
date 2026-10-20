@@ -162,8 +162,9 @@ describe("explainCard", () => {
       )
     ).rejects.toMatchObject({ category: "Cancelled", code: "cancelled" });
 
-    // The already-aborted signal must not be retried on the non-streaming
-    // path, and the canned fallback must not be served.
-    expect(provider.callCount).toBe(1);
+    // The already-aborted signal must do no provider work at all (runTask
+    // rejects before resolving a route), and the canned fallback must not be
+    // served. Zero calls is stronger than the old one-attempt-and-stop path.
+    expect(provider.callCount).toBe(0);
   });
 });

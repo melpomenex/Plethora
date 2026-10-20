@@ -291,3 +291,74 @@ Feature work is tracked through the [OpenSpec](../openspec/) proposal workflow �
 ---
 
 *Built with Tauri + React + Rust.*
+
+---
+
+## AI Learning completion program (implementation, not device qualification)
+
+The six OpenSpec changes under `openspec/changes/` for the AI Learning
+completion program are implemented in this tree where the repository permits
+local execution. This section records what is actually verified, not a release
+claim.
+
+**Implemented and locally verified**
+
+- A shared feature-readiness contract for ten features with independent
+  operations (including separate prerequisite and concept-link states), a
+  revision-keyed read-only probe cache, and setting reconciliation that
+  preserves explicit false preferences.
+- Destination classification that separates authentication, billing and
+  off-device processing. Loopback is the only URL locality treated as
+  on-device; LAN `.local` and private-address Ollama endpoints require the
+  existing disclosure. Generation and embedding destinations are resolved
+  independently.
+- Capability-aware Enable All: one supported-preference update, a summary that
+  separates ready from setup-needed, and no changes to provider choice, cloud
+  consent, paid embeddings, freeform vision or the active-recall mode.
+- AI Diagnostics feature rows with static/dependency/operational evidence,
+  observed stages, stale/unknown handling, typed recovery navigation, bounded
+  fixture smoke tests and a schema-versioned redacted local export.
+- The Assistant Learning Agent, reader extract-worthiness integration and
+  knowledge coverage/relationship lifecycle. The implementation record
+  (`docs/ai-learning-readiness/implementation-record.md`) lists the production
+  modules and the tests that exercise them; the six `tasks.md` files carry the
+  checked/unchecked accounting.
+
+Known limitations in this tree:
+
+- The agent has no validated concept-handle source, so its optional
+  `propose_link` tool returns typed unavailable and creates nothing.
+- A full fresh-profile → explicit setup → restart E2E and a Playwright run of
+  the diagnostics modal are not executed; component/integration coverage
+  exists.
+- Twelve frontend tests and one Rust test fail at the audited baseline too;
+  they are listed in `docs/ai-learning-readiness/release-blockers.md` and are
+  not AI Learning regressions.
+
+**Automated verification**
+
+- Feature readiness, diagnostics, smoke runner, settings activation/search,
+  lifecycle integration, reader/knowledge/agent suites and Settings-store
+  reconciliation suites pass locally.
+- `npm run bench:check` passes (67 benchmarks + bundle budgets); the
+  diagnostics modal has a real headless-Chromium E2E
+  (`src/visual/ai-diagnostics.visual.spec.ts`).
+- `npx tsc --noEmit` passed while the AI Learning changes were the only edits;
+  a concurrent recording workstream later introduced transient errors in its
+  own files. `npx eslint src` reports 0 errors. See the implementation record
+  for exact commands and results.
+
+**Not verified / pending**
+
+- No physical Android, iOS, macOS or Windows device qualification; no native
+  model execution; no real-provider desktop run; no measured device CPU,
+  memory, frame or battery budget.
+- The qualification matrix in `docs/ai-learning-readiness/device-protocol.md`
+  starts every advertised cell at **pending**. The machine-checked evidence
+  manifest contains zero records.
+- Simulator, emulator and mocked integration results are recorded as such and
+  do not satisfy a physical-device or desktop-real-provider requirement.
+- 89 of 97 implementation tasks are checked. The eight remaining are: native
+  device execution (Android, Linux real-provider, Windows, macOS, iOS), device
+  resource measurements, a full fresh-profile setup/restart E2E, and the
+  OCR/occlusion diagnostics smoke adapter.

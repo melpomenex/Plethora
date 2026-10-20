@@ -11,6 +11,7 @@
 import type { OnDeviceRequirement } from "../onDeviceAI";
 import type { AIImagePayload, AIProvider } from "../providers/types";
 import type { ValidationOutcome } from "../schemas/common";
+import type { FeatureId } from "../features/types";
 
 export type { ValidationOutcome };
 
@@ -45,6 +46,19 @@ export interface AITaskRunOptions {
   signal?: AbortSignal;
   onChunk?: (text: string) => void;
   onRetry?: (attempt: number, delayMs: number) => void;
+  /**
+   * Optional feature/run correlation (D0). When present, `runTask` records a
+   * generation-stage feature observation. It never claims preview,
+   * persistence or navigation success — those stages are recorded by their
+   * owning feature boundary.
+   */
+  observation?: {
+    featureId: FeatureId;
+    runId: string;
+    capabilityRevision: string;
+    /** Smoke-run provenance; excluded from normal user evidence. */
+    smoke?: boolean;
+  };
   /**
    * Logical target of the run; keys in-flight coalescing. Defaults to a hash
    * of the built input so duplicate calls on the same content share a run.

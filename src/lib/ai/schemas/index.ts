@@ -9,6 +9,7 @@ export * from "./answerAssessment";
 export * from "./recallQuestion";
 export * from "./occlusionLabel";
 export * from "./prerequisite";
+export * from "./conceptRelationship";
 export * from "./passageClassification";
 export * from "./tutorTurn";
 export * from "./libraryAnswer";

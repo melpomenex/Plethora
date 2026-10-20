@@ -722,6 +722,9 @@ export interface LearningItem {
     algorithm_state?: string;
     /** Serialized `CardSourceReference` JSON — provenance for extract-less cards. */
     source_reference?: string;
+    /** Retry-safe acceptance identity for agent proposals (optional). */
+    acceptance_id?: string;
+    proposal_id?: string;
     sync_version?: number;
     collection_id?: string;
     _deleted?: boolean;
@@ -776,6 +779,9 @@ function buildLearningItemRecord(item: Partial<LearningItem>): LearningItem {
         memory_state: item.memory_state,
         algorithm_type: item.algorithm_type || 'fsrs',
         algorithm_state: item.algorithm_state,
+        source_reference: item.source_reference,
+        acceptance_id: item.acceptance_id,
+        proposal_id: item.proposal_id,
         sync_version: 0,
     };
 }
