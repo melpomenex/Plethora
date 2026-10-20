@@ -6,6 +6,12 @@ import { floatToPcm16leBase64 } from "../../lib/ai/android/pcm";
 import { getAndroidSpeechProvider } from "../../lib/ai/android/speechProvider";
 import { ToastType, useToastStore } from "./Toast";
 import { useI18n } from "../../lib/i18n";
+import {
+  createRecordingSession,
+  isRecordingPersistenceAvailable,
+} from "../../api/recordingSessions";
+import { startDesktopCapture } from "../../services/recording/desktopCapture";
+import type { CaptureHandle } from "../../types/recordingSession";
 
 export const LECTURE_CAPTURE_EVENT = "plethora:record-lecture";
 
@@ -111,6 +117,7 @@ export function LectureCaptureHost() {
   const [recording, setRecording] = useState(false);
   const [partial, setPartial] = useState("");
   const captureLease = useRef<(() => void) | null>(null);
+  const captureHandleRef = useRef<CaptureHandle | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
   const pcmTapRef = useRef<{ stop: () => Promise<string> } | null>(null);
@@ -133,6 +140,7 @@ export function LectureCaptureHost() {
 
   const discard = () => {
     captureLease.current?.(); captureLease.current = null;
+    captureHandleRef.current = null;
     try {
       recorderRef.current?.stop();
     } catch {
@@ -150,6 +158,34 @@ export function LectureCaptureHost() {
   };
 
   const stop = async () => {
+    if (captureHandleRef.current) {
+      const handle = captureHandleRef.current;
+      captureHandleRef.current = null;
+      stopLiveInputs();
+      captureLease.current?.();
+      captureLease.current = null;
+      setRecording(false);
+      try {
+        const finishResult = await handle.finish();
+        addToast({
+          type: finishResult.incomplete ? ToastType.Warning : ToastType.Success,
+          title: t("commandPalette.recordLecture"),
+          message: finishResult.incomplete
+            ? t("onDeviceAi.lectureSavedIncomplete")
+            : t("onDeviceAi.lectureSaved"),
+        });
+      } catch (err) {
+        addToast({
+          type: ToastType.Error,
+          title: t("commandPalette.recordLecture"),
+          message: String(err),
+        });
+      }
+      setPartial("");
+      setOpen(false);
+      return;
+    }
+
     const recorder = recorderRef.current;
     const blob = await new Promise<Blob>((resolve) => {
       if (!recorder) {
@@ -175,19 +211,27 @@ export function LectureCaptureHost() {
     setRecording(false);
     chunksRef.current = [];
     recorderRef.current = null;
-    const audioUri = await persistLectureRecording(blob);
-    const result = await saveLectureDocument({
-      audioUri,
-      speech: getAndroidSpeechProvider(),
-      pcmBase64: pcmBase64 || undefined,
-    });
-    addToast({
-      type: ToastType.Success,
-      title: t("commandPalette.recordLecture"),
-      message: result.incomplete
-        ? t("onDeviceAi.lectureSavedIncomplete")
-        : t("onDeviceAi.lectureSaved"),
-    });
+    try {
+      const audioUri = await persistLectureRecording(blob);
+      const result = await saveLectureDocument({
+        audioUri,
+        speech: getAndroidSpeechProvider(),
+        pcmBase64: pcmBase64 || undefined,
+      });
+      addToast({
+        type: result.incomplete ? ToastType.Warning : ToastType.Success,
+        title: t("commandPalette.recordLecture"),
+        message: result.incomplete
+          ? t("onDeviceAi.lectureSavedIncomplete")
+          : t("onDeviceAi.lectureSaved"),
+      });
+    } catch (err) {
+      addToast({
+        type: ToastType.Error,
+        title: t("commandPalette.recordLecture"),
+        message: String(err),
+      });
+    }
     setPartial("");
     setOpen(false);
   };
@@ -195,20 +239,42 @@ export function LectureCaptureHost() {
   const start = async () => {
     let lease: (() => void) | undefined;
     try {
-    lease = acquireAudioCapture(); captureLease.current = lease;
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    if (captureLease.current !== lease) { stream.getTracks().forEach(track => track.stop()); return; }
-    const recorder = new MediaRecorder(stream);
-    chunksRef.current = [];
-    setPartial("");
-    recorder.ondataavailable = (event) => {
-      if (event.data.size > 0) chunksRef.current.push(event.data);
-    };
-    recorder.start();
-    recorderRef.current = recorder;
-    pcmTapRef.current = attachPcmTap(stream);
-    captionsRef.current = startBrowserCaptions(setPartial);
-    setRecording(true);
+      lease = acquireAudioCapture(); captureLease.current = lease;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      if (captureLease.current !== lease) { stream.getTracks().forEach(track => track.stop()); return; }
+
+      if (isRecordingPersistenceAvailable()) {
+        const sessionId = crypto.randomUUID ? crypto.randomUUID() : `sess-${Date.now()}`;
+        const title = `Lecture ${new Date().toISOString().slice(0, 16).replace("T", " ")}`;
+        const session = await createRecordingSession({
+          id: sessionId,
+          title,
+          origin: "recorded",
+          contentType: "lecture",
+          profileJson: "{}",
+        });
+        const handle = await startDesktopCapture({
+          sessionId: session.id,
+          stream,
+          expectedVersion: session.version,
+        });
+        captureHandleRef.current = handle;
+        captionsRef.current = startBrowserCaptions(setPartial);
+        setRecording(true);
+        return;
+      }
+
+      const recorder = new MediaRecorder(stream);
+      chunksRef.current = [];
+      setPartial("");
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) chunksRef.current.push(event.data);
+      };
+      recorder.start();
+      recorderRef.current = recorder;
+      pcmTapRef.current = attachPcmTap(stream);
+      captionsRef.current = startBrowserCaptions(setPartial);
+      setRecording(true);
     } catch (error) {
       lease?.();
       if (captureLease.current === lease) captureLease.current = null;
@@ -249,7 +315,13 @@ export function LectureCaptureHost() {
           <button
             type="button"
             className="rounded-lg border border-border px-3 py-2 text-sm"
-            onClick={discard}
+            onClick={() => {
+              if (recording) {
+                setOpen(false);
+              } else {
+                discard();
+              }
+            }}
           >
             {t("onDeviceAi.cancel")}
           </button>

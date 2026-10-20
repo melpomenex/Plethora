@@ -26,6 +26,7 @@ import { emitFeedback } from "../lib/feedback";
 import { enrichAudiobookDocument, isAudiobookFile, importMultipartAudiobook as importMultipartAudiobookApi } from "../api/audiobooks";
 import { planAudiobookImports, type MultipartBookPlan } from "../utils/audiobookImportPlanner";
 import { parseThreadError } from "../lib/xthreadError";
+import { mergeDocumentPrivacy } from "../lib/documentPrivacy";
 import { extractXStatusId } from "../lib/xthreadUrl";
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -487,14 +488,27 @@ async function applyDefaultCategoryIfNeeded(doc: Document): Promise<void> {
  * already hydrated when a later library refresh brings that summary back.
  */
 function mergeDocumentSummary(existing: Document | undefined, summary: Document): Document {
-  if (!existing) return summary;
+  const policy = mergeDocumentPrivacy(summary, existing);
+  if (!existing) return policy;
   return {
     ...existing,
-    ...summary,
+    ...policy,
     content: summary.content ?? existing.content,
     contentHash: summary.contentHash ?? existing.contentHash,
     metadata: summary.metadata ?? existing.metadata,
   };
+}
+
+/** Persist restrictions from legacy cache before replacing it with native rows. */
+async function reconcileCachedPrivacy(documents: Document[], cached: Document[]): Promise<Document[]> {
+  const byId = new Map(cached.map((document) => [document.id, document]));
+  return Promise.all(documents.map(async (document) => {
+    const merged = mergeDocumentPrivacy(document, byId.get(document.id));
+    if ((merged.isLocalOnly && !document.isLocalOnly) || (merged.isAiExcluded && !document.isAiExcluded)) {
+      return documentsApi.updateDocument(document.id, merged);
+    }
+    return merged;
+  }));
 }
 
 /**
@@ -585,7 +599,7 @@ interface DocumentState {
 
   // Actions
   loadDocuments: () => Promise<void>;
-  hydrateStartupDocuments: (documents: Document[]) => void;
+  hydrateStartupDocuments: (documents: Document[], shouldApply?: () => boolean) => Promise<void>;
   hydrateDocument: (id: string) => Promise<Document | null>;
   loadDocumentsPage: (page?: number, append?: boolean) => Promise<void>;
   setDocuments: (documents: Document[]) => void;
@@ -695,7 +709,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const collectionId = useCollectionStore.getState().activeCollectionId;
-      const docs = await documentsApi.getDocuments(collectionId);
+      const docs = await reconcileCachedPrivacy(await documentsApi.getDocuments(collectionId), get().documents);
       // If the active collection changed while this fetch was in flight, a
       // newer loadDocuments() call (from that switch) is already authoritative
       // for the current scope. Applying this stale response would re-merge
@@ -728,14 +742,17 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
     }
   },
 
-  hydrateStartupDocuments: (documents) => {
-    set({ documents, isLoading: false, error: null, hasCompletedFirstLoad: true });
+  hydrateStartupDocuments: async (documents, shouldApply) => {
+    const reconciled = await reconcileCachedPrivacy(documents, get().documents);
+    if (shouldApply && !shouldApply()) return;
+    set({ documents: reconciled, isLoading: false, error: null, hasCompletedFirstLoad: true });
     // File manifests and local binary registration can be large on mobile;
     // the first render only needs the metadata projection above.
   },
 
   hydrateDocument: async (id) => {
-    const hydrated = await documentsApi.getDocument(id);
+    const loaded = await documentsApi.getDocument(id);
+    const hydrated = loaded ? (await reconcileCachedPrivacy([loaded], get().documents))[0] : null;
     if (!hydrated) return null;
 
     set((state) => {
@@ -773,7 +790,8 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       }
       const cachedDocuments = get().documents;
       const cachedById = new Map(cachedDocuments.map((doc) => [doc.id, doc]));
-      const mergedPage = snapshot.documents.items.map((summary) =>
+      const pageDocuments = await reconcileCachedPrivacy(snapshot.documents.items, cachedDocuments);
+      const mergedPage = pageDocuments.map((summary) =>
         mergeDocumentSummary(cachedById.get(summary.id), summary)
       );
       const pageIds = new Set(snapshot.documents.items.map((summary) => summary.id));
@@ -823,11 +841,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
         : updates;
       return {
         documents: state.documents.map((doc) =>
-          doc.id === id ? { ...doc, ...resolvedUpdates } : doc
+          doc.id === id ? mergeDocumentPrivacy({ ...doc, ...resolvedUpdates }, doc) : doc
         ),
         currentDocument:
           state.currentDocument?.id === id
-            ? { ...state.currentDocument, ...resolvedUpdates }
+            ? mergeDocumentPrivacy({ ...state.currentDocument, ...resolvedUpdates }, state.currentDocument)
             : state.currentDocument,
       };
     }),
@@ -977,11 +995,11 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
 
     set((state) => ({
       documents: state.documents.map((doc) =>
-        doc.id === id ? { ...doc, ...resolvedUpdates } : doc
+        doc.id === id ? mergeDocumentPrivacy({ ...doc, ...resolvedUpdates }, doc) : doc
       ),
       currentDocument:
         state.currentDocument?.id === id
-          ? { ...state.currentDocument, ...resolvedUpdates }
+          ? mergeDocumentPrivacy({ ...state.currentDocument, ...resolvedUpdates }, state.currentDocument)
           : state.currentDocument,
       pendingUpdates: new Map(state.pendingUpdates).set(id, updates),
     }));

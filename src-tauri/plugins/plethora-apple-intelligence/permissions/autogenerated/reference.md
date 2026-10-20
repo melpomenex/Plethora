@@ -45,6 +45,11 @@ each reserved RPC.
 - `allow-apple-coreai-cancel`
 - `allow-apple-coreai-count-tokens`
 - `allow-apple-coreai-warmup`
+- `allow-apple-recording-status`
+- `allow-apple-recording-start`
+- `allow-apple-recording-pause`
+- `allow-apple-recording-resume`
+- `allow-apple-recording-finish`
 
 ## Permission Table
 
@@ -623,6 +628,136 @@ Enables the apple_nl_status command without any pre-configured scope.
 <td>
 
 Denies the apple_nl_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-apple-intelligence:allow-apple-recording-finish`
+
+</td>
+<td>
+
+Enables the apple_recording_finish command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-apple-intelligence:deny-apple-recording-finish`
+
+</td>
+<td>
+
+Denies the apple_recording_finish command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-apple-intelligence:allow-apple-recording-pause`
+
+</td>
+<td>
+
+Enables the apple_recording_pause command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-apple-intelligence:deny-apple-recording-pause`
+
+</td>
+<td>
+
+Denies the apple_recording_pause command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-apple-intelligence:allow-apple-recording-resume`
+
+</td>
+<td>
+
+Enables the apple_recording_resume command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-apple-intelligence:deny-apple-recording-resume`
+
+</td>
+<td>
+
+Denies the apple_recording_resume command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-apple-intelligence:allow-apple-recording-start`
+
+</td>
+<td>
+
+Enables the apple_recording_start command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-apple-intelligence:deny-apple-recording-start`
+
+</td>
+<td>
+
+Denies the apple_recording_start command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-apple-intelligence:allow-apple-recording-status`
+
+</td>
+<td>
+
+Enables the apple_recording_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-apple-intelligence:deny-apple-recording-status`
+
+</td>
+<td>
+
+Denies the apple_recording_status command without any pre-configured scope.
 
 </td>
 </tr>

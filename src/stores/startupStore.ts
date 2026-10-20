@@ -135,7 +135,7 @@ export const useStartupStore = create<StartupState>((set, get) => ({
       surfaceGenerations.get(surfaceKey) === surfaceGeneration &&
       key.startsWith(`${collectionEpoch}:`);
 
-    const applySnapshot = (snapshot: StartupSnapshot): StartupSnapshot | null => {
+    const applySnapshot = async (snapshot: StartupSnapshot): Promise<StartupSnapshot | null> => {
       if (!isCurrentRequest()) return null;
       // Before first hydration, the collection store starts with the default
       // id while the persisted active collection is still unknown. Accept the
@@ -148,7 +148,8 @@ export const useStartupStore = create<StartupState>((set, get) => ({
         snapshot.activeCollectionId,
         snapshot.dueCount,
       );
-      useDocumentStore.getState().hydrateStartupDocuments(snapshot.documents.items);
+      await useDocumentStore.getState().hydrateStartupDocuments(snapshot.documents.items, isCurrentRequest);
+      if (!isCurrentRequest()) return null;
       if (surface === "queue") {
         useQueueStore.getState().hydrateStartupQueue(snapshot.queue.items);
       }
@@ -182,7 +183,7 @@ export const useStartupStore = create<StartupState>((set, get) => ({
           // failed/empty startup query.
           await waitForBackendReady();
           const snapshot = await requestSnapshotWithTimeout(surface, options);
-          const applied = applySnapshot(snapshot);
+          const applied = await applySnapshot(snapshot);
           if (applied) return applied;
           return null;
         } catch (error) {
@@ -239,7 +240,7 @@ export const useStartupStore = create<StartupState>((set, get) => ({
           set({ status: "idle" });
           return null;
         }
-        return applySnapshot(snapshot);
+        return await applySnapshot(snapshot);
       } catch (error) {
         try {
           await fallbackToLegacyLoads(surface, options?.queueMode);

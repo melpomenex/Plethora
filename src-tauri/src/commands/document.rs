@@ -1023,6 +1023,18 @@ pub async fn update_document(
     Ok(updated)
 }
 
+/// Intentional policy changes use CAS; ordinary document edits only restrict.
+#[tauri::command]
+pub async fn set_document_privacy(
+    id: String,
+    is_local_only: bool,
+    is_ai_excluded: bool,
+    expected_version: i64,
+    repo: State<'_, Repository>,
+) -> Result<Document> {
+    repo.set_document_privacy(&id, is_local_only, is_ai_excluded, expected_version).await
+}
+
 /// Explicitly clear a document's category. `update_document` treats an empty
 /// category as "not provided" (partial-update safety), so clearing needs its
 /// own path (issue #44 bug 11).

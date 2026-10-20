@@ -389,6 +389,19 @@ export function buildDefaultCommands(
         ]
       : []),
     createCommand({
+      id: "capture-import",
+      intentId: "action:capture-import",
+      label: t("commandPalette.captureImport"),
+      description: t("commandPalette.captureImportDesc"),
+      icon: <Microphone className="w-4 h-4" />,
+      category: CommandCategory.Documents,
+      action: () => {
+        useUIStore.getState().setCaptureImportDialogOpen(true);
+      },
+      keywords: ["record", "capture", "import", "audio", "video", "transcript", "speech"],
+      aliases: ["capture and import", "import media"],
+    }),
+    createCommand({
       id: "record-lecture",
       intentId: "action:record-lecture",
       label: t("commandPalette.recordLecture"),
@@ -396,10 +409,10 @@ export function buildDefaultCommands(
       icon: <Microphone className="w-4 h-4" />,
       category: CommandCategory.Documents,
       action: () => {
+        useUIStore.getState().setLectureCaptureRequested(true);
+        useUIStore.getState().setCaptureImportDialogOpen(true, "record");
         if (isTauri() && (isMac() || nativePlatform() === "ios")) {
           window.dispatchEvent(new CustomEvent("record-lecture"));
-        } else {
-          useUIStore.getState().setLectureCaptureRequested(true);
         }
       },
       keywords: ["record", "lecture", "speech", "transcribe"],
@@ -808,6 +821,7 @@ export const REGISTRY_COMMAND_EXCEPTIONS: Record<string, string> = {
   "ask-my-library": "Feature-flag gated (settings.features.aiLibraryRag); dispatches to the platform-neutral Document Q&A surface.",
   "translate-selection": "Ungated-with-rationale: the palette action only dispatches a DOM event; no native bridge is called from the command itself.",
   "record-lecture": "Ungated-with-rationale: dispatches a DOM event consumed by LectureCaptureHost (MainLayout), which uses standard web media APIs; the Android speech provider degrades to the configured transcription provider off-Android.",
+  "capture-import": "Ungated-with-rationale: opens the unified Capture & Import surface supporting live capture, audio/video import, transcript import, and URL import across platforms.",
   "import-twitter-video": "Ungated-with-rationale: uses the Rust backend, which ships on iOS too (audit §Command palette).",
   "go-import-needs-review": "Needs-review queue surface; reachable on every platform.",
   "go-web-browser": "In-app webview surface; platform-neutral.",

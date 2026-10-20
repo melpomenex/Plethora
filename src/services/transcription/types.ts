@@ -228,3 +228,52 @@ export interface StreamingTranscriptionSession {
   onFinal(callback: (result: TranscriptionSegment) => void): void;
   onError(callback: (error: import("./errors").TranscriptionError) => void): void;
 }
+
+export type SessionExecutor = "rust-local" | "native-android" | "native-apple" | "frontend-service";
+
+export interface SessionTranscriptionPlan {
+  sessionId: string;
+  assetId?: string;
+  transcriptRevision: number;
+  provider: "local" | "android-ondevice" | "apple" | "groq" | "openrouter";
+  modelId: string;
+  modelLabel: string;
+  language: string;
+  executor: SessionExecutor;
+  isLocal: boolean;
+  sourceRevision: number;
+  privacyCategory: "local-only" | "cloud-authorized" | "standard";
+  frozenAt: string;
+}
+
+export interface SessionTranscriptionAuthorization {
+  sessionId: string;
+  providerClass: "local" | "plethora-hosted" | "byo-key";
+  provider: string;
+  endpoint: string;
+  sourceKind: string;
+  sourceRevision: number;
+  userConsented: boolean;
+  authorizedAt: string;
+}
+
+export type SessionPlanBlockedReason =
+  | "consent-required"
+  | "policy-excluded"
+  | "provider-unavailable"
+  | "offline-required"
+  | "unsupported-platform";
+
+export type SessionTranscriptionPlanResult =
+  | {
+      ok: true;
+      plan: SessionTranscriptionPlan;
+      authorization?: SessionTranscriptionAuthorization;
+    }
+  | {
+      ok: false;
+      reason: string;
+      blockedReason: SessionPlanBlockedReason;
+      messageKey: string;
+    };
+

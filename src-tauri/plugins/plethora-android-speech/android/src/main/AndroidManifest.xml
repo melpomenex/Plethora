@@ -2,6 +2,14 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <!-- Explicit live capture only; file transcription uses a persisted URI. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <queries><intent><action android:name="android.speech.RecognitionService" /></intent></queries>
-    <application />
+    <application>
+        <service
+            android:name=".RecordingCaptureService"
+            android:foregroundServiceType="microphone"
+            android:exported="false" />
+    </application>
 </manifest>

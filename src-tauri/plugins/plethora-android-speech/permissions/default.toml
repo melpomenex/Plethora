@@ -12,5 +12,11 @@ permissions = [
   "allow-cancel-dictation",
 
   "allow-transcribe-audio",
-  "allow-download-speech-model"
+  "allow-download-speech-model",
+
+  "allow-recording-status",
+  "allow-start-recording",
+  "allow-pause-recording",
+  "allow-resume-recording",
+  "allow-finish-recording"
 ]

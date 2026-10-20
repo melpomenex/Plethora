@@ -151,14 +151,14 @@ pub async fn import_collection_archive(
                 position_json, progress_percent, category, tags, date_added, date_modified, date_last_reviewed,
                 extract_count, learning_item_count, priority_rating, priority_slider, priority_score,
                 is_archived, is_favorite, is_dismissed, metadata, cover_image_url, cover_image_source,
-                next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, consecutive_count
+                next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, consecutive_count, is_local_only, is_ai_excluded, privacy_version
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6,
                 ?7, ?8, ?9, ?10, ?11,
                 ?12, ?13, ?14, ?15, ?16, ?17, ?18,
                 ?19, ?20, ?21, ?22, ?23,
                 ?24, ?25, ?26, ?27, ?28, ?29,
-                ?30, ?31, ?32, ?33, ?34, ?35, ?36
+                ?30, ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39
             )
             "#,
         )
@@ -198,6 +198,9 @@ pub async fn import_collection_archive(
         .bind(doc.reps)
         .bind(doc.total_time_spent)
         .bind(doc.consecutive_count)
+        .bind(doc.effective_local_only())
+        .bind(doc.effective_ai_excluded())
+        .bind(doc.privacy_version)
         .execute(&mut *tx)
         .await?;
     }
@@ -506,14 +509,14 @@ pub async fn import_collection_archive_merge(
                 position_json, progress_percent, category, tags, date_added, date_modified, date_last_reviewed,
                 extract_count, learning_item_count, priority_rating, priority_slider, priority_score,
                 is_archived, is_favorite, is_dismissed, metadata, cover_image_url, cover_image_source,
-                next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, consecutive_count
+                next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, consecutive_count, is_local_only, is_ai_excluded, privacy_version
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6, ?7,
                 ?8, ?9, ?10, ?11, ?12,
                 ?13, ?14, ?15, ?16, ?17, ?18, ?19,
                 ?20, ?21, ?22, ?23, ?24,
                 ?25, ?26, ?27, ?28, ?29, ?30,
-                ?31, ?32, ?33, ?34, ?35, ?36, ?37
+                ?31, ?32, ?33, ?34, ?35, ?36, ?37, ?38, ?39, ?40
             )"#
         )
         .bind(new_id)
@@ -553,6 +556,9 @@ pub async fn import_collection_archive_merge(
         .bind(doc.reps)
         .bind(doc.total_time_spent)
         .bind(doc.consecutive_count)
+        .bind(doc.effective_local_only())
+        .bind(doc.effective_ai_excluded())
+        .bind(doc.privacy_version)
         .execute(&mut *tx)
         .await?;
     }

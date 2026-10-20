@@ -100,6 +100,8 @@ describe("Settings search matcher", () => {
     expect(idsFor("speech to text")).toContain("audioTranscription.models");
     expect(idsFor("speech-to-text")).toContain("audioTranscription.models");
     expect(idsFor("tts")).toContain("tts.enabled");
+    expect(idsFor("session suggestions")).toContain("ai.sessionLearningSuggestions");
+    expect(idsFor("recording flashcards")).toContain("ai.sessionLearningSuggestions");
   });
 
   it("tolerates one bounded adjacent transposition but ranks exact matches first", () => {

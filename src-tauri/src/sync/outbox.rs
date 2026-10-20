@@ -7,7 +7,7 @@ use sqlx::{Pool, Sqlite, Transaction};
 use uuid::Uuid;
 
 /// Journal a syncable mutation inside the caller's open SQLite transaction.
-pub async fn mark_dirty(
+pub(super) async fn mark_dirty(
     tx: &mut Transaction<'_, Sqlite>,
     entity_type: EntityType,
     entity_id: &str,
@@ -166,6 +166,8 @@ pub async fn drain_pending_batch(
     pool: &Pool<Sqlite>,
     max_batch: usize,
 ) -> Result<Vec<OutboxEntry>> {
+    sqlx::query("DELETE FROM sync_outbox WHERE sync_status != 'acknowledged' AND (EXISTS (SELECT 1 FROM private_sync_ownership p WHERE p.entity_type = sync_outbox.entity_type AND p.entity_id = sync_outbox.entity_id) OR EXISTS (SELECT 1 FROM document_sync_ownership o JOIN documents d ON d.id = o.document_id WHERE o.entity_type = sync_outbox.entity_type AND o.entity_id = sync_outbox.entity_id AND d.is_local_only = 1))")
+        .execute(pool).await?;
     let rows = sqlx::query_as::<_, (String, String, String, String, Option<i64>, Vec<u8>, String, i64, String)>(
         r#"
         SELECT change_id, entity_type, entity_id, operation, base_revision,

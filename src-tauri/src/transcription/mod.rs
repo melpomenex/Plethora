@@ -269,7 +269,9 @@ pub async fn get_transcript(
             .await?;
 
     if let Some((id, status)) = transcript {
-        let segments: Vec<engine::TranscriptSegment> = sqlx::query_as("SELECT start_ms, end_ms, text, confidence, words_json FROM transcript_segments WHERE transcript_id = ? ORDER BY start_ms")
+        // Legacy players consume timed segments only. Missing confidence is a
+        // compatibility display value here; canonical session reads retain NULL.
+        let segments: Vec<engine::TranscriptSegment> = sqlx::query_as("SELECT start_ms, end_ms, text, COALESCE(confidence, 0.0) AS confidence, words_json FROM transcript_segments WHERE transcript_id = ? AND start_ms IS NOT NULL AND end_ms IS NOT NULL ORDER BY start_ms, id")
             .bind(id)
             .fetch_all(repo.pool())
             .await?;
@@ -477,6 +479,178 @@ pub async fn get_transcription_status(
     document_id: String,
 ) -> Result<Option<TranscriptionQueueEntry>> {
     repo.get_transcription_queue_entry(&document_id)
+        .await
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnqueueSessionTranscriptionInput {
+    pub session_id: String,
+    pub document_id: String,
+    pub asset_id: Option<String>,
+    pub audio_path: String,
+    pub transcript_revision: i64,
+    pub provider: String,
+    pub model_id: String,
+    pub language: String,
+    pub executor: String,
+    pub plan_json: String,
+    pub authorization_json: Option<String>,
+    pub priority: Option<i32>,
+}
+
+#[command]
+pub async fn enqueue_session_transcription(
+    app: AppHandle,
+    repo: State<'_, Repository>,
+    input: EnqueueSessionTranscriptionInput,
+) -> Result<TranscriptionQueueEntry> {
+    let existing = repo
+        .get_transcription_queue_entry_by_session(&input.session_id, input.transcript_revision)
+        .await
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
+
+    if let Some(entry) = existing {
+        if entry.status == TranscriptionJobStatus::Pending
+            || entry.status == TranscriptionJobStatus::Processing
+        {
+            return Ok(entry);
+        }
+    }
+
+    let mut entry = TranscriptionQueueEntry::new(
+        input.document_id,
+        input.audio_path,
+        input.provider,
+        input.model_id,
+        input.language,
+    );
+    entry.session_id = Some(input.session_id);
+    entry.asset_id = input.asset_id;
+    entry.transcript_revision = input.transcript_revision;
+    entry.executor = Some(input.executor);
+    entry.plan_json = Some(input.plan_json);
+    entry.authorization_json = input.authorization_json;
+    if let Some(p) = input.priority {
+        entry.priority = p;
+    }
+
+    repo.enqueue_transcription(&entry)
+        .await
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
+
+    let _ = app.emit("transcription://queue-updated", ());
+
+    Ok(entry)
+}
+
+#[command]
+pub async fn claim_transcription_job(
+    repo: State<'_, Repository>,
+    worker_id: String,
+    lease_duration_ms: i64,
+    supported_executors: Vec<String>,
+) -> Result<Option<TranscriptionQueueEntry>> {
+    repo.claim_transcription_job(&worker_id, lease_duration_ms, &supported_executors)
+        .await
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))
+}
+
+#[command]
+pub async fn renew_transcription_lease(
+    repo: State<'_, Repository>,
+    id: String,
+    worker_id: String,
+    lease_duration_ms: i64,
+    expected_cancel_epoch: i64,
+) -> Result<bool> {
+    repo.renew_transcription_lease(&id, &worker_id, lease_duration_ms, expected_cancel_epoch)
+        .await
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))
+}
+
+#[command]
+pub async fn update_transcription_progress_with_lease(
+    app: AppHandle,
+    repo: State<'_, Repository>,
+    id: String,
+    worker_id: String,
+    progress: i32,
+    processed_duration_ms: Option<i64>,
+    total_duration_ms: Option<i64>,
+    expected_cancel_epoch: i64,
+) -> Result<bool> {
+    let updated = repo
+        .update_transcription_progress_with_lease(
+            &id,
+            &worker_id,
+            progress,
+            processed_duration_ms,
+            total_duration_ms,
+            expected_cancel_epoch,
+        )
+        .await
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
+    if updated {
+        let _ = app.emit("transcription://queue-updated", ());
+        let _ = app.emit(
+            "transcription://progress",
+            serde_json::json!({
+                "jobId": id,
+                "progress": progress,
+                "processedDurationMs": processed_duration_ms,
+                "totalDurationMs": total_duration_ms,
+            }),
+        );
+    }
+    Ok(updated)
+}
+
+#[command]
+pub async fn complete_transcription_job_with_lease(
+    app: AppHandle,
+    repo: State<'_, Repository>,
+    id: String,
+    worker_id: String,
+    expected_cancel_epoch: i64,
+) -> Result<bool> {
+    let completed = repo
+        .complete_transcription_job_with_lease(&id, &worker_id, expected_cancel_epoch)
+        .await
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
+    if completed {
+        let _ = app.emit("transcription://queue-updated", ());
+    }
+    Ok(completed)
+}
+
+#[command]
+pub async fn fail_transcription_job_with_lease(
+    app: AppHandle,
+    repo: State<'_, Repository>,
+    id: String,
+    worker_id: String,
+    error_message: String,
+    expected_cancel_epoch: i64,
+) -> Result<bool> {
+    let failed = repo
+        .fail_transcription_job_with_lease(&id, &worker_id, &error_message, expected_cancel_epoch)
+        .await
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
+    if failed {
+        let _ = app.emit("transcription://queue-updated", ());
+    }
+    Ok(failed)
+}
+
+#[command]
+pub async fn get_session_transcription_status(
+    repo: State<'_, Repository>,
+    session_id: String,
+    revision: i64,
+) -> Result<Option<TranscriptionQueueEntry>> {
+    repo.get_transcription_queue_entry_by_session(&session_id, revision)
         .await
         .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))
 }

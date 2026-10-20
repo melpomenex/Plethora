@@ -8,6 +8,9 @@
          getUserMedia rejects with NotAllowedError, so the user can never grant mic access. -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- Camera access for the sync QR-code scanner (qr-scanner uses WebView getUserMedia).
          Same gating model as RECORD_AUDIO above: the manifest entry alone is necessary but not
          sufficient — MainActivity.onPermissionRequest must also grant RESOURCE_VIDEO_CAPTURE for

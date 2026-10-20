@@ -1,4 +1,9 @@
-import type { TranscriptionMode, TranscriptionResult } from "../types";
+import type {
+  TranscriptionMode,
+  TranscriptionResult,
+  SessionTranscriptionPlan,
+  SessionTranscriptionAuthorization,
+} from "../types";
 
 export interface StartTranscriptionJobInput {
   documentId: string;
@@ -16,6 +21,17 @@ export interface StartTranscriptionJobInput {
   chunkResults?: TranscriptionResult[];
 }
 
+export interface StartSessionJobInput {
+  sessionId: string;
+  documentId: string;
+  assetId?: string;
+  audioPath: string;
+  transcriptRevision: number;
+  plan: SessionTranscriptionPlan;
+  authorization?: SessionTranscriptionAuthorization;
+  priority?: number;
+}
+
 export interface TranscriptionJobProgressView {
   documentId: string;
   status: "queued" | "processing" | "completed" | "failed" | "cancelled";
@@ -26,4 +42,6 @@ export interface TranscriptionJobProgressView {
   providerId?: string;
   mode?: TranscriptionMode;
   message?: string;
+  sessionId?: string;
+  transcriptRevision?: number;
 }

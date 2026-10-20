@@ -1710,6 +1710,13 @@ const commandHandlers: Record<string, CommandHandler> = {
         return toCamelCase(doc);
     },
 
+    set_document_privacy: async (args) => {
+        if (typeof args.isLocalOnly !== 'boolean' || typeof args.isAiExcluded !== 'boolean'
+            || !Number.isInteger(args.expectedVersion)) throw new Error('Invalid document privacy request');
+        return toCamelCase(await db.setDocumentPrivacy(args.id as string, args.isLocalOnly,
+            args.isAiExcluded, args.expectedVersion as number));
+    },
+
     update_document: async (args) => {
         const id = args.id as string;
         const updates = args.updates as Record<string, unknown>;
@@ -5673,6 +5680,43 @@ export function normalizeOpenRouterPricing(
     cache_write: normalizeOpenRouterPrice(cacheWrite as string | number, true),
   };
 }
+
+const sessionUnavailable = () => {
+  throw {
+    code: "SourceUnavailable",
+    stage: "ingestion",
+    retryable: false,
+    messageKey: "recording.sourceUnavailable",
+  };
+};
+
+commandHandlers.create_recording_session = sessionUnavailable;
+commandHandlers.get_recording_session = sessionUnavailable;
+commandHandlers.find_session_by_media_hash = () => null;
+commandHandlers.list_recording_sessions = sessionUnavailable;
+commandHandlers.update_recording_session_profile = sessionUnavailable;
+commandHandlers.get_session_segments = () => {
+  throw {
+    code: "SourceUnavailable",
+    stage: "transcription",
+    retryable: false,
+    messageKey: "recording.sourceUnavailable",
+  };
+};
+commandHandlers.get_session_document_privacy = sessionUnavailable;
+commandHandlers.append_recording_part = () => {
+  throw {
+    code: "SourceUnavailable",
+    stage: "capture",
+    retryable: false,
+    messageKey: "recording.sourceUnavailable",
+  };
+};
+commandHandlers.finalize_recording_session = sessionUnavailable;
+commandHandlers.recover_recording_session = sessionUnavailable;
+commandHandlers.stage_session_media = sessionUnavailable;
+commandHandlers.export_partial_recording = sessionUnavailable;
+commandHandlers.import_session_transcript = sessionUnavailable;
 
 /**
  * Execute a browser command

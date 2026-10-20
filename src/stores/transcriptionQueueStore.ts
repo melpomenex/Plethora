@@ -9,15 +9,28 @@ import {
   clearTranscriptionQueue,
   removeTranscriptionEntry,
   TranscriptionQueueEntryWithDoc,
-  TranscriptionQueueEntry,
   TranscriptSegment,
 } from "../api/transcription";
+
+export interface SessionProgressPayload {
+  jobId?: string;
+  sessionId?: string;
+  transcriptRevision?: number;
+  stage?: string;
+  progress: number;
+  processedDurationMs?: number;
+  totalDurationMs?: number;
+  committedSegments?: number;
+  provider?: string;
+  cancelEpoch?: number;
+}
 
 interface TranscriptionQueueState {
   entries: TranscriptionQueueEntryWithDoc[];
   activeProgress: number;
   activeSegments: number;
   activePhase: string | null;
+  sessionProgress: Record<string, SessionProgressPayload>;
   isLoading: boolean;
   /** Human-readable notice when a job fell back from an accelerator to CPU. */
   backendFallbackNotice: string | null;
@@ -29,6 +42,8 @@ interface TranscriptionQueueState {
   clearByStatus: (statuses: string[]) => Promise<void>;
   removeEntry: (id: string) => Promise<void>;
   getEntryForDocument: (documentId: string) => TranscriptionQueueEntryWithDoc | undefined;
+  updateSessionProgress: (payload: SessionProgressPayload) => void;
+  getSessionProgress: (sessionIdOrJobId: string) => SessionProgressPayload | undefined;
 }
 
 export const useTranscriptionQueueStore = create<TranscriptionQueueState>((set, get) => ({
@@ -36,6 +51,7 @@ export const useTranscriptionQueueStore = create<TranscriptionQueueState>((set, 
   activeProgress: 0,
   activeSegments: 0,
   activePhase: null,
+  sessionProgress: {},
   isLoading: false,
   backendFallbackNotice: null,
 
@@ -79,6 +95,26 @@ export const useTranscriptionQueueStore = create<TranscriptionQueueState>((set, 
   getEntryForDocument: (documentId: string) => {
     return get().entries.find((e) => e.documentId === documentId);
   },
+
+  updateSessionProgress: (payload: SessionProgressPayload) => {
+    set((state) => {
+      const nextSessionProgress = { ...state.sessionProgress };
+      if (payload.sessionId) {
+        nextSessionProgress[payload.sessionId] = payload;
+      }
+      if (payload.jobId) {
+        nextSessionProgress[payload.jobId] = payload;
+      }
+      return {
+        activeProgress: payload.progress,
+        sessionProgress: nextSessionProgress,
+      };
+    });
+  },
+
+  getSessionProgress: (sessionIdOrJobId: string) => {
+    return get().sessionProgress[sessionIdOrJobId];
+  },
 }));
 
 if (isTauri()) {
@@ -97,8 +133,11 @@ if (isTauri()) {
     useTranscriptionQueueStore.getState().fetchQueue();
   });
 
-  safeListen<{ progress: number }>("transcription://progress", (event) => {
-    useTranscriptionQueueStore.setState({ activeProgress: event.payload.progress });
+  safeListen<SessionProgressPayload>("transcription://progress", (event) => {
+    const payload = event.payload;
+    if (payload && typeof payload.progress === "number") {
+      useTranscriptionQueueStore.getState().updateSessionProgress(payload);
+    }
   });
 
   safeListen<TranscriptSegment>("transcription://segment", () => {

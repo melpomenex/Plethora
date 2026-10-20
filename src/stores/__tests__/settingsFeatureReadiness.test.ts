@@ -39,6 +39,8 @@ describe("AI Learning feature preference reconciliation", () => {
     expect(features.aiAgent).toBe(false);
     expect(features.aiLibraryRag).toBe(defaultSettings.features.aiLibraryRag);
     expect(features.aiOcclusionFreeform).toBe(false);
+    expect(features.recordingSessions).toBe(false);
+    expect(features.sessionLearningSuggestions).toBe(false);
   });
 
   it("repairs a corrupted persisted value instead of treating it as enabled", async () => {
@@ -51,6 +53,7 @@ describe("AI Learning feature preference reconciliation", () => {
               aiAgent: "false",
               aiPrerequisites: 1,
               aiConceptLinks: null,
+              sessionLearningSuggestions: "invalid-boolean",
             },
           },
         },
@@ -62,6 +65,7 @@ describe("AI Learning feature preference reconciliation", () => {
     expect(features.aiAgent).toBe(defaultSettings.features.aiAgent);
     expect(features.aiPrerequisites).toBe(defaultSettings.features.aiPrerequisites);
     expect(features.aiConceptLinks).toBe(defaultSettings.features.aiConceptLinks);
+    expect(features.sessionLearningSuggestions).toBe(false);
   });
 
   it("does not hydrate any computed readiness state", async () => {

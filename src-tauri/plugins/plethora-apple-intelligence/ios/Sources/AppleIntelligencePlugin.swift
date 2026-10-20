@@ -43,6 +43,7 @@ public class AppleIntelligencePlugin: Plugin {
   let foundation = AppleFoundationModelsBridge()
   let coreAI = AppleCoreAIBridge()
   let translation = AppleTranslationBridge()
+  let recording = AppleRecordingBridge()
 
   override public init() {
     super.init()
@@ -100,6 +101,12 @@ public class AppleIntelligencePlugin: Plugin {
   @objc public func coreaiWarmup(_ invoke: Invoke) throws { coreAI.warmup(invoke) }
 
   @objc public func translateSentence(_ invoke: Invoke) throws { try translation.translate(invoke) }
+
+  @objc public func recordingStatus(_ invoke: Invoke) throws { recording.status(invoke) }
+  @objc public func recordingStart(_ invoke: Invoke) throws { try recording.start(invoke) }
+  @objc public func recordingPause(_ invoke: Invoke) throws { try recording.pause(invoke) }
+  @objc public func recordingResume(_ invoke: Invoke) throws { try recording.resume(invoke) }
+  @objc public func recordingFinish(_ invoke: Invoke) throws { try recording.finish(invoke) }
 
   private func currentSnapshot() -> JSObject {
     let fm = foundation.featureState()

@@ -851,6 +851,10 @@ interface FeatureFlags {
   assistantUnifiedSelectionEntry: boolean;
   assistantTurnStreaming: boolean;
   assistantConversationSync: boolean;
+  /** Unified recording ingestion and Learning Studio session model (OpenSpec unified-recording-ingestion-and-learning-studio) */
+  recordingSessions: boolean;
+  /** Background / on-demand AI learning suggestions for recording sessions */
+  sessionLearningSuggestions: boolean;
 }
 
 /**
@@ -1546,6 +1550,8 @@ export const defaultSettings: Settings = {
     appleCoreAI: false,
     windowsSystemAi: true,
     windowsAiExperimental: false,
+    recordingSessions: false,
+    sessionLearningSuggestions: false,
   },
   foundryLocal: {
     enabled: false,

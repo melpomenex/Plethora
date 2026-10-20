@@ -42,6 +42,11 @@ const COMMANDS: &[&str] = &[
     "apple_coreai_count_tokens",
     "apple_coreai_warmup",
     "apple_translate_sentence",
+    "apple_recording_status",
+    "apple_recording_start",
+    "apple_recording_pause",
+    "apple_recording_resume",
+    "apple_recording_finish",
 ];
 
 fn main() {

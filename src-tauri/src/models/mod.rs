@@ -20,6 +20,7 @@ pub mod playlist;
 pub mod position;
 pub mod queue;
 pub mod reading_goal;
+pub mod recording_session;
 pub mod saved_queue;
 pub mod tag;
 pub mod transcription_queue;

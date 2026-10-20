@@ -25,7 +25,10 @@ const ImageSaveOverlay = lazy(() => import("../viewer/ImageSaveOverlay").then(({
 const OcclusionComposerHost = lazy(() => import("../occlusion/OcclusionComposerHost").then(({ OcclusionComposerHost: host }) => ({ default: host })));
 const LibraryAskHost = lazy(() => import("../search/palette/LibraryAskHost").then(({ LibraryAskHost: host }) => ({ default: host })));
 import { AppleIntelligenceHost } from "../apple/AppleIntelligenceHost";
-const LectureCaptureHost = lazy(() => import("../common/LectureCaptureHost").then(({ LectureCaptureHost: host }) => ({ default: host })));
+const CaptureImportDialog = lazy(() => import("../recording/CaptureImportDialog").then(({ CaptureImportDialog: comp }) => ({ default: comp })));
+const ActiveRecording = lazy(() => import("../recording/ActiveRecording").then(({ ActiveRecording: comp }) => ({ default: comp })));
+const RecordingStatusStrip = lazy(() => import("../recording/RecordingStatusStrip").then(({ RecordingStatusStrip: comp }) => ({ default: comp })));
+import { captureController } from "../../services/recording/captureController";
 const WorkspaceSwitcher = lazy(() => import("./WorkspaceSwitcher").then(({ WorkspaceSwitcher: switcher }) => ({ default: switcher })));
 import { isTauri, invokeCommand, listen, whenBackendReady } from "../../lib/tauri";
 import type { StartupNotice } from "../../types";
@@ -115,6 +118,11 @@ export function MainLayout() {
   const tourControlRef = useRef<TourControl | null>(null);
 
   const toolbarPosition = useSettingsStore((state) => state.settings.interface.toolbarPosition);
+
+  // Rehydrate recording capture state once on root mount
+  useEffect(() => {
+    void captureController.rehydrate();
+  }, []);
 
   // Find the first tab pane and its active tab for keyboard navigation
   useEffect(() => {
@@ -1459,7 +1467,9 @@ export function MainLayout() {
           <OcclusionComposerHost />
           <AppleIntelligenceHost />
           <LibraryAskHost />
-          <LectureCaptureHost />
+          <CaptureImportDialog />
+          <ActiveRecording />
+          <RecordingStatusStrip />
           <WorkspaceSwitcher isOpen={isWorkspaceSwitcherOpen} onClose={() => setIsWorkspaceSwitcherOpen(false)} />
           <PaywallModal />
           <TourHost tourControlRef={tourControlRef} adapter={tourAdapter} />

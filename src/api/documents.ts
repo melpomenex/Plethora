@@ -9,6 +9,7 @@ import { Document } from "../types/document";
 import type { BulkOperationResult } from "./extract-bulk";
 import type { ViewState } from "../types/readerPosition";
 import { extractYouTubeVideoId } from "../utils/youtubeEmbed";
+import { normalizeDocumentPrivacy } from "../lib/documentPrivacy";
 
 /** Thin alias so the dedupe intent reads clearly at the call site. */
 const extractYouTubeVideoIdFromUrl = extractYouTubeVideoId;
@@ -48,11 +49,11 @@ export function mapDocument(doc: Document | null): Document | null {
   if (metadata && !metadata.xThread && isTwitterThreadShape(metadata.structuredContent)) {
     metadata.xThread = metadata.structuredContent;
   }
-  return {
+  return normalizeDocumentPrivacy({
     ...doc,
     fileId: doc.metadata?.fileId || doc.fileId,
     metadata,
-  };
+  });
 }
 
 export function mapDocuments(docs: Document[]): Document[] {
@@ -143,6 +144,18 @@ export async function updateDocument(
   const result = isWebMode()
     ? await browserInvoke<Document>("update_document", { id, updates })
     : await invokeCommand<Document>("update_document", { id, updates });
+  return mapDocument(result) as Document;
+}
+
+/** Explicit privacy changes require the last durable version, even in web mode. */
+export async function setDocumentPrivacy(
+  id: string,
+  policy: { isLocalOnly: boolean; isAiExcluded: boolean; expectedVersion: number },
+): Promise<Document> {
+  const args = { id, ...policy };
+  const result = isWebMode()
+    ? await browserInvoke<Document>("set_document_privacy", args)
+    : await invokeCommand<Document>("set_document_privacy", args);
   return mapDocument(result) as Document;
 }
 

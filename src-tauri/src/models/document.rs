@@ -43,6 +43,12 @@ pub struct Document {
     pub is_archived: bool,
     pub is_favorite: bool,
     pub is_dismissed: bool,
+    #[serde(default)]
+    pub is_local_only: bool,
+    #[serde(default)]
+    pub is_ai_excluded: bool,
+    #[serde(default = "initial_privacy_version")]
+    pub privacy_version: i64,
     pub metadata: Option<DocumentMetadata>,
     pub cover_image_url: Option<String>,
     pub cover_image_source: Option<String>,
@@ -103,6 +109,12 @@ pub struct StartupDocumentSummary {
     pub is_archived: bool,
     pub is_favorite: bool,
     pub is_dismissed: bool,
+    #[serde(default)]
+    pub is_local_only: bool,
+    #[serde(default)]
+    pub is_ai_excluded: bool,
+    #[serde(default = "initial_privacy_version")]
+    pub privacy_version: i64,
     pub next_reading_date: Option<DateTime<Utc>>,
     pub reading_count: i32,
     pub stability: Option<f64>,
@@ -138,6 +150,11 @@ pub struct DocumentImageAsset {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct DocumentMetadata {
+    /// Legacy cached restrictions; native columns remain authoritative.
+    #[serde(default)]
+    pub is_local_only: Option<bool>,
+    #[serde(default)]
+    pub is_ai_excluded: Option<bool>,
     pub author: Option<String>,
     pub subject: Option<String>,
     pub keywords: Option<Vec<String>>,
@@ -224,6 +241,24 @@ pub struct SmartTagDetail {
 }
 
 impl Document {
+    pub fn effective_local_only(&self) -> bool {
+        self.is_local_only
+            || self
+                .metadata
+                .as_ref()
+                .and_then(|m| m.is_local_only)
+                .unwrap_or(false)
+    }
+
+    pub fn effective_ai_excluded(&self) -> bool {
+        self.is_ai_excluded
+            || self
+                .metadata
+                .as_ref()
+                .and_then(|m| m.is_ai_excluded)
+                .unwrap_or(false)
+    }
+
     pub fn new(title: String, file_path: String, file_type: FileType) -> Self {
         Self::with_collection(title, file_path, file_type, None)
     }
@@ -264,6 +299,9 @@ impl Document {
             is_archived: false,
             is_favorite: false,
             is_dismissed: false,
+            is_local_only: false,
+            is_ai_excluded: false,
+            privacy_version: 1,
             metadata: None,
             cover_image_url: None,
             cover_image_source: None,
@@ -279,4 +317,8 @@ impl Document {
             first_reviewed_at: None,
         }
     }
+}
+
+fn initial_privacy_version() -> i64 {
+    1
 }

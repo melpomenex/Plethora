@@ -62,6 +62,8 @@ export interface Document {
    * When true, this document is excluded from all AI pipelines (RAG, summarization, cards, cloud OCR).
    */
   isAiExcluded?: boolean;
+  /** Native policy CAS version; absent only on legacy cached documents. */
+  privacyVersion?: number;
   metadata?: DocumentMetadata;
   coverImageUrl?: string;
   coverImageSource?: string;
@@ -146,6 +148,7 @@ export interface DocumentMetadata {
   collectionId?: string;
   fileId?: string;
   isLocalOnly?: boolean;
+  isAiExcluded?: boolean;
   // Web import metadata
   source?: string;
   url?: string;

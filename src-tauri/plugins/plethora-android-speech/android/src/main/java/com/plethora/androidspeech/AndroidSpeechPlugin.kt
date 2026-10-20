@@ -25,6 +25,7 @@ import com.google.mlkit.genai.speechrecognition.SpeechRecognizerRequest
 import com.google.mlkit.genai.speechrecognition.SpeechRecognizerResponse
 import com.google.mlkit.genai.speechrecognition.speechRecognizerOptions
 import com.google.mlkit.genai.speechrecognition.speechRecognizerRequest
+import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
 import java.util.concurrent.Executors
@@ -41,6 +42,16 @@ class TranscribeAudioArgs {
     var encoding: String? = null
     /** Raw 16 kHz mono PCM16LE, standard Base64. WebM/blob URIs are not accepted by ML Kit. */
     var pcmBase64: String? = null
+}
+
+@InvokeArg
+class RecordingArgs {
+    var sessionId: String = ""
+    var assetId: String = ""
+    var writerEpoch: String = ""
+    var sampleRate: Int = 16000
+    var channels: Int = 1
+    var outputDir: String? = null
 }
 
 /** Pure PCM gate for JVM tests (ML Kit Speech Basic: 16 kHz mono PCM16LE). */
@@ -99,7 +110,10 @@ object PacedPcm {
     }
 }
 
-@TauriPlugin(permissions = [Permission(alias = "dictationMicrophone", strings = [android.Manifest.permission.RECORD_AUDIO])])
+@TauriPlugin(permissions = [
+    Permission(alias = "dictationMicrophone", strings = [android.Manifest.permission.RECORD_AUDIO]),
+    Permission(alias = "recordingMicrophone", strings = [android.Manifest.permission.RECORD_AUDIO])
+])
 class AndroidSpeechPlugin(private val activity: Activity) : Plugin(activity) {
     private val dictation = ComposerDictation(activity)
     @Command fun dictationStatus(invoke: Invoke) { dictation.status(invoke) }
@@ -107,8 +121,134 @@ class AndroidSpeechPlugin(private val activity: Activity) : Plugin(activity) {
     @PermissionCallback private fun dictationPermissionResult(invoke: Invoke) { dictation.permissionResult(invoke) }
     @Command fun stopDictation(invoke: Invoke) { dictation.stop(invoke) }
     @Command fun cancelDictation(invoke: Invoke) { dictation.cancel(invoke) }
+
+    private var pendingRecording: Pair<Invoke, RecordingArgs>? = null
+
+    @Command
+    fun recordingStatus(invoke: Invoke) {
+        val granted = ContextCompat.checkSelfPermission(activity, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        val writer = RecordingCaptureService.activeWriter
+        invoke.resolve(JSObject().apply {
+            put("platform", "android")
+            put("available", true)
+            put("pause", true)
+            put("background", true)
+            put("liveCaptions", false)
+            put("state", RecordingCaptureService.currentState)
+            put("sessionId", RecordingCaptureService.activeSessionId)
+            put("writerEpoch", RecordingCaptureService.activeWriterEpoch)
+            put("acknowledgedMs", writer?.getAcknowledgedMs() ?: 0L)
+            put("pendingBytes", 0)
+            put("microphonePermission", if (granted) "granted" else "prompt")
+        })
+    }
+
+    @Command
+    fun startRecording(invoke: Invoke) {
+        val args = invoke.parseArgs(RecordingArgs::class.java)
+        if (args.sessionId.isEmpty() || args.writerEpoch.isEmpty()) {
+            invoke.reject("Invalid session or epoch", "invalid_argument")
+            return
+        }
+        val granted = ContextCompat.checkSelfPermission(activity, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            pendingRecording = Pair(invoke, args)
+            requestPermissionForAlias("recordingMicrophone", invoke, "recordingPermissionResult")
+            return
+        }
+        executeStartRecording(invoke, args)
+    }
+
+    @PermissionCallback
+    private fun recordingPermissionResult(invoke: Invoke) {
+        val pending = pendingRecording
+        if (pending == null || pending.first !== invoke) return
+        pendingRecording = null
+        val granted = ContextCompat.checkSelfPermission(activity, android.Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+        if (!granted) {
+            invoke.reject("Microphone permission denied", "permission_denied")
+            return
+        }
+        executeStartRecording(invoke, pending.second)
+    }
+
+    private fun executeStartRecording(invoke: Invoke, args: RecordingArgs) {
+        try {
+            val baseDir = if (!args.outputDir.isNullOrBlank()) {
+                File(args.outputDir!!)
+            } else {
+                File(activity.filesDir, "recordings")
+            }
+            val assetId = if (args.assetId.isNotBlank()) args.assetId else java.util.UUID.randomUUID().toString()
+            val writer = RecordingCaptureService.startCapture(
+                activity,
+                args.sessionId,
+                assetId,
+                args.writerEpoch,
+                baseDir,
+                args.sampleRate,
+                args.channels
+            )
+            invoke.resolve(JSObject().apply {
+                put("ok", true)
+                put("sessionId", args.sessionId)
+                put("assetId", writer.assetId)
+                put("writerEpoch", args.writerEpoch)
+            })
+        } catch (e: Throwable) {
+            invoke.reject(e.message ?: "Failed to start recording", "recording_failed")
+        }
+    }
+
+    @Command
+    fun pauseRecording(invoke: Invoke) {
+        val args = invoke.parseArgs(RecordingArgs::class.java)
+        try {
+            RecordingCaptureService.pauseCapture(args.sessionId, args.writerEpoch)
+            val ackMs = RecordingCaptureService.activeWriter?.getAcknowledgedMs() ?: 0L
+            invoke.resolve(JSObject().apply {
+                put("ok", true)
+                put("state", "paused")
+                put("acknowledgedMs", ackMs)
+            })
+        } catch (e: Throwable) {
+            invoke.reject(e.message ?: "Failed to pause recording", "pause_failed")
+        }
+    }
+
+    @Command
+    fun resumeRecording(invoke: Invoke) {
+        val args = invoke.parseArgs(RecordingArgs::class.java)
+        try {
+            RecordingCaptureService.resumeCapture(args.sessionId, args.writerEpoch, args.sampleRate, args.channels)
+            invoke.resolve(JSObject().apply {
+                put("ok", true)
+                put("state", "recording")
+            })
+        } catch (e: Throwable) {
+            invoke.reject(e.message ?: "Failed to resume recording", "resume_failed")
+        }
+    }
+
+    @Command
+    fun finishRecording(invoke: Invoke) {
+        val args = invoke.parseArgs(RecordingArgs::class.java)
+        try {
+            val writer = RecordingCaptureService.finishCapture(activity, args.sessionId, args.writerEpoch)
+            invoke.resolve(JSObject().apply {
+                put("assetId", writer.assetId)
+                put("incomplete", false)
+                put("acknowledgedMs", writer.getAcknowledgedMs())
+                put("partsCount", writer.getPartsCount())
+                put("totalBytes", writer.getTotalBytes())
+            })
+        } catch (e: Throwable) {
+            invoke.reject(e.message ?: "Failed to finish recording", "finish_failed")
+        }
+    }
+
     override fun onPause() { dictation.interrupt(); super.onPause() }
-    override fun onDestroy() { dictation.interrupt(); super.onDestroy() }
+    override fun onDestroy() { dictation.interrupt(); RecordingCaptureService.safeStop("plugin_destroyed"); super.onDestroy() }
     private val io = Executors.newSingleThreadExecutor { r ->
         Thread(r, "plethora-speech").apply { isDaemon = true }
     }

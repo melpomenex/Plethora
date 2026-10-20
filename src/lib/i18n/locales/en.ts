@@ -1510,6 +1510,8 @@ export const en: Dict = {
   "commandPalette.commandsCount": "{count} commands",
   "commandPalette.importDocument": "Import Document",
   "commandPalette.importDocumentDesc": "Import a new document from file",
+  "commandPalette.captureImport": "Capture & Import",
+  "commandPalette.captureImportDesc": "Record audio or import recordings, transcripts, and media",
   "commandPalette.scanDocument": "Scan document",
   "commandPalette.scanDocumentDesc": "Capture a document with the camera and import the recognized text",
   "commandPalette.askLibraryDesc": "Ask a question grounded in your library",

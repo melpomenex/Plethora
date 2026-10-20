@@ -6,6 +6,7 @@ pub mod audio_edition_repository;
 pub mod capture_repository;
 pub mod concept_repository;
 pub mod connection;
+pub mod document_privacy;
 pub mod daqe_model_cache_repository;
 pub mod element_tree_repository;
 pub mod item_activity_repository;
@@ -17,6 +18,7 @@ pub mod language_practice_repository;
 pub mod migrations;
 pub mod neural_queue_repository;
 pub mod priority_rank;
+pub mod recording_session_repository;
 pub mod repository;
 pub mod saved_queue_repository;
 
@@ -27,8 +29,11 @@ pub use ai_conversation_repository::{
 pub use ai_provenance_repository::{AiProvenance, AiProvenanceRepository};
 pub use audio_edition_repository::AudioEditionRepository;
 pub use concept_repository::{
-    normalize_concept_name, Concept, ConceptBacklink, ConceptLink, ConceptRepository,
-    LinkProposalOutcome, CONCEPT_RELATION_TYPES, MAX_AI_LINKS_PER_DAY,
+    canonical_link_fingerprint, normalize_concept_name, Concept, ConceptBacklink, ConceptLink,
+    ConceptLinkProposal, ConceptLinkUpdate, ConceptRepository, LinkProposalOutcome,
+    LinkUpdateOutcome, NewConceptDraft, CONCEPT_LINK_ENDPOINT_KINDS, CONCEPT_RELATION_TYPES,
+    MAX_AI_LINKS_PER_ANALYSIS, MAX_AI_LINKS_PER_DAY, RELATIONSHIP_POLICY_VERSION,
+    SYMMETRIC_CONCEPT_RELATIONS,
 };
 pub use connection::Database;
 pub use element_tree_repository::{

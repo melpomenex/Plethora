@@ -9,6 +9,8 @@ import { urlDetectorUtils } from "../hooks/useURLDetector";
 import { mapShareItemToProvenance, mergeShareAttribution } from "./shareTarget";
 import { emitCaptureInvalidation } from "./captureInvalidation";
 import { openDocumentAtLocation } from "../utils/openDocumentAtLocation";
+import { classifyUrl, detectSharedFileKind } from "../services/recording/urlAdapters";
+import { useUIStore } from "../stores/uiStore";
 import type { SharedBatch, SharedItem } from "../types/share";
 import type { useDocumentStore } from "../stores/documentStore";
 import type { useTabsStore } from "../stores/tabsStore";
@@ -124,6 +126,32 @@ export async function processSharedBatch(
     const urlItems = batch.items.filter((i) => i.type === "url" && i.url);
     for (const item of urlItems) {
       if (!item.url) continue;
+
+      // Policy check before attempting any fetch
+      const decision = classifyUrl(item.url);
+      if (!decision.isAllowed) {
+        failedCount += 1;
+        console.warn("[ImportRouting] URL refused by policy:", item.url, decision.reason);
+        toast.error(t("mainLayout.importFailed"), decision.reason || "URL refused by policy", {
+          duration: 10000,
+        });
+        continue;
+      }
+
+      // Route direct media and transcript URLs into unified capture/import dialog
+      if (decision.adapter === "direct-media" || decision.adapter === "direct-transcript") {
+        useUIStore.getState().setCaptureImportDialogOpen(
+          true,
+          "import-url",
+          {
+            url: item.url,
+            title: item.title,
+          }
+        );
+        importedDocs.push({ id: `session-url-${item.url}`, title: item.title || item.url });
+        continue;
+      }
+
       try {
         if (urlDetectorUtils.isTwitterURL(item.url)) {
           const doc = await retryAttribution(() => saveAndAttribute(item, () => openTwitterThread(item.url as string)));
@@ -186,26 +214,86 @@ export async function processSharedBatch(
       }
     }
 
-    const fileItems = batch.items.filter((i) => i.type === "file" && i.filePath);
+    const fileItems = batch.items.filter((i) => i.type === "file" && (i.filePath || i.fileName));
     if (fileItems.length > 0) {
-      const paths = fileItems.map((f) => f.filePath as string);
-      try {
-        const docs = await importFromFiles(paths);
-        for (const [index, doc] of docs.entries()) {
-          const item = fileItems[index];
-          if (!item) continue;
-          try {
-            const attributed = await retryAttribution(() => saveAndAttribute(item, async () => doc));
-            importedDocs.push(attributed);
-          } catch (error) {
-            failedCount += 1;
-            attributionFailed = true;
-            console.error("[ImportRouting] Failed to persist file share attribution:", item.filePath, error);
-          }
+      const mediaOrTranscriptFiles: SharedItem[] = [];
+      const regularFiles: SharedItem[] = [];
+
+      for (const item of fileItems) {
+        const target = item.filePath || item.fileName || "";
+        const detection = detectSharedFileKind(target);
+        if (detection.isRecording || detection.isTranscript) {
+          mediaOrTranscriptFiles.push(item);
+        } else {
+          regularFiles.push(item);
         }
-      } catch (e) {
-        failedCount += fileItems.length;
-        console.error("[ImportRouting] Failed to import files:", paths, e);
+      }
+
+      // Handle media / transcript shares by opening Capture & Import
+      if (mediaOrTranscriptFiles.length > 1) {
+        const first = mediaOrTranscriptFiles[0];
+        const detection = detectSharedFileKind(first.filePath || first.fileName || "");
+        useUIStore.getState().setCaptureImportDialogOpen(
+          true,
+          detection.suggestedRoute,
+          {
+            filePath: first.filePath,
+            filePaths: mediaOrTranscriptFiles.map((m) => m.filePath).filter(Boolean) as string[],
+            fileName: first.fileName,
+            fileNames: mediaOrTranscriptFiles.map((m) => m.fileName).filter(Boolean) as string[],
+            title: first.title,
+          }
+        );
+        for (const item of mediaOrTranscriptFiles) {
+          importedDocs.push({
+            id: `session-file-${item.filePath || item.fileName}`,
+            title: item.fileName || item.title || "Shared recording",
+          });
+        }
+      } else if (mediaOrTranscriptFiles.length === 1) {
+        const item = mediaOrTranscriptFiles[0];
+        if (!item.filePath && !item.fileName) {
+          failedCount += 1;
+          toast.error(t("mainLayout.importFailed"), "The shared file is no longer accessible or has expired.");
+        } else {
+          const detection = detectSharedFileKind(item.filePath || item.fileName || "");
+          useUIStore.getState().setCaptureImportDialogOpen(
+            true,
+            detection.suggestedRoute,
+            {
+              filePath: item.filePath,
+              fileName: item.fileName,
+              title: item.title,
+            }
+          );
+          importedDocs.push({
+            id: `session-file-${item.filePath || item.fileName}`,
+            title: item.fileName || item.title || "Shared recording",
+          });
+        }
+      }
+
+      // Handle regular files via existing importFromFiles
+      if (regularFiles.length > 0) {
+        const paths = regularFiles.map((f) => f.filePath as string).filter(Boolean);
+        try {
+          const docs = await importFromFiles(paths);
+          for (const [index, doc] of docs.entries()) {
+            const item = regularFiles[index];
+            if (!item) continue;
+            try {
+              const attributed = await retryAttribution(() => saveAndAttribute(item, async () => doc));
+              importedDocs.push(attributed);
+            } catch (error) {
+              failedCount += 1;
+              attributionFailed = true;
+              console.error("[ImportRouting] Failed to persist file share attribution:", item.filePath, error);
+            }
+          }
+        } catch (e) {
+          failedCount += regularFiles.length;
+          console.error("[ImportRouting] Failed to import files:", paths, e);
+        }
       }
     }
 

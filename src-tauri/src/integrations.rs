@@ -614,6 +614,9 @@ pub async fn import_from_obsidian_internal(
         is_archived: false,
         is_favorite: false,
         is_dismissed: false,
+        is_local_only: false,
+        is_ai_excluded: false,
+        privacy_version: 1,
         metadata: Some(crate::models::DocumentMetadata {
             author: frontmatter
                 .get("author")

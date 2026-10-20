@@ -1,9 +1,6 @@
-import { useEffect, useRef } from "react";
-import { createDocument, updateDocumentContent } from "../../api/documents";
-import { useDocumentStore } from "../../stores/documentStore";
+import { useEffect } from "react";
 import { useUIStore } from "../../stores/uiStore";
 import { ToastType, useToastStore } from "../common/Toast";
-import { appleStartLiveSpeech, appleStopLiveSpeech } from "../../lib/ai/apple/speech";
 import { importAppleDocumentScan } from "../../lib/ai/apple/importVisionDocument";
 
 /**
@@ -11,8 +8,6 @@ import { importAppleDocumentScan } from "../../lib/ai/apple/importVisionDocument
  * root (scan, lecture capture, ask-library navigation).
  */
 export function AppleIntelligenceHost() {
-  const lectureDocId = useRef<string | null>(null);
-  const recording = useRef(false);
 
   useEffect(() => {
     const onScan = () => {
@@ -42,47 +37,8 @@ export function AppleIntelligenceHost() {
     };
 
     const onLecture = () => {
-      void (async () => {
-        try {
-          if (recording.current) {
-            recording.current = false;
-            const result = (await appleStopLiveSpeech()) as { text?: string };
-            const id = lectureDocId.current;
-            lectureDocId.current = null;
-            if (id && result?.text) {
-              await updateDocumentContent(id, result.text);
-            }
-            useToastStore.getState().addToast({
-              type: ToastType.Success,
-              title: "Lecture recording stopped",
-              message: "Transcript saved to the new document.",
-            });
-            return;
-          }
-          const created = await createDocument(
-            `Lecture ${new Date().toISOString().slice(0, 16)}`,
-            `lecture://apple/${Date.now()}`,
-            "markdown",
-          );
-          useDocumentStore.getState().addDocument(created);
-          lectureDocId.current = created.id;
-          await appleStartLiveSpeech();
-          recording.current = true;
-          useToastStore.getState().addToast({
-            type: ToastType.Info,
-            title: "Recording lecture",
-            message: "Run Record lecture again to stop and save the transcript.",
-          });
-        } catch (error) {
-          recording.current = false;
-          lectureDocId.current = null;
-          useToastStore.getState().addToast({
-            type: ToastType.Error,
-            title: "Lecture recording failed",
-            message: error instanceof Error ? error.message : String(error),
-          });
-        }
-      })();
+      // Forward lecture entry into shared recording flow, retaining audio durability
+      window.dispatchEvent(new CustomEvent("plethora:record-lecture"));
     };
 
     window.addEventListener("import-document-scan", onScan);

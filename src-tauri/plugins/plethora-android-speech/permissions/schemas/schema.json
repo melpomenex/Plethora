@@ -331,6 +331,54 @@
           "markdownDescription": "Denies the download_speech_model command without any pre-configured scope."
         },
         {
+          "description": "Enables the finish_recording command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-finish-recording",
+          "markdownDescription": "Enables the finish_recording command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the finish_recording command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-finish-recording",
+          "markdownDescription": "Denies the finish_recording command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the pause_recording command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-pause-recording",
+          "markdownDescription": "Enables the pause_recording command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the pause_recording command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-pause-recording",
+          "markdownDescription": "Denies the pause_recording command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the recording_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-recording-status",
+          "markdownDescription": "Enables the recording_status command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the recording_status command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-recording-status",
+          "markdownDescription": "Denies the recording_status command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the resume_recording command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-resume-recording",
+          "markdownDescription": "Enables the resume_recording command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the resume_recording command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-resume-recording",
+          "markdownDescription": "Denies the resume_recording command without any pre-configured scope."
+        },
+        {
           "description": "Enables the speech_status command without any pre-configured scope.",
           "type": "string",
           "const": "allow-speech-status",
@@ -353,6 +401,18 @@
           "type": "string",
           "const": "deny-start-dictation",
           "markdownDescription": "Denies the start_dictation command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the start_recording command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-start-recording",
+          "markdownDescription": "Enables the start_recording command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the start_recording command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-start-recording",
+          "markdownDescription": "Denies the start_recording command without any pre-configured scope."
         },
         {
           "description": "Enables the stop_dictation command without any pre-configured scope.",
@@ -379,10 +439,10 @@
           "markdownDescription": "Denies the transcribe_audio command without any pre-configured scope."
         },
         {
-          "description": "ML Kit Speech Recognition (alpha) — persist-audio-first\n\n#### This default permission set includes:\n\n- `allow-speech-status`\n- `allow-dictation-status`\n- `allow-start-dictation`\n- `allow-stop-dictation`\n- `allow-cancel-dictation`\n- `allow-transcribe-audio`\n- `allow-download-speech-model`",
+          "description": "ML Kit Speech Recognition (alpha) — persist-audio-first\n\n#### This default permission set includes:\n\n- `allow-speech-status`\n- `allow-dictation-status`\n- `allow-start-dictation`\n- `allow-stop-dictation`\n- `allow-cancel-dictation`\n- `allow-transcribe-audio`\n- `allow-download-speech-model`\n- `allow-recording-status`\n- `allow-start-recording`\n- `allow-pause-recording`\n- `allow-resume-recording`\n- `allow-finish-recording`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "ML Kit Speech Recognition (alpha) — persist-audio-first\n\n#### This default permission set includes:\n\n- `allow-speech-status`\n- `allow-dictation-status`\n- `allow-start-dictation`\n- `allow-stop-dictation`\n- `allow-cancel-dictation`\n- `allow-transcribe-audio`\n- `allow-download-speech-model`"
+          "markdownDescription": "ML Kit Speech Recognition (alpha) — persist-audio-first\n\n#### This default permission set includes:\n\n- `allow-speech-status`\n- `allow-dictation-status`\n- `allow-start-dictation`\n- `allow-stop-dictation`\n- `allow-cancel-dictation`\n- `allow-transcribe-audio`\n- `allow-download-speech-model`\n- `allow-recording-status`\n- `allow-start-recording`\n- `allow-pause-recording`\n- `allow-resume-recording`\n- `allow-finish-recording`"
         }
       ]
     }

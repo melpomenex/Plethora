@@ -1290,6 +1290,16 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     targetId: "ai.agent",
   },
   {
+    id: "ai.sessionLearningSuggestions",
+    kind: "setting",
+    section: SettingsTab.AI,
+    label: lit("Recording Session Learning Suggestions"),
+    groupPath: [lit("AI Learning System Features")],
+    aliases: [lit("session suggestions"), lit("recording flashcards"), lit("transcription learning"), lit("lecture cards")],
+    keywords: ["recording", "session", "learning", "suggestions", "transcription", "flashcards"],
+    targetId: "ai.sessionLearningSuggestions",
+  },
+  {
     id: "ai.diagnostics",
     kind: "group",
     section: SettingsTab.AI,

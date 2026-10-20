@@ -48,6 +48,7 @@ pub mod processor;
 mod scheduler;
 mod scheduler_identity;
 mod segmentation;
+pub mod recording;
 mod tts;
 mod services;
 mod study_json_import;
@@ -1756,6 +1757,7 @@ pub fn run() {
             commands::set_document_cover,
             commands::create_document,
             commands::update_document,
+            commands::set_document_privacy,
             commands::merge_document_metadata,
             commands::clear_document_category,
                                                                                                                         commands::get_learning_item_ids_modified_since,
@@ -2445,6 +2447,13 @@ pub fn run() {
             transcription::retry_transcription_job,
             transcription::prioritize_transcription_job,
             transcription::get_transcription_status,
+            transcription::enqueue_session_transcription,
+            transcription::claim_transcription_job,
+            transcription::renew_transcription_lease,
+            transcription::update_transcription_progress_with_lease,
+            transcription::complete_transcription_job_with_lease,
+            transcription::fail_transcription_job_with_lease,
+            transcription::get_session_transcription_status,
             transcription::enqueue_all_untranscribed,
             transcription::get_untranscribed_media_documents,
             transcription::clear_transcription_queue,
@@ -2560,6 +2569,20 @@ pub fn run() {
             sync::sync_fetch_storage_usage,
             sync::sync_upload_blob,
             sync::sync_has_master_key,
+            commands::create_recording_session,
+            commands::get_recording_session,
+            commands::find_session_by_media_hash,
+            commands::list_recording_sessions,
+            commands::update_recording_session_profile,
+            commands::get_session_segments,
+            commands::get_session_document_privacy,
+            commands::append_recording_part,
+            commands::finalize_recording_session,
+            commands::recover_recording_session,
+            commands::stage_session_media,
+            commands::export_partial_recording,
+            commands::commit_session_unit,
+            commands::import_session_transcript,
         ])
         .build({
             startup_trace::mark("context-construction-start");

@@ -427,6 +427,9 @@ export interface Document {
     priority_score: number;
     is_archived: boolean;
     is_dismissed?: boolean;
+    is_local_only?: boolean;
+    is_ai_excluded?: boolean;
+    privacy_version?: number;
     is_favorite: boolean;
     metadata?: Record<string, unknown>;
     cover_image_url?: string;
@@ -472,6 +475,9 @@ export async function createDocument(doc: Partial<Document>): Promise<Document> 
         priority_score: doc.priority_score ?? 50,
         is_archived: doc.is_archived || false,
         is_favorite: doc.is_favorite || false,
+        is_local_only: doc.is_local_only === true || doc.metadata?.isLocalOnly === true,
+        is_ai_excluded: doc.is_ai_excluded === true || doc.metadata?.isAiExcluded === true,
+        privacy_version: 1,
         metadata: doc.metadata,
         cover_image_url: doc.cover_image_url,
         cover_image_source: doc.cover_image_source,
@@ -534,22 +540,63 @@ export async function getDocumentsWithProgress(limit: number): Promise<Document[
     }
 }
 
-export async function updateDocument(id: string, updates: Partial<Document>): Promise<Document> {
-    const existing = await getDocument(id);
-    if (!existing) throw new Error(`Document ${id} not found`);
+/** Keep read/modify/write atomic with intentional privacy changes. */
+function mutateDocument(id: string, mutate: (existing: Document) => Document): Promise<Document> {
+    return withRetry((database) => new Promise((resolve, reject) => {
+        const tx = database.transaction(STORES.documents, 'readwrite');
+        const store = tx.objectStore(STORES.documents);
+        let result: Document;
+        let failure: unknown;
+        const read = store.get(id);
+        read.onsuccess = () => {
+            try {
+                if (!read.result) throw new Error(`Document ${id} not found`);
+                result = mutate(read.result);
+                store.put(result);
+            } catch (error) { failure = error; tx.abort(); }
+        };
+        tx.oncomplete = () => resolve(result);
+        tx.onabort = () => reject(failure ?? tx.error);
+        tx.onerror = () => reject(tx.error);
+    }));
+}
 
+export async function updateDocument(id: string, updates: Partial<Document>): Promise<Document> {
     if (updates.content && updates.content.length > MAX_DOCUMENT_CONTENT_CHARS) {
         console.warn('[IndexedDB] Skipping oversized document content update');
         updates = { ...updates, content: undefined };
     }
+    return mutateDocument(id, (existing) => {
+        const localOnly = existing.is_local_only === true || updates.is_local_only === true
+            || existing.metadata?.isLocalOnly === true || updates.metadata?.isLocalOnly === true;
+        const excluded = existing.is_ai_excluded === true || updates.is_ai_excluded === true
+            || existing.metadata?.isAiExcluded === true || updates.metadata?.isAiExcluded === true;
+        const changed = localOnly !== (existing.is_local_only === true) || excluded !== (existing.is_ai_excluded === true);
+        return {
+            ...existing, ...updates, id,
+            is_local_only: localOnly, is_ai_excluded: excluded,
+            privacy_version: (existing.privacy_version ?? 1) + (changed ? 1 : 0),
+            date_modified: new Date().toISOString(),
+        };
+    });
+}
 
-    const updated: Document = {
-        ...existing,
-        ...updates,
-        id, // Ensure ID is not overwritten
-        date_modified: new Date().toISOString(),
-    };
-    return put(STORES.documents, updated);
+export async function setDocumentPrivacy(id: string, localOnly: boolean, excluded: boolean, expectedVersion: number): Promise<Document> {
+    return mutateDocument(id, (existing) => {
+        if ((existing.privacy_version ?? 1) !== expectedVersion) {
+            throw new Error('Document privacy changed; reload before changing restrictions');
+        }
+        const metadata = { ...existing.metadata };
+        delete metadata.isLocalOnly;
+        delete metadata.isAiExcluded;
+        const changed = localOnly !== (existing.is_local_only === true) || excluded !== (existing.is_ai_excluded === true);
+        return {
+            ...existing, metadata,
+            is_local_only: localOnly, is_ai_excluded: excluded,
+            privacy_version: expectedVersion + (changed ? 1 : 0),
+            date_modified: new Date().toISOString(),
+        };
+    });
 }
 
 export async function deleteDocument(id: string): Promise<void> {
@@ -1206,7 +1253,7 @@ export async function undoBrowserArenaReview(
 
 export async function getChangedDocuments(sinceSyncVersion: number): Promise<Document[]> {
     const all = await getAll<Document>(STORES.documents);
-    return all.filter(d => (d.sync_version || 0) > sinceSyncVersion);
+    return all.filter(d => (d.sync_version || 0) > sinceSyncVersion && d.is_local_only !== true && d.metadata?.isLocalOnly !== true);
 }
 
 export async function getChangedExtracts(sinceSyncVersion: number): Promise<Extract[]> {
@@ -1224,7 +1271,17 @@ export async function bulkPutDocuments(docs: Document[]): Promise<void> {
         const tx = database.transaction(STORES.documents, 'readwrite');
         const store = tx.objectStore(STORES.documents);
         for (const doc of docs) {
-            store.put(doc);
+            const read = store.get(doc.id);
+            read.onsuccess = () => {
+                const existing = read.result as Document | undefined;
+                const localOnly = existing?.is_local_only === true || doc.is_local_only === true
+                    || existing?.metadata?.isLocalOnly === true || doc.metadata?.isLocalOnly === true;
+                const excluded = existing?.is_ai_excluded === true || doc.is_ai_excluded === true
+                    || existing?.metadata?.isAiExcluded === true || doc.metadata?.isAiExcluded === true;
+                const changed = existing && (localOnly !== (existing.is_local_only === true) || excluded !== (existing.is_ai_excluded === true));
+                store.put({ ...doc, is_local_only: localOnly, is_ai_excluded: excluded,
+                    privacy_version: existing ? (existing.privacy_version ?? 1) + (changed ? 1 : 0) : 1 });
+            };
         }
         return new Promise((resolve, reject) => {
             tx.oncomplete = () => resolve();

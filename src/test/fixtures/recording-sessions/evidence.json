@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "documentId": "fixture-document",
+  "sessionId": "fixture-session",
+  "assetId": "fixture-asset",
+  "transcriptId": 1,
+  "transcriptRevision": 0,
+  "segmentKeys": [
+    "1:fixture-0:0"
+  ],
+  "quote": "Retrieval practice means recalling an answer before checking it.",
+  "ranges": [
+    {
+      "segmentKey": "1:fixture-0:0",
+      "startUtf16": 62,
+      "endUtf16": 126
+    }
+  ],
+  "time": {
+    "kind": "measured",
+    "startMs": 0,
+    "endMs": 7571
+  },
+  "speakerId": "speaker-1",
+  "markerIds": [],
+  "precision": "segment",
+  "fingerprint": "5b7c36a7ffd3b47d303e0a793be7948112ed850de2c35926f2c078ca2e27d81f"
+}

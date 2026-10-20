@@ -1,6 +1,15 @@
 import type { ModelProfile } from "../api/transcription";
-import { LOGICAL_STT_MODELS, type LogicalSttModelKey } from "../services/transcription/config";
 import { getOpenRouterApiKey } from "../services/transcription/providers/OpenRouterAsrProvider";
+import type {
+  SessionTranscriptionAuthorization,
+  SessionTranscriptionPlanResult,
+} from "../services/transcription/types";
+import {
+  acknowledgeCloudAiDisclosure,
+  isCloudAiDisclosed,
+  resolveCloudAiProviderClass,
+  type CloudAiDisclosurePresenter,
+} from "./privacy/cloudAiDisclosure";
 
 export interface TranscriptionAudioSettings {
   provider: "local" | "groq" | "apple" | "android-ondevice" | "openrouter";
@@ -534,3 +543,302 @@ export function describeResolution(resolution: Resolution): string {
     ? `${engine}. Local transcription is unavailable on mobile, so ${providerLabel} is being used instead.`
     : engine;
 }
+
+export interface ResolveSessionPlanParams {
+  session: {
+    id: string;
+    origin?: string;
+    assetId?: string;
+    transcriptRevision?: number;
+  };
+  documentPrivacy: {
+    isLocalOnly: boolean;
+    isAiExcluded: boolean;
+  };
+  audioSettings: TranscriptionAudioSettings;
+  profiles: ModelProfile[];
+  platform: TranscriptionPlatform;
+  options?: {
+    forceOffline?: boolean;
+    isOnline?: boolean;
+    appleReady?: boolean;
+    androidSttReady?: boolean;
+    localNemotronReady?: boolean;
+    localWhistleReady?: boolean;
+    openRouterKey?: string;
+    disclosurePresenter?: CloudAiDisclosurePresenter | null;
+    hasDurableConsent?: boolean;
+  };
+}
+
+/**
+ * Resolves a concrete, frozen, privacy-safe SessionTranscriptionPlan and authorization DTO
+ * per OpenSpec D6.
+ *
+ * Guarantees:
+ * - Strict adherence to document privacy: AI-excluded documents refuse execution;
+ *   local-only documents never transmit audio to cloud providers.
+ * - Offline enforcement: offline mode or network absence refuses cloud execution.
+ * - Credentials & consent: API keys are validated, and cloud providers require
+ *   durable consent (or a registered presenter). Missing presenter blocks remote execution.
+ * - Executor assignment: assigns rust-local, native-android, native-apple, or frontend-service.
+ * - Cancellation never falls back: execution plan is strictly frozen with a single provider/executor.
+ */
+export async function resolveSessionTranscriptionPlan(
+  params: ResolveSessionPlanParams
+): Promise<SessionTranscriptionPlanResult> {
+  const { session, documentPrivacy, audioSettings, profiles, platform, options = {} } = params;
+
+  // 1. Check AI-excluded policy
+  if (documentPrivacy.isAiExcluded) {
+    return {
+      ok: false,
+      reason: "ai-excluded",
+      blockedReason: "policy-excluded",
+      messageKey: "recording.aiExcluded",
+    };
+  }
+
+  const isOffline =
+    options.forceOffline === true ||
+    options.isOnline === false ||
+    audioSettings.mode === "offline";
+
+  // 2. Check local-only document policy
+  if (documentPrivacy.isLocalOnly) {
+    const wantsExplicitCloud =
+      (audioSettings.provider === "groq" ||
+        audioSettings.provider === "openrouter" ||
+        audioSettings.sttProvider === "openrouter" ||
+        audioSettings.sttProvider === "premium") &&
+      audioSettings.automaticFallback === false &&
+      !audioSettings.preferLocal;
+
+    if (wantsExplicitCloud) {
+      return {
+        ok: false,
+        reason: "cloud-forbidden-for-local-only",
+        blockedReason: "policy-excluded",
+        messageKey: "recording.localOnlyPolicy",
+      };
+    }
+  }
+
+  // 3. Resolve candidate provider
+  let candidateSettings = audioSettings;
+  if (documentPrivacy.isLocalOnly || isOffline) {
+    if (audioSettings.provider === "groq" || audioSettings.provider === "openrouter") {
+      candidateSettings = {
+        ...audioSettings,
+        provider: "local",
+        sttProvider: "local",
+        preferLocal: true,
+      };
+    }
+  }
+
+  const resolution = resolveTranscription(candidateSettings, profiles, platform, {
+    appleReady: options.appleReady,
+    androidSttReady: options.androidSttReady,
+    localNemotronReady: options.localNemotronReady,
+    localWhistleReady: options.localWhistleReady,
+    openRouterKey: options.openRouterKey,
+  });
+
+  if (resolution.ok === false) {
+    const blockedReason = isOffline
+      ? "offline-required"
+      : documentPrivacy.isLocalOnly
+      ? "policy-excluded"
+      : "provider-unavailable";
+
+    return {
+      ok: false,
+      reason: resolution.reason,
+      blockedReason,
+      messageKey: `recording.${resolution.reason}`,
+    };
+  }
+
+  // 4. Map provider to executor and verify privacy / cloud consent
+  const provider = resolution.provider;
+  const modelId = resolution.modelId;
+  const modelLabel = resolution.modelLabel;
+  const language = audioSettings.language || "en";
+  const sourceRevision = session.transcriptRevision ?? 0;
+  const frozenAt = new Date().toISOString();
+
+  if (provider === "local") {
+    return {
+      ok: true,
+      plan: {
+        sessionId: session.id,
+        assetId: session.assetId,
+        transcriptRevision: sourceRevision,
+        provider: "local",
+        modelId,
+        modelLabel,
+        language,
+        executor: "rust-local",
+        isLocal: true,
+        sourceRevision,
+        privacyCategory: documentPrivacy.isLocalOnly ? "local-only" : "standard",
+        frozenAt,
+      },
+    };
+  }
+
+  if (provider === "android-ondevice") {
+    return {
+      ok: true,
+      plan: {
+        sessionId: session.id,
+        assetId: session.assetId,
+        transcriptRevision: sourceRevision,
+        provider: "android-ondevice",
+        modelId,
+        modelLabel,
+        language,
+        executor: "native-android",
+        isLocal: true,
+        sourceRevision,
+        privacyCategory: documentPrivacy.isLocalOnly ? "local-only" : "standard",
+        frozenAt,
+      },
+    };
+  }
+
+  if (provider === "apple") {
+    return {
+      ok: true,
+      plan: {
+        sessionId: session.id,
+        assetId: session.assetId,
+        transcriptRevision: sourceRevision,
+        provider: "apple",
+        modelId,
+        modelLabel,
+        language,
+        executor: "native-apple",
+        isLocal: true,
+        sourceRevision,
+        privacyCategory: documentPrivacy.isLocalOnly ? "local-only" : "standard",
+        frozenAt,
+      },
+    };
+  }
+
+  // Cloud providers: groq or openrouter
+  if (documentPrivacy.isLocalOnly) {
+    return {
+      ok: false,
+      reason: "cloud-forbidden-for-local-only",
+      blockedReason: "policy-excluded",
+      messageKey: "recording.localOnlyPolicy",
+    };
+  }
+
+  if (isOffline) {
+    return {
+      ok: false,
+      reason: "offline-unsupported",
+      blockedReason: "offline-required",
+      messageKey: "recording.offlineRequired",
+    };
+  }
+
+  // Check credentials at execution/plan generation
+  if (provider === "groq") {
+    if (!audioSettings.groq?.apiKey || audioSettings.groq.apiKey.trim() === "") {
+      return {
+        ok: false,
+        reason: "missing-groq-key",
+        blockedReason: "provider-unavailable",
+        messageKey: "recording.missingGroqKey",
+      };
+    }
+  } else if (provider === "openrouter") {
+    const key =
+      options.openRouterKey !== undefined
+        ? options.openRouterKey
+        : getOpenRouterApiKey();
+    if (!key || key.trim() === "") {
+      return {
+        ok: false,
+        reason: "missing-openrouter-key",
+        blockedReason: "provider-unavailable",
+        messageKey: "recording.missingOpenRouterKey",
+      };
+    }
+  }
+
+  // Cloud AI disclosure / durable consent check
+  const providerClass = resolveCloudAiProviderClass(provider);
+  let consented = options.hasDurableConsent === true || isCloudAiDisclosed(providerClass);
+
+  if (!consented) {
+    // Missing presenter blocks remote session execution
+    if (!options.disclosurePresenter) {
+      return {
+        ok: false,
+        reason: "missing-presenter",
+        blockedReason: "consent-required",
+        messageKey: "recording.consentRequired",
+      };
+    }
+
+    const accepted = await options.disclosurePresenter({
+      featureClass: "transcription",
+      providerClass,
+      provider,
+    });
+
+    if (!accepted) {
+      return {
+        ok: false,
+        reason: "consent-declined",
+        blockedReason: "consent-required",
+        messageKey: "recording.consentDeclined",
+      };
+    }
+
+    acknowledgeCloudAiDisclosure(providerClass);
+    consented = true;
+  }
+
+  const endpoint =
+    provider === "groq"
+      ? "https://api.groq.com/openai/v1"
+      : "https://openrouter.ai/api/v1";
+
+  const authorization: SessionTranscriptionAuthorization = {
+    sessionId: session.id,
+    providerClass,
+    provider,
+    endpoint,
+    sourceKind: session.origin ?? "recorded",
+    sourceRevision,
+    userConsented: true,
+    authorizedAt: new Date().toISOString(),
+  };
+
+  return {
+    ok: true,
+    plan: {
+      sessionId: session.id,
+      assetId: session.assetId,
+      transcriptRevision: sourceRevision,
+      provider,
+      modelId,
+      modelLabel,
+      language,
+      executor: "frontend-service",
+      isLocal: false,
+      sourceRevision,
+      privacyCategory: "cloud-authorized",
+      frozenAt,
+    },
+    authorization,
+  };
+}
+

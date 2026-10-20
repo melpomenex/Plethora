@@ -76,6 +76,7 @@ vi.mock("../../lib/tauri", () => ({
   invokeCommand: (...args: unknown[]) => invokeCommandMock(...args),
   isTauri: () => true,
   isNativeMobile: () => false,
+  nativePlatform: () => "linux",
 }));
 
 vi.mock("../../lib/feedback", () => ({

@@ -593,7 +593,7 @@ pub async fn upsert_document(
             is_archived, is_favorite, is_dismissed, metadata,
             cover_image_url, cover_image_source,
             next_reading_date, reading_count, stability, difficulty, reps,
-            total_time_spent, consecutive_count, interval_modifier, first_reviewed_at
+            total_time_spent, consecutive_count, interval_modifier, first_reviewed_at, is_local_only, is_ai_excluded
         ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6, ?7,
             ?8, ?9, ?10, ?11,
@@ -603,7 +603,7 @@ pub async fn upsert_document(
             ?24, ?25, ?26, ?27,
             ?28, ?29,
             ?30, ?31, ?32, ?33, ?34,
-            ?35, ?36, ?37, ?38
+            ?35, ?36, ?37, ?38, ?39, ?40
         )
         ON CONFLICT(id) DO UPDATE SET
             collection_id = excluded.collection_id,
@@ -646,7 +646,9 @@ pub async fn upsert_document(
             total_time_spent = excluded.total_time_spent,
             consecutive_count = excluded.consecutive_count,
             interval_modifier = excluded.interval_modifier,
-            first_reviewed_at = excluded.first_reviewed_at
+            first_reviewed_at = excluded.first_reviewed_at,
+            is_local_only = MAX(documents.is_local_only, excluded.is_local_only),
+            is_ai_excluded = MAX(documents.is_ai_excluded, excluded.is_ai_excluded)
         "#,
     )
     .bind(&target_id)
@@ -687,6 +689,8 @@ pub async fn upsert_document(
     .bind(document.consecutive_count)
     .bind(document.interval_modifier)
     .bind(document.first_reviewed_at)
+    .bind(document.effective_local_only())
+    .bind(document.effective_ai_excluded())
     .execute(&mut **tx)
     .await?;
 
@@ -966,6 +970,12 @@ pub async fn apply_document_groups(
     if exists.is_none() {
         return upsert_document(tx, document).await;
     }
+
+    // Policy is monotonic across every incoming field group. Older clients
+    // may omit both flags; neither absent nor false authorizes lowering one.
+    sqlx::query("UPDATE documents SET is_local_only = MAX(is_local_only, ?1), is_ai_excluded = MAX(is_ai_excluded, ?2) WHERE id = ?3")
+        .bind(document.effective_local_only()).bind(document.effective_ai_excluded()).bind(&target_id)
+        .execute(&mut **tx).await?;
 
     if groups.iter().any(|group| group == "collection") {
         sqlx::query("UPDATE documents SET collection_id = ?1 WHERE id = ?2")

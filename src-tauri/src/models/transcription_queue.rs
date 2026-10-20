@@ -29,6 +29,26 @@ pub struct TranscriptionQueueEntry {
     pub total_duration_ms: Option<i64>,
     #[serde(default = "default_transcription_mode")]
     pub transcription_mode: String,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub asset_id: Option<String>,
+    #[serde(default)]
+    pub transcript_revision: i64,
+    #[serde(default)]
+    pub executor: Option<String>,
+    #[serde(default)]
+    pub plan_json: Option<String>,
+    #[serde(default)]
+    pub lease_owner: Option<String>,
+    #[serde(default)]
+    pub lease_expires_at: Option<i64>,
+    #[serde(default)]
+    pub cancel_epoch: i64,
+    #[serde(default)]
+    pub blocked_reason: Option<String>,
+    #[serde(default)]
+    pub authorization_json: Option<String>,
 }
 
 fn default_transcription_mode() -> String {
@@ -72,6 +92,16 @@ impl TranscriptionQueueEntry {
             processed_duration_ms: 0,
             total_duration_ms: None,
             transcription_mode: default_transcription_mode(),
+            session_id: None,
+            asset_id: None,
+            transcript_revision: 0,
+            executor: None,
+            plan_json: None,
+            lease_owner: None,
+            lease_expires_at: None,
+            cancel_epoch: 0,
+            blocked_reason: None,
+            authorization_json: None,
         }
     }
 

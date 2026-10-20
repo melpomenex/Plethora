@@ -42,8 +42,8 @@ function getItemDedupeKey(item: SharedItem): string {
       return `url-${item.url.trim().replace(/\/$/, "")}`;
     }
   }
-  if (item.type === "file" && item.filePath) {
-    return `file-${item.filePath}`;
+  if (item.type === "file" && (item.filePath || item.fileName)) {
+    return `file-${item.filePath || item.fileName}`;
   }
   if (item.type === "text" && item.text) {
     return `text-${item.text.trim()}`;
@@ -53,7 +53,8 @@ function getItemDedupeKey(item: SharedItem): string {
 
 function getBatchDedupeKey(batch: SharedBatch): string {
   if (!batch.items || batch.items.length === 0) return "";
-  return batch.items.map(getItemDedupeKey).sort().join("|");
+  const itemsKey = batch.items.map(getItemDedupeKey).sort().join("|");
+  return batch.id ? `batch-${batch.id}:${itemsKey}` : itemsKey;
 }
 
 export function useShareTarget() {

@@ -1,0 +1,10 @@
+{
+  "id": "F-lecture",
+  "license": "CC0-1.0",
+  "sections": [
+    { "speakerId": "speaker-1", "text": "Spaced repetition schedules recall over increasing intervals. Retrieval practice means recalling an answer before checking it." },
+    { "speakerId": "speaker-2", "text": "Recognition identifies a familiar answer. Recall produces the answer without seeing it. Retrieval strengthens memory." },
+    { "speakerId": "speaker-1", "text": "First attempt recall. Next check the answer. Finally schedule the next review. Retrieval strengthens memory." }
+  ],
+  "technicalParagraph": "Energy is E = mc². Keep the term Riemannian unchanged. A confusing moment 🤔 can be marked."
+}

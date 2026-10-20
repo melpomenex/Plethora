@@ -5,6 +5,12 @@ const COMMANDS: &[&str] = &[
     "stop_dictation",
     "cancel_dictation",
 
+    "recording_status",
+    "start_recording",
+    "pause_recording",
+    "resume_recording",
+    "finish_recording",
+
     "transcribe_audio",
     "download_speech_model",
 ];

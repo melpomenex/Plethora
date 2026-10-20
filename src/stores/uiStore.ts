@@ -1,6 +1,17 @@
 import { create } from "zustand";
 import { ViewName } from "../types";
 
+export interface CaptureImportInitialData {
+  filePath?: string;
+  filePaths?: string[];
+  fileName?: string;
+  fileNames?: string[];
+  url?: string;
+  title?: string;
+  collectionId?: string;
+  contentType?: "lecture" | "meeting" | "interview" | "study";
+}
+
 interface UIState {
   // Navigation
   currentView: ViewName;
@@ -15,6 +26,12 @@ interface UIState {
   commandPaletteOpen: boolean;
   lectureCaptureRequested: boolean;
   commandPaletteQuery: string;
+
+  // Capture & Import / Active Recording
+  captureImportDialogOpen: boolean;
+  captureImportInitialRoute?: "record" | "import-media" | "import-transcript" | "import-url";
+  captureImportInitialData?: CaptureImportInitialData;
+  activeRecordingOpen: boolean;
 
   // Paste Extract Dialog
   pasteExtractDialogOpen: boolean;
@@ -33,6 +50,12 @@ interface UIState {
   closeModal: () => void;
   setCommandPaletteOpen: (open: boolean) => void;
   setLectureCaptureRequested: (requested: boolean) => void;
+  setCaptureImportDialogOpen: (
+    open: boolean,
+    initialRoute?: "record" | "import-media" | "import-transcript" | "import-url",
+    initialData?: CaptureImportInitialData
+  ) => void;
+  setActiveRecordingOpen: (open: boolean) => void;
   setCommandPaletteQuery: (query: string) => void;
   setPasteExtractDialogOpen: (open: boolean) => void;
   setTwitterImportDialogOpen: (open: boolean) => void;
@@ -49,6 +72,10 @@ export const useUIStore = create<UIState>((set) => ({
   commandPaletteOpen: false,
   lectureCaptureRequested: false,
   commandPaletteQuery: "",
+  captureImportDialogOpen: false,
+  captureImportInitialRoute: undefined,
+  captureImportInitialData: undefined,
+  activeRecordingOpen: false,
   pasteExtractDialogOpen: false,
   twitterImportDialogOpen: false,
   theme: "dark",
@@ -78,7 +105,18 @@ export const useUIStore = create<UIState>((set) => ({
       commandPaletteQuery: commandPaletteOpen ? "" : "",
     }),
 
-  setLectureCaptureRequested: (lectureCaptureRequested) => set({ lectureCaptureRequested }),
+  setLectureCaptureRequested: (lectureCaptureRequested) =>
+    set({
+      lectureCaptureRequested,
+      captureImportDialogOpen: lectureCaptureRequested ? true : false,
+      captureImportInitialRoute: lectureCaptureRequested ? "record" : undefined,
+      captureImportInitialData: undefined,
+    }),
+
+  setCaptureImportDialogOpen: (captureImportDialogOpen, captureImportInitialRoute, captureImportInitialData) =>
+    set({ captureImportDialogOpen, captureImportInitialRoute, captureImportInitialData }),
+
+  setActiveRecordingOpen: (activeRecordingOpen) => set({ activeRecordingOpen }),
 
   setCommandPaletteQuery: (commandPaletteQuery) => set({ commandPaletteQuery }),
   setPasteExtractDialogOpen: (pasteExtractDialogOpen) => set({ pasteExtractDialogOpen }),

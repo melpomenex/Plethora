@@ -424,6 +424,11 @@ mod commands {
     stub_cmd!(apple_coreai_cancel, "coreaiCancel");
     stub_cmd!(apple_coreai_count_tokens, "coreaiCountTokens");
     stub_cmd!(apple_coreai_warmup, "coreaiWarmup");
+    stub_cmd!(apple_recording_status, "recordingStatus");
+    stub_cmd!(apple_recording_start, "recordingStart");
+    stub_cmd!(apple_recording_pause, "recordingPause");
+    stub_cmd!(apple_recording_resume, "recordingResume");
+    stub_cmd!(apple_recording_finish, "recordingFinish");
 
     #[tauri::command]
     pub async fn apple_translate_sentence(
@@ -493,6 +498,11 @@ pub fn init() -> TauriPlugin<Wry> {
             commands::apple_coreai_count_tokens,
             commands::apple_coreai_warmup,
             commands::apple_translate_sentence,
+            commands::apple_recording_status,
+            commands::apple_recording_start,
+            commands::apple_recording_pause,
+            commands::apple_recording_resume,
+            commands::apple_recording_finish,
         ])
         .setup(|app, api| {
             let plugin = init_mobile(app.app_handle(), api)?;

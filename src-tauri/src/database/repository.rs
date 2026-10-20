@@ -13,7 +13,7 @@ use crate::models::{
 };
 use crate::sync::bootstrap;
 use crate::sync::journal::{journal_entity, notify_after_commit};
-use crate::sync::outbox::{self, learning_item_revision, mark_dirty};
+use crate::sync::outbox::{self, learning_item_revision};
 use crate::sync::payload::{self, delete_payload, timestamp_revision};
 use crate::sync::settings::is_syncable_setting_key;
 use crate::sync::types::{EntityType, SyncOperation};
@@ -77,6 +77,26 @@ struct TranscriptionQueueDbRow {
     total_duration_ms: Option<i64>,
     #[sqlx(default)]
     transcription_mode: String,
+    #[sqlx(default)]
+    session_id: Option<String>,
+    #[sqlx(default)]
+    asset_id: Option<String>,
+    #[sqlx(default)]
+    transcript_revision: i64,
+    #[sqlx(default)]
+    executor: Option<String>,
+    #[sqlx(default)]
+    plan_json: Option<String>,
+    #[sqlx(default)]
+    lease_owner: Option<String>,
+    #[sqlx(default)]
+    lease_expires_at: Option<i64>,
+    #[sqlx(default)]
+    cancel_epoch: i64,
+    #[sqlx(default)]
+    blocked_reason: Option<String>,
+    #[sqlx(default)]
+    authorization_json: Option<String>,
 }
 
 impl TranscriptionQueueDbRow {
@@ -100,6 +120,16 @@ impl TranscriptionQueueDbRow {
             processed_duration_ms: self.processed_duration_ms,
             total_duration_ms: self.total_duration_ms,
             transcription_mode: self.transcription_mode,
+            session_id: self.session_id,
+            asset_id: self.asset_id,
+            transcript_revision: self.transcript_revision,
+            executor: self.executor,
+            plan_json: self.plan_json,
+            lease_owner: self.lease_owner,
+            lease_expires_at: self.lease_expires_at,
+            cancel_epoch: self.cancel_epoch,
+            blocked_reason: self.blocked_reason,
+            authorization_json: self.authorization_json,
         }
     }
 }
@@ -127,6 +157,26 @@ struct FullTranscriptionQueueDbRow {
     total_duration_ms: Option<i64>,
     #[sqlx(default)]
     transcription_mode: String,
+    #[sqlx(default)]
+    session_id: Option<String>,
+    #[sqlx(default)]
+    asset_id: Option<String>,
+    #[sqlx(default)]
+    transcript_revision: i64,
+    #[sqlx(default)]
+    executor: Option<String>,
+    #[sqlx(default)]
+    plan_json: Option<String>,
+    #[sqlx(default)]
+    lease_owner: Option<String>,
+    #[sqlx(default)]
+    lease_expires_at: Option<i64>,
+    #[sqlx(default)]
+    cancel_epoch: i64,
+    #[sqlx(default)]
+    blocked_reason: Option<String>,
+    #[sqlx(default)]
+    authorization_json: Option<String>,
     document_title: String,
 }
 
@@ -152,6 +202,16 @@ impl FullTranscriptionQueueDbRow {
                 processed_duration_ms: self.processed_duration_ms,
                 total_duration_ms: self.total_duration_ms,
                 transcription_mode: self.transcription_mode,
+                session_id: self.session_id,
+                asset_id: self.asset_id,
+                transcript_revision: self.transcript_revision,
+                executor: self.executor,
+                plan_json: self.plan_json,
+                lease_owner: self.lease_owner,
+                lease_expires_at: self.lease_expires_at,
+                cancel_epoch: self.cancel_epoch,
+                blocked_reason: self.blocked_reason,
+                authorization_json: self.authorization_json,
             },
             document_title: self.document_title,
         }
@@ -392,6 +452,9 @@ impl Repository {
             is_archived: row.try_get("is_archived").unwrap_or(false),
             is_favorite: row.try_get("is_favorite").unwrap_or(false),
             is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+            is_local_only: row.try_get("is_local_only")?,
+            is_ai_excluded: row.try_get("is_ai_excluded")?,
+            privacy_version: row.try_get("privacy_version")?,
             metadata,
             cover_image_url: row.try_get("cover_image_url").ok().flatten(),
             cover_image_source: row.try_get("cover_image_source").ok().flatten(),
@@ -458,7 +521,7 @@ impl Repository {
         })
     }
 
-    async fn journal_document_fields(
+    pub(crate) async fn journal_document_fields(
         tx: &mut sqlx::Transaction<'_, Sqlite>,
         id: &str,
         fields: &[&str],
@@ -794,8 +857,8 @@ impl Repository {
                 total_pages, current_page, current_scroll_percent, current_cfi, current_view_state, category, tags,
                 date_added, date_modified, date_last_reviewed,
                 extract_count, learning_item_count, priority_rating, priority_slider, priority_score,
-                is_archived, is_favorite, is_dismissed, metadata, cover_image_url, cover_image_source
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)
+                is_archived, is_favorite, is_dismissed, metadata, cover_image_url, cover_image_source, is_local_only, is_ai_excluded, privacy_version
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)
             "#,
         )
         .bind(&document.id)
@@ -826,6 +889,9 @@ impl Repository {
         .bind(metadata_json)
         .bind(&document.cover_image_url)
         .bind(&document.cover_image_source)
+        .bind(document.effective_local_only())
+        .bind(document.effective_ai_excluded())
+        .bind(document.privacy_version)
         .execute(&mut **tx)
         .await?;
 
@@ -988,6 +1054,9 @@ impl Repository {
                     is_archived: row.get("is_archived"),
                     is_favorite: row.get("is_favorite"),
                     is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+                    is_local_only: row.try_get("is_local_only")?,
+                    is_ai_excluded: row.try_get("is_ai_excluded")?,
+                    privacy_version: row.try_get("privacy_version")?,
                     metadata,
                     cover_image_url: row.try_get("cover_image_url").ok(),
                     cover_image_source: row.try_get("cover_image_source").ok(),
@@ -1058,6 +1127,9 @@ impl Repository {
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+                is_local_only: row.try_get("is_local_only")?,
+                is_ai_excluded: row.try_get("is_ai_excluded")?,
+                privacy_version: row.try_get("privacy_version")?,
                 metadata,
                 cover_image_url: row.try_get("cover_image_url").ok(),
                 cover_image_source: row.try_get("cover_image_source").ok(),
@@ -1130,6 +1202,9 @@ impl Repository {
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+                is_local_only: row.try_get("is_local_only")?,
+                is_ai_excluded: row.try_get("is_ai_excluded")?,
+                privacy_version: row.try_get("privacy_version")?,
                 metadata,
                 cover_image_url: row.try_get("cover_image_url").ok(),
                 cover_image_source: row.try_get("cover_image_source").ok(),
@@ -1167,7 +1242,7 @@ impl Repository {
              total_pages, current_page, current_scroll_percent, current_cfi, current_view_state, \
              position_json, progress_percent, category, tags, date_added, date_modified, \
              date_last_reviewed, extract_count, learning_item_count, priority_rating, \
-             priority_slider, priority_score, priority_explicitly_set, is_archived, is_favorite, is_dismissed, \
+             priority_slider, priority_score, priority_explicitly_set, is_archived, is_favorite, is_dismissed, is_local_only, is_ai_excluded, privacy_version, \
              metadata, cover_image_url, cover_image_source, \
              next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, \
              consecutive_count \
@@ -1221,6 +1296,9 @@ impl Repository {
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+                is_local_only: row.try_get("is_local_only")?,
+                is_ai_excluded: row.try_get("is_ai_excluded")?,
+                privacy_version: row.try_get("privacy_version")?,
                 metadata,
                 cover_image_url: row.try_get("cover_image_url").ok(),
                 cover_image_source: row.try_get("cover_image_source").ok(),
@@ -1255,7 +1333,7 @@ impl Repository {
              total_pages, current_page, current_scroll_percent, current_cfi, current_view_state, \
              position_json, progress_percent, category, tags, date_added, date_modified, \
              date_last_reviewed, extract_count, learning_item_count, priority_rating, \
-             priority_slider, priority_score, priority_explicitly_set, is_archived, is_favorite, is_dismissed, \
+             priority_slider, priority_score, priority_explicitly_set, is_archived, is_favorite, is_dismissed, is_local_only, is_ai_excluded, privacy_version, \
              metadata, cover_image_url, cover_image_source, \
              next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, \
              consecutive_count \
@@ -1310,6 +1388,9 @@ impl Repository {
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+                is_local_only: row.try_get("is_local_only")?,
+                is_ai_excluded: row.try_get("is_ai_excluded")?,
+                privacy_version: row.try_get("privacy_version")?,
                 metadata,
                 cover_image_url: row.try_get("cover_image_url").ok(),
                 cover_image_source: row.try_get("cover_image_source").ok(),
@@ -1349,7 +1430,7 @@ impl Repository {
                     current_page, current_scroll_percent, current_cfi, current_view_state,
                     position_json, progress_percent, category, tags, date_added, date_modified,
                     date_last_reviewed, extract_count, learning_item_count, priority_rating,
-                    priority_slider, priority_score, priority_explicitly_set, is_archived, is_favorite, is_dismissed,
+                    priority_slider, priority_score, priority_explicitly_set, is_archived, is_favorite, is_dismissed, is_local_only, is_ai_excluded, privacy_version,
                     next_reading_date, reading_count, stability, difficulty, reps,
                     total_time_spent, consecutive_count
              FROM documents
@@ -1402,6 +1483,9 @@ impl Repository {
                     is_archived: row.try_get("is_archived").unwrap_or(false),
                     is_favorite: row.try_get("is_favorite").unwrap_or(false),
                     is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+                    is_local_only: row.get("is_local_only"),
+                    is_ai_excluded: row.get("is_ai_excluded"),
+                    privacy_version: row.get("privacy_version"),
                     next_reading_date: row.try_get("next_reading_date").ok(),
                     reading_count: row.try_get("reading_count").unwrap_or(0),
                     stability: row.try_get("stability").ok(),
@@ -1424,7 +1508,7 @@ impl Repository {
              current_scroll_percent, current_cfi, current_view_state, position_json, \
              progress_percent, category, tags, date_added, date_modified, date_last_reviewed, \
              extract_count, learning_item_count, priority_rating, priority_slider, priority_score, priority_explicitly_set, \
-             is_archived, is_favorite, is_dismissed, metadata, cover_image_url, cover_image_source, \
+             is_archived, is_favorite, is_dismissed, is_local_only, is_ai_excluded, privacy_version, metadata, cover_image_url, cover_image_source, \
              next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, consecutive_count, \
              collection_id \
              FROM documents ORDER BY date_added DESC"
@@ -1478,6 +1562,9 @@ impl Repository {
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+                is_local_only: row.try_get("is_local_only")?,
+                is_ai_excluded: row.try_get("is_ai_excluded")?,
+                privacy_version: row.try_get("privacy_version")?,
                 metadata,
                 cover_image_url: row.try_get("cover_image_url").ok(),
                 cover_image_source: row.try_get("cover_image_source").ok(),
@@ -1505,7 +1592,7 @@ impl Repository {
              current_scroll_percent, current_cfi, current_view_state, position_json, \
              progress_percent, category, tags, date_added, date_modified, date_last_reviewed, \
              extract_count, learning_item_count, priority_rating, priority_slider, priority_score, \
-             is_archived, is_favorite, is_dismissed, \
+             is_archived, is_favorite, is_dismissed, is_local_only, is_ai_excluded, privacy_version, \
              next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, consecutive_count, \
              collection_id";
 
@@ -1598,6 +1685,9 @@ impl Repository {
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+                is_local_only: row.try_get("is_local_only")?,
+                is_ai_excluded: row.try_get("is_ai_excluded")?,
+                privacy_version: row.try_get("privacy_version")?,
                 metadata: None,
                 cover_image_url: None,
                 cover_image_source: None,
@@ -1636,7 +1726,9 @@ impl Repository {
                 tags = ?5, date_modified = ?6, priority_rating = ?7,
                 priority_slider = ?8, priority_score = ?9,
                 is_archived = ?10, is_favorite = ?11,
-                total_pages = COALESCE(?12, total_pages)
+                total_pages = COALESCE(?12, total_pages),
+                is_local_only = MAX(is_local_only, ?14),
+                is_ai_excluded = MAX(is_ai_excluded, ?15)
             WHERE id = ?13
             "#,
         )
@@ -1653,6 +1745,8 @@ impl Repository {
         .bind(updates.is_favorite)
         .bind(updates.total_pages)
         .bind(id)
+        .bind(updates.effective_local_only())
+        .bind(updates.effective_ai_excluded())
         .execute(&mut *tx)
         .await?
         .rows_affected();
@@ -2298,10 +2392,6 @@ impl Repository {
         .bind(id)
         .execute(&mut *tx)
         .await?;
-        sqlx::query("DELETE FROM documents WHERE id = ?1")
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
 
         let delete_payload = delete_payload("document", id)
             .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
@@ -2314,6 +2404,11 @@ impl Repository {
             delete_payload,
         )
         .await?;
+
+        sqlx::query("DELETE FROM documents WHERE id = ?1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
 
         tx.commit().await?;
         notify_after_commit();
@@ -2672,10 +2767,6 @@ impl Repository {
             unlink_node_in_tx(&mut tx, node_id).await?;
         }
 
-        sqlx::query("DELETE FROM extracts WHERE id = ?1")
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
 
         let delete_payload = delete_payload("extract", id)
             .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
@@ -2688,6 +2779,11 @@ impl Repository {
             delete_payload,
         )
         .await?;
+
+        sqlx::query("DELETE FROM extracts WHERE id = ?1")
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
 
         tx.commit().await?;
         notify_after_commit();
@@ -3168,7 +3264,7 @@ impl Repository {
 
         let item_payload = payload::learning_item_payload_with_fields(item, &["schedule"])
             .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
-        mark_dirty(
+        journal_entity(
             &mut tx,
             EntityType::LearningItem,
             &item.id,
@@ -3300,7 +3396,7 @@ impl Repository {
 
             let item_payload = payload::learning_item_payload(item)
                 .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
-            mark_dirty(
+            journal_entity(
                 &mut tx,
                 EntityType::LearningItem,
                 &item.id,
@@ -3447,7 +3543,7 @@ impl Repository {
         .execute(&mut *tx)
         .await?;
 
-        mark_dirty(
+        journal_entity(
             &mut tx,
             EntityType::LearningItem,
             &item.id,
@@ -3539,7 +3635,7 @@ impl Repository {
         let updated = Self::row_to_learning_item(&row)?;
         let item_payload = payload::learning_item_payload_with_fields(&updated, &["content"])
             .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
-        mark_dirty(
+        journal_entity(
             &mut tx,
             EntityType::LearningItem,
             id,
@@ -3605,7 +3701,7 @@ impl Repository {
         };
         let item_payload = payload::learning_item_payload_with_fields(&updated, fields)
             .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
-        mark_dirty(
+        journal_entity(
             &mut tx,
             EntityType::LearningItem,
             id,
@@ -3666,7 +3762,7 @@ impl Repository {
         let updated = Self::row_to_learning_item(&row)?;
         let item_payload = payload::learning_item_payload_with_fields(&updated, &["priority"])
             .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
-        mark_dirty(
+        journal_entity(
             &mut tx,
             EntityType::LearningItem,
             id,
@@ -4204,7 +4300,7 @@ impl Repository {
             Some(item),
         )
         .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
-        mark_dirty(
+        journal_entity(
             &mut tx,
             EntityType::ReviewResult,
             review_result_id,
@@ -4781,7 +4877,7 @@ impl Repository {
             Some(item),
         )
         .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
-        mark_dirty(
+        journal_entity(
             &mut tx,
             EntityType::ReviewResult,
             review_result_id,
@@ -6917,6 +7013,9 @@ impl Repository {
                 is_archived: row.get("is_archived"),
                 is_favorite: row.get("is_favorite"),
                 is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
+                is_local_only: row.try_get("is_local_only")?,
+                is_ai_excluded: row.try_get("is_ai_excluded")?,
+                privacy_version: row.try_get("privacy_version")?,
                 metadata,
                 cover_image_url: row.try_get("cover_image_url").ok(),
                 cover_image_source: row.try_get("cover_image_source").ok(),
@@ -7269,7 +7368,7 @@ impl Repository {
     }
 
     const TRANSCRIPTION_QUEUE_COLUMNS: &str =
-        "id, document_id, chapter_id, audio_path, provider, model_id, language, status, error_message, priority, created_at, started_at, completed_at, retry_count, progress, processed_duration_ms, total_duration_ms, transcription_mode";
+        "id, document_id, chapter_id, audio_path, provider, model_id, language, status, error_message, priority, created_at, started_at, completed_at, retry_count, progress, processed_duration_ms, total_duration_ms, transcription_mode, session_id, asset_id, transcript_revision, executor, plan_json, lease_owner, lease_expires_at, cancel_epoch, blocked_reason, authorization_json";
 
     pub async fn enqueue_transcription(&self, entry: &TranscriptionQueueEntry) -> Result<()> {
         let status_str = match entry.status {
@@ -7280,7 +7379,7 @@ impl Repository {
             TranscriptionJobStatus::Cancelled => "cancelled",
         };
         sqlx::query(
-            "INSERT INTO transcription_queue (id, document_id, chapter_id, audio_path, provider, model_id, language, status, error_message, priority, created_at, started_at, completed_at, retry_count, progress, processed_duration_ms, total_duration_ms, transcription_mode) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)"
+            "INSERT INTO transcription_queue (id, document_id, chapter_id, audio_path, provider, model_id, language, status, error_message, priority, created_at, started_at, completed_at, retry_count, progress, processed_duration_ms, total_duration_ms, transcription_mode, session_id, asset_id, transcript_revision, executor, plan_json, lease_owner, lease_expires_at, cancel_epoch, blocked_reason, authorization_json) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)"
         )
         .bind(&entry.id)
         .bind(&entry.document_id)
@@ -7300,6 +7399,16 @@ impl Repository {
         .bind(entry.processed_duration_ms)
         .bind(entry.total_duration_ms)
         .bind(&entry.transcription_mode)
+        .bind(&entry.session_id)
+        .bind(&entry.asset_id)
+        .bind(entry.transcript_revision)
+        .bind(&entry.executor)
+        .bind(&entry.plan_json)
+        .bind(&entry.lease_owner)
+        .bind(entry.lease_expires_at)
+        .bind(entry.cancel_epoch)
+        .bind(&entry.blocked_reason)
+        .bind(&entry.authorization_json)
         .execute(self.pool())
         .await?;
         Ok(())
@@ -7307,7 +7416,7 @@ impl Repository {
 
     pub async fn dequeue_next_transcription(&self) -> Result<Option<TranscriptionQueueEntry>> {
         let query = format!(
-            "SELECT {} FROM transcription_queue WHERE status = 'pending' ORDER BY priority DESC, created_at ASC LIMIT 1",
+            "SELECT {} FROM transcription_queue WHERE status = 'pending' AND (executor IS NULL OR executor = 'rust-local') ORDER BY priority DESC, created_at ASC LIMIT 1",
             Self::TRANSCRIPTION_QUEUE_COLUMNS
         );
         let row = sqlx::query_as::<_, TranscriptionQueueDbRow>(&query)
@@ -7344,7 +7453,7 @@ impl Repository {
                     .await?;
             }
             TranscriptionJobStatus::Completed => {
-                sqlx::query("UPDATE transcription_queue SET status = ?1, completed_at = ?2, progress = ?3 WHERE id = ?4")
+                sqlx::query("UPDATE transcription_queue SET status = ?1, completed_at = ?2, progress = ?3, lease_owner = NULL, lease_expires_at = NULL WHERE id = ?4")
                     .bind(status_str)
                     .bind(&now)
                     .bind(progress.unwrap_or(100))
@@ -7353,7 +7462,7 @@ impl Repository {
                     .await?;
             }
             TranscriptionJobStatus::Failed => {
-                sqlx::query("UPDATE transcription_queue SET status = ?1, error_message = ?2, retry_count = retry_count + 1 WHERE id = ?3")
+                sqlx::query("UPDATE transcription_queue SET status = ?1, error_message = ?2, retry_count = retry_count + 1, lease_owner = NULL, lease_expires_at = NULL WHERE id = ?3")
                     .bind(status_str)
                     .bind(error_message)
                     .bind(id)
@@ -7372,7 +7481,7 @@ impl Repository {
     }
 
     pub async fn reset_transcription_to_pending(&self, id: &str, retry_count: i32) -> Result<()> {
-        sqlx::query("UPDATE transcription_queue SET status = 'pending', retry_count = ?1, error_message = NULL, started_at = NULL WHERE id = ?2")
+        sqlx::query("UPDATE transcription_queue SET status = 'pending', retry_count = ?1, error_message = NULL, started_at = NULL, lease_owner = NULL, lease_expires_at = NULL WHERE id = ?2")
             .bind(retry_count)
             .bind(id)
             .execute(self.pool())
@@ -7394,6 +7503,253 @@ impl Repository {
             .await?;
 
         Ok(row.map(TranscriptionQueueDbRow::into_entry))
+    }
+
+    pub async fn get_transcription_queue_entry_by_id(
+        &self,
+        id: &str,
+    ) -> Result<Option<TranscriptionQueueEntry>> {
+        let query = format!(
+            "SELECT {} FROM transcription_queue WHERE id = ?1 LIMIT 1",
+            Self::TRANSCRIPTION_QUEUE_COLUMNS
+        );
+        let row = sqlx::query_as::<_, TranscriptionQueueDbRow>(&query)
+            .bind(id)
+            .fetch_optional(self.pool())
+            .await?;
+
+        Ok(row.map(TranscriptionQueueDbRow::into_entry))
+    }
+
+    pub async fn get_transcription_queue_entry_by_session(
+        &self,
+        session_id: &str,
+        revision: i64,
+    ) -> Result<Option<TranscriptionQueueEntry>> {
+        let query = format!(
+            "SELECT {} FROM transcription_queue WHERE session_id = ?1 AND transcript_revision = ?2 ORDER BY created_at DESC LIMIT 1",
+            Self::TRANSCRIPTION_QUEUE_COLUMNS
+        );
+        let row = sqlx::query_as::<_, TranscriptionQueueDbRow>(&query)
+            .bind(session_id)
+            .bind(revision)
+            .fetch_optional(self.pool())
+            .await?;
+
+        Ok(row.map(TranscriptionQueueDbRow::into_entry))
+    }
+
+    pub async fn claim_transcription_job(
+        &self,
+        worker_id: &str,
+        lease_duration_ms: i64,
+        supported_executors: &[String],
+    ) -> Result<Option<TranscriptionQueueEntry>> {
+        let now = Utc::now().timestamp_millis();
+        let new_expires_at = now + lease_duration_ms;
+        let started_at = Utc::now().to_rfc3339();
+
+        let mut tx = self.pool().begin().await?;
+
+        let mut query_str = format!(
+            "SELECT {} FROM transcription_queue WHERE (status = 'pending' OR (status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?1))",
+            Self::TRANSCRIPTION_QUEUE_COLUMNS
+        );
+        if !supported_executors.is_empty() {
+            let placeholders: Vec<String> = (0..supported_executors.len()).map(|i| format!("?{}", i + 2)).collect();
+            query_str.push_str(&format!(" AND executor IN ({})", placeholders.join(",")));
+        }
+        query_str.push_str(" ORDER BY priority DESC, created_at ASC LIMIT 1");
+
+        let mut q = sqlx::query_as::<_, TranscriptionQueueDbRow>(&query_str).bind(now);
+        for exec in supported_executors {
+            q = q.bind(exec);
+        }
+
+        let candidate = q.fetch_optional(&mut *tx).await?;
+
+        let entry = match candidate {
+            Some(row) => row.into_entry(),
+            None => {
+                tx.commit().await?;
+                return Ok(None);
+            }
+        };
+
+        // CAS update: claim only if it is still pending or expired with the same cancel_epoch
+        let update_res = sqlx::query(
+            r#"
+            UPDATE transcription_queue
+            SET status = 'processing',
+                lease_owner = ?1,
+                lease_expires_at = ?2,
+                started_at = COALESCE(started_at, ?3)
+            WHERE id = ?4
+              AND cancel_epoch = ?5
+              AND (status = 'pending' OR (status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?6))
+            "#,
+        )
+        .bind(worker_id)
+        .bind(new_expires_at)
+        .bind(&started_at)
+        .bind(&entry.id)
+        .bind(entry.cancel_epoch)
+        .bind(now)
+        .execute(&mut *tx)
+        .await?;
+
+        if update_res.rows_affected() == 0 {
+            tx.commit().await?;
+            return Ok(None);
+        }
+
+        tx.commit().await?;
+
+        let claimed = self.get_transcription_queue_entry_by_id(&entry.id).await?;
+        Ok(claimed)
+    }
+
+    pub async fn claim_transcription_job_by_id(
+        &self,
+        id: &str,
+        worker_id: &str,
+        lease_duration_ms: i64,
+    ) -> Result<Option<TranscriptionQueueEntry>> {
+        let now = Utc::now().timestamp_millis();
+        let new_expires_at = now + lease_duration_ms;
+        let started_at = Utc::now().to_rfc3339();
+
+        let update_res = sqlx::query(
+            r#"
+            UPDATE transcription_queue
+            SET status = 'processing',
+                lease_owner = ?1,
+                lease_expires_at = ?2,
+                started_at = COALESCE(started_at, ?3)
+            WHERE id = ?4
+              AND (status = 'pending' OR (status = 'processing' AND lease_expires_at IS NOT NULL AND lease_expires_at < ?5))
+            "#,
+        )
+        .bind(worker_id)
+        .bind(new_expires_at)
+        .bind(&started_at)
+        .bind(id)
+        .bind(now)
+        .execute(self.pool())
+        .await?;
+
+        if update_res.rows_affected() == 0 {
+            return Ok(None);
+        }
+
+        self.get_transcription_queue_entry_by_id(id).await
+    }
+
+    pub async fn renew_transcription_lease(
+        &self,
+        id: &str,
+        worker_id: &str,
+        lease_duration_ms: i64,
+        expected_cancel_epoch: i64,
+    ) -> Result<bool> {
+        let new_expires_at = Utc::now().timestamp_millis() + lease_duration_ms;
+        let res = sqlx::query(
+            "UPDATE transcription_queue SET lease_expires_at = ?1 WHERE id = ?2 AND lease_owner = ?3 AND status = 'processing' AND cancel_epoch = ?4"
+        )
+        .bind(new_expires_at)
+        .bind(id)
+        .bind(worker_id)
+        .bind(expected_cancel_epoch)
+        .execute(self.pool())
+        .await?;
+
+        Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn update_transcription_progress_with_lease(
+        &self,
+        id: &str,
+        worker_id: &str,
+        progress: i32,
+        processed_duration_ms: Option<i64>,
+        total_duration_ms: Option<i64>,
+        expected_cancel_epoch: i64,
+    ) -> Result<bool> {
+        let res = sqlx::query(
+            r#"
+            UPDATE transcription_queue
+            SET progress = ?1,
+                processed_duration_ms = COALESCE(?2, processed_duration_ms),
+                total_duration_ms = COALESCE(?3, total_duration_ms)
+            WHERE id = ?4 AND lease_owner = ?5 AND status = 'processing' AND cancel_epoch = ?6
+            "#,
+        )
+        .bind(progress)
+        .bind(processed_duration_ms)
+        .bind(total_duration_ms)
+        .bind(id)
+        .bind(worker_id)
+        .bind(expected_cancel_epoch)
+        .execute(self.pool())
+        .await?;
+
+        Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn complete_transcription_job_with_lease(
+        &self,
+        id: &str,
+        worker_id: &str,
+        expected_cancel_epoch: i64,
+    ) -> Result<bool> {
+        let now = Utc::now().to_rfc3339();
+        let res = sqlx::query(
+            r#"
+            UPDATE transcription_queue
+            SET status = 'completed',
+                completed_at = ?1,
+                progress = 100,
+                lease_owner = NULL,
+                lease_expires_at = NULL
+            WHERE id = ?2 AND lease_owner = ?3 AND status = 'processing' AND cancel_epoch = ?4
+            "#,
+        )
+        .bind(&now)
+        .bind(id)
+        .bind(worker_id)
+        .bind(expected_cancel_epoch)
+        .execute(self.pool())
+        .await?;
+
+        Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn fail_transcription_job_with_lease(
+        &self,
+        id: &str,
+        worker_id: &str,
+        error_message: &str,
+        expected_cancel_epoch: i64,
+    ) -> Result<bool> {
+        let res = sqlx::query(
+            r#"
+            UPDATE transcription_queue
+            SET status = 'failed',
+                error_message = ?1,
+                retry_count = retry_count + 1,
+                lease_owner = NULL,
+                lease_expires_at = NULL
+            WHERE id = ?2 AND lease_owner = ?3 AND status = 'processing' AND cancel_epoch = ?4
+            "#,
+        )
+        .bind(error_message)
+        .bind(id)
+        .bind(worker_id)
+        .bind(expected_cancel_epoch)
+        .execute(self.pool())
+        .await?;
+
+        Ok(res.rows_affected() > 0)
     }
 
     pub async fn get_transcription_queue_by_status(
@@ -7438,7 +7794,9 @@ impl Repository {
     }
 
     pub async fn cancel_transcription_job(&self, id: &str) -> Result<()> {
-        sqlx::query("UPDATE transcription_queue SET status = 'cancelled' WHERE id = ?1")
+        sqlx::query(
+            "UPDATE transcription_queue SET status = 'cancelled', cancel_epoch = cancel_epoch + 1, lease_owner = NULL, lease_expires_at = NULL WHERE id = ?1"
+        )
             .bind(id)
             .execute(self.pool())
             .await?;

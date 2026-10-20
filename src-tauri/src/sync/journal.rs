@@ -14,6 +14,14 @@ pub async fn journal_entity(
     base_revision: Option<i64>,
     payload: Vec<u8>,
 ) -> Result<()> {
+    // Keep restricted source associations after a later unlink or deletion.
+    sqlx::query("INSERT OR IGNORE INTO private_sync_ownership SELECT o.entity_type, o.entity_id, o.document_id FROM document_sync_ownership o JOIN documents d ON d.id = o.document_id WHERE o.entity_type = ?1 AND o.entity_id = ?2 AND d.is_local_only = 1")
+        .bind(entity_type.as_str()).bind(entity_id).execute(&mut **tx).await?;
+    if !crate::database::document_privacy::sync_entity_allowed(&mut **tx, entity_type, entity_id)
+        .await?
+    {
+        return Ok(());
+    }
     mark_dirty(
         tx,
         entity_type,

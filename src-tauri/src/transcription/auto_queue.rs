@@ -568,19 +568,19 @@ async fn flush_segment_batch(
 
         for chunk in buffer.chunks(SEG_ROWS_PER_STMT) {
             let mut builder: QueryBuilder<Sqlite> = QueryBuilder::new(
-                "INSERT OR IGNORE INTO transcript_segments (transcript_id, start_ms, end_ms, text, confidence) ",
+                "INSERT OR IGNORE INTO transcript_segments (transcript_id, start_ms, end_ms, text, confidence, words_json) ",
             );
             builder.push_values(chunk.iter(), |mut b, seg| {
                 b.push_bind(transcript_id)
                     .push_bind(seg.start_ms)
                     .push_bind(seg.end_ms)
                     .push_bind(&seg.text)
-                    .push_bind(seg.confidence);
+                    .push_bind(seg.confidence)
+                    .push_bind(seg.words_json.as_deref());
             });
             if let Err(e) = builder.build().execute(&mut *tx).await {
                 tracing::warn!("Failed to insert segment batch: {}", e);
                 let _ = tx.rollback().await;
-                emit_segment_batch(app_handle, book_id, chapter_id, buffer);
                 buffer.clear();
                 return;
             }
@@ -588,6 +588,8 @@ async fn flush_segment_batch(
 
         if let Err(e) = tx.commit().await {
             tracing::warn!("Failed to commit segment batch: {}", e);
+            buffer.clear();
+            return;
         }
     }
 

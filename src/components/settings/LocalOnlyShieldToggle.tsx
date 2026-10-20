@@ -11,7 +11,8 @@
 
 import { useState } from "react";
 import { Shield } from "@phosphor-icons/react";
-import { updateDocument } from "../../api/documents";
+import { getDocument, setDocumentPrivacy } from "../../api/documents";
+import { useDocumentStore } from "../../stores/documentStore";
 import { useToast } from "../common/Toast";
 import type { Document } from "../../types/document";
 
@@ -36,11 +37,18 @@ export function LocalOnlyShieldToggle({
     const next = !checked;
     setBusy(true);
     try {
-      await updateDocument(documentId, { ...baseDocument, isLocalOnly: next });
+      const latest = await getDocument(documentId);
+      if (!latest?.privacyVersion) throw new Error("Reload this document before changing its privacy");
+      const updated = await setDocumentPrivacy(documentId, {
+        isLocalOnly: next,
+        isAiExcluded: latest.isAiExcluded === true,
+        expectedVersion: latest.privacyVersion,
+      });
+      useDocumentStore.getState().updateDocument(documentId, updated);
       onChanged?.(next);
       toast.success(
         next
-          ? "Local-Only Shield enabled — this document will never leave your device"
+          ? "Local-Only Shield enabled — future cloud processing and sync are blocked"
           : "Local-Only Shield disabled — cloud features may process this document"
       );
     } catch (err) {

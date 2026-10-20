@@ -45,5 +45,10 @@ permissions = [
   "allow-apple-coreai-prompt",
   "allow-apple-coreai-cancel",
   "allow-apple-coreai-count-tokens",
-  "allow-apple-coreai-warmup"
+  "allow-apple-coreai-warmup",
+  "allow-apple-recording-status",
+  "allow-apple-recording-start",
+  "allow-apple-recording-pause",
+  "allow-apple-recording-resume",
+  "allow-apple-recording-finish"
 ]

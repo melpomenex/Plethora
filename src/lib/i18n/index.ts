@@ -130,11 +130,24 @@ export function getCurrentLocale(): SupportedLocale {
  * still renders; once the async load completes the next render uses the new
  * locale. This keeps the `t()` API synchronous.
  */
-export function t(key: string, vars?: Record<string, string | number>): string {
+export type TranslateFn = {
+  (key: string, vars?: Record<string, any>): string;
+  (key: string, fallback: string, vars?: Record<string, any>): string;
+};
+
+export function t(key: string, vars?: Record<string, any>): string;
+export function t(key: string, fallback: string, vars?: Record<string, any>): string;
+export function t(
+  key: string,
+  fallbackOrVars?: string | Record<string, any>,
+  vars?: Record<string, any>
+): string {
   const locale = getCurrentLocale();
   const dict = dictionaries[locale] || dictionaries.en;
-  const template = dict[key] || dictionaries.en[key] || key;
-  return formatTemplate(template, vars);
+  const fallback = typeof fallbackOrVars === "string" ? fallbackOrVars : key;
+  const actualVars = typeof fallbackOrVars === "object" ? fallbackOrVars : vars;
+  const template = dict[key] || dictionaries.en[key] || fallback;
+  return formatTemplate(template, actualVars);
 }
 
 /** English copy for a key, used as a searchable fallback in non-English UIs. */
@@ -142,7 +155,7 @@ export function getEnglishText(key: string): string {
   return en[key] || key;
 }
 
-export function useI18n() {
+export function useI18n(): { locale: SupportedLocale; t: TranslateFn } {
   const language = useSettingsStore((state) => state.settings.general.language);
   const locale = normalizeLocale(language);
   // Re-render once an asynchronously loaded dictionary arrives so displayed
@@ -153,11 +166,17 @@ export function useI18n() {
   // on every render. `translate` reads `dictionaries` at call time, so a
   // lazily-loaded locale dictionary is picked up on the next call without a
   // re-render — same as before memoization.
-  const translate = useCallback(
-    (key: string, vars?: Record<string, string | number>) => {
+  const translate: TranslateFn = useCallback(
+    (
+      key: string,
+      fallbackOrVars?: string | Record<string, string | number>,
+      vars?: Record<string, string | number>
+    ) => {
       const dict = dictionaries[locale] || dictionaries.en;
-      const template = dict[key] || dictionaries.en[key] || key;
-      return formatTemplate(template, vars);
+      const fallback = typeof fallbackOrVars === "string" ? fallbackOrVars : key;
+      const actualVars = typeof fallbackOrVars === "object" ? fallbackOrVars : vars;
+      const template = dict[key] || dictionaries.en[key] || fallback;
+      return formatTemplate(template, actualVars);
     },
     [locale]
   );

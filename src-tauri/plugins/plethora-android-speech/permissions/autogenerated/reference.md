@@ -11,6 +11,11 @@ ML Kit Speech Recognition (alpha) — persist-audio-first
 - `allow-cancel-dictation`
 - `allow-transcribe-audio`
 - `allow-download-speech-model`
+- `allow-recording-status`
+- `allow-start-recording`
+- `allow-pause-recording`
+- `allow-resume-recording`
+- `allow-finish-recording`
 
 ## Permission Table
 
@@ -102,6 +107,110 @@ Denies the download_speech_model command without any pre-configured scope.
 <tr>
 <td>
 
+`plethora-android-speech:allow-finish-recording`
+
+</td>
+<td>
+
+Enables the finish_recording command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-android-speech:deny-finish-recording`
+
+</td>
+<td>
+
+Denies the finish_recording command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-android-speech:allow-pause-recording`
+
+</td>
+<td>
+
+Enables the pause_recording command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-android-speech:deny-pause-recording`
+
+</td>
+<td>
+
+Denies the pause_recording command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-android-speech:allow-recording-status`
+
+</td>
+<td>
+
+Enables the recording_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-android-speech:deny-recording-status`
+
+</td>
+<td>
+
+Denies the recording_status command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-android-speech:allow-resume-recording`
+
+</td>
+<td>
+
+Enables the resume_recording command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-android-speech:deny-resume-recording`
+
+</td>
+<td>
+
+Denies the resume_recording command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `plethora-android-speech:allow-speech-status`
 
 </td>
@@ -147,6 +256,32 @@ Enables the start_dictation command without any pre-configured scope.
 <td>
 
 Denies the start_dictation command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-android-speech:allow-start-recording`
+
+</td>
+<td>
+
+Enables the start_recording command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-android-speech:deny-start-recording`
+
+</td>
+<td>
+
+Denies the start_recording command without any pre-configured scope.
 
 </td>
 </tr>

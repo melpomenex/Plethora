@@ -1,0 +1,115 @@
+{
+  "version": 1,
+  "sourceLicense": "CC0-1.0",
+  "sampleRate": 16000,
+  "frameCount": 365782,
+  "durationMs": 22861,
+  "generator": {
+    "espeak": "1.52.0",
+    "ffmpeg": "n9.0.2"
+  },
+  "assets": {
+    "lecture.wav": {
+      "sha256": "a11861d4c218df52bec1df71c9f71fbdddac4285780007b01e41202b547588b4",
+      "bytes": 731608
+    },
+    "source.json": {
+      "sha256": "143429be3a7fac9c5b5b1c04d7e32cd014e5cb102dd220e74dfb9f56e6f8ace8",
+      "bytes": 679
+    },
+    "transcript.json": {
+      "sha256": "fe4c0253c16e0c1df02aeeddb1070159cb69346c6c47618146b513891f998bca",
+      "bytes": 1403
+    },
+    "evidence.json": {
+      "sha256": "2cc6cde8df58b076b672b45a1490925a646a5d87eac484b87d51c4867a71a17a",
+      "bytes": 639
+    },
+    "cues.srt": {
+      "sha256": "1d01d152893e3baf309f3bc1e4272e730d2696f66558aea19462f6d615bbcba9",
+      "bytes": 166
+    },
+    "cues.vtt": {
+      "sha256": "f0cb3134c1401b97429550652454e44fdc68d8f39aa1f46a63928c75d083abcf",
+      "bytes": 185
+    },
+    "transcript.txt": {
+      "sha256": "ca3a16ce1cd597f38d59daebbab4060e33b43cf7dd6fed936d026cc44d9be439",
+      "bytes": 138
+    }
+  },
+  "cases": {
+    "A01": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    },
+    "A02": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    },
+    "A03": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    },
+    "A04": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    },
+    "A05": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    },
+    "A06": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    },
+    "A07": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    },
+    "A08": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    },
+    "A09": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    },
+    "A10": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    },
+    "A11": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    },
+    "A12": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    },
+    "A13": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    },
+    "A14": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    },
+    "A15": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    },
+    "A16": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    },
+    "A17": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    },
+    "A18": {
+      "status": "planned",
+      "contract": "validation.md acceptance matrix"
+    }
+  }
+}

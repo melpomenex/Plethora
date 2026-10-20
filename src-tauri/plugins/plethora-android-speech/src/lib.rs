@@ -157,6 +157,106 @@ mod commands {
             Err(not_android())
         }
     }
+
+    #[tauri::command]
+    pub async fn recording_status(
+        state: State<'_, Native>,
+        request: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, Error> {
+        #[cfg(target_os = "android")]
+        {
+            let payload = request.unwrap_or_else(|| serde_json::json!({}));
+            state
+                .handle
+                .run_mobile_plugin::<serde_json::Value>("recordingStatus", payload)
+                .map_err(|e| Error::Message(e.to_string()))
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = (state, request);
+            Err(not_android())
+        }
+    }
+
+    #[tauri::command]
+    pub async fn start_recording(
+        state: State<'_, Native>,
+        request: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, Error> {
+        #[cfg(target_os = "android")]
+        {
+            let payload = request.unwrap_or_else(|| serde_json::json!({}));
+            state
+                .handle
+                .run_mobile_plugin::<serde_json::Value>("startRecording", payload)
+                .map_err(|e| Error::Message(e.to_string()))
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = (state, request);
+            Err(not_android())
+        }
+    }
+
+    #[tauri::command]
+    pub async fn pause_recording(
+        state: State<'_, Native>,
+        request: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, Error> {
+        #[cfg(target_os = "android")]
+        {
+            let payload = request.unwrap_or_else(|| serde_json::json!({}));
+            state
+                .handle
+                .run_mobile_plugin::<serde_json::Value>("pauseRecording", payload)
+                .map_err(|e| Error::Message(e.to_string()))
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = (state, request);
+            Err(not_android())
+        }
+    }
+
+    #[tauri::command]
+    pub async fn resume_recording(
+        state: State<'_, Native>,
+        request: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, Error> {
+        #[cfg(target_os = "android")]
+        {
+            let payload = request.unwrap_or_else(|| serde_json::json!({}));
+            state
+                .handle
+                .run_mobile_plugin::<serde_json::Value>("resumeRecording", payload)
+                .map_err(|e| Error::Message(e.to_string()))
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = (state, request);
+            Err(not_android())
+        }
+    }
+
+    #[tauri::command]
+    pub async fn finish_recording(
+        state: State<'_, Native>,
+        request: Option<serde_json::Value>,
+    ) -> Result<serde_json::Value, Error> {
+        #[cfg(target_os = "android")]
+        {
+            let payload = request.unwrap_or_else(|| serde_json::json!({}));
+            state
+                .handle
+                .run_mobile_plugin::<serde_json::Value>("finishRecording", payload)
+                .map_err(|e| Error::Message(e.to_string()))
+        }
+        #[cfg(not(target_os = "android"))]
+        {
+            let _ = (state, request);
+            Err(not_android())
+        }
+    }
 }
 
 pub fn init() -> TauriPlugin<Wry> {
@@ -169,6 +269,11 @@ pub fn init() -> TauriPlugin<Wry> {
             commands::start_dictation,
             commands::stop_dictation,
             commands::cancel_dictation,
+            commands::recording_status,
+            commands::start_recording,
+            commands::pause_recording,
+            commands::resume_recording,
+            commands::finish_recording,
         ])
         .setup(|app, api| {
             let native = init_mobile(app.app_handle(), api)?;

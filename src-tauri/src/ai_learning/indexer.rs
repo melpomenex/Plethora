@@ -384,6 +384,8 @@ pub async fn index_document_once(
         return Ok(IndexOutcome::Completed);
     };
 
+    repo.ensure_document_ai_allowed(document_id, false).await?;
+
     set_state(repo, document_id, IndexState::Indexing, None).await?;
 
     let content = doc.content.clone().unwrap_or_default();
@@ -716,6 +718,9 @@ async fn build_card_chunks(repo: &Repository, document_id: &str) -> Vec<ChunkMod
     let location_type = document_location_type(repo, document_id).await;
     let mut out = Vec::new();
     for (ordinal, item) in items.iter().enumerate() {
+        if !repo.card_source_index_allowed(&item.id, document_id).await.unwrap_or(false) {
+            continue;
+        }
         let question = item
             .cloze_text
             .as_deref()
@@ -905,6 +910,13 @@ async fn embed_chunks(
         for id in batch {
             texts.push(chunk_text(repo, id).await.unwrap_or_default());
         }
+        // Only on-device and deterministic mocks prove local execution.
+        // A configured Ollama URL may point to a remote machine.
+        let remote = !matches!(backend.kind(),
+            crate::ai_learning::embeddings_backend::EmbeddingBackendKind::OnDevice |
+            crate::ai_learning::embeddings_backend::EmbeddingBackendKind::Mock);
+        repo.ensure_document_ai_allowed(document_id, remote).await?;
+        repo.ensure_index_batch_sources_allowed(batch, document_id).await?;
         let vectors: Vec<Vec<f32>> = match backend.embed_texts(&texts).await {
             Ok(v) => v,
             Err(EmbeddingUnavailable { reason }) => {

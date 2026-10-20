@@ -1900,7 +1900,7 @@ pub async fn transcribe_audio_file_groq(
     // 6. Write the combined full text to documents.content (AI assistant / book
     //    sync) and mark the transcript row completed.
     let all_segments: Vec<(i64, i64, String)> = sqlx::query_as(
-        "SELECT start_ms, end_ms, text FROM transcript_segments WHERE transcript_id = ? ORDER BY start_ms, id",
+        "SELECT start_ms, end_ms, text FROM transcript_segments WHERE transcript_id = ? AND start_ms IS NOT NULL AND end_ms IS NOT NULL ORDER BY start_ms, id",
     )
     .bind(transcript_id)
     .fetch_all(repo.pool())
@@ -2218,7 +2218,7 @@ async fn run_on_device_transcription_inner(
     // Combined full text is assembled from ALL persisted segments (including
     // prior interrupted runs), then the transcript is completed.
     let all_segments: Vec<(i64, i64, String)> = sqlx::query_as(
-        "SELECT start_ms, end_ms, text FROM transcript_segments WHERE transcript_id = ? ORDER BY start_ms, id",
+        "SELECT start_ms, end_ms, text FROM transcript_segments WHERE transcript_id = ? AND start_ms IS NOT NULL AND end_ms IS NOT NULL ORDER BY start_ms, id",
     )
     .bind(transcript_id)
     .fetch_all(pool)

@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-finish-recording"
+description = "Enables the finish_recording command without any pre-configured scope."
+commands.allow = ["finish_recording"]
+
+[[permission]]
+identifier = "deny-finish-recording"
+description = "Denies the finish_recording command without any pre-configured scope."
+commands.deny = ["finish_recording"]

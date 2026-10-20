@@ -1,0 +1,54 @@
+[
+  {
+    "segmentKey": "1:fixture-0:0",
+    "transcriptId": 1,
+    "ordinal": 0,
+    "revision": 0,
+    "text": "Spaced repetition schedules recall over increasing intervals. Retrieval practice means recalling an answer before checking it.",
+    "timing": {
+      "kind": "measured",
+      "startMs": 0,
+      "endMs": 7571
+    },
+    "speakerId": "speaker-1",
+    "confidence": 0.9
+  },
+  {
+    "segmentKey": "1:fixture-1:0",
+    "transcriptId": 1,
+    "ordinal": 1,
+    "revision": 0,
+    "text": "Recognition identifies a familiar answer. Recall produces the answer without seeing it. Retrieval strengthens memory.",
+    "timing": {
+      "kind": "measured",
+      "startMs": 7571,
+      "endMs": 15106
+    },
+    "speakerId": "speaker-2",
+    "confidence": 0.9
+  },
+  {
+    "segmentKey": "1:fixture-2:0",
+    "transcriptId": 1,
+    "ordinal": 2,
+    "revision": 0,
+    "text": "First attempt recall. Next check the answer. Finally schedule the next review. Retrieval strengthens memory.",
+    "timing": {
+      "kind": "measured",
+      "startMs": 15106,
+      "endMs": 22861
+    },
+    "speakerId": "speaker-1",
+    "confidence": 0.9
+  },
+  {
+    "segmentKey": "1:technical:0",
+    "transcriptId": 1,
+    "ordinal": 3,
+    "revision": 0,
+    "text": "Energy is E = mc². Keep the term Riemannian unchanged. A confusing moment 🤔 can be marked.",
+    "timing": {
+      "kind": "none"
+    }
+  }
+]

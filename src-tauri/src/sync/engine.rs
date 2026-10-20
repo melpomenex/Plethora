@@ -75,6 +75,15 @@ pub async fn push_outbox(
             let mut batch_bytes = 0usize;
 
             for entry in &batch {
+                let allowed = crate::database::document_privacy::sync_entity_allowed(
+                    &mut *repo.pool().acquire().await?, entry.entity_type, &entry.entity_id,
+                ).await?;
+                if !allowed {
+                    // Revoked after batch selection; never prepare/upload bytes.
+                    sqlx::query("DELETE FROM sync_outbox WHERE change_id = ?1")
+                        .bind(&entry.change_id).execute(repo.pool()).await?;
+                    continue;
+                }
                 // Image outbox rows contain the local bytes so the domain write
                 // and journal remain atomic. Before encrypting the sync record,
                 // move those bytes into encrypted blob storage and replace the
