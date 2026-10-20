@@ -1767,6 +1767,15 @@ export function RSSReader() {
 
   const appearance = useResolvedThemeAppearance();
   const readingStyles = useMemo(() => rssReadingStyle(preferences, appearance), [preferences, appearance]);
+  // Stable innerHTML object: menu-only rerenders must not replace the article
+  // text nodes (React resets `innerHTML` for a fresh `{ __html }` object, which
+  // collapses the native text selection).
+  const articleHtml = useMemo(
+    () => ({
+      __html: sanitizeHtml(selectedItem?.content || selectedItem?.description || ""),
+    }),
+    [selectedItem?.content, selectedItem?.description],
+  );
 
   const rssVirtualizer = useVirtualizer({
     count: items.length,
@@ -3116,6 +3125,7 @@ export function RSSReader() {
                               ref={rssSelection.contentRef}
                               className="prose prose-sm max-w-none text-foreground dark:prose-invert reading-prose rss-reading-prose"
                               onContextMenu={rssSelection.handleContextMenu}
+                              onMouseDown={rssSelection.handleMouseDown}
                               onClick={(e) => {
                                 const target = e.target as HTMLElement;
                                 const link = target.closest("a[href]") as HTMLAnchorElement | null;
@@ -3123,9 +3133,7 @@ export function RSSReader() {
                                 e.preventDefault();
                                 void handleOpenOriginal(link.href);
                               }}
-                              dangerouslySetInnerHTML={{
-                                  __html: sanitizeHtml(selectedItem.content || selectedItem.description || ""),
-                              }}
+                              dangerouslySetInnerHTML={articleHtml}
                             />
                           </div>
                         )}

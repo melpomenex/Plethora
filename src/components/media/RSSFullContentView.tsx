@@ -61,6 +61,12 @@ function SafeHTML({
     loose: "leading-loose",
   };
 
+  // Stable innerHTML object: rerendering while the selection menu is open must
+  // not replace the article text nodes, because React resets `innerHTML` for a
+  // fresh `{ __html }` object and that collapses the native selection.
+  const sanitized = useMemo(() => sanitizeHtml(html), [html]);
+  const innerHtml = useMemo(() => ({ __html: sanitized }), [sanitized]);
+
   return (
     <div
       className={`rss-reading-prose prose prose-slate dark:prose-invert max-w-none transition-all duration-150
@@ -75,7 +81,7 @@ function SafeHTML({
         prose-blockquote:border-l-4 prose-blockquote:border-blue-500 prose-blockquote:italic prose-blockquote:pl-4 prose-blockquote:text-current/80
       `}
       style={{ fontSize: `${fontSize}px` }}
-      dangerouslySetInnerHTML={{ __html: sanitizeHtml(html) }}
+      dangerouslySetInnerHTML={innerHtml}
     />
   );
 }
@@ -297,6 +303,14 @@ export function RSSFullContentView({
     if (!content) return "";
     return isCleanMode ? cleanArticleHtml(content) : content;
   }, [content, isCleanMode]);
+
+  // Stable fallback markup when the fetched full content is not available.
+  const fallbackHtml = useMemo(
+    () => ({
+      __html: sanitizeHtml(item.content || item.description || ""),
+    }),
+    [item.content, item.description],
+  );
 
   // Estimate reading statistics
   const stats = useMemo(() => {
@@ -612,6 +626,7 @@ export function RSSFullContentView({
         className="flex-1 overflow-y-auto p-6"
         onScroll={handleScroll}
         onContextMenu={selection.handleContextMenu}
+        onMouseDown={selection.handleMouseDown}
       >
         <div
           className="rss-reading-width transition-all duration-150"
@@ -635,9 +650,7 @@ export function RSSFullContentView({
             <div className="rss-reading-prose prose prose-slate dark:prose-invert max-w-none">
               {/* Show original RSS content as fallback */}
               <div
-                dangerouslySetInnerHTML={{
-                  __html: sanitizeHtml(item.content || item.description || ""),
-                }}
+                dangerouslySetInnerHTML={fallbackHtml}
               />
               {!item.content && !item.description && (
                 <div className="flex flex-col items-center justify-center h-64 space-y-4">

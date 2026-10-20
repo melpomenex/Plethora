@@ -58,6 +58,8 @@ export interface SurfaceMenu {
    * Call first in the row click handler; when true, skip activation.
    */
   claimTouchMenu: () => boolean;
+  /** Hide without moving focus (selection menus must keep the selection). */
+  close: () => void;
   /** Hide and return focus to the trigger that opened the menu. */
   closeToTrigger: () => void;
 }
@@ -115,6 +117,11 @@ export function useSurfaceMenu(menuId: string): SurfaceMenu {
     },
     [menu],
   );
+
+  const close = useCallback(() => {
+    triggerRef.current = null;
+    menu.hideMenu();
+  }, [menu.hideMenu]);
 
   const closeToTrigger = useCallback(() => {
     menu.hideMenu();
@@ -177,6 +184,7 @@ export function useSurfaceMenu(menuId: string): SurfaceMenu {
     handleRowKeyDown,
     bindLongPress,
     claimTouchMenu,
+    close,
     closeToTrigger,
   };
 }

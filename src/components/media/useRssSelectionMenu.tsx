@@ -21,7 +21,7 @@
  * the shared ContextMenu still sheet-renders if ever triggered.
  */
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Feed, FeedItem } from "../../api/rss";
 import type { Extract } from "../../api/extracts";
 import {
@@ -64,6 +64,10 @@ const HIGHLIGHT_COLORS = ["yellow", "green", "blue", "pink", "purple"] as const;
 interface CapturedSelection {
   text: string;
   passage: string;
+  /** Clone of the browser range captured before the menu opened. */
+  range: Range | null;
+  /** Article identity the range belongs to. */
+  articleKey: string;
 }
 
 export function useRssSelectionMenu(
@@ -85,7 +89,18 @@ export function useRssSelectionMenu(
   const backingDocIds = useRef(new Map<string, string>());
   // Selection snapshot taken at menu-open: native selection may collapse
   // while sheets/modals are open, so handlers use this, never live state.
+  // `range` additionally lets the visible selection survive menu interaction.
   const pendingRef = useRef<CapturedSelection | null>(null);
+  // Selection captured on the secondary-button press, before the platform
+  // can collapse it on the way to `contextmenu`.
+  const pendingPressRef = useRef<CapturedSelection | null>(null);
+  const articleKey = item?.id ?? "";
+  const articleKeyRef = useRef(articleKey);
+  articleKeyRef.current = articleKey;
+  // Stable close handle for invalidation effects (the surface-menu object is
+  // recreated every render, so it cannot be an effect dependency).
+  const closeMenuRef = useRef(menu.close);
+  closeMenuRef.current = menu.close;
 
   const [aiRequest, setAiRequest] = useState<{
     action: SelectionAiAction;
@@ -156,15 +171,125 @@ export function useRssSelectionMenu(
     const container = contentRef.current;
     const selection = window.getSelection();
     const text = selection?.toString().trim() ?? "";
-    if (!text || !container) return null;
-    const anchorNode = selection?.anchorNode ?? null;
-    const focusNode = selection?.focusNode ?? null;
-    const inside =
-      (anchorNode && container.contains(anchorNode)) ||
-      (focusNode && container.contains(focusNode));
-    if (!inside) return null;
-    return { text, passage: passageAroundSelection(selection, text) };
+    if (!text || !container || !item || !selection || selection.rangeCount === 0) return null;
+    const range = selection.getRangeAt(0);
+    // Both endpoints must belong to this article. The previous OR check let a
+    // range that started in the article and ended elsewhere (or vice versa)
+    // through, which cannot be restored safely.
+    if (
+      !container.contains(range.startContainer) ||
+      !container.contains(range.endContainer)
+    ) {
+      return null;
+    }
+    return {
+      text,
+      passage: passageAroundSelection(selection, text),
+      range: range.cloneRange(),
+      articleKey: item.id,
+    };
+  }, [item]);
+
+  const canRestoreRange = useCallback(
+    (range: Range | null, key: string): boolean => {
+      const container = contentRef.current;
+      if (!range || !container || key !== articleKeyRef.current) return false;
+      return (
+        range.startContainer.isConnected &&
+        range.endContainer.isConnected &&
+        container.contains(range.startContainer) &&
+        container.contains(range.endContainer)
+      );
+    },
+    [],
+  );
+
+  const restoreRange = useCallback(
+    (range: Range | null, key: string): boolean => {
+      if (!canRestoreRange(range, key) || !range) return false;
+      const selection = window.getSelection();
+      if (!selection) return false;
+      try {
+        selection.removeAllRanges();
+        selection.addRange(range);
+        return true;
+      } catch {
+        // The DOM may have moved under the range between validation and use.
+        return false;
+      }
+    },
+    [canRestoreRange],
+  );
+
+  const clearRetainedSelection = useCallback(() => {
+    pendingRef.current = null;
+    pendingPressRef.current = null;
   }, []);
+
+  // Article identity change: the old passage must never reach the new article.
+  useEffect(() => {
+    if (!pendingRef.current && !pendingPressRef.current) return;
+    clearRetainedSelection();
+    closeMenuRef.current();
+  }, [item?.id, feed?.id, clearRetainedSelection]);
+
+  // Content replacement inside the same article: drop the retained range and
+  // close the menu instead of restoring over nodes that no longer exist.
+  useEffect(() => {
+    const container = contentRef.current;
+    if (!container) return;
+    const isMenuNode = (node: Node): boolean => {
+      const element =
+        node.nodeType === Node.ELEMENT_NODE
+          ? (node as Element)
+          : node.parentElement;
+      return Boolean(element?.closest('[role="menu"], .context-menu'));
+    };
+    const observer = new MutationObserver((records) => {
+      if (!pendingRef.current && !pendingPressRef.current) return;
+      // Overlays may be rendered inside the content container by a host. Their
+      // mount/unmount is not an article content replacement.
+      const articleChanged = records.some((record) => {
+        if (record.type === "characterData") return true;
+        const changed = [
+          ...Array.from(record.addedNodes),
+          ...Array.from(record.removedNodes),
+        ];
+        return changed.some((node) => !isMenuNode(node));
+      });
+      if (!articleChanged) return;
+      clearRetainedSelection();
+      closeMenuRef.current();
+    });
+    observer.observe(container, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+    return () => observer.disconnect();
+  }, [item?.id, feed?.id, clearRetainedSelection]);
+
+  // Unmount: release retained ranges and any menu owned by this article.
+  useEffect(
+    () => () => {
+      clearRetainedSelection();
+      closeMenuRef.current();
+    },
+    [clearRetainedSelection],
+  );
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      // Secondary press only. Primary clicks, drags, and touch selection stay
+      // native; capture before the platform applies its selection behavior.
+      if (e.button !== 2) {
+        pendingPressRef.current = null;
+        return;
+      }
+      pendingPressRef.current = readSelection();
+    },
+    [readSelection],
+  );
 
   const openSheetForAi = useCallback((action: SelectionAiAction, sel: CapturedSelection) => {
     recordSelectionActionInvocation(action);
@@ -302,13 +427,47 @@ export function useRssSelectionMenu(
     (e: React.MouseEvent): boolean => {
       if (!item) return false;
       if (shouldYieldRowMenu(e.target)) return false;
-      const sel = readSelection();
-      if (!sel) return false;
+
+      const pressed = pendingPressRef.current;
+      pendingPressRef.current = null;
+      let sel = readSelection();
+      if (!sel) {
+        // Some platforms (notably WebKitGTK) collapse the selection before
+        // `contextmenu`; fall back to the range captured on the press.
+        if (!pressed || !canRestoreRange(pressed.range, pressed.articleKey)) return false;
+        sel = pressed;
+      }
+
       pendingRef.current = sel;
-      return menu.openEvent(e, buildItems(sel));
+      const opened = menu.openEvent(e, buildItems(sel));
+      if (!opened) {
+        clearRetainedSelection();
+        return false;
+      }
+
+      // Restore only this menu's still-connected range, and only while the
+      // selection is actually gone. A new selection or an outside click after
+      // this point is never overwritten.
+      const ensureVisibleSelection = () => {
+        if (pendingRef.current !== sel) return;
+        if (window.getSelection()?.toString().trim()) return;
+        restoreRange(sel.range, sel.articleKey);
+      };
+      ensureVisibleSelection();
+      if (typeof requestAnimationFrame === "function") {
+        requestAnimationFrame(ensureVisibleSelection);
+      }
+      return true;
     },
-    [item, readSelection, menu, buildItems],
+    [item, readSelection, canRestoreRange, clearRetainedSelection, restoreRange, menu, buildItems],
   );
+
+  const handleMenuClose = useCallback(() => {
+    clearRetainedSelection();
+    // Close without focusing the trigger: focus return would collapse the
+    // selection this menu is preserving (Escape must allow a reopen).
+    menu.close();
+  }, [clearRetainedSelection, menu]);
 
   const sheetExtract = useCallback(
     (text: string) => createExtractFor(text),
@@ -329,7 +488,8 @@ export function useRssSelectionMenu(
         items={menu.items}
         visible={menu.visible}
         position={menu.position}
-        onClose={menu.closeToTrigger}
+        onClose={handleMenuClose}
+        preserveSelection
       />
       {aiRequest && (
         <SelectionActionsSheet
@@ -389,5 +549,5 @@ export function useRssSelectionMenu(
     </>
   ) : null;
 
-  return { contentRef, handleContextMenu, overlays };
+  return { contentRef, handleMouseDown, handleContextMenu, overlays };
 }

@@ -19,7 +19,11 @@ function makeItems(overrides: Partial<Record<string, () => void>> = {}): Context
   ];
 }
 
-function renderMenu(items: ContextMenuItem[], onClose = vi.fn()) {
+function renderMenu(
+  items: ContextMenuItem[],
+  onClose = vi.fn(),
+  preserveSelection = false,
+) {
   render(
     <ContextMenu
       menuId="test-menu"
@@ -27,6 +31,7 @@ function renderMenu(items: ContextMenuItem[], onClose = vi.fn()) {
       visible
       position={{ x: 100, y: 100 }}
       onClose={onClose}
+      preserveSelection={preserveSelection}
     />,
   );
   return { onClose };
@@ -74,5 +79,54 @@ describe("ContextMenu keyboard interaction", () => {
     renderMenu(makeItems());
     expect(screen.getByRole("menu")).toBeInTheDocument();
     expect(screen.getAllByRole("menuitem").length).toBe(3);
+  });
+
+  it("leaves pointer defaults alone by default", () => {
+    renderMenu(makeItems());
+    // True: mousedown default was not prevented for ordinary menus.
+    expect(fireEvent.mouseDown(screen.getByRole("menuitem", { name: "Copy" }))).toBe(true);
+  });
+
+  it("preserves an external selection for opt-in menus, including submenus", async () => {
+    renderMenu(
+      [
+        {
+          id: "highlight",
+          label: "Highlight",
+          type: ContextMenuItemType.Submenu,
+          children: [{ id: "yellow", label: "Yellow highlight", onClick: vi.fn() }],
+        },
+        { id: "copy", label: "Copy", onClick: vi.fn() },
+      ],
+      vi.fn(),
+      true,
+    );
+
+    expect(fireEvent.mouseDown(screen.getByRole("menuitem", { name: "Copy" }))).toBe(false);
+
+    fireEvent.click(screen.getByRole("menuitem", { name: "Highlight" }));
+    const yellow = await screen.findByRole("menuitem", { name: "Yellow highlight" });
+    expect(fireEvent.mouseDown(yellow)).toBe(false);
+
+    // Keyboard activation is unaffected by pointer preservation.
+    fireEvent.keyDown(document, { key: "Escape" });
+  });
+
+  it("keeps arrow-key activation working in an opt-in selection menu", () => {
+    const copy = vi.fn();
+    renderMenu(
+      [
+        { id: "extract", label: "Create Extract", onClick: vi.fn() },
+        { id: "copy", label: "Copy", onClick: copy },
+      ],
+      vi.fn(),
+      true,
+    );
+
+    fireEvent.keyDown(document, { key: "ArrowDown" }); // focus first
+    fireEvent.keyDown(document, { key: "ArrowDown" }); // focus copy
+    expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Copy" }));
+    fireEvent.keyDown(document, { key: "Enter" });
+    expect(copy).toHaveBeenCalledTimes(1);
   });
 });

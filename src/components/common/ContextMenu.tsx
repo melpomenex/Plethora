@@ -175,12 +175,19 @@ export function ContextMenu({
   visible,
   position,
   onClose,
+  preserveSelection = false,
 }: {
   menuId: string;
   items: ContextMenuItem[];
   visible: boolean;
   position: ContextMenuPosition;
   onClose: () => void;
+  /**
+   * Opt-in for text-selection menus: prevent pointer presses inside the menu
+   * (and its submenus) from moving focus and collapsing the browser selection
+   * that the menu was opened for. Click activation is unaffected.
+   */
+  preserveSelection?: boolean;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [submenuState, setSubmenuState] = useState<{
@@ -275,6 +282,11 @@ export function ContextMenu({
     const handleOutsideInteraction = (e: MouseEvent | TouchEvent) => {
       const menu = menuRef.current;
       if (!menu) return;
+
+      // WebKit can commit the menu (and this listener) synchronously while the
+      // opening contextmenu is still bubbling. That same event is already
+      // handled and must not dismiss the menu it just opened.
+      if (e.type === "contextmenu" && e.defaultPrevented) return;
 
       if (!menu.contains(e.target as Node)) {
         onClose();
@@ -442,6 +454,7 @@ export function ContextMenu({
         }}
         role="menu"
         tabIndex={-1}
+        onMouseDown={preserveSelection ? (e) => e.preventDefault() : undefined}
       >
         {items.map((item, index) => {
           if (item.type === ContextMenuItemType.Separator) {
@@ -564,6 +577,7 @@ export function ContextMenu({
                   onClose={() => {
                     setSubmenuState(null);
                   }}
+                  preserveSelection={preserveSelection}
                 />
               )}
             </div>

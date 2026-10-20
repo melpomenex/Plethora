@@ -4,7 +4,7 @@ import { rssReadingStyle, type RssUserPreferenceUpdate } from "../../types/rssCu
  * Single-article focused reading with minimal chrome, next/prev navigation
  */
 
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import {
   ArrowSquareOut,
   CaretLeft,
@@ -43,6 +43,16 @@ export function StoryView({
   const toast = useToast();
   // Text-selection menu with the same actions as document viewing.
   const selection = useRssSelectionMenu(feed, item);
+  // Keep the DOM nodes that hold the article text stable across menu-only
+  // rerenders. A fresh `{ __html }` object every render makes React reset
+  // `innerHTML`, which silently collapses the native selection while the
+  // selection menu is opening.
+  const articleHtml = useMemo(
+    () => ({
+      __html: sanitizeHtml(item.fullContent || item.description || item.content),
+    }),
+    [item.fullContent, item.description, item.content],
+  );
   const currentIndex = items.findIndex((i) => i.id === item.id);
   const hasNext = currentIndex < items.length - 1;
   const hasPrev = currentIndex > 0;
@@ -119,9 +129,8 @@ export function StoryView({
             ref={selection.contentRef}
             className="rss-reading-prose prose prose-sm dark:prose-invert max-w-none leading-relaxed"
             onContextMenu={selection.handleContextMenu}
-            dangerouslySetInnerHTML={{
-              __html: sanitizeHtml(item.fullContent || item.description || item.content),
-            }}
+            onMouseDown={selection.handleMouseDown}
+            dangerouslySetInnerHTML={articleHtml}
           />
 
           {/* Actions */}
