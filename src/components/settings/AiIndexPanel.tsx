@@ -32,6 +32,7 @@ import {
 } from "@phosphor-icons/react";
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../../lib/i18n";
+import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useModal } from "../common/Modal";
@@ -350,7 +351,7 @@ export function AiIndexPanel() {
 
   // ── Status dashboard ─────────────────────────────────────────────────────
   return (
-    <div className="max-w-2xl space-y-4">
+    <SettingsSearchTarget id="embeddings.index" label={t("aiLibrary.indexTitle")} className="max-w-2xl space-y-4">
       <div className="bg-card border border-border rounded-lg p-5 space-y-4">
         <div className="flex items-start justify-between gap-3">
           <h3 className="text-sm font-semibold flex items-center gap-2">
@@ -571,7 +572,7 @@ export function AiIndexPanel() {
           </ul>
         )}
       </div>
-    </div>
+    </SettingsSearchTarget>
   );
 }
 

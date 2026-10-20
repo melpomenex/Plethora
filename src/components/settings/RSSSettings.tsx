@@ -3,6 +3,7 @@ import { useSettingsStore, defaultSettings } from "../../stores/settingsStore";
 import { getSubscribedFeedsAuto, type Feed } from "../../api/rss";
 import { useI18n } from "../../lib/i18n";
 import { useToast } from "../common/Toast";
+import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
 import {
   Clock,
   Eye,
@@ -96,7 +97,9 @@ export function RSSSettings() {
             <Clock className="w-5 h-5" />
           </div>
           <div>
-            <h4 className="font-semibold text-foreground">{t("settings.rss.articleRetention")}</h4>
+            <SettingsSearchTarget id="rss.retention" label={t("settings.rss.articleRetention")}>
+              <h4 className="font-semibold text-foreground">{t("settings.rss.articleRetention")}</h4>
+            </SettingsSearchTarget>
             <p className="text-xs text-muted-foreground">
               {t("settings.rss.articleRetentionDesc")}
             </p>
@@ -105,7 +108,9 @@ export function RSSSettings() {
 
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-foreground">{t("settings.rss.keepArticlesFor")}</span>
+            <SettingsSearchTarget id="rss.keepArticles" label={t("settings.rss.keepArticlesFor")} className="inline-block">
+              <span className="text-sm font-medium text-foreground">{t("settings.rss.keepArticlesFor")}</span>
+            </SettingsSearchTarget>
             <span className="text-sm font-bold bg-primary/10 text-primary px-2.5 py-1 rounded-md border border-primary/20">
               {rssSettings.maxItemAgeDays === 0
                 ? t("settings.rss.keepForever")
@@ -144,7 +149,9 @@ export function RSSSettings() {
               <Sliders className="w-5 h-5" />
             </div>
             <div>
-              <h4 className="font-semibold text-foreground">{t("settings.rss.queueRules")}</h4>
+              <SettingsSearchTarget id="rss.queueRules" label={t("settings.rss.queueRules")}>
+                <h4 className="font-semibold text-foreground">{t("settings.rss.queueRules")}</h4>
+              </SettingsSearchTarget>
               <p className="text-xs text-muted-foreground">{t("settings.rss.queueRulesDesc")}</p>
             </div>
           </div>
@@ -153,7 +160,9 @@ export function RSSSettings() {
             {/* Max Items per Session */}
             <div className="space-y-2">
               <div className="flex justify-between text-sm">
-                <span className="font-medium text-foreground/80">{t("settings.rss.maxArticlesPerSession")}</span>
+                <SettingsSearchTarget id="rss.maxPerSession" label={t("settings.rss.maxArticlesPerSession")} className="inline-block">
+                  <span className="font-medium text-foreground/80">{t("settings.rss.maxArticlesPerSession")}</span>
+                </SettingsSearchTarget>
                 <span className="font-semibold text-primary">
                   {rssSettings.maxItemsPerSession === 0 ? t("settings.rssUnlimited") : rssSettings.maxItemsPerSession}
                 </span>
@@ -198,7 +207,9 @@ export function RSSSettings() {
               <Sliders className="w-5 h-5" />
             </div>
             <div>
-              <h4 className="font-semibold text-foreground">{t("settings.rss.interactivePreferences")}</h4>
+              <SettingsSearchTarget id="rss.interactivePreferences" label={t("settings.rss.interactivePreferences")}>
+                <h4 className="font-semibold text-foreground">{t("settings.rss.interactivePreferences")}</h4>
+              </SettingsSearchTarget>
               <p className="text-xs text-muted-foreground">{t("settings.rss.interactivePreferencesDesc")}</p>
             </div>
           </div>
@@ -207,7 +218,9 @@ export function RSSSettings() {
             {/* Include in Queue */}
             <label className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/30 transition-colors cursor-pointer">
               <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-medium text-foreground">{t("settings.rss.includeInSmartQueue")}</span>
+                <SettingsSearchTarget id="rss.includeInSmartQueue" label={t("settings.rss.includeInSmartQueue")} className="inline-block">
+                  <span className="text-sm font-medium text-foreground">{t("settings.rss.includeInSmartQueue")}</span>
+                </SettingsSearchTarget>
                 <span className="text-xs text-muted-foreground">{t("settings.rss.includeInSmartQueueDesc")}</span>
               </div>
               <input
@@ -221,7 +234,9 @@ export function RSSSettings() {
             {/* Unread Only */}
             <label className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/30 transition-colors cursor-pointer">
               <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-medium text-foreground">{t("settings.rss.onlyShowUnread")}</span>
+                <SettingsSearchTarget id="rss.onlyUnread" label={t("settings.rss.onlyShowUnread")} className="inline-block">
+                  <span className="text-sm font-medium text-foreground">{t("settings.rss.onlyShowUnread")}</span>
+                </SettingsSearchTarget>
                 <span className="text-xs text-muted-foreground">{t("settings.rss.onlyShowUnreadDesc")}</span>
               </div>
               <input
@@ -235,7 +250,9 @@ export function RSSSettings() {
             {/* Prefer Recent */}
             <label className="flex items-center justify-between p-2 rounded-lg hover:bg-muted/30 transition-colors cursor-pointer">
               <div className="flex flex-col gap-0.5">
-                <span className="text-sm font-medium text-foreground">{t("settings.rss.preferRecentArticles")}</span>
+                <SettingsSearchTarget id="rss.preferRecent" label={t("settings.rss.preferRecentArticles")} className="inline-block">
+                  <span className="text-sm font-medium text-foreground">{t("settings.rss.preferRecentArticles")}</span>
+                </SettingsSearchTarget>
                 <span className="text-xs text-muted-foreground">{t("settings.rss.preferRecentArticlesDesc")}</span>
               </div>
               <input
@@ -257,7 +274,9 @@ export function RSSSettings() {
               <Tray className="w-5 h-5" />
             </div>
             <div>
+              <SettingsSearchTarget id="rss.feedInclusions" label={t("settings.rss.feedQueueInclusions")}>
               <h4 className="font-semibold text-foreground">{t("settings.rss.feedQueueInclusions")}</h4>
+            </SettingsSearchTarget>
               <p className="text-xs text-muted-foreground">
                 {t("settings.rss.feedQueueInclusionsDesc")}
               </p>

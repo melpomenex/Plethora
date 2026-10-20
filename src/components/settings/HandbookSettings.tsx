@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { CaretLeft, CaretRight, MagnifyingGlass, X } from "@phosphor-icons/react";
 import { renderMarkdown } from "../../utils/markdown";
 import { useI18n } from "../../lib/i18n";
+import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
 import { getHandbookMarkdown } from "./handbookContent";
 
 type Heading = {
@@ -157,7 +158,9 @@ export function HandbookSettings() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">{t("handbook.handbook")}</p>
-            <h3 className="text-2xl font-semibold text-foreground mt-2">{t("handbook.userHandbook")}</h3>
+            <SettingsSearchTarget id="handbook.userHandbook" label={t("handbook.userHandbook")}>
+              <h3 className="text-2xl font-semibold text-foreground mt-2">{t("handbook.userHandbook")}</h3>
+            </SettingsSearchTarget>
             <p className="text-sm text-muted-foreground mt-2">
               {t("handbook.browseChapters")}
             </p>
@@ -221,6 +224,7 @@ export function HandbookSettings() {
               </button>
             </div>
           ) : (
+            <SettingsSearchTarget id="handbook.search" label={t("handbook.search")} className="shrink-0">
             <button
               type="button"
               onClick={openSearch}
@@ -231,6 +235,7 @@ export function HandbookSettings() {
               <MagnifyingGlass className="h-4 w-4" aria-hidden="true" />
               <span>{t("common.search")}</span>
             </button>
+            </SettingsSearchTarget>
           )}
         </div>
 

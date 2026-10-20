@@ -22,6 +22,7 @@ import {
 } from "@phosphor-icons/react";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useI18n } from "../../lib/i18n";
+import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
 import { isTauri, isPWA } from "../../lib/tauri";
 import {
   areNotificationsSupported,
@@ -364,7 +365,9 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
               <Bell className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <p className="font-medium">{t("notificationSettings.enableNotifications")}</p>
+              <SettingsSearchTarget id="notifications.enable" label={t("notificationSettings.enableNotifications")}>
+                <p className="font-medium">{t("notificationSettings.enableNotifications")}</p>
+              </SettingsSearchTarget>
               <p className="text-sm text-muted-foreground">
                 Receive notifications for study reminders and due dates
               </p>
@@ -385,14 +388,18 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
 
       {/* Notification Types */}
       <section>
+        <SettingsSearchTarget id="notifications.types" label={t("notificationSettings.notificationTypes")}>
         <h3 className="text-lg font-semibold mb-4">{t("notificationSettings.notificationTypes")}</h3>
+      </SettingsSearchTarget>
         <div className="space-y-4">
           {/* Study Reminders */}
           <div className="flex items-start justify-between py-4 border-b border-border last:border-0">
             <div className="flex items-start gap-3">
               <Clock className="w-5 h-5 text-muted-foreground mt-0.5" />
               <div>
+                <SettingsSearchTarget id="notifications.studyReminders" label={t("notificationSettings.studyReminders")}>
                 <p className="font-medium">{t("notificationSettings.studyReminders")}</p>
+              </SettingsSearchTarget>
                 <p className="text-sm text-muted-foreground">
                   Daily reminders to start your review session
                 </p>
@@ -438,7 +445,9 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
             <div className="flex items-start gap-3">
               <Calendar className="w-5 h-5 text-muted-foreground mt-0.5" />
               <div>
+                <SettingsSearchTarget id="notifications.dueDateReminders" label={t("notificationSettings.dueDateReminders")}>
                 <p className="font-medium">{t("notificationSettings.dueDateReminders")}</p>
+              </SettingsSearchTarget>
                 <p className="text-sm text-muted-foreground">
                   Notify when cards are due for review
                 </p>
@@ -467,7 +476,9 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
                 <SpeakerSlash className="w-5 h-5 text-muted-foreground mt-0.5" />
               )}
               <div>
+                <SettingsSearchTarget id="notifications.sounds" label={t("notificationSettings.notificationSounds")}>
                 <p className="font-medium">{t("notificationSettings.notificationSounds")}</p>
+              </SettingsSearchTarget>
                 <p className="text-sm text-muted-foreground">
                   Play sound with notifications
                 </p>
@@ -549,7 +560,9 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
 
       {/* UI Sound Effects (independent from notification sounds) */}
       <section>
+        <SettingsSearchTarget id="notifications.uiSounds" label={t("notificationSettings.uiSoundEffects")}>
         <h3 className="text-lg font-semibold mb-4">{t("notificationSettings.uiSoundEffects")}</h3>
+      </SettingsSearchTarget>
         <div className="space-y-4">
           <div className="flex items-start justify-between py-4 border-b border-border last:border-0">
             <div className="flex items-start gap-3">
@@ -603,7 +616,9 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
             <div className="flex items-start gap-3">
               <Clock className="w-5 h-5 text-muted-foreground mt-0.5" />
               <div>
+                <SettingsSearchTarget id="notifications.quietHours" label={t("notificationSettings.quietHours")}>
                 <p className="font-medium">{t("notificationSettings.quietHours")}</p>
+              </SettingsSearchTarget>
                 <p className="text-sm text-muted-foreground">
                   Pause notifications during specific hours
                 </p>
@@ -657,7 +672,9 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
             <div className="flex items-start gap-3">
               <Bell className="w-5 h-5 text-muted-foreground mt-0.5" />
               <div>
+                <SettingsSearchTarget id="notifications.badge" label={t("notificationSettings.showBadgeCount")}>
                 <p className="font-medium">{t("notificationSettings.showBadgeCount")}</p>
+              </SettingsSearchTarget>
                 <p className="text-sm text-muted-foreground">
                   Display due card count on app icon/badge
                 </p>
@@ -680,7 +697,9 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
       {/* Background Notifications (PWA only) */}
       {platform === "pwa" && (
         <section>
-          <h3 className="text-lg font-semibold mb-4">{t("notificationSettings.backgroundReminders")}</h3>
+          <SettingsSearchTarget id="notifications.background" label={t("notificationSettings.backgroundReminders")}>
+        <h3 className="text-lg font-semibold mb-4">{t("notificationSettings.backgroundReminders")}</h3>
+      </SettingsSearchTarget>
           <BackgroundNotificationSettings
             enabled={notificationSettings.enabled}
             permission={permission}
@@ -694,7 +713,9 @@ export function NotificationSettings({ onChange }: NotificationSettingsProps) {
           <h3 className="text-lg font-semibold mb-4">Test</h3>
           <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
             <div>
-              <p className="font-medium">{t("notificationSettings.sendTest")}</p>
+              <SettingsSearchTarget id="notifications.test" label={t("notificationSettings.sendTest")}>
+                <p className="font-medium">{t("notificationSettings.sendTest")}</p>
+              </SettingsSearchTarget>
               <p className="text-sm text-muted-foreground">
                 Verify your notification settings are working
               </p>

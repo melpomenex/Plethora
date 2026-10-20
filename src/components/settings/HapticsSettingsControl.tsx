@@ -5,6 +5,7 @@ import { getHapticsSnapshot, subscribeHaptics, type HapticsSnapshot } from "../.
 import type { HapticIntensity } from "../../lib/feedback/haptics/types";
 import { HAPTIC_DIAGNOSTICS_ENABLED } from "../../lib/feedback/haptics/diagnostics";
 import { HapticsDiagnosticPanel } from "./HapticsDiagnosticPanel";
+import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
 
 export function HapticsSettingsControl({ compact = false }: { compact?: boolean }) {
   const { t } = useI18n();
@@ -27,6 +28,7 @@ export function HapticsSettingsControl({ compact = false }: { compact?: boolean 
 
   return (
     <div className={compact ? "space-y-3" : "space-y-4 border-t border-border pt-4"}>
+      <SettingsSearchTarget id="general.hapticsEnabled" className="block">
       <label className="flex items-start justify-between gap-4">
         <span className="min-w-0">
           <span className="block font-medium">{t("haptics.enabledLabel")}</span>
@@ -42,6 +44,8 @@ export function HapticsSettingsControl({ compact = false }: { compact?: boolean 
           onChange={(event) => updateSettingsCategory("haptics", { enabled: event.target.checked })}
         />
       </label>
+      </SettingsSearchTarget>
+      <SettingsSearchTarget id="general.hapticsIntensity" className="block">
       <label className="flex items-center justify-between gap-4">
         <span className="text-sm">{t("haptics.intensityLabel")}</span>
         <select
@@ -55,6 +59,7 @@ export function HapticsSettingsControl({ compact = false }: { compact?: boolean 
           <option value="strong">{t("haptics.intensityStrong")}</option>
         </select>
       </label>
+      </SettingsSearchTarget>
       <p className="text-xs text-muted-foreground">{t("haptics.intensityDescription")}</p>
       {HAPTIC_DIAGNOSTICS_ENABLED && <HapticsDiagnosticPanel status={status} />}
     </div>

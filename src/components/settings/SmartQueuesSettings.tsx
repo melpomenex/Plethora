@@ -29,6 +29,7 @@
 import React from "react";
 import { ArrowsClockwise, Brain, Sliders } from "@phosphor-icons/react";
 import { useI18n } from "../../lib/i18n";
+import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useQueueStore } from "../../stores/queueStore";
 import { DaqeKnobPanel } from "../queue/DaqeKnobPanel";
@@ -125,7 +126,7 @@ export function SmartQueuesSettings({
       {/* ── Adaptive ranking ──────────────────────────────────────────────── */}
       <section className="bg-card border border-border rounded-xl p-5 space-y-5">
         <div className="flex items-center justify-between border-b border-border/50 pb-4">
-          <div className="flex items-start gap-3">
+          <SettingsSearchTarget id="smartQueue.ranking" label={t("daqeSettings.title")} className="flex items-start gap-3">
             <Sliders className="w-5 h-5 text-primary mt-0.5" />
             <div>
               <div className="text-sm font-semibold text-foreground">{t("daqeSettings.title")}</div>
@@ -133,7 +134,7 @@ export function SmartQueuesSettings({
                 {t("daqeSettings.intro")}
               </div>
             </div>
-          </div>
+          </SettingsSearchTarget>
           <button
             type="button"
             role="switch"
@@ -166,9 +167,9 @@ export function SmartQueuesSettings({
               onScheduleRerank={rerank}
             />
 
-            <div className="pt-4 border-t border-border/50">
+            <SettingsSearchTarget id="smartQueue.decisionModel" label="Decision model" className="pt-4 border-t border-border/50">
               <DaqeDecisionModelSettings onProviderChange={rerank} />
-            </div>
+            </SettingsSearchTarget>
           </>
         ) : null}
       </section>
@@ -176,7 +177,7 @@ export function SmartQueuesSettings({
       {/* ── Auto-refresh ──────────────────────────────────────────────────── */}
       <section className="bg-card border border-border rounded-xl p-5 space-y-4">
         <div className="flex items-center justify-between">
-          <div className="flex items-start gap-3">
+          <SettingsSearchTarget id="smartQueue.autoRefresh" label={t("settings.autoRefresh")} className="flex items-start gap-3">
             <ArrowsClockwise className="w-5 h-5 text-muted-foreground mt-0.5" />
             <div>
               <div className="text-sm font-medium text-foreground">{t("settings.autoRefresh")}</div>
@@ -184,7 +185,7 @@ export function SmartQueuesSettings({
                 {t("settings.autoRefreshDesc")}
               </div>
             </div>
-          </div>
+          </SettingsSearchTarget>
           <button
             type="button"
             role="switch"
@@ -204,7 +205,7 @@ export function SmartQueuesSettings({
 
         {autoRefresh ? (
           <div className="pt-3 border-t border-border/50">
-            <div className="flex items-center gap-3 mb-3">
+            <SettingsSearchTarget id="smartQueue.refreshInterval" label={t("settings.refreshInterval")} className="flex items-center gap-3 mb-3">
               <ArrowsClockwise className="w-5 h-5 text-muted-foreground" />
               <div>
                 <div className="text-sm font-medium text-foreground">
@@ -214,7 +215,7 @@ export function SmartQueuesSettings({
                   {t("settings.refreshIntervalDesc")}
                 </div>
               </div>
-            </div>
+            </SettingsSearchTarget>
 
             <div className="flex items-center gap-4">
               <input

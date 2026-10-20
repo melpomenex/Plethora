@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import { useSettingsStore } from "../../stores/settingsStore";
 
 export type { Dict } from "./locales/en";
@@ -38,6 +38,41 @@ const dictionaries: Partial<Record<SupportedLocale, Dict>> = { en };
 const loading: Partial<Record<SupportedLocale, Promise<Dict>>> = {};
 
 /**
+ * Dictionary-readiness revision.
+ *
+ * Search resolves catalog copy from the active dictionary. Because non-English
+ * dictionaries load asynchronously, consumers must rebuild when one finishes
+ * loading — otherwise Settings search would keep matching the English fallback
+ * until some unrelated render happened. `useI18n` and `useLocaleRevision`
+ * subscribe to this counter so the next render sees `dictionaries[locale]`.
+ */
+let localeRevision = 0;
+const localeReadinessListeners = new Set<() => void>();
+
+function notifyLocaleReadiness(): void {
+  localeRevision += 1;
+  for (const listener of localeReadinessListeners) listener();
+}
+
+export function getLocaleRevision(): number {
+  return localeRevision;
+}
+
+export function subscribeLocaleReadiness(listener: () => void): () => void {
+  localeReadinessListeners.add(listener);
+  return () => localeReadinessListeners.delete(listener);
+}
+
+/** Re-render the calling component when a lazily loaded dictionary becomes ready. */
+export function useLocaleRevision(): number {
+  return useSyncExternalStore(
+    subscribeLocaleReadiness,
+    getLocaleRevision,
+    getLocaleRevision,
+  );
+}
+
+/**
  * Lazily load a locale's dictionary and register it. Safe to call repeatedly;
  * concurrent calls for the same locale share one import. `en` resolves sync.
  */
@@ -54,6 +89,7 @@ export async function loadLocale(locale: SupportedLocale): Promise<Dict> {
       }
       dictionaries[locale] = dict;
       delete loading[locale];
+      notifyLocaleReadiness();
       return dict;
     })
     .catch((err) => {
@@ -101,9 +137,17 @@ export function t(key: string, vars?: Record<string, string | number>): string {
   return formatTemplate(template, vars);
 }
 
+/** English copy for a key, used as a searchable fallback in non-English UIs. */
+export function getEnglishText(key: string): string {
+  return en[key] || key;
+}
+
 export function useI18n() {
   const language = useSettingsStore((state) => state.settings.general.language);
   const locale = normalizeLocale(language);
+  // Re-render once an asynchronously loaded dictionary arrives so displayed
+  // copy (and the Settings search catalog built from it) follows the locale.
+  useLocaleRevision();
   // Referentially stable per locale: effects that list `t` in their dependency
   // array only re-run when the locale (or their other deps) change, instead of
   // on every render. `translate` reads `dictionaries` at call time, so a

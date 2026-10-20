@@ -6,6 +6,7 @@
 import { useState, useEffect } from "react";
 import { invokeCommand as invoke, isTauri } from "../../lib/tauri";
 import { useI18n } from "../../lib/i18n";
+import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
 import { useSearchParams } from "react-router-dom";
 import {
   ArrowsClockwise,
@@ -211,14 +212,18 @@ export function CloudStorageSettings({ onChange }: { onChange: () => void }) {
   return (
     <div className="space-y-8">
       {/* Plethora E2E Cloud Sync */}
-      <SyncSettingsPanel />
+      <SettingsSearchTarget id="cloudStorage.sync" label={t("cloudStorage.title")}>
+        <SyncSettingsPanel />
+      </SettingsSearchTarget>
 
       {/* Provider Selection */}
       <div>
 
-        <h3 className="text-lg font-semibold text-foreground mb-4">
-          Cloud Storage Provider
-        </h3>
+        <SettingsSearchTarget id="cloudStorage.providers" label="Cloud Storage Provider">
+          <h3 className="text-lg font-semibold text-foreground mb-4">
+            Cloud Storage Provider
+          </h3>
+        </SettingsSearchTarget>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {(["onedrive", "google-drive", "dropbox"] as const).map(
@@ -337,9 +342,11 @@ export function CloudStorageSettings({ onChange }: { onChange: () => void }) {
         <>
           {/* Sync Mode */}
           <div>
-            <h3 className="text-lg font-semibold text-foreground mb-4">
-              Sync Mode
-            </h3>
+            <SettingsSearchTarget id="cloudStorage.syncMode" label="Sync Mode">
+              <h3 className="text-lg font-semibold text-foreground mb-4">
+                Sync Mode
+              </h3>
+            </SettingsSearchTarget>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <button
@@ -380,9 +387,11 @@ export function CloudStorageSettings({ onChange }: { onChange: () => void }) {
 
           {/* Auto Backup */}
           <div>
-            <h3 className="text-lg font-semibold text-foreground mb-4">
-              Automatic Backups
-            </h3>
+            <SettingsSearchTarget id="cloudStorage.autoBackups" label="Automatic Backups">
+              <h3 className="text-lg font-semibold text-foreground mb-4">
+                Automatic Backups
+              </h3>
+            </SettingsSearchTarget>
 
             <div className="space-y-4">
               <div className="flex items-center justify-between p-4 bg-card border rounded-lg">
@@ -496,9 +505,11 @@ export function CloudStorageSettings({ onChange }: { onChange: () => void }) {
           <div className="pt-6 border-t border-border">
             <div className="flex items-center gap-3 mb-4">
               <HardDrive className="w-6 h-6 text-primary" />
-              <h3 className="text-lg font-semibold text-foreground">
-                Backup & Restore
-              </h3>
+              <SettingsSearchTarget id="cloudStorage.backupRestore" label="Backup & Restore">
+                <h3 className="text-lg font-semibold text-foreground">
+                  Backup & Restore
+                </h3>
+              </SettingsSearchTarget>
             </div>
 
             <BackupRestorePanel

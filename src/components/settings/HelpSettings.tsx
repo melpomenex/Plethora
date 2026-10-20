@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useI18n } from "../../lib/i18n";
+import { useSettingsSearchTarget } from "./search/SettingsSearchNavigation";
 import {
   resetOnboardingState,
   readOnboardingTourState,
@@ -40,7 +41,7 @@ export function HelpSettings() {
 
   return (
     <div className="space-y-6">
-      <SettingsSection title={t("onboarding.tour.replayTour")}>
+      <SettingsSection title={t("onboarding.tour.replayTour")} searchId="help.replayTour">
         <SettingsRow label={t("onboarding.tour.replayTour")}>
           <button
             type="button"
@@ -54,6 +55,7 @@ export function HelpSettings() {
         <SettingsRow
           label={t("onboarding.tour.resetOnboarding")}
           description={t("onboarding.tour.resetOnboardingDesc")}
+          searchId="help.resetOnboarding"
         >
           <button
             type="button"
@@ -77,9 +79,15 @@ export function HelpSettings() {
 // Local mini-copies of the settings layout primitives so this component is
 // self-contained and matches the styling used elsewhere in SettingsPage
 // without pulling extra exports.
-function SettingsSection({ title, children }: { title: string; children: React.ReactNode }) {
+function SettingsSection({ title, children, searchId }: { title: string; children: React.ReactNode; searchId?: string }) {
+  const ref = useSettingsSearchTarget(searchId, { label: title });
   return (
-    <div className="mb-8">
+    <div
+      ref={searchId ? ref : undefined}
+      data-settings-search-target={searchId}
+      tabIndex={searchId ? -1 : undefined}
+      className="mb-8"
+    >
       <h3 className="text-lg font-semibold text-foreground mb-4">{title}</h3>
       <div className="space-y-4">{children}</div>
     </div>
@@ -90,13 +98,21 @@ function SettingsRow({
   label,
   description,
   children,
+  searchId,
 }: {
   label: string;
   description?: string;
   children: React.ReactNode;
+  searchId?: string;
 }) {
+  const ref = useSettingsSearchTarget(searchId, { label });
   return (
-    <div className="flex flex-col sm:flex-row sm:items-start justify-between py-4 border-b border-border last:border-0 gap-3 sm:gap-4">
+    <div
+      ref={searchId ? ref : undefined}
+      data-settings-search-target={searchId}
+      tabIndex={searchId ? -1 : undefined}
+      className="flex flex-col sm:flex-row sm:items-start justify-between py-4 border-b border-border last:border-0 gap-3 sm:gap-4"
+    >
       <div className="flex-1">
         <div className="font-medium text-foreground">{label}</div>
         {description && <div className="text-sm text-muted-foreground mt-1">{description}</div>}

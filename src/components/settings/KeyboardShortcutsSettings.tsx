@@ -271,6 +271,7 @@ export function KeyboardShortcutSettings({ onChange }: { onChange: () => void })
       <SettingsSection
         title={t("settings.keyboardShortcuts")}
         description={t("settings.keyboardShortcutsDesc")}
+        searchId="shortcuts.keyboard"
       >
         <div className="flex justify-end mb-4">
           <button
@@ -342,11 +343,13 @@ export function KeyboardShortcutSettings({ onChange }: { onChange: () => void })
       <SettingsSection
         title={t("settings.vimiumNavigation")}
         description={t("settings.vimiumNavigationDesc")}
+        searchId="shortcuts.vimium"
       >
         <div className="space-y-1">
           <SettingsRow
             label={t("settings.enableVimium")}
             description={t("settings.enableVimiumDesc")}
+            searchId="shortcuts.vimiumEnabled"
           >
             <label className="relative inline-flex items-center cursor-pointer">
               <input
@@ -365,6 +368,7 @@ export function KeyboardShortcutSettings({ onChange }: { onChange: () => void })
           <SettingsRow
             label={t("settings.linkHintKeys")}
             description={t("settings.linkHintKeysDesc")}
+            searchId="shortcuts.linkHints"
           >
             <input
               type="text"
@@ -379,11 +383,13 @@ export function KeyboardShortcutSettings({ onChange }: { onChange: () => void })
       <SettingsSection
         title={t("settings.vimReading")}
         description={t("settings.vimReadingDesc")}
+        searchId="shortcuts.vimReading"
       >
         <div className="space-y-1">
           <SettingsRow
             label={t("settings.defaultVimCardType")}
             description={t("settings.defaultVimCardTypeDesc")}
+            searchId="shortcuts.vimCardType"
           >
             <select
               value={useVimModeStore((s) => s.defaultVimCardType)}

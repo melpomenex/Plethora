@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useI18n } from "../../lib/i18n";
+import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import {
@@ -72,7 +73,9 @@ export function LearningSettings() {
 
       {/* Algorithm */}
       <div>
+        <SettingsSearchTarget id="learning.algorithm" label={t("learningSettings.algorithm")}>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("learningSettings.algorithm")}</h3>
+      </SettingsSearchTarget>
         <div className="space-y-4">
           <div>
             <label htmlFor="algorithm-select" className="block text-sm font-medium text-foreground mb-2">
@@ -316,7 +319,9 @@ export function LearningSettings() {
           {settings.learning.algorithm === "fsrs" && (
             <div className="border border-border rounded-lg p-4 space-y-3">
               <div>
+                <SettingsSearchTarget id="learning.scopedOverrides" label={t("learningSettings.scopedOverrides")}>
                 <h4 className="font-medium text-foreground">{t("learningSettings.scopedOverrides")}</h4>
+              </SettingsSearchTarget>
                 <p className="text-xs text-muted-foreground">
                   Precedence is global → deck → tag. Tag overrides win when both match.
                 </p>
@@ -462,7 +467,9 @@ export function LearningSettings() {
 
       {/* New Cards */}
       <div>
+        <SettingsSearchTarget id="learning.newCards" label={t("learningSettings.newCards")}>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("learningSettings.newCards")}</h3>
+      </SettingsSearchTarget>
         <div className="space-y-4">
           <div>
             <label htmlFor="newCardsPerDay" className="block text-sm font-medium text-foreground mb-2">
@@ -504,7 +511,9 @@ export function LearningSettings() {
 
       {/* Reviews */}
       <div>
+        <SettingsSearchTarget id="learning.reviews" label={t("learningSettings.reviews")}>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("learningSettings.reviews")}</h3>
+      </SettingsSearchTarget>
         <div className="space-y-4">
           <div>
             <label htmlFor="reviewsPerDay" className="block text-sm font-medium text-foreground mb-2">
@@ -549,7 +558,9 @@ export function LearningSettings() {
 
       {/* Lapses */}
       <div>
+        <SettingsSearchTarget id="learning.lapses" label={t("learningSettings.lapses")}>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("learningSettings.lapses")}</h3>
+      </SettingsSearchTarget>
         <div className="space-y-4">
           <div>
             <label htmlFor="lapseSteps" className="block text-sm font-medium text-foreground mb-2">
@@ -597,7 +608,9 @@ export function LearningSettings() {
 
       {/* Graduated Interval */}
       <div>
+        <SettingsSearchTarget id="learning.graduatedInterval" label={t("learningSettings.graduatedInterval")}>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("learningSettings.graduatedInterval")}</h3>
+      </SettingsSearchTarget>
         <div className="space-y-4">
           <div>
             <label htmlFor="graduatingInterval" className="block text-sm font-medium text-foreground mb-2">
@@ -645,7 +658,9 @@ export function LearningSettings() {
 
       {/* Leech Threshold */}
       <div>
+        <SettingsSearchTarget id="learning.leech" label={t("learningSettings.leechCards")}>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("learningSettings.leechCards")}</h3>
+      </SettingsSearchTarget>
         <div className="space-y-4">
           <div>
             <label htmlFor="leechThreshold" className="block text-sm font-medium text-foreground mb-2">
@@ -672,7 +687,9 @@ export function LearningSettings() {
 
       {/* Timezone */}
       <div>
+        <SettingsSearchTarget id="learning.timezone" label={t("learningSettings.timezone")}>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("learningSettings.timezone")}</h3>
+      </SettingsSearchTarget>
         <div>
           <label htmlFor="timezone" className="block text-sm font-medium text-foreground mb-2">
             Your Timezone
@@ -706,7 +723,9 @@ export function LearningSettings() {
 
       {/* Postpone Settings */}
       <div>
+        <SettingsSearchTarget id="learning.postpone" label={t("postpone.settingsTitle")}>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("postpone.settingsTitle")}</h3>
+      </SettingsSearchTarget>
         <div className="space-y-4">
           <p className="text-sm text-muted-foreground">
             {t("postpone.settingsDescription")}

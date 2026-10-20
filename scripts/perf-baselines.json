@@ -13,7 +13,7 @@
     },
     "kp-timeline/sample-sweep-desktop": {
       "cost": 0.1521,
-      "reason": "knowledge-peck-startup-animation: initial baseline for a full canonical-desktop sampleTimeline sweep at 60 fps frame granularity (113 frames, 9 elements each) \u2014 the per-frame cost the single rAF driver pays during the ~1.5 s choreography."
+      "reason": "knowledge-peck-startup-animation: initial baseline for a full canonical-desktop sampleTimeline sweep at 60 fps frame granularity (113 frames, 9 elements each) — the per-frame cost the single rAF driver pays during the ~1.5 s choreography."
     },
     "kp-timeline/sample-sweep-phone": {
       "cost": 0.0776,
@@ -50,7 +50,7 @@
     },
     "neuralQueue/spreading-activation-300-nodes": {
       "cost": 0.0017,
-      "tolerance": 2.0,
+      "tolerance": 2,
       "reason": "Neural-queue spreading-activation pass (Phase 4): TS port of the Rust algorithm, propagating activation over a 300-node seeded tree via concept/inter-element/descendant/sibling links with the monotonicity InsertOrUpdate. Runs only on neural-queue depletion (< 20 remaining); the ~0.9us cost reflects the pure-combine hot path. Wider tolerance because Map operations are GC-sensitive at this timescale."
     },
     "ankiImport/convert-2000-notes": {
@@ -76,7 +76,7 @@
     },
     "tabs/normalize-pane-tree-depth-4": {
       "cost": 0.0005028,
-      "tolerance": 2.0,
+      "tolerance": 2,
       "reason": "Sub-microsecond tree normalization is timer- and GC-sensitive, so it uses the same wider tolerance as other microbenchmarks."
     },
     "tabs/find-reusable-tab-20-tabs": {
@@ -126,7 +126,7 @@
     "reader-speech-index/build": {
       "cost": 3.759,
       "tolerance": 1.4,
-      "reason": "improve-reader-tts: initial baseline for building the anchored speech index (24 seeded sections \u00d7 30 paragraphs, CHUNK_MAX packing with page markers)."
+      "reason": "improve-reader-tts: initial baseline for building the anchored speech index (24 seeded sections × 30 paragraphs, CHUNK_MAX packing with page markers)."
     },
     "reader-speech-index/locate": {
       "cost": 4.128,
@@ -219,7 +219,7 @@
     },
     "daqe/project-snapshot-5000-items-no-snapshot": {
       "cost": 0.05393,
-      "reason": "add-dynamic-adaptive-queue-engine: initial baseline for the no-snapshot fallback path, which runs on first paint and on every store reload before a background re-rank completes. It must stay far cheaper than the projecting path \u2014 a ratio of ~14x here is the signal that the previous order is being preserved rather than recomputed."
+      "reason": "add-dynamic-adaptive-queue-engine: initial baseline for the no-snapshot fallback path, which runs on first paint and on every store reload before a background re-rank completes. It must stay far cheaper than the projecting path — a ratio of ~14x here is the signal that the previous order is being preserved rather than recomputed."
     },
     "haptic-policy-admission-512": {
       "cost": 0.4462,
@@ -239,7 +239,7 @@
     },
     "assistant-video/topical-2h-cached": {
       "cost": 0.2246,
-      "reason": "unify-assistant-conversation-and-video-context: initial baseline for query-time transcript planning on a cached 2-hour transcript (3,600 segments) \u2014 the per-prompt cost of the BM25 window ranking that replaced the 2,000-token head truncation. Normalized by the noise anchor; no tiktoken encode/decode runs on playback ticks."
+      "reason": "unify-assistant-conversation-and-video-context: initial baseline for query-time transcript planning on a cached 2-hour transcript (3,600 segments) — the per-prompt cost of the BM25 window ranking that replaced the 2,000-token head truncation. Normalized by the noise anchor; no tiktoken encode/decode runs on playback ticks."
     },
     "assistant-video/playback-2h-cached": {
       "cost": 0.1207,
@@ -260,6 +260,21 @@
     },
     "assistant invocation seeded trajectories": {
       "cost": 0.1205
+    },
+    "settings-search/real-catalog": {
+      "cost": 2.254,
+      "tolerance": 1.35,
+      "reason": "improve-settings-search: initial baseline for normalize + tokenize + tiered match/dedupe over the real resolved Settings catalog (multiword font-size query)."
+    },
+    "settings-search/synthetic-1000": {
+      "cost": 9.995,
+      "tolerance": 1.5,
+      "reason": "improve-settings-search: initial baseline for the same matcher over 1,000 seeded synthetic entries; exercises worst-case per-entry token/fuzzy work."
+    },
+    "settings-search/synthetic-1000-typo": {
+      "cost": 9.989,
+      "tolerance": 1.5,
+      "reason": "improve-settings-search: initial baseline for the typo-tolerant path (font siez) over 1,000 seeded synthetic entries."
     }
   }
 }

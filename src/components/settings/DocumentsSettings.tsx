@@ -3,6 +3,7 @@ import { OCRSettings } from "./OCRSettings";
 import { useI18n } from "../../lib/i18n";
 import TASSettingsPanel from "../tas/TASSettingsPanel";
 import { NumericInput } from "../common";
+import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
 
 export function DocumentsSettings() {
   const { settings, updateSettings } = useSettingsStore();
@@ -13,9 +14,11 @@ export function DocumentsSettings() {
     <div className="space-y-6">
       {/* Library View */}
       <div>
+        <SettingsSearchTarget id="documents.libraryView" label={t("settingsDocs.libraryView")}>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("settingsDocs.libraryView")}</h3>
+      </SettingsSearchTarget>
         <div className="rounded-xl border border-border bg-card p-4">
-          <div className="flex items-start justify-between gap-4">
+          <SettingsSearchTarget id="documents.compactView" label={t("settingsDocs.compactDocumentsView")} className="flex items-start justify-between gap-4">
             <div>
               <p className="font-medium text-foreground">{t("settingsDocs.compactDocumentsView")}</p>
               <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">
@@ -36,7 +39,7 @@ export function DocumentsSettings() {
               />
               <div className="h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-primary peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none dark:bg-gray-700 dark:border-gray-600" />
             </label>
-          </div>
+          </SettingsSearchTarget>
           <div className="mt-4 grid gap-2 text-[11px] text-muted-foreground sm:grid-cols-3">
             <span className="rounded-md bg-muted/60 px-2.5 py-2">{t("settingsDocs.compactDocumentsViewSignal1")}</span>
             <span className="rounded-md bg-muted/60 px-2.5 py-2">{t("settingsDocs.compactDocumentsViewSignal2")}</span>
@@ -47,7 +50,9 @@ export function DocumentsSettings() {
 
       {/* Smart Tagging */}
       <div>
+        <SettingsSearchTarget id="documents.smartTagging" label="Smart Tagging">
         <h3 className="text-lg font-semibold mb-3 text-foreground">Smart Tagging</h3>
+      </SettingsSearchTarget>
         <div className="rounded-xl border border-border bg-card p-4 space-y-4">
           <div className="flex items-start justify-between gap-4">
             <div>
@@ -193,7 +198,9 @@ export function DocumentsSettings() {
 
       {/* Import Settings */}
       <div>
+        <SettingsSearchTarget id="documents.import" label={t("settingsDocs.documentImport")}>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("settingsDocs.documentImport")}</h3>
+      </SettingsSearchTarget>
         <div className="space-y-4">
           <div>
             <label htmlFor="defaultCategory" className="block text-sm font-medium text-foreground mb-2">
@@ -315,7 +322,9 @@ export function DocumentsSettings() {
 
       {/* PDF Settings */}
       <div>
+        <SettingsSearchTarget id="documents.pdf" label={t("settingsDocs.pdfDocuments")}>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("settingsDocs.pdfDocuments")}</h3>
+      </SettingsSearchTarget>
         <div className="space-y-4">
           <div>
             <label htmlFor="pdfZoom" className="block text-sm font-medium text-foreground mb-2">
@@ -397,9 +406,11 @@ export function DocumentsSettings() {
 
       {/* EPUB Settings */}
       <div>
+        <SettingsSearchTarget id="documents.epub" label={t("settingsDocs.epubDocuments")}>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("settingsDocs.epubDocuments")}</h3>
+      </SettingsSearchTarget>
         <div className="space-y-4">
-          <div>
+          <SettingsSearchTarget id="documents.epubFontSize" label={t("settingsDocs.defaultFontSize")}>
             <label htmlFor="epubFontSize" className="block text-sm font-medium text-foreground mb-2">
               {t("settingsDocs.defaultFontSize")}
             </label>
@@ -418,9 +429,9 @@ export function DocumentsSettings() {
               }
               className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground"
             />
-          </div>
+          </SettingsSearchTarget>
 
-          <div>
+          <SettingsSearchTarget id="documents.epubFontFamily" label={t("settingsDocs.fontFamily")}>
             <label htmlFor="epubFontFamily" className="block text-sm font-medium text-foreground mb-2">
               {t("settingsDocs.fontFamily")}
             </label>
@@ -441,9 +452,9 @@ export function DocumentsSettings() {
               <option value="sans-serif" className="text-foreground">{t("settingsDocs.sansSerif")}</option>
               <option value="monospace" className="text-foreground">{t("settingsDocs.monospace")}</option>
             </select>
-          </div>
+          </SettingsSearchTarget>
 
-          <div>
+          <SettingsSearchTarget id="documents.epubLineHeight" label={t("settingsDocs.lineHeight")}>
             <label htmlFor="epubLineHeight" className="block text-sm font-medium text-foreground mb-2">
               {t("settingsDocs.lineHeight")}
             </label>
@@ -466,9 +477,9 @@ export function DocumentsSettings() {
               }
               className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground"
             />
-          </div>
+          </SettingsSearchTarget>
 
-          <div className="flex items-center justify-between">
+          <SettingsSearchTarget id="documents.epubAutoScroll" label={t("settingsDocs.autoScroll")} className="flex items-center justify-between">
             <div>
               <p className="font-medium text-foreground">{t("settingsDocs.autoScroll")}</p>
               <p className="text-xs text-muted-foreground">
@@ -491,13 +502,15 @@ export function DocumentsSettings() {
               />
               <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-primary"></div>
             </label>
-          </div>
+          </SettingsSearchTarget>
         </div>
       </div>
 
       {/* Auto-Segmentation */}
       <div>
+        <SettingsSearchTarget id="documents.autoSegmentation" label={t("settingsDocs.autoSegmentation")}>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("settingsDocs.autoSegmentation")}</h3>
+      </SettingsSearchTarget>
         <div className="space-y-4">
           <div>
             <label htmlFor="segmentationMethod" className="block text-sm font-medium text-foreground mb-2">
@@ -578,7 +591,9 @@ export function DocumentsSettings() {
 
       {/* OCR Settings */}
       <div>
+        <SettingsSearchTarget id="documents.ocr" label={t("settingsDocs.ocr")}>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("settingsDocs.ocr")}</h3>
+      </SettingsSearchTarget>
         <OCRSettings
           settings={settings.documents.ocr}
           onUpdateSettings={(updates) =>
@@ -592,7 +607,9 @@ export function DocumentsSettings() {
 
       {/* Storage */}
       <div>
+        <SettingsSearchTarget id="documents.storage" label={t("settingsDocs.storage")}>
         <h3 className="text-lg font-semibold mb-3 text-foreground">{t("settingsDocs.storage")}</h3>
+      </SettingsSearchTarget>
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <div>

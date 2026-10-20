@@ -60,6 +60,7 @@ import {
 } from "../../api/groqTranscription";
 import { cn } from "../../utils";
 import { useI18n } from "../../lib/i18n";
+import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
 import { useToast } from "../common/Toast";
 import { resolveTranscription, isNemotronModelId, isWhistleModelId } from "../../lib/transcriptionProvider";
 import { showTranscriptionResolutionFailure } from "../../lib/transcriptionResolutionFailure";
@@ -326,6 +327,19 @@ export function AudioTranscriptionSettings() {
             }
           </p>
         </div>
+      </div>
+
+      {/* Search-only reveal resolvers: switch the provider tab before its
+          configuration target mounts. No provider is selected or persisted. */}
+      <div className="hidden" aria-hidden="true">
+        <SettingsSearchTarget
+          id="audioTranscription.reveal.local"
+          reveal={() => setActiveTab("local")}
+        />
+        <SettingsSearchTarget
+          id="audioTranscription.reveal.groq"
+          reveal={() => setActiveTab("groq")}
+        />
       </div>
 
       {/* Transcription mode (provider-independent routing) */}
@@ -683,7 +697,9 @@ export function AudioTranscriptionSettings() {
           )}
         >
           <Cloud className="w-4 h-4" />
-          {t("settings.audioGroqCloud")}
+          <SettingsSearchTarget id="audioTranscription.groqCloud" label={t("settings.audioGroqCloud")} className="inline-flex items-center gap-1">
+            {t("settings.audioGroqCloud")}
+          </SettingsSearchTarget>
           <span className="ml-1 px-1.5 py-0.5 text-[10px] bg-green-500/20 text-green-600 rounded-full">
             {t("settings.audioFreeTier")}
           </span>
@@ -712,13 +728,13 @@ export function AudioTranscriptionSettings() {
                   <div className="p-2 bg-primary/10 rounded-lg">
                     <Microphone className="w-5 h-5 text-primary" />
                   </div>
-                  <div>
+                  <SettingsSearchTarget id="audioTranscription.enabled" label={t("settings.audioAutoTranscribe")}>
                     <p className="font-medium">{t("settings.audioAutoTranscribe")}</p>
                     <p className="text-sm text-muted-foreground">
                       {t("settings.audioAutoTranscribeDesc")}
                     </p>
+                  </SettingsSearchTarget>
                   </div>
-                </div>
                 <Switch
                   checked={audioSettings.autoTranscribeLocalVideos}
                   onCheckedChange={(checked) =>
@@ -746,7 +762,9 @@ export function AudioTranscriptionSettings() {
           <section className="space-y-3">
             <div className="flex items-center gap-2">
               <Translate className="w-5 h-5 text-muted-foreground" />
-              <h4 className="font-semibold text-foreground">{t("settings.audioDefaultModel")}</h4>
+              <SettingsSearchTarget id="audioTranscription.defaultModel" label={t("settings.audioDefaultModel")}>
+                <h4 className="font-semibold text-foreground">{t("settings.audioDefaultModel")}</h4>
+              </SettingsSearchTarget>
             </div>
             <label className="text-xs font-medium text-muted-foreground">
               {t("settings.audioDefaultModelDesc")}
@@ -807,7 +825,9 @@ export function AudioTranscriptionSettings() {
           <section className="space-y-4">
             <div className="flex items-center gap-2">
               <Translate className="w-5 h-5 text-muted-foreground" />
-              <h4 className="font-semibold text-foreground">{t("settings.audioModelsAndProfiles")}</h4>
+              <SettingsSearchTarget id="audioTranscription.models" label={t("settings.audioModelsAndProfiles")}>
+                <h4 className="font-semibold text-foreground">{t("settings.audioModelsAndProfiles")}</h4>
+              </SettingsSearchTarget>
             </div>
 
             {isDesktop && (
@@ -1084,7 +1104,9 @@ export function AudioTranscriptionSettings() {
           <section className="space-y-4">
             <div className="flex items-center gap-2">
               <Key className="w-5 h-5 text-muted-foreground" />
-              <h4 className="font-semibold text-foreground">{t("settings.audioApiConfig")}</h4>
+              <SettingsSearchTarget id="audioTranscription.apiConfig" label={t("settings.audioApiConfig")}>
+                <h4 className="font-semibold text-foreground">{t("settings.audioApiConfig")}</h4>
+              </SettingsSearchTarget>
             </div>
             
             <div className="space-y-3">
@@ -1173,7 +1195,9 @@ export function AudioTranscriptionSettings() {
             <section className="space-y-4">
               <div className="flex items-center gap-2">
                 <TrendUp className="w-5 h-5 text-muted-foreground" />
-                <h4 className="font-semibold text-foreground">{t("settings.audioUsageThisMonth")}</h4>
+                <SettingsSearchTarget id="audioTranscription.usage" label={t("settings.audioUsageThisMonth")}>
+                  <h4 className="font-semibold text-foreground">{t("settings.audioUsageThisMonth")}</h4>
+                </SettingsSearchTarget>
               </div>
               
               <div className="grid grid-cols-2 gap-4">
@@ -1272,7 +1296,9 @@ export function AudioTranscriptionSettings() {
           <section className="space-y-3">
             <div className="flex items-center gap-2">
               <Translate className="w-5 h-5 text-muted-foreground" />
-              <h4 className="font-semibold text-foreground">{t("settings.audioLanguage")}</h4>
+              <SettingsSearchTarget id="audioTranscription.language" label={t("settings.audioLanguage")}>
+                <h4 className="font-semibold text-foreground">{t("settings.audioLanguage")}</h4>
+              </SettingsSearchTarget>
             </div>
             <select
               value={audioSettings.language}

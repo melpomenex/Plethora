@@ -58,6 +58,7 @@ import {
   type YouTubeCookie,
 } from "../../utils/youtubeCookies";
 import { useI18n } from "../../lib/i18n";
+import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
 import { useToast } from "../common/Toast";
 import { useApiTokensStore } from "../../stores/apiTokensStore";
 import { usePlatformCapability } from "../../hooks/usePlatformCapability";
@@ -436,6 +437,18 @@ export function IntegrationSettings() {
         <h2 className="text-2xl font-bold text-foreground">{t("integrations.title")}</h2>
       </div>
 
+      {/* Search-only reveal resolvers: open the owning tab before its content
+          (and the actual target) mounts. They are not focus destinations. */}
+      <div className="hidden" aria-hidden="true">
+        <SettingsSearchTarget id="integrations.reveal.obsidian" reveal={() => setActiveTab("obsidian")} />
+        <SettingsSearchTarget id="integrations.reveal.anki" reveal={() => setActiveTab("anki")} />
+        <SettingsSearchTarget id="integrations.reveal.extension" reveal={() => setActiveTab("extension")} />
+        <SettingsSearchTarget id="integrations.reveal.youtube-cookies" reveal={() => setActiveTab("youtube-cookies")} />
+        <SettingsSearchTarget id="integrations.reveal.youtube-transcript" reveal={() => setActiveTab("youtube-transcript")} />
+        <SettingsSearchTarget id="integrations.reveal.notebooklm" reveal={() => setActiveTab("notebooklm")} />
+        <SettingsSearchTarget id="integrations.reveal.api-tokens" reveal={() => setActiveTab("api-tokens")} />
+      </div>
+
       {/* Tabs */}
       <div className="flex gap-2 mb-6">
         <button
@@ -578,7 +591,9 @@ export function IntegrationSettings() {
           <div className="bg-card border border-border rounded-lg p-6">
             <div className="flex items-center gap-3 mb-4">
               <BookOpen className="w-5 h-5 text-purple-500" />
-              <h3 className="text-lg font-semibold text-foreground">{t("integrations.obsidianIntegration")}</h3>
+              <SettingsSearchTarget id="integrations.obsidian" label={t("integrations.obsidianIntegration")}>
+<h3 className="text-lg font-semibold text-foreground">{t("integrations.obsidianIntegration")}</h3>
+              </SettingsSearchTarget>
             </div>
 
             <div className="space-y-4">
@@ -786,7 +801,9 @@ export function IntegrationSettings() {
           <div className="bg-card border border-border rounded-lg p-6">
             <div className="flex items-center gap-3 mb-4">
               <Brain className="w-5 h-5 text-blue-500" />
-              <h3 className="text-lg font-semibold text-foreground">{t("integrations.ankiIntegration")}</h3>
+              <SettingsSearchTarget id="integrations.anki" label={t("integrations.ankiIntegration")}>
+<h3 className="text-lg font-semibold text-foreground">{t("integrations.ankiIntegration")}</h3>
+              </SettingsSearchTarget>
               {ankiConnected && (
                 <span className="ml-auto px-2 py-1 bg-green-500/20 text-green-500 text-xs rounded-full flex items-center gap-1">
                   <Check className="w-3 h-3" />
@@ -909,7 +926,9 @@ export function IntegrationSettings() {
           <div className="bg-card border border-border rounded-lg p-6">
             <div className="flex items-center gap-3 mb-4">
               <Globe className="w-5 h-5 text-green-500" />
-              <h3 className="text-lg font-semibold text-foreground">{t("integrations.browserExtensionServer")}</h3>
+              <SettingsSearchTarget id="integrations.browserExtension" label={t("integrations.browserExtensionServer")}>
+<h3 className="text-lg font-semibold text-foreground">{t("integrations.browserExtensionServer")}</h3>
+              </SettingsSearchTarget>
               {extensionStatus.running && (
                 <span className="ml-auto px-2 py-1 bg-green-500/20 text-green-500 text-xs rounded-full flex items-center gap-1">
                   <HardDrives className="w-3 h-3" />
@@ -1011,7 +1030,11 @@ export function IntegrationSettings() {
       )}
 
       {/* NotebookLM Settings */}
-      {activeTab === "notebooklm" && <NotebookLMWorkspace />}
+      {activeTab === "notebooklm" && (
+        <SettingsSearchTarget id="integrations.notebooklm" label={t("integrations.notebooklm")}>
+          <NotebookLMWorkspace />
+        </SettingsSearchTarget>
+      )}
 
       {/* YouTube Cookies Settings */}
       {activeTab === "youtube-cookies" && (
@@ -1019,7 +1042,9 @@ export function IntegrationSettings() {
           <div className="bg-card border border-border rounded-lg p-6">
             <div className="flex items-center gap-3 mb-4">
               <Cookie className="w-5 h-5 text-red-500" />
-              <h3 className="text-lg font-semibold text-foreground">{t("integrations.youtubeAuthCookies")}</h3>
+              <SettingsSearchTarget id="integrations.youtubeCookies" label={t("integrations.youtubeAuthCookies")}>
+<h3 className="text-lg font-semibold text-foreground">{t("integrations.youtubeAuthCookies")}</h3>
+              </SettingsSearchTarget>
               {youtubeCookies.length > 0 && (
                 <span className="ml-auto px-2 py-1 bg-green-500/20 text-green-500 text-xs rounded-full flex items-center gap-1">
                   <Check className="w-3 h-3" />
@@ -1150,7 +1175,9 @@ export function IntegrationSettings() {
         <div className="bg-card text-card-foreground border border-border rounded-xl p-6 shadow-sm">
           <div className="space-y-6">
             <div>
-              <h3 className="text-lg font-semibold text-foreground">{t("integrations.youtubeTranscripts")}</h3>
+              <SettingsSearchTarget id="integrations.youtubeTranscripts" label={t("integrations.youtubeTranscripts")}>
+<h3 className="text-lg font-semibold text-foreground">{t("integrations.youtubeTranscripts")}</h3>
+              </SettingsSearchTarget>
               <p className="text-sm text-muted-foreground mt-1">
                 {t("integrations.youtubeTranscriptsDesc")}
               </p>
@@ -1336,7 +1363,11 @@ export function IntegrationSettings() {
       )}
 
       {/* Public API Tokens & Webhooks Settings (Plethora Cloud) */}
-      {activeTab === "api-tokens" && isPlethoraCloudAvailable() && <ApiTokensIntegrationPanel />}
+      {activeTab === "api-tokens" && isPlethoraCloudAvailable() && (
+        <SettingsSearchTarget id="integrations.publicApi" label="Pro Public API & Webhooks">
+          <ApiTokensIntegrationPanel />
+        </SettingsSearchTarget>
+      )}
     </div>
   );
 }
@@ -1398,7 +1429,9 @@ function ApiTokensIntegrationPanel() {
             <Key className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h3 className="text-lg font-semibold text-foreground">Pro Public API & Webhooks</h3>
+            <SettingsSearchTarget id="integrations.publicApi" label="Pro Public API & Webhooks">
+<h3 className="text-lg font-semibold text-foreground">Pro Public API & Webhooks</h3>
+              </SettingsSearchTarget>
             <p className="text-sm text-muted-foreground">Automate document ingest, capture flows, and sync with custom scripts</p>
           </div>
         </div>

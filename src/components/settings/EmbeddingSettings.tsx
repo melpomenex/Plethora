@@ -8,6 +8,7 @@ import { isPaidEmbeddingProvider } from "../../utils/aiBillingConsent";
 import { embeddingProviderLabel } from "../../utils/embeddingEstimation";
 import { listOllamaModels } from "../../api/ai";
 import { isNativeMobile } from "../../lib/tauri";
+import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
 
 const DEFAULT_OLLAMA_EMBED_MODELS = [
   "embeddinggemma-2",
@@ -88,10 +89,12 @@ export function EmbeddingSettings() {
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <h2 className="text-xl font-semibold flex items-center gap-2">
-          <Brain className="w-5 h-5 text-primary" />
-          {t("embeddings.title")}
-        </h2>
+        <SettingsSearchTarget id="embeddings.model" label={t("embeddings.title")}>
+          <h2 className="text-xl font-semibold flex items-center gap-2">
+            <Brain className="w-5 h-5 text-primary" />
+            {t("embeddings.title")}
+          </h2>
+        </SettingsSearchTarget>
         <p className="text-sm text-muted-foreground mt-1">{t("embeddings.desc")}</p>
       </div>
 

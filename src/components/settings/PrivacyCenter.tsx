@@ -28,6 +28,7 @@ import {
   resetCloudAiDisclosure,
 } from "../../lib/privacy/cloudAiDisclosure";
 import type { PrivacyDisclosure } from "../../types/privacy";
+import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
 
 const CATEGORY_ORDER = ["core", "ai", "sync", "media", "integrations", "telemetry"] as const;
 
@@ -141,7 +142,9 @@ export function PrivacyCenter() {
             <Shield className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
           </div>
           <div>
+            <SettingsSearchTarget id="privacy.localOnlyShield" label="Local-Only Shield">
             <h3 className="text-lg font-semibold text-foreground">Local-Only Shield</h3>
+          </SettingsSearchTarget>
             <p className="text-sm text-muted-foreground">Per-document protection against any cloud egress</p>
           </div>
         </div>
@@ -159,7 +162,9 @@ export function PrivacyCenter() {
             <Eye className="w-5 h-5 text-blue-600 dark:text-blue-400" />
           </div>
           <div>
+            <SettingsSearchTarget id="privacy.cloudDisclosure" label="Cloud AI Disclosure">
             <h3 className="text-lg font-semibold text-foreground">Cloud AI Disclosure</h3>
+          </SettingsSearchTarget>
             <p className="text-sm text-muted-foreground">What happens the first time content is sent to a cloud provider</p>
           </div>
         </div>

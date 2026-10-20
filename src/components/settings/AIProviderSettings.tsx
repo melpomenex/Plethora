@@ -4,6 +4,7 @@
  */
 
 import { SettingsSection, SettingsRow } from "./SettingsPage";
+import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
 import { LLMProviderSettings } from "./LLMProviderSettings";
 import { OnDeviceAiPanel } from "./OnDeviceAiPanel";
 import { MCPServersSettings } from "./MCPServersSettings";
@@ -238,21 +239,26 @@ export function AISettings({ onChange }: { onChange: () => void }) {
 
   return (
     <>
-      <LLMProviderSettings
-        providers={providers}
-        onAddProvider={handleAddProvider}
-        onUpdateProvider={handleUpdateProvider}
-        onRemoveProvider={handleRemoveProvider}
-        onTestConnection={handleTestConnection}
-      />
+      <SettingsSearchTarget id="ai.providers" label="AI Providers">
+        <LLMProviderSettings
+          providers={providers}
+          onAddProvider={handleAddProvider}
+          onUpdateProvider={handleUpdateProvider}
+          onRemoveProvider={handleRemoveProvider}
+          onTestConnection={handleTestConnection}
+        />
+      </SettingsSearchTarget>
 
       {/* On-device AI (Android only). Renders nothing where no bridge exists. */}
-      <OnDeviceAiPanel onChange={onChange} />
+      <SettingsSearchTarget id="ai.onDevice" label="On-Device AI">
+        <OnDeviceAiPanel onChange={onChange} />
+      </SettingsSearchTarget>
 
       {/* AI Learning System Features (OpenSpec add-ondevice-ai-learning-system) */}
       <SettingsSection
         title="AI Learning System Features"
         description="On-device learning tools: card generation, Socratic tutoring, Ask Library RAG, active recall, occlusion assist, and learning agent."
+        searchId="ai.learningFeatures"
       >
         <SettingsRow
           label="Enable All AI Learning Features"
@@ -294,6 +300,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
 
         <SettingsRow
           label="Learn this (Card Extraction)"
+          searchId="ai.learnThis"
           description="Propose structured flashcards, cloze deletions, and definitions from selected reading text"
         >
           <label className="relative inline-flex items-center cursor-pointer">
@@ -314,6 +321,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
 
         <SettingsRow
           label="Ask Library (Semantic Memory RAG)"
+          searchId="ai.libraryRag"
           description="Search conceptually across your entire library and receive grounded answers with citations"
         >
           <label className="relative inline-flex items-center cursor-pointer">
@@ -334,6 +342,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
 
         <SettingsRow
           label="Socratic Tutoring"
+          searchId="ai.socratic"
           description="Interactive, turn-based guiding dialogues with hint escalation and escape hatches"
         >
           <label className="relative inline-flex items-center cursor-pointer">
@@ -354,6 +363,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
 
         <SettingsRow
           label="AI Image Occlusion Assist"
+          searchId="ai.occlusion"
           description="Auto-detect text labels on diagrams using on-device OCR and generate occlusion cards"
         >
           <label className="relative inline-flex items-center cursor-pointer">
@@ -374,6 +384,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
 
         <SettingsRow
           label="On-Device Semantic Indexing"
+          searchId="ai.semanticIndex"
           description="Index documents with local LiteRT EmbeddingGemma embeddings for fast vector retrieval"
         >
           <label className="relative inline-flex items-center cursor-pointer">
@@ -394,6 +405,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
 
         <SettingsRow
           label="AI Answer Assessment (Review Free-Response)"
+          searchId="ai.answerAssessment"
           description="Evaluate typed answers against ground truth and highlight missed nuances without overriding rating authority"
         >
           <label className="relative inline-flex items-center cursor-pointer">
@@ -414,6 +426,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
 
         <SettingsRow
           label="Knowledge Relationships & Prerequisites"
+          searchId="ai.prerequisites"
           description="Identify concept dependencies, coverage levels, and cross-document concept links"
         >
           <label className="relative inline-flex items-center cursor-pointer">
@@ -438,6 +451,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
 
         <SettingsRow
           label="Passage Extract-Worthiness Scoring"
+          searchId="ai.extractWorthiness"
           description="Subtle margin indicators on high-value paragraphs in reading view"
         >
           <label className="relative inline-flex items-center cursor-pointer">
@@ -458,6 +472,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
 
         <SettingsRow
           label="Constrained Learning Agent"
+          searchId="ai.agent"
           description="Autonomous assistant capable of searching library context and staging proposed cards for review"
         >
           <label className="relative inline-flex items-center cursor-pointer">
@@ -488,6 +503,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
       <SettingsSection
         title={t("aiSettings.braveApiKey")}
         description={t("aiProvider.braveKeyDesc")}
+        searchId="ai.webSearch"
       >
         <SettingsRow
           label={t("aiSettings.braveApiKey")}
@@ -537,6 +553,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
       <SettingsSection
         title={t("aiSettings.modelSettings")}
         description={t("aiProvider.modelSettingsDesc")}
+        searchId="ai.modelSettings"
       >
         <SettingsRow
           label={t("aiSettings.contextWindow")}
@@ -554,6 +571,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
       </SettingsSection>
 
       {/* MCP Servers Configuration */}
+      <SettingsSearchTarget id="ai.mcp" label="MCP Servers">
       <MCPServersSettings
         servers={mcpServers}
         onAddServer={handleAddMCPServer}
@@ -562,11 +580,13 @@ export function AISettings({ onChange }: { onChange: () => void }) {
         onTestServer={handleTestMCPServer}
         maxServers={3}
       />
+      </SettingsSearchTarget>
 
       {/* Auto-Generation Settings */}
       <SettingsSection
         title="Auto-Generation"
         description="Automatically generate flashcards from new extracts"
+        searchId="ai.autoGeneration"
       >
         <SettingsRow
           label="Auto-generate flashcards"
@@ -740,6 +760,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
       <SettingsSection
         title="Summarization"
         description="Control when AI summarizes your content"
+        searchId="ai.summarization"
       >
         <SettingsRow
           label="Generate AI summaries for extracts during review"
@@ -841,6 +862,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
       <SettingsSection
         title="Context Window"
         description="Configure how much context is sent in AI requests"
+        searchId="ai.contextWindow"
       >
         <SettingsRow
           label="Max tokens per request"
@@ -912,6 +934,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
       <SettingsSection
         title="Active Recall"
         description="While reading, occasionally ask you to recall recently read material from memory. Off by default."
+        searchId="ai.activeRecall"
       >
         <SettingsRow
           label="Active recall mode"
@@ -940,6 +963,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
       <SettingsSection
         title="AI Long-Term Memory"
         description="Enable persistent, local memory context to make the AI personalized and personable"
+        searchId="ai.memory"
       >
         <SettingsRow
           label="Enable AI Memory"

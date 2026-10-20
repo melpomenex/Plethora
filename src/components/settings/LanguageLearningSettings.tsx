@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import { useLanguageProfileStore } from "../../stores/languageProfileStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { isValidBcp47, type LanguageProfileCreate } from "../../types/languageProfile";
+import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
 
 const EMPTY_FORM: LanguageProfileCreate = {
   name: "",
@@ -49,10 +50,12 @@ export function LanguageLearningSettings() {
 
   return (
     <div className="space-y-6" data-testid="language-learning-settings">
+      <SettingsSearchTarget id="languageLearning.master" label="Language Learning">
       <section className="rounded-lg border border-border bg-card p-5" aria-labelledby="language-learning-master-title">
         <h2 id="language-learning-master-title" className="text-lg font-semibold text-foreground">
           Language Learning
         </h2>
+        <SettingsSearchTarget id="languageLearning.enabled" label="Show language-learning tools in readers" className="block">
         <label className="mt-3 flex items-start gap-3" data-testid="language-learning-master-toggle">
           <input
             type="checkbox"
@@ -77,6 +80,8 @@ export function LanguageLearningSettings() {
             practice overlays). Off by default; ordinary reading is never affected.
           </span>
         </label>
+        </SettingsSearchTarget>
+        <SettingsSearchTarget id="languageLearning.suggestions" label="Suggest studying a document as your target language" className="block">
         <label className="mt-3 flex items-start gap-3" data-testid="language-suggestions-toggle">
           <input
             type="checkbox"
@@ -99,13 +104,17 @@ export function LanguageLearningSettings() {
             Suggest studying a document as your target language when one is detected.
           </span>
         </label>
+        </SettingsSearchTarget>
       </section>
+      </SettingsSearchTarget>
+      <SettingsSearchTarget id="languageLearning.profiles" label="Language learning profiles">
       <section className="rounded-lg border border-border bg-card p-5">
         <h2 className="text-lg font-semibold text-foreground">Language learning profiles</h2>
         <p className="mt-1 text-sm text-muted-foreground">
           Profiles are separate from the application language. Selecting one does not change ordinary readers or create cards.
         </p>
 
+        <SettingsSearchTarget id="languageLearning.createProfile" label="Create language learning profile" className="mt-5 grid gap-3 sm:grid-cols-2">
         <form className="mt-5 grid gap-3 sm:grid-cols-2" onSubmit={submit} aria-label="Create language learning profile">
           <label className="text-sm sm:col-span-2">
             <span className="mb-1 block font-medium">Profile name</span>
@@ -130,8 +139,10 @@ export function LanguageLearningSettings() {
             <button type="submit" className="min-h-11 rounded bg-primary px-4 text-sm font-medium text-primary-foreground" disabled={loading}>Create profile</button>
           </div>
         </form>
+        </SettingsSearchTarget>
         {(formError || error) && <p className="mt-3 text-sm text-destructive" role="alert">{formError ?? error}</p>}
       </section>
+      </SettingsSearchTarget>
 
       <section className="rounded-lg border border-border bg-card p-5" aria-labelledby="language-profile-list-title">
         <h3 id="language-profile-list-title" className="text-base font-semibold">Your profiles</h3>

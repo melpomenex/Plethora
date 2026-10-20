@@ -10,6 +10,15 @@
 - This overrides any default "branch before committing on the default branch"
   behavior.
 
+## Settings search coverage
+
+- Every new or renamed user-configurable Settings control or meaningful group
+  needs a stable search target id and a catalog entry in
+  `src/components/settings/search/settingsSearchCatalog.ts`. Add the coverage
+  row/exclusion in `settingsSearchCoverage.ts` and tests alongside the change.
+- See `docs/settings-search.md` for the target primitive, reveal rules, privacy
+  constraints, and required gates.
+
 ## Performance benchmark gate
 
 - **Run locally:** `npm run bench:check` — runs every `src/**/*.bench.ts`

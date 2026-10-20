@@ -51,7 +51,7 @@ import { UpdateAvailableDialog } from "./UpdateAvailableDialog";
 import { DeleteAccountFlow } from "./DeleteAccountFlow";
 import { HapticsSettingsControl } from "./HapticsSettingsControl";
 import { loadGoogleFont } from "../../utils/fonts";
-import { useI18n } from "../../lib/i18n";
+import { useI18n, useLocaleRevision } from "../../lib/i18n";
 import { useContextualBack, type ContextualBackHandler } from "../../lib/contextualBack";
 import type { NavigationCompletion } from "../../lib/navigationFeedback";
 import { requestApplicationBackIntent } from "../../lib/applicationBack";
@@ -60,6 +60,24 @@ import {
   SETTINGS_SECTION_METADATA,
   SettingsTab,
 } from "./settingsSections";
+import {
+  SETTINGS_SEARCH_ENTRIES,
+  createSettingsSearchAvailabilitySnapshot,
+  isSettingsSearchEntryAvailable,
+  type SettingsSearchEntry,
+} from "./search/settingsSearchCatalog";
+import {
+  resolveSettingsSearchCatalog,
+  searchSettings,
+  type SettingsSearchResult,
+} from "./search/settingsSearch";
+import {
+  SettingsSearchNavigationProvider,
+  SettingsSearchTarget,
+  useSettingsSearchNavigation,
+  useSettingsSearchTarget,
+  type SettingsSearchNavigationRequest,
+} from "./search/SettingsSearchNavigation";
 
 /**
  * Settings section ids now live in the shared `settingsSections` module
@@ -429,10 +447,13 @@ export function SettingsPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [showMobileMenu, setShowMobileMenu] = useState(true);
+  const [searchRequest, setSearchRequest] =
+    useState<SettingsSearchNavigationRequest | null>(null);
 
   const isMobile = useMobileShell();
   const initialTabKey = "plethora_settings_initial_tab";
   const { t } = useI18n();
+  const localeRevision = useLocaleRevision();
   const modal = useModal();
   const tabs = useTabsStore((state) => state.tabs);
   const rootPane = useTabsStore((state) => state.rootPane);
@@ -440,6 +461,16 @@ export function SettingsPage() {
   const returnFromSettings = useTabsStore((state) => state.returnFromSettings);
   const ownerPaneId = usePaneId();
   const ownerTabId = useTabId();
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchNavRef = useRef<HTMLElement | null>(null);
+  const searchResultRefs = useRef(new Map<string, HTMLButtonElement>());
+  const searchReturnRef = useRef<{
+    query: string;
+    resultId: string;
+    scrollTop: number;
+    focusPending: boolean;
+  } | null>(null);
+  const searchRequestCounter = useRef(0);
   useSettingsBackNavigation({
     activeTab, hasChanges, isMobile, modal, ownerPaneId, ownerTabId,
     returnFromSettings, setHasChanges, setShowMobileMenu, showMobileMenu, t,
@@ -477,21 +508,56 @@ export function SettingsPage() {
     }
   });
 
+  /**
+   * Resolve the catalog against the active locale and the same product/platform
+   * gates the panels render against. `localeRevision` forces a rebuild when an
+   * asynchronously loaded dictionary becomes ready.
+   */
+  const searchCompanionEnabled = useSettingsStore(
+    (state) => state.settings.interface.companion?.enabled === true,
+  );
+  const searchFsrsEnabled = useSettingsStore(
+    (state) => state.settings.learning.algorithm === "fsrs",
+  );
+  const searchDaqeEnabled = useSettingsStore(
+    (state) => state.settings.daqe?.rankingEnabled === true,
+  );
+  const searchTtsProvider = useSettingsStore((state) =>
+    String(state.settings.tts?.provider ?? "system"),
+  );
+
+  const searchAvailability = useMemo(
+    () =>
+      createSettingsSearchAvailabilitySnapshot({
+        companionEnabled: searchCompanionEnabled,
+        fsrsEnabled: searchFsrsEnabled,
+        daqeEnabled: searchDaqeEnabled,
+        ttsProvider: searchTtsProvider,
+      }),
+    // Conditional panels mount/unmount as these values change; rebuild so
+    // unavailable controls disappear rather than becoming dead results.
+    [
+      localeRevision,
+      searchCompanionEnabled,
+      searchFsrsEnabled,
+      searchDaqeEnabled,
+      searchTtsProvider,
+    ],
+  );
+  const resolvedSearchCatalog = useMemo(
+    () =>
+      resolveSettingsSearchCatalog(SETTINGS_SEARCH_ENTRIES, {
+        translate: t,
+        availability: searchAvailability,
+      }),
+    [t, localeRevision, searchAvailability],
+  );
+
   // Group filtered results by relevance for search display
   const searchResults = useMemo(() => {
     if (!searchQuery.trim()) return null;
-
-    const query = searchQuery.toLowerCase();
-    return tabsList.map((tab) => {
-      let score = 0;
-      if (tab.label.toLowerCase().includes(query)) score += 3;
-      if (tab.keywords.some((k) => k.toLowerCase().includes(query))) score += 2;
-      if (tab.description.toLowerCase().includes(query)) score += 1;
-      return { ...tab, score };
-    })
-      .filter((tab) => tab.score > 0)
-      .sort((a, b) => b.score - a.score);
-  }, [searchQuery, tabsList]);
+    return searchSettings(resolvedSearchCatalog, searchQuery);
+  }, [searchQuery, resolvedSearchCatalog]);
 
   // window.confirm() is suppressed in the desktop WebView (wry implements no
   // runJavaScriptConfirmPanel delegate) and returns false, which made this
@@ -516,10 +582,74 @@ export function SettingsPage() {
 
   const handleTabChange = (tab: SettingsTab) => {
     confirmDiscardChanges(() => {
+      setSearchRequest(null);
+      searchReturnRef.current = null;
       setActiveTab(tab);
       if (isMobile) {
         setShowMobileMenu(false);
       }
+    });
+  };
+
+  /**
+   * Activate one resolved result. Availability is rechecked, the existing
+   * discard guard runs before anything changes, then a monotonic request is
+   * handed to the Settings-scoped target provider. The provider waits for the
+   * section panel/target to register and never changes a setting itself.
+   */
+  const activateSearchResult = (result: SettingsSearchResult) => {
+    const entry: SettingsSearchEntry = result.entry.entry;
+    if (!isSettingsSearchEntryAvailable(entry, searchAvailability)) {
+      return;
+    }
+    const request: SettingsSearchNavigationRequest = {
+      id: searchRequestCounter.current + 1,
+      entryId: entry.id,
+      targetId: entry.targetId,
+      revealTargetId: entry.revealTargetId,
+      label: result.entry.label,
+      section: entry.section,
+    };
+    searchRequestCounter.current = request.id;
+    const returnState = {
+      query: searchQuery,
+      resultId: entry.id,
+      scrollTop: searchNavRef.current?.scrollTop ?? 0,
+      focusPending: false,
+    };
+    searchReturnRef.current = returnState;
+    confirmDiscardChanges(() => {
+      // Compact back should restore focus to the originating result; desktop
+      // keeps the list visible beside the panel, so no focus transfer happens.
+      returnState.focusPending = isMobile;
+      setSearchRequest(request);
+      setActiveTab(entry.section);
+      if (isMobile) {
+        setShowMobileMenu(false);
+      }
+    });
+  };
+
+  const handleSearchQueryChange = (value: string) => {
+    setSearchQuery(value);
+    // Typing supersedes any in-flight reveal; it never moves focus or selects
+    // a destination. IME composition still reaches this handler as text grows.
+    if (searchRequest) setSearchRequest(null);
+  };
+
+  const returnToSearchResults = () => {
+    setSearchRequest(null);
+    if (isMobile) setShowMobileMenu(true);
+    window.requestAnimationFrame(() => {
+      const saved = searchReturnRef.current;
+      if (!saved) {
+        searchInputRef.current?.focus();
+        return;
+      }
+      if (searchNavRef.current) searchNavRef.current.scrollTop = saved.scrollTop;
+      const element = searchResultRefs.current.get(saved.resultId);
+      (element ?? searchInputRef.current)?.focus();
+      saved.focusPending = false;
     });
   };
 
@@ -535,12 +665,37 @@ export function SettingsPage() {
 
   const clearSearch = () => {
     setSearchQuery("");
+    setSearchRequest(null);
+    searchReturnRef.current = null;
+    window.requestAnimationFrame(() => searchInputRef.current?.focus());
   };
+
+  /**
+   * Compact hierarchical back reveals the menu (the existing back path). Once
+   * it is visible again, restore the result-list scroll and focus the result
+   * the user opened. No query is persisted outside this Settings instance.
+   */
+  useEffect(() => {
+    if (!isMobile || !showMobileMenu) return;
+    const saved = searchReturnRef.current;
+    if (!saved?.focusPending) return;
+    const frame = window.requestAnimationFrame(() => {
+      if (searchNavRef.current) searchNavRef.current.scrollTop = saved.scrollTop;
+      const element = searchResultRefs.current.get(saved.resultId);
+      element?.focus();
+      saved.focusPending = false;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [isMobile, showMobileMenu, searchQuery, searchResults]);
 
   // Current tab config
   const currentTabConfig = tabsList.find((t) => t.id === activeTab) || tabsList[0];
 
   return (
+    <SettingsSearchNavigationProvider
+      request={searchRequest}
+      activeSection={activeTab}
+    >
     <div className="flex h-full min-w-0 bg-background" data-responsive-surface="settings">
       {/* Sidebar / Mobile Menu */}
       <div
@@ -575,18 +730,24 @@ export function SettingsPage() {
           >
             <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <input
+              ref={searchInputRef}
               type="text"
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => handleSearchQueryChange(e.target.value)}
               onFocus={() => setIsSearchFocused(true)}
               onBlur={() => setIsSearchFocused(false)}
               placeholder={t("settings.searchPlaceholder")}
+              aria-label={t("settings.searchLabel")}
+              autoComplete="off"
               className="w-full pl-9 pr-8 py-2 bg-background border border-border rounded-lg text-sm focus:outline-none"
             />
             {searchQuery && (
               <button
+                type="button"
                 onClick={clearSearch}
-                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-muted"
+                aria-label={t("settings.clearSearch")}
+                title={t("settings.clearSearch")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-full hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 <X className="w-3 h-3 text-muted-foreground" />
               </button>
@@ -595,33 +756,73 @@ export function SettingsPage() {
         </div>
 
         {/* Navigation */}
-        <nav className="p-2 space-y-1 flex-1 overflow-y-auto">
-          {searchQuery ? (
-            // Search Results
+        <nav ref={searchNavRef} className="p-2 space-y-1 flex-1 overflow-y-auto">
+          {searchQuery.trim() ? (
+            // Ranked search results: settings, groups, and categories in one list.
             searchResults && searchResults.length > 0 ? (
               <>
                 <div className="px-3 py-2 text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   {t("settings.searchResults")}
                 </div>
-                {searchResults.map((tab) => {
+                <div role="status" aria-live="polite" className="sr-only">
+                  {t("settings.searchResultsCount", { count: searchResults.length })}
+                </div>
+                {searchResults.map((result) => {
+                  const entry = result.entry.entry;
+                  const Icon = SETTINGS_TAB_ICONS[entry.section];
                   return (
-                    <SettingsMenuItem
-                      key={tab.id}
-                      icon={tab.icon}
-                      label={t(tab.label)}
-                      description={tab.description}
-                      isActive={activeTab === tab.id}
-                      isMobile={isMobile}
-                      onClick={() => handleTabChange(tab.id)}
-                    />
+                    <button
+                      key={entry.id}
+                      type="button"
+                      ref={(element) => {
+                        if (element) searchResultRefs.current.set(entry.id, element);
+                        else searchResultRefs.current.delete(entry.id);
+                      }}
+                      onClick={() => activateSearchResult(result)}
+                      data-settings-search-result={entry.id}
+                      aria-label={`${result.entry.label}, ${
+                        result.entry.breadcrumb || t("settings.searchCategoryResult")
+                      }`}
+                      className={cn(
+                        "w-full rounded-lg px-3 py-2.5 text-left text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                        "min-h-[44px]",
+                      )}
+                    >
+                      <span className="flex items-start gap-2.5">
+                        <Icon className="mt-0.5 h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm font-medium">{result.entry.label}</span>
+                          <span className="mt-0.5 block text-xs text-muted-foreground">
+                            {entry.kind === "section" && (
+                              <span className="mr-1 rounded bg-muted px-1 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                                {t("settings.searchCategoryResult")}
+                              </span>
+                            )}
+                            {result.entry.breadcrumb}
+                          </span>
+                          {result.entry.description && result.entry.description !== result.entry.label && (
+                            <span className="mt-0.5 line-clamp-2 block text-xs text-muted-foreground">
+                              {result.entry.description}
+                            </span>
+                          )}
+                        </span>
+                      </span>
+                    </button>
                   );
                 })}
               </>
             ) : (
-              <div className="px-3 py-8 text-center text-muted-foreground">
+              <div className="px-3 py-8 text-center text-muted-foreground" role="status" aria-live="polite">
                 <MagnifyingGlass className="w-8 h-8 mx-auto mb-2 opacity-50" />
                 <p className="text-sm">{t("settings.noSettingsFound", { query: searchQuery })}</p>
-                <p className="text-xs mt-1 opacity-70">{t("settings.tryDifferentKeywords")}</p>
+                <p className="text-xs mt-1 opacity-70">{t("settings.searchNoResultsHint")}</p>
+                <button
+                  type="button"
+                  onClick={clearSearch}
+                  className="mt-3 min-h-[44px] rounded-lg border border-border bg-background px-3 py-2 text-sm font-medium text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  {t("settings.clearSearch")}
+                </button>
               </div>
             )
           ) : (
@@ -692,10 +893,21 @@ export function SettingsPage() {
           }
         />
 
+        {/* Search target recovery/status, announced politely without stealing focus */}
+        <SettingsSearchNotice onReturnToResults={returnToSearchResults} />
+
         {/* Content */}
-        <SafeScrollContainer className="flex-1 p-4 md:p-6">
+        <SafeScrollContainer className="flex-1 p-4 md:p-6" data-settings-search-scroller>
+          <SettingsSearchTarget
+            id={`section.${activeTab}`}
+            label={currentTabConfig ? t(currentTabConfig.label) : t("settings.title")}
+          >
           <Suspense fallback={<SectionLoadingFallback />}>
-          {activeTab === SettingsTab.Account && isPlethoraCloudAvailable() && <UserProfilePanel />}
+          {activeTab === SettingsTab.Account && isPlethoraCloudAvailable() && (
+            <SettingsSearchTarget id="account.profile" label={t("settings.account")}>
+              <UserProfilePanel />
+            </SettingsSearchTarget>
+          )}
           {activeTab === SettingsTab.General && (
             <GeneralSettings onChange={() => setHasChanges(true)} />
           )}
@@ -735,6 +947,7 @@ export function SettingsPage() {
           {activeTab === SettingsTab.Handbook && <HandbookSettings />}
           {activeTab === SettingsTab.Help && <HelpSettings />}
           </Suspense>
+          </SettingsSearchTarget>
         </SafeScrollContainer>
 
         {/* Footer */}
@@ -749,6 +962,56 @@ export function SettingsPage() {
         </StickyActionBar>
       </div>
     </div>
+    </SettingsSearchNavigationProvider>
+  );
+}
+
+/**
+ * Search reveal status/recovery. Rendered inside the target provider, so it
+ * reports only this Settings instance's pending request.
+ */
+function SettingsSearchNotice({
+  onReturnToResults,
+}: {
+  onReturnToResults: () => void;
+}) {
+  const { phase, missingLabel, retry, dismiss } = useSettingsSearchNavigation();
+  const { t } = useI18n();
+  if (phase !== "navigating" && phase !== "missing") return null;
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="border-b border-border bg-muted/40 px-4 py-2 text-sm text-foreground md:px-6"
+    >
+      {phase === "navigating" ? (
+        <span className="text-muted-foreground">{t("settings.searchOpening")}</span>
+      ) : (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="min-w-0 flex-1">
+            {missingLabel ? `${missingLabel}: ` : ""}
+            {t("settings.searchTargetMissing")}
+          </span>
+          <button
+            type="button"
+            onClick={retry}
+            className="min-h-[44px] rounded-lg border border-border bg-background px-3 py-1.5 text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            {t("settings.searchRetry")}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              dismiss();
+              onReturnToResults();
+            }}
+            className="min-h-[44px] rounded-lg border border-border bg-background px-3 py-1.5 text-sm font-medium hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          >
+            {t("settings.searchReturnToResults")}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -759,13 +1022,22 @@ export function SettingsSection({
   title,
   description,
   children,
+  searchId,
 }: {
   title: string;
   description?: string;
   children: React.ReactNode;
+  /** Stable Settings-search target id; registers a named focus container. */
+  searchId?: string;
 }) {
+  const searchRef = useSettingsSearchTarget(searchId, { label: title });
   return (
-    <div className="mb-8">
+    <div
+      ref={searchId ? searchRef : undefined}
+      data-settings-search-target={searchId}
+      tabIndex={searchId ? -1 : undefined}
+      className="mb-8"
+    >
       <div className="mb-4">
         <h3 className="text-lg font-semibold text-foreground">{title}</h3>
         {description && <p className="text-sm text-muted-foreground mt-1">{description}</p>}
@@ -782,13 +1054,22 @@ export function SettingsRow({
   label,
   description,
   children,
+  searchId,
 }: {
   label: string;
   description?: string;
   children: React.ReactNode;
+  /** Stable Settings-search target id; registers a named focus container. */
+  searchId?: string;
 }) {
+  const searchRef = useSettingsSearchTarget(searchId, { label });
   return (
-    <div className="flex flex-col sm:flex-row sm:items-start justify-between py-4 border-b border-border last:border-0 gap-3 sm:gap-4">
+    <div
+      ref={searchId ? searchRef : undefined}
+      data-settings-search-target={searchId}
+      tabIndex={searchId ? -1 : undefined}
+      className="flex flex-col sm:flex-row sm:items-start justify-between py-4 border-b border-border last:border-0 gap-3 sm:gap-4"
+    >
       <div className="flex-1">
         <p className="text-sm font-medium text-foreground">{label}</p>
         {description && <p className="text-xs text-muted-foreground mt-1">{description}</p>}
@@ -885,8 +1166,8 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
 
   return (
     <>
-      <SettingsSection title={t("settings.application")} description={t("settings.applicationDesc")}>
-        <SettingsRow label={t("settings.language")} description={t("settings.languageHelp")}>
+      <SettingsSection title={t("settings.application")} description={t("settings.applicationDesc")} searchId="general.application">
+        <SettingsRow label={t("settings.language")} description={t("settings.languageHelp")} searchId="general.language">
           <select
             className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm min-h-[44px]"
             value={general.language}
@@ -904,7 +1185,7 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
           </select>
         </SettingsRow>
 
-        <SettingsRow label={t("settings.defaultView")} description={t("settings.defaultViewDesc")}>
+        <SettingsRow label={t("settings.defaultView")} description={t("settings.defaultViewDesc")} searchId="general.defaultView">
           <select
             className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm min-h-[44px]"
             value={general.defaultView}
@@ -943,6 +1224,7 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
         <SettingsRow
           label={t("settings.restoreSession")}
           description={t("settings.restoreSessionDesc")}
+          searchId="general.restoreSession"
         >
           <Switch
           checked={general.restoreSession}
@@ -958,6 +1240,7 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
         <SettingsRow
           label={t("settings.residentTabCap")}
           description={t("settings.residentTabCapDesc")}
+          searchId="general.residentTabCap"
         >
           <select
             className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg text-sm min-h-[44px]"
@@ -979,6 +1262,7 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
         <SettingsRow
           label={t("settings.readerTabCap")}
           description={t("settings.readerTabCapDesc")}
+          searchId="general.readerTabCap"
         >
           <select
             className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg text-sm min-h-[44px]"
@@ -999,8 +1283,9 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
         </SettingsRow>
 
         <SettingsRow
-          label="Feature Popups"
-          description="Show onboarding tips and feature discovery popups"
+          label={t("settings.featurePopups")}
+          description={t("settings.featurePopupsDesc")}
+          searchId="general.featurePopups"
         >
           <Switch
           checked={general.showFeaturePopups ?? true}
@@ -1014,7 +1299,7 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
         </SettingsRow>
 
         {isDesktop && appUpdaterAvailable && (
-          <SettingsRow label={t("settings.appVersion")} description={t("settings.appVersionDesc")}>
+          <SettingsRow label={t("settings.appVersion")} description={t("settings.appVersionDesc")} searchId="general.updates">
             <div className="flex items-center gap-2">
               <span className="text-sm text-muted-foreground">{appVersion ?? t("common.loading")}</span>
               <button
@@ -1038,12 +1323,12 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
         )}
       </SettingsSection>
 
-      <SettingsSection title={t("haptics.sectionTitle")}>
+      <SettingsSection title={t("haptics.sectionTitle")} searchId="general.haptics">
         <HapticsSettingsControl />
       </SettingsSection>
 
-      <SettingsSection title={t("settings.data")} description={t("settings.dataDesc")}>
-        <SettingsRow label={t("settings.dataLocation")} description={t("settings.dataLocationDesc")}>
+      <SettingsSection title={t("settings.data")} description={t("settings.dataDesc")} searchId="general.data">
+        <SettingsRow label={t("settings.dataLocation")} description={t("settings.dataLocationDesc")} searchId="general.dataLocation">
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -1082,7 +1367,7 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
         </SettingsRow>
       </SettingsSection>
 
-      <SettingsSection title={t("settings.about")} description={t("settings.openSourceNoticesDesc")}>
+      <SettingsSection title={t("settings.about")} description={t("settings.openSourceNoticesDesc")} searchId="general.about">
         <Suspense fallback={null}>
           <ThirdPartyNoticesPanel />
         </Suspense>
@@ -1149,21 +1434,23 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
 
   return (
     <>
-      <SettingsSection title="Theme" description="Customize the look and feel">
+      <SettingsSection title={t("settings.theme")} description={t("settings.themeDesc")} searchId="appearance.theme">
         <ThemePicker />
       </SettingsSection>
 
-      <SettingsSection title="Display Mode & E-Ink" description="Monochrome profiles and reader hardware optimizations">
+      <SettingsSection title="Display Mode & E-Ink" description="Monochrome profiles and reader hardware optimizations" searchId="appearance.eink">
         <EinkSettingsPanel />
       </SettingsSection>
 
       <SettingsSection
         title="Plethora Companion"
         description="An optional ambient bird that occasionally reacts to your reading and study"
+        searchId="appearance.companion"
       >
         <SettingsRow
           label="Show the companion bird"
           description="A small, quiet mascot that perches in the corner and sometimes comments on what you're doing. Off by default; never appears in e-ink mode and stays still under reduced motion."
+          searchId="appearance.companionEnabled"
         >
           <Switch
           checked={companion?.enabled ?? false}
@@ -1181,6 +1468,7 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
             <SettingsRow
               label="Speech frequency"
               description="How often the companion may speak up on its own."
+              searchId="appearance.companionSpeech"
             >
               <select
                 value={companion.speechFrequency}
@@ -1199,6 +1487,7 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
             <SettingsRow
               label="Reading comments"
               description="Occasional contextual notes about documents and highlights."
+              searchId="appearance.companionComments"
             >
               <Switch
           checked={companion.contextualComments}
@@ -1214,6 +1503,7 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
             <SettingsRow
               label="Study encouragement"
               description="Small celebrations and encouragement while reviewing."
+              searchId="appearance.companionEncouragement"
             >
               <Switch
           checked={companion.encouragement}
@@ -1233,10 +1523,12 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
       <SettingsSection
         title="Startup"
         description="The branded launch moment"
+        searchId="appearance.startup"
       >
         <SettingsRow
           label={t("settings.interface.startupAnimationLabel")}
           description={t("settings.interface.startupAnimationHelp")}
+          searchId="appearance.startupAnimation"
         >
           <Switch
           checked={settings.interface.startupAnimationEnabled}
@@ -1253,12 +1545,14 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
       </SettingsSection>
 
       <SettingsSection
-        title="Animated Backdrop"
+        title={t("settings.animatedBackdrop")}
         description="Adjust the particle animations for animated themes"
+        searchId="appearance.animatedBackdrop"
       >
         <SettingsRow
           label="Enable animated themes"
           description="Show moving background animations for animated themes. Turn off to save battery and reduce CPU/GPU load, especially on laptops and mobile."
+          searchId="appearance.animationsEnabled"
         >
           <Switch
           checked={settings.interface.animationsEnabled}
@@ -1274,7 +1568,7 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
         </SettingsRow>
 
         <div className={settings.interface.animationsEnabled ? "" : "opacity-50 pointer-events-none"}>
-          <SettingsRow label="Particle Density" description="How many particles appear on screen">
+          <SettingsRow label="Particle Density" description="How many particles appear on screen" searchId="appearance.particleDensity">
             <div className="flex items-center gap-3">
               <input
                 type="range"
@@ -1309,7 +1603,7 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
             </div>
           </SettingsRow>
 
-          <SettingsRow label="Brightness" description="How strongly the particles glow and accumulate">
+          <SettingsRow label="Brightness" description="How strongly the particles glow and accumulate" searchId="appearance.brightness">
             <div className="flex items-center gap-3">
               <input
                 type="range"
@@ -1350,8 +1644,8 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
         </div>
       </SettingsSection>
 
-      <SettingsSection title="Typography" description="Font settings">
-        <SettingsRow label="Font Family" description="Choose your preferred font">
+      <SettingsSection title={t("settings.typography")} description="Font settings" searchId="appearance.typography">
+        <SettingsRow label={t("settings.fontFamily")} description={t("settings.fontFamilyDesc")} searchId="appearance.fontFamily">
           <select
             className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm min-h-[44px]"
             value={settings.appearance.fontFamily}
@@ -1439,7 +1733,7 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
           </select>
         </SettingsRow>
 
-        <SettingsRow label="Font Size" description="Base font size for the interface">
+        <SettingsRow label={t("settings.fontSize")} description={t("settings.fontSizeDesc")} searchId="appearance.fontSize">
           <div className="flex items-center gap-3">
             <input
               type="range"
@@ -1472,10 +1766,11 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
         </SettingsRow>
       </SettingsSection>
 
-      <SettingsSection title="Display" description="Display preferences">
+      <SettingsSection title={t("settings.display")} description="Display preferences" searchId="appearance.display">
         <SettingsRow
           label="Toolbar Position"
           description="Position of the main toolbar (desktop only)"
+          searchId="appearance.toolbarPosition"
         >
           <select
             className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm min-h-[44px]"
@@ -1493,6 +1788,7 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
         <SettingsRow
           label="Split View Spawn Gesture"
           description="Mouse gesture to duplicate the active tab into a vertical split"
+          searchId="appearance.splitView"
         >
           <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
             <select
@@ -1526,8 +1822,9 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
         </SettingsRow>
 
         <SettingsRow
-          label="Volume Rocker Scroll"
-          description="Use hardware volume buttons to navigate documents on mobile"
+          label={t("settings.volumeRockerScroll")}
+          description={t("settings.volumeRockerScrollDesc")}
+          searchId="appearance.volumeRocker"
         >
           <select
             className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm min-h-[44px]"
@@ -1545,7 +1842,7 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
           </select>
         </SettingsRow>
 
-        <SettingsRow label="Compact Mode" description="Reduce spacing and padding for more content">
+        <SettingsRow label={t("settings.compactMode")} description={t("settings.compactModeDesc")} searchId="appearance.compactMode">
           <Switch
           checked={settings.interface.compactMode}
           aria-label="Compact Mode"
@@ -1561,7 +1858,7 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
             collapsed rail (icons only) stays fixed at 3rem; this value feeds
             `--toolbar-expanded-w`. Mobile shells don't render the desktop
             toolbar, so the setting has no effect there. */}
-        <SettingsRow label={t("settings.sidebarWidth")} description={t("settings.sidebarWidthDesc")}>
+        <SettingsRow label={t("settings.sidebarWidth")} description={t("settings.sidebarWidthDesc")} searchId="appearance.sidebarWidth">
           <div className="flex items-center gap-3">
             <input
               type="range"
@@ -1656,9 +1953,11 @@ function PrivacySettings({ onChange: _onChange }: { onChange: () => void }) {
   return (
     <div className="space-y-6 max-w-2xl">
       {/* Privacy Center — renders the full disclosure registry (Change C §4.1) */}
-      <Suspense fallback={null}>
-        <PrivacyCenter />
-      </Suspense>
+      <SettingsSearchTarget id="privacy.center" label="Privacy Center">
+        <Suspense fallback={null}>
+          <PrivacyCenter />
+        </Suspense>
+      </SettingsSearchTarget>
 
       {/* Privacy Architecture Guarantee */}
       <div className="p-6 bg-card border rounded-lg space-y-3">
@@ -1679,7 +1978,9 @@ function PrivacySettings({ onChange: _onChange }: { onChange: () => void }) {
       {/* Cloud Data Export (hidden when Plethora Cloud is unavailable) */}
       {isPlethoraCloudAvailable() && (
         <div className="p-6 bg-card border rounded-lg space-y-3">
-          <h3 className="text-base font-semibold text-foreground">Machine-Readable Data Export</h3>
+          <SettingsSearchTarget id="privacy.exportCloudData" label="Machine-Readable Data Export">
+            <h3 className="text-base font-semibold text-foreground">Machine-Readable Data Export</h3>
+          </SettingsSearchTarget>
           <p className="text-sm text-muted-foreground">
             Download a full, unencrypted JSON archive of your cloud account data, devices, and metadata.
           </p>
@@ -1696,7 +1997,9 @@ function PrivacySettings({ onChange: _onChange }: { onChange: () => void }) {
       {/* In-App Account Deletion (hidden when Plethora Cloud is unavailable) */}
       {isPlethoraCloudAvailable() && (
         <div className="p-6 bg-destructive/5 border border-destructive/20 rounded-lg space-y-3">
-          <h3 className="text-base font-semibold text-destructive">Delete Account & Wipe Cloud Storage</h3>
+          <SettingsSearchTarget id="privacy.deleteAccount" label="Delete Account & Wipe Cloud Storage">
+            <h3 className="text-base font-semibold text-destructive">Delete Account & Wipe Cloud Storage</h3>
+          </SettingsSearchTarget>
           <p className="text-sm text-muted-foreground">
             Permanently delete your user account and all cloud data (sessions, devices, tokens,
             synced data). Your local on-device library is retained; an Apple subscription is not

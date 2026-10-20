@@ -440,6 +440,7 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
       <SettingsSection
         title={t("importExport.completeBackup")}
         description={t("importExport.completeBackupDesc")}
+        searchId="importExport.completeBackup"
       >
         <div className="space-y-4">
           <div className="p-4 bg-muted/30 rounded-lg">
@@ -472,6 +473,7 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
       <SettingsSection
         title={t("importExport.collectionArchive")}
         description={t("importExport.collectionArchiveDesc")}
+        searchId="importExport.collectionArchive"
       >
         <div className="space-y-4">
           <div className="p-4 bg-muted/30 rounded-lg">
@@ -529,6 +531,7 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
       <SettingsSection
         title={t("importExport.exportLegacy")}
         description={t("importExport.exportLegacyDesc")}
+        searchId="importExport.legacyExport"
       >
         <div className="space-y-4">
           {/* Export options */}
@@ -661,6 +664,7 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
       <SettingsSection
         title={t("importExport.importData")}
         description={t("importExport.importDataDesc")}
+        searchId="importExport.import"
       >
         <div className="space-y-4">
           {/* File selection */}
@@ -748,11 +752,13 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
       <SettingsSection
         title={t("importExport.scheduledBackups")}
         description={t("importExport.scheduledBackupsDesc")}
+        searchId="importExport.scheduledBackups"
       >
         <div className="space-y-1">
           <SettingsRow
             label={t("importExport.autoBackup")}
             description={t("importExport.autoBackupDesc")}
+            searchId="importExport.autoBackup"
           >
             <label className="relative inline-flex items-center cursor-pointer">
               <input type="checkbox" className="sr-only peer" onChange={onChange} defaultChecked />
@@ -763,6 +769,7 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
           <SettingsRow
             label={t("importExport.backupFrequency")}
             description={t("importExport.backupFrequencyDesc")}
+            searchId="importExport.backupFrequency"
           >
             <select
               className="px-3 py-2 bg-background border border-border rounded-md focus:outline-none focus:ring-2 focus:ring-primary text-foreground"
@@ -779,6 +786,7 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
           <SettingsRow
             label={t("importExport.backupLocation")}
             description={t("importExport.backupLocationDesc")}
+            searchId="importExport.backupLocation"
           >
             <div className="flex items-center gap-2">
               <input
@@ -855,6 +863,7 @@ export function ImportExportSettings({ onChange }: { onChange: () => void }) {
       <SettingsSection
         title="Export to Anki"
         description="Export your decks as Anki-compatible .apkg or tab-separated text files."
+        searchId="importExport.anki"
       >
         <div className="space-y-4">
           <div className="p-4 bg-muted/30 rounded-lg space-y-3">

@@ -121,6 +121,7 @@ import {
   SYSTEM_VOICE_SELECT_CAP,
 } from "../../hooks/useSystemVoices";
 import { useI18n } from "../../lib/i18n";
+import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
 import VoiceBrowser from "./VoiceBrowser";
 import ModelBrowser from "./ModelBrowser";
 import { HuggingFaceModelManager } from "./HuggingFaceModelManager";
@@ -237,7 +238,7 @@ function SystemVoicePicker({
   const hiddenCount = filtered.length - capped.length;
 
   return (
-    <div className="space-y-3">
+    <SettingsSearchTarget id="tts.systemVoices" label="System Voices" className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-[12rem] flex-1">
           <MagnifyingGlass className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -314,7 +315,7 @@ function SystemVoicePicker({
             : t("settings.ttsSystemShowAll", { count: hiddenCount })}
         </button>
       )}
-    </div>
+    </SettingsSearchTarget>
   );
 }
 
@@ -833,7 +834,9 @@ export function TTSSettings() {
               <SpeakerHigh className="h-5 w-5 text-primary" />
             </div>
             <div>
-              <h4 className="text-lg font-semibold text-foreground">{t("settings.ttsTitle")}</h4>
+              <SettingsSearchTarget id="tts.enabled" label="Enable Text-to-Speech">
+                <h4 className="text-lg font-semibold text-foreground">{t("settings.ttsTitle")}</h4>
+              </SettingsSearchTarget>
               <p className="text-sm text-muted-foreground">{t("settings.ttsDescription")}</p>
             </div>
           </div>
@@ -849,7 +852,7 @@ export function TTSSettings() {
             and resolved voice display name. Sits above the configuration grid
             so the active selection is visible without hunting through
             sub-sections. */}
-        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-muted/50 border border-border px-3 py-2 text-sm">
+        <SettingsSearchTarget id="tts.activeVoice" label={t("settings.ttsActiveVoice")} className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg bg-muted/50 border border-border px-3 py-2 text-sm">
           <span className="text-muted-foreground">{t("settings.ttsActiveVoice")}:</span>
           <span className="font-medium text-foreground">
             {listAdapters().find((adapter) => adapter.id === tts.provider)?.label ?? String(tts.provider)}
@@ -864,11 +867,13 @@ export function TTSSettings() {
               getProviderSettings(tts, String(tts.provider)).voiceId ||
               t("settings.ttsNoVoiceSelected")}
           </span>
-        </div>
+        </SettingsSearchTarget>
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2 text-sm">
-            <span className="font-medium text-foreground">{t("settings.ttsProvider")}</span>
+            <SettingsSearchTarget id="tts.provider" label={t("settings.ttsProvider")} className="inline-block">
+              <span className="font-medium text-foreground">{t("settings.ttsProvider")}</span>
+            </SettingsSearchTarget>
             <div className="grid gap-2 sm:grid-cols-2">
               {listAdapters()
                 .filter((adapter) => {
@@ -990,7 +995,9 @@ export function TTSSettings() {
 
           {isAndroidProvider && (
             <div className="space-y-2 text-sm md:col-span-2">
-              <span className="font-medium text-foreground">{t("settings.ttsAndroidModels")}</span>
+              <SettingsSearchTarget id="tts.androidModels" label={t("settings.ttsAndroidModels")} className="inline-block">
+                <span className="font-medium text-foreground">{t("settings.ttsAndroidModels")}</span>
+              </SettingsSearchTarget>
               <AndroidTtsModelManager
                 activeModelId={activeProviderConfig.modelId}
                 onSelectModel={(modelId) =>
@@ -1007,7 +1014,9 @@ export function TTSSettings() {
 
           {!isGroqProvider && !isPocketProvider && !isSystemProvider && !isAndroidProvider && (
             <label className="space-y-1 text-sm">
-              <span className="font-medium text-foreground">{t("settings.ttsLanguage")}</span>
+              <SettingsSearchTarget id="tts.language" label={t("settings.ttsLanguage")} className="inline-block">
+                <span className="font-medium text-foreground">{t("settings.ttsLanguage")}</span>
+              </SettingsSearchTarget>
               <select
                 value={activeProviderConfig.language}
                 onChange={(e) =>
@@ -1035,7 +1044,9 @@ export function TTSSettings() {
 
           {isPocketProvider && (
             <label className="space-y-1 text-sm">
-              <span className="font-medium text-foreground">{t("settings.ttsSpeed")}</span>
+              <SettingsSearchTarget id="tts.speed" label={t("settings.ttsSpeed")} className="inline-block">
+                <span className="font-medium text-foreground">{t("settings.ttsSpeed")}</span>
+              </SettingsSearchTarget>
               <input
                 type="range"
                 min="0.5"
@@ -1369,9 +1380,11 @@ export function TTSSettings() {
       <section className="space-y-4 rounded-xl border border-border bg-card p-5">
         <div className="flex items-center justify-between">
           <div>
-            <h4 className="text-base font-semibold text-foreground">
-              {t("settings.ttsVoiceProfiles")}
-            </h4>
+            <SettingsSearchTarget id="tts.voiceProfiles" label={t("settings.ttsVoiceProfiles")}>
+              <h4 className="text-base font-semibold text-foreground">
+                {t("settings.ttsVoiceProfiles")}
+              </h4>
+            </SettingsSearchTarget>
             <p className="text-sm text-muted-foreground">{t("settings.ttsVoiceProfilesDesc")}</p>
           </div>
         </div>
@@ -1508,7 +1521,9 @@ export function TTSSettings() {
 
       {!isGroqProvider && !isSystemProvider && (
         <section className="space-y-4 rounded-xl border border-border bg-card p-5">
-          <h4 className="text-base font-semibold text-foreground">{t("settings.ttsPresets")}</h4>
+          <SettingsSearchTarget id="tts.presets" label={t("settings.ttsPresets")}>
+            <h4 className="text-base font-semibold text-foreground">{t("settings.ttsPresets")}</h4>
+          </SettingsSearchTarget>
           <p className="text-sm text-muted-foreground">{t("settings.ttsPresetsDesc")}</p>
 
           <div className="grid gap-3">
@@ -1622,9 +1637,11 @@ export function TTSSettings() {
       )}
 
       <section className="space-y-4 rounded-xl border border-border bg-card p-5">
-        <h4 className="text-base font-semibold text-foreground">
-          {isGroqProvider ? t("settings.ttsTestGroqTts") : t("settings.ttsGenerateSpeech")}
-        </h4>
+        <SettingsSearchTarget id="tts.generation" label={t("settings.ttsGenerateSpeech")}>
+          <h4 className="text-base font-semibold text-foreground">
+            {isGroqProvider ? t("settings.ttsTestGroqTts") : t("settings.ttsGenerateSpeech")}
+          </h4>
+        </SettingsSearchTarget>
         <p className="text-sm text-muted-foreground">
           {isGroqProvider ? t("settings.ttsTestGroqTtsDesc") : t("settings.ttsGenerateSpeechDesc")}
         </p>
