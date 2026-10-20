@@ -639,7 +639,7 @@ export const ReviewCard = React.memo(function ReviewCard({
   };
 
   return (
-    <article className="w-full max-w-2xl mx-auto px-2 md:px-0" aria-label={`${getItemTypeLabel(itemType)} card`}>
+    <article className="w-full min-w-0 max-w-2xl mx-auto px-2 md:px-0" aria-label={`${getItemTypeLabel(itemType)} card`}>
       {/* Card Type Badge */}
       <div className="flex items-center gap-2 mb-3 md:mb-4">
         <span className="text-xl md:text-2xl" aria-hidden="true">{getItemIcon(itemType)}</span>
@@ -704,7 +704,7 @@ export const ReviewCard = React.memo(function ReviewCard({
       </div>
 
       {/* Card Content with Animation */}
-      <div className="bg-card border border-border rounded-lg p-6 shadow-sm transition-all duration-300">
+      <div className="min-w-0 max-w-full bg-card border border-border rounded-lg p-6 shadow-sm transition-all duration-300">
         {/* Question */}
         <div className="mb-2">
           <div className="text-sm uppercase tracking-wide text-foreground/80 mb-3 font-medium">
