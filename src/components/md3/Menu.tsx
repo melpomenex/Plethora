@@ -42,24 +42,52 @@ export function Menu({ items, anchorRef, open, onClose, label, align = "end", cl
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   const menuRef = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState<{ top: number; left: number } | null>(null);
+  const [position, setPosition] = useState<{
+    top: number;
+    left?: number;
+    right?: number;
+  } | null>(null);
 
   useLayoutEffect(() => {
     if (!open || !anchorRef.current) return;
     const anchor = anchorRef.current.getBoundingClientRect();
     setPosition({
       top: anchor.bottom + 4,
-      left: align === "end" ? anchor.right : anchor.left,
+      ...(align === "end"
+        ? { right: Math.max(8, window.innerWidth - anchor.right) }
+        : { left: Math.max(8, anchor.left) }),
     });
   }, [open, anchorRef, align]);
 
   useLayoutEffect(() => {
     if (!open || !position || !menuRef.current || !anchorRef.current) return;
-    const height = menuRef.current.offsetHeight;
-    if (position.top + height <= window.innerHeight - 8) return;
-    const above = anchorRef.current.getBoundingClientRect().top - height - 4;
-    const top = Math.max(8, Math.min(above, window.innerHeight - height - 8));
-    if (top !== position.top) setPosition({ ...position, top });
+    const menu = menuRef.current;
+    const height = menu.offsetHeight;
+    const width = menu.offsetWidth;
+    const anchor = anchorRef.current.getBoundingClientRect();
+    let { top, left, right } = position;
+
+    if (top + height > window.innerHeight - 8) {
+      const above = anchor.top - height - 4;
+      top = Math.max(8, Math.min(above, window.innerHeight - height - 8));
+    }
+
+    // A long label must never push the menu past a viewport edge. The menu's
+    // max-width keeps the available span positive even on narrow phones.
+    const maxLeft = Math.max(8, window.innerWidth - width - 8);
+    if (right !== undefined) {
+      right = Math.min(Math.max(8, right), maxLeft);
+    } else if (left !== undefined) {
+      left = Math.min(Math.max(8, left), maxLeft);
+    }
+
+    if (
+      top !== position.top ||
+      left !== position.left ||
+      right !== position.right
+    ) {
+      setPosition({ top, left, right });
+    }
   }, [open, position, anchorRef]);
 
   const positioned = position !== null;
@@ -124,16 +152,13 @@ export function Menu({ items, anchorRef, open, onClose, label, align = "end", cl
       style={{
         position: "fixed",
         top: Math.min(position.top, window.innerHeight - 16),
-        left: align === "end" ? undefined : Math.max(8, position.left),
-        right:
-          align === "end"
-            ? Math.max(8, window.innerWidth - position.left)
-            : undefined,
+        left: position.left,
+        right: position.right,
+        maxWidth: Math.min(352, window.innerWidth - 16),
         maxHeight: "min(24rem, calc(100vh - 2rem))",
-
       }}
       className={cn(
-        "md-elevated-menu z-[var(--md-z-menu)] flex min-w-48 flex-col overflow-y-auto rounded-lg p-1",
+        "md-elevated-menu z-[var(--md-z-menu)] flex min-w-48 flex-col overflow-y-auto overflow-x-hidden rounded-lg p-1",
         className,
       )}
       // Material menu surface: elevated container + shadow reserved for
@@ -168,7 +193,7 @@ function MenuItemRow({ item, onClose }: { item: MenuItemSpec; onClose: () => voi
     >
       {item.leading}
       {IconCmp && <IconCmp className="h-4 w-4 shrink-0" aria-hidden="true" />}
-      <span className="flex-1 truncate">{item.label}</span>
+      <span className="min-w-0 flex-1 truncate">{item.label}</span>
       {item.trailing}
     </button>
   );

@@ -2,6 +2,7 @@ import { useComposerDictation } from "../../hooks/useComposerDictation";
 import { ComposerDictationButton } from "./ComposerDictationControl";
 import { ASSISTANT_SLASH_COMMANDS } from "./assistantSlashCommands";
 import { MobileComposerMenu } from "./mobile/MobileComposerMenu";
+import { AgentSourcePicker } from "./AgentSourcePicker";
 import { AssistantModelPicker, type AssistantProviderOption, type AssistantProviderStatus } from "./AssistantModelPicker";
 import { MOBILE_ASSISTANT_CONVERSATION_KEY, type MobileAssistantPresentation, type AssistantSourceProvenance } from "./mobile/contracts";
 import { assistantSourceProvenance, authorizeAssistantHistory, mergeAssistantProvenance } from "./mobile/provenance";
@@ -162,7 +163,7 @@ import type {
   SelectionSnapshot,
 } from "../../lib/ai/assistant/conversations/types";
 import { decodeAgentDraftArtifact } from "../../lib/ai/assistant/conversations/serialize";
-import { Menu } from "../md3/Menu";
+import type { Document } from "../../types/document";
 
 export interface AssistantContext {
   type: "document" | "web" | "video" | "general";
@@ -565,8 +566,7 @@ export function AssistantPanel({
   const [composerMode, setComposerMode] = useState<"chat" | "agent">("chat");
   const [agentScope, setAgentScope] = useState<LearningAgentScopeKind | undefined>();
   const [agentSourceDocs, setAgentSourceDocs] = useState<LearningAgentDocumentInput[]>([]);
-  const [isAgentSourceMenuOpen, setIsAgentSourceMenuOpen] = useState(false);
-  const agentSourceMenuRef = useRef<HTMLButtonElement>(null);
+  const [isAgentSourcePickerOpen, setIsAgentSourcePickerOpen] = useState(false);
   const [agentProgress, setAgentProgress] = useState<{
     runId: string;
     turn: number;
@@ -1632,6 +1632,53 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     for (const document of agentSourceDocs) add(document.id);
     return documents;
   }, [context?.documentId, assistantDocumentTitle, agentSourceDocs]);
+
+  /** Add/remove an explicit source from the picker without closing it. */
+  const handleToggleAgentSourceDocument = useCallback(
+    (document: Document) => {
+      const alreadyAttached = agentSourceDocs.some(
+        (candidate) => candidate.id === document.id
+      );
+      if (alreadyAttached) {
+        setAgentSourceDocs((prev) =>
+          prev.filter((candidate) => candidate.id !== document.id)
+        );
+        // Revoke this source for existing frozen drafts too; approval stays
+        // blocked until a new run revalidates it.
+        setAgentRevokedSourceIds((prev) =>
+          prev.includes(document.id) ? prev : [...prev, document.id]
+        );
+        return;
+      }
+      setAgentSourceDocs((prev) =>
+        prev.some((candidate) => candidate.id === document.id)
+          ? prev
+          : [
+              ...prev,
+              {
+                id: document.id,
+                title: document.title,
+                contentVersion: document.contentHash,
+                fileType: document.fileType,
+                isLocalOnly: document.isLocalOnly,
+                isAiExcluded: document.isAiExcluded,
+              },
+            ]
+      );
+      setAgentRevokedSourceIds((prev) =>
+        prev.filter((id) => id !== document.id)
+      );
+      // Picking multiple papers explicitly is a multi-paper scope.
+      setAgentScope((current) =>
+        current === "papers" ||
+        agentSourceDocs.length >= 1 ||
+        document.id !== context?.documentId
+          ? "papers"
+          : current
+      );
+    },
+    [agentSourceDocs, context?.documentId]
+  );
 
   const buildAgentSelection = useCallback((): SelectionSnapshot | undefined => {
     const excerpt = context?.selection?.trim() || pinnedSelection?.excerpt?.trim();
@@ -4176,12 +4223,11 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                   {t("assistant.agent.sourcesTitle")}
                 </p>
                 <button
-                  ref={agentSourceMenuRef}
                   type="button"
                   className="md-state rounded-full border border-border bg-background px-2 py-0.5 text-[11px] text-foreground"
-                  aria-haspopup="menu"
-                  aria-expanded={isAgentSourceMenuOpen}
-                  onClick={() => setIsAgentSourceMenuOpen((open) => !open)}
+                  aria-haspopup="dialog"
+                  aria-expanded={isAgentSourcePickerOpen}
+                  onClick={() => setIsAgentSourcePickerOpen(true)}
                   disabled={isLoading}
                 >
                   + {t("assistant.agent.addSource")}
@@ -4327,55 +4373,14 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             </div>
           )}
 
-          <Menu
-            open={isAgentSourceMenuOpen}
-            onClose={() => setIsAgentSourceMenuOpen(false)}
-            anchorRef={agentSourceMenuRef}
-            label={t("assistant.agent.sourcesTitle")}
-            items={useDocumentStore
-              .getState()
-              .documents.filter(
-                (document) =>
-                  !document.isArchived &&
-                  !document.isAiExcluded &&
-                  !collectAgentDocuments().some((attached) => attached.id === document.id)
-              )
-              .sort((a, b) => (a.dateModified < b.dateModified ? 1 : -1))
-              .slice(0, 12)
-              .map((document) => ({
-                key: document.id,
-                label: document.title,
-                onSelect: () => {
-                  setAgentSourceDocs((prev) =>
-                    prev.some((candidate) => candidate.id === document.id)
-                      ? prev
-                      : [
-                          ...prev,
-                          {
-                            id: document.id,
-                            title: document.title,
-                            contentVersion: document.contentHash,
-                            fileType: document.fileType,
-                            isLocalOnly: document.isLocalOnly,
-                            isAiExcluded: document.isAiExcluded,
-                          },
-                        ]
-                  );
-                  setAgentRevokedSourceIds((prev) =>
-                    prev.filter((id) => id !== document.id)
-                  );
-                  // Picking multiple papers explicitly is a multi-paper scope.
-                  setAgentScope((current) =>
-                    current === "papers" ||
-                    agentSourceDocs.length >= 1 ||
-                    document.id !== context?.documentId
-                      ? "papers"
-                      : current
-                  );
-                  setIsAgentSourceMenuOpen(false);
-                },
-              }))}
-          />
+          {isAgentSourcePickerOpen && (
+            <AgentSourcePicker
+              excludeDocumentId={context?.documentId}
+              attachedIds={agentSourceDocs.map((document) => document.id)}
+              onToggle={handleToggleAgentSourceDocument}
+              onClose={() => setIsAgentSourcePickerOpen(false)}
+            />
+          )}
 
           {/* Available Tools Hint (desktop; the mobile add menu owns this discovery) */}
           {!mobilePresentation && <div className="text-xs text-muted-foreground flex items-center gap-1">

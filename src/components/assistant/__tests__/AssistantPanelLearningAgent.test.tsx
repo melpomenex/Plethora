@@ -174,6 +174,22 @@ function seed() {
         isArchived: false,
         isFavorite: false,
       },
+      {
+        id: "paper-b",
+        title: "The Extended Phenotype: The Long Reach of the Gene",
+        fileType: "epub",
+        contentHash: "hash-b",
+        tags: [],
+        dateAdded: "",
+        dateModified: "2026-01-02T00:00:00Z",
+        extractCount: 0,
+        learningItemCount: 0,
+        priorityRating: 0,
+        prioritySlider: 0,
+        priorityScore: 0,
+        isArchived: false,
+        isFavorite: false,
+      },
     ],
     currentDocument: null,
   } as never);
@@ -369,5 +385,43 @@ describe("AssistantPanel Learning Agent mode", () => {
       expect(screen.getByText(/No permitted AI generation route is ready/)).toBeInTheDocument()
     );
     expect(runLearningAgent).not.toHaveBeenCalled();
+  });
+
+  it("attaches sources from a searchable picker that stays inside the viewport", async () => {
+    render(<AssistantPanel context={context} />);
+    fireEvent.click(screen.getByRole("button", { name: "Learning Agent" }));
+    fireEvent.click(screen.getByRole("button", { name: /Attach document/ }));
+
+    const picker = await screen.findByRole("dialog", { name: "Attach document" });
+    expect(picker).toHaveClass("adaptive-dialog-panel");
+    // The current reader document is implicit and must not be duplicated.
+    expect(document.querySelector('[data-agent-source-option="paper-a"]')).toBeNull();
+
+    const search = screen.getByRole("searchbox", { name: /Search documents/ });
+    fireEvent.change(search, { target: { value: "extended" } });
+    expect(document.querySelector('[data-agent-source-option="paper-a"]')).toBeNull();
+
+    const option = document.querySelector<HTMLButtonElement>(
+      '[data-agent-source-option="paper-b"]'
+    )!;
+    fireEvent.click(option);
+    expect(option).toHaveAttribute("aria-pressed", "true");
+    expect(document.querySelector('[data-agent-source-chip="paper-b"]')).not.toBeNull();
+    // Multi-select stays open so several sources can be added in one pass.
+    expect(screen.getByRole("dialog", { name: "Attach document" })).toBeInTheDocument();
+
+    // The same row toggles the source back off without closing the picker.
+    fireEvent.click(option);
+    expect(option).toHaveAttribute("aria-pressed", "false");
+    expect(document.querySelector('[data-agent-source-chip="paper-b"]')).toBeNull();
+
+    fireEvent.click(option);
+    expect(document.querySelector('[data-agent-source-chip="paper-b"]')).not.toBeNull();
+
+    fireEvent.change(search, { target: { value: "no matching title" } });
+    expect(screen.getByText("No documents found")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByRole("dialog", { name: "Attach document" })).toBeNull();
   });
 });

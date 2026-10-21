@@ -427,3 +427,26 @@ it("fits a menu above an anchor near the viewport bottom", () => {
     expect(Number.parseFloat(screen.getByRole("menu").style.top)).toBe(496);
   } finally { height.mockRestore(); }
 });
+it("keeps a long-label menu inside the horizontal viewport and ellipsizes labels", () => {
+  const anchor = document.createElement("button");
+  anchor.getBoundingClientRect = () => ({top: 100, bottom: 130, left: 20, right: 100, width: 80, height: 30, x: 20, y: 100, toJSON() {}});
+  const width = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockReturnValue(400);
+  try {
+    render(
+      <Menu
+        open
+        align="end"
+        anchorRef={{current: anchor}}
+        onClose={() => {}}
+        label="Wide"
+        items={[{key: "a", label: "A very long document title that must ellipsize", onSelect() {}}]}
+      />,
+    );
+    const menu = screen.getByRole("menu");
+    // The right edge would sit at 924px without clamping; at 400px wide that
+    // pushes the left edge off-screen. Clamp so the menu starts at 8px.
+    expect(Number.parseFloat(menu.style.right)).toBe(616);
+    expect(menu.style.maxWidth).toBe("352px");
+    expect(screen.getByRole("menuitem").querySelector("span.flex-1")).toHaveClass("min-w-0", "truncate");
+  } finally { width.mockRestore(); }
+});
