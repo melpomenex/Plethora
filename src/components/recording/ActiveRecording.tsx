@@ -141,14 +141,14 @@ export function ActiveRecording({ isOpen: propIsOpen, onClose: propOnClose }: Ac
         addToast({
           type: ToastType.Success,
           title: t("recording.markerTitle", "Marker"),
-          message: t("recording.importantMomentSaved", `Important moment saved at ${timeStr}.`),
+          message: t("recording.importantMomentSaved", "Important moment saved at {time}.", { time: timeStr }),
         });
         break;
       case "confusing":
         addToast({
           type: ToastType.Success,
           title: t("recording.markerTitle", "Marker"),
-          message: t("recording.confusingMomentSaved", `Confusing moment saved at ${timeStr}.`),
+          message: t("recording.confusingMomentSaved", "Confusing moment saved at {time}.", { time: timeStr }),
         });
         break;
       case "extract":
@@ -165,7 +165,7 @@ export function ActiveRecording({ isOpen: propIsOpen, onClose: propOnClose }: Ac
         addToast({
           type: ToastType.Success,
           title: t("recording.markerTitle", "Marker"),
-          message: t("recording.cardCandidateSaved", `Card candidate saved at ${timeStr}.`),
+          message: t("recording.cardCandidateSaved", "Card candidate saved at {time}.", { time: timeStr }),
         });
         break;
     }
@@ -184,7 +184,7 @@ export function ActiveRecording({ isOpen: propIsOpen, onClose: propOnClose }: Ac
       }
       addToast({
         type: finishResult.incomplete ? ToastType.Warning : ToastType.Success,
-        title: t("recording.recordAudio", "Recording"),
+        title: t("recording.title", "Recording"),
         message: finishResult.incomplete
           ? t("recording.savedIncomplete", "Recording saved with incomplete transcription.")
           : t("recording.savedSuccess", "Recording saved successfully."),
@@ -194,7 +194,7 @@ export function ActiveRecording({ isOpen: propIsOpen, onClose: propOnClose }: Ac
       console.error("[ActiveRecording] finish failed:", err);
       addToast({
         type: ToastType.Error,
-        title: t("recording.recordAudio", "Recording"),
+        title: t("recording.title", "Recording"),
         message: String(err),
       });
     } finally {
@@ -209,7 +209,7 @@ export function ActiveRecording({ isOpen: propIsOpen, onClose: propOnClose }: Ac
     handleMinimize();
     addToast({
       type: ToastType.Info,
-      title: t("recording.recordAudio", "Recording"),
+      title: t("recording.title", "Recording"),
       message: t("recording.discarded", "Recording discarded."),
     });
   };
@@ -294,7 +294,8 @@ export function ActiveRecording({ isOpen: propIsOpen, onClose: propOnClose }: Ac
               <span>
                 {t(
                   "recording.interruptedBanner",
-                  `Recording interrupted. Audio saved through ${formatDurationMs(health?.acknowledgedMs || 0)}.`
+                  "Recording interrupted. Audio saved through {time}.",
+                  { time: formatDurationMs(health?.acknowledgedMs || 0) }
                 )}
               </span>
             </div>
