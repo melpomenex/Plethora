@@ -2,6 +2,7 @@ import { useComposerDictation } from "../../hooks/useComposerDictation";
 import { ComposerDictationButton } from "./ComposerDictationControl";
 import { ASSISTANT_SLASH_COMMANDS } from "./assistantSlashCommands";
 import { MobileComposerMenu } from "./mobile/MobileComposerMenu";
+import { AssistantModelPicker, type AssistantProviderOption, type AssistantProviderStatus } from "./AssistantModelPicker";
 import { MOBILE_ASSISTANT_CONVERSATION_KEY, type MobileAssistantPresentation, type AssistantSourceProvenance } from "./mobile/contracts";
 import { assistantSourceProvenance, authorizeAssistantHistory, mergeAssistantProvenance } from "./mobile/provenance";
 import { AssistantScopeSelector } from "./AssistantScopeSelector";
@@ -22,12 +23,8 @@ import {
   CircleNotch,
   Code,
   Copy,
-  Cpu,
-  Eye,
   Gear,
-  Globe,
   Images,
-  Lightning,
   PaperPlaneTilt,
   Plus,
   ShareNetwork,
@@ -464,6 +461,7 @@ export function AssistantPanel({
   const inputContainerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const composerAddRef = useRef<HTMLButtonElement>(null);
+  const modelPickerTriggerRef = useRef<HTMLButtonElement>(null);
   const [isComposerMenuOpen, setIsComposerMenuOpen] = useState(false);
   const [dictationNotice, setDictationNotice] = useState<string | null>(null);
 
@@ -552,6 +550,7 @@ export function AssistantPanel({
 
   // Model selection UI states and store subscription
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const closeModelPicker = useCallback(() => setIsModelDropdownOpen(false), []);
   // Whole-library RAG scope: when true, messages route through the Ask
   // library task (retrieve top-k chunks across the semantic index + grounded
   // validated answer + citations) instead of the single-document
@@ -789,7 +788,7 @@ export function AssistantPanel({
   };
 
   // Provider configuration active status checker
-  const getProviderStatus = (providerId: AssistantProviderId) => {
+  const getProviderStatus = (providerId: AssistantProviderId): AssistantProviderStatus => {
     if (isAppleFmAssistantProvider(providerId)) {
       return assistantUseAppleFoundation && appleFmAvailable ? "active" : "not-configured";
     }
@@ -839,9 +838,11 @@ export function AssistantPanel({
   const publishConversationTimerRef = useRef<number | null>(null);
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
 
-  // The composer menu is a transient surface: close it with the presentation.
+  // Transient menus belong to the presentation: close them with the sheet.
   useEffect(() => {
-    if (!mobilePresentation?.visible) setIsComposerMenuOpen(false);
+    if (mobilePresentation?.visible) return;
+    setIsComposerMenuOpen(false);
+    setIsModelDropdownOpen(false);
   }, [mobilePresentation?.visible]);
 
   // Dictation status no longer occupies a composer row; errors surface as a
@@ -943,14 +944,7 @@ export function AssistantPanel({
   }, [t]);
 
   const providers = useMemo(() => {
-    const list: Array<{
-      id: AssistantProviderId;
-      name: string;
-      icon: typeof Sparkle;
-      color: string;
-      gradient: string;
-      breathingDot: string;
-    }> = [
+    const list: AssistantProviderOption[] = [
     { 
       id: "openai" as const, 
       name: "OpenAI", 
@@ -3496,6 +3490,31 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
   // banner only survives on phones when it shows actionable transcript state.
   const showContextBanner = Boolean(context) && (!isMobilePresentation || isThreadContext
     || (context?.type === "video" && (context.transcriptStatus === "loading" || context.transcriptStatus === "failed" || context.transcriptStatus === "partial" || !context.content?.trim())));
+  const mobileModelPickerOpen = isMobilePresentation && isModelDropdownOpen;
+
+  const toggleModelPicker = () => {
+    if (isModelDropdownOpen) {
+      closeModelPicker();
+      return;
+    }
+    setIsModelDropdownOpen(true);
+    if (isMobilePresentation) {
+      setIsComposerMenuOpen(false);
+      // The body picker needs room for several provider rows; the partial stop
+      // is only about half the viewport. The user can still collapse it.
+      if (mobileSheet?.detent === "partial") mobileSheet.onToggleDetent();
+    }
+  };
+
+  const handleSelectProviderFromPicker = (providerId: AssistantProviderId) => {
+    handleProviderChange(providerId);
+    closeModelPicker();
+  };
+
+  const handleConfigureProviderFromPicker = () => {
+    handleOpenSettingsToAI();
+    closeModelPicker();
+  };
 
   return (
     <div
@@ -3550,7 +3569,11 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           {/* Model Status Pill & Selector */}
           <div className={`relative ${mobilePresentation ? "flex items-center gap-1" : "mr-2"}`}>
             <button
-              onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+              ref={modelPickerTriggerRef}
+              type="button"
+              onClick={toggleModelPicker}
+              aria-haspopup={mobilePresentation ? undefined : "menu"}
+              aria-expanded={isModelDropdownOpen}
               aria-label={mobilePresentation ? `${t("assistant.composer.model")}: ${(() => {
                 const activeConfig = configuredProvidersList.find(p => p.provider === effectiveProvider && p.enabled);
                 return getFriendlyModelName(effectiveProvider, activeConfig?.model);
@@ -3658,140 +3681,33 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               </button>
             </div>
 
-            {/* AI Engine Center Dropdown */}
-            {isModelDropdownOpen && (
+            {/* Desktop AI Engine Center menu — mobile uses the in-sheet picker below. */}
+            {!isMobilePresentation && isModelDropdownOpen && (
               <>
                 {/* Backdrop overlay to close dropdown */}
-                <div 
+                <div
                   className="fixed inset-0 z-40 bg-transparent"
-                  onClick={() => setIsModelDropdownOpen(false)}
+                  onClick={closeModelPicker}
                 />
-                
+
                 {/* Dropdown Menu container */}
                 <div className={`
                   absolute ${position === "right" ? "right-0" : "left-0"} mt-2 w-72 z-50
                   glass-panel-heavy rounded-xl border border-glass-border/40 shadow-glass-lg
-                  p-3 space-y-2 select-none animate-in fade-in slide-in-from-bottom-2 duration-150
+                  p-3 select-none animate-in fade-in slide-in-from-bottom-2 duration-150
                   bg-card/95 backdrop-blur-md
                 `}>
-                  <div className="flex items-center justify-between px-1.5 pb-1 border-b border-border/40">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                      AI Engine Center
-                    </span>
-                    <button
-                      onClick={handleOpenSettingsToAI}
-                      className="p-1 hover:bg-muted/70 rounded transition-colors text-muted-foreground hover:text-foreground"
-                      title="Manage AI Providers"
-                    >
-                      <Gear className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <div className="space-y-1.5 pt-1">
-                    {providers.map((provider) => {
-                      const provConfig = configuredProvidersList.find(p => p.provider === provider.id);
-                      const status = getProviderStatus(provider.id);
-                      const isActive = effectiveProvider === provider.id;
-                      const hasVision = provConfig ? supportsVision(provider.id, provConfig.model) : false;
-                      const isMini = provConfig ? provConfig.model.toLowerCase().includes("mini") || provConfig.model.toLowerCase().includes("haiku") : false;
-                      const isAppleFm = isAppleFmAssistantProvider(provider.id);
-
-                      return (
-                        <div
-                          key={provider.id}
-                          onClick={() => {
-                            if (status !== "not-configured") {
-                              handleProviderChange(provider.id);
-                              setIsModelDropdownOpen(false);
-                            } else {
-                              handleOpenSettingsToAI();
-                              setIsModelDropdownOpen(false);
-                            }
-                          }}
-                          className={`
-                            group flex flex-col p-2.5 rounded-lg border transition-all duration-200 cursor-pointer
-                            ${isActive 
-                              ? `bg-gradient-to-br ${provider.gradient} border-primary/20 shadow-sm` 
-                              : "bg-background/40 hover:bg-muted/40 border-transparent hover:border-border/60"
-                            }
-                          `}
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                              <div className={`p-1 rounded bg-background/80 shadow-sm transition-transform duration-200 group-hover:scale-105`}>
-                                <provider.icon className={`w-3.5 h-3.5 ${provider.color}`} />
-                              </div>
-                              <span className="text-xs font-bold text-foreground">
-                                {provider.name}
-                              </span>
-                            </div>
-
-                            {/* Status Indicators */}
-                            <div className="flex items-center gap-1.5">
-                              {isActive && (
-                                <span className={`h-1.5 w-1.5 rounded-full ${provider.breathingDot} breathing-pulse`}></span>
-                              )}
-                              <span className={`text-[9px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
-                                status === "active" ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" :
-                                status === "disabled" ? "bg-muted text-muted-foreground" :
-                                status === "key-missing" ? "bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20" :
-                                "bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20"
-                              }`}>
-                                {status === "active" ? "Active" :
-                                 status === "disabled" ? "Disabled" :
-                                 status === "key-missing" ? "Key Alert" :
-                                 "Setup"}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Model details and Capability Badges */}
-                          {(provConfig || isAppleFm) && (
-                            <div className="mt-2 space-y-1.5 pl-7">
-                              {provConfig && (
-                                <div className="text-[10px] font-mono text-muted-foreground truncate" title={provConfig.model}>
-                                  {provConfig.model}
-                                </div>
-                              )}
-                              
-                              {/* Capabilities tags */}
-                              <div className="flex flex-wrap gap-1">
-                                {hasVision && (
-                                  <span className="inline-flex items-center gap-0.5 text-[8px] font-semibold px-1 py-0.25 rounded bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/10">
-                                    <Eye className="w-2 h-2" /> Vision
-                                  </span>
-                                )}
-                                {isAppleFm ? (
-                                  <span className="inline-flex items-center gap-0.5 text-[8px] font-semibold px-1 py-0.25 rounded bg-slate-500/15 text-slate-600 dark:text-slate-400 border border-slate-500/10">
-                                    <Cpu className="w-2.5 h-2.5" /> On-device
-                                  </span>
-                                ) : provider.id === "ollama" ? (
-                                  <span className="inline-flex items-center gap-0.5 text-[8px] font-semibold px-1 py-0.25 rounded bg-cyan-500/15 text-cyan-600 dark:text-cyan-400 border border-cyan-500/10">
-                                    <Cpu className="w-2.5 h-2.5" /> Local
-                                  </span>
-                                ) : (
-                                  <span className="inline-flex items-center gap-0.5 text-[8px] font-semibold px-1 py-0.25 rounded bg-indigo-500/15 text-indigo-600 dark:text-indigo-400 border border-indigo-500/10">
-                                    <Globe className="w-2.5 h-2.5" /> Cloud
-                                  </span>
-                                )}
-                                {isMini && (
-                                  <span className="inline-flex items-center gap-0.5 text-[8px] font-semibold px-1 py-0.25 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/10">
-                                    <Lightning className="w-2.5 h-2.5" /> Fast
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                          
-                          {status === "not-configured" && (
-                            <div className="mt-1 pl-7 text-[9px] text-muted-foreground italic">
-                              Click to configure API Key
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
+                  <AssistantModelPicker
+                    variant="desktop"
+                    providers={providers}
+                    configuredProviders={configuredProvidersList}
+                    activeProvider={effectiveProvider}
+                    getStatus={getProviderStatus}
+                    onSelect={handleSelectProviderFromPicker}
+                    onConfigure={handleConfigureProviderFromPicker}
+                    onClose={closeModelPicker}
+                    returnFocusRef={modelPickerTriggerRef}
+                  />
                 </div>
               </>
             )}
@@ -3842,8 +3758,24 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         </div>
       </div>
 
+      {/* Mobile AI Engine picker — an in-flow sheet body, never an overlay. */}
+      {mobileModelPickerOpen && (
+        <AssistantModelPicker
+          variant="mobile"
+          className="mx-2 mb-2 overflow-hidden rounded-2xl border border-border bg-surface-container-high"
+          providers={providers}
+          configuredProviders={configuredProvidersList}
+          activeProvider={effectiveProvider}
+          getStatus={getProviderStatus}
+          onSelect={handleSelectProviderFromPicker}
+          onConfigure={handleConfigureProviderFromPicker}
+          onClose={closeModelPicker}
+          returnFocusRef={modelPickerTriggerRef}
+        />
+      )}
+
       {/* Context Banner */}
-      {showContextBanner && (
+      {showContextBanner && !mobileModelPickerOpen && (
         <div className="px-3 py-2 bg-muted/50 border-b border-border text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
             {context.type === "document" && <TextT className="w-3 h-3" />}
@@ -3863,11 +3795,11 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         </div>
       )}
 
-      {suggestSwitchToChat && scope !== "chat" && <button type="button" onClick={() => { setScope("chat"); setSuggestSwitchToChat(false); }} className="md-state min-h-10 px-3 text-sm text-primary underline focus-visible:ring-2 focus-visible:ring-primary">Switch to Chat to use general knowledge</button>}
+      {!mobileModelPickerOpen && suggestSwitchToChat && scope !== "chat" && <button type="button" onClick={() => { setScope("chat"); setSuggestSwitchToChat(false); }} className="md-state min-h-10 px-3 text-sm text-primary underline focus-visible:ring-2 focus-visible:ring-primary">Switch to Chat to use general knowledge</button>}
       {/* Messages */}
       <div
         ref={messagesContainerRef}
-        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 space-y-4"
+        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 space-y-4 ${mobileModelPickerOpen ? "hidden" : ""}`}
       >
         {messages.filter((m) => m.role !== "system").length === 0 ? (
           <div className="text-center text-muted-foreground text-sm py-6 space-y-4">
@@ -4147,7 +4079,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       {/* Add menu — an in-flow row above the composer so it can never be clipped. */}
       {mobilePresentation && (
         <MobileComposerMenu
-          open={isComposerMenuOpen}
+          open={isComposerMenuOpen && !mobileModelPickerOpen}
           anchorRef={composerAddRef}
           sourceTitle={assistantDocumentTitle}
           onClose={() => setIsComposerMenuOpen(false)}
@@ -4159,7 +4091,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       )}
 
       {/* Input Area */}
-      <div data-paper-surface="inset" data-assistant-composer className="flex-shrink-0 p-3 border-t border-border bg-card relative">
+      <div data-paper-surface="inset" data-assistant-composer className={`flex-shrink-0 p-3 border-t border-border bg-card relative ${mobileModelPickerOpen ? "hidden" : ""}`}>
         <div className="flex flex-col gap-2">
           {/* Image Preview Strip */}
           {attachedImages.length > 0 && (
