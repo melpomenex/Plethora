@@ -65,6 +65,9 @@ pub enum ChunkInput<'a> {
         segments: &'a [TranscriptChunkSegment],
         chapters: &'a [TranscriptChapter],
     },
+    SessionTranscript {
+        segments: &'a [SessionTranscriptChunkSegment],
+    },
     /// Markdown with ATX headings.
     Markdown { text: &'a str },
     /// HTML / XHTML markup (documents' `html_content`, or an EPUB spine
@@ -157,6 +160,119 @@ fn chunk_transcript(
             chunk.location_json = location.to_string();
             chunks.push(chunk);
         }
+        if end == segments.len() {
+            break;
+        }
+        start = if end > start + 2 { end - 2 } else { end };
+    }
+    chunks
+}
+
+#[derive(Debug, Clone)]
+pub struct SessionTranscriptChunkSegment {
+    pub segment_key: String,
+    pub ordinal: i64,
+    pub text: String,
+    pub timing_kind: String,
+    pub start_ms: Option<i64>,
+    pub end_ms: Option<i64>,
+    pub speaker_id: Option<String>,
+}
+
+fn chunk_session_transcript(
+    ctx: &ChunkContext<'_>,
+    segments: &[SessionTranscriptChunkSegment],
+) -> Vec<ChunkModel> {
+    let session_ctx = ChunkContext {
+        source_type: "session",
+        location_source_type: "session",
+        ..ctx.clone()
+    };
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    while start < segments.len() {
+        let mut end = start;
+        let mut size = 0;
+        while end < segments.len() {
+            if end > start && size >= 900 {
+                break;
+            }
+            size += segments[end].text.chars().count() + 12;
+            end += 1;
+        }
+
+        let lines = segments[start..end]
+            .iter()
+            .map(|s| {
+                let is_timed = s.timing_kind != "none" && s.start_ms.is_some();
+                let spk_prefix = s.speaker_id.as_deref().map(|spk| format!("{spk}: ")).unwrap_or_default();
+                if is_timed {
+                    let s_sec = (s.start_ms.unwrap() as f64) / 1000.0;
+                    format!("[{}] {}{}", transcript_timestamp(s_sec), spk_prefix, s.text)
+                } else if !spk_prefix.is_empty() {
+                    format!("{}{}", spk_prefix, s.text)
+                } else {
+                    s.text.clone()
+                }
+            })
+            .collect::<Vec<_>>();
+        let text = lines.join("\n");
+
+        if let Some(mut chunk) = single_chunk(
+            &session_ctx,
+            &text,
+            chunks.len() as i64,
+            None,
+            start,
+            end,
+        ) {
+            let first = &segments[start];
+            let last = &segments[end - 1];
+            let is_timed = first.timing_kind != "none" && first.start_ms.is_some() && last.end_ms.is_some();
+
+            let heading = if is_timed {
+                format!(
+                    "{} - {}",
+                    transcript_timestamp((first.start_ms.unwrap() as f64) / 1000.0),
+                    transcript_timestamp((last.end_ms.unwrap() as f64) / 1000.0)
+                )
+            } else {
+                format!("Segments #{}-#{}", first.ordinal, last.ordinal)
+            };
+
+            chunk.heading_path = vec![heading.clone()];
+
+            let location = ChunkLocation {
+                source_type: "session".to_string(),
+                document_id: ctx.document_id.to_string(),
+                ordinal: chunk.ordinal,
+                start_offset: start,
+                end_offset: end,
+                heading_path: vec![heading],
+                page_number: None,
+                spine_index: None,
+                cfi_range: None,
+                page_rects: None,
+                extract_id: None,
+                anchor_id: None,
+                asset_url: None,
+                timestamp_ms: if is_timed { first.start_ms } else { None },
+                end_timestamp_ms: if is_timed { last.end_ms } else { None },
+                segment_id: Some(first.segment_key.clone()),
+                start_segment_id: Some(first.segment_key.clone()),
+                end_segment_id: Some(last.segment_key.clone()),
+                start_ms: if is_timed { first.start_ms } else { None },
+                end_ms: if is_timed { last.end_ms } else { None },
+                timing_kind: Some(first.timing_kind.clone()),
+                speaker: first.speaker_id.clone(),
+            };
+
+            if let Ok(loc_str) = serde_json::to_string(&location) {
+                chunk.location_json = loc_str;
+            }
+            chunks.push(chunk);
+        }
+
         if end == segments.len() {
             break;
         }
@@ -939,12 +1055,9 @@ fn build_chunk(
         heading_path: heading_path.clone(),
         page_number: page,
         spine_index: ctx.spine_index,
-        cfi_range: None,
-        page_rects: None,
         extract_id: ctx.source_id.map(str::to_string),
         anchor_id: ctx.source_id.map(str::to_string),
-        asset_url: None,
-        timestamp_ms: None,
+        ..Default::default()
     };
     ChunkModel {
         id: chunk_id(
@@ -975,6 +1088,9 @@ pub fn chunk_document(
     let blocks = match &input {
         ChunkInput::Transcript { segments, chapters } => {
             return chunk_transcript(ctx, segments, chapters)
+        }
+        ChunkInput::SessionTranscript { segments } => {
+            return chunk_session_transcript(ctx, segments)
         }
         ChunkInput::Markdown { text } => parse_markdown_blocks(text),
         ChunkInput::Html { html } => parse_html_blocks(html),
@@ -1011,15 +1127,12 @@ pub fn single_chunk(
         heading_path: Vec::new(),
         page_number,
         spine_index: ctx.spine_index,
-        cfi_range: None,
-        page_rects: None,
         extract_id: ctx
             .source_id
             .map(str::to_string)
             .filter(|_| ctx.source_type == "extract"),
         anchor_id: ctx.source_id.map(str::to_string),
-        asset_url: None,
-        timestamp_ms: None,
+        ..Default::default()
     };
     Some(ChunkModel {
         id: chunk_id(
@@ -1063,13 +1176,9 @@ pub fn multimodal_chunk(
         end_offset: text.chars().count(),
         heading_path: Vec::new(),
         page_number,
-        spine_index: ctx.spine_index,
-        cfi_range: None,
-        page_rects: None,
-        extract_id: None,
-        anchor_id: ctx.source_id.map(str::to_string),
         asset_url,
         timestamp_ms,
+        ..Default::default()
     };
     Some(ChunkModel {
         id: chunk_id(
@@ -1589,5 +1698,111 @@ mod tests {
                 .collect::<Vec<_>>()
         );
         assert!(chunks.last().unwrap().text.contains("Segment 29"));
+    }
+
+    #[test]
+    fn session_transcript_timed_preserves_locators_and_timestamps() {
+        let ctx = ChunkContext {
+            document_id: "session-doc",
+            source_type: "session",
+            source_id: None,
+            location_source_type: "session",
+            spine_index: None,
+        };
+        let segments = vec![
+            SessionTranscriptChunkSegment {
+                segment_key: "seg-1".into(),
+                ordinal: 0,
+                text: "Introduction to distributed systems architecture.".into(),
+                timing_kind: "measured".into(),
+                start_ms: Some(15_000),
+                end_ms: Some(25_000),
+                speaker_id: Some("Speaker A".into()),
+            },
+            SessionTranscriptChunkSegment {
+                segment_key: "seg-2".into(),
+                ordinal: 1,
+                text: "Consensus algorithms provide fault-tolerant state machine replication.".into(),
+                timing_kind: "measured".into(),
+                start_ms: Some(25_000),
+                end_ms: Some(40_000),
+                speaker_id: Some("Speaker B".into()),
+            },
+        ];
+        let chunks = chunk_document(
+            &ctx,
+            ChunkInput::SessionTranscript {
+                segments: &segments,
+            },
+            &ChunkOptions::default(),
+        );
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].source_type, "session");
+        assert!(chunks[0].text.contains("[0:15] Speaker A: Introduction"));
+        assert!(chunks[0].text.contains("[0:25] Speaker B: Consensus"));
+
+        let loc = parse_location(&chunks[0]);
+        assert_eq!(loc.source_type, "session");
+        assert_eq!(loc.segment_id.as_deref(), Some("seg-1"));
+        assert_eq!(loc.start_segment_id.as_deref(), Some("seg-1"));
+        assert_eq!(loc.end_segment_id.as_deref(), Some("seg-2"));
+        assert_eq!(loc.start_ms, Some(15_000));
+        assert_eq!(loc.end_ms, Some(40_000));
+        assert_eq!(loc.timing_kind.as_deref(), Some("measured"));
+        assert_eq!(loc.speaker.as_deref(), Some("Speaker A"));
+    }
+
+    #[test]
+    fn session_transcript_untimed_preserves_timing_honesty_no_fake_zeros() {
+        let ctx = ChunkContext {
+            document_id: "session-doc-untimed",
+            source_type: "session",
+            source_id: None,
+            location_source_type: "session",
+            spine_index: None,
+        };
+        let segments = vec![
+            SessionTranscriptChunkSegment {
+                segment_key: "seg-u1".into(),
+                ordinal: 0,
+                text: "An untimed transcript paragraph imported from external notes.".into(),
+                timing_kind: "none".into(),
+                start_ms: None,
+                end_ms: None,
+                speaker_id: None,
+            },
+            SessionTranscriptChunkSegment {
+                segment_key: "seg-u2".into(),
+                ordinal: 1,
+                text: "Another paragraph with strict timing honesty.".into(),
+                timing_kind: "none".into(),
+                start_ms: None,
+                end_ms: None,
+                speaker_id: None,
+            },
+        ];
+        let chunks = chunk_document(
+            &ctx,
+            ChunkInput::SessionTranscript {
+                segments: &segments,
+            },
+            &ChunkOptions::default(),
+        );
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].source_type, "session");
+        // CRITICAL: timing honesty! No fake "[0:00]" prefix!
+        assert!(!chunks[0].text.contains("[0:00]"));
+        assert!(chunks[0]
+            .text
+            .contains("An untimed transcript paragraph imported from external notes."));
+
+        let loc = parse_location(&chunks[0]);
+        assert_eq!(loc.source_type, "session");
+        assert_eq!(loc.timestamp_ms, None);
+        assert_eq!(loc.start_ms, None);
+        assert_eq!(loc.end_ms, None);
+        assert_eq!(loc.timing_kind.as_deref(), Some("none"));
+        assert_eq!(loc.start_segment_id.as_deref(), Some("seg-u1"));
+        assert_eq!(loc.end_segment_id.as_deref(), Some("seg-u2"));
     }
 }

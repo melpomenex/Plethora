@@ -4,6 +4,7 @@ import {
   getMediaMimeType,
   importMediaFiles,
   isSupportedMediaExtension,
+  resumeImportFromManifest,
 } from "../importMedia";
 import { sessionController } from "../SessionController";
 import type { RecordingSession, SessionMediaAsset } from "../../../types/recordingSession";
@@ -193,6 +194,127 @@ describe("importMedia (Task 1.3 Owned Media Ingestion)", () => {
       expect(progressCalls).toHaveLength(3);
       expect(progressCalls[0]).toEqual({ current: 1, total: 3, path: "/media/1.mp3" });
       expect(progressCalls[2]).toEqual({ current: 3, total: 3, path: "/media/3.wav" });
+    });
+  });
+
+  describe("Task 5.1 Refinements: Throttling, Cancellation, and Resumable Manifest", () => {
+    it("cancels remaining batch work via AbortSignal while preserving completed items", async () => {
+      const abortController = new AbortController();
+      let processedCount = 0;
+
+      vi.spyOn(sessionController, "stageMedia").mockImplementation(async (sessionId, sourcePath, mime) => {
+        processedCount++;
+        if (processedCount === 2) {
+          abortController.abort();
+        }
+        return {
+          id: `asset-${processedCount}`,
+          sessionId,
+          kind: "original",
+          relativePath: `recordings/${sessionId}/asset.mp3`,
+          mime,
+          byteLength: 1024,
+          sha256: `sha-${processedCount}`,
+          state: "ready",
+          createdAt: new Date().toISOString(),
+        } as SessionMediaAsset;
+      });
+
+      const res = await importMediaFiles({
+        paths: [
+          "/media/file1.mp3",
+          "/media/file2.mp3",
+          "/media/file3.mp3",
+          "/media/file4.mp3",
+        ],
+        concurrency: 1, // Sequential so abort at 2 stops 3 and 4
+        signal: abortController.signal,
+      });
+
+      expect(res.cancelled).toBe(true);
+      expect(res.successCount).toBe(2);
+      expect(res.items[0].status).toBe("success");
+      expect(res.items[1].status).toBe("success");
+      expect(res.items[2].status).toBe("skipped");
+      expect(res.items[3].status).toBe("skipped");
+    });
+
+    it("respects concurrency limits on mobile (1) vs desktop (2)", async () => {
+      let activeConcurrent = 0;
+      let maxSeenConcurrent = 0;
+
+      vi.spyOn(sessionController, "stageMedia").mockImplementation(async (sessionId, sourcePath, mime) => {
+        activeConcurrent++;
+        if (activeConcurrent > maxSeenConcurrent) {
+          maxSeenConcurrent = activeConcurrent;
+        }
+        await new Promise((r) => setTimeout(r, 10));
+        activeConcurrent--;
+        return {
+          id: "asset-1",
+          sessionId,
+          kind: "original",
+          relativePath: "recordings/asset.mp3",
+          mime,
+          byteLength: 1024,
+          sha256: `sha-${sourcePath}`,
+          state: "ready",
+          createdAt: new Date().toISOString(),
+        } as SessionMediaAsset;
+      });
+
+      // Mobile test: max 1
+      maxSeenConcurrent = 0;
+      await importMediaFiles({
+        paths: ["/a.mp3", "/b.mp3", "/c.mp3"],
+        isMobile: true,
+      });
+      expect(maxSeenConcurrent).toBe(1);
+
+      // Desktop test: max 2
+      maxSeenConcurrent = 0;
+      await importMediaFiles({
+        paths: ["/a.mp3", "/b.mp3", "/c.mp3", "/d.mp3"],
+        isMobile: false,
+      });
+      expect(maxSeenConcurrent).toBeLessThanOrEqual(2);
+    });
+
+    it("applies user filter and ignores excluded files cleanly", async () => {
+      const res = await importMediaFiles({
+        paths: ["/lecture/intro.mp3", "/lecture/notes.txt", "/lecture/part2.mp3"],
+        filter: (path) => path.endsWith(".mp3") && !path.includes("intro"),
+      });
+
+      expect(res.successCount).toBe(1);
+      expect(res.items.find((i) => i.filePath === "/lecture/part2.mp3")?.status).toBe("success");
+      expect(res.items.find((i) => i.filePath === "/lecture/intro.mp3")?.status).toBe("skipped");
+    });
+
+    it("resumes interrupted manifest and only processes unhandled items", async () => {
+      const paths = ["/media/done.mp3", "/media/interrupted.mp3", "/media/pending.mp3"];
+      const manifest = {
+        manifestId: "test-manifest-1",
+        totalPaths: paths,
+        processed: {
+          "/media/done.mp3": {
+            filePath: "/media/done.mp3",
+            status: "success" as const,
+            sessionId: "sess-done",
+          },
+        },
+        cancelled: true,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const res = await resumeImportFromManifest(manifest, {
+        concurrency: 1,
+      });
+
+      expect(res.successCount).toBe(3); // 1 from previous + 2 completed now
+      expect(res.items.find((i) => i.filePath === "/media/done.mp3")?.sessionId).toBe("sess-done");
+      expect(res.items.find((i) => i.filePath === "/media/interrupted.mp3")?.status).toBe("success");
+      expect(res.items.find((i) => i.filePath === "/media/pending.mp3")?.status).toBe("success");
     });
   });
 });

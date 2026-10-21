@@ -4,6 +4,7 @@ import * as recordingSessionsApi from "../../../api/recordingSessions";
 import * as documentPrivacyLib from "../../../lib/documentPrivacy";
 import type { TranscriptionJobManager } from "../../transcription/jobs/TranscriptionJobManager";
 import type { RecordingSession, SessionOrigin } from "../../../types/recordingSession";
+import { useSettingsStore } from "../../../stores/settingsStore";
 
 vi.mock("../../../api/recordingSessions", () => ({
   createRecordingSession: vi.fn(),
@@ -54,6 +55,17 @@ describe("SessionController (Task 1.1 / OpenSpec D1, D6)", () => {
       isAiExcluded: false,
       privacyVersion: 1,
     });
+
+    useSettingsStore.setState((prev) => ({
+      ...prev,
+      settings: {
+        ...prev.settings,
+        features: {
+          ...prev.settings.features,
+          sessionLearningSuggestions: true,
+        },
+      },
+    }));
   });
 
   const origins: SessionOrigin[] = ["recorded", "file", "transcript", "url"];

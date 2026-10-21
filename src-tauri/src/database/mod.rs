@@ -15,12 +15,17 @@ pub mod language_profile_repository;
 pub mod language_lexicon_repository;
 pub mod language_knowledge_repository;
 pub mod language_practice_repository;
+pub mod learning_object_source_repository;
 pub mod migrations;
 pub mod neural_queue_repository;
 pub mod priority_rank;
 pub mod recording_session_repository;
 pub mod repository;
 pub mod saved_queue_repository;
+pub mod session_analysis_repository;
+
+pub use learning_object_source_repository::{LearningObjectSource, LearningObjectSourceRepository};
+pub use session_analysis_repository::SessionAnalysisRepository;
 
 pub use ai_conversation_repository::{
     AiConversationRepository, ConversationSummary, ImportJournalEntry, ListOptions,

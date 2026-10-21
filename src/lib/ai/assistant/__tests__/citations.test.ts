@@ -75,6 +75,16 @@ describe("cited source → canonical citation", () => {
     } as ChunkLocation);
     expect(media).toEqual({ timeSeconds: 252 });
 
+    const sessionTimed = locationToLocator({
+      sourceType: "session", documentId: "d", ordinal: 0, startOffset: 0, endOffset: 1, startMs: 125_000, endMs: 130_000, segmentId: "seg-1", timingKind: "measured",
+    } as ChunkLocation);
+    expect(sessionTimed).toEqual({ timeSeconds: 125 });
+
+    const sessionUntimed = locationToLocator({
+      sourceType: "session", documentId: "d", ordinal: 0, startOffset: 0, endOffset: 50, segmentId: "seg-1", timingKind: "none",
+    } as ChunkLocation);
+    expect(sessionUntimed).toEqual({ textRange: { start: 0, end: 50 }, anchor: "seg-1" });
+
     const text = locationToLocator({
       sourceType: "markdown", documentId: "d", ordinal: 0, startOffset: 10, endOffset: 50,
     } as ChunkLocation);

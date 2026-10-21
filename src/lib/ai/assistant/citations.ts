@@ -42,8 +42,18 @@ export function locationToLocator(location: ChunkLocation | undefined): SourceLo
     case "video":
     case "audio":
     case "transcript":
-      return location.timestampMs !== undefined
-        ? { timeSeconds: location.timestampMs / 1000 }
+    case "session":
+      if (
+        location.timingKind === "none" ||
+        (location.timestampMs === undefined && location.startMs === undefined)
+      ) {
+        return {
+          textRange: { start: location.startOffset ?? 0, end: location.endOffset ?? 0 },
+          anchor: location.segmentId ?? location.startSegmentId ?? location.anchorId ?? undefined,
+        };
+      }
+      return (location.startMs !== undefined || location.timestampMs !== undefined)
+        ? { timeSeconds: (location.startMs ?? location.timestampMs!) / 1000 }
         : undefined;
     case "markdown":
     case "html":

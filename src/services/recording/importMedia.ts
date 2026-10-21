@@ -13,6 +13,7 @@
 import { sessionController } from "./SessionController";
 import { findSessionByMediaHash } from "../../api/recordingSessions";
 import type { RecordingSession, SessionMediaAsset } from "../../types/recordingSession";
+import { isNativeMobile } from "../../lib/tauri";
 
 export type MediaKind = "audio" | "video";
 
@@ -30,9 +31,17 @@ export interface ImportMediaItemResult {
   documentId?: string;
   assetId?: string;
   mediaAsset?: SessionMediaAsset;
-  status: "success" | "failed" | "duplicate";
+  status: "success" | "failed" | "duplicate" | "skipped";
   duplicateSession?: RecordingSession;
   error?: string;
+}
+
+export interface ResumableImportManifest {
+  manifestId: string;
+  totalPaths: string[];
+  processed: Record<string, ImportMediaItemResult>;
+  cancelled: boolean;
+  updatedAt: string;
 }
 
 export interface ImportMediaOptions {
@@ -43,6 +52,11 @@ export interface ImportMediaOptions {
   duplicateAction?: "reuse" | "create-separate";
   onProgress?: (current: number, total: number, path: string) => void;
   probeOverride?: (path: string, mime: string) => Promise<MediaProbeResult>;
+  filter?: (path: string) => boolean;
+  isMobile?: boolean;
+  concurrency?: number;
+  signal?: AbortSignal;
+  manifest?: ResumableImportManifest;
 }
 
 export interface ImportMediaBatchResult {
@@ -50,6 +64,8 @@ export interface ImportMediaBatchResult {
   successCount: number;
   failedCount: number;
   duplicateCount: number;
+  cancelled?: boolean;
+  manifest?: ResumableImportManifest;
 }
 
 const SUPPORTED_EXTENSIONS: Record<string, { kind: MediaKind; mime: string }> = {
@@ -141,26 +157,54 @@ export async function probeMedia(
  * Imports audio and video files as owned session media assets.
  * Streams each file into private storage without creating a second document
  * or routing through generic audiobook grouping.
+ * Throttles to 2 concurrent copies on desktop, 1 on mobile, and supports cancellation.
  */
 export async function importMediaFiles(options: ImportMediaOptions): Promise<ImportMediaBatchResult> {
-  const results: ImportMediaItemResult[] = [];
-  const total = options.paths.length;
+  const isMobilePlatform = options.isMobile ?? isNativeMobile();
+  const maxConcurrency = Math.max(1, options.concurrency ?? (isMobilePlatform ? 1 : 2));
 
-  for (let i = 0; i < total; i++) {
-    const path = options.paths[i];
-    options.onProgress?.(i + 1, total, path);
+  // Initialize or resume manifest
+  const manifest: ResumableImportManifest = options.manifest ?? {
+    manifestId: `import-manifest-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+    totalPaths: [...options.paths],
+    processed: {},
+    cancelled: false,
+    updatedAt: new Date().toISOString(),
+  };
 
+  // Filter paths
+  const candidatePaths = options.paths.filter((p) => {
+    if (options.filter && !options.filter(p)) {
+      return false;
+    }
+    // Skip if already successfully processed in this manifest
+    if (
+      manifest.processed[p]?.status === "success" ||
+      manifest.processed[p]?.status === "duplicate"
+    ) {
+      return false;
+    }
+    return true;
+  });
+
+  const total = candidatePaths.length;
+  let currentIndex = 0;
+  let wasCancelled = false;
+
+  async function processItem(path: string): Promise<ImportMediaItemResult> {
     if (!isSupportedMediaExtension(path)) {
-      results.push({
+      const failedItem: ImportMediaItemResult = {
         filePath: path,
         status: "failed",
         error: `Unsupported media format: .${getFileExtension(path)}`,
-      });
-      continue;
+      };
+      manifest.processed[path] = failedItem;
+      return failedItem;
     }
 
     const mime = getMediaMimeType(path);
-    const title = options.title && total === 1 ? options.title : extractTitleFromPath(path);
+    const title =
+      options.title && options.paths.length === 1 ? options.title : extractTitleFromPath(path);
 
     try {
       // 1. Create single authoritative document + recording session
@@ -179,14 +223,15 @@ export async function importMediaFiles(options: ImportMediaOptions): Promise<Imp
         const existingSession = await findSessionByMediaHash(mediaAsset.sha256, options.collectionId);
         if (existingSession && existingSession.id !== session.id) {
           if (options.duplicateAction !== "create-separate") {
-            results.push({
+            const dupItem: ImportMediaItemResult = {
               filePath: path,
               sessionId: existingSession.id,
               documentId: existingSession.documentId,
               status: "duplicate",
               duplicateSession: existingSession,
-            });
-            continue;
+            };
+            manifest.processed[path] = dupItem;
+            return dupItem;
           }
         }
       }
@@ -196,7 +241,6 @@ export async function importMediaFiles(options: ImportMediaOptions): Promise<Imp
       try {
         probeRes = await probeMedia(path, mime, options.probeOverride);
       } catch (probeErr) {
-        // Retain original media asset even if probe / decode encounters an issue
         console.warn("[importMedia] Probe warning for:", path, probeErr);
         probeRes = { canPlay: false, supported: true, error: String(probeErr) };
       }
@@ -204,7 +248,7 @@ export async function importMediaFiles(options: ImportMediaOptions): Promise<Imp
       // 4. Finalize ingestion
       await sessionController.finalizeIngestion({ sessionId: session.id });
 
-      results.push({
+      const successItem: ImportMediaItemResult = {
         filePath: path,
         sessionId: session.id,
         documentId: session.documentId,
@@ -212,27 +256,87 @@ export async function importMediaFiles(options: ImportMediaOptions): Promise<Imp
         mediaAsset,
         status: "success",
         error: probeRes.canPlay ? undefined : probeRes.error,
-      });
+      };
+      manifest.processed[path] = successItem;
+      return successItem;
     } catch (err: unknown) {
       console.error("[importMedia] Failed to import media file:", path, err);
-      results.push({
+      const failedItem: ImportMediaItemResult = {
         filePath: path,
         status: "failed",
         error: err instanceof Error ? err.message : String(err),
-      });
+      };
+      manifest.processed[path] = failedItem;
+      return failedItem;
     }
   }
 
-  const successCount = results.filter((r) => r.status === "success").length;
-  const failedCount = results.filter((r) => r.status === "failed").length;
-  const duplicateCount = results.filter((r) => r.status === "duplicate").length;
+  async function worker() {
+    while (currentIndex < total) {
+      if (options.signal?.aborted) {
+        wasCancelled = true;
+        manifest.cancelled = true;
+        break;
+      }
+      const idx = currentIndex++;
+      const path = candidatePaths[idx];
+      options.onProgress?.(idx + 1, total, path);
+      await processItem(path);
+      manifest.updatedAt = new Date().toISOString();
+    }
+  }
+
+  const workerCount = Math.min(maxConcurrency, total);
+  if (workerCount > 0) {
+    const workers = Array.from({ length: workerCount }, () => worker());
+    await Promise.all(workers);
+  }
+
+  // Preserve original ordering of paths
+  const outputPaths = options.manifest ? options.manifest.totalPaths : options.paths;
+  const allResults: ImportMediaItemResult[] = outputPaths.map((p) => {
+    if (manifest.processed[p]) {
+      return manifest.processed[p];
+    }
+    return {
+      filePath: p,
+      status: "skipped",
+      error: wasCancelled ? "Cancelled before processing" : "Filtered out",
+    };
+  });
+
+  const successCount = allResults.filter((r) => r.status === "success").length;
+  const failedCount = allResults.filter((r) => r.status === "failed").length;
+  const duplicateCount = allResults.filter((r) => r.status === "duplicate").length;
 
   return {
-    items: results,
+    items: allResults,
     successCount,
     failedCount,
     duplicateCount,
+    cancelled: wasCancelled,
+    manifest,
   };
+}
+
+/**
+ * Resumes an interrupted or cancelled import batch using its saved manifest.
+ */
+export async function resumeImportFromManifest(
+  manifest: ResumableImportManifest,
+  options: Omit<ImportMediaOptions, "paths" | "manifest">,
+): Promise<ImportMediaBatchResult> {
+  const remainingPaths = manifest.totalPaths.filter(
+    (p) =>
+      !manifest.processed[p] ||
+      manifest.processed[p].status === "failed" ||
+      manifest.processed[p].status === "skipped"
+  );
+  return importMediaFiles({
+    ...options,
+    paths: remainingPaths,
+    manifest,
+  });
 }
 
 /**

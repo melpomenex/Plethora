@@ -21,6 +21,22 @@ vi.mock("../../common/Toast", () => ({
     }),
 }));
 
+vi.mock("../../../api/recordingSessions", () => ({
+  createSessionMarker: vi.fn().mockImplementation(async (params: any) => ({
+    id: "marker-1",
+    sessionId: params.sessionId,
+    kind: params.kind,
+    state: "pending",
+    mediaMs: params.mediaMs,
+    windowMs: params.windowMs,
+    resolvedAt: null,
+    evidence: null,
+    error: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  })),
+}));
+
 describe("ActiveRecording (Screen 2 Active Capture Surface)", () => {
   beforeEach(() => {
     toasts.length = 0;
@@ -87,19 +103,27 @@ describe("ActiveRecording (Screen 2 Active Capture Surface)", () => {
     expect(resumeSpy).toHaveBeenCalledTimes(1);
   });
 
-  it("creates markers with immediate user feedback", () => {
+  it("creates markers with immediate user feedback", async () => {
     render(<ActiveRecording isOpen={true} />);
 
-    fireEvent.click(screen.getByText("Important"));
+    await act(async () => {
+      fireEvent.click(screen.getByText("Important"));
+    });
     expect(toasts.some((t) => t.message.includes("Important moment saved"))).toBe(true);
 
-    fireEvent.click(screen.getByText("Confusing"));
+    await act(async () => {
+      fireEvent.click(screen.getByText("Confusing"));
+    });
     expect(toasts.some((t) => t.message.includes("Confusing moment saved"))).toBe(true);
 
-    fireEvent.click(screen.getByText("Save extract"));
+    await act(async () => {
+      fireEvent.click(screen.getByText("Save extract"));
+    });
     expect(toasts.some((t) => t.message.includes("Audio bookmark saved"))).toBe(true);
 
-    fireEvent.click(screen.getByText("Card candidate"));
+    await act(async () => {
+      fireEvent.click(screen.getByText("Card candidate"));
+    });
     expect(toasts.some((t) => t.message.includes("Card candidate saved"))).toBe(true);
   });
 
@@ -119,7 +143,7 @@ describe("ActiveRecording (Screen 2 Active Capture Surface)", () => {
     });
 
     expect(finishSpy).toHaveBeenCalledTimes(1);
-    expect(finalizeSpy).toHaveBeenCalledWith("sess-active-1");
+    expect(finalizeSpy).toHaveBeenCalledWith({ sessionId: "sess-active-1" });
     expect(useUIStore.getState().activeRecordingOpen).toBe(false);
     expect(toasts.some((t) => t.message.includes("Recording saved successfully"))).toBe(true);
   });

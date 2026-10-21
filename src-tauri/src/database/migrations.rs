@@ -4746,6 +4746,102 @@ pub const MIGRATIONS: &[Migration] = &[
             ON transcription_queue(executor, lease_expires_at, status);
         "#,
     ),
+    // Migration 130: rich source associations for learning objects (Task 2.4 / OpenSpec D4/D5).
+    Migration::new(
+        "130_add_learning_object_sources",
+        r#"
+        CREATE TABLE IF NOT EXISTS learning_object_sources (
+            id TEXT PRIMARY KEY NOT NULL,
+            target_kind TEXT NOT NULL CHECK(target_kind IN ('card', 'extract')),
+            target_id TEXT NOT NULL,
+            session_id TEXT,
+            document_id TEXT NOT NULL,
+            evidence_json TEXT NOT NULL,
+            evidence_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_learning_object_sources_unique
+            ON learning_object_sources(target_kind, target_id, evidence_hash);
+
+        CREATE INDEX IF NOT EXISTS idx_learning_object_sources_target
+            ON learning_object_sources(target_kind, target_id);
+
+        CREATE INDEX IF NOT EXISTS idx_learning_object_sources_session
+            ON learning_object_sources(session_id);
+
+        CREATE INDEX IF NOT EXISTS idx_learning_object_sources_document
+            ON learning_object_sources(document_id);
+        "#,
+    ),
+    // Migration 131: AI learning analysis pipeline and safe staging drafts (Task 3.1 / OpenSpec D4).
+    Migration::new(
+        "131_add_session_analysis_pipeline",
+        r#"
+        CREATE TABLE IF NOT EXISTS session_analysis_runs (
+            id TEXT PRIMARY KEY NOT NULL,
+            session_id TEXT NOT NULL REFERENCES recording_sessions(id) ON DELETE CASCADE,
+            transcript_revision INTEGER NOT NULL,
+            profile_hash TEXT NOT NULL,
+            task_version TEXT NOT NULL,
+            generation_epoch TEXT NOT NULL,
+            status TEXT NOT NULL,
+            blocked_reason TEXT,
+            completed_units INTEGER NOT NULL DEFAULT 0,
+            total_units INTEGER NOT NULL DEFAULT 0,
+            lease_owner TEXT,
+            lease_expires_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (session_id, transcript_revision, profile_hash, task_version, generation_epoch)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_session_analysis_runs_session
+            ON session_analysis_runs(session_id, created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_session_analysis_runs_lease
+            ON session_analysis_runs(lease_owner, lease_expires_at, status);
+
+        CREATE TABLE IF NOT EXISTS session_analysis_units (
+            run_id TEXT NOT NULL REFERENCES session_analysis_runs(id) ON DELETE CASCADE,
+            unit_key TEXT NOT NULL,
+            input_hash TEXT NOT NULL,
+            segment_keys_json TEXT NOT NULL,
+            status TEXT NOT NULL,
+            result_json TEXT,
+            attempts INTEGER NOT NULL DEFAULT 0,
+            error_code TEXT,
+            PRIMARY KEY (run_id, unit_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS session_learning_drafts (
+            id TEXT PRIMARY KEY NOT NULL,
+            session_id TEXT NOT NULL REFERENCES recording_sessions(id) ON DELETE CASCADE,
+            run_id TEXT REFERENCES session_analysis_runs(id) ON DELETE SET NULL,
+            kind TEXT NOT NULL CHECK(kind IN ('card', 'extract')),
+            status TEXT NOT NULL CHECK(status IN ('proposed', 'rejected', 'accepted', 'superseded')),
+            revision INTEGER NOT NULL DEFAULT 1,
+            payload_json TEXT NOT NULL,
+            evidence_json TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            concept_key TEXT,
+            duplicate_json TEXT,
+            accepted_target_id TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_session_learning_drafts_unique_run
+            ON session_learning_drafts(session_id, run_id, content_hash, kind)
+            WHERE run_id IS NOT NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_session_learning_drafts_lookup
+            ON session_learning_drafts(session_id, status, created_at, id);
+
+        CREATE INDEX IF NOT EXISTS idx_session_learning_drafts_run
+            ON session_learning_drafts(run_id);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

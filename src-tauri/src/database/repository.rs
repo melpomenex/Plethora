@@ -2432,6 +2432,51 @@ impl Repository {
             .map(serde_json::to_string)
             .transpose()?;
 
+        let mut session_evidence_to_record: Option<(String, Option<String>, String, String)> = None;
+        if let Some(ctx_val) = &extract.selection_context {
+            let is_session = ctx_val.get("type").and_then(|v| v.as_str()) == Some("session_transcript")
+                || ctx_val.get("sessionId").is_some()
+                || ctx_val.get("session_id").is_some();
+            if is_session {
+                let session_id = ctx_val
+                    .get("sessionId")
+                    .or_else(|| ctx_val.get("session_id"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let evidence_json = if let Some(ev) = ctx_val.get("evidence") {
+                    serde_json::to_string(ev)?
+                } else {
+                    serde_json::to_string(ctx_val)?
+                };
+                let evidence_hash = crate::database::LearningObjectSourceRepository::compute_evidence_hash(&evidence_json);
+                session_evidence_to_record = Some((
+                    extract.document_id.clone(),
+                    session_id,
+                    evidence_json,
+                    evidence_hash,
+                ));
+            }
+        }
+
+        // Deduplication check: repeated save request for exact same evidence creates once
+        if let Some((doc_id, _, _, evidence_hash)) = &session_evidence_to_record {
+            let existing_extract_id = sqlx::query_scalar::<_, String>(
+                "SELECT e.id FROM extracts e
+                 JOIN learning_object_sources los ON los.target_id = e.id AND los.target_kind = 'extract'
+                 WHERE e.document_id = ?1 AND los.evidence_hash = ?2 LIMIT 1",
+            )
+            .bind(doc_id)
+            .bind(evidence_hash)
+            .fetch_optional(&self.pool)
+            .await?;
+
+            if let Some(existing_id) = existing_extract_id {
+                if let Some(existing) = self.get_extract(&existing_id).await? {
+                    return Ok(existing);
+                }
+            }
+        }
+
         // Insert the extract and bump the owning document's `extract_count` in
         // the same transaction. Persisting the count here (rather than patching
         // it in-memory on the client) is what keeps the Compact View "Has
@@ -2518,6 +2563,28 @@ impl Repository {
             item_payload,
         )
         .await?;
+
+        if let Some((doc_id, session_id, evidence_json, evidence_hash)) = &session_evidence_to_record {
+            let los_id = uuid::Uuid::new_v4().to_string();
+            let now = chrono::Utc::now().to_rfc3339();
+            sqlx::query(
+                r#"
+                INSERT INTO learning_object_sources (
+                    id, target_kind, target_id, session_id, document_id, evidence_json, evidence_hash, created_at
+                ) VALUES (?1, 'extract', ?2, ?3, ?4, ?5, ?6, ?7)
+                ON CONFLICT(target_kind, target_id, evidence_hash) DO NOTHING
+                "#,
+            )
+            .bind(&los_id)
+            .bind(&extract.id)
+            .bind(session_id.as_deref())
+            .bind(doc_id)
+            .bind(evidence_json)
+            .bind(evidence_hash)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await?;
+        }
 
         tx.commit().await?;
         notify_after_commit();

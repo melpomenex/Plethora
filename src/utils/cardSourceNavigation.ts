@@ -29,6 +29,8 @@
 import type { Extract } from "../api/extracts";
 import { getExtract } from "../api/extracts";
 import { getAiProvenance } from "../api/ai-provenance";
+import { getLearningObjectSources } from "../api/recordingSessions";
+import type { LearningObjectSource, SessionSourceEvidence } from "../types/recordingSession";
 import type { Document } from "../types/document";
 import type { ExactSearchHitLocation } from "../types/searchHit";
 import {
@@ -181,6 +183,29 @@ export function locatorFromSelectionContext(
     return {
       kind: "audio",
       timeSeconds: (context as { audioTimestampSec?: number }).audioTimestampSec as number,
+    };
+  }
+  if (
+    context.type === "session_transcript" ||
+    (context as { kind?: string }).kind === "session_transcript"
+  ) {
+    const sessionCtx = context as Record<string, unknown>;
+    const evidence = sessionCtx.evidence as Record<string, unknown> | undefined;
+    const timeObj = evidence?.time as { startMs?: number; kind?: string } | undefined;
+    const quote =
+      (typeof sessionCtx.selectedText === "string" && sessionCtx.selectedText) ||
+      (typeof evidence?.quote === "string" && evidence.quote) ||
+      undefined;
+    if (timeObj && timeObj.kind !== "none" && typeof timeObj.startMs === "number") {
+      return {
+        kind: "audio",
+        timeSeconds: timeObj.startMs / 1000,
+        textQuote: quote,
+      };
+    }
+    return {
+      kind: "markdown",
+      textQuote: quote,
     };
   }
   return undefined;
@@ -420,6 +445,40 @@ async function resolveFromExtract(
         };
       }
     }
+    if (location.kind === "audio" && location.textQuote) {
+      const matches = countQuoteMatches(document.content ?? "", location.textQuote, undefined);
+      if (matches === 1) {
+        return {
+          status: "ready",
+          confidence: "exact",
+          documentId: document.id,
+          location,
+          highlightQuery: quoteFor(location.textQuote),
+          excerpt,
+          sectionLabel: label,
+        };
+      }
+      if (matches > 1) {
+        return {
+          status: "coarse",
+          reason: "ambiguous",
+          documentId: document.id,
+          location,
+          excerpt,
+          sectionLabel: label,
+        };
+      }
+      if (matches === 0) {
+        return {
+          status: "coarse",
+          reason: "stale",
+          documentId: document.id,
+          location,
+          excerpt,
+          sectionLabel: label,
+        };
+      }
+    }
     return {
       status: "ready",
       confidence: "exact",
@@ -433,9 +492,18 @@ async function resolveFromExtract(
 
   // No structural anchor on the extract: try the constrained quote match.
   if (excerpt) {
+    const matches = countQuoteMatches(document.content ?? "", excerpt, undefined);
+    if (matches > 1) {
+      return {
+        status: "coarse",
+        reason: "ambiguous",
+        documentId: document.id,
+        excerpt,
+        sectionLabel: label,
+      };
+    }
     const matched = await resolveCitationLocation(document, quoteFor(excerpt));
     if (matched) {
-      const matches = countQuoteMatches(document.content ?? "", excerpt, matched);
       if (matches === 1) {
         return {
           status: "ready",
@@ -478,11 +546,116 @@ async function resolveFromExtract(
   };
 }
 
+/** Resolve a rich session source association (Phase 2 Task 2.6). */
+async function resolveFromLearningObjectSource(
+  document: Document,
+  source: LearningObjectSource
+): Promise<CardSourceResolution> {
+  let evidence: SessionSourceEvidence | null = null;
+  try {
+    evidence = JSON.parse(source.evidenceJson) as SessionSourceEvidence;
+  } catch {
+    // Malformed evidence degrades to coarse unlocated
+  }
+
+  const quote = evidence?.quote || "";
+  const excerpt = excerptFor(quote);
+  const time = evidence?.time;
+  const hasTiming = Boolean(time && typeof time.startMs === "number" && (time.kind as string) !== "none");
+
+  const matches = countQuoteMatches(document.content ?? "", quote, undefined);
+
+  if (matches === 1) {
+    const location: ExactSearchHitLocation = hasTiming && time
+      ? {
+          kind: "audio",
+          timeSeconds: time.startMs / 1000,
+          textQuote: quote,
+        }
+      : {
+          kind: "markdown",
+          textQuote: quote,
+        };
+
+    return {
+      status: "ready",
+      confidence: "exact",
+      documentId: document.id,
+      location,
+      highlightQuery: quoteFor(quote),
+      excerpt,
+    };
+  }
+
+  if (matches > 1) {
+    const location: ExactSearchHitLocation = hasTiming && time
+      ? {
+          kind: "audio",
+          timeSeconds: time.startMs / 1000,
+          textQuote: quote,
+        }
+      : {
+          kind: "markdown",
+          textQuote: quote,
+        };
+
+    return {
+      status: "coarse",
+      reason: "ambiguous",
+      documentId: document.id,
+      location,
+      excerpt,
+    };
+  }
+
+  return {
+    status: "coarse",
+    reason: "stale",
+    documentId: document.id,
+    location: hasTiming && time
+      ? {
+          kind: "audio",
+          timeSeconds: time.startMs / 1000,
+        }
+      : undefined,
+    excerpt,
+  };
+}
+
 /**
  * Resolve where a card came from. Never throws: every failure mode resolves
  * to a degradation level the UI can present.
  */
 export async function resolveCardSource(item: CardSourceProbe): Promise<CardSourceResolution> {
+  // 0. Rich learning object source association lookup (Task 2.4 / 2.6)
+  try {
+    let sources: LearningObjectSource[] = [];
+    if (item.id) {
+      sources = await getLearningObjectSources("card", item.id);
+    }
+    if (sources.length === 0 && item.extract_id) {
+      sources = await getLearningObjectSources("extract", item.extract_id);
+    }
+    if (sources.length > 0 && sources[0]) {
+      const source = sources[0];
+      const document = await findDocument(source.documentId);
+      if (!document) {
+        let quote = "";
+        try {
+          quote = (JSON.parse(source.evidenceJson) as SessionSourceEvidence)?.quote || "";
+        } catch {}
+        return {
+          status: "unavailable",
+          reason: "document-missing",
+          excerpt: excerptFor(quote),
+        };
+      }
+      return await resolveFromLearningObjectSource(document, source);
+    }
+  } catch {
+    // Association lookup failure degrades cleanly into normal ladder
+  }
+
   // 1. Extract-backed cards anchor through the extract.
   if (item.extract_id) {
     const extract = await getExtract(item.extract_id).catch(() => null);

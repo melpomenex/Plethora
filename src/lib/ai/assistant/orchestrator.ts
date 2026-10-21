@@ -221,7 +221,13 @@ export async function runAssistantTurn(
       retrieveChunks: request.sourceId ? async () => {
         const [{ retrieveFromLibrary }, { resolveEmbeddingConfigForRag }] = await Promise.all([import("../../../api/ai-learning"), import("../../../components/assistant/ragConfig")]);
         const result = await retrieveFromLibrary(request.userQuestion, { filters: { documentIds: [request.sourceId!] }, k: 12, config: await resolveEmbeddingConfigForRag().catch(() => undefined), includeSpotlight: false });
-        return result.results.filter((hit) => hit.documentId === request.sourceId && hit.location.timestampMs != null).map((hit) => ({ text: hit.text, start: hit.location.timestampMs! / 1000, end: (hit.location.endTimestampMs ?? hit.location.timestampMs! + 90000) / 1000, score: hit.score }));
+        return result.results
+          .filter((hit) => hit.documentId === request.sourceId && (hit.location.timestampMs != null || hit.location.startMs != null))
+          .map((hit) => {
+            const startMs = hit.location.startMs ?? hit.location.timestampMs ?? 0;
+            const endMs = hit.location.endMs ?? hit.location.endTimestampMs ?? (startMs + 90000);
+            return { text: hit.text, start: startMs / 1000, end: endMs / 1000, score: hit.score };
+          });
       } : undefined,
       summarize: async (text, maxOutputTokens) => {
         const args = {

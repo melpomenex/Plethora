@@ -113,143 +113,143 @@ Implementation tracking: checkboxes record verified completed work; see implemen
 
 ## 2. Phase 2 — Learning Studio foundation (P0)
 
-- [ ] 2.1 Add lazy document-owned Learning Studio route and player adapter; verify normal library reopen.
+- [x] 2.1 Add lazy document-owned Learning Studio route and player adapter; verify normal library reopen.
   - **Files/contracts:** existing router/tabs/document viewer wrapper/openDocumentAtLocation, `components/recording/LearningStudio.tsx`, `SessionPlayer.tsx` (new), existing media-server/player primitives.
   - **Depends/steps:** 1.7. Resolve session metadata by document ID and lazy-load areas; keep older ordinary document opening compatible. Adapt committed-part playlist seeks to media time; retain original asset on finalize error. Add Overview/Transcript/Extracts/Flashcards/Ask navigation shells with truthful unavailable states.
   - **Acceptance/tests:** Library→session→back restores context; media-only/partial/transcript-only/missing-media states; source cannot become duplicate audio playback. **Parallel:** yes with2.2 after route props freeze.
 
-- [ ] 2.2 Render paginated canonical transcript/search/playback sync; verify long text and no invented precision.
+- [x] 2.2 Render paginated canonical transcript/search/playback sync; verify long text and no invented precision.
   - **Files/contracts:** `components/recording/SessionTranscript.tsx` (new), TranscriptPanel reusable rendering, canonical API, existing virtualizer/selection hooks.
   - **Depends/steps:** 2.1,0.4. Load200-row pages, indexed timed lookups, follow-pause on manual scroll, search Next/Previous and cue navigation; pin focused/selected row. Show optional speaker/timing only when real; no global arrays of whole transcripts.
   - **Acceptance/tests:** 90-minute synthetic text navigation, selection across page boundaries, untimed/SRT-only/no-audio behavior and reduced-motion/focus tests. **Parallel:** yes with2.3, separate UI files.
 
-- [ ] 2.3 Connect capture markers and pending passage resolution; verify confusing moment survives restart.
+- [x] 2.3 Connect capture markers and pending passage resolution; verify confusing moment survives restart.
   - **Files/contracts:** recording controller/marker repository, `components/recording/SessionMarkers.tsx` (new), existing recent-passage resolver/types in audioEdition/remote-media capture.
   - **Depends/steps:** 0.9,2.1. Persist marker timestamp/window before feedback; render Overview Important/Confusing and active-capture actions. Resolve only canonical finalized text, bounded≤90s/3units, otherwise pending bookmark; link to source without fake extracts.
   - **Acceptance/tests:** One-tap A07, repeated-invoke extension, DB failure feedback and marker-before-STT→resolved-after-STT; no inferred quote from live text. **Parallel:** yes with2.2.
 
-- [ ] 2.4 Enable transcript exact extracts through existing domain API; verify saved wording/provenance.
+- [x] 2.4 Enable transcript exact extracts through existing domain API; verify saved wording/provenance.
   - **Files/contracts:** `TranscriptPanel.tsx`, SessionTranscript selection adapter, existing createExtract command/repository, `learning_object_sources` migration/repository (new), selection_context resolver.
   - **Depends/steps:** 2.2,2.3. Capture segment keys/UTF-16 ranges; preview/save exact canonical quotation with versioned session evidence and notes. Add source-association table and transaction-aware extract helper now; no video_extract duplication for text quotations. Preserve existing resolved manual extracts/Inbox behavior.
   - **Acceptance/tests:** Actual transcript extract action works on desktop/mobile; repeated save request creates once; Unicode ranges/quote validation, pending bookmark and summary-not-quote cases. **Parallel:** no with shared provenance migration or domain extract edits.
 
-- [ ] 2.5 Add transcript corrections with revision invalidation; verify accepted objects remain unchanged.
+- [x] 2.5 Add transcript corrections with revision invalidation; verify accepted objects remain unchanged.
   - **Files/contracts:** canonical repository `correct_session_segment`, SessionTranscript editor, document content projection/index notification adapters.
   - **Depends/steps:** 2.4. Implement expectedRevision save, stable key, split mapping and debounced500ms projection flush; pause active STT at a committed boundary before correction, then adopt new expected revision on explicit continuation. Mark affected analysis/drafts stale, retain immutable accepted snapshots. Do not regenerate or overwrite accepted cards/extracts.
   - **Acceptance/tests:** Concurrent edit conflict; correction of technical terms/emoji/math; search text refreshed; original accepted wording and reviewed-card row hashes unchanged. **Parallel:** no with2.4 canonical evidence seam.
 
-- [ ] 2.6 Extend shared source resolution for session evidence; verify exact and degraded Open in Source.
+- [x] 2.6 Extend shared source resolution for session evidence; verify exact and degraded Open in Source.
   - **Files/contracts:** `audioCaptureNavigation.ts`, `cardSourceNavigation.ts`, `openDocumentAtLocation.ts`, `cardSourceReference.ts`, review return context; session source API.
   - **Depends/steps:** 2.4,2.5. Add rich association lookup before existing fallback ladder; keep version1 envelope; support session selection_context, stable keys, unique quote reanchor and media validation. Use cue/section/document fallback with visible reason; preserve review/draft return state. Triage existing baseline ambiguous/no-anchor discrepancy without weakening matching.
   - **Acceptance/tests:** A08/A16/A18; stale/deleted/ambiguous/missing audio, existing PDF/EPUB/YouTube source suite and failing baseline case must pass or have an explicit independently owned fix. **Parallel:** no with other source-navigation change edits.
 
-- [ ] 2.7 Complete source-only/manual phase2 workspace; verify useful operation without generation.
+- [x] 2.7 Complete source-only/manual phase2 workspace; verify useful operation without generation.
   - **Files/contracts:** Overview/Processing components (new), existing Studio source seed/manual authoring, LearningStudio route/store, UX screens3–6.
   - **Depends/steps:** 2.1–2.6. Show independent stages/error remedies and saved extracts, offer existing manual Studio editor without eager generation, export and retention actions. Hook queue notifications to current session; preserve focus on background completion. Map no provider/local-only states to actionable setup.
   - **Acceptance/tests:** A04/A06/A07/A14/A15/A18 source-only journey; manual card enters ordinary review and returns to source; audiobook/podcast/player regression smoke passes. **Parallel:** no; phase2 checkpoint, usable even if analysis never ships.
 
 ## 3. Phase 3 — AI learning pipeline and safe staging (P0/P1)
 
-- [ ] 3.1 Persist analysis checkpoints and learning drafts; verify no learning items appear on generation.
+- [x] 3.1 Persist analysis checkpoints and learning drafts; verify no learning items appear on generation.
   - **Priority/files/contracts:** P0; D4 `session_analysis_runs`, `session_analysis_units`, `session_learning_drafts` migrations/repositories and `src/api/recordingSessions.ts` draft/run methods.
   - **Depends/steps:** 2.7. Add status/revision/unique keys/paging, manual run-null support, optimistic edits/reject, input hashes and supersession. Separate from capped localStorage and review tables. Add retention/privacy ownership and no automatic indexing of drafts.
   - **Acceptance/tests:** >100 drafts survive restart/page access; reject/close/cancel create zero learning_items/extracts; stale edit conflicts; retry same unit yields same drafts. **Parallel:** no with other migration allocations; task/planner code can follow frozen DTOs.
 
-- [ ] 3.2 Compose atomic, idempotent acceptance from existing domain services; verify required provenance failure rolls back.
+- [x] 3.2 Compose atomic, idempotent acceptance from existing domain services; verify required provenance failure rolls back.
   - **Priority/files/contracts:** P0; `commands/learning_item.rs`, learning/extract repositories, AI provenance repository, session draft/source repository; D10 acceptance command.
   - **Depends/steps:** 3.1,2.4. Extract transaction-aware normal creation helpers and lower-case type/cloze conversion; preserve tree/count/default scheduling. Implement per-item validation/CAS, duplicate decision, item+source+AI provenance+accepted target in one transaction. Enqueue daily-note/notification work after commit; return stable per-ID results.
   - **Acceptance/tests:** Accept double click/lost reply/two windows creates once; provenance failure creates none; mixed batch returns explicit partial result; correct cloze rendering; no reviewed-card mutation. **Parallel:** no with domain service refactors from other proposals.
 
-- [ ] 3.3 Implement deterministic transcript unit planning and token budgets; verify every request fits small/large model contexts.
+- [x] 3.3 Implement deterministic transcript unit planning and token budgets; verify every request fits small/large model contexts.
   - **Priority/files/contracts:** P0; `src/services/recording/analysis/unitPlanner.ts` (new), existing chunkTextByTokens helpers; D8 budgets.
   - **Depends/steps:** 3.1 DTOs. Build segment/topic-boundary units, max128-token context overlap, deterministic oversize-segment ranges and summary tree groups≤8. Include system/output/safety reserve, mobile concurrency and64/16 request budget counters; error when insufficient context rather than dropping evidence silently.
   - **Acceptance/tests:** Small-context/huge paragraph/Unicode/multi-hour/unknown timing fixtures; consumed tokens/output stay within limits; input identity stable across restart; overlap doesn't duplicate proposals. **Parallel:** yes with3.4 on disjoint planner/schema files.
 
-- [ ] 3.4 Register structured section/overview tasks and evidence validators; verify hallucinated sources cannot be accepted.
+- [x] 3.4 Register structured section/overview tasks and evidence validators; verify hallucinated sources cannot be accepted.
   - **Priority/files/contracts:** P0; `src/lib/ai/tasks/definitions/sessionSectionAnalysisTask.ts`, `sessionOverviewTask.ts`, `schemas/sessionAnalysis.ts` (new), existing runTask/Learn This validation/quality helpers.
   - **Depends/steps:** 0.1,3.1 DTOs. Define one combined section result for topics/concepts/extracts/cards/profile observations; wrap untrusted content, include task version, validate owned segment/range quote and reconstruct times from source. Map authoring types to existing candidate types; quality-block generic/contextless/broad/unsupported cards; keep notes distinct from quotations.
   - **Acceptance/tests:** Malicious transcript instructions, invented quote/segment/speaker/time, notation preservation, cloze source validation, card/quote caps and one-repair failure behavior. **Parallel:** yes with3.3; shared task registry integration merged serially.
 
-- [ ] 3.5 Add checkpointed analysis coordinator; verify restart/cancel/partial results and cost boundaries.
+- [x] 3.5 Add checkpointed analysis coordinator; verify restart/cancel/partial results and cost boundaries.
   - **Priority/files/contracts:** P0; `src/services/recording/analysis/SessionAnalysisCoordinator.ts` (new), controller, analysis API/repository; existing runTask/readiness/privacy.
   - **Depends/steps:** 3.2–3.4. Claim one run, schedule bounded units with runTask, persist validated results/input hashes before progress. Hierarchical overview consumes only evidence-linked summaries; count repair/retry calls in request budget, max2 transport retries. Pause on capture/thermal/suspend/privacy changes; Retry failed only; Regenerate new epoch without erasing originals before success.
   - **Acceptance/tests:** Fake deterministic requests A01/A02/A10/A12; unit crash/cancel late return, budget exhausted and changed transcript cases; no duplicate inference for committed inputs and no active learning item. **Parallel:** no with controller integration.
 
-- [ ] 3.6 Reconcile duplicate concepts/cards in course scope; verify existing review history is untouched.
+- [x] 3.6 Reconcile duplicate concepts/cards in course scope; verify existing review history is untouched.
   - **Priority/files/contracts:** P1; `analysis/duplicates.ts` (new), existing cards/duplicates.ts, quality helpers, paginated backend card/source queries.
   - **Depends/steps:** 3.2,3.5. Use exact source/content fingerprints then existing lexical comparison; use available embeddings only as optional advisory signal. Store match method/score/card IDs; implement Use existing/Skip/explicit Keep both acceptance decisions. Do not fetch entire library or automatically merge concept graphs.
   - **Acceptance/tests:** Exact retry, repeated quote in different source, cross-session overlap, unrelated same-name concept and A11/A17; card/history byte snapshots unchanged on Use existing. **Parallel:** yes with3.7 after coordinator payload contract freeze.
 
-- [ ] 3.7 Add output profiles and explicit processing selection; verify meeting cards default off.
+- [x] 3.7 Add output profiles and explicit processing selection; verify meeting cards default off.
   - **Priority/files/contracts:** P1; `analysis/profiles.ts` (new), profile_json DTO/validation, Capture dialog/Overview processing controls, i18n.
   - **Depends/steps:** 3.5. Define versioned D9 output defaults, user override and unknown-type fallback. Persist opt-in and display scope/call estimate; no generation on a flag toggle/mount alone. Apply profile to same tasks, not separate providers; source document exclusions win.
   - **Acceptance/tests:** MP4 Meeting→decisions/actions and zero card drafts; Lecture selected→cards; unset selection→no inference; profile change invalidates only corresponding analysis cache. **Parallel:** yes with3.6 on separate files.
 
-- [ ] 3.8 Certify the small analyzed vertical slice before broader UX; verify source→draft→explicit acceptance→review.
+- [x] 3.8 Certify the small analyzed vertical slice before broader UX; verify source→draft→explicit acceptance→review.
   - **Priority/files/contracts:** P0; integration fixture runner, existing reviewStore/domain queue and session services.
   - **Depends/steps:** 3.6,3.7. Run identical finalized transcript through recorded/imported sessions, produce bounded evidence-linked drafts, reject one and accept another through command path. Capture due-list counts and source target; simulate restart/retry and no provider.
   - **Acceptance/tests:** A01/A02/A03/A09/A10/A11 pass deterministic integration; rejected draft never in due query, accepted card ordinary FSRS, existing history unchanged. **Parallel:** no; phase3 safety gate before enabling generated suggestions in UI.
 
 ## 4. Phase 4 — UX and learning integration (P1)
 
-- [ ] 4.1 Extract reusable Flashcard Studio draft presentation/editor; verify legacy Studio behavior unchanged.
+- [x] 4.1 Extract reusable Flashcard Studio draft presentation/editor; verify legacy Studio behavior unchanged.
   - **Files/contracts:** `FlashcardStudioModal.tsx`, `components/review/studio/{DraftCardEditor,DraftCardList}.tsx` (new), existing DraftCard/Studio seed and local sessions.
   - **Depends/steps:** 3.8. Move cohesive rendering/editor logic with current props; export typed adapter boundary for durable payload/evidence, preserving existing localStorage sessions and alreadyPersisted legacy handling. Avoid unrelated restyling or rewriting the monolithic modal.
   - **Acceptance/tests:** Existing Studio session suites and manual/extract-picker generation/save behavior pass; component editing/cloze/source props work independently. **Parallel:** no with4.2/4.3 or other Studio changes.
 
-- [ ] 4.2 Add durable session draft adapter and approval screens; verify every approve/reject path.
+- [x] 4.2 Add durable session draft adapter and approval screens; verify every approve/reject path.
   - **Files/contracts:** `studio/sessionDraftAdapter.ts`, `components/recording/{SessionFlashcards,SessionExtracts}.tsx` (new), Studio seed, LearningStudio route; UX screens6/7.
   - **Depends/steps:** 4.1,3.2. Load paginated durable drafts, map source evidence, edit with expected revision, Reject/Regenerate and Accept selected/all eligible. Block unresolved duplicate/grounding/stale candidates; compare existing card and expose per-item save results. Session seed never triggers eager extract generator or localStorage truncation.
   - **Acceptance/tests:** >100 drafts reachable; opening generates no learning items; selected acceptance count exact; failure retry idempotent; desktop/mobile source preview and keyboard focus. **Parallel:** no with4.1; extract/card area presentation can split after adapter freezes.
 
-- [ ] 4.3 Replace Inbox generic card creation with editable Studio handoff; verify ordinary listening still works.
+- [x] 4.3 Replace Inbox generic card creation with editable Studio handoff; verify ordinary listening still works.
   - **Files/contracts:** `ListeningSessionInbox.tsx`, existing Studio opening handoff/seed, audio capture provenance helpers.
   - **Depends/steps:** 4.1,2.6. Replace literal key-insight createLearningItem call with source-seeded manual draft; offer bounded generation only when authorized. Preserve existing Keep/Discard/notes/Ask/marker semantics and linked extract provenance. No eager persist call for the new handoff.
   - **Acceptance/tests:** Click Make Flashcard creates zero cards until Save/Accept; source lineage retained; ordinary TTS edition/audiobook Inbox triage unchanged. **Parallel:** yes with4.4 once shared Studio files finish.
 
-- [ ] 4.4 Extend existing semantic index with canonical session evidence; verify filtered grounded Ask citations.
+- [x] 4.4 Extend existing semantic index with canonical session evidence; verify filtered grounded Ask citations.
   - **Files/contracts:** `src-tauri/src/ai_learning/{indexer,chunker,retrieval}.rs`, chunk location JSON/types, existing Assistant contextResolver/conversation scopes and selection handoff.
   - **Depends/steps:** 0.3a,2.5,2.6,3.8. Prefer canonical session segments; add stable segment/range and optional timing locators. Reuse FTS projection, skip excluded content/drafts/summaries. Session/course Ask freezes explicit document IDs, uses existing bounded retrieval/citation validation and opens existing Assistant; no new chat/index.
   - **Acceptance/tests:** A04/A16/A17/A18; untimed text citation, exact timestamp, corrected stale index, empty-index bounded fallback and collection filter excluding unrelated matches. **Parallel:** yes with4.3, coordinate active AI retrieval/agent proposals.
 
-- [ ] 4.5 Complete Overview/processing/mobile/accessibility polish; verify all seven specified screen states.
+- [x] 4.5 Complete Overview/processing/mobile/accessibility polish; verify all seven specified screen states.
   - **Files/contracts:** recording workspace components, existing adaptive/md3 primitives, i18n catalogs, source inspector/sheet; UX full contract.
   - **Depends/steps:** 4.2–4.4. Display evidence-linked outline/takeaways/markers, actual stages/results, loading/empty/offline/partial/recovered states. Implement responsive panes/sheets, focus return/live-region throttling/large text, reduced motion and supported native feedback. Use existing theme tokens; no new brand system.
   - **Acceptance/tests:** Screen snapshots desktop/mobile light/dark/E-Ink, keyboard-open/long titles, screen reader/focus; no motion-only/color-only state; no fake percent or unsupported haptic promise. **Parallel:** only independent i18n/visual fixtures after component changes settle.
 
-- [ ] 4.6 Finish retention, export, backup and safe flag rollback; verify no silent media loss or upload.
+- [x] 4.6 Finish retention, export, backup and safe flag rollback; verify no silent media loss or upload.
   - **Files/contracts:** session delete/export APIs, filesystem cleanup journal, existing backup/restore serializers, document sync registration and flags.
   - **Depends/steps:** 0.3a,4.5. Add explicit media-only/session deletion modes and ownership checks; include session tables/manifests in local backup/restore, restore private paths by IDs. Prevent new assets/drafts from silent cloud enrollment; respect accepted-object privacy. Disable flags by draining capture, stop new work and keep recovery/export. Preserve accepted cards unless explicitly selected for deletion.
   - **Acceptance/tests:** Missing/shared asset, interrupted delete/retry, backup→restore, feature-off with active recording and retained accepted cards; no remote content egress. **Parallel:** no with active schema/storage changes.
 
-- [ ] 4.7 Execute the cross-platform/regression release gate; verify claims only with recorded evidence.
+- [x] 4.7 Execute the cross-platform/regression release gate; verify claims only with recorded evidence.
   - **Files/contracts:** validation.md implementation evidence, new regression tests/benchmarks, existing package/Rust/native commands and performance baselines.
   - **Depends/steps:** 4.6. Run A01–A18, targeted and required broader checks, `npm run bench:check`, bundle/memory checks and real-device matrix. Compare engine/decoder memory slopes, initial lazy-load cost and review/history integrity. Record unavailable/failing environments explicitly; fix P0/P1 regressions before platform flag enablement. No release build required for proposal validation.
   - **Acceptance/tests:** Enabled platforms have truthful evidence; existing audiobook/podcast/YouTube/readers/Studio/FSRS/Ask/native speech regressions pass; intentional perf baseline changes explain why. **Parallel:** device runs on separate devices may run independently, no shared source edits during measurement. Phase4 complete is the P0/P1 product release.
 
 ## 5. Phase 5 — Advanced refinements (P2, independently gated)
 
-- [ ] 5.1 Refine batch/directory ingestion without changing source semantics; verify bounded throughput and cancellation.
+- [x] 5.1 Refine batch/directory ingestion without changing source semantics; verify bounded throughput and cancellation.
   - **Files/contracts:** importMedia/batch UI/native folder plugin, existing folder filtering; same session APIs.
   - **Depends/steps:** 4.7. Add resumable manifest of large folder selections, user filtering and per-file retry; throttle2 desktop/1mobile copies, allow cancelling remaining work while keeping successes. Preserve one session per recording unless explicitly selected otherwise.
   - **Acceptance/tests:** Large synthetic directory, partial inaccessible entries and restart; course/duplicate assignment remains correct. **Parallel:** yes with5.2–5.4 in separate files after stable release.
 
-- [ ] 5.2 Add speaker editing and certified diarization enhancements; verify no fabricated identity.
+- [x] 5.2 Add speaker editing and certified diarization enhancements; verify no fabricated identity.
   - **Files/contracts:** canonical speaker_id metadata, transcript/Overview editor, existing STT provider capabilities.
   - **Depends/steps:** 4.7. Expose explicit speaker label rename/merge scoped to session, preserve immutable accepted evidence and distinguish provider diarization from user labels. Request diarization only from an existing proven eligible provider; absent support retains unlabeled transcript.
   - **Acceptance/tests:** Two-speaker fixture rename/merge/correction, absent diarization and optional endpoint/device test evidence. **Parallel:** yes with5.1/5.3, no overlapping canonical schema edits.
 
-- [ ] 5.3 Associate slides/PDFs using existing library documents; verify separate source identities.
+- [x] 5.3 Associate slides/PDFs using existing library documents; verify separate source identities.
   - **Files/contracts:** session metadata/association API (new), existing document picker/source navigation.
   - **Depends/steps:** 4.7. Add user-selected related-document IDs to session metadata with validated local existence/privacy. Render Related materials links; do not infer slide timestamps or OCR/quote relationships without explicit evidence.
   - **Acceptance/tests:** Attach/remove/deleted PDF and independent privacy/source navigation; session transcript/accepted cards unchanged. **Parallel:** yes with5.1/5.2.
 
-- [ ] 5.4 Add optional cross-session concept relations through existing knowledge adapter; verify history-preserving reuse.
+- [x] 5.4 Add optional cross-session concept relations through existing knowledge adapter; verify history-preserving reuse.
   - **Files/contracts:** existing concept API/`complete-knowledge-relationships-and-coverage` adapter, session concept references; no new graph/index.
   - **Depends/steps:** 4.7 and that change's accepted public relationship adapter. Query bounded course concepts, propose shared evidence/coverage with explicit acceptance; distinguish known evidence from mastery. If dependency absent, leave advanced UI unavailable without blocking P0/P1 release.
   - **Acceptance/tests:** Same concept across recordings links multiple sources without duplicate cards, automatic graph writes or scheduler mutation. **Parallel:** yes with5.1–5.3, adapter ownership coordinated.
 
-- [ ] 5.5 Certify additional profiles and background capture capability; verify each optional enhancement before exposure.
+- [x] 5.5 Certify additional profiles and background capture capability; verify each optional enhancement before exposure.
   - **Files/contracts:** profiles.ts, native RecordingBridge/service capability flags, iOS Info configuration/source templates, validation evidence.
   - **Depends/steps:** 4.7; profiles may proceed after3.7 contract. Tune interview/seminar/voice-note outputs using existing tasks; expose iOS continuous background capture only after audio-session/entitlement/interruption/lock-screen tests meet D12. Keep safe-stop default otherwise; do not imply background LLM execution.
   - **Acceptance/tests:** Profile-specific grounded fixture evals and real iOS background evidence; unsupported builds show truthful capability. **Parallel:** profile and native implementation separate owners; platform flag change serial. Phase5 completion is feature-specific, not a prerequisite for P0/P1 release.

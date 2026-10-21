@@ -21,6 +21,14 @@ pub async fn get_recording_session(
 }
 
 #[tauri::command]
+pub async fn find_session_by_document_id(
+    document_id: String,
+    repo: State<'_, Repository>,
+) -> Result<Option<RecordingSession>, SessionOperationError> {
+    repo.find_session_by_document_id(&document_id).await
+}
+
+#[tauri::command]
 pub async fn find_session_by_media_hash(
     sha256: String,
     collection_id: Option<String>,
@@ -58,6 +66,17 @@ pub async fn update_recording_session_profile(
 }
 
 #[tauri::command]
+pub async fn update_recording_session_overview(
+    id: String,
+    overview_json: String,
+    overview_revision: i64,
+    repo: State<'_, Repository>,
+) -> Result<RecordingSession, SessionOperationError> {
+    repo.update_recording_session_overview(&id, &overview_json, overview_revision)
+        .await
+}
+
+#[tauri::command]
 pub async fn get_session_segments(
     id: String,
     cursor: Option<String>,
@@ -74,6 +93,15 @@ pub async fn get_session_document_privacy(
     repo: State<'_, Repository>,
 ) -> Result<SessionDocumentPrivacy, SessionOperationError> {
     repo.get_session_document_privacy(&id).await
+}
+
+#[tauri::command]
+pub async fn get_recording_asset(
+    session_id: String,
+    asset_id: String,
+    repo: State<'_, Repository>,
+) -> Result<SessionMediaAsset, SessionOperationError> {
+    repo.get_recording_asset(&session_id, &asset_id).await
 }
 
 #[tauri::command]
@@ -220,3 +248,235 @@ pub async fn import_session_transcript(
     repo.import_session_transcript(&session_id, &segments).await
 }
 
+#[tauri::command]
+pub async fn create_session_marker(
+    session_id: String,
+    kind: SessionMarkerKind,
+    media_ms: i64,
+    window_ms: Option<i64>,
+    note: Option<String>,
+    repo: State<'_, Repository>,
+) -> Result<RecordingSessionMarker, SessionOperationError> {
+    repo.create_or_extend_session_marker(&session_id, kind, media_ms, window_ms, note).await
+}
+
+#[tauri::command]
+pub async fn list_session_markers(
+    session_id: String,
+    repo: State<'_, Repository>,
+) -> Result<Vec<RecordingSessionMarker>, SessionOperationError> {
+    repo.list_session_markers(&session_id).await
+}
+
+#[tauri::command]
+pub async fn resolve_session_markers(
+    session_id: String,
+    repo: State<'_, Repository>,
+) -> Result<Vec<RecordingSessionMarker>, SessionOperationError> {
+    repo.resolve_pending_markers_for_session(&session_id).await
+}
+
+#[tauri::command]
+pub async fn correct_session_segment(
+    session_id: String,
+    segment_key: String,
+    expected_revision: i64,
+    text: String,
+    split_metadata_json: Option<String>,
+    repo: State<'_, Repository>,
+) -> Result<i64, SessionOperationError> {
+    repo.correct_session_segment(
+        &session_id,
+        &segment_key,
+        expected_revision,
+        &text,
+        split_metadata_json.as_deref(),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn create_session_analysis_run(
+    input: CreateSessionAnalysisRun,
+    repo: State<'_, Repository>,
+) -> Result<SessionAnalysisRun, SessionOperationError> {
+    repo.create_session_analysis_run(&input).await
+}
+
+#[tauri::command]
+pub async fn get_session_analysis_run(
+    run_id: String,
+    repo: State<'_, Repository>,
+) -> Result<Option<SessionAnalysisRun>, SessionOperationError> {
+    repo.get_session_analysis_run(&run_id).await
+}
+
+#[tauri::command]
+pub async fn upsert_session_analysis_unit(
+    input: UpsertSessionAnalysisUnit,
+    repo: State<'_, Repository>,
+) -> Result<SessionAnalysisUnit, SessionOperationError> {
+    repo.upsert_session_analysis_unit(&input).await
+}
+
+#[tauri::command]
+pub async fn list_session_analysis_units(
+    run_id: String,
+    repo: State<'_, Repository>,
+) -> Result<Vec<SessionAnalysisUnit>, SessionOperationError> {
+    repo.list_session_analysis_units(&run_id).await
+}
+
+#[tauri::command]
+pub async fn create_session_learning_draft(
+    input: CreateSessionLearningDraft,
+    repo: State<'_, Repository>,
+) -> Result<SessionLearningDraft, SessionOperationError> {
+    repo.create_session_learning_draft(&input).await
+}
+
+#[tauri::command]
+pub async fn get_session_learning_draft(
+    draft_id: String,
+    repo: State<'_, Repository>,
+) -> Result<Option<SessionLearningDraft>, SessionOperationError> {
+    repo.get_session_learning_draft(&draft_id).await
+}
+
+#[tauri::command]
+pub async fn list_session_learning_drafts(
+    session_id: String,
+    status: Option<String>,
+    kind: Option<String>,
+    cursor: Option<String>,
+    limit: Option<i64>,
+    repo: State<'_, Repository>,
+) -> Result<SessionLearningDraftPage, SessionOperationError> {
+    repo.list_session_learning_drafts(
+        &session_id,
+        status.as_deref(),
+        kind.as_deref(),
+        cursor.as_deref(),
+        limit,
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn update_session_learning_draft(
+    update: UpdateSessionLearningDraft,
+    repo: State<'_, Repository>,
+) -> Result<SessionLearningDraft, SessionOperationError> {
+    repo.update_session_learning_draft(&update).await
+}
+
+#[tauri::command]
+pub async fn reject_session_learning_drafts(
+    session_id: String,
+    draft_ids: Vec<String>,
+    repo: State<'_, Repository>,
+) -> Result<i64, SessionOperationError> {
+    repo.reject_session_learning_drafts(&session_id, &draft_ids).await
+}
+
+#[tauri::command]
+pub async fn accept_session_drafts(
+    input: AcceptSessionDraftsInput,
+    repo: State<'_, Repository>,
+) -> Result<AcceptSessionDraftsResponse, SessionOperationError> {
+    repo.accept_session_drafts(&input).await
+}
+
+#[tauri::command]
+pub async fn delete_session_media(
+    session_id: String,
+    expected_version: i64,
+    app_handle: tauri::AppHandle,
+    repo: State<'_, Repository>,
+) -> Result<DeleteSessionMediaResult, SessionOperationError> {
+    use tauri::Manager;
+    let data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|_| SessionOperationError::source_unavailable())?;
+    repo.delete_session_media(&data_dir, &session_id, expected_version).await
+}
+
+#[tauri::command]
+pub async fn delete_recording_session(
+    session_id: String,
+    expected_version: i64,
+    delete_document: Option<bool>,
+    app_handle: tauri::AppHandle,
+    repo: State<'_, Repository>,
+) -> Result<DeleteRecordingSessionResult, SessionOperationError> {
+    use tauri::Manager;
+    let data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|_| SessionOperationError::source_unavailable())?;
+    repo.delete_recording_session(
+        &data_dir,
+        &session_id,
+        expected_version,
+        delete_document.unwrap_or(false),
+    )
+    .await
+}
+
+#[tauri::command]
+pub async fn process_cleanup_journal(
+    app_handle: tauri::AppHandle,
+    repo: State<'_, Repository>,
+) -> Result<CleanupJournalResult, SessionOperationError> {
+    use tauri::Manager;
+    let data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|_| SessionOperationError::source_unavailable())?;
+    repo.process_cleanup_journal(&data_dir).await
+}
+
+#[tauri::command]
+pub async fn update_session_speaker(
+    session_id: String,
+    from_speaker_id: String,
+    to_speaker_id: Option<String>,
+    repo: State<'_, Repository>,
+) -> Result<usize, SessionOperationError> {
+    repo.update_session_speaker(&session_id, &from_speaker_id, to_speaker_id.as_deref()).await
+}
+
+#[tauri::command]
+pub async fn list_session_speakers(
+    session_id: String,
+    repo: State<'_, Repository>,
+) -> Result<Vec<String>, SessionOperationError> {
+    repo.list_session_speakers(&session_id).await
+}
+
+#[tauri::command]
+pub async fn associate_session_document(
+    session_id: String,
+    document_id: String,
+    repo: State<'_, Repository>,
+) -> Result<Vec<SessionRelatedDocument>, SessionOperationError> {
+    repo.associate_session_document(&session_id, &document_id).await
+}
+
+#[tauri::command]
+pub async fn disassociate_session_document(
+    session_id: String,
+    document_id: String,
+    repo: State<'_, Repository>,
+) -> Result<Vec<SessionRelatedDocument>, SessionOperationError> {
+    repo.disassociate_session_document(&session_id, &document_id).await
+}
+
+#[tauri::command]
+pub async fn list_session_related_documents(
+    session_id: String,
+    repo: State<'_, Repository>,
+) -> Result<Vec<SessionRelatedDocument>, SessionOperationError> {
+    repo.list_session_related_documents(&session_id).await
+}

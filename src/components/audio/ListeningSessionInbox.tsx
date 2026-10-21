@@ -37,7 +37,7 @@ import {
   deleteListeningSessionItem,
 } from "../../api/listeningSessions";
 import { getExtract, deleteExtract } from "../../api/extracts";
-import { createLearningItem } from "../../api/learning-items";
+import { FlashcardStudioModal, type FlashcardStudioSeed } from "../review/FlashcardStudioModal";
 import { formatAudioDuration } from "../../utils/audioEditionEstimation";
 import { useToast } from "../common/Toast";
 import { SESSION_ITEM_NOTE_PREFIXES } from "../../utils/remoteMediaDispatcher";
@@ -71,6 +71,8 @@ export function ListeningSessionInbox({ isOpen, onClose }: ListeningSessionInbox
   const [activeNoteItemId, setActiveNoteItemId] = useState<string | null>(null);
   const [noteText, setNoteText] = useState("");
   const [busyItemId, setBusyItemId] = useState<string | null>(null);
+  const [studioOpen, setStudioOpen] = useState(false);
+  const [studioSeed, setStudioSeed] = useState<FlashcardStudioSeed | null>(null);
 
   const loadSessions = useCallback(async () => {
     try {
@@ -146,20 +148,24 @@ export function ListeningSessionInbox({ isOpen, onClose }: ListeningSessionInbox
 
   const handleCreateFlashcard = async (item: ListeningSessionItem) => {
     try {
-      await createLearningItem({
-        document_id: (await resolveEditionDocumentId(selectedSession?.editionId)) || "",
-        extract_id: item.extractId || undefined,
-        item_type: "Qa",
-        question: `What is the key insight from this passage?\n\n"${item.snippetText.slice(0, 180)}..."`,
-        answer: item.snippetText,
-        tags: ["audio-capture", "hands-free"],
-      });
-
-      toast.success("Created flashcard");
-      await loadSessions();
+      const docId = (await resolveEditionDocumentId(selectedSession?.editionId)) || null;
+      const seed: FlashcardStudioSeed = {
+        key: `listening-inbox-${item.id}-${Date.now()}`,
+        documentId: docId,
+        excerpt: item.snippetText,
+        draftCardType: "qa",
+        initialQuestion: `What is the key insight from this passage?\n\n"${item.snippetText.slice(0, 180)}..."`,
+        initialAnswer: item.snippetText,
+        initialTags: ["audio-capture", "hands-free"],
+        linkedExtractId: item.extractId || undefined,
+        resetDraftCards: true,
+        autoEditDraft: true,
+      };
+      setStudioSeed(seed);
+      setStudioOpen(true);
     } catch (err) {
-      console.error("Failed to create card:", err);
-      toast.error("Failed to create flashcard");
+      console.error("Failed to open flashcard studio:", err);
+      toast.error("Failed to open flashcard studio");
     }
   };
 
@@ -582,6 +588,11 @@ export function ListeningSessionInbox({ isOpen, onClose }: ListeningSessionInbox
           </div>
         </div>
       </div>
+      <FlashcardStudioModal
+        isOpen={studioOpen}
+        onClose={() => setStudioOpen(false)}
+        seed={studioSeed}
+      />
     </div>
   );
 }

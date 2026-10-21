@@ -61,6 +61,16 @@ impl SessionOperationError {
         }
     }
 
+    pub fn stale_with_session(session_id: &str) -> Self {
+        Self {
+            code: "StaleRevision",
+            stage: "ingestion",
+            session_id: Some(session_id.to_string()),
+            retryable: true,
+            message_key: "recording.staleRevision",
+        }
+    }
+
     pub fn cancelled() -> Self {
         Self {
             code: "Cancelled",
@@ -290,12 +300,54 @@ pub enum SessionMarkerKind {
     Bookmark,
 }
 
+impl SessionMarkerKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Interesting => "interesting",
+            Self::Confusing => "confusing",
+            Self::RecentExtract => "recent-extract",
+            Self::CardCandidate => "card-candidate",
+            Self::Bookmark => "bookmark",
+        }
+    }
+
+    pub fn from_str_opt(s: &str) -> Option<Self> {
+        match s {
+            "interesting" => Some(Self::Interesting),
+            "confusing" => Some(Self::Confusing),
+            "recent-extract" => Some(Self::RecentExtract),
+            "card-candidate" => Some(Self::CardCandidate),
+            "bookmark" => Some(Self::Bookmark),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum SessionMarkerState {
     Pending,
     Resolved,
     NeedsConfirmation,
+}
+
+impl SessionMarkerState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Pending => "pending",
+            Self::Resolved => "resolved",
+            Self::NeedsConfirmation => "needs-confirmation",
+        }
+    }
+
+    pub fn from_str_opt(s: &str) -> Option<Self> {
+        match s {
+            "pending" => Some(Self::Pending),
+            "resolved" => Some(Self::Resolved),
+            "needs-confirmation" => Some(Self::NeedsConfirmation),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -321,13 +373,195 @@ pub struct SessionDocumentPrivacy {
     pub privacy_version: i64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionAnalysisRun {
+    pub id: String,
+    pub session_id: String,
+    pub transcript_revision: i64,
+    pub profile_hash: String,
+    pub task_version: String,
+    pub generation_epoch: String,
+    pub status: String,
+    pub blocked_reason: Option<String>,
+    pub completed_units: i64,
+    pub total_units: i64,
+    pub lease_owner: Option<String>,
+    pub lease_expires_at: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSessionAnalysisRun {
+    pub id: String,
+    pub session_id: String,
+    pub transcript_revision: i64,
+    pub profile_hash: String,
+    pub task_version: String,
+    pub generation_epoch: String,
+    pub total_units: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionAnalysisUnit {
+    pub run_id: String,
+    pub unit_key: String,
+    pub input_hash: String,
+    pub segment_keys_json: String,
+    pub status: String,
+    pub result_json: Option<String>,
+    pub attempts: i64,
+    pub error_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpsertSessionAnalysisUnit {
+    pub run_id: String,
+    pub unit_key: String,
+    pub input_hash: String,
+    pub segment_keys_json: String,
+    pub status: String,
+    pub result_json: Option<String>,
+    pub error_code: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionLearningDraft {
+    pub id: String,
+    pub session_id: String,
+    pub run_id: Option<String>,
+    pub kind: String,
+    pub status: String,
+    pub revision: i64,
+    pub payload_json: String,
+    pub evidence_json: String,
+    pub content_hash: String,
+    pub concept_key: Option<String>,
+    pub duplicate_json: Option<String>,
+    pub accepted_target_id: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSessionLearningDraft {
+    pub id: String,
+    pub session_id: String,
+    pub run_id: Option<String>,
+    pub kind: String,
+    pub status: Option<String>,
+    pub payload_json: String,
+    pub evidence_json: String,
+    pub content_hash: String,
+    pub concept_key: Option<String>,
+    pub duplicate_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateSessionLearningDraft {
+    pub id: String,
+    pub expected_revision: i64,
+    pub payload_json: Option<String>,
+    pub status: Option<String>,
+    pub duplicate_json: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionLearningDraftPage {
+    pub items: Vec<SessionLearningDraft>,
+    pub next_cursor: Option<String>,
+    pub total: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptSessionDraftSpec {
+    pub draft_id: String,
+    pub expected_revision: i64,
+    pub duplicate_decision: Option<String>,
+    pub duplicate_target_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptSessionDraftsInput {
+    pub session_id: String,
+    pub items: Vec<AcceptSessionDraftSpec>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub all_or_nothing: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptSessionDraftResult {
+    pub draft_id: String,
+    pub success: bool,
+    pub target_id: Option<String>,
+    pub target_kind: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteSessionMediaResult {
+    pub session_id: String,
+    pub version: i64,
+    pub deleted_assets_count: usize,
+    pub transcript_preserved: bool,
+    pub cards_preserved: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteRecordingSessionResult {
+    pub session_id: String,
+    pub deleted: bool,
+    pub accepted_cards_retained: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CleanupJournalResult {
+    pub cleaned_count: usize,
+    pub failed_count: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptSessionDraftsResponse {
+    pub results: Vec<AcceptSessionDraftResult>,
+    pub accepted_count: usize,
+    pub failed_count: usize,
+}
+
 impl std::fmt::Display for SessionOperationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}:{}:{}", self.stage, self.code, self.message_key)
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionRelatedDocument {
+    pub id: String,
+    pub title: String,
+    pub file_type: String,
+    pub is_local_only: bool,
+    pub is_ai_excluded: bool,
+    pub is_available: bool,
+}
+
 impl std::error::Error for SessionOperationError {}
+
 
 #[cfg(test)]
 mod tests {

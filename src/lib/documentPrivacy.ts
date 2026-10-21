@@ -21,12 +21,14 @@ export function mergeDocumentPrivacy(current: Document, cached?: Document): Docu
   };
 }
 
-/** Retrieve authoritative native document privacy fields, defaulting to safe local-only on missing document. */
-export async function getDocumentPrivacy(documentId: string): Promise<{
+export type DocumentPrivacyFlags = {
   isLocalOnly: boolean;
   isAiExcluded: boolean;
   privacyVersion: number;
-}> {
+};
+
+/** Retrieve authoritative native document privacy fields, defaulting to safe local-only on missing document. */
+export async function getDocumentPrivacy(documentId: string): Promise<DocumentPrivacyFlags> {
   try {
     const { getDocument } = await import("../api/documents");
     const doc = await getDocument(documentId);

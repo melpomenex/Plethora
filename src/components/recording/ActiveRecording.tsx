@@ -16,6 +16,7 @@ import { useRecordingSessionStore } from "../../stores/recordingSessionStore";
 import { useUIStore } from "../../stores/uiStore";
 import { captureController } from "../../services/recording/captureController";
 import { sessionController } from "../../services/recording/SessionController";
+import { createSessionMarker, type SessionMarkerKind } from "../../api/recordingSessions";
 import { ToastType, useToastStore } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
 import { cn } from "../../utils/cn";
@@ -97,8 +98,44 @@ export function ActiveRecording({ isOpen: propIsOpen, onClose: propOnClose }: Ac
   const [isFinishing, setIsFinishing] = useState(false);
 
   // Markers
-  const handleAddMarker = (kind: "important" | "confusing" | "extract" | "card") => {
+  const handleAddMarker = async (kind: "important" | "confusing" | "extract" | "card") => {
     const timeStr = formatDurationMs(elapsedMs);
+    const markerKind: SessionMarkerKind =
+      kind === "important"
+        ? "interesting"
+        : kind === "confusing"
+        ? "confusing"
+        : kind === "extract"
+        ? "recent-extract"
+        : "card-candidate";
+
+    if (sessionId) {
+      try {
+        const marker = await createSessionMarker({
+          sessionId,
+          kind: markerKind,
+          mediaMs: elapsedMs,
+          windowMs: 30000,
+        });
+        if (marker.windowMs > 30000) {
+          addToast({
+            type: ToastType.Info,
+            title: t("recording.markerTitle", "Marker"),
+            message: `Capture window extended to ${marker.windowMs / 1000}s.`,
+          });
+          return;
+        }
+      } catch (err) {
+        console.warn("[ActiveRecording] Failed to persist marker:", err);
+        addToast({
+          type: ToastType.Error,
+          title: t("recording.markerTitle", "Marker"),
+          message: err instanceof Error ? err.message : "Failed to persist marker.",
+        });
+        return;
+      }
+    }
+
     switch (kind) {
       case "important":
         addToast({

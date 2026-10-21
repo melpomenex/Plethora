@@ -7,7 +7,7 @@ import { usePaletteSelection, getPaletteSelection, type PaletteSelection } from 
 import { textAnnotationTargetsAtPoint, type ReaderContextMenuPayload, type PersistedEpubHighlight } from "./annotationContextMenu";
 import { AnnotationRemovalMenu } from "./AnnotationRemovalMenu";
 import { emitUserInteraction, emitInteractionFeedback } from "../../lib/feedback/orchestrator";
-import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, lazy, Suspense, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import {
   ArrowClockwise,
@@ -87,7 +87,13 @@ import { EPUBViewer } from "./EPUBViewer";
 import { YouTubeViewer } from "./YouTubeViewer";
 import { LocalVideoPlayer } from "./LocalVideoPlayerWrapper";
 import { AudiobookViewer } from "./AudiobookViewer";
+import { findSessionByDocumentId } from "../../api/recordingSessions";
+import type { RecordingSession } from "../../types/recordingSession";
 import { getAudioEditionByDocument } from "../../api/audioEditions";
+
+const LearningStudio = lazy(() =>
+  import("../recording/LearningStudio").then((m) => ({ default: m.LearningStudio }))
+);
 import { ExtractsList } from "../extracts/ExtractsList";
 import { LearningCardsList } from "../learning/LearningCardsList";
 import { EditableContentPalette } from "../common/EditableContentPalette";
@@ -725,6 +731,30 @@ export function DocumentViewer({
     setVideoContext(null);
     readingSessionStartRef.current = Date.now();
   }, [documentId]);
+
+  // Resolve associated recording session if this document is owned by one (Task 2.1)
+  const [recordingSession, setRecordingSession] = useState<RecordingSession | null>(null);
+  useEffect(() => {
+    let active = true;
+    if (!currentDocument?.id) {
+      setRecordingSession(null);
+      return;
+    }
+    findSessionByDocumentId(currentDocument.id)
+      .then((sess) => {
+        if (active) {
+          setRecordingSession(sess);
+        }
+      })
+      .catch(() => {
+        if (active) {
+          setRecordingSession(null);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [currentDocument?.id]);
 
   useEffect(() => {
     const onLanguageSrsDraft = (event: Event) => {
@@ -8153,6 +8183,22 @@ export function DocumentViewer({
             onSave={({ content }) => saveEditableDocumentContent(content)}
             onSelectionChange={(text) => updateSelection(text, undefined)}
           />
+        ) : recordingSession ? (
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center h-full">
+                <CircleNotch className="w-6 h-6 animate-spin text-muted-foreground" />
+              </div>
+            }
+          >
+            <LearningStudio
+              documentId={currentDocument.id}
+              session={recordingSession}
+              initialSeekTimeSec={initialJump?.kind === "audio" ? initialJump.timeSeconds : undefined}
+              initialTranscriptSegmentId={initialJump?.kind === "audio" ? initialJump.segmentId : undefined}
+              onBack={handleBack}
+            />
+          </Suspense>
         ) : isLoading && !canRenderAudioViewer ? (
           <div className="flex items-center justify-center h-full">
             <div className="text-muted-foreground">{t("viewer.loadingDocument")}</div>

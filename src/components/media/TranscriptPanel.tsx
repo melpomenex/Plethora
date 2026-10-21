@@ -20,6 +20,8 @@ import {
   SelectionActionBar,
   type SelectionBarAction,
 } from "../viewer/selectionInteraction/SelectionActionBar";
+import { createExtract } from "../../api/extracts";
+import { useToastStore, ToastType } from "../common/Toast";
 
 const PROGRAMMATIC_SCROLL_LOCK_MS = 500;
 
@@ -125,8 +127,71 @@ export function TranscriptPanel({
     };
   }, [isMobile, selectionV2]);
 
+  const addToast = useToastStore((s) => s.addToast);
+
+  const handleCreateExtract = async (text: string) => {
+    if (!text.trim()) return;
+    try {
+      const segIdx = activeSegments.findIndex((s) => s.text.includes(text));
+      const seg = segIdx !== -1 ? activeSegments[segIdx] : activeSegments[0];
+      const segKey = segIdx !== -1 ? `${bookId}:${chapterId}:${segIdx}` : `${bookId}:${chapterId}:0`;
+      const startMs = seg ? seg.start_ms : currentTimeMs;
+      const endMs = seg ? seg.end_ms : currentTimeMs + 5000;
+      await createExtract({
+        document_id: bookId,
+        content: text,
+        selection_context: {
+          type: "session_transcript",
+          documentId: bookId,
+          sessionId: bookId,
+          segmentKeys: [segKey],
+          ranges: [{ segmentKey: segKey, startUtf16: 0, endUtf16: text.length }],
+          selectedText: text,
+          evidence: {
+            version: 1,
+            documentId: bookId,
+            sessionId: bookId,
+            transcriptId: 1,
+            transcriptRevision: 1,
+            segmentKeys: [segKey],
+            quote: text,
+            ranges: [{ segmentKey: segKey, startUtf16: 0, endUtf16: text.length }],
+            time: { startMs, endMs, kind: "measured" },
+            markerIds: [],
+            precision: "segment",
+            fingerprint: text,
+          },
+        },
+      });
+      addToast({
+        type: ToastType.Success,
+        title: "Extract created",
+        message: "Saved transcript extract.",
+      });
+      if (selectionV2) {
+        controller.dismiss({ suppressCurrentText: true });
+      } else {
+        setMobileSelection((prev) => ({ ...prev, open: false }));
+        window.getSelection()?.removeAllRanges();
+      }
+    } catch (err) {
+      console.error("[TranscriptPanel] Failed to create extract:", err);
+      addToast({
+        type: ToastType.Error,
+        title: "Failed to create extract",
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+  };
+
   const handleBarAction = (action: SelectionBarAction) => {
-    if (action === "extract") return; // transcripts have no extract path
+    if (action === "extract") {
+      const text = controller.readySelection?.text || controller.captureForAction()?.text;
+      if (text) {
+        void handleCreateExtract(text);
+      }
+      return;
+    }
     if (action === "readFromHere") return; // document readers own TTS starts
     if (action === "copy") {
       void copySelectionTextToClipboard(controller.readySelection?.text ?? "");
@@ -371,7 +436,7 @@ export function TranscriptPanel({
           onAction={handleBarAction}
           onOverflow={() => setSelectionBarOverflowOpen(true)}
           onDismiss={() => controller.dismiss({ suppressCurrentText: true })}
-          canExtract={false}
+          canExtract={true}
           onMeasure={controller.registerBarSize}
         />
       )}
@@ -386,6 +451,7 @@ export function TranscriptPanel({
         }
         text={pendingAction?.text || (selectionV2 ? controller.readySelection?.text : mobileSelection.text) || mobileSelection.text}
         passage={pendingAction?.passage || (selectionV2 ? controller.readySelection?.passage : mobileSelection.passage)}
+        onCreateExtract={handleCreateExtract}
         initialAction={pendingAction?.action}
         operationId={selectionV2 ? controller.capturedAction?.operationId : undefined}
         onSettled={

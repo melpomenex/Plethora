@@ -16,6 +16,7 @@ pub const SOURCE_TYPE_ANNOTATION: &str = "annotation";
 pub const SOURCE_TYPE_CARD: &str = "card";
 pub const SOURCE_TYPE_FIGURE: &str = "figure";
 pub const SOURCE_TYPE_MEDIA: &str = "media";
+pub const SOURCE_TYPE_SESSION: &str = "session";
 
 /// A chunk produced by the chunker, ready to persist into `semantic_chunks`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,7 +48,7 @@ pub struct ChunkModel {
 /// can jump. EPUB CFI ranges are an explicit extension point: Rust stores
 /// `spineIndex` + text offsets now, and the TS side enriches with `cfiRange`
 /// once the CFI machinery is wired into indexing (do not block on CFI).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ChunkLocation {
     /// Surface kind of the *content*: `pdf` | `epub` | `html` | `markdown` | `text`.
@@ -85,6 +86,30 @@ pub struct ChunkLocation {
     /// Millisecond playback offset for media chunks (video keyframe or audio segment).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timestamp_ms: Option<i64>,
+    /// Millisecond playback end offset for media chunks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_timestamp_ms: Option<i64>,
+    /// Stable session segment ID (for canonical session transcript chunks).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub segment_id: Option<String>,
+    /// Start segment ID for a multi-segment chunk range.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_segment_id: Option<String>,
+    /// End segment ID for a multi-segment chunk range.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_segment_id: Option<String>,
+    /// Optional session start timestamp in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_ms: Option<i64>,
+    /// Optional session end timestamp in milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_ms: Option<i64>,
+    /// Timing kind: e.g. "measured", "imported", "none" (preserves timing honesty, no fake 0:00 precision).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timing_kind: Option<String>,
+    /// Speaker ID or label for the segment.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub speaker: Option<String>,
 }
 
 /// Per-document indexing state machine (design D14 / spec): the migration
@@ -245,13 +270,8 @@ mod tests {
             end_offset: 0,
             heading_path: vec!["Chapter 1".into(), "Figures".into()],
             page_number: Some(12),
-            spine_index: None,
-            cfi_range: None,
-            page_rects: None,
-            extract_id: None,
-            anchor_id: None,
             asset_url: Some("plethora-asset://figures/doc-123-fig1.png".into()),
-            timestamp_ms: None,
+            ..Default::default()
         };
 
         let json = serde_json::to_string(&loc).expect("serialization succeeds");
@@ -276,15 +296,8 @@ mod tests {
             ordinal: 2,
             start_offset: 0,
             end_offset: 0,
-            heading_path: Vec::new(),
-            page_number: None,
-            spine_index: None,
-            cfi_range: None,
-            page_rects: None,
-            extract_id: None,
-            anchor_id: None,
-            asset_url: None,
             timestamp_ms: Some(45_000),
+            ..Default::default()
         };
 
         let json = serde_json::to_string(&loc).expect("serialization succeeds");

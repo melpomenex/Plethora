@@ -226,3 +226,30 @@ after adding the amendment); new capture/import behavior remains unexposed.
 
 
 
+
+## Task 5.4 — cross-session concept relations (complete)
+
+- Reused the existing public adapter from `complete-knowledge-relationships-and-coverage` (`src/api/concept-links.ts`); no new graph, index, scheduler or card writer was introduced.
+- `src/services/recording/conceptRelationsAdapter.ts` queries at most 12 normalized concept names, maps them to existing course concepts and exposes linked sources. Read-only: opening a session never proposes or accepts a link.
+- Coverage is deliberately conservative: only `createdBy === "user"` backlinks count as known evidence. Pending AI suggestions are ignored, multiple relations from the same source count once, and the badge reports evidence coverage rather than learner mastery.
+- Linking is an explicit user action. `linkSessionDocumentToConcept` proposes and endorses the relationship through the existing commands, refuses previously dismissed fingerprints, and fails honestly when the adapter cannot confirm the link. Two recordings can therefore reference the same concept without creating duplicate cards or touching review history.
+- `SessionConceptRelations` is rendered from Overview. If the knowledge adapter is unavailable it says so, keeps the session concepts visible, and does not label them “New to course” based on an unperformed query.
+- Verified:
+  - `npm run test:run -- src/services/recording/__tests__/conceptRelationsAdapter.test.ts src/components/recording/__tests__/SessionConceptRelations.test.tsx`: **11 passed, 0 failed**.
+  - Broader recording/Studio run: **248 passed, 0 failed** across 32 suites.
+  - `npx tsc --noEmit --pretty false`: clean.
+  - Focused ESLint: clean.
+
+## Task 5.5 — additional profiles and background capability (complete; iOS background unexposed)
+
+- Added `PROFILE_ANALYSIS_GUIDANCE` / `getProfileAnalysisGuidance` to `profiles.ts` and applied it inside the existing section and overview tasks. Lecture, meeting, interview, seminar/presentation, podcast, voice-note and other now receive distinct output priorities using the same pipeline.
+- Section input now carries the resolved `enableCards` / `enableExtracts` selection, so a profile default or explicit user override is stated in the prompt as well as enforced when drafts are persisted.
+- Overview input now receives bounded section `profileObservations` (decisions, actions, questions, takeaways) and an explicit decisions/actions authorization flag. The coordinator filters unauthorized overview fields before persistence.
+- Interview, seminar and voice-note remain cards-off by default; an explicit per-session override can enable cards for seminar. Grounded extract/card evidence and hallucinated-quote rejection are covered by deterministic fixtures.
+- Apple continuous background capture remains deliberately unexposed. `RecordingBridge.swift` now has an explicit `backgroundCaptureCertified = false` capability flag; no `UIBackgroundModes` was added and the existing background/interruption safe-stop still commits the recording. The TS adapter reports exactly the native flag rather than hard-coding false.
+- Verified:
+  - `npm run test:run -- src/services/recording/analysis/__tests__/profileOutputs.test.ts src/services/recording/analysis/__tests__/profiles.test.ts src/services/recording/__tests__/appleCapture.test.ts`: **28 passed, 0 failed**.
+  - `npx tsc --noEmit --pretty false`: clean.
+  - Focused ESLint: clean.
+- Real iOS audio-session, entitlement, interruption and lock-screen evidence is **pending** on certified hardware. Until it is recorded, builds truthfully report `background: false` and keep safe-stop behavior; no background LLM execution is implied.
+- Full frontend run after these tasks: **8337 passed, 11 failed, 1 skipped** across 1009 files. The 11 failures are in unrelated, concurrently edited areas (startup animation fixture, iOS capabilities document matrix, OCR command mocks, audio-edition integration, brand inventory service worker, i18n completeness, Toolbar saved queues, ReviewQueue saved queues and Reader TTS race). No recording/session/profile/concept suite failed.

@@ -21,6 +21,8 @@ import {
   finalizeRecordingSession,
   getRecordingSession,
   stageSessionMedia,
+  deleteSessionMedia,
+  deleteRecordingSession,
   type CreateRecordingSession,
   type SessionTranscriptSegmentInput,
 } from "../../api/recordingSessions";
@@ -281,6 +283,20 @@ export class SessionController {
       sessionId,
       processingSelection,
     });
+  }
+
+  /**
+   * Deletes session media while preserving transcript and learning objects.
+   */
+  async deleteMedia(sessionId: string, expectedVersion: number) {
+    return await deleteSessionMedia(sessionId, expectedVersion);
+  }
+
+  /**
+   * Deletes a recording session. Accepted cards and learning objects remain preserved.
+   */
+  async deleteSession(sessionId: string, expectedVersion: number, deleteDocument?: boolean) {
+    return await deleteRecordingSession(sessionId, expectedVersion, deleteDocument);
   }
 }
 

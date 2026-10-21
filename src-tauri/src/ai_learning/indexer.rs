@@ -28,7 +28,7 @@ use crate::ai_learning::embeddings_backend::{EmbeddingBackend, EmbeddingUnavaila
 use crate::ai_learning::models::{
     AggregateIndexStatus, ChunkModel, DocumentIndexStatus, EmbeddingModelUsage, IndexState,
     SOURCE_TYPE_ANNOTATION, SOURCE_TYPE_CARD, SOURCE_TYPE_DOCUMENT, SOURCE_TYPE_EXTRACT,
-    SOURCE_TYPE_FIGURE, SOURCE_TYPE_MEDIA,
+    SOURCE_TYPE_FIGURE, SOURCE_TYPE_MEDIA, SOURCE_TYPE_SESSION,
 };
 use crate::database::Repository;
 use crate::error::{PlethoraError, Result};
@@ -465,6 +465,61 @@ async fn build_document_chunks(
     doc: &crate::models::Document,
     content: &str,
 ) -> Vec<ChunkModel> {
+    // Prefer canonical session transcript segments when available
+    let session_transcript_info: Option<(i64, i64)> = sqlx::query_as(
+        "SELECT transcript_id, transcript_revision FROM recording_sessions WHERE (document_id = ?1 OR id = ?1) AND transcript_id IS NOT NULL",
+    )
+    .bind(&doc.id)
+    .fetch_optional(repo.pool())
+    .await
+    .ok()
+    .flatten();
+
+    if let Some((transcript_id, _rev)) = session_transcript_info {
+        let seg_rows = sqlx::query(
+            "SELECT segment_key, ordinal, text, timing_kind, start_ms, end_ms, speaker_id \
+             FROM transcript_segments WHERE transcript_id = ?1 ORDER BY ordinal, id",
+        )
+        .bind(transcript_id)
+        .fetch_all(repo.pool())
+        .await
+        .ok();
+
+        if let Some(rows) = seg_rows {
+            if !rows.is_empty() {
+                let segments = rows
+                    .into_iter()
+                    .map(|r| {
+                        crate::ai_learning::chunker::SessionTranscriptChunkSegment {
+                            segment_key: r.try_get("segment_key").unwrap_or_default(),
+                            ordinal: r.try_get("ordinal").unwrap_or(0),
+                            text: r.try_get("text").unwrap_or_default(),
+                            timing_kind: r.try_get("timing_kind").unwrap_or_else(|_| "none".into()),
+                            start_ms: r.try_get("start_ms").ok().flatten(),
+                            end_ms: r.try_get("end_ms").ok().flatten(),
+                            speaker_id: r.try_get("speaker_id").ok().flatten(),
+                        }
+                    })
+                    .collect::<Vec<_>>();
+
+                let ctx = ChunkContext {
+                    document_id: &doc.id,
+                    source_type: SOURCE_TYPE_SESSION,
+                    source_id: None,
+                    location_source_type: "session",
+                    spine_index: None,
+                };
+                return chunk_document(
+                    &ctx,
+                    ChunkInput::SessionTranscript {
+                        segments: &segments,
+                    },
+                    &ChunkOptions::default(),
+                );
+            }
+        }
+    }
+
     if matches!(
         doc.file_type,
         crate::models::FileType::Youtube

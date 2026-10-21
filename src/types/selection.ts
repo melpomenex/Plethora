@@ -121,4 +121,20 @@ export interface TextSelectionContext {
   anchor?: WebSelectionAnchor;
 }
 
-export type SelectionContext = PdfSelectionContext | EpubSelectionContext | TextSelectionContext;
+export interface SessionTranscriptSelectionContext {
+  type: "session_transcript";
+  documentId: string;
+  sessionId: string;
+  transcriptId?: number;
+  transcriptRevision?: number;
+  segmentKeys: string[];
+  ranges: Array<{ segmentKey: string; startUtf16: number; endUtf16: number }>;
+  selectedText: string;
+  evidence?: import("./recordingSession").SessionSourceEvidence;
+}
+
+export type SelectionContext =
+  | PdfSelectionContext
+  | EpubSelectionContext
+  | TextSelectionContext
+  | SessionTranscriptSelectionContext;

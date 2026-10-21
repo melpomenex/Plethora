@@ -149,6 +149,15 @@ export interface RecordingSession {
   version: number;
 }
 
+export interface SessionRelatedDocument {
+  id: string;
+  title: string;
+  fileType: string;
+  isLocalOnly: boolean;
+  isAiExcluded: boolean;
+  isAvailable: boolean;
+}
+
 export interface SessionMediaAsset {
   id: string;
   sessionId: string;
@@ -177,16 +186,25 @@ export interface RecordingPart {
   committedAt: string;
 }
 
+export type SessionMarkerKind =
+  | "interesting"
+  | "confusing"
+  | "recent-extract"
+  | "card-candidate"
+  | "bookmark";
+
+export type SessionMarkerState = "pending" | "resolved" | "needs-confirmation";
+
 export interface RecordingSessionMarker {
   id: string;
   sessionId: string;
-  kind: "interesting" | "confusing" | "recent-extract" | "card-candidate" | "bookmark";
+  kind: SessionMarkerKind;
   mediaMs: number;
   windowMs: number;
   partSequence: number | null;
   note: string | null;
   evidence: SessionSourceEvidence[] | null;
-  state: "pending" | "resolved" | "needs-confirmation";
+  state: SessionMarkerState;
   createdAt: string;
 }
 
@@ -228,3 +246,153 @@ export interface RecoveryReport {
   state: RecordingState;
 }
 
+export interface LearningObjectSource {
+  id: string;
+  targetKind: "card" | "extract";
+  targetId: string;
+  sessionId?: string | null;
+  documentId: string;
+  evidenceJson: string;
+  evidenceHash: string;
+  createdAt: string;
+}
+
+export interface SessionAnalysisRun {
+  id: string;
+  sessionId: string;
+  transcriptRevision: number;
+  profileHash: string;
+  taskVersion: string;
+  generationEpoch: string;
+  status: string;
+  blockedReason?: string | null;
+  completedUnits: number;
+  totalUnits: number;
+  leaseOwner?: string | null;
+  leaseExpiresAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateSessionAnalysisRun {
+  id: string;
+  sessionId: string;
+  transcriptRevision: number;
+  profileHash: string;
+  taskVersion: string;
+  generationEpoch: string;
+  totalUnits: number;
+}
+
+export interface SessionAnalysisUnit {
+  runId: string;
+  unitKey: string;
+  inputHash: string;
+  segmentKeysJson: string;
+  status: string;
+  resultJson?: string | null;
+  attempts: number;
+  errorCode?: string | null;
+}
+
+export interface UpsertSessionAnalysisUnit {
+  runId: string;
+  unitKey: string;
+  inputHash: string;
+  segmentKeysJson: string;
+  status: string;
+  resultJson?: string | null;
+  errorCode?: string | null;
+}
+
+export interface PersistedSessionLearningDraft {
+  id: string;
+  sessionId: string;
+  runId: string | null;
+  kind: "card" | "extract";
+  status: "proposed" | "rejected" | "accepted" | "superseded";
+  revision: number;
+  payloadJson: string;
+  evidenceJson: string;
+  contentHash: string;
+  conceptKey: string | null;
+  duplicateJson: string | null;
+  acceptedTargetId: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateSessionLearningDraft {
+  id: string;
+  sessionId: string;
+  runId?: string | null;
+  kind: "card" | "extract";
+  status?: string | null;
+  payloadJson: string;
+  evidenceJson: string;
+  contentHash: string;
+  conceptKey?: string | null;
+  duplicateJson?: string | null;
+}
+
+export interface UpdateSessionLearningDraft {
+  id: string;
+  expectedRevision: number;
+  payloadJson?: string | null;
+  status?: string | null;
+  duplicateJson?: string | null;
+}
+
+export interface SessionLearningDraftPage {
+  items: PersistedSessionLearningDraft[];
+  nextCursor?: string;
+  total: number;
+}
+
+export interface AcceptSessionDraftSpec {
+  draftId: string;
+  expectedRevision: number;
+  duplicateDecision?: 'create' | 'update' | 'replace' | null;
+  duplicateTargetId?: string | null;
+}
+
+export interface AcceptSessionDraftsInput {
+  sessionId: string;
+  items: AcceptSessionDraftSpec[];
+  provider?: string | null;
+  model?: string | null;
+  allOrNothing?: boolean | null;
+}
+
+export interface AcceptSessionDraftResult {
+  draftId: string;
+  success: boolean;
+  targetId?: string | null;
+  targetKind?: string | null;
+  error?: string | null;
+}
+
+export interface AcceptSessionDraftsResponse {
+  results: AcceptSessionDraftResult[];
+  acceptedCount: number;
+  failedCount: number;
+}
+
+export interface DeleteSessionMediaResult {
+  sessionId: string;
+  version: number;
+  deletedAssetsCount: number;
+  transcriptPreserved: boolean;
+  cardsPreserved: boolean;
+}
+
+export interface DeleteRecordingSessionResult {
+  sessionId: string;
+  deleted: boolean;
+  acceptedCardsRetained: boolean;
+}
+
+export interface CleanupJournalResult {
+  cleanedCount: number;
+  failedCount: number;
+}

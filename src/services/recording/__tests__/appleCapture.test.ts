@@ -38,6 +38,39 @@ describe("appleCapture adapter", () => {
     expect(caps.reason).toContain("Plugin not loaded");
   });
 
+  it("reports a certified background capability only when the native build exposes it", async () => {
+    const foregroundOnly = await getAppleCaptureCapabilities(
+      vi.fn().mockResolvedValue({
+        platform: "ios",
+        available: true,
+        pause: true,
+        background: false,
+        liveCaptions: false,
+        state: "idle",
+        acknowledgedMs: 0,
+        pendingBytes: 0,
+      })
+    );
+    expect(foregroundOnly.background).toBe(false);
+
+    // This hypothetical response represents a build that has passed the D12
+    // certification gate. The adapter must not hard-code false; it reports
+    // exactly what the native bridge proves.
+    const certifiedBuild = await getAppleCaptureCapabilities(
+      vi.fn().mockResolvedValue({
+        platform: "ios",
+        available: true,
+        pause: true,
+        background: true,
+        liveCaptions: false,
+        state: "idle",
+        acknowledgedMs: 0,
+        pendingBytes: 0,
+      })
+    );
+    expect(certifiedBuild.background).toBe(true);
+  });
+
   it("starts recording and manages pause, resume, and finish lifecycle", async () => {
     const invocations: { cmd: string; args: unknown }[] = [];
     const stateChanges: string[] = [];

@@ -5,30 +5,66 @@
 import { invokeCommand, isTauri } from "../lib/tauri";
 import type {
   CreateRecordingSession,
+  LearningObjectSource,
   RecordingPart,
   RecordingSession,
+  RecordingSessionMarker,
   RecordingSessionPage,
   RecoveryReport,
   SessionDocumentPrivacy,
+  SessionMarkerKind,
+  SessionMarkerState,
   SessionMediaAsset,
   SessionOperationError,
   SessionOperationErrorCode,
   SessionOperationStage,
   SessionSegmentPage,
+  CreateSessionAnalysisRun,
+  SessionAnalysisRun,
+  SessionAnalysisUnit,
+  UpsertSessionAnalysisUnit,
+  PersistedSessionLearningDraft,
+  CreateSessionLearningDraft,
+  UpdateSessionLearningDraft,
+  SessionLearningDraftPage,
+  AcceptSessionDraftSpec,
+  AcceptSessionDraftsInput,
+  AcceptSessionDraftResult,
+  AcceptSessionDraftsResponse,
+  DeleteSessionMediaResult,
+  DeleteRecordingSessionResult,
+  CleanupJournalResult,
+  SessionRelatedDocument,
 } from "../types/recordingSession";
 
 export type {
   CreateRecordingSession,
+  LearningObjectSource,
   RecordingPart,
   RecordingSession,
+  RecordingSessionMarker,
   RecordingSessionPage,
   RecoveryReport,
   SessionDocumentPrivacy,
+  SessionMarkerKind,
+  SessionMarkerState,
   SessionMediaAsset,
   SessionOperationError,
   SessionOperationErrorCode,
   SessionOperationStage,
   SessionSegmentPage,
+  CreateSessionAnalysisRun,
+  SessionAnalysisRun,
+  SessionAnalysisUnit,
+  UpsertSessionAnalysisUnit,
+  PersistedSessionLearningDraft,
+  CreateSessionLearningDraft,
+  UpdateSessionLearningDraft,
+  SessionLearningDraftPage,
+  AcceptSessionDraftSpec,
+  AcceptSessionDraftsInput,
+  AcceptSessionDraftResult,
+  AcceptSessionDraftsResponse,
 };
 
 export class RecordingSessionApiError extends Error implements SessionOperationError {
@@ -170,6 +206,44 @@ export async function getRecordingSession(id: string): Promise<RecordingSession>
 }
 
 /**
+ * Looks up a recording session associated with a document ID.
+ */
+export async function findSessionByDocumentId(
+  documentId: string
+): Promise<RecordingSession | null> {
+  if (!isTauri()) {
+    return null;
+  }
+  try {
+    return await invokeCommand<RecordingSession | null>("find_session_by_document_id", {
+      documentId,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "ingestion"));
+  }
+}
+
+/**
+ * Loads a media asset for a session by asset ID.
+ */
+export async function getRecordingAsset(
+  sessionId: string,
+  assetId: string
+): Promise<SessionMediaAsset> {
+  if (!isTauri()) {
+    throw typedUnavailableError("ingestion", sessionId);
+  }
+  try {
+    return await invokeCommand<SessionMediaAsset>("get_recording_asset", {
+      sessionId,
+      assetId,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "ingestion", sessionId));
+  }
+}
+
+/**
  * Looks up an existing recording session by its media asset SHA-256 hash.
  * If collectionId is provided, prioritizes a match within that collection.
  */
@@ -233,6 +307,28 @@ export async function updateRecordingSessionProfile(
     });
   } catch (err) {
     throw new RecordingSessionApiError(toSessionOperationError(err, "ingestion", id));
+  }
+}
+
+/**
+ * Updates a recording session's overview JSON and overview revision.
+ */
+export async function updateRecordingSessionOverview(
+  id: string,
+  overviewJson: string,
+  overviewRevision: number,
+): Promise<RecordingSession> {
+  if (!isTauri()) {
+    throw typedUnavailableError("analysis", id);
+  }
+  try {
+    return await invokeCommand<RecordingSession>("update_recording_session_overview", {
+      id,
+      overviewJson,
+      overviewRevision,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "analysis", id));
   }
 }
 
@@ -444,3 +540,457 @@ export async function importSessionTranscript(
   }
 }
 
+/**
+ * Creates or extends a session capture marker (Important/Interesting, Confusing, Bookmark).
+ * Repeated invocation within 5s extends the capture window up to 90s.
+ */
+export async function createSessionMarker(params: {
+  sessionId: string;
+  kind: SessionMarkerKind;
+  mediaMs: number;
+  windowMs?: number;
+  note?: string;
+}): Promise<RecordingSessionMarker> {
+  if (!isTauri()) {
+    throw typedUnavailableError("ingestion", params.sessionId);
+  }
+  try {
+    return await invokeCommand<RecordingSessionMarker>("create_session_marker", {
+      sessionId: params.sessionId,
+      kind: params.kind,
+      mediaMs: params.mediaMs,
+      windowMs: params.windowMs,
+      note: params.note,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "ingestion", params.sessionId));
+  }
+}
+
+/**
+ * Lists all capture markers for a session ordered by media timestamp.
+ */
+export async function listSessionMarkers(sessionId: string): Promise<RecordingSessionMarker[]> {
+  if (!isTauri()) {
+    throw typedUnavailableError("ingestion", sessionId);
+  }
+  try {
+    return await invokeCommand<RecordingSessionMarker[]>("list_session_markers", {
+      sessionId,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "ingestion", sessionId));
+  }
+}
+
+/**
+ * Resolves pending capture markers against newly finalized canonical transcript segments.
+ */
+export async function resolveSessionMarkers(sessionId: string): Promise<RecordingSessionMarker[]> {
+  if (!isTauri()) {
+    throw typedUnavailableError("ingestion", sessionId);
+  }
+  try {
+    return await invokeCommand<RecordingSessionMarker[]>("resolve_session_markers", {
+      sessionId,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "ingestion", sessionId));
+  }
+}
+
+/**
+ * Retrieves learning object sources for a target (card or extract).
+ */
+export async function getLearningObjectSources(
+  targetKind: "card" | "extract",
+  targetId: string
+): Promise<LearningObjectSource[]> {
+  if (!isTauri()) {
+    return [];
+  }
+  return await invokeCommand<LearningObjectSource[]>("get_learning_object_sources", {
+    targetKind,
+    targetId,
+  });
+}
+
+/**
+ * Retrieves learning object sources for a recording session.
+ */
+export async function getSessionLearningObjectSources(
+  sessionId: string
+): Promise<LearningObjectSource[]> {
+  if (!isTauri()) {
+    return [];
+  }
+  return await invokeCommand<LearningObjectSource[]>("get_session_learning_object_sources", {
+    sessionId,
+  });
+}
+
+/**
+ * Corrects a canonical transcript segment with optimistic revision control.
+ * Returns the new transcript revision or throws StaleRevision if conflicted.
+ */
+export async function correctSessionSegment(
+  sessionId: string,
+  segmentKey: string,
+  expectedRevision: number,
+  text: string,
+  splitMetadataJson?: string
+): Promise<number> {
+  if (!isTauri()) {
+    throw typedUnavailableError("ingestion", sessionId);
+  }
+  try {
+    return await invokeCommand<number>("correct_session_segment", {
+      sessionId,
+      segmentKey,
+      expectedRevision,
+      text,
+      splitMetadataJson,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "ingestion", sessionId));
+  }
+}
+
+/**
+ * Creates or retrieves an idempotent session analysis run.
+ */
+export async function createSessionAnalysisRun(
+  input: CreateSessionAnalysisRun
+): Promise<SessionAnalysisRun> {
+  if (!isTauri()) {
+    throw typedUnavailableError("analysis", input.sessionId);
+  }
+  try {
+    return await invokeCommand<SessionAnalysisRun>("create_session_analysis_run", { input });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "analysis", input.sessionId));
+  }
+}
+
+/**
+ * Retrieves a session analysis run by ID.
+ */
+export async function getSessionAnalysisRun(
+  runId: string
+): Promise<SessionAnalysisRun | null> {
+  if (!isTauri()) {
+    return null;
+  }
+  try {
+    return await invokeCommand<SessionAnalysisRun | null>("get_session_analysis_run", { runId });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "analysis"));
+  }
+}
+
+/**
+ * Checkpoints a session analysis unit with deterministic status and result.
+ */
+export async function upsertSessionAnalysisUnit(
+  input: UpsertSessionAnalysisUnit
+): Promise<SessionAnalysisUnit> {
+  if (!isTauri()) {
+    throw typedUnavailableError("analysis", input.runId);
+  }
+  try {
+    return await invokeCommand<SessionAnalysisUnit>("upsert_session_analysis_unit", { input });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "analysis"));
+  }
+}
+
+/**
+ * Lists all analysis units for a run.
+ */
+export async function listSessionAnalysisUnits(
+  runId: string
+): Promise<SessionAnalysisUnit[]> {
+  if (!isTauri()) {
+    return [];
+  }
+  try {
+    return await invokeCommand<SessionAnalysisUnit[]>("list_session_analysis_units", { runId });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "analysis"));
+  }
+}
+
+/**
+ * Persists a learning draft into safe staging without activating learning items.
+ */
+export async function createSessionLearningDraft(
+  input: CreateSessionLearningDraft
+): Promise<PersistedSessionLearningDraft> {
+  if (!isTauri()) {
+    throw typedUnavailableError("analysis", input.sessionId);
+  }
+  try {
+    return await invokeCommand<PersistedSessionLearningDraft>("create_session_learning_draft", {
+      input,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "analysis", input.sessionId));
+  }
+}
+
+/**
+ * Retrieves a single learning draft by ID.
+ */
+export async function getSessionLearningDraft(
+  draftId: string
+): Promise<PersistedSessionLearningDraft | null> {
+  if (!isTauri()) {
+    return null;
+  }
+  try {
+    return await invokeCommand<PersistedSessionLearningDraft | null>("get_session_learning_draft", {
+      draftId,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "analysis"));
+  }
+}
+
+/**
+ * Lists paginated learning drafts for a session with optional status/kind filters.
+ */
+export async function listSessionLearningDrafts(
+  sessionId: string,
+  options?: {
+    status?: string;
+    kind?: string;
+    cursor?: string;
+    limit?: number;
+  }
+): Promise<SessionLearningDraftPage> {
+  if (!isTauri()) {
+    return { items: [], total: 0 };
+  }
+  try {
+    return await invokeCommand<SessionLearningDraftPage>("list_session_learning_drafts", {
+      sessionId,
+      status: options?.status,
+      kind: options?.kind,
+      cursor: options?.cursor,
+      limit: options?.limit,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "analysis", sessionId));
+  }
+}
+
+/**
+ * Updates a learning draft with optimistic revision control.
+ */
+export async function updateSessionLearningDraft(
+  update: UpdateSessionLearningDraft
+): Promise<PersistedSessionLearningDraft> {
+  if (!isTauri()) {
+    throw typedUnavailableError("approval");
+  }
+  try {
+    return await invokeCommand<PersistedSessionLearningDraft>("update_session_learning_draft", {
+      update,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "approval"));
+  }
+}
+
+/**
+ * Explicitly marks session drafts as rejected without touching review tables.
+ */
+export async function rejectSessionLearningDrafts(
+  sessionId: string,
+  draftIds: string[]
+): Promise<number> {
+  if (!isTauri()) {
+    throw typedUnavailableError("approval", sessionId);
+  }
+  try {
+    return await invokeCommand<number>("reject_session_learning_drafts", {
+      sessionId,
+      draftIds,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "approval", sessionId));
+  }
+}
+
+/**
+ * Atomically accepts learning drafts into normal library cards and extracts
+ * with required source association and AI provenance in one transaction.
+ */
+export async function acceptSessionDrafts(
+  input: AcceptSessionDraftsInput
+): Promise<AcceptSessionDraftsResponse> {
+  if (!isTauri()) {
+    throw typedUnavailableError("approval", input.sessionId);
+  }
+  try {
+    return await invokeCommand<AcceptSessionDraftsResponse>("accept_session_drafts", {
+      input,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "approval", input.sessionId));
+  }
+}
+
+/**
+ * Explicitly deletes media assets for a session while preserving transcript,
+ * markers, drafts, and accepted cards.
+ */
+export async function deleteSessionMedia(
+  sessionId: string,
+  expectedVersion: number
+): Promise<DeleteSessionMediaResult> {
+  if (!isTauri()) {
+    throw typedUnavailableError("ingestion", sessionId);
+  }
+  try {
+    return await invokeCommand<DeleteSessionMediaResult>("delete_session_media", {
+      sessionId,
+      expectedVersion,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "ingestion", sessionId));
+  }
+}
+
+/**
+ * Explicitly deletes a recording session and its media files.
+ * Preserves accepted flashcards and learning objects with source snapshot.
+ */
+export async function deleteRecordingSession(
+  sessionId: string,
+  expectedVersion: number,
+  deleteDocument?: boolean
+): Promise<DeleteRecordingSessionResult> {
+  if (!isTauri()) {
+    throw typedUnavailableError("ingestion", sessionId);
+  }
+  try {
+    return await invokeCommand<DeleteRecordingSessionResult>("delete_recording_session", {
+      sessionId,
+      expectedVersion,
+      deleteDocument: deleteDocument ?? false,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "ingestion", sessionId));
+  }
+}
+
+/**
+ * Processes pending or failed entries in the recording filesystem cleanup journal.
+ */
+export async function processCleanupJournal(): Promise<CleanupJournalResult> {
+  if (!isTauri()) {
+    return { cleanedCount: 0, failedCount: 0 };
+  }
+  try {
+    return await invokeCommand<CleanupJournalResult>("process_cleanup_journal", {});
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "ingestion"));
+  }
+}
+
+/**
+ * Renames or merges a speaker across all segments in a session.
+ */
+export async function updateSessionSpeaker(
+  sessionId: string,
+  fromSpeakerId: string,
+  toSpeakerId: string | null
+): Promise<number> {
+  if (!isTauri()) {
+    throw typedUnavailableError("transcription", sessionId);
+  }
+  try {
+    return await invokeCommand<number>("update_session_speaker", {
+      sessionId,
+      fromSpeakerId,
+      toSpeakerId,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "transcription", sessionId));
+  }
+}
+
+/**
+ * Lists distinct speaker IDs appearing in session transcript segments.
+ */
+export async function listSessionSpeakers(sessionId: string): Promise<string[]> {
+  if (!isTauri()) {
+    return [];
+  }
+  try {
+    return await invokeCommand<string[]>("list_session_speakers", {
+      sessionId,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "transcription", sessionId));
+  }
+}
+
+/**
+ * Associates a library document (slides, PDF, reading) with a session's metadata.
+ */
+export async function associateSessionDocument(
+  sessionId: string,
+  documentId: string
+): Promise<SessionRelatedDocument[]> {
+  if (!isTauri()) {
+    return [];
+  }
+  try {
+    return await invokeCommand<SessionRelatedDocument[]>("associate_session_document", {
+      sessionId,
+      documentId,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "ingestion", sessionId));
+  }
+}
+
+/**
+ * Disassociates a library document from a session.
+ */
+export async function disassociateSessionDocument(
+  sessionId: string,
+  documentId: string
+): Promise<SessionRelatedDocument[]> {
+  if (!isTauri()) {
+    return [];
+  }
+  try {
+    return await invokeCommand<SessionRelatedDocument[]>("disassociate_session_document", {
+      sessionId,
+      documentId,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "ingestion", sessionId));
+  }
+}
+
+/**
+ * Lists related library materials associated with a session.
+ */
+export async function listSessionRelatedDocuments(
+  sessionId: string
+): Promise<SessionRelatedDocument[]> {
+  if (!isTauri()) {
+    return [];
+  }
+  try {
+    return await invokeCommand<SessionRelatedDocument[]>("list_session_related_documents", {
+      sessionId,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "ingestion", sessionId));
+  }
+}

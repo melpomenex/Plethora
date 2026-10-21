@@ -367,10 +367,17 @@ export class CaptureController {
     if (store.activeSessionId && (store.state === "finalizing" || store.state === "idle")) {
       try {
         const report = await recoverRecordingSession(store.activeSessionId);
-        if (report.verifiedParts > 0) {
+        const verifiedCount =
+          typeof report.verifiedParts === "number"
+            ? report.verifiedParts
+            : Array.isArray(report.verifiedParts)
+            ? (report.verifiedParts as any[]).length
+            : 0;
+        if (verifiedCount > 0) {
           store.setState("recoverable");
           store.setHealth({
-            acknowledgedMs: report.acknowledgedDurationMs,
+            acknowledgedMs:
+              report.acknowledgedDurationMs ?? (report as any).totalDurationMs ?? 0,
             pendingBytes: 0,
           });
         }

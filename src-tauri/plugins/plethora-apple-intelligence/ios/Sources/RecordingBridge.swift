@@ -304,6 +304,13 @@ public final class AppleRecordingWriter {
 }
 
 public final class AppleRecordingBridge: NSObject {
+  /// Continuous recording while the app is backgrounded is NOT certified.
+  /// Keeping this false makes `background` an honest capability probe: the
+  /// bridge safe-stops and commits on background/interruption (D2/D12). Flip
+  /// only after audio-session, entitlement, interruption and lock-screen
+  /// evidence has been recorded for the supported iOS build.
+  private static let backgroundCaptureCertified = false
+
   private let queue = DispatchQueue(label: "com.plethora.recording.writer", qos: .userInitiated)
 
   private var activeSessionId: String?
@@ -363,7 +370,7 @@ public final class AppleRecordingBridge: NSObject {
         "platform": "ios",
         "available": true,
         "pause": true,
-        "background": false, // background:false until certified per Task 0.8
+        "background": AppleRecordingBridge.backgroundCaptureCertified,
         "liveCaptions": false,
         "state": self.currentState,
         "sessionId": self.activeSessionId as Any,

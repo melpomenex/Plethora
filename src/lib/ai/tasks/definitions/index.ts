@@ -15,3 +15,5 @@ export * from "./askPlethoraTask";
 export * from "./smartTaggingContext";
 export * from "./smartTaggingTask";
 export * from "./relationshipTask";
+export * from "./sessionSectionAnalysisTask";
+export * from "./sessionOverviewTask";

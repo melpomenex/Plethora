@@ -170,3 +170,20 @@ async fn append_daily_note_extract_link(extract: &Extract, repo: &Repository) ->
     .await?;
     Ok(())
 }
+
+#[tauri::command]
+pub async fn get_learning_object_sources(
+    target_kind: String,
+    target_id: String,
+    repo: State<'_, Repository>,
+) -> Result<Vec<crate::database::LearningObjectSource>> {
+    repo.get_learning_object_sources_for_target(&target_kind, &target_id).await
+}
+
+#[tauri::command]
+pub async fn get_session_learning_object_sources(
+    session_id: String,
+    repo: State<'_, Repository>,
+) -> Result<Vec<crate::database::LearningObjectSource>> {
+    repo.get_learning_object_sources_for_session(&session_id).await
+}

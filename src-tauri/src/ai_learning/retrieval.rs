@@ -364,7 +364,17 @@ async fn lexical_results(
         }
         let score = normalize_bm25(rank);
 
-        // Prefer the document's best lexical chunk when it is indexed.
+        // Prefer the document's best lexical session or document chunk when indexed.
+        if type_ok("session") || type_ok("document") {
+            if let Some(mut chunk) =
+                best_lexical_chunk(repo, &doc_id, "session", &fts_query).await?
+            {
+                chunk.score = score;
+                chunk.mode = RetrievalMode::LexicalOnly.as_str().to_string();
+                out.push(chunk);
+                continue;
+            }
+        }
         if type_ok("document") {
             if let Some(mut chunk) =
                 best_lexical_chunk(repo, &doc_id, "document", &fts_query).await?
