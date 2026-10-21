@@ -673,8 +673,10 @@
   .adaptive-dialog-sheet {
     align-self: flex-end;
     width: min(100%, 42rem);
-    max-height: calc(var(--app-viewport-height, 100dvh) - max(1rem, env(safe-area-inset-top, 0px)));
-    margin-bottom: max(0px, env(safe-area-inset-bottom, 0px));
+    /* The layer already owns viewport padding (including safe-area insets).
+       A percentage max-height keeps a tall sheet inside that padded area
+       instead of overflowing the top edge and drawing under the status bar. */
+    max-height: 100%;
     border-radius: var(--md-shape-extra-large) var(--md-shape-extra-large) 0 0;
   }
 

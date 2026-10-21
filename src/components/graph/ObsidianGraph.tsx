@@ -486,6 +486,7 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const minimapRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const canvasSizeRef = useRef({ width: 0, height: 0 });
   const { theme } = useTheme();
 
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
@@ -1170,16 +1171,51 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
     const canvas = canvasRef.current;
     if (!container || !canvas) return;
 
+    let frame = 0;
+    let disposed = false;
+
     const resize = () => {
+      if (disposed) return;
       const rect = container.getBoundingClientRect();
-      canvas.width = rect.width;
-      canvas.height = rect.height;
+      const width = Math.max(1, Math.round(rect.width));
+      const height = Math.max(1, Math.round(rect.height));
+      const previous = canvasSizeRef.current;
+
+      // Resizing a canvas clears its backing store. Skip the redraw when
+      // nothing changed (for example when the sidebar state re-renders this
+      // effect), and never call fitToView here: expanding the canvas should
+      // reveal more of the current view rather than discard the user's pan/zoom.
+      if (previous.width === width && previous.height === height && canvas.width === width && canvas.height === height) {
+        return;
+      }
+
+      canvasSizeRef.current = { width, height };
+      canvas.width = width;
+      canvas.height = height;
       draw();
     };
 
+    const scheduleResize = () => {
+      if (frame !== 0 || disposed) return;
+      frame = window.requestAnimationFrame(() => {
+        frame = 0;
+        resize();
+      });
+    };
+
+    // Initial sizing is synchronous so the first painted frame is correct.
     resize();
-    window.addEventListener("resize", resize);
-    return () => window.removeEventListener("resize", resize);
+    window.addEventListener("resize", scheduleResize);
+    const observer =
+      typeof ResizeObserver !== "undefined" ? new ResizeObserver(scheduleResize) : null;
+    observer?.observe(container);
+
+    return () => {
+      disposed = true;
+      window.removeEventListener("resize", scheduleResize);
+      observer?.disconnect();
+      if (frame !== 0) window.cancelAnimationFrame(frame);
+    };
   }, [draw]);
 
   // ── Mouse handlers ─────────────────────────────────────────────

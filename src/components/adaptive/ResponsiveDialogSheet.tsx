@@ -19,6 +19,7 @@ export function ResponsiveDialogSheet({
   initialFocusRef,
   closeLabel = "Close",
   presentation = "auto",
+  id,
   className,
 }: {
   open: boolean;
@@ -30,6 +31,7 @@ export function ResponsiveDialogSheet({
   initialFocusRef?: RefObject<HTMLElement | null>;
   closeLabel?: string;
   presentation?: "auto" | "sheet" | "dialog";
+  id?: string;
   className?: string;
 }) {
   const { mode } = usePresentation();
@@ -51,6 +53,7 @@ export function ResponsiveDialogSheet({
       />
       <div
         ref={panelRef}
+        id={id}
         className={cn(
           dialogSurface,
           "adaptive-dialog-panel",

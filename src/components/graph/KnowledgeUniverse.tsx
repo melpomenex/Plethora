@@ -576,7 +576,8 @@ export function KnowledgeUniverse(props: KnowledgeUniverseProps) {
   return (
     <div
       ref={containerRef}
-      className="relative w-full h-full overflow-hidden outline-none"
+      data-testid="knowledge-universe"
+      className="relative h-full min-h-0 min-w-0 w-full overflow-hidden outline-none"
       tabIndex={0}
       onKeyDown={handleKeyDown}
     >

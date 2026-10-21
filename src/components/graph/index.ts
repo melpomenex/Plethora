@@ -24,15 +24,40 @@ export type { KnowledgeSphereProps } from "./KnowledgeSphere";
 
 // Filter controls
 export {
-  GraphFilterControls,
+  GRAPH_FILTER_PANEL_ID,
+  GraphActiveFilterSummary,
+  GraphFilterPanelBody,
+  GraphFilterSheet,
+  GraphFilterSidebar,
   applyGraphFilters,
+  countActiveGraphFilters,
+  createEmptyGraphFilters,
+  describeActiveGraphFilters,
+  removeActiveGraphFilter,
   extractGraphMetadata,
   calculateGraphStatistics,
 } from "./GraphFilters";
 export type {
+  ActiveGraphFilterDescriptor,
+  ActiveGraphFilterKind,
   GraphFilters,
-  GraphFilterControlsProps,
+  GraphFilterPanelBodyProps,
+  GraphFilterPanelProps,
+  GraphFilterSurfaceProps,
 } from "./GraphFilters";
+export {
+  GRAPH_FILTER_SIDEBAR_STORAGE_KEY,
+  defaultGraphFilterSidebarOpen,
+  readGraphFilterSidebarOpen,
+  writeGraphFilterSidebarOpen,
+} from "./graphFilterPersistence";
+export {
+  KnowledgeGraphHeader,
+} from "./KnowledgeGraphHeader";
+export type {
+  KnowledgeGraphHeaderProps,
+  KnowledgeGraphViewMode,
+} from "./KnowledgeGraphHeader";
 
 export { NodeDetailView, NodePreviewCard, NodeTooltip } from "./NodeDetailView";
 export type { NodeDetailViewProps } from "./NodeDetailView";

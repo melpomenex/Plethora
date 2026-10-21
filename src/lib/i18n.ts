@@ -8,4 +8,4 @@ export {
   useLocaleRevision,
   loadLocale,
 } from "./i18n/index";
-export type { SupportedLocale, Dict } from "./i18n/index";
+export type { SupportedLocale, Dict, TranslateFn } from "./i18n/index";

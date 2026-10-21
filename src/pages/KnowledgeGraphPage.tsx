@@ -7,7 +7,25 @@ import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { invokeCommand } from "../lib/tauri";
 import { ObsidianGraph, type ObsidianGraphHandle } from "../components/graph/ObsidianGraph";
 import { KnowledgeUniverseLazy } from "../components/graph/KnowledgeUniverseLazy";
-import { GraphFilterControls, applyGraphFilters, extractGraphMetadata } from "../components/graph/GraphFilters";
+import {
+  GraphActiveFilterSummary,
+  GraphFilterSheet,
+  GraphFilterSidebar,
+  applyGraphFilters,
+  countActiveGraphFilters,
+  createEmptyGraphFilters,
+  extractGraphMetadata,
+} from "../components/graph/GraphFilters";
+import {
+  KnowledgeGraphHeader,
+  type KnowledgeGraphViewMode,
+} from "../components/graph/KnowledgeGraphHeader";
+import {
+  readGraphFilterSidebarOpen,
+  writeGraphFilterSidebarOpen,
+} from "../components/graph/graphFilterPersistence";
+import { usePresentation } from "../contexts/PresentationContext";
+import { useIsActiveTab } from "../components/common/Tabs";
 import { NodeDetailView } from "../components/graph/NodeDetailView";
 import { GraphNodeType, type GraphNode, type GraphEdge, type GraphData, LayoutAlgorithm } from "../components/graph/KnowledgeGraph";
 import { getDocument, updateDocument, deleteDocument } from "../api/documents";
@@ -28,26 +46,16 @@ import { useI18n } from "../lib/i18n";
 import { useContextMenu, ContextMenu, ContextMenuItemType } from "../components/common/ContextMenu";
 import { ConfirmDialog, useConfirmDialog } from "../components/common/ConfirmDialog";
 import {
-  ArrowsOutSimple,
   ArrowSquareOut,
   Brain,
   ChatCircle,
-  Download,
-  Funnel,
-  GitBranch,
-  Graph,
   GridNine,
-  MagnifyingGlass,
   PencilSimple,
-  Sparkle,
   Target,
   TextT,
   Trash,
-  X,
 } from "@phosphor-icons/react";
 import type { MarketingSceneApplication } from "../lib/marketingCapture/sceneApplicators";
-
-type ViewMode = "graph" | "universe";
 
 export interface KnowledgeGraphPageProps {
   captureConnection?: MarketingSceneApplication["connectionContext"];
@@ -64,15 +72,21 @@ function deterministicCoordinate(id: string, axis: "x" | "y", span: number, offs
 
 export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProps = {}) {
   const { t } = useI18n();
+  const { mode } = usePresentation();
+  const isSheetSurface = mode === "phone" || mode === "tablet";
+  const isActiveTab = useIsActiveTab();
   const [graphData, setGraphData] = useState<GraphData>({ nodes: [], edges: [] });
   const [isLoading, setIsLoading] = useState(true);
   const [selectedNode, setSelectedNode] = useState<string | null>(
     captureConnection ? `extract-${captureConnection.fromId}` : null,
   );
-  const [viewMode, setViewMode] = useState<ViewMode>("graph");
-  const [showFilters, setShowFilters] = useState(!captureConnection);
-  const [searchQuery, setSearchQuery] = useState("");
+  const [viewMode, setViewMode] = useState<KnowledgeGraphViewMode>("graph");
+  const [filtersOpen, setFiltersOpen] = useState(() => {
+    if (captureConnection) return false;
+    return isSheetSurface ? false : readGraphFilterSidebarOpen(mode);
+  });
   const graphRef = useRef<ObsidianGraphHandle>(null);
+  const filterSearchRef = useRef<HTMLInputElement>(null);
   const searchFitTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { addTab } = useTabsStore();
   const toast = useToast();
@@ -80,14 +94,9 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
 
   const nodeContextMenu = useContextMenu("node-context-menu");
   const confirmDialog = useConfirmDialog();
-  const [contextNode, setContextNode] = useState<GraphNode | null>(null);
 
-  const [filters, setFilters] = useState({
-    searchQuery: "",
-    nodeTypes: [] as GraphNodeType[],
-    categories: [] as string[],
-    tags: [] as string[],
-  });
+  const [filters, setFilters] = useState(createEmptyGraphFilters);
+  const activeFilterCount = useMemo(() => countActiveGraphFilters(filters), [filters]);
   const [layout, setLayout] = useState(LayoutAlgorithm.Force);
   const [graphLinkDistance, setGraphLinkDistance] = useState(120);
   const [graphNodeScale, setGraphNodeScale] = useState(1);
@@ -313,6 +322,49 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
     };
   }, [filters.searchQuery, filteredData]);
 
+  // Re-evaluate the filter surface when presentation changes. The phone sheet
+  // is transient and always starts closed; docked sidebars restore their
+  // persisted state for the current mode.
+  useEffect(() => {
+    if (captureConnection) {
+      setFiltersOpen(false);
+      return;
+    }
+    setFiltersOpen(isSheetSurface ? false : readGraphFilterSidebarOpen(mode));
+  }, [mode, isSheetSurface, captureConnection]);
+
+  // The sheet is portalled outside the tab wrapper, so hide it when this tab is
+  // no longer active rather than letting it float over another tab.
+  useEffect(() => {
+    if (!isActiveTab && isSheetSurface) setFiltersOpen(false);
+  }, [isActiveTab, isSheetSurface]);
+
+  const setFiltersSurfaceOpen = useCallback((open: boolean) => {
+    setFiltersOpen(open);
+    if (!isSheetSurface && !captureConnection) {
+      writeGraphFilterSidebarOpen(mode, open);
+    }
+  }, [mode, isSheetSurface, captureConnection]);
+
+  const handleToggleFilters = useCallback(() => {
+    setFiltersSurfaceOpen(!filtersOpen);
+  }, [filtersOpen, setFiltersSurfaceOpen]);
+
+  const handleOpenSearch = useCallback(() => {
+    setFiltersSurfaceOpen(true);
+    if (!isSheetSurface) {
+      window.requestAnimationFrame(() => filterSearchRef.current?.focus());
+    }
+  }, [isSheetSurface, setFiltersSurfaceOpen]);
+
+  const handleSearchQueryChange = useCallback((query: string) => {
+    setFilters((current) => ({ ...current, searchQuery: query }));
+  }, []);
+
+  const handleResetFilters = useCallback(() => {
+    setFilters(createEmptyGraphFilters());
+  }, []);
+
   const { categories, tags } = useMemo(() => {
     return extractGraphMetadata(graphData.nodes);
   }, [graphData]);
@@ -400,8 +452,7 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
         break;
     }
   }, [addTab]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-   
+
   const handleNodeEditFallback = useCallback((nodeId: string) => {
     const node = graphData.nodes.find((n) => n.id === nodeId);
     if (!node) return;
@@ -447,7 +498,6 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
         break;
     }
   }, [addTab, graphData.nodes, toast]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
 
   const handleNodeDelete = useCallback((nodeId: string) => {
     const node = graphData.nodes.find((n) => n.id === nodeId);
@@ -485,7 +535,6 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
 
   const handleNodeContextMenu = useCallback(
     (node: GraphNode, position: { x: number; y: number }) => {
-      setContextNode(node);
       nodeContextMenu.showMenu(position, [
         {
           id: "open",
@@ -603,131 +652,58 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
     );
   }
 
+  const filterPanelProps = {
+    filters,
+    onFiltersChange: setFilters,
+    availableCategories: categories,
+    availableTags: tags,
+    layout,
+    onLayoutChange: setLayout,
+    nodeCounts,
+    linkDistance: graphLinkDistance,
+    onLinkDistanceChange: setGraphLinkDistance,
+    nodeScale: graphNodeScale,
+    onNodeScaleChange: setGraphNodeScale,
+  };
+
   return (
-    <div className="h-full flex flex-col bg-cream">
-      {/* Header with glass styling */}
-      <div className="h-16 glass-panel-light flex items-center justify-between px-4 flex-shrink-0">
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl glass-panel flex items-center justify-center">
-              <Graph className="w-5 h-5 text-primary-400" />
-            </div>
-            <div>
-              <h1 className="text-lg font-semibold text-foreground">{t("knowledgeGraph.title")}</h1>
-              <p className="text-xs text-muted-foreground">
-                {t("knowledgeGraph.visibleOfTotal", { visible: filteredData.nodes.length, total: graphData.nodes.length })}
-              </p>
-            </div>
-          </div>
+    <div className="h-full min-h-0 flex flex-col bg-cream">
+      <KnowledgeGraphHeader
+        visibleCount={filteredData.nodes.length}
+        totalCount={graphData.nodes.length}
+        viewMode={viewMode}
+        onViewModeChange={setViewMode}
+        filtersOpen={filtersOpen}
+        onToggleFilters={handleToggleFilters}
+        onOpenSearch={handleOpenSearch}
+        activeFilterCount={activeFilterCount}
+        searchQuery={filters.searchQuery}
+        onSearchQueryChange={handleSearchQueryChange}
+        onExport={exportGraph}
+        onResetFilters={handleResetFilters}
+      />
 
-          {/* View mode toggle with glass styling */}
-          <div className="flex items-center gap-1 p-1 glass-panel rounded-xl ml-4">
-            <button
-              onClick={() => setViewMode("graph")}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                viewMode === "graph"
-                  ? "glass-panel-heavy text-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-glass-100"
-              }`}
-            >
-              <GitBranch className="w-4 h-4" />
-              {t("knowledgeGraph.graph")}
-            </button>
-            <button
-              onClick={() => setViewMode("universe")}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-                viewMode === "universe"
-                  ? "glass-panel-heavy text-foreground"
-                  : "text-muted-foreground hover:text-foreground hover:bg-glass-100"
-              }`}
-            >
-              <Sparkle className="w-4 h-4" />
-              {t("knowledgeGraph.universe")}
-            </button>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Search with glass styling */}
-          <div className="relative">
-            <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setFilters((f) => ({ ...f, searchQuery: e.target.value }));
-              }}
-              placeholder={t("knowledgeGraph.searchNodes")}
-              className="w-64 pl-10 pr-9 py-2 glass-input rounded-xl text-sm"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => {
-                  setSearchQuery("");
-                  setFilters((f) => ({ ...f, searchQuery: "" }));
-                }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
-            {searchQuery && (
-              <button
-                onClick={() => graphRef.current?.fitToView()}
-                className="absolute -right-8 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                title={t("graph.resetView")}
-              >
-                <ArrowsOutSimple className="w-4 h-4" />
-              </button>
-            )}
-          </div>
-
-          {/* Funnel toggle with glass styling */}
-          <button
-            onClick={() => setShowFilters(!showFilters)}
-            className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium transition-all glass-button ${
-              showFilters ? "bg-primary-400/20 text-primary-300" : ""
-            }`}
-          >
-            <Funnel className="w-4 h-4" />
-            {t("knowledgeGraph.filters")}
-          </button>
-
-          {/* Export with glass styling */}
-          <button
-            onClick={exportGraph}
-            className="flex items-center gap-2 px-3 py-2 glass-button rounded-xl text-sm font-medium transition-colors"
-            title={t("knowledgeGraph.exportGraph")}
-          >
-            <Download className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
+      {activeFilterCount > 0 && !filtersOpen && (
+        <GraphActiveFilterSummary filters={filters} onFiltersChange={setFilters} />
+      )}
 
       {/* Main content */}
-      <div className="flex-1 flex overflow-hidden">
-        {/* Filters Sidebar with glass styling */}
-        {showFilters && (
-          <div className="w-72 flex-shrink-0 sidebar-section">
-            <GraphFilterControls
-              filters={filters}
-              onFiltersChange={setFilters}
-              availableCategories={categories}
-              availableTags={tags}
-              layout={layout}
-              onLayoutChange={setLayout}
-              nodeCounts={nodeCounts}
-              linkDistance={graphLinkDistance}
-              onLinkDistanceChange={setGraphLinkDistance}
-              nodeScale={graphNodeScale}
-              onNodeScaleChange={setGraphNodeScale}
+      <div className="flex min-h-0 flex-1 overflow-hidden">
+        {!isSheetSurface && filtersOpen && (
+          <div className="w-72 shrink-0">
+            <GraphFilterSidebar
+              {...filterPanelProps}
+              visibleCount={filteredData.nodes.length}
+              totalCount={graphData.nodes.length}
             />
           </div>
         )}
 
-        {/* Graph/Sphere View */}
-        <div className="flex-1 relative">
+        {/* Graph/Universe View */}
+        <div
+          data-testid="knowledge-graph-canvas"
+          className="relative min-h-0 min-w-0 flex-1 overflow-hidden"
+        >
           {viewMode === "graph" ? (
             <ObsidianGraph
               ref={graphRef}
@@ -772,6 +748,17 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
           )}
         </div>
       </div>
+
+      {isSheetSurface && (
+        <GraphFilterSheet
+          {...filterPanelProps}
+          open={filtersOpen}
+          onClose={() => setFiltersSurfaceOpen(false)}
+          searchInputRef={filterSearchRef}
+          visibleCount={filteredData.nodes.length}
+          totalCount={graphData.nodes.length}
+        />
+      )}
 
       {/* Node Detail Panel */}
       {selectedNodeData && (
