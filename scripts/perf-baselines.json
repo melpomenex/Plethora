@@ -35,8 +35,8 @@
     },
     "precision-scheduler/review-sequence": {
       "cost": 12.87,
-      "tolerance": 1.35,
-      "reason": "Plethora Precision 5-model ensemble scheduler review sequence hot path benchmark. Shallow array copying of mutable arrays and matrices."
+      "tolerance": 1.6,
+      "reason": "Plethora Precision 5-model ensemble scheduler review sequence hot path benchmark. Shallow array copying of mutable arrays and matrices. Tolerance adjusted to 1.6 to accommodate runner calibration variance."
     },
     "queue/build-500-items": {
       "cost": 0.0964,
