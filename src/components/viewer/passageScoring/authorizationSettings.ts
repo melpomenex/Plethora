@@ -26,7 +26,6 @@ import {
   type PassageRemoteScoringSettingLocality,
 } from "../../../lib/ai/passageScoringConsent";
 import {
-  consumePassageRemoteAuthorization,
   getPassageRemoteScoringAuthorization,
   grantPassageRemoteScoringAuthorization,
   revokePassageRemoteScoringAuthorization,
@@ -248,22 +247,4 @@ export function resetRemoteAuthorizationPersistenceForTests(): void {
   removeUsageListener = null;
   persistenceInstalled = false;
   clearUsage();
-}
-
-/**
- * Test-only seam: the controller consumes through `policy.ts`, but tests need
- * the same "one unit, persisted" path without a full reader mount.
- */
-export function consumeRemotePassageScoringUnit(): boolean {
-  const target = remotePassageScoringTarget();
-  const setting = normalizePassageRemoteScoringSetting(
-    useSettingsStore.getState().settings.ai.remotePassageScoring
-  );
-  if (!target || !setting) return false;
-  ensureRemoteAuthorizationPersistence();
-  return consumePassageRemoteAuthorization(
-    setting.providerId,
-    setting.locality,
-    setting.sourceScope
-  );
 }

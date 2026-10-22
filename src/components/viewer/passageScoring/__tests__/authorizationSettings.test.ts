@@ -3,7 +3,7 @@ import { defaultSettings, useSettingsStore } from "../../../../stores/settingsSt
 import { useLLMProvidersStore } from "../../../../stores/llmProvidersStore";
 import {
   PASSAGE_REMOTE_USAGE_STORAGE_KEY,
-  consumeRemotePassageScoringUnit,
+  ensureRemoteAuthorizationPersistence,
   getRemotePassageScoringUsage,
   grantRemotePassageScoring,
   remotePassageScoringTarget,
@@ -12,6 +12,7 @@ import {
   syncRemoteAuthorizationFromSettings,
 } from "../authorizationSettings";
 import {
+  consumePassageRemoteAuthorization,
   getPassageRemoteScoringAuthorization,
   resetPassageScoringPolicyForTests,
 } from "../policy";
@@ -97,10 +98,23 @@ describe("remote passage-scoring authorization", () => {
 
   it("persists consumed units so a restart cannot refill the allowance", () => {
     useCloudProvider({ provider: "openai", apiKey: "sk-test" });
-    grantRemotePassageScoring({ maxClassifications: 10 });
+    const setting = grantRemotePassageScoring({ maxClassifications: 10 })!;
+    ensureRemoteAuthorizationPersistence();
 
-    expect(consumeRemotePassageScoringUnit()).toBe(true);
-    expect(consumeRemotePassageScoringUnit()).toBe(true);
+    expect(
+      consumePassageRemoteAuthorization(
+        setting.providerId,
+        setting.locality,
+        setting.sourceScope
+      )
+    ).toBe(true);
+    expect(
+      consumePassageRemoteAuthorization(
+        setting.providerId,
+        setting.locality,
+        setting.sourceScope
+      )
+    ).toBe(true);
     expect(getRemotePassageScoringUsage()?.used).toBe(2);
 
     const persisted = JSON.parse(
