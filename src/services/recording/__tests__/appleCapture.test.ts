@@ -134,6 +134,57 @@ describe("appleCapture adapter", () => {
     expect(stateChanges[stateChanges.length - 1]).toBe("saved");
   });
 
+  it("nests recording args under the Rust `payload` envelope", async () => {
+    const calls: { cmd: string; args: unknown }[] = [];
+    const mockInvoke = vi.fn().mockImplementation(async (cmd: string, args: unknown) => {
+      calls.push({ cmd, args });
+      if (cmd === APPLE_RECORDING_COMMANDS.start) {
+        return { ok: true, sessionId: "sess-1", assetId: "asset-1", writerEpoch: "epoch-1" };
+      }
+      if (cmd === APPLE_RECORDING_COMMANDS.pause) {
+        return { ok: true, state: "paused", acknowledgedMs: 0 };
+      }
+      if (cmd === APPLE_RECORDING_COMMANDS.resume) {
+        return { ok: true, state: "recording" };
+      }
+      return {
+        assetId: "asset-1",
+        incomplete: false,
+        acknowledgedMs: 0,
+        partsCount: 1,
+        totalBytes: 1,
+      };
+    });
+
+    const handle = await startAppleCapture({
+      sessionId: "sess-1",
+      writerEpoch: "epoch-1",
+      invokeFn: mockInvoke,
+    });
+    await handle.pause();
+    await handle.resume();
+    await handle.finish();
+
+    expect(calls.map((call) => call.cmd)).toEqual([
+      APPLE_RECORDING_COMMANDS.start,
+      APPLE_RECORDING_COMMANDS.pause,
+      APPLE_RECORDING_COMMANDS.resume,
+      APPLE_RECORDING_COMMANDS.finish,
+    ]);
+    expect(calls[0].args).toEqual({
+      payload: {
+        sessionId: "sess-1",
+        assetId: "",
+        writerEpoch: "epoch-1",
+        sampleRate: 16000,
+        channels: 1,
+      },
+    });
+    for (const call of calls.slice(1)) {
+      expect(call.args).toMatchObject({ payload: { sessionId: "sess-1", writerEpoch: "epoch-1" } });
+    }
+  });
+
   it("transitions to failed state when start throws", async () => {
     const stateChanges: string[] = [];
     const mockInvoke = vi.fn().mockRejectedValue(new Error("Microphone permission denied"));

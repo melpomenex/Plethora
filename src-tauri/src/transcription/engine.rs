@@ -441,6 +441,17 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
 
         let output_path = temp_dir.join(format!("{}.wav", uuid::Uuid::new_v4()));
 
+        // Fast path: the input is already the canonical 16 kHz mono PCM16 WAV
+        // the engines consume (e.g. a consolidated recording). FFmpeg is
+        // unavailable on Android, and callers delete the returned file, so
+        // hard-link (or copy) instead of re-encoding.
+        if start_ms == 0 && is_canonical_pcm16_wav(input_path) {
+            if std::fs::hard_link(input_path, &output_path).is_err() {
+                std::fs::copy(input_path, &output_path)?;
+            }
+            return Ok(output_path);
+        }
+
         let mut args = vec![
             "-i".to_string(),
             input_path
@@ -2403,6 +2414,27 @@ fn dir_contains_sidecars(dir: &Path) -> bool {
     false
 }
 
+/// True when the file is a canonical 44-byte-header 16 kHz mono PCM16 WAV,
+/// which whisper.cpp and sherpa-onnx accept without conversion.
+fn is_canonical_pcm16_wav(wav_path: &Path) -> bool {
+    use std::io::Read;
+
+    let Ok(mut file) = std::fs::File::open(wav_path) else {
+        return false;
+    };
+    let mut header = [0u8; 44];
+    if file.read_exact(&mut header).is_err() {
+        return false;
+    }
+    &header[0..4] == b"RIFF"
+        && &header[8..12] == b"WAVE"
+        && &header[12..16] == b"fmt "
+        && u16::from_le_bytes([header[20], header[21]]) == 1
+        && u16::from_le_bytes([header[22], header[23]]) == 1
+        && u32::from_le_bytes([header[24], header[25], header[26], header[27]]) == 16_000
+        && u16::from_le_bytes([header[34], header[35]]) == 16
+}
+
 fn get_wav_duration_ms(wav_path: &Path) -> Option<i64> {
     let data = std::fs::read(wav_path).ok()?;
     if data.len() < 44 {
@@ -2938,5 +2970,41 @@ mod tests {
     fn whistle_output_parsing_empty_or_malformed() {
         assert!(super::parse_whistle_output("needle: could not read audio file", 0, 30_000).is_none());
         assert!(super::parse_whistle_output(r#"{"text": "   "}"#, 0, 30_000).is_none());
+    }
+
+    #[test]
+    fn canonical_pcm16_wav_detection() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut header = Vec::new();
+        header.extend_from_slice(b"RIFF");
+        header.extend_from_slice(&36u32.to_le_bytes());
+        header.extend_from_slice(b"WAVE");
+        header.extend_from_slice(b"fmt ");
+        header.extend_from_slice(&16u32.to_le_bytes());
+        header.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        header.extend_from_slice(&1u16.to_le_bytes()); // mono
+        header.extend_from_slice(&16_000u32.to_le_bytes());
+        header.extend_from_slice(&32_000u32.to_le_bytes());
+        header.extend_from_slice(&2u16.to_le_bytes());
+        header.extend_from_slice(&16u16.to_le_bytes());
+        header.extend_from_slice(b"data");
+        header.extend_from_slice(&0u32.to_le_bytes());
+        assert_eq!(header.len(), 44);
+
+        let canonical = dir.path().join("canonical.wav");
+        std::fs::write(&canonical, &header).unwrap();
+        assert!(super::is_canonical_pcm16_wav(&canonical));
+
+        let mut stereo = header.clone();
+        stereo[22..24].copy_from_slice(&2u16.to_le_bytes());
+        let stereo_path = dir.path().join("stereo.wav");
+        std::fs::write(&stereo_path, &stereo).unwrap();
+        assert!(!super::is_canonical_pcm16_wav(&stereo_path));
+
+        let mut rate = header.clone();
+        rate[24..28].copy_from_slice(&44_100u32.to_le_bytes());
+        let rate_path = dir.path().join("44k.wav");
+        std::fs::write(&rate_path, &rate).unwrap();
+        assert!(!super::is_canonical_pcm16_wav(&rate_path));
     }
 }

@@ -11,6 +11,7 @@ import {
   recoverRecordingSession,
   stageSessionMedia,
   exportPartialRecording,
+  getRecordingMediaPath,
   isRecordingPersistenceAvailable,
   RecordingSessionApiError,
   isSessionOperationError,
@@ -128,6 +129,14 @@ describe("recordingSessions API", () => {
 
     it("rejects finalizeRecordingSession with typed SourceUnavailable", async () => {
       await expect(finalizeRecordingSession("sess-1", 1)).rejects.toMatchObject({
+        code: "SourceUnavailable",
+        stage: "ingestion",
+        sessionId: "sess-1",
+      });
+    });
+
+    it("rejects getRecordingMediaPath with typed SourceUnavailable", async () => {
+      await expect(getRecordingMediaPath("sess-1")).rejects.toMatchObject({
         code: "SourceUnavailable",
         stage: "ingestion",
         sessionId: "sess-1",
@@ -454,6 +463,18 @@ describe("recordingSessions API", () => {
       expect(tauriLib.invokeCommand).toHaveBeenCalledWith("export_partial_recording", {
         sessionId: "sess-1",
         outputPath: "/path/to/out.wav",
+      });
+    });
+
+    it("resolves the session's absolute media path", async () => {
+      vi.mocked(tauriLib.invokeCommand).mockResolvedValueOnce(
+        "/data/recordings/sess-1/audio.wav"
+      );
+
+      const path = await getRecordingMediaPath("sess-1");
+      expect(path).toBe("/data/recordings/sess-1/audio.wav");
+      expect(tauriLib.invokeCommand).toHaveBeenCalledWith("get_recording_media_path", {
+        sessionId: "sess-1",
       });
     });
   });

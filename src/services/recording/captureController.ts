@@ -13,6 +13,7 @@
 import {
   acquireAudioCapture,
 } from "../../lib/speech/captureOwner";
+import { generateId } from "../../utils/id";
 import {
   useRecordingSessionStore,
 } from "../../stores/recordingSessionStore";
@@ -93,7 +94,11 @@ export class CaptureController {
       throw new Error("Recording is already in progress");
     }
 
-    const sessionId = options.sessionId || `rec_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    // Session IDs are persisted through the Rust repository, which validates
+    // them as UUIDs (`uuid::Uuid::parse_str`). A non-UUID id (e.g. `rec_...`)
+    // fails create_recording_session with SourceUnavailable, leaving the native
+    // recording untracked and finalize unable to find the session row.
+    const sessionId = options.sessionId || generateId();
     const epoch = `ep_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
     this.activeEpoch = epoch;
 

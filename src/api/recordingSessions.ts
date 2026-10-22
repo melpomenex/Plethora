@@ -244,6 +244,26 @@ export async function getRecordingAsset(
 }
 
 /**
+ * Absolute path of the session's current media asset.
+ *
+ * Recording assets are stored as app-relative paths (for example
+ * `recordings/<session>/audio.wav`); transcription needs a real filesystem
+ * path. Throws when the session has no media or the asset is not a single file.
+ */
+export async function getRecordingMediaPath(sessionId: string): Promise<string> {
+  if (!isTauri()) {
+    throw typedUnavailableError("ingestion", sessionId);
+  }
+  try {
+    return await invokeCommand<string>("get_recording_media_path", {
+      sessionId,
+    });
+  } catch (err) {
+    throw new RecordingSessionApiError(toSessionOperationError(err, "ingestion", sessionId));
+  }
+}
+
+/**
  * Looks up an existing recording session by its media asset SHA-256 hash.
  * If collectionId is provided, prioritizes a match within that collection.
  */

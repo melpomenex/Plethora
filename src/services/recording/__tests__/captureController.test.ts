@@ -76,6 +76,15 @@ describe("CaptureController", () => {
     controller = new CaptureController();
   });
 
+  it("generates a UUID session id when none is supplied", async () => {
+    const handle = await controller.start();
+
+    expect(handle.sessionId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    );
+    expect(useRecordingSessionStore.getState().activeSessionId).toBe(handle.sessionId);
+  });
+
   it("starts recording and acquires microphone lease", async () => {
     const handle = await controller.start({ sessionId: "sess-1" });
     expect(handle).toBeDefined();

@@ -409,8 +409,15 @@ public final class AppleRecordingBridge: NSObject {
           if let outDir = args.outputDir, !outDir.isEmpty {
             baseDir = URL(fileURLWithPath: outDir, isDirectory: true)
           } else {
-            let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            baseDir = docs.appendingPathComponent("recordings", isDirectory: true)
+            // Must match Rust `app_data_dir`, which Tauri resolves on iOS as
+            // `~/Library/Application Support/<bundle identifier>` (see the
+            // `dirs` crate's `data_dir`). Documents/ would leave the manifest
+            // and parts outside the root finalize/recovery commands read.
+            let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            let identifier = Bundle.main.bundleIdentifier ?? "com.plethora.app"
+            baseDir = support
+              .appendingPathComponent(identifier, isDirectory: true)
+              .appendingPathComponent("recordings", isDirectory: true)
           }
 
           let assetId = args.assetId ?? UUID().uuidString
@@ -513,7 +520,7 @@ public final class AppleRecordingBridge: NSObject {
 
         invoke.resolve([
           "assetId": assetId,
-          "incomplete": false,
+          "incomplete": totalBytes == 0,
           "acknowledgedMs": ackMs,
           "partsCount": partsCount,
           "totalBytes": totalBytes,

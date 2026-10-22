@@ -177,7 +177,12 @@ class AndroidSpeechPlugin(private val activity: Activity) : Plugin(activity) {
             val baseDir = if (!args.outputDir.isNullOrBlank()) {
                 File(args.outputDir!!)
             } else {
-                File(activity.filesDir, "recordings")
+                // Must match Rust `app_data_dir`, which Tauri resolves on Android
+                // via Context.getDataDir() (see tauri's PathPlugin.getDataDir).
+                // `filesDir` would put the manifest/parts under
+                // `<dataDir>/files/recordings`, where the Rust finalize/recovery
+                // commands never look.
+                File(activity.dataDir, "recordings")
             }
             val assetId = if (args.assetId.isNotBlank()) args.assetId else java.util.UUID.randomUUID().toString()
             val writer = RecordingCaptureService.startCapture(
@@ -237,7 +242,7 @@ class AndroidSpeechPlugin(private val activity: Activity) : Plugin(activity) {
             val writer = RecordingCaptureService.finishCapture(activity, args.sessionId, args.writerEpoch)
             invoke.resolve(JSObject().apply {
                 put("assetId", writer.assetId)
-                put("incomplete", false)
+                put("incomplete", writer.getTotalBytes() == 0L)
                 put("acknowledgedMs", writer.getAcknowledgedMs())
                 put("partsCount", writer.getPartsCount())
                 put("totalBytes", writer.getTotalBytes())

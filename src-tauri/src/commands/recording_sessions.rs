@@ -104,6 +104,74 @@ pub async fn get_recording_asset(
     repo.get_recording_asset(&session_id, &asset_id).await
 }
 
+/// Absolute path of a session's current media asset.
+///
+/// Recording assets store app-relative paths (e.g.
+/// `recordings/<session>/audio.wav`); transcription and other consumers need a
+/// real filesystem path. The resolved path is validated to stay inside the app
+/// data directory and to be a regular file.
+#[tauri::command]
+pub async fn get_recording_media_path(
+    session_id: String,
+    app_handle: tauri::AppHandle,
+    repo: State<'_, Repository>,
+) -> Result<String, SessionOperationError> {
+    use tauri::Manager;
+    let data_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|_| SessionOperationError::source_unavailable())?;
+    let session = repo.get_recording_session(&session_id).await?;
+    let asset_id = session
+        .media_asset_id
+        .ok_or_else(SessionOperationError::source_unavailable)?;
+    let mut asset = repo.get_recording_asset(&session_id, &asset_id).await?;
+    let mut candidate = data_dir.join(&asset.relative_path);
+
+    // Recordings finalized before consolidation existed (or whose consolidation
+    // failed) still point at their parts directory. Heal them on first use so
+    // playback/transcription work without re-recording.
+    if !candidate.is_file() {
+        if let Ok(root) = crate::recording::managed_recording_root(&data_dir, &session_id) {
+            if let Ok(Some(manifest)) = crate::recording::read_manifest(&root) {
+                if let Ok(Some(media)) = crate::recording::consolidate_capture_media(
+                    &data_dir,
+                    &session_id,
+                    &manifest,
+                ) {
+                    let clean = manifest
+                        .parts
+                        .iter()
+                        .enumerate()
+                        .all(|(index, part)| part.sequence == index as i64);
+                    if crate::recording::apply_consolidated_media(
+                        repo.pool(),
+                        &session_id,
+                        &asset.id,
+                        &media,
+                        if clean { "ready" } else { "partial" },
+                    )
+                    .await
+                    .is_ok()
+                    {
+                        asset = repo.get_recording_asset(&session_id, &asset.id).await?;
+                        candidate = data_dir.join(&asset.relative_path);
+                    }
+                }
+            }
+        }
+    }
+
+    let canonical =
+        std::fs::canonicalize(&candidate).map_err(|_| SessionOperationError::source_unavailable())?;
+    let root = std::fs::canonicalize(&data_dir)
+        .map_err(|_| SessionOperationError::source_unavailable())?;
+    if !canonical.starts_with(&root) || !canonical.is_file() {
+        return Err(SessionOperationError::source_unavailable());
+    }
+    Ok(canonical.to_string_lossy().into_owned())
+}
+
 #[tauri::command]
 pub async fn append_recording_part(
     session_id: String,

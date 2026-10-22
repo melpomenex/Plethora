@@ -11,6 +11,7 @@ vi.mock("../../../api/recordingSessions", () => ({
   getRecordingSession: vi.fn(),
   finalizeRecordingSession: vi.fn(),
   stageSessionMedia: vi.fn(),
+  getRecordingMediaPath: vi.fn(),
 }));
 
 vi.mock("../../../lib/documentPrivacy", () => ({
@@ -49,6 +50,10 @@ describe("SessionController (Task 1.1 / OpenSpec D1, D6)", () => {
       } as any),
     };
     controller = new SessionController(mockJobManager as TranscriptionJobManager);
+
+    vi.mocked(recordingSessionsApi.getRecordingMediaPath).mockResolvedValue(
+      "/data/recordings/sess-1/audio.wav"
+    );
 
     vi.mocked(documentPrivacyLib.getDocumentPrivacy).mockResolvedValue({
       isLocalOnly: false,
@@ -111,6 +116,9 @@ describe("SessionController (Task 1.1 / OpenSpec D1, D6)", () => {
         expect(result.stageStates.media).toBe("saved");
         expect(result.stageStates.transcription).toBe("queued");
         expect(result.transcriptionJobId).toBe("job-stt-1");
+        expect(mockJobManager.startSessionJob).toHaveBeenCalledWith(
+          expect.objectContaining({ audioPath: "/data/recordings/sess-1/audio.wav" })
+        );
       }
 
       // Analysis placeholder queued without triggering eager LLM inference

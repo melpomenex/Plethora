@@ -19,6 +19,7 @@
 import {
   createRecordingSession,
   finalizeRecordingSession,
+  getRecordingMediaPath,
   getRecordingSession,
   stageSessionMedia,
   deleteSessionMedia,
@@ -27,6 +28,7 @@ import {
   type SessionTranscriptSegmentInput,
 } from "../../api/recordingSessions";
 import { getDocumentPrivacy } from "../../lib/documentPrivacy";
+import { generateId } from "../../utils/id";
 import { useRecordingSessionStore } from "../../stores/recordingSessionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type {
@@ -101,11 +103,7 @@ export class SessionController {
    * Idempotent on retried session ID.
    */
   async createSession(options: CreateSessionOptions): Promise<RecordingSession> {
-    const sessionId =
-      options.sessionId ||
-      (typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `sess-${Date.now()}`);
+    const sessionId = options.sessionId || generateId();
 
     const payload: CreateRecordingSession = {
       id: sessionId,
@@ -209,6 +207,12 @@ export class SessionController {
         else if (provider === "android-ondevice") executor = "native-android";
         else if (provider === "apple") executor = "native-apple";
 
+        // Resolve the session's actual media file (consolidated `audio.wav` for
+        // recordings, the staged file for imports). The old hardcoded
+        // `audio.wav` path did not exist for native captures and ignored
+        // imported media entirely.
+        const audioPath = await getRecordingMediaPath(session.id);
+
         const plan: SessionTranscriptionPlan = {
           sessionId: session.id,
           assetId: session.mediaAssetId ?? undefined,
@@ -232,7 +236,7 @@ export class SessionController {
           sessionId: session.id,
           documentId: session.documentId,
           assetId: session.mediaAssetId ?? undefined,
-          audioPath: `recordings/${session.id}/audio.wav`,
+          audioPath,
           transcriptRevision: plan.transcriptRevision,
           plan,
           authorization: input.processingSelection?.authorization,

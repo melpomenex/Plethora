@@ -1,9 +1,11 @@
 //! Durable recording storage, atomic part writer, and crash recovery.
 
 pub mod assets;
+pub mod consolidate;
 pub mod recovery;
 
 pub use assets::*;
+pub use consolidate::*;
 pub use recovery::*;
 
 use crate::models::recording_session::*;
@@ -255,6 +257,30 @@ pub async fn finalize_recording_session(
     manifest.updated_at = chrono::Utc::now().to_rfc3339();
     write_manifest_atomic(&managed_root, &manifest)?;
 
+    // Join the rolling parts into one seekable file so playback and
+    // transcription can consume the session. Failure to consolidate must not
+    // fail the save: the verified parts remain the source of truth.
+    match consolidate_capture_media(data_dir, session_id, &manifest) {
+        Ok(Some(media)) => {
+            let state = if report.corrupt_parts == 0 && report.missing_gaps == 0 {
+                "ready"
+            } else {
+                "partial"
+            };
+            if let Err(error) =
+                apply_consolidated_media(pool, session_id, &report.asset_id, &media, state).await
+            {
+                tracing::warn!(
+                    "[recording] consolidated media could not be recorded for session {session_id}: {error}"
+                );
+            }
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!("[recording] consolidation skipped for session {session_id}: {error}");
+        }
+    }
+
     let mut tx = pool.begin().await.map_err(SessionOperationError::from)?;
     let now = chrono::Utc::now().to_rfc3339();
 
@@ -409,6 +435,10 @@ pub async fn stage_session_media(
 }
 
 /// Exports all verified parts of a session to a single contiguous file.
+///
+/// PCM captures are exported as one valid WAV file (a single header, not one
+/// header per part). Container captures fall back to bytewise concatenation,
+/// which restores the MediaRecorder fragment stream.
 pub fn export_partial_recording(
     data_dir: &Path,
     session_id: &str,
@@ -416,6 +446,10 @@ pub fn export_partial_recording(
 ) -> Result<i64> {
     let managed_root = managed_recording_root(data_dir, session_id)?;
     let manifest = read_manifest(&managed_root)?.ok_or_else(unavailable)?;
+
+    if let Some(written) = write_capture_media_to(data_dir, session_id, &manifest, output_path)? {
+        return Ok(written as i64);
+    }
 
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent).map_err(|_| unavailable())?;
@@ -692,6 +726,90 @@ mod tests {
         assert_eq!(report.missing_gaps, 1);
         assert_eq!(report.corrupt_parts, 1);
         assert_eq!(report.state, RecordingState::Recoverable);
+    }
+
+    #[tokio::test]
+    async fn finalize_consolidates_pcm_parts_into_playable_asset() {
+        let (dir, repo) = setup_test_db().await;
+        let session_id = uuid::Uuid::new_v4().to_string();
+
+        let request = CreateRecordingSession {
+            id: session_id.clone(),
+            document_id: None,
+            collection_id: None,
+            title: "Consolidated lecture".into(),
+            origin: SessionOrigin::Recorded,
+            content_type: "lecture".into(),
+            profile_json: "{}".into(),
+        };
+        repo.create_recording_session(&request).await.unwrap();
+
+        let root = managed_recording_root(dir.path(), &session_id).unwrap();
+        let parts_dir = root.join("parts");
+        fs::create_dir_all(&parts_dir).unwrap();
+
+        let asset_id = uuid::Uuid::new_v4().to_string();
+        let mut manifest = init_recording_manifest(
+            dir.path(),
+            &session_id,
+            &asset_id,
+            "epoch-1",
+            "audio/wav",
+            Some(16000),
+            Some(1),
+        )
+        .unwrap();
+        let mut write_wav_part = |sequence: i64, samples: &[u8]| {
+            let mut bytes = Vec::with_capacity(44 + samples.len());
+            bytes.extend_from_slice(b"RIFF");
+            bytes.extend_from_slice(&((36 + samples.len()) as u32).to_le_bytes());
+            bytes.extend_from_slice(b"WAVE");
+            bytes.extend_from_slice(b"fmt ");
+            bytes.extend_from_slice(&16u32.to_le_bytes());
+            bytes.extend_from_slice(&1u16.to_le_bytes());
+            bytes.extend_from_slice(&1u16.to_le_bytes());
+            bytes.extend_from_slice(&16000u32.to_le_bytes());
+            bytes.extend_from_slice(&32000u32.to_le_bytes());
+            bytes.extend_from_slice(&2u16.to_le_bytes());
+            bytes.extend_from_slice(&16u16.to_le_bytes());
+            bytes.extend_from_slice(b"data");
+            bytes.extend_from_slice(&(samples.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(samples);
+
+            let name = format!("part_{sequence:06}.bin");
+            fs::write(parts_dir.join(&name), &bytes).unwrap();
+            manifest.parts.push(ManifestPartEntry {
+                sequence,
+                relative_path: format!("parts/{name}"),
+                byte_length: bytes.len() as i64,
+                sha256: compute_sha256(&bytes),
+                start_ms: sequence * 5000,
+                duration_ms: 5000,
+                format_json:
+                    "{\"sampleRate\":16000,\"channels\":1,\"encoding\":\"pcm16le\"}".into(),
+                committed_at: chrono::Utc::now().to_rfc3339(),
+            });
+        };
+        write_wav_part(0, &[1u8, 0, 2, 0]);
+        write_wav_part(1, &[3u8, 0]);
+        write_manifest_atomic(&root, &manifest).unwrap();
+
+        let finalized = finalize_recording_session(dir.path(), repo.pool(), &session_id, 1)
+            .await
+            .unwrap();
+        assert_eq!(finalized.capture_state, RecordingState::Saved);
+
+        let asset = repo
+            .get_recording_asset(&session_id, &asset_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            asset.relative_path,
+            format!("recordings/{session_id}/audio.wav")
+        );
+        assert_eq!(asset.state, MediaAssetState::Ready);
+        let audio = fs::read(root.join("audio.wav")).unwrap();
+        assert_eq!(&audio[44..], &[1u8, 0, 2, 0, 3, 0]);
     }
 
     #[tokio::test]

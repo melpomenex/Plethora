@@ -443,29 +443,44 @@ async fn stream_handler(
 /// paths are inserted into the server's grant set, which the stream handler
 /// consults on the hot path without any database access. Starts the media
 /// server on first call.
+///
+/// Relative paths are resolved against the app data directory, because
+/// recording assets store managed paths such as
+/// `recordings/<session>/audio.wav`.
 #[tauri::command]
 pub async fn get_media_stream_url(
     app_handle: tauri::AppHandle,
     file_path: String,
     repo: tauri::State<'_, crate::database::Repository>,
 ) -> Result<String, String> {
+    use tauri::Manager;
     let roots = allowed_media_roots(&app_handle)?;
+    let requested = Path::new(&file_path);
+    let resolved = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        let app_data = app_handle
+            .path()
+            .app_data_dir()
+            .map_err(|error| format!("Failed to resolve app data directory: {error}"))?;
+        app_data.join(requested)
+    };
+    let resolved_label = resolved.to_string_lossy().into_owned();
     let mut granted = false;
-    let canonical = match canonical_path_within_roots(Path::new(&file_path), &roots) {
+    let canonical = match canonical_path_within_roots(&resolved, &roots) {
         Ok(path) => path,
         Err(_) => {
             // Outside the app-managed roots. Authorize only when the path is
             // the stored file path of a registered document, then grant the
             // canonical path so the stream handler serves it without a lookup.
-            let canonical =
-                canonicalize_media_file(Path::new(&file_path)).map_err(|status| match status {
-                    StatusCode::NOT_FOUND => {
-                        "Cannot stream media file: file not found on disk".to_string()
-                    }
-                    _ => "Cannot stream media file: path is not a regular file".to_string(),
-                })?;
+            let canonical = canonicalize_media_file(&resolved).map_err(|status| match status {
+                StatusCode::NOT_FOUND => {
+                    "Cannot stream media file: file not found on disk".to_string()
+                }
+                _ => "Cannot stream media file: path is not a regular file".to_string(),
+            })?;
             let mut registered = repo
-                .document_exists_with_file_path(&file_path)
+                .document_exists_with_file_path(&resolved_label)
                 .await
                 .map_err(|error| {
                     format!("Cannot stream media file: failed to verify registration: {error}")

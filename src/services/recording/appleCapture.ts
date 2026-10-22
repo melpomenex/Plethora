@@ -25,6 +25,16 @@ export const APPLE_RECORDING_COMMANDS = {
   finish: "plugin:plethora-apple-intelligence|apple_recording_finish",
 } as const;
 
+/**
+ * The Rust shim declares a single `payload: Option<Value>` argument for every
+ * recording command (`stub_cmd!` in
+ * `src-tauri/plugins/plethora-apple-intelligence/src/lib.rs`), so the Swift
+ * bridge payload MUST be nested under `payload`. Sending flat keys leaves the
+ * payload unset and the native bridge rejects the missing
+ * `sessionId`/`writerEpoch`.
+ */
+const payloadEnvelope = <T extends object>(payload: T): { payload: T } => ({ payload });
+
 export interface AppleCaptureParams {
   sessionId: string;
   assetId?: string;
@@ -118,14 +128,14 @@ export async function startAppleCapture(
   try {
     startRes = await invokeFn<ApplePluginStartResponse>(
       APPLE_RECORDING_COMMANDS.start,
-      {
+      payloadEnvelope({
         sessionId: params.sessionId,
         assetId: params.assetId || "",
         writerEpoch: params.writerEpoch,
         sampleRate: params.sampleRate ?? 16000,
         channels: params.channels ?? 1,
         outputDir: params.outputDir,
-      }
+      })
     );
   } catch (err) {
     params.onStateChange?.("failed");
@@ -151,10 +161,10 @@ export async function startAppleCapture(
       if (finished || currentState === "paused") return;
       await invokeFn<{ ok: boolean; state: string; acknowledgedMs: number }>(
         APPLE_RECORDING_COMMANDS.pause,
-        {
+        payloadEnvelope({
           sessionId: params.sessionId,
           writerEpoch: params.writerEpoch,
-        }
+        })
       );
       currentState = "paused";
       params.onStateChange?.(currentState);
@@ -164,12 +174,12 @@ export async function startAppleCapture(
       if (finished || currentState === "recording") return;
       await invokeFn<{ ok: boolean; state: string }>(
         APPLE_RECORDING_COMMANDS.resume,
-        {
+        payloadEnvelope({
           sessionId: params.sessionId,
           writerEpoch: params.writerEpoch,
           sampleRate: params.sampleRate ?? 16000,
           channels: params.channels ?? 1,
-        }
+        })
       );
       currentState = "recording";
       params.onStateChange?.(currentState);
@@ -184,10 +194,10 @@ export async function startAppleCapture(
 
       const res = await invokeFn<ApplePluginFinishResponse>(
         APPLE_RECORDING_COMMANDS.finish,
-        {
+        payloadEnvelope({
           sessionId: params.sessionId,
           writerEpoch: params.writerEpoch,
-        }
+        })
       );
       finished = true;
       currentState = "saved";

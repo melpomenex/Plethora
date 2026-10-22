@@ -2581,6 +2581,7 @@ pub fn run() {
             commands::get_session_segments,
             commands::get_session_document_privacy,
             commands::get_recording_asset,
+            commands::get_recording_media_path,
             commands::append_recording_part,
             commands::finalize_recording_session,
             commands::recover_recording_session,

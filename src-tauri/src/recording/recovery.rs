@@ -152,6 +152,16 @@ pub async fn reconcile_recording_session(
         }
     }
 
+    // Remove interrupted consolidation temp files (`audio.tmp.*`).
+    if let Ok(entries) = fs::read_dir(&managed_root) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            if name.to_string_lossy().starts_with("audio.tmp.") {
+                let _ = fs::remove_file(entry.path());
+            }
+        }
+    }
+
     // If manifest had corrupt or missing entries, rewrite manifest with verified entries
     if verified_entries.len() != manifest.parts.len() {
         manifest.parts = verified_entries.clone();
@@ -172,14 +182,18 @@ pub async fn reconcile_recording_session(
     };
 
     let now = chrono::Utc::now().to_rfc3339();
+    let parts_relative_path = format!("recordings/{session_id}");
     sqlx::query(
         "INSERT INTO media_assets (id, session_id, kind, relative_path, mime, byte_length, sha256, duration_ms, state, created_at)
          VALUES (?1, ?2, 'capture', ?3, ?4, ?5, NULL, ?6, ?7, ?8)
-         ON CONFLICT(id) DO UPDATE SET byte_length = ?5, duration_ms = ?6, state = ?7",
+         ON CONFLICT(id) DO UPDATE SET
+           byte_length = CASE WHEN media_assets.relative_path = ?3 THEN excluded.byte_length ELSE media_assets.byte_length END,
+           duration_ms = CASE WHEN media_assets.relative_path = ?3 THEN excluded.duration_ms ELSE media_assets.duration_ms END,
+           state = excluded.state",
     )
     .bind(&manifest.asset_id)
     .bind(session_id)
-    .bind(format!("recordings/{}", session_id))
+    .bind(&parts_relative_path)
     .bind(&manifest.mime)
     .bind(acknowledged_bytes)
     .bind(acknowledged_duration_ms)

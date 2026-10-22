@@ -24,6 +24,16 @@ export const ANDROID_SPEECH_COMMANDS = {
   finish: "plugin:plethora-android-speech|finish_recording",
 } as const;
 
+/**
+ * The Rust shim declares a single `request: Option<Value>` argument for every
+ * recording command (`src-tauri/plugins/plethora-android-speech/src/lib.rs`),
+ * so the Kotlin `@InvokeArg` payload MUST be nested under `request`. Sending
+ * flat keys leaves `request` unset, the Kotlin args default to empty
+ * `sessionId`/`writerEpoch`, and the plugin rejects with
+ * "invalid_argument: Invalid session or epoch".
+ */
+const requestEnvelope = <T extends object>(request: T): { request: T } => ({ request });
+
 export interface AndroidCaptureParams {
   sessionId: string;
   assetId?: string;
@@ -116,14 +126,14 @@ export async function startAndroidCapture(
   try {
     startRes = await invokeFn<AndroidPluginStartResponse>(
       ANDROID_SPEECH_COMMANDS.start,
-      {
+      requestEnvelope({
         sessionId: params.sessionId,
         assetId: params.assetId || "",
         writerEpoch: params.writerEpoch,
         sampleRate: params.sampleRate ?? 16000,
         channels: params.channels ?? 1,
         outputDir: params.outputDir,
-      }
+      })
     );
   } catch (err) {
     params.onStateChange?.("failed");
@@ -149,10 +159,10 @@ export async function startAndroidCapture(
       if (finished || currentState === "paused") return;
       await invokeFn<{ ok: boolean; state: string; acknowledgedMs: number }>(
         ANDROID_SPEECH_COMMANDS.pause,
-        {
+        requestEnvelope({
           sessionId: params.sessionId,
           writerEpoch: params.writerEpoch,
-        }
+        })
       );
       currentState = "paused";
       params.onStateChange?.(currentState);
@@ -162,12 +172,12 @@ export async function startAndroidCapture(
       if (finished || currentState === "recording") return;
       await invokeFn<{ ok: boolean; state: string }>(
         ANDROID_SPEECH_COMMANDS.resume,
-        {
+        requestEnvelope({
           sessionId: params.sessionId,
           writerEpoch: params.writerEpoch,
           sampleRate: params.sampleRate ?? 16000,
           channels: params.channels ?? 1,
-        }
+        })
       );
       currentState = "recording";
       params.onStateChange?.(currentState);
@@ -182,10 +192,10 @@ export async function startAndroidCapture(
 
       const res = await invokeFn<AndroidPluginFinishResponse>(
         ANDROID_SPEECH_COMMANDS.finish,
-        {
+        requestEnvelope({
           sessionId: params.sessionId,
           writerEpoch: params.writerEpoch,
-        }
+        })
       );
       finished = true;
       currentState = "saved";
