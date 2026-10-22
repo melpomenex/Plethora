@@ -98,6 +98,11 @@ describe("Settings search matcher", () => {
     expect(idsFor("vibration")).toContain("general.hapticsEnabled");
     expect(idsFor("dark mode")).toContain("appearance.theme");
     expect(idsFor("speech to text")).toContain("audioTranscription.models");
+    // Remote passage-scoring consent is a separate destination from the
+    // feature toggle so search can point at the allowance control directly.
+    expect(idsFor("passage allowance")).toContain("ai.extractWorthinessRemote");
+    expect(idsFor("remote passage scoring")).toContain("ai.extractWorthinessRemote");
+    expect(idsFor("cloud suggestions")).toContain("ai.extractWorthinessRemote");
     expect(idsFor("speech-to-text")).toContain("audioTranscription.models");
     expect(idsFor("tts")).toContain("tts.enabled");
     expect(idsFor("session suggestions")).toContain("ai.sessionLearningSuggestions");
