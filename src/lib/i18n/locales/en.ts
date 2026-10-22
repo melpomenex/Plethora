@@ -7455,7 +7455,7 @@ export const en: Dict = {
   "ai.passageScoring.staleSourceDescription": "Reopen the passage and try again. Nothing was created.",
   "ai.passageScoring.actionFailed": "Could not complete that action. Your passage is unchanged.",
   "ai.passageScoring.unavailableModel": "Passage suggestions need an AI provider.",
-  "ai.passageScoring.remoteAuthorizationRequired": "Automatic passage suggestions are limited to on-device AI until you explicitly allow this source.",
+  "ai.passageScoring.remoteAuthorizationRequired": "Automatic passage suggestions are limited to on-device AI until you allow remote suggestions in Settings → AI.",
   "ai.passageScoring.visit-quota": "Passage suggestions paused for this document. Reopen it later to continue.",
   "ai.passageScoring.hour-quota": "Passage suggestions paused for now to keep background work bounded.",
   "ai.passageScoring.remote-quota": "The remote passage-suggestion budget is used up.",
