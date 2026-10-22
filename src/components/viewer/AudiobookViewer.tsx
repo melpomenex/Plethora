@@ -58,6 +58,7 @@ import * as audiobookApi from "../../api/audiobooks";
 import { useToast } from "../common/Toast";
 import { CreateExtractDialog } from "../extracts/CreateExtractDialog";
 import { useTranscriptionStore } from "../../stores/useTranscriptionStore";
+import { podcastTranscriptState, startPodcastTranscriptionOnce } from "../../services/transcription/podcastTranscriptResolution";
 import { useSettingsStore } from "../../stores/settingsStore";
 import {
   enqueueAutoTranscription,
@@ -433,7 +434,45 @@ export function AudiobookViewer({
   const [podcastTranscriptSegments, setPodcastTranscriptSegments] = useState<Array<{ start: number; end: number; text: string; wordTimings?: Array<{ word: string; start_ms: number; end_ms: number }> }>>([]);
   const [podcastTranscriptionProgress, setPodcastTranscriptionProgress] = useState<{ status: string; progress: number } | null>(null);
   const [podcastTranscriptStatus, setPodcastTranscriptStatus] = useState<string | null>(null);
-  const [hasLoadedStatus, setHasLoadedStatus] = useState(false);
+  const [podcastLookupState, setPodcastLookupState] = useState<"loading" | "ready" | "missing" | "active" | "error">("loading");
+  const podcastLookupStateRef = useRef(podcastLookupState);
+  podcastLookupStateRef.current = podcastLookupState;
+  const [podcastLookupError, setPodcastLookupError] = useState<string | null>(null);
+  const [podcastRefresh, setPodcastRefresh] = useState(0);
+  const podcastIdentity = useRef(episodeId);
+  podcastIdentity.current = episodeId;
+  const podcastMounted = useRef(true);
+  const podcastRequest = useRef(0);
+  const podcastAutoAttempt = useRef<string | null>(null);
+
+  useEffect(() => {
+    podcastMounted.current = true;
+    return () => {
+      podcastMounted.current = false;
+      podcastRequest.current += 1;
+    };
+  }, []);
+
+  const refreshPodcastTranscript = useCallback(async () => {
+    if (!episodeId || !podcastMounted.current) return;
+    const request = ++podcastRequest.current;
+    try {
+      const result = await getPodcastTranscript(episodeId);
+      if (!podcastMounted.current || podcastIdentity.current !== episodeId || request !== podcastRequest.current) return;
+      const state = podcastTranscriptState(result);
+      setPodcastTranscriptText(result.text || null);
+      setPodcastTranscriptSegments(result.segments || []);
+      setPodcastTranscriptStatus(result.status);
+      setPodcastLookupState(state);
+      setPodcastLookupError(state === "error" ? "The saved transcript could not be loaded. Retry loading before starting another transcription." : null);
+      setPodcastTranscriptionProgress(state === "active" ? { status: result.status, progress: result.progress ?? 0 } : null);
+    } catch (error) {
+      if (!podcastMounted.current || podcastIdentity.current !== episodeId || request !== podcastRequest.current) return;
+      setPodcastLookupState("error");
+      setPodcastLookupError(error instanceof Error ? error.message : String(error));
+      setPodcastTranscriptionProgress(null);
+    }
+  }, [episodeId]);
 
   const assistantTranscriptSections = useMemo(() => {
     const hasRealChapters = chapters.length > 1
@@ -2867,7 +2906,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
     };
   }, [isPodcast, refreshLocalQueueStatus]);
   
-  const handleTranscribe = async () => {
+  const performTranscription = async () => {
     let currentProfiles = profiles;
     if (currentProfiles.length === 0) {
       await fetchProfiles();
@@ -2879,6 +2918,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
       currentProfiles,
       isNativeMobile() ? "native-mobile" : "desktop",
     );
+    if (episodeId && (!podcastMounted.current || podcastIdentity.current !== episodeId)) return;
     if (resolution.ok === false) {
       showTranscriptionResolutionFailure(
         resolution,
@@ -2897,6 +2937,8 @@ const editionSectionIdsRef = useRef<string[]>([]);
       const allSettings = useSettingsStore.getState().settings;
       const language = currentAudioSettings.language || "en";
       try {
+        setPodcastLookupState("active");
+        setPodcastLookupError(null);
         setPodcastTranscriptionProgress({ status: "starting", progress: 0 });
         // On mobile the local Whisper/sherpa-onnx sidecar + FFmpeg pipeline
         // doesn't work — route to Groq cloud transcription (which also yields
@@ -2905,15 +2947,13 @@ const editionSectionIdsRef = useRef<string[]>([]);
         if (resolution.provider === "openrouter") {
           const audioUrl = remoteAudioUrl || document.filePath;
           if (!audioUrl) {
-            showError("Transcription Failed", "No audio URL available for this episode.");
-            return;
+            throw new Error("No audio URL available for this episode.");
           }
           await transcribePodcastEpisodeWithOpenRouter(episodeId, audioUrl, resolution.modelId, language);
         } else if (resolution.provider === "groq") {
           const audioUrl = remoteAudioUrl || document.filePath;
           if (!audioUrl) {
-            showError("Transcription Failed", "No audio URL available for this episode.");
-            return;
+            throw new Error("No audio URL available for this episode.");
           }
           await transcribePodcastEpisodeWithGroq(episodeId, audioUrl, language);
         } else if (resolution.provider === "android-ondevice") {
@@ -2921,18 +2961,23 @@ const editionSectionIdsRef = useRef<string[]>([]);
           // path when it is not local yet, then runs fully offline.
           const audioUrl = remoteAudioUrl || document.filePath;
           if (!audioUrl) {
-            showError("Transcription Failed", "No audio URL available for this episode.");
-            return;
+            throw new Error("No audio URL available for this episode.");
           }
           await transcribePodcastEpisodeOnDevice(episodeId, audioUrl, language);
         } else {
           const autoSegment = allSettings.documents.autoProcessOnImport;
           await transcribePodcastEpisode(episodeId, resolution.modelId, language, autoSegment);
         }
-        showSuccess("Transcription Started", `Transcribing with ${engine}.`);
+        if (podcastMounted.current && podcastIdentity.current === episodeId) {
+          showSuccess("Transcription Started", `Transcribing with ${engine}.`);
+        }
       } catch (err) {
-        setPodcastTranscriptionProgress(null);
-        showError("Transcription Failed", String(err));
+        if (podcastIdentity.current === episodeId) {
+          setPodcastTranscriptionProgress(null);
+          setPodcastLookupState("error");
+          setPodcastLookupError(String(err));
+          showError("Transcription Failed", String(err));
+        }
       }
       return;
     }
@@ -3020,6 +3065,18 @@ const editionSectionIdsRef = useRef<string[]>([]);
     }
   };
 
+  const handleTranscribe = async () => {
+    if (!episodeId) return performTranscription();
+    try {
+      await startPodcastTranscriptionOnce(episodeId, performTranscription, () => podcastMounted.current && podcastIdentity.current === episodeId, podcastLookupState === "error");
+      await refreshPodcastTranscript();
+    } catch (error) {
+      if (podcastIdentity.current !== episodeId) return;
+      setPodcastLookupState("error");
+      setPodcastLookupError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const isCurrentTranscribing = isPodcast
     ? !!podcastTranscriptionProgress
     : (activeJob?.bookId === document.id
@@ -3097,39 +3154,16 @@ const editionSectionIdsRef = useRef<string[]>([]);
   // podcast_episodes.transcript_text, a separate system from the document
   // transcript tables that loadTranscript() reads from).
   useEffect(() => {
-    if (!showTranscript || !isPodcast || !episodeId) {
-      setHasLoadedStatus(false);
-      return;
-    }
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await getPodcastTranscript(episodeId);
-        if (cancelled) return;
-        setPodcastTranscriptText(res.text || null);
-        setPodcastTranscriptSegments(res.segments || []);
-        setPodcastTranscriptStatus(res.status || null);
-
-        // If it's currently downloading/transcribing in backend, initialize local progress bar
-        if (res.status === "transcribing" || res.status === "downloading") {
-          setPodcastTranscriptionProgress({
-            status: res.status,
-            progress: res.status === "downloading" ? 10 : 30,
-          });
-        }
-
-        setHasLoadedStatus(true);
-      } catch (_e) {
-        if (!cancelled) {
-          setPodcastTranscriptText(null);
-          setPodcastTranscriptSegments([]);
-          setPodcastTranscriptStatus(null);
-          setHasLoadedStatus(true);
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [showTranscript, isPodcast, episodeId]);
+    setPodcastLookupState("loading");
+    setPodcastLookupError(null);
+    setPodcastTranscriptText(null);
+    setPodcastTranscriptSegments([]);
+    setPodcastTranscriptStatus(null);
+    setPodcastTranscriptionProgress(null);
+    podcastAutoAttempt.current = null;
+    if (showTranscript && episodeId) void refreshPodcastTranscript();
+    return () => { podcastRequest.current += 1; };
+  }, [showTranscript, episodeId, refreshPodcastTranscript, podcastRefresh]);
 
   // Listen for podcast transcription progress/complete/error events so the
   // panel's progress bar and transcript reflect the background job.
@@ -3143,7 +3177,9 @@ const editionSectionIdsRef = useRef<string[]>([]);
         const u1 = await listen<{ episodeId: string; status: string; progress: number }>(
           "podcast://transcription-progress",
           (e) => {
-            if (e.payload.episodeId !== episodeId) return;
+            if (cancelled || e.payload.episodeId !== episodeId || podcastIdentity.current !== episodeId) return;
+            podcastRequest.current += 1;
+            setPodcastLookupState("active");
             setPodcastTranscriptionProgress({ status: e.payload.status, progress: e.payload.progress });
             setPodcastTranscriptStatus(e.payload.status);
           },
@@ -3151,33 +3187,34 @@ const editionSectionIdsRef = useRef<string[]>([]);
         const u2 = await listen<{ episodeId: string; segmentCount: number; duration: number }>(
           "podcast://transcription-complete",
           async (e) => {
-            if (e.payload.episodeId !== episodeId) return;
-            setPodcastTranscriptionProgress(null);
-            setPodcastTranscriptStatus("done");
-            try {
-              const res = await getPodcastTranscript(episodeId);
-              setPodcastTranscriptText(res.text || null);
-              setPodcastTranscriptSegments(res.segments || []);
-              showSuccess("Transcription Complete", "Podcast transcript is ready.");
-            } catch (_e) { /* non-critical */ }
+            if (cancelled || e.payload.episodeId !== episodeId || podcastIdentity.current !== episodeId) return;
+            await refreshPodcastTranscript();
           },
         );
         const u3 = await listen<{ episodeId: string; error: string }>(
           "podcast://transcription-error",
           (e) => {
-            if (e.payload.episodeId !== episodeId) return;
+            if (cancelled || e.payload.episodeId !== episodeId || podcastIdentity.current !== episodeId) return;
+            podcastRequest.current += 1;
             setPodcastTranscriptionProgress(null);
             setPodcastTranscriptStatus("error");
+            setPodcastLookupState("error");
+            setPodcastLookupError(e.payload.error);
             showError("Transcription Failed", e.payload.error);
           },
         );
 
+        const u4 = await listen<void>("transcription://queue-updated", () => {
+          if (!cancelled && showTranscript && podcastLookupStateRef.current !== "ready") void refreshPodcastTranscript();
+        });
         if (cancelled) {
           u1();
           u2();
           u3();
+          u4();
         } else {
-          unlisteners = [u1, u2, u3];
+          unlisteners = [u1, u2, u3, u4];
+          if (showTranscript) await refreshPodcastTranscript();
         }
       } catch (err) {
         console.error("Failed to setup podcast transcription listeners:", err);
@@ -3190,20 +3227,14 @@ const editionSectionIdsRef = useRef<string[]>([]);
       cancelled = true;
       unlisteners.forEach((u) => u());
     };
-  }, [isPodcast, episodeId, showSuccess, showError]);
+  }, [isPodcast, episodeId, showTranscript, refreshPodcastTranscript, showError]);
 
   // Auto-start transcription for podcasts when the transcript view is opened and none exists
   useEffect(() => {
-    if (!showTranscript || !isPodcast || !episodeId || !hasLoadedStatus) return;
-
-    const isTranscribing = !!podcastTranscriptionProgress || podcastTranscriptStatus === "transcribing" || podcastTranscriptStatus === "downloading";
-    const hasTranscript = !!podcastTranscriptText || podcastTranscriptSegments.length > 0;
-
-    if (!isTranscribing && !hasTranscript) {
-      // Auto-start Groq transcription for podcasts on mobile/desktop
-      void handleTranscribe();
-    }
-  }, [showTranscript, isPodcast, episodeId, hasLoadedStatus, podcastTranscriptStatus, podcastTranscriptText, podcastTranscriptSegments.length, podcastTranscriptionProgress]);
+    if (!showTranscript || !episodeId || podcastLookupState !== "missing" || podcastAutoAttempt.current === episodeId) return;
+    podcastAutoAttempt.current = episodeId;
+    void handleTranscribe();
+  }, [showTranscript, episodeId, podcastLookupState]);
 
   // Listen for audiobook (non-podcast) Groq transcription progress/complete/error
   // events so the transcript panel's progress bar reflects the background job run
@@ -4106,7 +4137,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
               className="flex-1 overflow-y-auto overscroll-contain p-4"
               onMouseUp={handleTextSelection}
             >
-              {(transcript || documentTranscriptSegments.length > 0 || hasPodcastTranscript) ? (
+              {(isPodcast ? hasPodcastTranscript : (transcript || documentTranscriptSegments.length > 0)) ? (
                 <>
                   {/* Extract button for selected text */}
                   {selectedText && (
@@ -4202,6 +4233,22 @@ const editionSectionIdsRef = useRef<string[]>([]);
                     </div>
                   )}
                 </>
+              ) : isPodcast && (podcastLookupState === "loading" || podcastLookupState === "error") ? (
+                <div className="p-6 text-center text-muted-foreground" role={podcastLookupState === "error" ? "alert" : "status"}>
+                  <p>{podcastLookupState === "loading" ? "Loading saved transcript…" : podcastLookupError}</p>
+                  {podcastLookupState === "error" && (
+                    <div className="mt-3 flex flex-wrap justify-center gap-2">
+                      <button className="rounded-lg border border-border px-4 py-2" onClick={() => setPodcastRefresh((value) => value + 1)}>
+                        Retry loading transcript
+                      </button>
+                      {(podcastTranscriptStatus === "error" || podcastTranscriptStatus === "unavailable") && (
+                        <button className="rounded-lg border border-border px-4 py-2" onClick={handleTranscribe}>
+                          Retry transcription
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
               ) : isTranscribing ? (
                 <div className="flex flex-col items-center justify-center h-full py-16 px-6 text-center animate-[fadeIn_0.3s_ease-out]">
                   <div className="relative mb-6">
@@ -4212,7 +4259,9 @@ const editionSectionIdsRef = useRef<string[]>([]);
                     </div>
                   </div>
                   <h3 className="font-semibold text-foreground text-lg mb-2">
-                    {podcastTranscriptionProgress?.status === "downloading" || podcastTranscriptStatus === "downloading"
+                    {isPodcast && podcastTranscriptStatus === "pending"
+                      ? "Waiting in transcription queue…"
+                      : podcastTranscriptionProgress?.status === "downloading" || podcastTranscriptStatus === "downloading"
                       ? "Downloading Audio..."
                       : "Transcribing Audio..."}
                   </h3>

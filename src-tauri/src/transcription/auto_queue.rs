@@ -336,7 +336,7 @@ impl AutoTranscriptionQueue {
         // batch. This removes the thundering-herd of spawned tasks racing the pool
         // and preserves FIFO ordering.
         let (seg_tx, seg_rx) = mpsc::unbounded_channel::<TranscriptSegment>();
-        let flush_handle: tokio::task::JoinHandle<()> = tokio::spawn(spawn_segment_consumer(
+        let flush_handle = tokio::spawn(spawn_segment_consumer(
             seg_rx,
             repo_clone,
             app_clone,
@@ -368,7 +368,7 @@ impl AutoTranscriptionQueue {
         // Drop the sender + await the consumer so the final buffered batch is
         // flushed before completion or before a retry after an engine error.
         // (seg_tx is the only sender; it goes out of scope here.)
-        let _ = flush_handle.await;
+        flush_handle.await??;
         transcription_result?;
 
         // Assemble from persisted old + new segments. Using only this run's
@@ -386,19 +386,22 @@ impl AutoTranscriptionQueue {
             .collect::<Vec<_>>()
             .join(" ");
 
-        if !full_text.is_empty() {
-            sqlx::query("UPDATE documents SET content = ? WHERE id = ?")
+        if full_text.is_empty() {
+            anyhow::bail!("No readable transcript segments were saved");
+        }
+        let mut completion = repo.pool().begin().await?;
+        sqlx::query("UPDATE documents SET content = ? WHERE id = ?")
                 .bind(&full_text)
                 .bind(&entry.document_id)
-                .execute(repo.pool())
+                .execute(&mut *completion)
                 .await?;
-        }
 
         // Mark transcript as completed
         sqlx::query("UPDATE transcripts SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?")
         .bind(transcript_id)
-        .execute(repo.pool())
+        .execute(&mut *completion)
         .await?;
+        completion.commit().await?;
 
         // Cleanup WAV (best-effort)
         if let Err(e) = std::fs::remove_file(&wav_path) {
@@ -442,9 +445,22 @@ fn ensure_local_provider(provider: &str) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        checkpoint_progress, ensure_local_provider, map_remaining_progress, offset_segment,
+        checkpoint_progress, ensure_local_provider, map_remaining_progress, offset_segment, persist_segment_batch,
     };
     use crate::transcription::engine::TranscriptSegment;
+
+    #[tokio::test]
+    async fn segment_persistence_errors_prevent_successful_flush() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        let repo = crate::database::Repository::new(pool);
+        let segment = TranscriptSegment { start_ms: 0, end_ms: 1000, text: "Saved text".into(), confidence: 1.0, words_json: None };
+        assert!(persist_segment_batch(&repo, 1, std::slice::from_ref(&segment)).await.is_err());
+        sqlx::query("CREATE TABLE transcript_segments (transcript_id INTEGER, start_ms INTEGER, end_ms INTEGER, text TEXT, confidence REAL, words_json TEXT)")
+            .execute(repo.pool()).await.unwrap();
+        persist_segment_batch(&repo, 1, &[segment]).await.unwrap();
+        let text: String = sqlx::query_scalar("SELECT text FROM transcript_segments").fetch_one(repo.pool()).await.unwrap();
+        assert_eq!(text, "Saved text");
+    }
 
     #[test]
     fn rejects_non_local_provider_before_model_resolution() {
@@ -506,7 +522,7 @@ async fn spawn_segment_consumer(
     transcript_id: i64,
     book_id: String,
     chapter_id: String,
-) {
+) -> anyhow::Result<()> {
     let mut buffer: Vec<TranscriptSegment> = Vec::with_capacity(N_SEGMENTS_PER_BATCH);
     let mut deadline = tokio::time::Instant::now() + FLUSH_INTERVAL;
 
@@ -517,13 +533,13 @@ async fn spawn_segment_consumer(
                     Some(seg) => {
                         buffer.push(seg);
                         if buffer.len() >= N_SEGMENTS_PER_BATCH {
-                            flush_segment_batch(&repo, &app_handle, transcript_id, &book_id, &chapter_id, &mut buffer).await;
+                            flush_segment_batch(&repo, &app_handle, transcript_id, &book_id, &chapter_id, &mut buffer).await?;
                             deadline = tokio::time::Instant::now() + FLUSH_INTERVAL;
                         }
                     }
                     None => {
                         if !buffer.is_empty() {
-                            flush_segment_batch(&repo, &app_handle, transcript_id, &book_id, &chapter_id, &mut buffer).await;
+                            flush_segment_batch(&repo, &app_handle, transcript_id, &book_id, &chapter_id, &mut buffer).await?;
                         }
                         break;
                     }
@@ -531,12 +547,13 @@ async fn spawn_segment_consumer(
             }
             _ = tokio::time::sleep_until(deadline) => {
                 if !buffer.is_empty() {
-                    flush_segment_batch(&repo, &app_handle, transcript_id, &book_id, &chapter_id, &mut buffer).await;
+                    flush_segment_batch(&repo, &app_handle, transcript_id, &book_id, &chapter_id, &mut buffer).await?;
                 }
                 deadline = tokio::time::Instant::now() + FLUSH_INTERVAL;
             }
         }
     }
+    Ok(())
 }
 
 /// Persist `buffer` as a multi-row INSERT inside one transaction (chunked under
@@ -549,22 +566,23 @@ async fn flush_segment_batch(
     book_id: &str,
     chapter_id: &str,
     buffer: &mut Vec<TranscriptSegment>,
-) {
+) -> anyhow::Result<()> {
     if buffer.is_empty() {
-        return;
+        return Ok(());
     }
+    persist_segment_batch(repo, transcript_id, buffer).await?;
+    emit_segment_batch(app_handle, book_id, chapter_id, buffer);
+    buffer.clear();
+    Ok(())
+}
 
+async fn persist_segment_batch(
+    repo: &Repository,
+    transcript_id: i64,
+    buffer: &[TranscriptSegment],
+) -> anyhow::Result<()> {
     if transcript_id > 0 {
-        let tx_result = repo.pool().begin().await;
-        let mut tx = match tx_result {
-            Ok(t) => t,
-            Err(e) => {
-                tracing::warn!("Failed to begin segment batch txn: {}", e);
-                emit_segment_batch(app_handle, book_id, chapter_id, buffer);
-                buffer.clear();
-                return;
-            }
-        };
+        let mut tx = repo.pool().begin().await?;
 
         for chunk in buffer.chunks(SEG_ROWS_PER_STMT) {
             let mut builder: QueryBuilder<Sqlite> = QueryBuilder::new(
@@ -578,23 +596,12 @@ async fn flush_segment_batch(
                     .push_bind(seg.confidence)
                     .push_bind(seg.words_json.as_deref());
             });
-            if let Err(e) = builder.build().execute(&mut *tx).await {
-                tracing::warn!("Failed to insert segment batch: {}", e);
-                let _ = tx.rollback().await;
-                buffer.clear();
-                return;
-            }
+            builder.build().execute(&mut *tx).await?;
         }
 
-        if let Err(e) = tx.commit().await {
-            tracing::warn!("Failed to commit segment batch: {}", e);
-            buffer.clear();
-            return;
-        }
+        tx.commit().await?;
     }
-
-    emit_segment_batch(app_handle, book_id, chapter_id, buffer);
-    buffer.clear();
+    Ok(())
 }
 
 #[derive(Clone, serde::Serialize)]

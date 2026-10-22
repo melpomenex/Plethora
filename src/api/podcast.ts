@@ -333,6 +333,7 @@ export interface PodcastTranscriptResponse {
   text: string;
   segments: TranscriptSegment[];
   status: string;
+  progress?: number;
 }
 
 /**
@@ -864,6 +865,7 @@ export async function getPodcastTranscript(
     return {
       text: raw.text,
       status: raw.status,
+      progress: raw.progress,
       segments: (raw.segments ?? []).map((s) => {
         let wordTimings: WordTiming[] | undefined;
         if (s.word_timings_json) {
@@ -894,6 +896,7 @@ export async function getPodcastTranscript(
 interface RawPodcastTranscriptResponse {
   text: string;
   status: string;
+  progress?: number;
   segments: Array<{
     start_ms: number;
     end_ms: number;

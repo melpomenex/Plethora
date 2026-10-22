@@ -261,12 +261,7 @@ pub async fn get_transcript(
     book_id: String,
     chapter_id: String,
 ) -> Result<Option<TranscriptResponse>> {
-    let transcript: Option<(i64, String)> =
-        sqlx::query_as("SELECT id, status FROM transcripts WHERE book_id = ? AND chapter_id = ?")
-            .bind(&book_id)
-            .bind(&chapter_id)
-            .fetch_optional(repo.pool())
-            .await?;
+    let transcript = repo.resolve_document_transcript_id(&book_id, &chapter_id).await?;
 
     if let Some((id, status)) = transcript {
         // Legacy players consume timed segments only. Missing confidence is a

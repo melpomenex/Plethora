@@ -388,6 +388,8 @@ pub struct PodcastTranscriptResponse {
     pub text: String,
     pub segments: Vec<TranscriptSegmentInfo>,
     pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub progress: Option<i32>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -436,6 +438,10 @@ async fn run_transcription_job(
     repo: Repository,
     tokens: PodcastTranscriptionTokens,
 ) -> Result<()> {
+    let saved = repo.resolve_podcast_transcript(&episode_id).await?;
+    if !saved.text.trim().is_empty() || matches!(saved.status.as_str(), "pending" | "transcribing" | "downloading" | "processing") {
+        return Ok(());
+    }
     // 1. Get episode
     let episode = repo
         .get_podcast_episode_by_id(&episode_id)
@@ -857,53 +863,7 @@ pub async fn get_podcast_transcript(
     episode_id: String,
     repo: State<'_, Repository>,
 ) -> Result<PodcastTranscriptResponse> {
-    let episode = repo
-        .get_podcast_episode_by_id(&episode_id)
-        .await?
-        .ok_or_else(|| PlethoraError::NotFound(format!("Podcast episode {}", episode_id)))?;
-
-    let status = episode.transcript_status.clone();
-    let text = episode.transcript_text.unwrap_or_default();
-
-    if text.is_empty() {
-        return Ok(PodcastTranscriptResponse {
-            text,
-            segments: Vec::new(),
-            status,
-        });
-    }
-
-    // Prefer real per-segment timings (with optional per-word timings) persisted
-    // by transcription. These enable audio-synced highlighting and, when Groq
-    // word-level transcription was used, word-by-word (karaoke) highlighting.
-    // Fall back to the single-blob segment (old behavior) only when no real
-    // segments are stored, so existing transcripts keep working.
-    match repo
-        .get_podcast_transcript_segments_with_words(&episode_id)
-        .await
-    {
-        Ok(stored) if !stored.is_empty() => {
-            return Ok(PodcastTranscriptResponse {
-                text,
-                segments: stored,
-                status,
-            });
-        }
-        _ => {}
-    }
-
-    let segments = vec![TranscriptSegmentInfo {
-        start_ms: 0,
-        end_ms: episode.duration.unwrap_or(0) * 1000,
-        text: text.clone(),
-        word_timings_json: None,
-    }];
-
-    Ok(PodcastTranscriptResponse {
-        text,
-        segments,
-        status,
-    })
+    repo.resolve_podcast_transcript(&episode_id).await
 }
 
 /// Payload for a single segment when persisting Groq transcription results.

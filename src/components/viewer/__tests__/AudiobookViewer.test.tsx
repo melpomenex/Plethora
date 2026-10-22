@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   AudiobookPlaybackErrorNotice,
@@ -13,7 +13,7 @@ const tauriMocks = vi.hoisted(() => ({
   isTauri: vi.fn(() => true),
   isNativeMobile: vi.fn(() => false),
   invokeCommand: vi.fn(),
-  listen: vi.fn(() => Promise.resolve(() => {})),
+  listen: vi.fn((_event: string, _handler: (event: { payload: Record<string, unknown> }) => void) => Promise.resolve(() => {})),
 }));
 
 const transcriptionMocks = vi.hoisted(() => ({
@@ -42,6 +42,11 @@ const toastMocks = vi.hoisted(() => ({
   success: vi.fn(),
   info: vi.fn(),
   error: vi.fn(),
+}));
+
+const podcastMocks = vi.hoisted(() => ({
+  getPodcastTranscript: vi.fn(),
+  transcribePodcastEpisode: vi.fn(),
 }));
 
 vi.mock("../../../lib/tauri", async (importOriginal) => {
@@ -112,8 +117,8 @@ vi.mock("../../../api/podcast", () => ({
   markEpisodePlayed: vi.fn(),
   downloadEpisodeAudio: vi.fn(),
   getDownloadedEpisodePath: vi.fn(),
-  getPodcastTranscript: vi.fn(),
-  transcribePodcastEpisode: vi.fn(),
+  getPodcastTranscript: podcastMocks.getPodcastTranscript,
+  transcribePodcastEpisode: podcastMocks.transcribePodcastEpisode,
   transcribePodcastEpisodeWithGroq: vi.fn(),
 }));
 
@@ -502,6 +507,9 @@ describe("desktop audiobook source resolution failures", () => {
 
 describe("transcription provider routing and labels", () => {
   beforeEach(() => {
+    tauriMocks.listen.mockClear();
+    audiobookApiMocks.parseAudiobookMetadata.mockResolvedValue({});
+    audiobookApiMocks.searchAudiobookCover.mockResolvedValue([]);
     tauriMocks.isTauri.mockReturnValue(true);
     tauriMocks.isNativeMobile.mockReturnValue(false);
     tauriMocks.invokeCommand.mockReset().mockResolvedValue(
@@ -532,6 +540,83 @@ describe("transcription provider routing and labels", () => {
   function openTranscript() {
     fireEvent.click(screen.getByTitle("viewer.transcript"));
   }
+
+  it("does not transcribe a podcast when saved transcript lookup fails", async () => {
+    audiobookApiMocks.parseAudiobookMetadata.mockResolvedValue({});
+    audiobookApiMocks.searchAudiobookCover.mockResolvedValue([]);
+    podcastMocks.getPodcastTranscript.mockRejectedValue(new Error("Storage unavailable"));
+    podcastMocks.transcribePodcastEpisode.mockClear();
+    render(<AudiobookViewer document={desktopDocument()} episodeId="episode-lookup-error" />);
+    openTranscript();
+    await screen.findByText("Storage unavailable");
+    expect(podcastMocks.transcribePodcastEpisode).not.toHaveBeenCalled();
+  });
+
+  it("shows a completed queue transcript without invoking a provider", async () => {
+    audiobookApiMocks.parseAudiobookMetadata.mockResolvedValue({});
+    audiobookApiMocks.searchAudiobookCover.mockResolvedValue([]);
+    podcastMocks.getPodcastTranscript.mockResolvedValue({
+      text: "Transcript saved by the queue.", status: "done",
+      segments: [{ start: 1.2, end: 2.4, text: "Transcript saved by the queue." }],
+    });
+    podcastMocks.transcribePodcastEpisode.mockClear();
+    render(<AudiobookViewer document={desktopDocument()} episodeId="episode-saved" />);
+    openTranscript();
+    expect(await screen.findByText("Transcript saved by the queue.")).toBeInTheDocument();
+    expect(podcastMocks.transcribePodcastEpisode).not.toHaveBeenCalled();
+  });
+
+  it("waits for saved data without requiring an installed model", async () => {
+    let finish: (result: unknown) => void;
+    podcastMocks.getPodcastTranscript.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    podcastMocks.transcribePodcastEpisode.mockClear();
+    transcriptionMocks.profiles = [];
+    render(<AudiobookViewer document={desktopDocument()} episodeId="slow-saved" />);
+    openTranscript();
+    expect(screen.getByText("Loading saved transcript…")).toBeInTheDocument();
+    expect(podcastMocks.transcribePodcastEpisode).not.toHaveBeenCalled();
+    await act(async () => { finish!({ text: "Durable result", status: "done", segments: [] }); });
+    expect(await screen.findByText("Durable result")).toBeInTheDocument();
+    expect(podcastMocks.transcribePodcastEpisode).not.toHaveBeenCalled();
+  });
+
+  it("observes queued podcast completion instead of starting another job", async () => {
+    podcastMocks.getPodcastTranscript.mockResolvedValue({ text: "", segments: [], status: "transcribing", progress: 49 });
+    podcastMocks.transcribePodcastEpisode.mockClear();
+    render(<AudiobookViewer document={desktopDocument()} episodeId="queued" />);
+    openTranscript();
+    expect(await screen.findByText("49% Completed")).toBeInTheDocument();
+    await waitFor(() => expect(tauriMocks.listen.mock.calls.filter(([name]) => name === "transcription://queue-updated").length).toBeGreaterThanOrEqual(2));
+    podcastMocks.getPodcastTranscript.mockResolvedValue({ text: "Queue finished", segments: [], status: "done" });
+    const listener = tauriMocks.listen.mock.calls.filter(([name]) => name === "transcription://queue-updated").at(-1)![1];
+    await act(async () => { listener({ payload: {} }); });
+    expect(await screen.findByText("Queue finished")).toBeInTheDocument();
+    expect(podcastMocks.transcribePodcastEpisode).not.toHaveBeenCalled();
+  });
+
+  it("does not auto-start an inconsistent completed result", async () => {
+    podcastMocks.getPodcastTranscript.mockResolvedValue({ text: "", segments: [], status: "unavailable" });
+    podcastMocks.transcribePodcastEpisode.mockClear();
+    render(<AudiobookViewer document={desktopDocument()} episodeId="inconsistent" />);
+    openTranscript();
+    expect(await screen.findByRole("button", { name: "Retry loading transcript" })).toBeInTheDocument();
+    expect(podcastMocks.transcribePodcastEpisode).not.toHaveBeenCalled();
+  });
+
+  it("ignores a stale lookup after navigating to another episode", async () => {
+    let finishOld: (result: unknown) => void;
+    const oldLookup = new Promise((resolve) => { finishOld = resolve; });
+    podcastMocks.getPodcastTranscript.mockImplementation((id) => id === "old"
+      ? oldLookup : Promise.resolve({ text: "Current episode result", segments: [], status: "done" }));
+    podcastMocks.transcribePodcastEpisode.mockClear();
+    const view = render(<AudiobookViewer document={desktopDocument()} episodeId="old" />);
+    openTranscript();
+    view.rerender(<AudiobookViewer document={desktopDocument()} episodeId="current" />);
+    expect(await screen.findByText("Current episode result")).toBeInTheDocument();
+    await act(async () => { finishOld!({ text: "Stale episode result", status: "done", segments: [] }); });
+    expect(screen.queryByText("Stale episode result")).not.toBeInTheDocument();
+    expect(podcastMocks.transcribePodcastEpisode).not.toHaveBeenCalled();
+  });
 
   it("names local Parakeet in progress without mentioning Groq", () => {
     transcriptionMocks.activeJob = { bookId: "book-1", chapterId: "default" };

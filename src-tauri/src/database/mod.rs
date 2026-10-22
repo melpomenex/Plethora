@@ -18,6 +18,7 @@ pub mod language_practice_repository;
 pub mod learning_object_source_repository;
 pub mod migrations;
 pub mod neural_queue_repository;
+pub mod podcast_transcript_repository;
 pub mod priority_rank;
 pub mod recording_session_repository;
 pub mod repository;
