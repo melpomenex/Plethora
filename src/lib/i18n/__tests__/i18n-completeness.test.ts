@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { en } from "../locales/en";
 import { de } from "../locales/de";
@@ -8,21 +8,11 @@ import { fr } from "../locales/fr";
 import { ja } from "../locales/ja";
 import { zh } from "../locales/zh";
 import { SETTINGS_TABS } from "../../../components/settings/SettingsPage";
+import { literalTranslateKeys, sourceFilesUnder } from "./literalKeys";
 
 const locales: Record<string, Record<string, string>> = { de, es, fr, ja, zh };
 
 const SRC_DIR = path.resolve(__dirname, "..", "..", "..");
-
-/** Every .ts/.tsx under `dir`, so a key can be checked against its call site. */
-function sourceFilesUnder(dir: string): string[] {
-  const out: string[] = [];
-  for (const entry of readdirSync(dir)) {
-    const full = path.join(dir, entry);
-    if (statSync(full).isDirectory()) out.push(...sourceFilesUnder(full));
-    else if (/\.tsx?$/.test(entry)) out.push(full);
-  }
-  return out;
-}
 
 describe("i18n locale completeness", () => {
   const enKeys = Object.keys(en);
@@ -76,11 +66,8 @@ describe("i18n locale completeness", () => {
     //
     // Non-literal keys (variables, template strings, `t(prefix + suffix)`) are
     // invisible to a grep and remain unguarded — accept that hole rather than
-    // pretend otherwise. The lookbehind keeps it to the i18n `t`: it must not
-    // be preceded by an identifier char, `.` or `$`, which excludes
-    // `format(`, `split(`, `Math.abs(`, `setTimeout(` and friends.
-    const literal = /(?<![A-Za-z0-9_$.])t\(\s*["']([A-Za-z0-9_.]+)["']/g;
-
+    // pretend otherwise. `literalTranslateKeys` owns the lookbehind that keeps
+    // the scan to the i18n `t`.
     const offenders: string[] = [];
     let scanned = 0;
     for (const rel of sourceFilesUnder(path.join(__dirname, "..", "..", ".."))) {
@@ -89,11 +76,7 @@ describe("i18n locale completeness", () => {
       }
       const src = readFileSync(rel, "utf8");
       scanned++;
-      const seen = new Set<string>();
-      for (const m of src.matchAll(literal)) {
-        const key = m[1];
-        if (seen.has(key)) continue;
-        seen.add(key);
+      for (const key of literalTranslateKeys(src)) {
         if (!(key in en) || !en[key].trim()) {
           offenders.push(`${path.relative(SRC_DIR, rel)}: ${key}`);
         }

@@ -158,6 +158,7 @@ import {
 } from "../../lib/ai/assistant/learningAgentHandoff";
 import { hasCloudProvider } from "../../lib/ai/provider";
 import { useFeatureReadiness } from "../../lib/ai/features/useFeatureReadiness";
+import { learningAgentBlockedReason } from "../../lib/ai/features/readinessCopy";
 import type {
   AgentDraftArtifact,
   SelectionSnapshot,
@@ -597,13 +598,15 @@ export function AssistantPanel({
     [configuredProvidersList, aiAgentFeatureEnabled]
   );
   const agentReadinessRow = learningAgentReadiness.rows[0];
+  // Synchronous entry conditions hide the mode outright; probe-derived
+  // readiness explains a mode that is visible but cannot start yet. The reason
+  // is already translated by the helper (never a raw readiness key) and comes
+  // from an unmet dependency, not from a `limitations` disclosure.
   const agentUnavailableReason = !agentAvailability.available
     ? LEARNING_AGENT_AVAILABILITY_MESSAGES[
         agentAvailability.reason === "ready" ? "setup-required" : agentAvailability.reason
       ]
-    : agentReadinessRow && agentReadinessRow.status !== "ready"
-      ? agentReadinessRow.limitations[0] ?? t("assistant.agent.modeBlocked")
-      : null;
+    : learningAgentBlockedReason(agentReadinessRow, t);
 
   // Document sections for # mentions
   const {

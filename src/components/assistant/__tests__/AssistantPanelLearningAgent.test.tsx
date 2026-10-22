@@ -5,6 +5,22 @@ const runAssistantTurn = vi.hoisted(() => vi.fn());
 const runLearningAgent = vi.hoisted(() => vi.fn());
 const preflightLearningAgent = vi.hoisted(() => vi.fn());
 const checkSemanticDuplicateCandidates = vi.hoisted(() => vi.fn());
+const readinessState = vi.hoisted(
+  (): { row: FeatureReadiness } => ({
+    row: {
+      featureId: "learning-agent",
+      enabled: true,
+      status: "ready",
+      checkedAt: 1,
+      checking: false,
+      dependencyRevision: "rev-1",
+      dependencies: [],
+      operations: [],
+      recoveryActions: [],
+      limitations: [],
+    },
+  })
+);
 
 vi.mock("../../../lib/tauri", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../lib/tauri")>();
@@ -25,23 +41,10 @@ vi.mock("../../../lib/privacy/cloudAiDisclosure", () => ({
 }));
 vi.mock("../../../lib/ai/features/useFeatureReadiness", () => ({
   useFeatureReadiness: () => ({
-    rows: [
-      {
-        featureId: "learning-agent",
-        enabled: true,
-        status: "ready",
-        checkedAt: Date.now(),
-        checking: false,
-        dependencyRevision: "rev-1",
-        dependencies: [],
-        operations: [],
-        recoveryActions: [],
-        limitations: [],
-      },
-    ],
+    rows: [readinessState.row],
     context: null,
     loading: false,
-    checkedAt: Date.now(),
+    checkedAt: 1,
     revision: "rev-1",
     refresh: vi.fn(),
   }),
@@ -80,6 +83,7 @@ import { useDocumentStore } from "../../../stores/documentStore";
 import { useLLMProvidersStore } from "../../../stores/llmProvidersStore";
 import { resetLearningAgentModeForTests, requestLearningAgentMode } from "../../../lib/ai/assistant/learningAgentHandoff";
 import type { AgentProposal } from "../../../lib/ai/agent/tools/types";
+import type { FeatureReadiness } from "../../../lib/ai/features/types";
 
 const sourceText = "Entropy is a measure of disorder in a closed system.";
 const proposal: AgentProposal = {
@@ -195,11 +199,28 @@ function seed() {
   } as never);
 }
 
+function setReadinessRow(overrides: Partial<FeatureReadiness> = {}) {
+  readinessState.row = {
+    featureId: "learning-agent",
+    enabled: true,
+    status: "ready",
+    checkedAt: 1,
+    checking: false,
+    dependencyRevision: "rev-1",
+    dependencies: [],
+    operations: [],
+    recoveryActions: [],
+    limitations: [],
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   resetLearningAgentModeForTests();
   Element.prototype.scrollTo = vi.fn();
+  setReadinessRow();
   seed();
   preflightLearningAgent.mockResolvedValue(preflight);
   checkSemanticDuplicateCandidates.mockResolvedValue([]);
@@ -230,6 +251,55 @@ const context = {
   source: "document",
   metadata: { title: "Paper A" },
 };
+
+const BLOCKED_DEPENDENCY_REASON = "No generation provider is available.";
+const LEXICAL_LIMITATION_KEY = "ai.limitation.lexicalRetrieval";
+const LEXICAL_LIMITATION_COPY = "Lexical evidence only";
+
+/** Non-ready row that ALSO reports the mobile lexical-fallback limitation. */
+function seedBlockedReadiness() {
+  setReadinessRow({
+    status: "setup-required",
+    dependencies: [
+      { code: "generation", state: "missing", reasonKey: "ai.reason.noGenerationRoute" },
+      { code: "lexical-retrieval", state: "degraded", reasonKey: "ai.reason.lexicalOnly" },
+    ],
+    limitations: [LEXICAL_LIMITATION_KEY],
+  });
+}
+
+function renderPresentation(mobile: boolean) {
+  return render(
+    mobile ? (
+      <AssistantPanel
+        context={context}
+        conversationKey="mobile:global"
+        mobilePresentation={{ visible: true }}
+        fillContainer
+        appendContextMessages={false}
+      />
+    ) : (
+      <AssistantPanel context={context} />
+    )
+  );
+}
+
+/** The notice must name the dependency reason and never a raw readiness key. */
+function expectReasonNotice(notice: Element | null) {
+  expect(notice, "expected the mode-unavailable notice").not.toBeNull();
+  const text = notice?.textContent ?? "";
+  expect(text).toContain(BLOCKED_DEPENDENCY_REASON);
+  expect(text).not.toContain(LEXICAL_LIMITATION_KEY);
+  expect(text).not.toContain(LEXICAL_LIMITATION_COPY);
+
+  const slots = [notice, ...Array.from(notice?.querySelectorAll("*") ?? [])];
+  for (const slot of slots) {
+    const slotText = slot?.textContent ?? "";
+    expect(slotText, `raw readiness key in ${slot?.tagName}`).not.toMatch(
+      /^[a-z]+\.[a-zA-Z0-9.]+$/
+    );
+  }
+}
 
 describe("AssistantPanel Learning Agent mode", () => {
   it("keeps ordinary chat on its existing path", async () => {
@@ -423,5 +493,70 @@ describe("AssistantPanel Learning Agent mode", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Done" }));
     expect(screen.queryByRole("dialog", { name: "Attach document" })).toBeNull();
+  });
+
+  it.each([
+    ["desktop", false],
+    ["mobile", true],
+  ] as const)(
+    "names the unmet dependency in the %s toggle notice",
+    (_label, mobile) => {
+      seedBlockedReadiness();
+      renderPresentation(mobile);
+
+      const toggle = screen.getByRole("button", { name: "Learning Agent" });
+      expect(toggle.textContent).toBe(mobile ? "Learn" : "Learning Agent");
+      expect(toggle.getAttribute("title")).toContain(BLOCKED_DEPENDENCY_REASON);
+
+      fireEvent.click(toggle);
+
+      expect(document.querySelector("[data-learning-agent-composer]")).toBeNull();
+      expectReasonNotice(document.querySelector("[data-agent-notice]"));
+    }
+  );
+
+  it.each([
+    ["desktop", false],
+    ["mobile", true],
+  ] as const)(
+    "shows the translated reason in the %s in-sheet notice",
+    async (_label, mobile) => {
+      seedBlockedReadiness();
+      requestLearningAgentMode();
+      renderPresentation(mobile);
+
+      await waitFor(() =>
+        expect(document.querySelector("[data-learning-agent-composer]")).not.toBeNull()
+      );
+      const composer = document.querySelector("[data-learning-agent-composer]");
+      expectReasonNotice(composer?.querySelector('[role="status"]') ?? null);
+    }
+  );
+
+  it("does not enter on a setup-required row that carries a lexical limitation", () => {
+    seedBlockedReadiness();
+    render(<AssistantPanel context={context} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Learning Agent" }));
+
+    expect(document.querySelector("[data-learning-agent-composer]")).toBeNull();
+    expectReasonNotice(document.querySelector("[data-agent-notice]"));
+  });
+
+  it("still enters with a ready row that carries the same lexical limitation", () => {
+    setReadinessRow({
+      status: "ready",
+      dependencies: [
+        { code: "lexical-retrieval", state: "degraded", reasonKey: "ai.reason.lexicalOnly" },
+      ],
+      limitations: [LEXICAL_LIMITATION_KEY],
+    });
+    render(<AssistantPanel context={context} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Learning Agent" }));
+
+    expect(document.querySelector("[data-learning-agent-composer]")).not.toBeNull();
+    expect(document.querySelector("[data-agent-notice]")).toBeNull();
+    expect(screen.queryByText(/Learning Agent is unavailable/)).toBeNull();
   });
 });
