@@ -14,6 +14,7 @@
  * Mocking rule: never mock page internals — only stores, API modules, and
  * the leaf viewer components (pattern: ReviewQueueView.test.tsx).
  */
+import { registerOverlayDismissal } from "../../lib/overlayStack";
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
 
@@ -589,5 +590,28 @@ describe("QueueScrollPage overlay controls recovery from the content iframe", ()
       );
     });
     expect(controlsHidden()).toBe(false);
+  }, 15000);
+});
+
+
+describe("QueueScrollPage modal ownership", () => {
+  it("keeps queue shortcuts and idle hiding behind the active priority modal", async () => {
+    render(<QueueScrollPage />);
+    await screen.findByTestId("document-viewer");
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent(IFRAME_POINTER_ACTIVITY_EVENT, { detail: { kind: "pointer" } }));
+    });
+    const overlay = document.querySelector("[data-queue-overlay]")!;
+    expect(overlay).toHaveClass("visible");
+    const unregister = registerOverlayDismissal(() => {}, { priority: 100 });
+    try {
+      for (const key of ["h", "?", "PageDown", " ", "1", "Escape"]) fireEvent.keyDown(window, { key });
+      expect(overlay).toHaveClass("visible");
+      expect(mocks.tabsState.closeTab).not.toHaveBeenCalled();
+      expect(screen.getByTestId("document-viewer")).toBeInTheDocument();
+      // Verify a real idle interval while the modal owns interaction.
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 3200)); });
+      expect(overlay).toHaveClass("visible");
+    } finally { unregister(); }
   }, 15000);
 });

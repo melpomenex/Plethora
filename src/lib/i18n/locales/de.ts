@@ -2485,6 +2485,7 @@ export const de: Dict = {
   "priority.lowestDesc": "Selten wiederholen",
   "priority.normalDesc": "Standardhäufigkeit",
   "priority.readingPriority": "Lesepriorität",
+  "priority.saveFailed": "Priorität konnte nicht gespeichert werden. Erneut versuchen.",
   "priority.saving": "Speichern...",
   "priority.setTitle": "Priorität festlegen",
   "queue.addedToQueue": "Zur Warteschlange hinzugefügt",

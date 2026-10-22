@@ -2721,6 +2721,7 @@ export const zh: Dict = {
   "priority.lowestDesc": "很少复习",
   "priority.normalDesc": "标准频率",
   "priority.readingPriority": "阅读优先级",
+  "priority.saveFailed": "无法保存优先级，请重试。",
   "priority.saving": "保存中...",
   "priority.setTitle": "设置优先级",
   "queue.addedToQueue": "已添加到队列",

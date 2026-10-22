@@ -962,6 +962,7 @@ export const en: Dict = {
   "priority.highDesc": "Review frequently",
   "priority.highestDesc": "Review often",
   "priority.setTitle": "Set Priority",
+  "priority.saveFailed": "Couldn't save priority. Try again.",
   "priority.saving": "Saving...",
   "priority.fineTune": "Fine-tune",
   "priority.readingPriority": "Reading Priority",

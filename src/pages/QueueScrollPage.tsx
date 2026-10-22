@@ -1,3 +1,4 @@
+import { highestOverlayPriority } from "../lib/overlayStack";
 import { useRegisterMobileAssistant, useMobileAssistantController } from "../components/assistant/mobile/MobileAssistantContext";
 import type { VideoViewerContext } from "../lib/ai/assistant/scopes";
 import { SELECTION_ASK_EVENT, type SelectionAskEventDetail } from "../utils/selectionAskHandoff";
@@ -3093,6 +3094,7 @@ export function QueueScrollPage() {
     };
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (highestOverlayPriority() >= 100) return;
       // Don't trigger if typing in input
       const target = e.target as HTMLElement | null;
       if (
@@ -3298,10 +3300,14 @@ export function QueueScrollPage() {
 
     const resetTimer = () => {
       clearTimeout(hideTimeout);
-      hideTimeout = setTimeout(() => setShowControls(false), 3000);
+      hideTimeout = setTimeout(() => {
+        if (highestOverlayPriority() >= 100) resetTimer();
+        else setShowControls(false);
+      }, 3000);
     };
 
     const handleInteraction = () => {
+      if (highestOverlayPriority() >= 100) return;
       setShowControls(true);
       resetTimer();
     };
@@ -3315,6 +3321,7 @@ export function QueueScrollPage() {
     // "h"/"?" are the manual show/hide toggle handled by the keydown effect
     // below; don't let them force the controls back on through this listener.
     const handleKeyInteraction = (e: KeyboardEvent) => {
+      if (highestOverlayPriority() >= 100) return;
       if (e.key === "h" || e.key === "?") return;
       if (isVolumeRockerNavigationKey(e.key, settings.interface.volumeRockerScroll || "none")) return;
       handleInteraction();
@@ -4926,6 +4933,7 @@ export function QueueScrollPage() {
         itemType={currentItem?.type ?? "document"}
         itemTitle={currentItem?.documentTitle ?? ""}
         itemDocumentId={currentItem?.documentId}
+        itemId={currentItem?.id}
         isNewDocument={isNewDocument}
         isRating={isRating}
         scrollViewMode={scrollViewMode}
@@ -4989,12 +4997,15 @@ export function QueueScrollPage() {
                 onClick={onClick}
                 className={cn(
                   "flex items-center gap-2 px-3 py-2 rounded-lg bg-black/40 backdrop-blur-sm text-white text-sm transition-colors hover:bg-black/60",
+                  isMobile && "min-h-11 min-w-11 justify-center",
                   isOpen && "bg-black/60"
                 )}
                 title={t("queueScroll.itemDetails")}
+                aria-label={t("queueScroll.itemDetails")}
+                aria-expanded={isOpen}
               >
                 <Info className="w-4 h-4" />
-                {t("queueScroll.details")}
+                {!isMobile && t("queueScroll.details")}
               </button>
             )}
           />
@@ -5037,7 +5048,8 @@ export function QueueScrollPage() {
           priorityHighest: t("priority.highest"),
           priorityFineTune: t("priority.fineTune"),
           prioritySaving: t("priority.saving"),
-          prioritySaveFailed: t("common.error"),
+          prioritySaveFailed: t("priority.saveFailed"),
+          close: t("common.close"),
           goNeural: t("neural.goNeural"),
           goNeuralTooltip: t("neural.goNeuralTooltip"),
           exitNeural: t("neural.exitNeural"),

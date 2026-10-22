@@ -1,6 +1,6 @@
 import { useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { CheckCircle } from "@phosphor-icons/react";
+import { CheckCircle, Info } from "@phosphor-icons/react";
 import "../index.css";
 import "../styles/mobile.css";
 import { ThemeProvider, useTheme } from "../contexts/ThemeContext";
@@ -22,11 +22,16 @@ declare global {
       setEdge: (value: "left" | "right" | "top" | "bottom") => void;
       setTheme: (value: string) => void;
       themes: string[];
+      setItem: (value: string) => void;
+      setVisible: (value: boolean) => void;
+      setLong: (value: boolean) => void;
+      setNeural: (value: boolean) => void;
     };
   }
 }
 
 function Harness() {
+  const priorityEnabled = new URLSearchParams(location.search).has("priority");
   const navRef = useRef<HTMLElement>(null);
   const [edge, setEdge] = useState<"left" | "right" | "top" | "bottom">("bottom");
   const [mobile, setMobile] = useState(true);
@@ -34,8 +39,14 @@ function Harness() {
   const [newDocument, setNewDocument] = useState(false);
   const [rating, setRating] = useState(false);
   const [lastAction, setLastAction] = useState("none");
+  const [item, setItem] = useState("document:1");
+  const [visible, setVisible] = useState(true);
+  const [long, setLong] = useState(false);
+  const [neural, setNeural] = useState(false);
+  const [priority, setPriority] = useState(50);
+  const itemType = item.split(":")[0];
   const { theme, themes, setTheme } = useTheme();
-  window.ratingHarness = { setMobile, setFullscreen, setNewDocument, setRating, setEdge, setTheme, themes: themes.map(t => t.id) };
+  window.ratingHarness = { setMobile, setFullscreen, setNewDocument, setRating, setEdge, setTheme, themes: themes.map(t => t.id), setItem, setVisible, setLong, setNeural };
   return <MobileAssistantContextProvider><BottomControlsGeometryProvider>
     <AdaptiveAppScaffold mobile={mobile} fullscreen={fullscreen}>
       <main className="mobile-main-content p-8 text-on-surface" style={{ background: "var(--color-background)", overflowY: "auto" }}>
@@ -49,10 +60,16 @@ function Harness() {
       {mobile && <nav ref={navRef} className={`mobile-bottom-nav ${fullscreen ? "hidden" : ""}`} aria-hidden={fullscreen}>
         {["Dashboard", "Queue", "Review", "Documents", "Settings", "More"].map(label => <button key={label} style={{ minHeight: 56, fontSize: 11 }} onClick={() => setLastAction(label)}>{label}</button>)}
       </nav>}
-      <ScrollOverlayControls showControls showRatingControls isMobile={mobile} currentIndex={0} totalItems={210}
-        itemType="document" itemTitle="Reading and remembering" isNewDocument={newDocument} isRating={rating}
+      <ScrollOverlayControls showControls={visible} showRatingControls isMobile={mobile} currentIndex={0} totalItems={210}
+        itemType={priorityEnabled ? itemType : "document"} itemTitle="Reading and remembering" isNewDocument={newDocument} isRating={rating}
+        itemDocumentId={priorityEnabled ? "shared-parent" : undefined} itemId={item}
+        prioritySlider={priorityEnabled && ["document", "extract"].includes(itemType) ? priority : undefined}
+        onPriorityChange={priorityEnabled ? async value => { setPriority(value); setLastAction(`priority:${value}`); } : undefined}
+        isNeuralMode={neural} neuralRemaining={12345} onExitNeural={() => setLastAction("neural-exit")}
+        labels={long ? { priorityNormal: "Normale Lesepriorität für dieses Dokument", priorityLowest: "Sehr niedrige Lesepriorität", priorityLow: "Niedrige Lesepriorität", priorityHigh: "Hohe Lesepriorität", priorityHighest: "Höchste Lesepriorität", reviewMode: "Neuronale Wiederholung verwandter Inhalte", exitNeural: "Wiederholung verlassen" } : undefined}
+        detailsButton={priorityEnabled ? <button className="min-h-11 min-w-11 rounded-lg bg-black/40 text-white flex items-center justify-center" aria-label="Item details" onClick={() => setLastAction("details")}><Info size={20} /></button> : undefined}
         scrollViewMode="document" ratingOrbsPosition={edge} onUpdateRatingOrbsPosition={setEdge}
-        onExit={() => setLastAction("exit")} onShowSettings={() => {}} onShowRssSettings={() => {}} onSetScrollViewMode={() => {}} onOpenExtractDialog={() => {}}
+        onExit={() => setLastAction("exit")} onShowSettings={() => {}} onShowRssSettings={() => {}} onSetScrollViewMode={mode => setLastAction(`mode:${mode}`)} onOpenExtractDialog={() => setLastAction("extract")}
         onRate={grade => setLastAction(`grade:${grade}`)} onDismiss={() => setLastAction("dismiss")}
         onGoToNext={() => setLastAction("next")} onGoToPrevious={() => setLastAction("previous")} />
       {mobile && <MobileAssistantHost navRef={navRef} fullscreen={fullscreen} />}

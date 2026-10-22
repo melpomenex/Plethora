@@ -2484,6 +2484,7 @@ export const es: Dict = {
   "priority.lowestDesc": "Repasar rara vez",
   "priority.normalDesc": "Frecuencia estándar",
   "priority.readingPriority": "Prioridad de lectura",
+  "priority.saveFailed": "No se pudo guardar la prioridad. Inténtalo de nuevo.",
   "priority.saving": "Guardando...",
   "priority.setTitle": "Establecer prioridad",
   "queue.addedToQueue": "Añadido a la cola",

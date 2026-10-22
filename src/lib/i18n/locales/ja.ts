@@ -2451,6 +2451,7 @@ export const ja: Dict = {
   "priority.lowestDesc": "めったに復習しない",
   "priority.normalDesc": "標準的な頻度",
   "priority.readingPriority": "読書優先度",
+  "priority.saveFailed": "優先度を保存できませんでした。もう一度お試しください。",
   "priority.saving": "保存中...",
   "priority.setTitle": "優先度を設定",
   "queue.addedToQueue": "キューに追加しました",

@@ -4679,3 +4679,47 @@
     outline: 2px solid Highlight;
   }
 }
+
+/* Queue upper chrome shares one safe-area-aware, measured region. */
+.queue-mobile-header {
+  padding-top: calc(16px + var(--shell-safe-top, env(safe-area-inset-top, 0px)));
+  padding-left: calc(16px + var(--shell-safe-left, env(safe-area-inset-left, 0px)));
+  padding-right: calc(16px + var(--shell-safe-right, env(safe-area-inset-right, 0px)));
+}
+
+.queue-priority-presets {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  gap: 0.5rem;
+}
+
+.queue-priority-preset {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 44px;
+  min-height: 44px;
+  padding: 0.625rem;
+  border: 1px solid var(--color-outline-variant);
+  border-radius: var(--md-shape-small);
+  color: var(--color-on-surface);
+  background: var(--color-surface-container);
+  text-align: start;
+  font-size: 0.875rem;
+}
+
+.queue-priority-selected {
+  border-color: var(--color-primary);
+  background: var(--color-secondary-container);
+  color: var(--color-on-secondary-container);
+}
+
+.queue-priority-editor button:focus-visible,
+.queue-priority-editor input:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.queue-priority-editor :disabled,
+.queue-priority-editor [aria-disabled="true"] { cursor: wait; opacity: 0.6; }
+:root[data-display-mode="eink"] .queue-priority-selected { border: 2px solid currentColor; }

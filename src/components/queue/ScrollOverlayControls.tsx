@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useId } from "react";
 import {
   Brain,
   CaretDown,
@@ -25,6 +25,8 @@ import {
   ArrowUp,
   ArrowDown,
 } from "@phosphor-icons/react";
+import { ResponsiveDialogSheet } from "../adaptive/ResponsiveDialogSheet";
+import { useDialogFocus } from "../md3/Dialog";
 import { cn } from "../../utils";
 import { RatingOrb, type RatingOrbAction } from "../review/RatingOrb";
 import { useBottomControlsGeometry } from "../mobile/BottomControlsGeometry";
@@ -40,6 +42,8 @@ interface ScrollOverlayControlsProps {
   itemType: string;
   itemTitle: string;
   itemDocumentId?: string;
+  /** Queue identity, including extracts sharing a parent document. */
+  itemId?: string;
   isNewDocument: boolean;
   isRating: boolean;
   scrollViewMode: string;
@@ -128,6 +132,7 @@ interface ScrollOverlayControlsProps {
     priorityHighest?: string;
     priorityFineTune?: string;
     prioritySaving?: string;
+    close?: string;
     prioritySaveFailed?: string;
     /** Neural review ("Go neural") labels. */
     goNeural?: string;
@@ -163,6 +168,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   itemType,
   itemTitle,
   itemDocumentId,
+  itemId,
   isNewDocument,
   isRating,
   scrollViewMode,
@@ -355,8 +361,10 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
           ? "bg-emerald-500/30"
         : "bg-yellow-500/30";
 
-  const priorityControl = onPriorityChange && typeof prioritySlider === "number" ? (
+  const priorityControl = showControls && onPriorityChange && typeof prioritySlider === "number" ? (
     <ScrollPriorityControl
+      key={itemId ?? `${itemType}:${itemDocumentId}:${currentIndex}`}
+      isMobile={isMobile}
       value={prioritySlider}
       onChange={onPriorityChange}
       labels={labels}
@@ -367,20 +375,20 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
     <>
     {/* Queue chrome fades with showControls. Rating actions have their own
         visibility gate so mobile readers can summon them with a long press. */}
-    <div ref={overlayRef} inert={bottomGeometry?.blocked || undefined} aria-hidden={bottomGeometry?.blocked || undefined}
+    <div data-queue-overlay ref={overlayRef} inert={bottomGeometry?.blocked || undefined} aria-hidden={bottomGeometry?.blocked || undefined}
       style={bottomGeometry ? { top: bottomGeometry.viewportTop, height: bottomGeometry.viewportHeight, bottom: "auto" } : undefined}
       className={cn("fixed inset-0 pointer-events-none transition-all duration-300 z-50", showControls ? "opacity-100 visible" : "opacity-0 invisible")}>
       {/* Top Bar */}
-      <div ref={headerRef} className="absolute top-0 left-0 right-0 pt-[calc(16px+env(safe-area-inset-top,0px))] px-4 pb-4 bg-gradient-to-b from-black/50 to-transparent pointer-events-none">
-        <div className="flex items-center justify-between max-w-7xl mx-auto">
-          <div className="flex items-center gap-3 pointer-events-auto">
+      <div ref={headerRef} data-queue-header className={cn("absolute top-0 left-0 right-0 pb-4 bg-gradient-to-b from-black/50 to-transparent pointer-events-none", isMobile ? "queue-mobile-header" : "pt-[calc(16px+env(safe-area-inset-top,0px))] px-4")}>
+        <div className={cn("flex items-center justify-between max-w-7xl mx-auto", isMobile && "flex-wrap gap-2")}>
+          <div className={cn("flex items-center gap-3 pointer-events-auto", isMobile && "flex-wrap min-w-0 max-w-full gap-2")}>
             <button
               onClick={() => {
                 emitUserInteraction("queue.closed");
                 onExit();
               }}
               onPointerDown={() => emitUserInteraction("queue.closed")}
-              className="p-2 rounded-lg bg-black/40 backdrop-blur-sm hover:bg-black/60 transition-colors"
+              className={cn("p-2 rounded-lg bg-black/40 backdrop-blur-sm hover:bg-black/60 transition-colors", isMobile && "min-h-11 min-w-11 shrink-0")}
               title={labels?.exit ?? "Exit scroll mode"}
             >
               <X className="w-5 h-5 text-white" />
@@ -389,7 +397,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
               // Neural banner: distinct violet color signals the creative mode.
               // Shows the remaining count and an exit that restores the reading
               // session (does not close the tab).
-              <div className="flex items-center gap-2 text-white font-medium text-sm bg-violet-600/70 backdrop-blur-sm px-3 py-2 rounded-lg">
+              <div className={cn("flex items-center gap-2 text-white font-medium text-sm bg-violet-600/70 backdrop-blur-sm px-3 py-2 rounded-lg", isMobile && "flex-wrap min-w-0 max-w-full break-words")}>
                 <Lightning className="w-4 h-4 text-violet-200" weight="fill" />
                 <span className="text-violet-50">{labels?.reviewMode ?? "Neural review"}</span>
                 {neuralRemaining !== null && (
@@ -397,7 +405,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
                 )}
                 <button
                   onClick={onExitNeural}
-                  className="ml-1 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors text-xs text-white"
+                  className={cn("ml-1 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors text-xs text-white", isMobile && "min-h-11 min-w-11")}
                   title={labels?.exitNeural ?? "Exit neural review"}
                 >
                   {labels?.exitNeural ?? "Exit"}
@@ -410,7 +418,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
             )}
           </div>
 
-          <div className="flex items-center gap-3 pointer-events-auto">
+          <div className={cn("flex items-center gap-3 pointer-events-auto", isMobile && "flex-wrap min-w-0 max-w-full gap-2")}>
             {/* Disable EPUB reader buttons on mobile overlay to reduce clutter */}
             {false && isEpub && (
               <div className="flex items-center gap-1 rounded-lg bg-black/40 p-1 backdrop-blur-sm">
@@ -532,33 +540,34 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
             )}
           </div>
         </div>
-      </div>
 
-      {/* Scroll Mode Toolbar */}
+      {/* Scroll Mode Toolbar: measured together with session actions. */}
       {isDocOrRss && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 pointer-events-auto">
-          <div className="flex items-center gap-1 px-2 py-1.5 bg-black/40 backdrop-blur-sm rounded-lg">
+        <div data-queue-modes className={cn("flex justify-center pointer-events-none", isMobile ? "mt-2" : "mt-3")}>
+          <div className={cn("flex items-center gap-1 px-2 py-1.5 bg-black/40 backdrop-blur-sm rounded-lg pointer-events-auto", isMobile && "flex-wrap max-w-full")}>
             {itemDocumentId && (
               <div className="flex items-center gap-0.5 bg-white/10 rounded-md p-0.5">
-                <button onClick={() => onSetScrollViewMode("document")} className={cn("p-1.5 rounded-md transition-colors", scrollViewMode === "document" ? "bg-white text-black shadow-sm" : "text-white/70 hover:text-white")} title={labels?.viewDocument ?? "View document"}>
+                <button onClick={() => onSetScrollViewMode("document")} aria-pressed={scrollViewMode === "document"} className={cn("p-1.5 rounded-md transition-colors", isMobile && "min-h-11 min-w-11", scrollViewMode === "document" ? "bg-white text-black shadow-sm" : "text-white/70 hover:text-white")} title={labels?.viewDocument ?? "View document"}>
                   <TextT className="w-4 h-4" />
                 </button>
-                <button onClick={() => onSetScrollViewMode("extracts")} className={cn("p-1.5 rounded-md transition-colors", scrollViewMode === "extracts" ? "bg-white text-black shadow-sm" : "text-white/70 hover:text-white")} title={labels?.viewExtracts ?? "View extracts"}>
+                <button onClick={() => onSetScrollViewMode("extracts")} aria-pressed={scrollViewMode === "extracts"} className={cn("p-1.5 rounded-md transition-colors", isMobile && "min-h-11 min-w-11", scrollViewMode === "extracts" ? "bg-white text-black shadow-sm" : "text-white/70 hover:text-white")} title={labels?.viewExtracts ?? "View extracts"}>
                   <List className="w-4 h-4" />
                 </button>
-                <button onClick={() => onSetScrollViewMode("cards")} className={cn("p-1.5 rounded-md transition-colors", scrollViewMode === "cards" ? "bg-white text-black shadow-sm" : "text-white/70 hover:text-white")} title={labels?.viewLearningCards ?? "View learning cards"}>
+                <button onClick={() => onSetScrollViewMode("cards")} aria-pressed={scrollViewMode === "cards"} className={cn("p-1.5 rounded-md transition-colors", isMobile && "min-h-11 min-w-11", scrollViewMode === "cards" ? "bg-white text-black shadow-sm" : "text-white/70 hover:text-white")} title={labels?.viewLearningCards ?? "View learning cards"}>
                   <Brain className="w-4 h-4" />
                 </button>
               </div>
             )}
             {scrollViewMode === "document" && itemType === "document" && (
-              <button onClick={onOpenExtractDialog} className="p-1.5 rounded-md text-white/70 hover:text-white hover:bg-white/10 transition-colors" title={labels?.createExtract ?? "Create extract"}>
+              <button onClick={onOpenExtractDialog} className={cn("p-1.5 rounded-md text-white/70 hover:text-white hover:bg-white/10 transition-colors", isMobile && "min-h-11 min-w-11")} title={labels?.createExtract ?? "Create extract"}>
                 <Lightbulb className="w-4 h-4" />
               </button>
             )}
           </div>
         </div>
       )}
+
+      </div>
 
       {/* Shared presentation retains this reader's grading and docking handlers. */}
       {showRatingControls && (showRatingButtons || itemType === "flashcard" || itemType === "extract") && (() => {
@@ -667,141 +676,176 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   );
 });
 
-function ScrollPriorityControl({
-  value,
-  onChange,
-  labels,
-}: {
-  value: number;
-  onChange: (slider: number) => void | Promise<void>;
-  labels?: ScrollOverlayControlsProps["labels"];
-}) {
+/** Saved priority and in-flight work belong to one keyed queue item. */
+function useScrollPriorityState(value: number, onChange: (slider: number) => void | Promise<void>) {
   const [isOpen, setIsOpen] = useState(false);
   const [slider, setSlider] = useState(value);
-  const [committedValue, setCommittedValue] = useState(value);
   const [isSaving, setIsSaving] = useState(false);
   const [saveFailed, setSaveFailed] = useState(false);
-
+  const committed = useRef(value);
+  const pending = useRef(false);
+  const mounted = useRef(false);
+  const gestureStart = useRef(value);
+  const gestureCancelled = useRef(false);
   useEffect(() => {
-    setSlider(value);
-    setCommittedValue(value);
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  useEffect(() => {
+    committed.current = value;
+    if (!pending.current) setSlider(value);
   }, [value]);
-
-  const currentPreset = getPriorityPreset(slider);
-  const presetLabels = [
-    labels?.priorityLowest ?? "Lowest",
-    labels?.priorityLow ?? "Low",
-    labels?.priorityNormal ?? "Normal",
-    labels?.priorityHigh ?? "High",
-    labels?.priorityHighest ?? "Highest",
-  ];
-  const currentLabel = presetLabels[PRIORITY_PRESETS.indexOf(currentPreset)];
-
   const commitPriority = async (nextValue: number, closeAfterSave = false) => {
+    if (pending.current) return;
     const normalized = Math.max(0, Math.min(100, Math.round(nextValue)));
     setSlider(normalized);
-    if (normalized === committedValue && !saveFailed) {
+    if (normalized === committed.current && !saveFailed) {
       if (closeAfterSave) setIsOpen(false);
       return;
     }
-
+    pending.current = true;
     setIsSaving(true);
     setSaveFailed(false);
     try {
       await onChange(normalized);
-      setCommittedValue(normalized);
+      if (!mounted.current) return;
+      committed.current = normalized;
       if (closeAfterSave) setIsOpen(false);
     } catch (error) {
+      if (!mounted.current) return;
       console.error("[ScrollPriorityControl] Failed to update priority:", error);
       setSaveFailed(true);
-      setSlider(committedValue);
+      setSlider(committed.current);
     } finally {
-      setIsSaving(false);
+      pending.current = false;
+      if (mounted.current) setIsSaving(false);
     }
   };
 
-  return (
-    <div className="relative">
-      <button
-        type="button"
-        onClick={() => setIsOpen((open) => !open)}
-        className={cn(
-          "flex items-center gap-2 px-3 py-2 rounded-lg bg-black/40 backdrop-blur-sm text-white text-sm transition-colors hover:bg-black/60",
-          isOpen && "bg-black/60"
-        )}
-        title={`${labels?.priority ?? "Priority"}: ${currentLabel}`}
-        aria-label={`${labels?.priority ?? "Priority"}: ${currentLabel}`}
-        aria-expanded={isOpen}
-      >
-        <Flag className="w-4 h-4" style={{ color: currentPreset.color }} weight="fill" />
-        <span className="hidden sm:inline">{currentLabel}</span>
-        <CaretDown className={cn("w-3 h-3 text-white/70 transition-transform", isOpen && "rotate-180")} />
-      </button>
+  // Keep the range focusable while a save is pending so keyboard editing can
+  // resume in place. Ignore further edits until that request settles.
+  const sliderHandlers = {
+    onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
+      if (pending.current) { event.currentTarget.value = String(slider); return; }
+      setSaveFailed(false); setSlider(Number(event.target.value));
+    },
+    onPointerDown: (event: React.PointerEvent<HTMLInputElement>) => {
+      if (pending.current) { event.preventDefault(); return; }
+      gestureStart.current = slider;
+      gestureCancelled.current = false;
+    },
+    onPointerCancel: () => { gestureCancelled.current = true; setSlider(gestureStart.current); },
+    onTouchCancel: () => { gestureCancelled.current = true; setSlider(gestureStart.current); },
+    onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => { if (pending.current && event.key !== "Tab") event.preventDefault(); },
+    onPointerUp: (event: React.PointerEvent<HTMLInputElement>) => {
+      if (!gestureCancelled.current) void commitPriority(Number(event.currentTarget.value));
+    },
+    onTouchEnd: (event: React.TouchEvent<HTMLInputElement>) => {
+      if (!gestureCancelled.current) void commitPriority(Number(event.currentTarget.value));
+    },
+    onKeyUp: (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(event.key)) {
+        void commitPriority(Number(event.currentTarget.value));
+      }
+    },
+    onBlur: (event: React.FocusEvent<HTMLInputElement>) => void commitPriority(Number(event.currentTarget.value)),
+  };
+  return { isOpen, setIsOpen, slider, isSaving, saveFailed, sliderHandlers, commitPriority };
+}
 
-      {isOpen && (
-        <>
-          <div
-            className="fixed inset-0 z-[55]"
-            role="presentation"
-            onClick={() => setIsOpen(false)}
-          />
-          <div className="absolute right-0 top-full z-[60] mt-2 w-[min(18rem,calc(100vw-2rem))] rounded-xl border border-white/15 bg-neutral-950/95 p-3 text-white shadow-2xl backdrop-blur-md">
-            <div className="mb-3 flex items-center justify-between gap-3">
-              <span className="text-sm font-semibold">{labels?.priority ?? "Priority"}</span>
-              {isSaving && <span className="text-xs text-white/60">{labels?.prioritySaving ?? "Saving..."}</span>}
-              {saveFailed && !isSaving && <span className="text-xs text-red-300">{labels?.prioritySaveFailed ?? "Couldn't save"}</span>}
-            </div>
+function ScrollPriorityControl({ value, onChange, labels, isMobile }: {
+  value: number;
+  onChange: (slider: number) => void | Promise<void>;
+  labels?: ScrollOverlayControlsProps["labels"];
+  isMobile: boolean;
+}) {
+  const { isOpen, setIsOpen, slider, isSaving, saveFailed, sliderHandlers, commitPriority } = useScrollPriorityState(value, onChange);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const editorId = useId();
+  const sliderId = useId();
+  const panelRef = useDialogFocus(isOpen && !isMobile, () => setIsOpen(false));
+  useEffect(() => {
+    if (!isOpen) return;
+    // The sheet portals outside the shell. Block reader, ratings and navigation
+    // while preserving the reading scroll offset and the trigger for focus return.
+    const button = trigger.current;
+    const root = isMobile ? (button?.closest<HTMLElement>(".adaptive-shell-root")
+      ?? button?.closest<HTMLElement>("[data-queue-overlay]")) : undefined;
+    const wasInert = root?.inert;
+    if (root) root.inert = true;
+    // Dialog focus/dismissal listens on document; reader shortcuts listen on
+    // window. Let the dialog and native inputs operate, then stop reader keys.
+    const blockReaderKeys = (event: KeyboardEvent) => event.stopPropagation();
+    document.addEventListener("keydown", blockReaderKeys);
+    return () => {
+      document.removeEventListener("keydown", blockReaderKeys);
+      if (root) root.inert = wasInert ?? false;
+      // Shared dialog cleanup can run before this shell unlock. Return focus
+      // once all dismissal effects have completed, without moving the reader.
+      window.requestAnimationFrame(() => { if (button?.isConnected && !root?.inert && button.getAttribute("aria-expanded") === "false") button.focus({ preventScroll: true }); });
+    };
+  }, [isOpen, isMobile]);
 
-            <div className="grid grid-cols-5 gap-1.5">
-              {PRIORITY_PRESETS.map((preset, index) => {
-                const isSelected = getPriorityPreset(slider).value === preset.value;
-                return (
-                  <button
-                    key={preset.value}
-                    type="button"
-                    onClick={() => void commitPriority(preset.value, true)}
-                    className={cn(
-                      "flex min-h-[48px] flex-col items-center justify-center gap-1 rounded-lg border px-1.5 py-2 text-[10px] transition-colors",
-                      isSelected
-                        ? "border-white/50 bg-white/15 text-white"
-                        : "border-white/10 bg-white/5 text-white/70 hover:bg-white/10 hover:text-white"
-                    )}
-                    title={presetLabels[index]}
-                  >
-                    <Flag className="h-4 w-4" style={{ color: preset.color }} weight="fill" />
-                    <span className="max-w-full truncate">{presetLabels[index]}</span>
-                  </button>
-                );
-              })}
-            </div>
+  const currentPreset = getPriorityPreset(slider);
+  const presetLabels = [labels?.priorityLowest ?? "Lowest", labels?.priorityLow ?? "Low",
+    labels?.priorityNormal ?? "Normal", labels?.priorityHigh ?? "High", labels?.priorityHighest ?? "Highest"];
+  const currentLabel = presetLabels[PRIORITY_PRESETS.indexOf(currentPreset)];
+  const title = labels?.priority ?? "Reading Priority";
+  const closeLabel = labels?.close ?? "Close";
 
-            <div className="mt-4 space-y-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-white/65">{labels?.priorityFineTune ?? "Fine-tune"}</span>
-                <span className="font-semibold tabular-nums" style={{ color: currentPreset.color }}>{slider}%</span>
-              </div>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={slider}
-                onChange={(event) => {
-                  setSaveFailed(false);
-                  setSlider(Number(event.target.value));
-                }}
-                onMouseUp={(event) => void commitPriority(Number(event.currentTarget.value))}
-                onTouchEnd={(event) => void commitPriority(Number(event.currentTarget.value))}
-                onBlur={(event) => void commitPriority(Number(event.currentTarget.value))}
-                aria-label={labels?.priorityFineTune ?? "Fine-tune priority"}
-                className="h-2 w-full cursor-pointer appearance-none rounded-full bg-white/15 accent-primary"
-                style={{ accentColor: currentPreset.color }}
-              />
-            </div>
-          </div>
-        </>
-      )}
+  const editor = <div className="queue-priority-editor" aria-busy={isSaving}>
+    <div role="status" aria-live="polite" className="text-sm text-on-surface-variant">
+      {isSaving ? (labels?.prioritySaving ?? "Saving...") : null}
     </div>
-  );
+    {saveFailed && <p role="alert" className="text-sm text-error">
+      {labels?.prioritySaveFailed ?? "Couldn't save priority. Try again."}
+    </p>}
+    <div className="queue-priority-presets" role="group" aria-label={title}>
+      {PRIORITY_PRESETS.map((preset, index) => {
+        const selected = currentPreset.value === preset.value;
+        return <button key={preset.value} type="button" disabled={isSaving}
+          aria-pressed={selected} onClick={() => void commitPriority(preset.value, true)}
+          className={cn("md-state queue-priority-preset", selected && "queue-priority-selected")}>
+          <Flag aria-hidden="true" className="h-4 w-4 shrink-0" style={{ color: preset.color }} weight="fill" />
+          <span className="min-w-0 flex-1 break-words">{presetLabels[index]}</span>
+          <CheckCircle aria-hidden="true" className={cn("h-5 w-5 shrink-0", !selected && "invisible")} weight="bold" />
+        </button>;
+      })}
+    </div>
+    <div className="mt-4">
+      <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <label htmlFor={sliderId}>{labels?.priorityFineTune ?? "Fine-tune"}</label>
+        <output htmlFor={sliderId} className="font-semibold tabular-nums">{slider}%</output>
+      </div>
+      <input id={sliderId} type="range" min="0" max="100" value={slider} aria-disabled={isSaving}
+        {...sliderHandlers}
+        className="min-h-11 w-full cursor-pointer accent-primary" />
+    </div>
+  </div>;
+
+  return <div className="relative min-w-0 max-w-full">
+    <button ref={trigger} type="button" onClick={() => setIsOpen(open => !open)}
+      className={cn("flex items-center gap-2 px-3 py-2 rounded-lg bg-black/40 backdrop-blur-sm text-white text-sm transition-colors hover:bg-black/60", isMobile && "min-h-11 min-w-11 max-w-full", isOpen && "bg-black/60")}
+      title={`${title}: ${currentLabel}`} aria-label={`${title}: ${currentLabel}`}
+      aria-expanded={isOpen} aria-controls={isOpen ? editorId : undefined} aria-haspopup="dialog">
+      <Flag aria-hidden="true" className="w-4 h-4 shrink-0" style={{ color: currentPreset.color }} weight="fill" />
+      <span className="break-words min-w-0">{currentLabel}</span>
+      <CaretDown aria-hidden="true" className="w-3 h-3 shrink-0 text-white/70" />
+    </button>
+    {isMobile ? <ResponsiveDialogSheet open={isOpen} onClose={() => setIsOpen(false)}
+      title={title} closeLabel={closeLabel} id={editorId} presentation="sheet">{editor}</ResponsiveDialogSheet>
+      : isOpen && <>
+        <div className="fixed inset-0 z-[var(--md-z-overlay)]" role="presentation" onClick={() => setIsOpen(false)} />
+        <div ref={panelRef} id={editorId} role="dialog" aria-modal="true" aria-label={title} tabIndex={-1}
+          className="absolute right-0 top-full z-[var(--md-z-dialog)] mt-2 w-[min(22rem,calc(100vw-2rem))] max-h-[70vh] overflow-y-auto rounded-xl bg-surface-container-high p-4 text-on-surface shadow-2xl">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="text-base font-semibold">{title}</h2>
+            <button type="button" aria-label={closeLabel} onClick={() => setIsOpen(false)} className="adaptive-icon-button"><X size={20} /></button>
+          </div>
+          {editor}
+        </div>
+      </>}
+  </div>;
 }
 
 /** Compact touch-friendly rating button for the mobile bottom action bar. */
