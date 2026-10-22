@@ -352,6 +352,14 @@ Add a new capability file rather than broadening `default.json`:
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "interface-zoom",
   "description": "Allows the main application webview to apply the persisted interface zoom.",
+  "remote": {
+    "urls": [
+      "http://localhost:9527/*",
+      "http://127.0.0.1:9527/*",
+      "http://localhost:15173/*",
+      "http://127.0.0.1:15173/*"
+    ]
+  },
   "windows": ["main"],
   "webviews": ["main"],
   "permissions": ["core:webview:allow-set-webview-zoom"]
@@ -359,6 +367,8 @@ Add a new capability file rather than broadening `default.json`:
 ```
 
 This grants only the zoom setter and only to the main window/webview. It intentionally does not grant it to `screenshot-overlay`, YouTube popouts, or hidden capture windows.
+
+The `remote` block is required and mirrors `default.json`. Desktop release builds navigate the main webview to the `tauri-plugin-localhost` server (`http://localhost:9527`), so Tauri classifies the page as a remote origin and ignores capabilities that only declare the local context. Without it, the native zoom command is rejected in packaged builds even though `tauri dev` (whose `devUrl` is local) works — the exact failure the controller reports as "Could not change interface zoom. Your previous setting was restored."
 
 Leave `zoomHotkeysEnabled` absent/false. Enabling it would install Tauri's own polyfill/WebView2 zoom control with 20% steps, its own in-memory level, no persistence, and a second owner for Ctrl/Cmd + `-`/`=`; that would directly violate the single-owner requirement. Do not add `core:webview:default` or unrelated webview permissions.
 
