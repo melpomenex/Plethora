@@ -552,6 +552,7 @@ export function AssistantPanel({
 
   // Model selection UI states and store subscription
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const [isSourceMenuOpen, setIsSourceMenuOpen] = useState(false);
   const closeModelPicker = useCallback(() => setIsModelDropdownOpen(false), []);
   // Whole-library RAG scope: when true, messages route through the Ask
   // library task (retrieve top-k chunks across the semantic index + grounded
@@ -2022,6 +2023,8 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     const apply = () => {
       const request = consumeLearningAgentMode();
       if (!request) return;
+      setIsSourceMenuOpen(false);
+      setIsComposerMenuOpen(false);
       setComposerMode("agent");
       setTimeout(() => textareaRef.current?.focus(), 0);
     };
@@ -3547,6 +3550,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       closeModelPicker();
       return;
     }
+    setIsSourceMenuOpen(false);
     setIsModelDropdownOpen(true);
     if (isMobilePresentation) {
       setIsComposerMenuOpen(false);
@@ -3569,13 +3573,13 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
   return (
     <div
       data-paper-surface="chrome" className={`flex flex-col h-full max-h-full min-h-0 overflow-hidden bg-card ${position === "right" ? "border-l" : "border-r"} border-border relative ${className}`}
-      style={{ width: fillContainer ? "100%" : isCollapsed ? "auto" : width }}
+      style={{ width: fillContainer ? "100%" : isCollapsed ? "auto" : width, containerType: "size" }}
       onContextMenu={(e) => handleContextMenu(e)}
     >
-      {/* Header — one compact row on phones; the desktop toolbar is unchanged. */}
-      <div data-assistant-toolbar className={mobilePresentation ? "flex items-center gap-1 border-b border-border px-2 py-1" : "flex items-center justify-between border-b border-border p-3"}>
+      {/* Mode is primary; answer sources live beside the composer. */}
+      <div data-assistant-toolbar className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
         {mobileSheet?.source && (
-          <div data-testid="mobile-assistant-source" className="flex min-w-0 flex-1 items-center gap-1 rounded-full bg-muted/50 pe-1 ps-2.5">
+          <div data-testid="mobile-assistant-source" className="flex min-w-0 basis-32 flex-1 items-center gap-1 rounded-full bg-muted/50 pe-1 ps-2.5">
             <span className="min-w-0 flex-1 truncate text-xs text-foreground/90">{mobileSheet.source.title}</span>
             <button type="button" onClick={mobileSheet.source.onToggle} className="md-state min-h-8 shrink-0 rounded-full px-2 text-[11px] font-medium text-primary">
               {t(mobileSheet.source.removed ? "assistant.sourceAttach" : "assistant.sourceRemove")}
@@ -3588,7 +3592,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             <h2 className="text-sm font-semibold text-foreground">Assistant</h2>
           </div>
         )}
-        <div className={`flex items-center gap-1 ${mobilePresentation ? "ml-auto" : ""}`}>
+        <div className={mobilePresentation ? "contents" : "ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1"}>
           {/* Share Conversation Button (desktop; the mobile menu owns this action) */}
           {!mobilePresentation && messages.length > 0 && (
             <button
@@ -3617,7 +3621,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           `}</style>
 
           {/* Model Status Pill & Selector */}
-          <div className={`relative ${mobilePresentation ? "flex items-center gap-1" : "mr-2"}`}>
+          <div className={mobilePresentation ? "contents" : "relative flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1"}>
             <button
               ref={modelPickerTriggerRef}
               type="button"
@@ -3674,29 +3678,26 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               }`} />
             </button>
 
-            <AssistantScopeSelector value={scope} onChange={setScope} disabled={isLoading} compact={isMobilePresentation} variant={isMobilePresentation ? "menu" : "segmented"} />
-
             {/* Explicit secondary Learning Agent mode. Ordinary chat is the
                 default; this only selects the agent path on submit. */}
             <div
               role="group"
-              aria-label={t("assistant.agent.modeLabel")}
+              aria-label={t("assistant.answerFrom.modeLabel")}
               data-assistant-mode-toggle
-              className="inline-flex shrink-0 items-center rounded-full border border-border bg-muted/40 p-0.5"
+              className={`inline-flex min-w-0 max-w-full flex-wrap items-center rounded-full border border-border bg-muted/40 p-0.5 ${mobilePresentation ? "order-last w-full" : ""}`}
             >
               <button
                 type="button"
-                aria-label={t("assistant.mode.agentOff")}
+                aria-label={t("assistant.mode.chat")}
                 aria-pressed={composerMode === "chat"}
                 onClick={() => {
+                  setIsSourceMenuOpen(false);
                   setComposerMode("chat");
                   setAgentScope(undefined);
                   setAgentNotice(null);
                 }}
                 disabled={isLoading}
-                className={`md-state rounded-full font-medium outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 ${
-                  mobilePresentation ? "min-h-8 px-2 text-[11px]" : "min-h-8 px-2.5 text-[11px]"
-                } ${composerMode === "chat" ? "bg-background text-foreground" : "text-muted-foreground"}`}
+                className={`md-state rounded-full font-medium outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 min-h-10 [@media(pointer:coarse)]:min-h-12 px-2.5 text-xs whitespace-normal ${composerMode === "chat" ? "bg-background text-foreground" : "text-muted-foreground"}`}
               >
                 {t("assistant.mode.chat")}
               </button>
@@ -3712,6 +3713,8 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                     );
                     return;
                   }
+                  setIsSourceMenuOpen(false);
+                  setIsComposerMenuOpen(false);
                   setComposerMode("agent");
                 }}
                 disabled={isLoading}
@@ -3720,14 +3723,10 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                     ? t("assistant.mode.unavailable", { reason: agentUnavailableReason })
                     : t("assistant.mode.agentHint")
                 }
-                className={`md-state inline-flex items-center gap-1 rounded-full font-medium outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 ${
-                  mobilePresentation ? "min-h-8 px-2 text-[11px]" : "min-h-8 px-2.5 text-[11px]"
-                } ${composerMode === "agent" ? "bg-background text-foreground" : "text-muted-foreground"}`}
+                className={`md-state inline-flex items-center gap-1 rounded-full font-medium outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:opacity-50 min-h-10 [@media(pointer:coarse)]:min-h-12 px-2.5 text-xs whitespace-normal ${composerMode === "agent" ? "bg-background text-foreground" : "text-muted-foreground"}`}
               >
                 <Lightbulb className="h-3 w-3" aria-hidden="true" />
-                {mobilePresentation
-                  ? t("assistant.mode.agentShort")
-                  : t("assistant.mode.agent")}
+                {t("assistant.mode.agent")}
               </button>
             </div>
 
@@ -3845,7 +3844,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         </div>
       )}
 
-      {!mobileModelPickerOpen && suggestSwitchToChat && scope !== "chat" && <button type="button" onClick={() => { setScope("chat"); setSuggestSwitchToChat(false); }} className="md-state min-h-10 px-3 text-sm text-primary underline focus-visible:ring-2 focus-visible:ring-primary">Switch to Chat to use general knowledge</button>}
+      {!mobileModelPickerOpen && composerMode === "chat" && suggestSwitchToChat && scope !== "chat" && <button type="button" onClick={() => { setScope("chat"); setSuggestSwitchToChat(false); }} className="md-state min-h-10 px-3 text-sm text-primary underline focus-visible:ring-2 focus-visible:ring-primary">{t("assistant.answerFrom.useGeneralKnowledge")}</button>}
       {/* Messages */}
       <div
         ref={messagesContainerRef}
@@ -4141,7 +4140,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       )}
 
       {/* Input Area */}
-      <div data-paper-surface="inset" data-assistant-composer className={`flex-shrink-0 p-3 border-t border-border bg-card relative ${mobileModelPickerOpen ? "hidden" : ""}`}>
+      <div data-paper-surface="inset" data-assistant-composer className={`min-h-0 max-h-[65%] flex-shrink-0 overflow-y-auto p-3 border-t border-border bg-card relative ${mobileModelPickerOpen ? "hidden" : ""}`}>
         <div className="flex flex-col gap-2">
           {/* Image Preview Strip */}
           {attachedImages.length > 0 && (
@@ -4216,6 +4215,24 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 );
               })}
             </div>
+          )}
+
+          {composerMode === "chat" && (
+            <AssistantScopeSelector
+              value={scope}
+              onChange={setScope}
+              disabled={isLoading}
+              variant={isMobilePresentation ? "inline" : "menu"}
+              open={isSourceMenuOpen}
+              onOpenChange={(open) => {
+                setIsSourceMenuOpen(open);
+                if (open) {
+                  setIsModelDropdownOpen(false);
+                  setIsComposerMenuOpen(false);
+                  if (mobileSheet?.detent === "partial") mobileSheet.onToggleDetent();
+                }
+              }}
+            />
           )}
 
           {/* Learning Agent scope chips + example intents (mode only) */}
@@ -4422,7 +4439,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             data-assistant-composer-input
             ref={inputContainerRef}
             className={mobilePresentation
-              ? `relative flex items-end gap-1 rounded-full border border-border bg-background px-1.5 py-1 transition-colors ${isDragOver ? "border-2 border-dashed border-primary bg-primary/5" : ""}`
+              ? `relative ${isSourceMenuOpen ? "hidden" : "flex"} flex-wrap items-end gap-1 rounded-2xl border border-border bg-background px-1.5 py-1 transition-colors ${isDragOver ? "border-2 border-dashed border-primary bg-primary/5" : ""}`
               : `flex gap-2 rounded-lg transition-colors ${isDragOver ? "border-2 border-dashed border-primary bg-primary/5" : ""}`}
             onMouseEnter={() => setIsInputHovered(true)}
             onMouseLeave={() => setIsInputHovered(false)}
@@ -4436,7 +4453,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 aria-expanded={isComposerMenuOpen}
                 aria-haspopup="dialog"
                 className="md-state flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full text-foreground/80"
-                onClick={() => setIsComposerMenuOpen((open) => !open)}
+                onClick={() => { setIsSourceMenuOpen(false); setIsComposerMenuOpen((open) => !open); }}
               >
                 <Plus size={22} aria-hidden="true" />
               </button>
@@ -4456,7 +4473,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                     : "Ask about your document, or type /help for commands..."
               }
               className={mobilePresentation
-                ? "max-h-40 min-h-11 flex-1 resize-none bg-transparent px-1 py-2.5 text-foreground text-sm focus:outline-none"
+                ? "max-h-40 min-h-11 min-w-0 flex-1 [@container(max-width:24rem)]:basis-full [@container(max-width:24rem)]:order-first resize-none bg-transparent px-1 py-2.5 text-foreground text-sm focus:outline-none"
                 : "flex-1 px-3 py-2 bg-background border border-border rounded-lg resize-none focus:outline-none focus:ring-2 focus:ring-primary text-foreground text-sm"}
               rows={mobilePresentation ? 1 : 2}
               disabled={isLoading}

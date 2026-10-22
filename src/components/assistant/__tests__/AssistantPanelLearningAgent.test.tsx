@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const runAssistantTurn = vi.hoisted(() => vi.fn());
@@ -302,12 +302,55 @@ function expectReasonNotice(notice: Element | null) {
 }
 
 describe("AssistantPanel Learning Agent mode", () => {
+  it.each([
+    [false, "This document only"],
+    [false, "My library"],
+    [true, "This document only"],
+    [true, "My library"],
+  ] as const)("keeps independent source and draft state through mode changes (mobile %s, %s)", (mobile, source) => {
+    renderPresentation(mobile);
+    const toolbar = document.querySelector<HTMLElement>("[data-assistant-toolbar]")!;
+    expect(within(toolbar).getAllByRole("group", { name: "Assistant mode" })).toHaveLength(1);
+    expect(toolbar.querySelector("[data-assistant-answer-from]")).toBeNull();
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "Keep this unsent draft" } });
+    const sources = screen.getByRole("button", { name: /^Answer from:/ });
+    expect(sources.closest("[data-assistant-composer]")).not.toBeNull();
+    fireEvent.click(sources);
+    fireEvent.click(screen.getByRole("menuitemradio", { name: new RegExp(`^${source}`) }));
+    fireEvent.click(screen.getByRole("button", { name: "Learning Agent" }));
+    expect(screen.queryByRole("button", { name: /^Answer from:/ })).toBeNull();
+    expect(document.querySelector("[data-learning-agent-composer]")).not.toBeNull();
+    expect(input).toHaveValue("Keep this unsent draft");
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+    expect(screen.getByRole("button", { name: `Answer from: ${source}` })).toBeInTheDocument();
+    expect(input).toHaveValue("Keep this unsent draft");
+    expect(runAssistantTurn).not.toHaveBeenCalled();
+    expect(runLearningAgent).not.toHaveBeenCalled();
+    expect(preflightLearningAgent).not.toHaveBeenCalled();
+  });
+
   it("keeps ordinary chat on its existing path", async () => {
     render(<AssistantPanel context={context} />);
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "Summarize this" } });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     await waitFor(() => expect(runAssistantTurn).toHaveBeenCalled());
     expect(runLearningAgent).not.toHaveBeenCalled();
+  });
+
+  it("locks mode and source controls while Chat is generating", async () => {
+    let finish!: (value: { rawContent: string }) => void;
+    runAssistantTurn.mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
+    renderPresentation(false);
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Explain entropy" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(runAssistantTurn).toHaveBeenCalledTimes(1));
+    expect(screen.getByRole("button", { name: /^Answer from:/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Chat" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Learning Agent" })).toBeDisabled();
+    finish({ rawContent: "A finished explanation" });
+    await screen.findByText("A finished explanation");
+    expect(screen.getByRole("button", { name: /^Answer from:/ })).toBeEnabled();
   });
 
   it("enters the explicit agent mode and routes submit only through the adapter", async () => {
@@ -329,6 +372,11 @@ describe("AssistantPanel Learning Agent mode", () => {
     expect(run.retrievalDocumentIds).toEqual(["paper-a"]);
     expect(options.provider.id).toBe("fake-ondevice");
     expect(options.signal).toBeInstanceOf(AbortSignal);
+    fireEvent.click(screen.getByRole("button", { name: "Chat" }));
+    expect(screen.getByText("Learning Agent proposals")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Learning Agent" }));
+    expect(screen.getByText("Learning Agent proposals")).toBeInTheDocument();
+    expect(runLearningAgent).toHaveBeenCalledTimes(1);
   });
 
   it("shows Stop during a run and suppresses proposals after cancellation", async () => {
@@ -362,6 +410,8 @@ describe("AssistantPanel Learning Agent mode", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
     await waitFor(() => expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Chat" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Learning Agent" })).toBeDisabled();
     fireEvent.click(screen.getByRole("button", { name: "Stop" }));
     await waitFor(() => expect(observedSignal?.aborted).toBe(true));
     expect(screen.queryByText("Learning Agent proposals")).toBeNull();
@@ -505,7 +555,7 @@ describe("AssistantPanel Learning Agent mode", () => {
       renderPresentation(mobile);
 
       const toggle = screen.getByRole("button", { name: "Learning Agent" });
-      expect(toggle.textContent).toBe(mobile ? "Learn" : "Learning Agent");
+      expect(toggle.textContent).toBe("Learning Agent");
       expect(toggle.getAttribute("title")).toContain(BLOCKED_DEPENDENCY_REASON);
 
       fireEvent.click(toggle);

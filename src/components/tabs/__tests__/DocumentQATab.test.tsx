@@ -706,7 +706,8 @@ describe("Document Q&A workspace entry", () => {
     let finish!: (value: never) => void;
     vi.mocked(askLibrary).mockImplementation(() => new Promise((resolve) => { finish = resolve; }));
     render(<DocumentQATab />);
-    fireEvent.click(screen.getByRole("button", { name: "Library" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Answer from:/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /^My library/ }));
     const id = localStorage.getItem(STORAGE_KEYS.activeSession);
     fireEvent.change(questionInput(), { target: { value: "How do cells work?" } });
     fireEvent.click(screen.getByRole("button", { name: "Ask" }));
@@ -738,7 +739,8 @@ describe("Document Q&A workspace entry", () => {
   it("retries explicitly without duplicating the failed user turn", async () => {
     vi.mocked(askLibrary).mockRejectedValueOnce(new Error("index unavailable")).mockResolvedValueOnce(groundedResult() as never);
     render(<DocumentQATab />);
-    fireEvent.click(screen.getByRole("button", { name: "Library" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Answer from:/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /^My library/ }));
     fireEvent.change(questionInput(), { target: { value: "Explain cells" } });
     fireEvent.click(screen.getByRole("button", { name: "Ask" }));
     await screen.findByText(/Could not answer from these sources/);
@@ -818,9 +820,9 @@ describe("Document Q&A workspace entry", () => {
     const workspace = container.querySelector(".document-qa-workspace");
     expect(workspace).toBeInTheDocument();
     // Verify the first child of the root workspace is NOT the scope picker wrapper div
-    expect(workspace?.children[0]?.querySelector?.('[role="group"][aria-label="Assistant scope"]')).toBeNull();
+    expect(workspace?.children[0]?.querySelector?.('[data-assistant-answer-from]')).toBeNull();
     // Verify the scope picker exists adjacent to the composer sources
-    expect(screen.getByRole("group", { name: "Assistant scope" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Answer from:/ }).closest(".qa-composer-wrap")).not.toBeNull();
   });
 });
 

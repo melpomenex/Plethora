@@ -457,7 +457,7 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
             </div>
           )}
 
-          <AssistantScopeSelector value={scope} onChange={setScope} disabled={phase === "working"} />
+          <AssistantScopeSelector variant="inline" value={scope} onChange={setScope} disabled={phase === "working"} />
 
           {/* Question input + voice */}
           <div className="rounded-2xl border border-border bg-card px-3 py-2 flex items-end gap-2">

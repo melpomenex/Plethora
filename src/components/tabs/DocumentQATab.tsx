@@ -2112,7 +2112,7 @@ export function DocumentQATab() {
             </Button>
             {suggestSwitchToChat && assistantScope !== "chat" && (
               <Button variant="text" disabled={isProcessing} onClick={() => { setAssistantScope("chat"); setSuggestSwitchToChat(false); }}>
-                Switch to Chat
+                {t("assistant.answerFrom.useGeneralKnowledge")}
               </Button>
             )}
           </div>

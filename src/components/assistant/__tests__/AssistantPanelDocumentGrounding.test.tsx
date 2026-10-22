@@ -81,8 +81,8 @@ function windowedContext(contextWindowTokens: number): AssistantContext {
 
 async function askSummarizeDocument() {
   render(<AssistantPanel context={windowedContext(2000)} />);
-  await screen.findByRole("button", { name: "Document" });
-  fireEvent.click(screen.getByRole("button", { name: "Document" }));
+  fireEvent.click(await screen.findByRole("button", { name: /^Answer from:/ }));
+  fireEvent.click(screen.getByRole("menuitemradio", { name: /^This document only/ }));
   const input = screen.getByRole("textbox");
   fireEvent.change(input, { target: { value: "summarize this document" } });
   fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
@@ -111,8 +111,8 @@ describe("AssistantPanel Document-scope grounding", () => {
 
   it("keeps the window and discloses partial coverage when the full text does not fit", async () => {
     render(<AssistantPanel context={windowedContext(5)} />);
-    await screen.findByRole("button", { name: "Document" });
-    fireEvent.click(screen.getByRole("button", { name: "Document" }));
+    fireEvent.click(await screen.findByRole("button", { name: /^Answer from:/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /^This document only/ }));
     const input = screen.getByRole("textbox");
     fireEvent.change(input, { target: { value: "summarize this document" } });
     fireEvent.keyDown(input, { key: "Enter", code: "Enter" });

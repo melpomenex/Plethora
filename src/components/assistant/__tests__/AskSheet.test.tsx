@@ -97,9 +97,11 @@ describe("task 2.1 — composer", () => {
   it("opens with the passage as context chip, scope picker, and voice control", async () => {
     openSheet();
     expect(await screen.findByText("The forgetting curve shows memory decaying over time.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Chat" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "Document" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Library" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Answer from: General knowledge" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Answer from: General knowledge" }));
+    expect(screen.getByRole("menuitemradio", { name: /^This document only/ })).toBeInTheDocument();
+    expect(screen.getByRole("menuitemradio", { name: /^My library/ })).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.getByRole("button", { name: /voice input/i })).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/ask a question/i)).toBeInTheDocument();
   });
@@ -115,7 +117,7 @@ describe("task 2.1 — composer", () => {
     await screen.findByText("The forgetting curve shows memory decaying over time.");
     fireEvent.click(screen.getByText("Remove"));
     expect(screen.queryByText("The forgetting curve shows memory decaying over time.")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Chat" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Answer from: General knowledge" })).toBeInTheDocument();
   });
 
   it("tapping a suggested question submits without typing", async () => {
@@ -131,6 +133,16 @@ describe("task 2.1 — composer", () => {
     await screen.findByRole("button", { name: /voice input/i });
     expect(screen.getByRole("button", { name: /voice input/i })).toBeDisabled();
     expect(await screen.findByText(/type or use your keyboard.*dictation/i)).toBeInTheDocument();
+  });
+
+  it("Escape dismisses source options before the containing Ask sheet", async () => {
+    const { onClose } = openSheet();
+    const trigger = await screen.findByRole("button", { name: "Answer from: General knowledge" });
+    fireEvent.click(trigger);
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(trigger).toHaveFocus();
   });
 });
 
@@ -169,7 +181,8 @@ describe("task 5.1 — honest state", () => {
   it("shows the answering mode and freshness disclosure in library scope", async () => {
     openSheet();
     await screen.findByText(/on-device/i);
-    fireEvent.click(screen.getByRole("button", { name: "Library" }));
+    fireEvent.click(screen.getByRole("button", { name: /^Answer from:/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /^My library/ }));
     expect(await screen.findByText("2 documents not yet indexed")).toBeInTheDocument();
   });
 

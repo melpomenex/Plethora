@@ -79,6 +79,44 @@ function pickerElement() {
   return document.querySelector<HTMLElement>("[data-assistant-model-picker]");
 }
 
+describe("mobile source and model menu coordination", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    resetOverlayStackForTests();
+    seedProviders();
+    Element.prototype.scrollTo = vi.fn();
+  });
+
+  it("expands a partial sheet for sources and closes sources when opening the model picker", async () => {
+    render(<AssistantPanel {...mobileProps} />);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "Keep my draft" } });
+    const source = screen.getByRole("button", { name: /^Answer from:/ });
+    fireEvent.click(source);
+    expect(sheet.onToggleDetent).toHaveBeenCalled();
+    expect(screen.getByRole("menu", { name: "Answer from" })).toBeInTheDocument();
+    await openPicker();
+    expect(screen.queryByRole("menu", { name: "Answer from" })).toBeNull();
+    expect(input).toHaveValue("Keep my draft");
+  });
+
+  it("closes source options before the host and restores focus and the draft", () => {
+    const hostDismiss = vi.fn();
+    const unregister = registerOverlayDismissal(hostDismiss, { priority: 60 });
+    render(<AssistantPanel {...mobileProps} />);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "Unsent" } });
+    const source = screen.getByRole("button", { name: /^Answer from:/ });
+    fireEvent.click(source);
+    act(() => { requestOverlayBack(); });
+    expect(screen.queryByRole("menu")).toBeNull();
+    expect(hostDismiss).not.toHaveBeenCalled();
+    expect(source).toHaveFocus();
+    expect(input).toHaveValue("Unsent");
+    unregister();
+  });
+});
+
 function modelTrigger() {
   return screen.getByTitle("Change Active AI Model");
 }

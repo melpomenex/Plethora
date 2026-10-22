@@ -78,7 +78,7 @@ describe("AssistantPanel per-session scope persistence", () => {
     render(<AssistantPanel context={documentContext} />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Chat" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("button", { name: "Answer from: General knowledge" })).toBeInTheDocument();
     });
     expect(screen.getByText("kept legacy message")).toBeInTheDocument();
   });
@@ -88,8 +88,16 @@ describe("AssistantPanel per-session scope persistence", () => {
     render(<AssistantPanel context={documentContext} />);
 
     await waitFor(() => {
-      expect(screen.getByRole("button", { name: "Library" })).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByRole("button", { name: "Answer from: My library" })).toBeInTheDocument();
     });
+    expect(screen.getByText("kept legacy message")).toBeInTheDocument();
+  });
+
+  it("restores a strict document policy and the unsent draft under the new source label", async () => {
+    seedConversation({ scope: "document", input: "keep this draft" });
+    render(<AssistantPanel context={documentContext} />);
+    expect(await screen.findByRole("button", { name: "Answer from: This document only" })).toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toHaveValue("keep this draft");
     expect(screen.getByText("kept legacy message")).toBeInTheDocument();
   });
 });
@@ -120,7 +128,7 @@ describe("AssistantPanel stable mobile session", () => {
     fireEvent.change(input, { target: { value: "in memory edit" } });
     rerender(<AssistantPanel {...mobileProps} mobilePresentation={{ visible: false }} context={{ type: "video", documentId: "other", metadata: { title: "Changed title" }, position: { currentTime: 99 } }} />);
     expect(input).toHaveValue("in memory edit");
-    expect(screen.getByRole("button", { name: "Assistant scope: Library" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Answer from: My library" })).toBeInTheDocument();
     expect(screen.getByText("global second turn")).toBeInTheDocument();
     unmount();
     render(<AssistantPanel {...mobileProps} context={{ type: "general" }} />);
@@ -136,7 +144,7 @@ describe("AssistantPanel stable mobile session", () => {
     fireEvent.click(screen.getByRole("button", { name: "New conversation" }));
     expect(screen.queryByText("global first turn")).not.toBeInTheDocument();
     expect(screen.getByRole("textbox")).toHaveValue("");
-    expect(screen.getByRole("button", { name: "Assistant scope: Chat" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Answer from: General knowledge" })).toBeInTheDocument();
     const stored = JSON.parse(localStorage.getItem(CONVERSATIONS_KEY)!);
     expect(stored["document:doc-1"].input).toBe("desktop draft");
     expect(stored["mobile:global"].messages).toEqual([]);

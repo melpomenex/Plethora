@@ -60,8 +60,9 @@ describe("mobile composer bar", () => {
     render(<AssistantPanel {...mobileProps} />);
     const composer = document.querySelector("[data-assistant-composer]")!;
     const column = composer.firstElementChild as HTMLElement;
-    // Only the input bar plus the hidden file input are permanent rows.
-    expect(column.children).toHaveLength(2);
+    // Source choice, input bar, and hidden file input remain in the composer.
+    expect(column.children).toHaveLength(3);
+    expect(composer.querySelector("[data-assistant-answer-from]")).not.toBeNull();
     expect(composer.querySelector("[data-assistant-composer-input]")).not.toBeNull();
     expect(column.querySelector('[type="file"]')).not.toBeNull();
     expect(screen.queryByText(/Type \/tools to see available tools/)).not.toBeInTheDocument();
@@ -70,7 +71,8 @@ describe("mobile composer bar", () => {
     expect(document.querySelector("[data-assistant-dictation-status]")).toBeNull();
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
     const toolbar = document.querySelector("[data-assistant-toolbar]")!;
-    expect(toolbar.className).not.toContain("flex-wrap");
+    expect(toolbar.className).toContain("flex-wrap");
+    expect(toolbar.querySelector("[data-assistant-answer-from]")).toBeNull();
   });
 
   it("opens the menu from the add control without moving focus into search", () => {

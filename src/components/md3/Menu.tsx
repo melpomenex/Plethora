@@ -8,6 +8,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../../utils/cn";
+import { registerOverlayDismissal } from "../../lib/overlayStack";
 
 export interface MenuItemSpec {
   key: string;
@@ -19,6 +20,8 @@ export interface MenuItemSpec {
   keepOpen?: boolean;
   leading?: ReactNode;
   trailing?: ReactNode;
+  /** A selected choice uses menuitemradio semantics. Omit for commands. */
+  checked?: boolean;
 }
 
 export interface MenuProps {
@@ -31,6 +34,10 @@ export interface MenuProps {
   align?: "start" | "end";
   className?: string;
   footer?: ReactNode;
+  /** Keep options inside a containing sheet's layout and focus boundary. */
+  inline?: boolean;
+  dismissPriority?: number;
+  maxWidth?: number;
 }
 
 /**
@@ -38,10 +45,141 @@ export interface MenuProps {
  * Keyboard: ArrowUp/Down move focus, Home/End jump, Escape closes and
  * restores focus to the anchor, typeahead prefixes focus matching items.
  */
-export function Menu({ items, anchorRef, open, onClose, label, align = "end", className, footer }: MenuProps) {
+export function Menu({ items, anchorRef, open, onClose, label, align = "end", className, footer, inline = false, dismissPriority, maxWidth = 352 }: MenuProps) {
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
   const menuRef = useRef<HTMLDivElement>(null);
+  const position = useMenuPosition(open && !inline, anchorRef, menuRef, align);
+
+  const positioned = inline || position !== null;
+  useEffect(() => {
+    if (!open || !positioned) return;
+    const menu = menuRef.current;
+    const optionsSelector = '[role^="menuitem"]:not(:disabled)';
+    (menu?.querySelector<HTMLElement>('[aria-checked="true"]') ?? menu?.querySelector<HTMLElement>(optionsSelector))?.focus();
+    const unregister = dismissPriority === undefined ? undefined : registerOverlayDismissal(() => closeRef.current(), { priority: dismissPriority });
+
+    const onPointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node;
+      if (!menuRef.current?.contains(target) && !anchorRef.current?.contains(target)) closeRef.current();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      // A sheet temporarily yields its keyboard ownership to this menu. Tab
+      // dismisses back to the trigger, where the sheet resumes containment.
+      if (event.key === "Tab" && inline) {
+        event.preventDefault();
+        event.stopPropagation();
+        closeRef.current();
+        anchorRef.current?.focus();
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeRef.current();
+        anchorRef.current?.focus();
+        return;
+      }
+      if (!menuRef.current) return;
+      const buttons = Array.from(
+        menuRef.current.querySelectorAll<HTMLElement>(optionsSelector),
+      );
+      if (buttons.length === 0) return;
+      const idx = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        buttons[(idx + 1 + buttons.length) % buttons.length].focus();
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        buttons[(idx - 1 + buttons.length) % buttons.length].focus();
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        buttons[0].focus();
+      } else if (event.key === "End") {
+        event.preventDefault();
+        buttons[buttons.length - 1].focus();
+      } else if (event.key.length === 1 && /\S/.test(event.key)) {
+        const match = buttons.find((b) =>
+          b.textContent?.toLowerCase().startsWith(event.key.toLowerCase()),
+        );
+        if (match) match.focus();
+      }
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("touchstart", onPointerDown);
+    // Capture dismissal before a containing sheet's Escape listener runs.
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("touchstart", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown, true);
+      unregister?.();
+    };
+  }, [open, positioned, anchorRef, dismissPriority, inline]);
+
+  if (!open || !positioned) return null;
+
+  const content = (
+    <div
+      ref={menuRef}
+      role="menu"
+      aria-label={label}
+      tabIndex={-1}
+      style={inline ? { maxHeight: "min(14rem, 25dvh, 25cqh)" } : position ? {
+        position: "fixed",
+        top: Math.min(position.top, window.innerHeight - 16),
+        left: position.left,
+        right: position.right,
+        minWidth: Math.min(192, maxWidth),
+        maxWidth: Math.min(maxWidth, window.innerWidth - 16),
+        maxHeight: "min(24rem, calc(100vh - 2rem))",
+      } : undefined}
+      className={cn(
+        "flex min-h-0 flex-col overflow-y-auto overflow-x-hidden overscroll-contain rounded-lg p-1",
+        inline ? "mt-1 w-full border border-border bg-surface-container-high" : "md-elevated-menu z-[var(--md-z-menu)] min-w-48",
+        className,
+      )}
+      // Material menu surface: elevated container + shadow reserved for
+      // floating layers (see elevation model, docs/design-system.md).
+    >
+      {items.map((item) => (
+        <MenuItemRow key={item.key} item={item} onClose={onClose} />
+      ))}
+      {footer}
+    </div>
+  );
+  return inline ? content : createPortal(content, document.body);
+}
+
+function MenuItemRow({ item, onClose }: { item: MenuItemSpec; onClose: () => void }) {
+  const IconCmp = item.icon;
+  return (
+    <button
+      type="button"
+      role={item.checked === undefined ? "menuitem" : "menuitemradio"}
+      aria-checked={item.checked}
+      disabled={item.disabled}
+      className={cn(
+        "md-state flex shrink-0 min-h-10 [@media(pointer:coarse)]:min-h-12 w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-40",
+        item.destructive
+          ? "text-error hover:bg-error/10"
+          : "text-on-surface hover:bg-surface-container-high",
+      )}
+      onClick={() => {
+        item.onSelect();
+        if (!item.keepOpen) onClose();
+      }}
+    >
+      {item.leading}
+      {IconCmp && <IconCmp className="h-4 w-4 shrink-0" aria-hidden="true" />}
+      <span className="min-w-0 flex-1 truncate">{item.label}</span>
+      {item.trailing}
+    </button>
+  );
+}
+
+/** Shared viewport placement for floating menus; inline sheet menus skip it. */
+function useMenuPosition(open: boolean, anchorRef: RefObject<HTMLElement | null>, menuRef: RefObject<HTMLDivElement | null>, align: "start" | "end") {
   const [position, setPosition] = useState<{
     top: number;
     left?: number;
@@ -90,111 +228,5 @@ export function Menu({ items, anchorRef, open, onClose, label, align = "end", cl
     }
   }, [open, position, anchorRef]);
 
-  const positioned = position !== null;
-  useEffect(() => {
-    if (!open || !positioned) return;
-    const menu = menuRef.current;
-    menu?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')?.focus();
-
-    const onPointerDown = (event: MouseEvent | TouchEvent) => {
-      const target = event.target as Node;
-      if (!menuRef.current?.contains(target) && !anchorRef.current?.contains(target)) closeRef.current();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        closeRef.current();
-        anchorRef.current?.focus();
-        return;
-      }
-      if (!menuRef.current) return;
-      const buttons = Array.from(
-        menuRef.current.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)'),
-      );
-      if (buttons.length === 0) return;
-      const idx = buttons.indexOf(document.activeElement as HTMLButtonElement);
-      if (event.key === "ArrowDown") {
-        event.preventDefault();
-        buttons[(idx + 1 + buttons.length) % buttons.length].focus();
-      } else if (event.key === "ArrowUp") {
-        event.preventDefault();
-        buttons[(idx - 1 + buttons.length) % buttons.length].focus();
-      } else if (event.key === "Home") {
-        event.preventDefault();
-        buttons[0].focus();
-      } else if (event.key === "End") {
-        event.preventDefault();
-        buttons[buttons.length - 1].focus();
-      } else if (event.key.length === 1 && /\S/.test(event.key)) {
-        const match = buttons.find((b) =>
-          b.textContent?.toLowerCase().startsWith(event.key.toLowerCase()),
-        );
-        if (match) match.focus();
-      }
-    };
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("touchstart", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("touchstart", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [open, positioned, anchorRef]);
-
-  if (!open || !position) return null;
-
-  return createPortal(
-    <div
-      ref={menuRef}
-      role="menu"
-      aria-label={label}
-      tabIndex={-1}
-      style={{
-        position: "fixed",
-        top: Math.min(position.top, window.innerHeight - 16),
-        left: position.left,
-        right: position.right,
-        maxWidth: Math.min(352, window.innerWidth - 16),
-        maxHeight: "min(24rem, calc(100vh - 2rem))",
-      }}
-      className={cn(
-        "md-elevated-menu z-[var(--md-z-menu)] flex min-w-48 flex-col overflow-y-auto overflow-x-hidden rounded-lg p-1",
-        className,
-      )}
-      // Material menu surface: elevated container + shadow reserved for
-      // floating layers (see elevation model, docs/design-system.md).
-    >
-      {items.map((item) => (
-        <MenuItemRow key={item.key} item={item} onClose={onClose} />
-      ))}
-      {footer}
-    </div>,
-    document.body,
-  );
-}
-
-function MenuItemRow({ item, onClose }: { item: MenuItemSpec; onClose: () => void }) {
-  const IconCmp = item.icon;
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      disabled={item.disabled}
-      className={cn(
-        "md-state flex min-h-10 w-full items-center gap-3 rounded-md px-3 py-2 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary disabled:pointer-events-none disabled:opacity-40",
-        item.destructive
-          ? "text-error hover:bg-error/10"
-          : "text-on-surface hover:bg-surface-container-high",
-      )}
-      onClick={() => {
-        item.onSelect();
-        if (!item.keepOpen) onClose();
-      }}
-    >
-      {item.leading}
-      {IconCmp && <IconCmp className="h-4 w-4 shrink-0" aria-hidden="true" />}
-      <span className="min-w-0 flex-1 truncate">{item.label}</span>
-      {item.trailing}
-    </button>
-  );
+  return position;
 }
