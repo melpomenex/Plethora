@@ -218,6 +218,9 @@ test("desktop: the dialog is centered and keeps the single action row", async ({
       layerZ: Number(getComputedStyle(layer).zIndex),
       toolbarZ: Number(getComputedStyle(toolbar).zIndex),
       centeredForm: panel.classList.contains("adaptive-dialog-centered"),
+      width: panelRect.width,
+      horizontalOffset: Math.abs(panelRect.left + panelRect.width / 2 - window.innerWidth / 2),
+      verticalOffset: Math.abs(panelRect.top + panelRect.height / 2 - window.innerHeight / 2),
       sheetForm: panel.classList.contains("adaptive-dialog-sheet"),
       // A centered dialog must clear the navigation band entirely.
       panelBottom: panelRect.bottom,
@@ -229,6 +232,9 @@ test("desktop: the dialog is centered and keeps the single action row", async ({
 
   expect(geometry.layerZ).toBeGreaterThan(geometry.toolbarZ);
   expect(geometry.centeredForm).toBe(true);
+  expect(geometry.width).toBeLessThanOrEqual(672);
+  expect(geometry.horizontalOffset).toBeLessThanOrEqual(1);
+  expect(geometry.verticalOffset).toBeLessThanOrEqual(1);
   expect(geometry.sheetForm).toBe(false);
   expect(geometry.panelBottom).toBeLessThanOrEqual(geometry.toolbarTop);
   expect(geometry.probeOwnedByToolbar).toBe(false);
@@ -248,4 +254,57 @@ test("desktop: the dialog is centered and keeps the single action row", async ({
   ]);
 
   await page.screenshot({ path: ".playwright/results/session-customize-desktop-1440.png" });
+});
+
+for (const width of [1440, 2466]) {
+  test(`desktop ${width}: long content stays inside the bounded dialog`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 1000 });
+    await page.goto("/session-customize-harness.html?crowded");
+    const trigger = page.getByRole("button", { name: "New Queue", exact: true });
+    await trigger.click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    const measure = () => page.evaluate(() => {
+      const panel = document.querySelector<HTMLElement>(".adaptive-dialog-panel")!;
+      const body = panel.querySelector<HTMLElement>(".adaptive-dialog-body")!;
+      const footer = panel.querySelector<HTMLElement>(".adaptive-dialog-footer")!;
+      const rect = panel.getBoundingClientRect();
+      return {
+        width: rect.width,
+        offset: Math.abs(rect.left + rect.width / 2 - innerWidth / 2),
+        overflow: panel.scrollWidth - panel.clientWidth,
+        bodyOverflow: body.scrollWidth - body.clientWidth,
+        canScroll: body.scrollHeight > body.clientHeight,
+        footerInside: footer.getBoundingClientRect().bottom <= innerHeight,
+      };
+    });
+    const geometry = await measure();
+    expect(geometry.width).toBeLessThanOrEqual(672);
+    expect(geometry.offset).toBeLessThanOrEqual(1);
+    expect(geometry.overflow).toBeLessThanOrEqual(1);
+    expect(geometry.bodyOverflow).toBeLessThanOrEqual(1);
+    expect(geometry.canScroll).toBe(true);
+    expect(geometry.footerInside).toBe(true);
+    await page.getByRole("button", { name: "Save as New Queue" }).click();
+    await expect(page.getByPlaceholder(/queue name/i)).toBeVisible();
+    expect((await measure()).overflow).toBeLessThanOrEqual(1);
+    await page.screenshot({ path: `.playwright/results/session-customize-crowded-${width}.png` });
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+    await expect(trigger).toBeFocused();
+  });
+}
+
+test("tablet: session customization keeps its sheet and visible actions after resize", async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await openDialog(page);
+  await expect(page.getByRole("dialog")).toHaveClass(/adaptive-dialog-sheet/);
+  await page.setViewportSize({ width: 1100, height: 700 });
+  await expect(page.getByRole("dialog")).toHaveClass(/adaptive-dialog-centered/);
+  const bounds = await page.getByRole("dialog").boundingBox();
+  expect(bounds!.width).toBeLessThanOrEqual(672);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(700);
+  await page.setViewportSize({ width: 720, height: 500 });
+  await expect(page.getByRole("dialog")).toHaveClass(/adaptive-dialog-sheet/);
+  await expect(page.getByRole("button", { name: "Apply Customization" })).toBeInViewport();
 });

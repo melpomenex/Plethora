@@ -74,6 +74,18 @@ describe("destination acceptance: every registered destination is reachable by n
 });
 
 describe("action acceptance: representative operations execute their real workflows", () => {
+  it("'new queue' opens the queue customization destination", () => {
+    const commands = buildCommandRegistry(makeDeps());
+    const match = matchFirst(commands, "new queue");
+    expect(match.command.id).toBe("new-saved-queue");
+    void match.command.action();
+    expect(useDestinationActionStore.getState().pending).toMatchObject({
+      destination: "queue",
+      action: "new",
+    });
+    settlePending();
+  });
+
   it("'new flashcard' delivers the review create-card destination action", () => {
     const commands = buildCommandRegistry(makeDeps());
     const match = matchFirst(commands, "new flashcard");

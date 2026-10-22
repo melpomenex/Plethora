@@ -21,6 +21,7 @@ export function ResponsiveDialogSheet({
   presentation = "auto",
   id,
   className,
+  desktopMaxWidth,
 }: {
   open: boolean;
   onClose: () => void;
@@ -33,6 +34,7 @@ export function ResponsiveDialogSheet({
   presentation?: "auto" | "sheet" | "dialog";
   id?: string;
   className?: string;
+  desktopMaxWidth?: string;
 }) {
   const { mode } = usePresentation();
   const titleId = useId();
@@ -60,6 +62,7 @@ export function ResponsiveDialogSheet({
           useSheet ? "adaptive-dialog-sheet" : "adaptive-dialog-centered",
           className,
         )}
+        style={{ width: `min(100%, ${useSheet ? "42rem" : (desktopMaxWidth ?? "38rem")})` }}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

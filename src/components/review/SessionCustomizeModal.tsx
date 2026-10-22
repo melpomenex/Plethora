@@ -265,7 +265,7 @@ export function SessionCustomizeModal({
   // and reachable on a phone. Desktop keeps the single row it always had.
   const secondaryActionClass = compact
     ? "inline-flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded border border-border px-3 py-2 text-xs text-foreground hover:bg-muted/60"
-    : "flex items-center gap-1.5 rounded border border-border px-3 py-1.5 text-xs text-foreground hover:bg-muted/60";
+    : "flex min-w-0 items-center gap-1.5 rounded border border-border px-3 py-1.5 text-xs text-foreground hover:bg-muted/60";
   const resetActionClass = compact
     ? "inline-flex min-h-11 min-w-0 flex-1 items-center justify-center rounded border border-border px-3 py-2 text-xs text-foreground/80 hover:bg-muted/60"
     : "px-3 py-1.5 text-xs text-foreground/70 hover:text-foreground";
@@ -315,7 +315,7 @@ export function SessionCustomizeModal({
       )}
 
       <div className={compact ? "flex flex-col gap-2" : "flex flex-wrap items-center justify-between gap-3"}>
-        <div className={compact ? "flex flex-wrap gap-2" : "flex items-center gap-2"}>
+        <div className={compact ? "flex flex-wrap gap-2" : "flex min-w-0 max-w-full items-center gap-2"}>
           <button onClick={handleReset} className={resetActionClass}>
             {t("sessionCustomize.resetToDefaults")}
           </button>
@@ -363,6 +363,7 @@ export function SessionCustomizeModal({
       title={t("sessionCustomize.title")}
       closeLabel={t("common.close")}
       footer={footerActions}
+      desktopMaxWidth="42rem"
     >
       <div className="space-y-6">
         {/* Session Duration */}

@@ -22,9 +22,10 @@ import {
 import { useSavedQueueStore } from "../stores/savedQueueStore";
 import type { SavedQueue } from "../types/savedQueue";
 
+const crowded = new URLSearchParams(window.location.search).has("crowded");
 const activeQueue: SavedQueue = {
   id: "q-active",
-  name: "All Due",
+  name: crowded ? "Research queue with a deliberately long descriptive name for wrapping" : "All Due",
   isDefault: true,
   sortOrder: 0,
   filters: {
@@ -103,7 +104,7 @@ function Harness() {
         customization={customization}
         onChange={setCustomization}
         onApply={() => setOpen(false)}
-        availableTags={[
+        availableTags={crowded ? Array.from({ length: 100 }, (_, index) => `Research topic ${index + 1} with a longer label`) : [
           "web-import",
           "readergrev.com",
           "Rel Noopener",

@@ -104,6 +104,27 @@ describe("adaptive interface primitives", () => {
     expect(trigger).toHaveFocus();
   });
 
+  it("owns desktop sizing while retaining caller max-width constraints", () => {
+    setViewport(1440, 1000);
+    const view = render(
+      <PresentationProvider>
+        <ResponsiveDialogSheet open onClose={vi.fn()} title="Bounded" className="max-w-lg">
+          Content
+        </ResponsiveDialogSheet>
+      </PresentationProvider>,
+    );
+    expect(screen.getByRole("dialog")).toHaveStyle({ width: "min(100%, 38rem)" });
+    expect(screen.getByRole("dialog")).toHaveClass("max-w-lg");
+    view.rerender(
+      <PresentationProvider>
+        <ResponsiveDialogSheet open onClose={vi.fn()} title="Bounded" desktopMaxWidth="42rem">
+          Content
+        </ResponsiveDialogSheet>
+      </PresentationProvider>,
+    );
+    expect(screen.getByRole("dialog")).toHaveStyle({ width: "min(100%, 42rem)" });
+  });
+
   it("keeps inspector child state mounted while the drawer is closed", () => {
     function InspectorHarness() {
       const [open, setOpen] = useState(true);
