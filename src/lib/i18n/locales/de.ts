@@ -6496,4 +6496,13 @@ export const de: Dict = {
   "qaWorkspace.providerMissing": "Diese Aktion benötigt einen KI-Anbieter. Verbinde einen in den KI-Einstellungen; deine Frage bleibt erhalten.",
   "qaWorkspace.requestFailed": "Keine Antwort aus diesen Quellen möglich: {reason}. Prüfe deine Frage oder die KI-Einstellungen und versuche es erneut.",
   "qaWorkspace.copyResponse": "Antwort und Quellen kopieren",
+  // Remote passage-scoring consent (Settings → AI).
+  "ai.passageScoring.remote.title": "Textstellenvorschläge über Cloud-KI",
+  "ai.passageScoring.remote.description": "Erlaube automatischen Textstellenvorschlägen die Nutzung deiner konfigurierten Cloud-KI. Es werden nur Textstellen gesendet, die du gerade liest – mit einem begrenzten Kontingent, das du jederzeit widerrufen kannst.",
+  "ai.passageScoring.remote.quotaLabel": "Kontingent",
+  "ai.passageScoring.remote.quotaOption": "{count} Textstellen",
+  "ai.passageScoring.remote.used": "{used} von {max} Textstellen verbraucht",
+  "ai.passageScoring.remote.renew": "Kontingent erneuern",
+  "ai.passageScoring.remote.noProvider": "Füge einen Cloud-KI-Anbieter hinzu, um Cloud-Vorschläge zu erlauben.",
+  "ai.passageScoring.remote.localOnly": "Dein KI-Anbieter läuft auf diesem Gerät – kein Cloud-Kontingent nötig.",
 };

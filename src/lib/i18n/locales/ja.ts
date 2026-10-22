@@ -6355,4 +6355,13 @@ export const ja: Dict = {
   "qaWorkspace.providerMissing": "この操作にはAIプロバイダーが必要です。AI設定で接続してください。質問は保持されています。",
   "qaWorkspace.requestFailed": "参照元から回答できませんでした：{reason}。質問またはAI設定を確認して再試行してください。",
   "qaWorkspace.copyResponse": "回答と出典をコピー",
+  // Remote passage-scoring consent (Settings → AI).
+  "ai.passageScoring.remote.title": "遠隔の抜粋候補",
+  "ai.passageScoring.remote.description": "自動の抜粋候補が設定済みのクラウドAIを使用することを許可します。送信されるのは読んでいる抜粋のみで、いつでも取り消せる上限付きです。",
+  "ai.passageScoring.remote.quotaLabel": "上限",
+  "ai.passageScoring.remote.quotaOption": "{count} 件の抜粋",
+  "ai.passageScoring.remote.used": "{max} 件中 {used} 件使用済み",
+  "ai.passageScoring.remote.renew": "上限を更新",
+  "ai.passageScoring.remote.noProvider": "クラウドAIプロバイダーを追加すると、遠隔候補を許可できます。",
+  "ai.passageScoring.remote.localOnly": "AIプロバイダーはこの端末上で動作しているため、遠隔の上限は不要です。",
 };

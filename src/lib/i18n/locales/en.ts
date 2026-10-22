@@ -7464,4 +7464,12 @@ export const en: Dict = {
   "ai.passageScoring.imported": "Article added to library",
   "ai.passageScoring.importRequired": "Import this article before saving a durable extract or card.",
   "ai.passageScoring.dismissed": "Suggestion dismissed",
+  "ai.passageScoring.remote.title": "Remote passage suggestions",
+  "ai.passageScoring.remote.description": "Allow automatic passage suggestions to use your configured cloud AI. Only passages you are reading are sent, with a finite allowance you can revoke at any time.",
+  "ai.passageScoring.remote.quotaLabel": "Allowance",
+  "ai.passageScoring.remote.quotaOption": "{count} passages",
+  "ai.passageScoring.remote.used": "{used} of {max} passages used",
+  "ai.passageScoring.remote.renew": "Renew allowance",
+  "ai.passageScoring.remote.noProvider": "Add a cloud AI provider to allow remote suggestions.",
+  "ai.passageScoring.remote.localOnly": "Your AI provider runs on this device, so no remote allowance is needed.",
 };

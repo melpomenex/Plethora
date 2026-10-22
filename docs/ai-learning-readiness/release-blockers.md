@@ -103,11 +103,13 @@ separately so they cannot be mistaken for new AI Learning regressions:
 | Observed | Four attempts during execution produced different failing benchmark sets (semantic grading, command palette, haptic policy, tabs, kp-timeline, article import, assistant invocation, reader-speech-index, daqe, anki). Machine load averaged 6–25 from concurrent Rust compilation. Targeted runs of the changed areas measured at or below baseline. |
 | Closure | one clean `npm run bench:check` at the release commit with recorded host identity. New `passageScoring/*` baselines are already recorded in `scripts/perf-baselines.json`; no existing baseline or bundle budget was relaxed. |
 
-## 8. Remote passage-scoring authorization has no Settings surface
+## 8. Remote passage-scoring authorization has no Settings surface — CLOSED
 
 | Field | Value |
 |---|---|
 | Owner | Reader + Settings |
 | Affected | `extract-worthiness` remote background scoring |
-| Current behavior | Remote automatic quota is 0 by default. `grantPassageRemoteScoringAuthorization` / `revokePassageRemoteScoringAuthorization` exist with provider/source scope and a finite quota, but no Settings control exposes them, so scoring remains local-only. |
-| Closure | Add an explicit Settings control with a finite quota and source scope, register catalog/coverage/search targets, and test grant/revocation. Until then the conservative local-only behavior is intentional and safe, not a silent fallback. |
+| Status | Closed. Settings → AI → AI Learning System Features → **Remote passage suggestions** now creates/revokes an explicit grant. |
+| Behavior | Remote automatic quota still defaults to zero. A grant is provider-scoped (`cloud-llm` + observed locality), source-scoped (`*`), finite (10/25/60), revocable in one action, and its consumed units persist in `plethora.passage-scoring.remote-usage` so a restart cannot refill it. A loopback destination counts as on-device and needs no grant. |
+| Implementation | `src/lib/ai/passageScoringConsent.ts` (persisted shape/validation), `src/components/viewer/passageScoring/authorizationSettings.ts` (settings ⇄ policy bridge + usage accounting), `src/components/settings/RemotePassageScoringSettings.tsx` (control), catalog entry `ai.extractWorthinessRemote`, coverage exclusion for the runtime counter. |
+| Closure evidence | `authorizationSettings.test.ts`, `AIProviderSettings.passageScoringRemote.test.tsx`, settings-search catalog/coverage gates, `npx tsc --noEmit`. |

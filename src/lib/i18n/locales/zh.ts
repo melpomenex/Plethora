@@ -6334,4 +6334,13 @@ export const zh: Dict = {
   "qaWorkspace.providerMissing": "此操作需要AI服务。请在AI设置中连接，问题已保留。",
   "qaWorkspace.requestFailed": "无法依据这些来源回答：{reason}。请检查问题或AI设置后重试。",
   "qaWorkspace.copyResponse": "复制回答和来源",
+  // Remote passage-scoring consent (Settings → AI).
+  "ai.passageScoring.remote.title": "远程段落建议",
+  "ai.passageScoring.remote.description": "允许自动段落建议使用已配置的云端 AI。仅发送你正在阅读的段落，并有可随时撤销的有限额度。",
+  "ai.passageScoring.remote.quotaLabel": "额度",
+  "ai.passageScoring.remote.quotaOption": "{count} 个段落",
+  "ai.passageScoring.remote.used": "已使用 {used}/{max} 个段落",
+  "ai.passageScoring.remote.renew": "续订额度",
+  "ai.passageScoring.remote.noProvider": "添加云端 AI 服务后可允许远程建议。",
+  "ai.passageScoring.remote.localOnly": "你的 AI 服务在本机运行，无需远程额度。",
 };

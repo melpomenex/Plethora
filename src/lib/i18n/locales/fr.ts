@@ -6444,4 +6444,13 @@ export const fr: Dict = {
   "qaWorkspace.providerMissing": "Cette action nécessite un fournisseur IA. Configurez-le dans les réglages ; votre question est conservée.",
   "qaWorkspace.requestFailed": "Impossible de répondre à partir de ces sources : {reason}. Vérifiez la question ou les réglages IA, puis réessayez.",
   "qaWorkspace.copyResponse": "Copier la réponse et les sources",
+  // Remote passage-scoring consent (Settings → AI).
+  "ai.passageScoring.remote.title": "Suggestions de passages à distance",
+  "ai.passageScoring.remote.description": "Autorisez les suggestions automatiques de passages à utiliser votre IA cloud configurée. Seuls les passages que vous lisez sont envoyés, avec une limite finie que vous pouvez révoquer à tout moment.",
+  "ai.passageScoring.remote.quotaLabel": "Quota",
+  "ai.passageScoring.remote.quotaOption": "{count} passages",
+  "ai.passageScoring.remote.used": "{used} passages sur {max} utilisés",
+  "ai.passageScoring.remote.renew": "Renouveler le quota",
+  "ai.passageScoring.remote.noProvider": "Ajoutez un fournisseur d'IA cloud pour autoriser les suggestions à distance.",
+  "ai.passageScoring.remote.localOnly": "Votre fournisseur d'IA s'exécute sur cet appareil ; aucun quota distant n'est nécessaire.",
 };

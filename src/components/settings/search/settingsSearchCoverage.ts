@@ -112,6 +112,7 @@ export const SETTINGS_SEARCH_COVERAGE: readonly SettingsSearchCoverageRow[] = [
       "On-device AI entries are omitted where the platform bridge is unavailable.",
       "Consequential actions (test connection, enable all, run smoke test, export report) are revealed through their groups but are never executed or changed by search.",
       "Diagnostic provider/model strings and observed task payloads are runtime evidence, not searchable setting values.",
+      "The remote passage-scoring allowance's consumed-unit counter is runtime accounting; only the consent control and its finite quota are indexed.",
     ],
   },
   {

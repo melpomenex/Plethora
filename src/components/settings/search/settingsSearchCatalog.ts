@@ -1304,6 +1304,21 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     targetId: "ai.extractWorthiness",
   },
   {
+    id: "ai.extractWorthinessRemote",
+    kind: "setting",
+    section: SettingsTab.AI,
+    label: k("ai.passageScoring.remote.title"),
+    description: k("ai.passageScoring.remote.description"),
+    groupPath: [lit("AI Learning System Features")],
+    aliases: [
+      lit("remote passage scoring"),
+      lit("cloud suggestions"),
+      lit("passage allowance"),
+    ],
+    keywords: ["passage", "extract", "worthiness", "remote", "cloud", "quota", "allowance"],
+    targetId: "ai.extractWorthinessRemote",
+  },
+  {
     id: "ai.agent",
     kind: "setting",
     section: SettingsTab.AI,
