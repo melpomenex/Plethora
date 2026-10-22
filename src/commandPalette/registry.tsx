@@ -77,6 +77,7 @@ import {
   SettingsTab,
 } from "../components/settings/settingsSections";
 import { isPlethoraCloudAvailable } from "../config/product";
+import { buildInterfaceZoomCommands } from "./interfaceZoomCommands";
 import type { ReactNode } from "react";
 
 /* ------------------------------------------------------------------------- */
@@ -279,6 +280,7 @@ export function buildCommandRegistry(deps: RegistryDeps): Command[] {
     ...buildThemeCommands(deps),
     ...buildPaletteOwnedCommands(deps),
     ...buildSettingsSectionCommands(deps),
+    ...buildInterfaceZoomCommands(deps.translate),
   ]);
 }
 
@@ -825,13 +827,24 @@ export const REGISTRY_COMMAND_EXCEPTIONS: Record<string, string> = {
   "import-twitter-video": "Ungated-with-rationale: uses the Rust backend, which ships on iOS too (audit §Command palette).",
   "go-import-needs-review": "Needs-review queue surface; reachable on every platform.",
   "go-web-browser": "In-app webview surface; platform-neutral.",
+  "interface-zoom-in":
+    "Desktop-only by construction: buildInterfaceZoomCommands returns [] unless isDesktopInterfaceZoomSupported() (desktop Tauri, macOS 11+).",
+  "interface-zoom-out":
+    "Desktop-only by construction: buildInterfaceZoomCommands returns [] unless isDesktopInterfaceZoomSupported() (desktop Tauri, macOS 11+).",
+  "interface-zoom-reset":
+    "Desktop-only by construction: buildInterfaceZoomCommands returns [] unless isDesktopInterfaceZoomSupported() (desktop Tauri, macOS 11+).",
 };
 
 /**
- * Generated command families that are platform-neutral by construction.
- * Theme switching is pure UI state and never touches a native bridge.
+ * Generated command families that are platform-neutral or gated at their
+ * builder by construction.
+ *
+ * - `theme-`/`switch-queue-`: pure UI state, never touch a native bridge.
+ * - `interface-zoom-`: `buildInterfaceZoomCommands` returns `[]` unless
+ *   `isDesktopInterfaceZoomSupported()` is true (desktop Tauri only, macOS
+ *   11+); there is no platform-capability id for that runtime gate.
  */
-export const REGISTRY_COMMAND_EXCEPTION_PREFIXES = ["theme-", "switch-queue-"];
+export const REGISTRY_COMMAND_EXCEPTION_PREFIXES = ["theme-", "switch-queue-", "interface-zoom-"];
 
 export function isRegistryCommandException(id: string): boolean {
   if (REGISTRY_COMMAND_EXCEPTIONS[id]) return true;

@@ -42,6 +42,7 @@ import { useReaderVolumeNavigation } from "../../hooks/useReaderVolumeNavigation
 import { ReaderTapZones } from "./ReaderTapZones";
 import { loadSavedDisplayMode, loadSavedEinkSettings, resolveEffectiveEinkMode } from "../../lib/displayMode";
 import { attachIframePointerActivityForwarder } from "../../utils/iframePointerActivity";
+import { attachInterfaceZoomToWindow } from "../../lib/interfaceZoom/iframeForwarding";
 import type { EpubVimRuntime } from "../../utils/vim/readerRuntimes";
 
 // Define outside component to keep a stable reference across renders
@@ -2083,6 +2084,10 @@ export function EPUBViewer({
             contents.window.addEventListener("keydown", handleCommandPaletteHotkey, true);
             contents.window.addEventListener("keydown", handleExtractTextHotkey, true);
             contents.window.addEventListener("keydown", handlePriorityHotkey, true);
+            // Reserved interface-zoom chords must be claimed before the document
+            // forwarders below. `rendered` can fire repeatedly for the same iframe
+            // window, so the shared helper attaches at most once per window.
+            attachInterfaceZoomToWindow(contents.window);
             contents.window.addEventListener("keydown", (e: KeyboardEvent) => {
               if (handleEPUBKeyDownRef.current) {
                 handleEPUBKeyDownRef.current(e);
@@ -3369,24 +3374,8 @@ export function EPUBViewer({
 
     const lowerKey = e.key.toLowerCase();
 
-    // Ctrl/Cmd + Plus to increase font size
-    if ((e.ctrlKey || e.metaKey) && (e.key === "=" || e.key === "+")) {
-      e.preventDefault();
-      increaseFontSize();
-    }
-    // Ctrl/Cmd + Minus to decrease font size
-    else if ((e.ctrlKey || e.metaKey) && (e.key === "-" || e.key === "_")) {
-      e.preventDefault();
-      decreaseFontSize();
-    }
-    // Ctrl/Cmd + 0 to reset font size
-    else if ((e.ctrlKey || e.metaKey) && e.key === "0") {
-      e.preventDefault();
-      resetFontSize();
-    }
-    
     // J / K scroll navigation (suppressed when vim reading mode is active)
-    else if (lowerKey === "j") {
+    if (lowerKey === "j") {
       if (useVimModeStore.getState().mode === "inactive") {
         e.preventDefault();
         scrollEpub("down");

@@ -46,7 +46,7 @@ export const SETTINGS_SEARCH_COVERAGE: readonly SettingsSearchCoverageRow[] = [
   },
   {
     section: SettingsTab.Appearance,
-    sources: ["SettingsPage.tsx", "ThemePicker.tsx", "EinkSettingsPanel.tsx"],
+    sources: ["SettingsPage.tsx", "ThemePicker.tsx", "EinkSettingsPanel.tsx", "InterfaceZoomControl.tsx"],
     catalogPrefixes: ["section.appearance", "appearance."],
     exclusions: [
       "Individual theme cards are a user-created/dynamic collection; the Theme group is the stable destination.",

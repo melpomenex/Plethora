@@ -133,17 +133,24 @@ export const DEFAULT_SHORTCUTS: ShortcutAction[] = [
   // View
   {
     id: "view.zoom-in",
-    name: "Zoom In",
-    description: "Increase zoom level",
+    name: "Zoom Interface In",
+    description: "Increase the whole interface scale",
     category: ShortcutCategory.View,
     defaultCombo: { key: "=", ctrl: true, meta: true },
   },
   {
     id: "view.zoom-out",
-    name: "Zoom Out",
-    description: "Decrease zoom level",
+    name: "Zoom Interface Out",
+    description: "Decrease the whole interface scale",
     category: ShortcutCategory.View,
     defaultCombo: { key: "-", ctrl: true, meta: true },
+  },
+  {
+    id: "view.zoom-reset",
+    name: "Reset Interface Zoom",
+    description: "Reset interface zoom to 100%",
+    category: ShortcutCategory.View,
+    defaultCombo: { key: "0", ctrl: true, meta: true },
   },
   {
     id: "view.fullscreen",
@@ -607,6 +614,17 @@ export const useShortcutStore = create<ShortcutStore>()(
 );
 
 /**
+ * Shortcut ids owned by the desktop interface-zoom dispatcher. Settings and
+ * the help overlay hide these on runtimes where native page zoom is
+ * unavailable so they never advertise dead bindings.
+ */
+export const INTERFACE_ZOOM_SHORTCUT_IDS: ReadonlySet<string> = new Set([
+  "view.zoom-in",
+  "view.zoom-out",
+  "view.zoom-reset",
+]);
+
+/**
  * Get current combo for a shortcut
  */
 export function getShortcutCombo(id: string): KeyCombo | null {
@@ -633,6 +651,8 @@ export function formatKeyCombo(combo: KeyCombo): string {
   // Format key
   let key = combo.key;
   if (key === " ") key = "Space";
+  // A US-layout browser zoom chord is physically `=`; display the familiar `+`.
+  if (key === "=") key = "+";
   if (key.toLowerCase().startsWith("arrow")) key = key.charAt(5).toUpperCase() + key.slice(6);
   else key = key.charAt(0).toUpperCase() + key.slice(1);
 

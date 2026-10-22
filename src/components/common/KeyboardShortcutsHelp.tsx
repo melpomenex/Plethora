@@ -16,8 +16,10 @@ import { useI18n } from "../../lib/i18n";
 import {
   useShortcutStore,
   ShortcutCategory,
+  INTERFACE_ZOOM_SHORTCUT_IDS,
   formatKeyCombo,
 } from "./KeyboardShortcuts";
+import { isDesktopInterfaceZoomSupported } from "../../lib/interfaceZoom/native";
 
 interface ShortcutGroup {
   name: string;
@@ -50,7 +52,12 @@ const CATEGORY_ORDER: ShortcutCategory[] = [
 ];
 
 function getShortcutGroups(t: (key: string) => string): ShortcutGroup[] {
-  const shortcuts = useShortcutStore.getState().shortcuts;
+  const zoomSupported = isDesktopInterfaceZoomSupported();
+  const shortcuts = useShortcutStore
+    .getState()
+    .shortcuts.filter(
+      (shortcut) => zoomSupported || !INTERFACE_ZOOM_SHORTCUT_IDS.has(shortcut.id),
+    );
   const grouped = new Map<ShortcutCategory, ShortcutGroup>();
 
   for (const cat of CATEGORY_ORDER) {

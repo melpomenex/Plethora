@@ -8,6 +8,7 @@ import { useCollectionStore } from "../../stores/collectionStore";
 import { useVimModeStore } from "../../stores/vimModeStore";
 import { useI18n } from "../../lib/i18n";
 import { useGlobalShortcuts } from "../../hooks/useKeyboardShortcuts";
+import { useInterfaceZoomBridge } from "../../hooks/useInterfaceZoom";
 import { useShortcut } from "../common/KeyboardShortcuts";
 import { VimiumNavigationProvider, useVimiumEnabled, type VimiumCommand } from "../common/VimiumNavigation";
 const Toolbar = lazy(() => import("../Toolbar").then(({ Toolbar: toolbar }) => ({ default: toolbar })));
@@ -143,6 +144,9 @@ export function MainLayout() {
     }
   }, [rootPane]);
 
+  // Must be registered before other global shortcut listeners so the reserved
+  // primary-modifier zoom chords have exactly one capture-phase owner.
+  useInterfaceZoomBridge();
   useGlobalShortcuts();
   /* useShortcut("gen.screenshot", (event) => {
     const target = event.target as HTMLElement;

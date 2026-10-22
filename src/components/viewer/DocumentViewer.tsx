@@ -228,6 +228,7 @@ import {
 } from "./htmlReader/articleReaderStyles";
 import { buildCompatibilityReaderStyles } from "./htmlReader/compatibilityReaderStyles";
 import { resolveReaderThemeTokens } from "./htmlReader/readerThemeTokens";
+import { attachInterfaceZoomToIframe } from "../../lib/interfaceZoom/iframeForwarding";
 
 const READER_FOCUS_EVENT = "plethora-reader-focus-mode-change";
 const READER_FOCUS_CLASS = "plethora-reader-focus-mode";
@@ -4887,23 +4888,6 @@ export function DocumentViewer({
         return;
       }
 
-      // Ctrl/Cmd + + / - / 0 zoom controls
-      if (mod && (e.key === "+" || (e.key === "=" && e.shiftKey) || e.key === "=")) {
-        e.preventDefault();
-        handleZoomIn();
-        return;
-      }
-      if (mod && e.key === "-") {
-        e.preventDefault();
-        handleZoomOut();
-        return;
-      }
-      if (mod && e.key === "0") {
-        e.preventDefault();
-        handleResetZoom();
-        return;
-      }
-
       // Rating shortcuts (1-4) — only when actively reviewing documents in queue
       if (!shouldHideRatingOrbs && openedFrom === "queue" && viewMode === "document" && docType !== "pdf" && docType !== "youtube" && docType !== "audio" && queueNav.totalDocuments > 0) {
         if (e.key >= "1" && e.key <= "4") {
@@ -6842,24 +6826,10 @@ export function DocumentViewer({
     updateHtmlSettings({ fontSize: 16 });
   }, [updateHtmlSettings]);
 
-  // Keyboard shortcuts for HTML viewer zoom
+  // Ctrl/Cmd + wheel adjusts HTML font size. Reserved primary + `+`/`-`/`0`
+  // chords belong to application interface zoom and are not handled here.
   useEffect(() => {
     if (!isHtmlViewer) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey || e.metaKey) {
-        if (e.key === "=" || e.key === "+") {
-          e.preventDefault();
-          increaseHtmlFontSize();
-        } else if (e.key === "-" || e.key === "_") {
-          e.preventDefault();
-          decreaseHtmlFontSize();
-        } else if (e.key === "0") {
-          e.preventDefault();
-          resetHtmlFontSize();
-        }
-      }
-    };
 
     const handleWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) {
@@ -6869,17 +6839,23 @@ export function DocumentViewer({
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
     const container = htmlViewerContainerRef.current;
     if (container) {
       container.addEventListener("wheel", handleWheel, { passive: false });
     }
 
     return () => {
-      window.removeEventListener("keydown", handleKeyDown);
       if (container) container.removeEventListener("wheel", handleWheel);
     };
-  }, [isHtmlViewer, increaseHtmlFontSize, decreaseHtmlFontSize, resetHtmlFontSize]);
+  }, [isHtmlViewer, increaseHtmlFontSize, decreaseHtmlFontSize]);
+
+  // Key events inside the same-origin HTML reader iframe do not bubble to the
+  // parent window. Attach the shared interface-zoom capture handler so the
+  // reserved primary-modifier chords still scale the app shell while reading.
+  useEffect(() => {
+    if (!isHtmlViewer) return;
+    return attachInterfaceZoomToIframe(iframeRef.current);
+  }, [isHtmlViewer, currentDocument?.id]);
 
   const scrollHtmlFrameToInitialHit = useCallback(() => {
     if (!initialJump || initialJump.kind !== "html") return;

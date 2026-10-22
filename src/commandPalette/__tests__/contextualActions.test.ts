@@ -83,6 +83,19 @@ describe("contextualActions registry", () => {
       expect(action.title.length).toBeGreaterThan(0);
     }
   });
+
+  it("names document zoom distinctly and advertises no reserved app chords", () => {
+    const actions = getActionsForView("document-viewer", { viewerKind: "pdf" });
+    const byId = new Map(actions.map((action) => [action.id, action]));
+
+    expect(byId.get("doc.zoomIn")?.title).toBe("Zoom Document In");
+    expect(byId.get("doc.zoomOut")?.title).toBe("Zoom Document Out");
+    expect(byId.get("doc.zoomReset")?.title).toBe("Reset Document Zoom");
+
+    for (const action of getAllContextualActions()) {
+      expect(["⌘+", "⌘-", "⌘0"]).not.toContain(action.shortcutHint);
+    }
+  });
 });
 
 describe("actionMatchesQuery", () => {

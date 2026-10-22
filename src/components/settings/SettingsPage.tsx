@@ -50,6 +50,7 @@ import type { DefaultStartupView } from "../../stores/settingsStore";
 import { UpdateAvailableDialog } from "./UpdateAvailableDialog";
 import { DeleteAccountFlow } from "./DeleteAccountFlow";
 import { HapticsSettingsControl } from "./HapticsSettingsControl";
+import { InterfaceZoomControl } from "./InterfaceZoomControl";
 import { loadGoogleFont } from "../../utils/fonts";
 import { useI18n, useLocaleRevision } from "../../lib/i18n";
 import { useContextualBack, type ContextualBackHandler } from "../../lib/contextualBack";
@@ -1767,6 +1768,14 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
       </SettingsSection>
 
       <SettingsSection title={t("settings.display")} description="Display preferences" searchId="appearance.display">
+        <SettingsRow
+          label={t("settings.interfaceZoom")}
+          description={t("settings.interfaceZoomDesc")}
+          searchId="appearance.interfaceZoom"
+        >
+          <InterfaceZoomControl />
+        </SettingsRow>
+
         <SettingsRow
           label="Toolbar Position"
           description="Position of the main toolbar (desktop only)"

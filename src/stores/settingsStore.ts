@@ -3,6 +3,10 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { migratedGetItem } from "../lib/brandMigration";
 import {
+  INTERFACE_ZOOM_DEFAULT,
+  normalizeInterfaceZoom,
+} from "../lib/interfaceZoom/constants";
+import {
   createDefaultTTSSettings,
   sanitizeTTSSettings,
   type TTSSettings,
@@ -379,6 +383,12 @@ interface InterfaceSettings {
    * by `SIDEBAR_WIDTH_MIN`/`SIDEBAR_WIDTH_MAX` on merge and in the Settings UI.
    */
   sidebarWidth: number;
+  /**
+   * Whole-interface native WebView zoom, as an integer percentage in the
+   * 70–150 range on 10-point steps (`src/lib/interfaceZoom/constants.ts`).
+   * Device-local: persists in this store only and is never synced.
+   */
+  interfaceZoom: number;
   /** Optional ambient mascot companion (see src/lib/companion). */
   companion?: CompanionSettings;
 }
@@ -1208,6 +1218,7 @@ export const defaultSettings: Settings = {
     conversationalReviewEnabled: true,
     toolbarPosition: "left",
     sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
+    interfaceZoom: INTERFACE_ZOOM_DEFAULT,
     splitViewSpawn: { button: 1, modifier: "none" },
     volumeRockerScroll: "none",
     companion: DEFAULT_COMPANION_SETTINGS,
@@ -1683,6 +1694,12 @@ export const useSettingsStore = create<SettingsState>()(
                 ...(category === "interface" && "sidebarWidth" in updates
                   ? { sidebarWidth: clampSidebarWidth(updates.sidebarWidth) }
                   : {}),
+                // Interface zoom is user-facing only on supported 10-point
+                // steps within 70–150; clamp here (single source of truth) so
+                // no caller can write an out-of-range value.
+                ...(category === "interface" && "interfaceZoom" in updates
+                  ? { interfaceZoom: normalizeInterfaceZoom(updates.interfaceZoom) }
+                  : {}),
               },
             },
           };
@@ -1913,6 +1930,7 @@ export const useSettingsStore = create<SettingsState>()(
             ...defaultSettings.interface,
             ...persisted.interface,
             sidebarWidth: clampSidebarWidth(persisted.interface?.sidebarWidth),
+            interfaceZoom: normalizeInterfaceZoom(persisted.interface?.interfaceZoom),
             companion: {
               ...DEFAULT_COMPANION_SETTINGS,
               ...(persisted.interface?.companion ?? {}),

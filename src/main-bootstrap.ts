@@ -17,6 +17,33 @@ type BootstrapWindow = Window & {
 installPromiseCompat(globalThis);
 installUint8ArrayCompat(globalThis);
 
+// Start the interface-zoom bootstrap as early as possible so the first
+// interactive frame can be painted at the persisted scale. It only imports the
+// tiny startup module (never the Settings store or React graph). The safety
+// race below keeps a wedged native IPC call from blocking startup forever.
+const INTERFACE_ZOOM_BOOTSTRAP_TIMEOUT_MS = 2_000;
+
+const interfaceZoomBootstrap = import("./lib/interfaceZoom/startup")
+  .then(({ bootstrapInterfaceZoom }) => bootstrapInterfaceZoom())
+  .catch((error) => {
+    console.warn("[interfaceZoom] bootstrap failed", error);
+  });
+
+const interfaceZoomReady = new Promise<void>((resolve) => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  timer = setTimeout(() => {
+    console.warn(
+      `[interfaceZoom] startup bootstrap did not settle within ${INTERFACE_ZOOM_BOOTSTRAP_TIMEOUT_MS} ms; continuing`,
+    );
+    resolve();
+  }, INTERFACE_ZOOM_BOOTSTRAP_TIMEOUT_MS);
+  const settle = () => {
+    if (timer) clearTimeout(timer);
+    resolve();
+  };
+  void interfaceZoomBootstrap.then(settle, settle);
+});
+
 // Create the root before importing main.tsx. The latter intentionally has a
 // large static dependency graph; waiting for that graph to evaluate defeats
 // the point of the static boot frame on a slower WKWebView. Keeping the root
@@ -109,7 +136,7 @@ window.setTimeout(() => {
   display.appendChild(hint);
 }, 60000);
 
-const loadMain = () => import("./main");
+const loadMain = () => interfaceZoomReady.then(() => import("./main"));
 
 const attempt = (retriesLeft: number): void => {
   if (traceAndroid) recordAndroidStartupDiagnostic("main-import-start");

@@ -3,6 +3,7 @@ import {
   combosEqual,
   eventMatchesCombo,
   findConflicts,
+  formatKeyCombo,
   type KeyCombo,
   type ShortcutAction,
   ShortcutCategory,
@@ -58,6 +59,30 @@ describe("eventMatchesCombo", () => {
     setPlatform("Linux x86_64");
     expect(eventMatchesCombo(keydown({ key: "p", ctrlKey: true }), combo)).toBe(false);
     expect(eventMatchesCombo(keydown({ key: "k", ctrlKey: true, altKey: true }), combo)).toBe(false);
+  });
+});
+
+describe("formatKeyCombo", () => {
+  afterEach(() => {
+    setPlatform(originalPlatform);
+  });
+
+  it("renders the equals key as a browser-like plus on Linux/Windows", () => {
+    setPlatform("Linux x86_64");
+    expect(formatKeyCombo({ key: "=", ctrl: true, meta: true })).toBe("Ctrl++");
+    setPlatform("Win32");
+    expect(formatKeyCombo({ key: "=", ctrl: true, meta: true })).toBe("Ctrl++");
+  });
+
+  it("renders the equals key as a plus on macOS", () => {
+    setPlatform("MacIntel");
+    expect(formatKeyCombo({ key: "=", ctrl: true, meta: true })).toBe("⌘+");
+  });
+
+  it("keeps minus and zero readable", () => {
+    setPlatform("Linux x86_64");
+    expect(formatKeyCombo({ key: "-", ctrl: true, meta: true })).toBe("Ctrl+-");
+    expect(formatKeyCombo({ key: "0", ctrl: true, meta: true })).toBe("Ctrl+0");
   });
 });
 

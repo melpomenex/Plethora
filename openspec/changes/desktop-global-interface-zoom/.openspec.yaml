@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-10-21
+goal: Implement application-wide interface zoom for desktop Plethora using Tauri
+  native WebView zoom.

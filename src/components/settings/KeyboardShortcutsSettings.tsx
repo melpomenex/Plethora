@@ -6,10 +6,12 @@ import { useState } from "react";
 import {
   type ShortcutAction,
   ShortcutCategory,
+  INTERFACE_ZOOM_SHORTCUT_IDS,
   formatKeyCombo,
   useShortcutStore,
   findConflicts,
 } from "../common/KeyboardShortcuts";
+import { isDesktopInterfaceZoomSupported } from "../../lib/interfaceZoom/native";
 import { useVimiumEnabled } from "../common/VimiumNavigation";
 import { SettingsSection, SettingsRow } from "./SettingsPage";
 import { useI18n } from "../../lib/i18n";
@@ -78,6 +80,10 @@ const shortcutLabels: Record<string, { name: string; description: string }> = {
   "view.zoom-out": {
     name: "settings.shortcuts.view.zoomOut.name",
     description: "settings.shortcuts.view.zoomOut.description",
+  },
+  "view.zoom-reset": {
+    name: "settings.shortcuts.view.zoomReset.name",
+    description: "settings.shortcuts.view.zoomReset.description",
   },
   "view.fullscreen": {
     name: "settings.shortcuts.view.fullscreen.name",
@@ -232,6 +238,11 @@ export function KeyboardShortcutSettings({ onChange }: { onChange: () => void })
   const { shortcuts, updateShortcut, resetShortcut, resetAll } = useShortcutStore();
   const [vimiumEnabled, setVimiumEnabled] = useVimiumEnabled();
   const [conflicts, setConflicts] = useState<Record<string, string>>({});
+  // Interface-zoom bindings only exist where native page zoom is available.
+  const zoomSupported = isDesktopInterfaceZoomSupported();
+  const visibleShortcuts = zoomSupported
+    ? shortcuts
+    : shortcuts.filter((shortcut) => !INTERFACE_ZOOM_SHORTCUT_IDS.has(shortcut.id));
 
   const handleUpdateShortcut = (id: string, combo: { key: string; ctrl?: boolean; alt?: boolean; shift?: boolean; meta?: boolean }) => {
     updateShortcut(id, combo);
@@ -258,7 +269,7 @@ export function KeyboardShortcutSettings({ onChange }: { onChange: () => void })
     onChange();
   };
 
-  const grouped = shortcuts.reduce((acc, shortcut) => {
+  const grouped = visibleShortcuts.reduce((acc, shortcut) => {
     if (!acc[shortcut.category]) {
       acc[shortcut.category] = [];
     }
