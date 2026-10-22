@@ -11,6 +11,10 @@ import { runPassageClassification } from "../../../lib/ai/tasks/definitions/pass
 import type { PassageClassificationRun, PassageScoringControllerDeps } from "./controller";
 import { PassageDismissalStore, type StoredPassageScore } from "./cache";
 import { resolvePassageScoringPolicy, PASSAGE_CLASSIFIER_VERSION } from "./policy";
+import {
+  ensureRemoteAuthorizationPersistence,
+  syncRemoteAuthorizationFromSettings,
+} from "./authorizationSettings";
 
 function toStored(record: PassageScoreRecord): StoredPassageScore {
   return {
@@ -60,7 +64,13 @@ export function createPassageScoringDeps(
   });
 
   return {
-    resolvePolicy: (sourceScope) => resolvePassageScoringPolicy({ sourceScope }),
+    resolvePolicy: (sourceScope) => {
+      // A restart is not a new permission: mirror the persisted grant (and its
+      // consumed allowance) before any preflight reads private text.
+      ensureRemoteAuthorizationPersistence();
+      syncRemoteAuthorizationFromSettings();
+      return resolvePassageScoringPolicy({ sourceScope });
+    },
     lookup: async (digest) => {
       try {
         const record = await getPassageScore(digest);

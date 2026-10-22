@@ -24,6 +24,10 @@ import {
   normalizeSchedulerId,
 } from "../lib/schedulerIdentity";
 import type { ActiveRecallMode } from "../lib/ai/recall/interruptionPolicy";
+import {
+  normalizePassageRemoteScoringSetting,
+  type PassageRemoteScoringSetting,
+} from "../lib/ai/passageScoringConsent";
 import type { StudyAction } from "../types/audioEdition";
 import {
   coerceDaqeKnobs,
@@ -464,6 +468,13 @@ interface AISettings {
    * required" opt-in; the retry keeps the informational toast.
    */
   allowCloudFallback: boolean;
+  /**
+   * Explicit, scoped, finite permission for *automatic* passage scoring to run
+   * off-device (change `complete-reader-extract-worthiness-integration`).
+   * Absent/null means remote automatic scoring is denied; on-device scoring is
+   * always allowed. Persisted so a restart cannot refill the allowance.
+   */
+  remotePassageScoring?: PassageRemoteScoringSetting | null;
   /** When true, Apple Foundation Models appear as an Assistant provider on Apple platforms. */
   assistantUseAppleFoundation: boolean;
   /**
@@ -1356,6 +1367,9 @@ export const defaultSettings: Settings = {
     // explicit opt-in. Default OFF — an on-device failure must not silently
     // send content to a paid cloud provider.
     allowCloudFallback: false,
+    // Remote automatic passage scoring stays denied until the user creates an
+    // explicit, finite grant in Settings → AI.
+    remotePassageScoring: null,
     assistantUseAppleFoundation: false,
     // Active recall ships dark (design D19: off is the default + kill switch).
     activeRecallMode: "off",
@@ -1993,6 +2007,11 @@ export const useSettingsStore = create<SettingsState>()(
             // Defensive: an unknown persisted mode (older/newer schema) resets
             // to the safe default instead of enabling prompts accidentally.
             activeRecallMode: normalizeActiveRecallMode(persisted.ai?.activeRecallMode),
+            // A corrupt or out-of-range grant is dropped, never widened: a bad
+            // blob must not authorize off-device passage scoring.
+            remotePassageScoring: normalizePassageRemoteScoringSetting(
+              persisted.ai?.remotePassageScoring
+            ),
           },
           importExport: { ...defaultSettings.importExport, ...persisted.importExport },
           notifications: { ...defaultSettings.notifications, ...persisted.notifications },

@@ -144,6 +144,9 @@ interface StoredRemoteAuthorization extends PassageRemoteScoringAuthorization {
 
 let remoteAuthorization: StoredRemoteAuthorization | null = null;
 const authorizationListeners = new Set<() => void>();
+const usageListeners = new Set<
+  (usage: { id: string; used: number; maxClassifications: number }) => void
+>();
 
 /**
  * Subscribe to grant/revocation changes so an active controller can stop
@@ -154,25 +157,42 @@ export function subscribePassageScoringAuthorization(listener: () => void): () =
   return () => authorizationListeners.delete(listener);
 }
 
+/**
+ * Subscribe to consumed remote units. Used to persist the allowance so a
+ * restart cannot silently refill it; it never grants or revokes anything.
+ */
+export function subscribePassageRemoteScoringUsage(
+  listener: (usage: { id: string; used: number; maxClassifications: number }) => void
+): () => void {
+  usageListeners.add(listener);
+  return () => usageListeners.delete(listener);
+}
+
 function notifyAuthorizationChange(): void {
   for (const listener of authorizationListeners) listener();
 }
 
 /**
  * Create a scoped, finite remote-scoring grant. Returns the normalized grant
- * (with the original finite budget) or null for invalid input.
+ * (with the original finite budget) or null for invalid input. `used` seeds
+ * already-consumed units when rehydrating a persisted grant.
  */
 export function grantPassageRemoteScoringAuthorization(
-  input: PassageRemoteScoringAuthorization
+  input: PassageRemoteScoringAuthorization,
+  used = 0
 ): PassageRemoteScoringAuthorization | null {
   if (!Number.isFinite(input.maxClassifications) || input.maxClassifications <= 0) return null;
   // A remote grant can never exceed the local foreground-hour envelope.
   if (input.maxClassifications > PASSAGE_HOUR_CLASSIFICATION_LIMIT) return null;
   if (!input.providerId || !input.sourceScope) return null;
+  const maxClassifications = Math.floor(input.maxClassifications);
   remoteAuthorization = {
     ...input,
-    maxClassifications: Math.floor(input.maxClassifications),
-    used: 0,
+    maxClassifications,
+    used: Math.min(
+      maxClassifications,
+      Math.max(0, Number.isFinite(used) ? Math.floor(used) : 0)
+    ),
   };
   notifyAuthorizationChange();
   return {
@@ -180,7 +200,7 @@ export function grantPassageRemoteScoringAuthorization(
     providerId: input.providerId,
     locality: input.locality,
     sourceScope: input.sourceScope,
-    maxClassifications: Math.floor(input.maxClassifications),
+    maxClassifications,
     grantedAt: input.grantedAt,
   };
 }
@@ -234,6 +254,13 @@ export function consumePassageRemoteAuthorization(
   if (!stored) return false;
   if (!remoteAuthorizationAllows(providerId, locality, sourceScope)) return false;
   stored.used += 1;
+  for (const listener of usageListeners) {
+    listener({
+      id: stored.id,
+      used: stored.used,
+      maxClassifications: stored.maxClassifications,
+    });
+  }
   return true;
 }
 
