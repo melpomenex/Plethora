@@ -563,11 +563,11 @@ mod platform {
             unsafe {
                 builder.add_method(
                     sel!(handleWillSleep:),
-                    on_will_sleep as extern "C" fn(&AnyObject, Sel, *const AnyObject),
+                    on_will_sleep as extern "C" fn(_, _, _),
                 );
                 builder.add_method(
                     sel!(handleDidWake:),
-                    on_did_wake as extern "C" fn(&AnyObject, Sel, *const AnyObject),
+                    on_did_wake as extern "C" fn(_, _, _),
                 );
             }
             builder.register()
