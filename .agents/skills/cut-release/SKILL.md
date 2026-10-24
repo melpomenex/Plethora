@@ -206,6 +206,16 @@ Optional `--notes <path>` overrides the notes file location. The script:
 3. `git add -A` → commits `chore: release v<version>` → tags `v<version>` →
    `git push origin main && git push origin v<version>` → `gh release create`.
 
+The script does **not** touch the Windows identity metadata, but the Windows leg
+of `release.yml` fails its `scripts/sync-windows-identity.mjs` check before
+building anything when `windows/app.manifest` and both
+`windows/**/Package.appxmanifest` lag `tauri.conf.json`'s version (the 3.3.0
+installer shipped 3.3.0 binaries with identity frozen at 2.7.0.0 this way). In
+the release-prep commit, set `tauri.conf.json` to the target version and run
+`node scripts/sync-windows-identity.mjs --write` so the regenerated metadata
+lands inside the tag; the script's own tauri.conf bump is then a no-op. See
+`docs/architecture/native-ai.md` for the identity invariant.
+
 If it fails at the push/release step (auth, network, or permissions), the
 local commit and tag are already created. **Do not retry blindly** — report
 exactly how far it got. The user can fix auth/networking and finish with:

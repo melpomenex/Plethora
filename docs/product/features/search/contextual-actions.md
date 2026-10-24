@@ -11,7 +11,7 @@ platforms:
   - mobile-ios
 summary: Dynamic command palette action sets prioritized and tailored to match the currently active tab (PDF, EPUB, RSS, Podcast, Audiobook).
 how_to: Press Cmd+K while reading a PDF or listening to a podcast. Contextual actions for that specific view appear at the top of the palette.
-why: General commands crowd out specific view operations; contextual actions surface high-relevance operations (like "Zoom In", "Toggle TOC", "Mark Read") instantly.
+why: General commands crowd out specific view operations; contextual actions surface high-relevance operations (like "Zoom Document In", "Toggle TOC", "Mark Read") instantly.
 aliases:
   - contextual commands
   - view actions
@@ -35,7 +35,7 @@ related:
 Dynamically tailors the command palette's action inventory to match the exact context and document format of the active workspace tab.
 
 ## User-Facing Behavior
-- When opening `Cmd+K` in a PDF viewer, top actions include: "Search in Document", "Next Page", "Toggle TOC", "Zoom In", "Create Extract".
+- When opening `Cmd+K` in a PDF viewer, top actions include: "Search in Document", "Next Page", "Toggle TOC", "Zoom Document In", "Create Extract".
 - In RSS view: "Mark Current Read", "Toggle Star", "Open Original", "Refresh Feed".
 - In Podcast view: "Play / Pause", "Skip 10s", "Toggle Transcript".
 - Displays current keyboard shortcut hints beneath action titles.

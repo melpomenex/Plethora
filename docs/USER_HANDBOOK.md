@@ -2414,6 +2414,9 @@ Export your data before major changes (Settings → Backup → Export)
 | `Ctrl/Cmd + R` | Start review |
 | `Ctrl/Cmd + O` | Open document |
 | `Ctrl/Cmd + N` | Import document (alternative) |
+| `Ctrl/Cmd + +` | Increase interface zoom (desktop, 70–150%) |
+| `Ctrl/Cmd + -` | Decrease interface zoom (desktop, 70–150%) |
+| `Ctrl/Cmd + 0` | Reset interface zoom to 100% (desktop) |
 | `Ctrl/Cmd + /` | Show keyboard shortcuts |
 | `?` | Show keyboard shortcuts (no modifier) |
 
@@ -2452,9 +2455,7 @@ Export your data before major changes (Settings → Backup → Export)
 | `Ctrl/Cmd + C` | Copy selected text |
 | `Ctrl/Cmd + E` | Create extract from selection |
 | `Ctrl/Cmd + H` | Highlight selection |
-| `Ctrl/Cmd + +` | Zoom in |
-| `Ctrl/Cmd + -` | Zoom out |
-| `Ctrl/Cmd + 0` | Reset zoom |
+| `Ctrl/Cmd + Scroll` | Zoom the document (toolbar controls also available) |
 | `F11` | Full screen |
 
 ---

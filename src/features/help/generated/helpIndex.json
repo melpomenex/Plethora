@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
-  "corpusHash": "sha256:e6443c20dd331935fbc76e1842c0c70cf86d931d4bbc9919f03d4cf899b73efc",
-  "generatedAt": "2026-10-24T00:25:33.063Z",
+  "corpusHash": "sha256:c0c3d65801e6b0bb935e9c6071bf6bece2aea5189f61973e4e346057111c08f3",
+  "generatedAt": "2026-10-24T19:52:44.066Z",
   "totalDocs": 76,
   "totalChunks": 229,
   "aliasMap": {
@@ -3295,7 +3295,7 @@
       ],
       "summary": "Dynamic command palette action sets prioritized and tailored to match the currently active tab (PDF, EPUB, RSS, Podcast, Audiobook).",
       "how_to": "Press Cmd+K while reading a PDF or listening to a podcast. Contextual actions for that specific view appear at the top of the palette.",
-      "why": "General commands crowd out specific view operations; contextual actions surface high-relevance operations (like \"Zoom In\", \"Toggle TOC\", \"Mark Read\") instantly.",
+      "why": "General commands crowd out specific view operations; contextual actions surface high-relevance operations (like \"Zoom Document In\", \"Toggle TOC\", \"Mark Read\") instantly.",
       "aliases": [
         "contextual commands",
         "view actions",
@@ -3321,7 +3321,7 @@
       "sections": {
         "intro": "# Per-View Contextual Actions",
         "Purpose": "Dynamically tailors the command palette's action inventory to match the exact context and document format of the active workspace tab.",
-        "User-Facing Behavior": "- When opening `Cmd+K` in a PDF viewer, top actions include: \"Search in Document\", \"Next Page\", \"Toggle TOC\", \"Zoom In\", \"Create Extract\".\n- In RSS view: \"Mark Current Read\", \"Toggle Star\", \"Open Original\", \"Refresh Feed\".\n- In Podcast view: \"Play / Pause\", \"Skip 10s\", \"Toggle Transcript\".\n- Displays current keyboard shortcut hints beneath action titles.",
+        "User-Facing Behavior": "- When opening `Cmd+K` in a PDF viewer, top actions include: \"Search in Document\", \"Next Page\", \"Toggle TOC\", \"Zoom Document In\", \"Create Extract\".\n- In RSS view: \"Mark Current Read\", \"Toggle Star\", \"Open Original\", \"Refresh Feed\".\n- In Podcast view: \"Play / Pause\", \"Skip 10s\", \"Toggle Transcript\".\n- Displays current keyboard shortcut hints beneath action titles.",
         "Exact Behavioral Rules": "1. Resolves active tab type and `viewerKind` via `contextualActions.ts`.\n2. Dispatches selected actions over typed `palette-action` window events directly to the active view's registered event listener.\n3. Ranks contextual actions above global application navigation (score 0.95 vs 0.80).",
         "Rationale": "Maintains a compact, clean interface without cluttering toolbars with dozens of niche buttons.",
         "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `palette.prioritizeContextualActions` | `true` | Show view-specific actions first in empty palette |",
@@ -10337,7 +10337,7 @@
       "title": "Per-View Contextual Actions",
       "domain": "search",
       "section": "Summary & How-To",
-      "content": "Title: Per-View Contextual Actions\nDomain: search\nSummary: Dynamic command palette action sets prioritized and tailored to match the currently active tab (PDF, EPUB, RSS, Podcast, Audiobook).\nHow to use: Press Cmd+K while reading a PDF or listening to a podcast. Contextual actions for that specific view appear at the top of the palette.\nRationale: General commands crowd out specific view operations; contextual actions surface high-relevance operations (like \"Zoom In\", \"Toggle TOC\", \"Mark Read\") instantly.\nAliases: contextual commands, view actions, tab actions, dynamic palette\nSettings: palette.prioritizeContextualActions",
+      "content": "Title: Per-View Contextual Actions\nDomain: search\nSummary: Dynamic command palette action sets prioritized and tailored to match the currently active tab (PDF, EPUB, RSS, Podcast, Audiobook).\nHow to use: Press Cmd+K while reading a PDF or listening to a podcast. Contextual actions for that specific view appear at the top of the palette.\nRationale: General commands crowd out specific view operations; contextual actions surface high-relevance operations (like \"Zoom Document In\", \"Toggle TOC\", \"Mark Read\") instantly.\nAliases: contextual commands, view actions, tab actions, dynamic palette\nSettings: palette.prioritizeContextualActions",
       "aliases": [
         "contextual commands",
         "view actions",
