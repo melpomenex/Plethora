@@ -7,7 +7,9 @@
  * AudioTrack and drives the UI via events (no audio URL is returned).
  */
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useId } from "react";
+import { appAudioFocus, type AudioOutputLease } from "../services/audio/audioFocus";
+import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../services/audio/audioPlaybackRollout";
 import { chunkSpeechText, generateSpeech, resolveTTSMaxChunkSize, TTSServiceError } from "../api/tts";
 import { resolveProviderKey } from "../api/tts/auth";
 import { getAdapter } from "../api/tts/registry";
@@ -80,6 +82,9 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const settlePlaybackRef = useRef<(() => void) | null>(null);
+  const outputId = useId();
+  const outputLease = useRef<AudioOutputLease | null>(null);
+  const speechRun = useRef(0);
 
   const hasSpeechSynthesis = typeof window !== "undefined" && "speechSynthesis" in window;
   const hasAudioPlayback = typeof window !== "undefined" && typeof Audio !== "undefined";
@@ -110,6 +115,7 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
         : Boolean(resolvedKey.key)));
 
   const stop = useCallback(() => {
+    speechRun.current++;
     // Resolve the active `speak` promise before cancelling the underlying
     // engine. This makes stop a deliberate "skip this utterance" operation
     // for sequenced flows such as hands-free review.
@@ -125,6 +131,9 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
       audioRef.current.currentTime = 0;
       audioRef.current = null;
     }
+
+    outputLease.current?.release();
+    outputLease.current = null;
 
     setIsGenerating(false);
     setIsSpeaking(false);
@@ -155,8 +164,8 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
   }, [hasSpeechSynthesis, lang, selectedVoice]);
 
   const speakWithWebSpeech = useCallback(
-    (text: string): Promise<void> => {
-      if (!hasSpeechSynthesis) return Promise.resolve();
+    (text: string, valid: () => boolean = () => true): Promise<void> => {
+      if (!hasSpeechSynthesis || !valid()) return Promise.resolve();
 
       window.speechSynthesis.cancel();
 
@@ -183,6 +192,11 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
         settlePlaybackRef.current = finish;
 
         utterance.onstart = () => {
+          if (!valid()) {
+            window.speechSynthesis.cancel();
+            finish();
+            return;
+          }
           setLastError(null);
           setIsSpeaking(true);
           setIsPaused(false);
@@ -207,7 +221,7 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
   );
 
   const speakWithProvider = useCallback(
-    async (text: string, overrides?: SpeakOverrides) => {
+    async (text: string, overrides?: SpeakOverrides, valid: () => boolean = () => true) => {
       if (!hasAudioPlayback) {
         throw new Error("Audio playback is not supported on this platform.");
       }
@@ -220,6 +234,7 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
         voiceId: overrides?.voiceId,
         presetId: overrides?.presetId,
       });
+      if (!valid()) return;
 
       const audio = new Audio(result.audioUrl);
       audio.playbackRate = rate;
@@ -246,6 +261,7 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
         settlePlaybackRef.current = finish;
 
         audio.onplay = () => {
+          if (!valid()) { audio.pause(); finish(); return; }
           setIsGenerating(false);
           setIsSpeaking(true);
           setIsPaused(false);
@@ -284,18 +300,28 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
       stop();
       const normalizedText = cleanText(text);
       if (!normalizedText) return;
+      const run = speechRun.current;
+      let lease: AudioOutputLease | null = null;
+      if (GLOBAL_AUDIO_PLAYBACK_ENABLED) {
+        lease = await appAudioFocus.acquire(`tts:${outputId}`, stop);
+        if (run !== speechRun.current || !lease.isCurrent()) return;
+        outputLease.current = lease;
+      }
+      const valid = () => speechRun.current === run && (!lease || lease.isCurrent());
 
       const runProvider = async (): Promise<void> => {
+        if (!valid()) return;
         const maxChunkSize = await resolveTTSMaxChunkSize(settings);
         for (const chunk of chunkSpeechText(normalizedText, maxChunkSize)) {
-          await speakWithProvider(chunk, overrides);
+          if (!valid()) return;
+          await speakWithProvider(chunk, overrides, valid);
         }
       };
 
       try {
         // System TTS synthesizes directly via the device engine (no audio URL).
         if (isSystemProvider && hasSpeechSynthesis) {
-          await speakWithWebSpeech(normalizedText);
+          await speakWithWebSpeech(normalizedText, valid);
         } else if (providerConfigured) {
           // Change C §4.3: one-time cloud-AI disclosure before sentence text
           // is sent to a cloud TTS provider. Local providers (pocket, system,
@@ -329,9 +355,10 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
           }
           await runProvider();
         } else {
-          await speakWithWebSpeech(normalizedText);
+          await speakWithWebSpeech(normalizedText, valid);
         }
       } catch (error) {
+        if (!valid()) return;
         setIsGenerating(false);
         setIsSpeaking(false);
         setIsPaused(false);
@@ -380,9 +407,11 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
             (error instanceof Error ? error.message : "TTS generation failed.")
         );
 
-        if (hasSpeechSynthesis) {
-          await speakWithWebSpeech(normalizedText);
+        if (hasSpeechSynthesis && valid()) {
+          await speakWithWebSpeech(normalizedText, valid);
         }
+      } finally {
+        if (lease && outputLease.current === lease) { lease.release(); outputLease.current = null; }
       }
     },
     [
@@ -397,6 +426,7 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
       ttsSettings,
       activeConfig,
       activeAdapter,
+      outputId,
     ]
   );
 
@@ -415,6 +445,7 @@ export function useTTS(options: UseTTSOptions = {}): UseTTSReturn {
   }, [hasSpeechSynthesis]);
 
   const resume = useCallback(() => {
+    if (GLOBAL_AUDIO_PLAYBACK_ENABLED && !outputLease.current?.isCurrent()) return;
     if (audioRef.current && audioRef.current.paused) {
       audioRef.current
         .play()

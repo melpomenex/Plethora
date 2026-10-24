@@ -3,7 +3,9 @@
  * Plays local video files with position tracking, playback speed, and keyboard shortcuts
  */
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, useId } from 'react';
+import { appAudioFocus, type AudioOutputLease } from "../../services/audio/audioFocus";
+import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../../services/audio/audioPlaybackRollout";
 import {
   ArrowCounterClockwise,
   CornersOut,
@@ -79,6 +81,13 @@ export function LocalVideoPlayer({
   onEnded,
 }: LocalVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const outputId = useId();
+  const outputLease = useRef<AudioOutputLease | null>(null);
+  const outputRequest = useRef(0);
+  useEffect(() => () => {
+    outputRequest.current++;
+    if (outputLease.current?.isCurrent()) { videoRef.current?.pause(); outputLease.current.release(); }
+  }, []);
   const containerRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
   const { t } = useI18n();
@@ -745,15 +754,29 @@ export function LocalVideoPlayer({
 
   const attemptPlay = useCallback(async (context: string) => {
     if (!videoRef.current) return;
+    const request = ++outputRequest.current;
     try {
+      if (GLOBAL_AUDIO_PLAYBACK_ENABLED) {
+        const video = videoRef.current;
+        const lease = await appAudioFocus.acquire(`local-media:${outputId}`, () => {
+          outputRequest.current++;
+          video.pause();
+          if (!video.paused) throw new Error("Local media did not acknowledge pause");
+        });
+        if (!lease.isCurrent() || outputRequest.current !== request) return;
+        outputLease.current = lease;
+      }
       await videoRef.current.play();
+      if (GLOBAL_AUDIO_PLAYBACK_ENABLED && (!outputLease.current?.isCurrent() || outputRequest.current !== request)) {
+        videoRef.current.pause();
+      }
     } catch (error) {
       const errorMessage = buildPlayErrorMessage(error);
       console.error(`[LocalVideoPlayer] Play error (${context}):`, errorMessage);
       setPlayError(errorMessage);
       toast.error(t("viewer.playbackError"), errorMessage);
     }
-  }, [buildPlayErrorMessage, t, toast]);
+  }, [buildPlayErrorMessage, t, toast, outputId]);
 
   const resetSponsorBlockTracking = useCallback((time: number) => {
     if (sponsorBlockCuts.length > 0) {
@@ -1208,7 +1231,11 @@ export function LocalVideoPlayer({
       onSeeked={() => handleTimeUpdate()}
       onVolumeChange={handleVolumeChange}
       onError={handleMediaElementError}
-      onEnded={onEnded}
+      onEnded={() => {
+        outputLease.current?.release();
+        outputLease.current = null;
+        onEnded?.();
+      }}
     />
   ) : (
     <video
@@ -1232,7 +1259,11 @@ export function LocalVideoPlayer({
       onVolumeChange={handleVolumeChange}
       onError={handleMediaElementError}
       onWheel={handleScroll}
-      onEnded={onEnded}
+      onEnded={() => {
+        outputLease.current?.release();
+        outputLease.current = null;
+        onEnded?.();
+      }}
     />
   );
 

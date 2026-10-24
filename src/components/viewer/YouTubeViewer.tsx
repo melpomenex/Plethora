@@ -3,7 +3,10 @@
  * Displays YouTube videos with synchronized transcript and SponsorBlock integration
  */
 
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, useId } from "react";
+import { appAudioFocus, type AudioOutputLease } from "../../services/audio/audioFocus";
+import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../../services/audio/audioPlaybackRollout";
+import { acknowledgeVideoPause } from "../../services/audio/videoOutput";
 import {
   ArrowCounterClockwise,
   ArrowSquareOut,
@@ -206,6 +209,35 @@ export function YouTubeViewer({
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const playerRef = useRef<YouTubePlayer | null>(null);
+  const outputId = useId();
+  const outputLease = useRef<AudioOutputLease | null>(null);
+  const outputRequest = useRef(0);
+  const outputMounted = useRef(true);
+  const requestVideoPlayback = useCallback(async (player: YouTubePlayer | null) => {
+    if (!player) return;
+    if (!GLOBAL_AUDIO_PLAYBACK_ENABLED) { player.playVideo?.(); return; }
+    const request = ++outputRequest.current;
+    try {
+      const lease = await appAudioFocus.acquire(`youtube:${outputId}`, async () => {
+        outputRequest.current++;
+        await acknowledgeVideoPause(player, () => outputMounted.current);
+      });
+      if (!lease.isCurrent() || outputRequest.current !== request || !outputMounted.current) return;
+      outputLease.current = lease;
+      await player.playVideo();
+      if (!lease.isCurrent() || outputRequest.current !== request || !outputMounted.current) {
+        player.pauseVideo?.();
+      }
+    } catch (error) { setPlayerError({ code: -1, message: String(error) }); }
+  }, [outputId]);
+  useEffect(() => {
+    outputMounted.current = true;
+    return () => {
+      outputMounted.current = false;
+      outputRequest.current++;
+      if (outputLease.current?.isCurrent()) { playerRef.current?.pauseVideo?.(); outputLease.current.release(); }
+    };
+  }, []);
   const _lastSkippedSegmentIdRef = useRef<string | null>(null);
 
   // Premium SponsorBlock Skip Notification overlay states and refs
@@ -230,7 +262,7 @@ export function YouTubeViewer({
     if (playerRef.current) {
       playerRef.current.seekTo(originalStart, true);
       setCurrentTime(originalStart);
-      playerRef.current.playVideo?.();
+      void requestVideoPlayback(playerRef.current);
     }
     
     setSkipNotification(null);
@@ -896,7 +928,7 @@ export function YouTubeViewer({
           && time >= activeExtractEndTime
         ) {
           playerRef.current.seekTo(activeExtractStartTime, true);
-          playerRef.current.playVideo?.();
+          void requestVideoPlayback(playerRef.current);
         }
       } catch {
         // Ignore errors from player (e.g. if it's not ready)
@@ -998,7 +1030,7 @@ export function YouTubeViewer({
 
     if (showInlinePlayer && playerRef.current) {
       playerRef.current.seekTo(time, true);
-      playerRef.current.playVideo?.();
+      void requestVideoPlayback(playerRef.current);
     } else {
       setShowInlinePlayer(true);
     }
@@ -1071,7 +1103,7 @@ export function YouTubeViewer({
     setHasEnded(false);
     if (playerRef.current) {
       playerRef.current.seekTo(0, true);
-      playerRef.current.playVideo?.();
+      void requestVideoPlayback(playerRef.current);
     }
   }, []);
 
@@ -1149,7 +1181,7 @@ export function YouTubeViewer({
 
     if (autoPlayOnOpen) {
       try {
-        event.target.playVideo?.();
+        void requestVideoPlayback(event.target);
       } catch {
         // Autoplay may be blocked by browser policies.
       }
@@ -1164,6 +1196,11 @@ export function YouTubeViewer({
   };
 
   const onPlayerStateChange = (event: any) => {
+    if (event.data === 1 && GLOBAL_AUDIO_PLAYBACK_ENABLED && !outputLease.current?.isCurrent()) {
+      event.target.pauseVideo();
+      void requestVideoPlayback(event.target);
+      return;
+    }
     // Player states: -1 (unstarted), 0 (ended), 1 (playing), 2 (paused), 3 (buffering), 5 (video cued)
     setIsPlaying(event.data === 1);
     
@@ -1187,6 +1224,8 @@ export function YouTubeViewer({
     } else if (event.data === 5) { // Video cued
       void tryApplyInitialSeek("stateCued");
     } else if (event.data === 0) { // Ended
+      outputLease.current?.release();
+      outputLease.current = null;
       setHasEnded(true);
       setShowArchivePrompt(true);
       if (duration > 0) {
@@ -1637,7 +1676,7 @@ export function YouTubeViewer({
                       setCurrentTime(startTime);
                       if (playerRef.current && showInlinePlayer) {
                         playerRef.current.seekTo(startTime, true);
-                        playerRef.current.playVideo?.();
+                        void requestVideoPlayback(playerRef.current);
                       } else {
                         setShowInlinePlayer(true);
                       }

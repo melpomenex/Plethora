@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState, useCallback, useRef, forwardRef, useImperativeHandle } from "react";
+import { useEffect, useMemo, useState, useCallback, useRef, useId, forwardRef, useImperativeHandle } from "react";
+import { appAudioFocus, type AudioOutputLease } from "../../services/audio/audioFocus";
+import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../../services/audio/audioPlaybackRollout";
 import {
   CircleNotch,
   Highlighter,
@@ -423,6 +425,8 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   // Playback tracking refs to avoid race conditions and audio leaks
   const mountedRef = useRef(true);
   const playbackIdRef = useRef(0);
+  const outputId = useId();
+  const outputLease = useRef<AudioOutputLease | null>(null);
 
   // Anchored speech index — the source of truth for chunking, word spans, and
   // source anchors. When the host supplies section-structured text the index
@@ -973,6 +977,31 @@ ref: React.ForwardedRef<ReaderTTSHandle>
     stopWordTracking();
   }, [cancelAudio, stopWordTracking]);
 
+  const releaseReaderOutput = useCallback(() => {
+    outputLease.current?.release();
+    outputLease.current = null;
+  }, []);
+  const acquireReaderOutput = useCallback(async () => {
+    const lease = await appAudioFocus.acquire(`reader:${outputId}`, async () => {
+      intentionalStopRef.current = true;
+      playbackIdRef.current++;
+      setIsAutoPlaying(false);
+      saveListeningPosition(true);
+      stopAudio();
+      if (isAndroidProvider && isAndroidTtsAvailable()) await nativeStop();
+      releaseReaderOutput();
+    });
+    outputLease.current = lease;
+    return lease;
+  }, [outputId, saveListeningPosition, stopAudio, isAndroidProvider, releaseReaderOutput]);
+  useEffect(() => () => {
+    const lease = outputLease.current;
+    outputLease.current = null;
+    if (!lease?.isCurrent()) return;
+    if (isAndroidProvider && isAndroidTtsAvailable()) void nativeStop().then(() => lease.release()).catch(() => undefined);
+    else lease.release();
+  }, [isAndroidProvider]);
+
   // Generate audio for a chunk
   const generateChunkAudio = useCallback(
     async (index: number): Promise<BufferedAudio | null> => {
@@ -1094,6 +1123,10 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       if (index < 0 || index >= list.length) return;
 
       const playId = ++playbackIdRef.current;
+      if (GLOBAL_AUDIO_PLAYBACK_ENABLED) {
+        const lease = await acquireReaderOutput();
+        if (!lease.isCurrent() || !mountedRef.current || playbackIdRef.current !== playId) return;
+      }
 
       const chunk = list[index];
       const chunkText = chunk.text;
@@ -1117,18 +1150,19 @@ ref: React.ForwardedRef<ReaderTTSHandle>
         setIsBuffering(true);
         buffered = await generateChunkAudio(index);
         setIsBuffering(false);
-        if (!mountedRef.current || playbackIdRef.current !== playId) {
+        if (!mountedRef.current || playbackIdRef.current !== playId || (GLOBAL_AUDIO_PLAYBACK_ENABLED && !outputLease.current?.isCurrent())) {
           return;
         }
 
         if (!buffered) {
           console.error("Failed to generate audio for chunk", index);
           setIsAutoPlaying(false);
+          releaseReaderOutput();
           return;
         }
       }
 
-      if (!mountedRef.current || playbackIdRef.current !== playId) {
+      if (!mountedRef.current || playbackIdRef.current !== playId || (GLOBAL_AUDIO_PLAYBACK_ENABLED && !outputLease.current?.isCurrent())) {
         return;
       }
 
@@ -1147,7 +1181,10 @@ ref: React.ForwardedRef<ReaderTTSHandle>
           utterance.lang = sysVoice.lang;
         }
         utterance.onstart = () => {
-          if (!mountedRef.current || playbackIdRef.current !== playId) return;
+          if (!mountedRef.current || playbackIdRef.current !== playId || (GLOBAL_AUDIO_PLAYBACK_ENABLED && !outputLease.current?.isCurrent())) {
+            window.speechSynthesis.cancel();
+            return;
+          }
           setIsPlaying(true);
           setIsPaused(false);
           commitWord(0, null);
@@ -1170,6 +1207,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
             } else {
               advancingRef.current = true;
               setIsAutoPlaying(false);
+              releaseReaderOutput();
               onComplete?.();
               onDaqeProgressRef.current?.({
                 elapsedSec: Math.round(listeningDurationSecRef.current),
@@ -1178,6 +1216,8 @@ ref: React.ForwardedRef<ReaderTTSHandle>
                 totalChunks: chunksLenRef.current,
               });
             }
+          } else {
+            releaseReaderOutput();
           }
         };
         utterance.onerror = () => {
@@ -1185,6 +1225,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
           setIsPlaying(false);
           setIsPaused(false);
           commitWord(0, null);
+          releaseReaderOutput();
         };
         utteranceRef.current = utterance;
         window.speechSynthesis.speak(utterance);
@@ -1260,6 +1301,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
             if (!mountedRef.current || playbackIdRef.current !== playId) return;
             setIsPlaying(false);
             setIsPaused(false);
+            releaseReaderOutput();
             if (isAutoPlayingRef.current && autoAdvance && !intentionalStopRef.current) {
               advancingRef.current = true;
               setIsAutoPlaying(false);
@@ -1278,9 +1320,18 @@ ref: React.ForwardedRef<ReaderTTSHandle>
             if (!mountedRef.current || playbackIdRef.current !== playId) return;
             setIsPlaying(false);
             setIsPaused(false);
+            releaseReaderOutput();
           })
         );
         nativeUnsubRef.current = nativeUnsub;
+
+        if (!mountedRef.current || playbackIdRef.current !== playId || (GLOBAL_AUDIO_PLAYBACK_ENABLED && !outputLease.current?.isCurrent())) {
+          setIsPlaying(false);
+          nativeUnsub.forEach((u) => {
+            try { u(); } catch { /* ignore */ }
+          });
+          return;
+        }
 
         try {
           await nativeSpeak({
@@ -1292,6 +1343,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
         } catch (err) {
           console.error("Native Android TTS failed to start:", err);
           setIsPlaying(false);
+          releaseReaderOutput();
           nativeUnsub.forEach((u) => {
             try {
               u();
@@ -1308,7 +1360,10 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       audioRef.current = audio;
 
       audio.onplay = () => {
-        if (!mountedRef.current || playbackIdRef.current !== playId) return;
+        if (!mountedRef.current || playbackIdRef.current !== playId || (GLOBAL_AUDIO_PLAYBACK_ENABLED && !outputLease.current?.isCurrent())) {
+          audio.pause();
+          return;
+        }
         setIsPlaying(true);
         setIsPaused(false);
         startWordTracking(audio, chunkText, buffered.wordTimings, list[index]);
@@ -1336,6 +1391,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
           } else {
             advancingRef.current = true;
             setIsAutoPlaying(false);
+            releaseReaderOutput();
             onComplete?.();
             onDaqeProgressRef.current?.({
               elapsedSec: Math.round(listeningDurationSecRef.current),
@@ -1344,6 +1400,8 @@ ref: React.ForwardedRef<ReaderTTSHandle>
               totalChunks: chunksLenRef.current,
             });
           }
+        } else {
+          releaseReaderOutput();
         }
       };
 
@@ -1363,19 +1421,27 @@ ref: React.ForwardedRef<ReaderTTSHandle>
         setIsPlaying(false);
         setIsPaused(true);
         stopWordTracking();
+        releaseReaderOutput();
       };
 
       try {
         await audio.play();
+        if (GLOBAL_AUDIO_PLAYBACK_ENABLED && !outputLease.current?.isCurrent()) {
+          audio.pause();
+          return;
+        }
         preBufferChunks(index + 1);
       } catch (error) {
         console.error("Failed to play audio:", error);
         setIsPlaying(false);
         stopWordTracking();
+        releaseReaderOutput();
       }
     },
     [
       chunks,
+      acquireReaderOutput,
+      releaseReaderOutput,
       playbackRate,
       autoAdvance,
       stopAudio,
@@ -1494,6 +1560,10 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       return;
     }
 
+    if (GLOBAL_AUDIO_PLAYBACK_ENABLED) {
+      const lease = await acquireReaderOutput();
+      if (!lease.isCurrent()) return;
+    }
     setIsAutoPlaying(true);
     intentionalStopRef.current = false;
 
@@ -1587,6 +1657,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
     applySessionLeading(null);
     pendingAnchorRef.current = null;
     stopAudio();
+    releaseReaderOutput();
   };
   handleStopRef.current = handleStop;
 

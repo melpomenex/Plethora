@@ -14,7 +14,8 @@
  */
 
 import { useEffect, useRef } from "react";
-import { invokeCommand, isNativeMobile, isTauri, listen } from "../lib/tauri";
+import * as tauriLib from "../lib/tauri";
+const { invokeCommand, isNativeMobile, isTauri, listen } = tauriLib;
 import type {
   LongFormPlaybackCapabilities,
   LongFormPlaybackSection,
@@ -63,6 +64,10 @@ export interface RemoteMediaBridgeOptions {
    */
   playbackState?: LongFormPlaybackState;
   enabled?: boolean;
+  /** True when mounted by the global playback owner (uses compatibility reads rather than registry mutation). */
+  ownerManaged?: boolean;
+  /** Optional ordinary-owner diagnostics; platform errors do not stop in-app transport. */
+  onAdapterError?: (error: string | null) => void;
 }
 
 interface AndroidPendingCommand extends RemoteMediaCommandEnvelope {
@@ -161,23 +166,31 @@ export function useRemoteMediaBridge(options: RemoteMediaBridgeOptions): void {
   const sessionIdRef = useRef(playbackSessionId);
 
   const inTauri = typeof window !== "undefined" && isTauri();
-  const isAndroid = inTauri && isNativeMobile();
+  const isAndroid =
+    inTauri &&
+    ("isNativeAndroid" in tauriLib && typeof tauriLib.isNativeAndroid === "function"
+      ? tauriLib.isNativeAndroid()
+      : isNativeMobile());
   const isDesktop = inTauri && !isNativeMobile();
 
-  // Register the host once per playback identity. The command handlers below
-  // use this registry as a last line of defence when a reader remount leaves a
-  // stale bridge effect alive for one React turn.
+  const anotherSessionOwnsPlayback = (): boolean => {
+    const activeSession = longFormPlaybackSessions.getActive();
+    return Boolean(activeSession && activeSession.sessionId !== sessionIdRef.current);
+  };
+
+  // Register legacy/speech hosts once per playback identity. Ordinary media under
+  // GlobalAudioDesktopBridge passes `ownerManaged: true` and uses compatibility reads.
   useEffect(() => {
-    if (options.enabled === false) return;
     sessionIdRef.current = playbackSessionId;
+    if (options.enabled === false || options.ownerManaged) return;
     const context = optionsRef.current.getContext();
     const session = {
       sessionId: playbackSessionId,
       sourceId: snapshotRef.current.metadata.sourceId,
       sourceKind: snapshotRef.current.metadata.sourceKind,
       getSnapshot: () => snapshotRef.current,
-      play: () => context.onPlayPause?.(),
-      pause: () => context.onPlayPause?.(),
+      play: () => context.onPlay ? context.onPlay() : context.onPlayPause?.(),
+      pause: () => context.onPause ? context.onPause() : context.onPlayPause?.(),
       toggle: () => context.onPlayPause?.(),
       next: () => context.onNextChapter?.(),
       previous: () => context.onPrevChapter?.(),
@@ -186,7 +199,7 @@ export function useRemoteMediaBridge(options: RemoteMediaBridgeOptions): void {
     };
     longFormPlaybackSessions.attach(session);
     return () => longFormPlaybackSessions.detach(playbackSessionId);
-  }, [options.enabled, playbackSessionId]);
+  }, [options.enabled, options.ownerManaged, playbackSessionId]);
 
   // Web adapter (browser/dev only — useMediaSession no-ops inside Tauri): it
   // owns both metadata and command routing in the pure-browser environment.
@@ -202,6 +215,7 @@ export function useRemoteMediaBridge(options: RemoteMediaBridgeOptions): void {
     section: options.section,
     capabilities: options.capabilities,
     enabled: options.enabled,
+    shouldPreserveHandlersOnUnmount: anotherSessionOwnsPlayback,
     get context() {
       return optionsRef.current.getContext();
     },
@@ -212,6 +226,7 @@ export function useRemoteMediaBridge(options: RemoteMediaBridgeOptions): void {
     if (!isDesktop || options.enabled === false) return;
 
     let unlisten: (() => void) | null = null;
+    let unlistenError: (() => void) | null = null;
     let cancelled = false;
 
     void (async () => {
@@ -225,13 +240,21 @@ export function useRemoteMediaBridge(options: RemoteMediaBridgeOptions): void {
       ).catch(() => null);
       unlisten = typeof listened === "function" ? listened : () => {};
       if (cancelled) unlisten();
+      const errorListener = await Promise.resolve(listen<string>("media-control-error", event => {
+        optionsRef.current.onAdapterError?.(event.payload);
+      })).catch(() => null);
+      unlistenError = typeof errorListener === "function" ? errorListener : () => {};
+      if (cancelled) unlistenError();
     })();
 
     return () => {
       cancelled = true;
       unlisten?.();
-      // Clean OS integration teardown when the player unmounts.
-      Promise.resolve(invokeCommand("detach_media_controls")).catch(() => {});
+      unlistenError?.();
+      // Never detach another session's OS media controls when a view unmounts.
+      if (!anotherSessionOwnsPlayback()) {
+        Promise.resolve(invokeCommand("detach_media_controls")).catch(() => {});
+      }
     };
   }, [isDesktop, options.enabled]);
 
@@ -261,8 +284,8 @@ export function useRemoteMediaBridge(options: RemoteMediaBridgeOptions): void {
         state: snapshotRef.current.state,
         updatedAt: snapshotRef.current.updatedAt,
       })
-    ).catch(() => {
-      // bridge not implemented on this platform build — in-app controls still work
+    ).then(() => optionsRef.current.onAdapterError?.(null)).catch(error => {
+      optionsRef.current.onAdapterError?.(String(error));
     });
   }, [
     isDesktop,
@@ -371,8 +394,10 @@ export function useRemoteMediaBridge(options: RemoteMediaBridgeOptions): void {
     return () => {
       window.removeEventListener("media://remote-command", listener as EventListener);
       document.removeEventListener("visibilitychange", onVisibility);
-      setMediaCommandAckHandler(null);
-      void invokePluginSafe("plugin:plethora-android-tts|stop_media_session");
+      if (!anotherSessionOwnsPlayback()) {
+        setMediaCommandAckHandler(null);
+        void invokePluginSafe("plugin:plethora-android-tts|stop_media_session");
+      }
       startRequestedRef.current = false;
     };
   }, [isAndroid, options.enabled]);

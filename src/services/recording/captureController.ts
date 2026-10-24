@@ -14,6 +14,8 @@ import {
   acquireAudioCapture,
 } from "../../lib/speech/captureOwner";
 import { generateId } from "../../utils/id";
+import { appAudioFocus, type AudioOutputLease } from "../audio/audioFocus";
+import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../audio/audioPlaybackRollout";
 import {
   useRecordingSessionStore,
 } from "../../stores/recordingSessionStore";
@@ -57,6 +59,7 @@ export interface StartCaptureOptions {
 export class CaptureController {
   private activeHandle: CaptureHandle | null = null;
   private releaseLease: (() => void) | null = null;
+  private outputLease: AudioOutputLease | null = null;
   private activeEpoch: string | null = null;
   private finishPromise: Promise<{ assetId: string; incomplete: boolean }> | null = null;
 
@@ -128,6 +131,16 @@ export class CaptureController {
       };
       store.setError(opError);
       throw err;
+    }
+
+    if (GLOBAL_AUDIO_PLAYBACK_ENABLED) {
+      try {
+        this.outputLease = await appAudioFocus.acquire("recording-capture", () => { throw new Error("Finish recording before starting another audio source"); });
+      } catch (error) {
+        this.safeReleaseLease();
+        store.transition({ type: "INIT_FAILED" });
+        throw error;
+      }
     }
 
     // Persist recording session row if supported and not already created
@@ -393,6 +406,8 @@ export class CaptureController {
   }
 
   private safeReleaseLease(): void {
+    this.outputLease?.release();
+    this.outputLease = null;
     if (this.releaseLease) {
       try {
         this.releaseLease();

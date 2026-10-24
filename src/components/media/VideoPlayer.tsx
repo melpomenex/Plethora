@@ -1,4 +1,5 @@
 import { useRef, useState, useEffect } from "react";
+import { useMediaOutput } from "../../hooks/useMediaOutput";
 import {
   Camera,
   CornersIn,
@@ -30,6 +31,8 @@ export function VideoPlayer({
 }: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const output = useMediaOutput(videoRef, src);
+  const [focusError, setFocusError] = useState<string | null>(null);
 
   // Playback state
   const [isPlaying, setIsPlaying] = useState(false);
@@ -81,21 +84,22 @@ export function VideoPlayer({
   };
 
   // Toggle play/pause
-  const togglePlay = () => {
-    if (videoRef.current) {
-      if (isPlaying) {
-        videoRef.current.pause();
-      } else {
-        const videoDuration = duration > 0 ? duration : (videoRef.current.duration || 0);
-        const isNearEnd = videoDuration > 0 && videoRef.current.currentTime >= videoDuration - 1;
-        if (videoRef.current.ended || isNearEnd) {
-          videoRef.current.currentTime = 0;
-          setCurrentTime(0);
-        }
-        videoRef.current.play();
-      }
-      setIsPlaying(!isPlaying);
+  const togglePlay = async () => {
+    const video = videoRef.current;
+    if (!video) return;
+    if (isPlaying) {
+      output.pause();
+      setIsPlaying(false);
+      return;
     }
+    const videoDuration = duration > 0 ? duration : (video.duration || 0);
+    const isNearEnd = videoDuration > 0 && video.currentTime >= videoDuration - 1;
+    if (video.ended || isNearEnd) { video.currentTime = 0; setCurrentTime(0); }
+    try {
+      if (!await output.play()) return;
+      setFocusError(null);
+      setIsPlaying(true);
+    } catch (error) { setFocusError(String(error)); }
   };
 
   // Skip forward/backward
@@ -266,6 +270,7 @@ export function VideoPlayer({
         onEnded={() => setIsPlaying(false)}
         onClick={(e) => e.stopPropagation()}
       />
+      {focusError && <p role="alert" className="absolute left-3 right-3 top-3 rounded-md bg-surface-container p-3 text-sm text-error">{focusError}</p>}
 
       {/* Controls */}
       <div

@@ -30,6 +30,7 @@ export interface MediaSessionOptions {
   section?: LongFormPlaybackSection;
   capabilities?: LongFormPlaybackCapabilities;
   enabled?: boolean;
+  shouldPreserveHandlersOnUnmount?: () => boolean;
   context: RemoteMediaContext;
 }
 
@@ -141,6 +142,9 @@ export function useMediaSession(options: MediaSessionOptions): void {
     });
 
     return () => {
+      if (optionsRef.current.shouldPreserveHandlersOnUnmount?.()) {
+        return;
+      }
       actionHandlers.forEach(([action]) => {
         try {
           navigator.mediaSession.setActionHandler(action, null);

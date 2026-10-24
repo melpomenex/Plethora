@@ -14,7 +14,9 @@
  * The main useTTS hook detects `provider === "android"` and delegates here.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useId } from "react";
+import { appAudioFocus, type AudioOutputLease } from "../services/audio/audioFocus";
+import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../services/audio/audioPlaybackRollout";
 import { isNativeMobile } from "../lib/tauri";
 import { chunkSpeechText, resolveTTSMaxChunkSize } from "../api/tts";
 import {
@@ -83,6 +85,9 @@ export function useNativeAndroidTTS(
   const utteranceRef = useRef<number>(-1);
   /** Whether the OS media-session service has been started for this session. */
   const mediaSessionStartedRef = useRef(false);
+  const outputId = useId();
+  const outputLease = useRef<AudioOutputLease | null>(null);
+  const speechRun = useRef(0);
 
   // ── Event subscriptions ──────────────────────────────────────────────
   useEffect(() => {
@@ -93,6 +98,9 @@ export function useNativeAndroidTTS(
 
     (async () => {
       const u1 = await onPlaybackState((state: AndroidTtsPlaybackState) => {
+        if ((state === "loading" || state === "playing" || state === "paused") && GLOBAL_AUDIO_PLAYBACK_ENABLED && !outputLease.current?.isCurrent()) {
+          return;
+        }
         switch (state) {
           case "loading":
             setIsGenerating(true);
@@ -115,6 +123,8 @@ export function useNativeAndroidTTS(
             setIsGenerating(false);
             setActiveSentenceIndex(-1);
             setActiveSentence(null);
+            outputLease.current?.release();
+            outputLease.current = null;
             break;
           case "idle":
             setIsSpeaking(false);
@@ -125,10 +135,13 @@ export function useNativeAndroidTTS(
             setIsSpeaking(false);
             setIsPaused(false);
             setIsGenerating(false);
+            outputLease.current?.release();
+            outputLease.current = null;
             break;
         }
       });
       const u2 = await onSentencePosition((e) => {
+        if (GLOBAL_AUDIO_PLAYBACK_ENABLED && !outputLease.current?.isCurrent()) return;
         if (e.utteranceId < utteranceRef.current) return; // stale utterance
         utteranceRef.current = e.utteranceId;
         setActiveSentenceIndex(e.index);
@@ -142,11 +155,15 @@ export function useNativeAndroidTTS(
         setIsGenerating(false);
         setActiveSentenceIndex(-1);
         setActiveSentence(null);
+        outputLease.current?.release();
+        outputLease.current = null;
       });
       const u4 = await onTtsError((e) => {
         setLastError(e.message);
         setIsSpeaking(false);
         setIsGenerating(false);
+        outputLease.current?.release();
+        outputLease.current = null;
       });
       if (cancelled) {
         u1();
@@ -192,15 +209,31 @@ export function useNativeAndroidTTS(
     }).catch(() => {});
   }, [available, isGenerating, isPaused, isSpeaking]);
 
+  const quiesceNative = useCallback(async () => {
+    speechRun.current++;
+    await pluginStop();
+    if (mediaSessionStartedRef.current) await pluginStopMediaSession();
+    mediaSessionStartedRef.current = false;
+    outputLease.current?.release(); outputLease.current = null;
+    setActiveSentenceIndex(-1); setActiveSentence(null);
+    setIsSpeaking(false); setIsPaused(false); setIsGenerating(false);
+  }, []);
+
   const speak = useCallback(
     async (text: string, overrides?: { voiceId?: string; presetId?: string }) => {
       if (!available) return;
       const normalized = cleanText(text);
       if (!normalized) return;
+      const run = ++speechRun.current;
 
       // Stop any in-flight utterance first (single-engine ownership is also
       // enforced natively, but this keeps highlight state tidy).
       await pluginStop().catch(() => {});
+      if (GLOBAL_AUDIO_PLAYBACK_ENABLED) {
+        const lease = await appAudioFocus.acquire(`native-tts:${outputId}`, quiesceNative);
+        if (run !== speechRun.current || !lease.isCurrent()) return;
+        outputLease.current = lease;
+      }
       setActiveSentenceIndex(-1);
       setActiveSentence(null);
       setLastError(null);
@@ -221,6 +254,7 @@ export function useNativeAndroidTTS(
         sentences = [normalized];
       }
       if (sentences.length === 0) sentences = [normalized];
+      if (run !== speechRun.current || (GLOBAL_AUDIO_PLAYBACK_ENABLED && !outputLease.current?.isCurrent())) return;
 
       setIsGenerating(true);
       // Do NOT seed utteranceRef here. It used to be set to Date.now() as a
@@ -241,10 +275,12 @@ export function useNativeAndroidTTS(
         });
       } catch (error) {
         setIsGenerating(false);
+        outputLease.current?.release();
+        outputLease.current = null;
         setLastError(error instanceof Error ? error.message : "Native TTS failed to start.");
       }
     },
-    [available, settings, rate]
+    [available, settings, rate, outputId, quiesceNative]
   );
 
   const pause = useCallback(() => {
@@ -254,11 +290,14 @@ export function useNativeAndroidTTS(
 
   const resume = useCallback(() => {
     if (!available) return;
+    if (GLOBAL_AUDIO_PLAYBACK_ENABLED && !outputLease.current?.isCurrent()) return;
     void pluginResume().catch(() => {});
   }, [available]);
 
   const stop = useCallback(() => {
     if (!available) return;
+    if (GLOBAL_AUDIO_PLAYBACK_ENABLED) { void quiesceNative().catch(error => setLastError(String(error))); return; }
+    speechRun.current++;
     void pluginStop().catch(() => {});
     void pluginStopMediaSession().catch(() => {});
     mediaSessionStartedRef.current = false;
@@ -267,7 +306,7 @@ export function useNativeAndroidTTS(
     setIsSpeaking(false);
     setIsPaused(false);
     setIsGenerating(false);
-  }, [available]);
+  }, [available, quiesceNative]);
 
   // OS media session lifecycle: start the service only once a real speaking
   // or paused-and-resumable session exists — generation/loading must not
@@ -284,12 +323,13 @@ export function useNativeAndroidTTS(
   useEffect(() => {
     return () => {
       if (available) {
+        if (GLOBAL_AUDIO_PLAYBACK_ENABLED) { void quiesceNative().catch(() => {}); return; }
         void pluginStop().catch(() => {});
         void pluginStopMediaSession().catch(() => {});
         mediaSessionStartedRef.current = false;
       }
     };
-  }, [available]);
+  }, [available, quiesceNative]);
 
   return {
     speak,

@@ -105,14 +105,21 @@ export function useAlignmentPlayback(
 export function useSeekToAlignedWord(
   audioRef: React.RefObject<HTMLAudioElement | null>,
   lookup: PlaybackLookup | null,
+  onSeekSeconds?: (seconds: number) => void,
 ): (word: AlignedWord) => void {
   return useCallback(
     (word: AlignedWord) => {
+      const targetSec = Math.max(0, word.startMs / 1000);
+      if (onSeekSeconds) {
+        lookup?.resetCursor();
+        onSeekSeconds(targetSec);
+        return;
+      }
       const audio = audioRef.current;
       if (!audio) return;
       lookup?.resetCursor();
-      audio.currentTime = word.startMs / 1000;
+      audio.currentTime = targetSec;
     },
-    [audioRef, lookup],
+    [audioRef, lookup, onSeekSeconds],
   );
 }
