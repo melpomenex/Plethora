@@ -277,6 +277,15 @@ export async function getDownloadedEpisodePath(
 export async function deleteDownloadedEpisode(
   episodeId: string,
 ): Promise<void> {
+  const { notifyAudioSourceDeleting } = await import("../services/audio/audioDeletionHook");
+  await notifyAudioSourceDeleting((key, item) => {
+    if (key.kind !== "podcast" || key.sourceId !== episodeId) return false;
+    // Release local file handle before deleting downloaded media on disk, or when offline.
+    const activeUrl = item?.parts[0]?.browserUrl ?? "";
+    const isRemote = /^https?:\/\//i.test(activeUrl) && !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(?::|\/)/i.test(activeUrl);
+    const offline = typeof navigator !== "undefined" && navigator.onLine === false;
+    return !isRemote || offline;
+  });
   if (isWebMode()) {
     return browserInvoke<void>("delete_downloaded_episode", { episodeId });
   }

@@ -8,7 +8,7 @@ import type { PdfSelectionContext } from '../types/selection';
 import { isMarketingCaptureNamespace } from './marketingCapture/namespace';
 
 // Database version - increment when schema changes
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const DEFAULT_DB_NAME = 'plethora';
 // Legacy database name written by Incrementum releases. The one-shot
 // migration below copies its contents into the new database on first run;
@@ -26,6 +26,7 @@ const STORES = {
     imageAssets: 'image_assets',
     podcastFeeds: 'podcast_feeds',
     podcastEpisodes: 'podcast_episodes',
+    audioPlayback: 'audio_playback',
 } as const;
 
 // Avoid storing extremely large document content in IndexedDB values.
@@ -189,6 +190,8 @@ export async function openDatabase(): Promise<IDBDatabase> {
     const opened = await new Promise<IDBDatabase>((resolve, reject) => {
         const request = indexedDB.open(databaseName, DB_VERSION);
 
+        request.onblocked = () => reject(new Error('Close other Plethora tabs to update local storage.'));
+
         request.onerror = () => {
             const err = request.error;
             if (err?.message?.includes('backing store') || err?.name === 'UnknownError') {
@@ -198,6 +201,11 @@ export async function openDatabase(): Promise<IDBDatabase> {
         };
         request.onsuccess = () => {
             db = request.result;
+            const connection = db;
+            connection.onversionchange = () => {
+                connection.close();
+                if (db === connection) db = null;
+            };
             resolve(db);
         };
 
@@ -255,6 +263,10 @@ export async function openDatabase(): Promise<IDBDatabase> {
             }
 
             // Podcast episodes store
+            if (!database.objectStoreNames.contains(STORES.audioPlayback)) {
+                database.createObjectStore(STORES.audioPlayback, { keyPath: 'key' });
+            }
+
             if (!database.objectStoreNames.contains(STORES.podcastEpisodes)) {
                 const epStore = database.createObjectStore(STORES.podcastEpisodes, { keyPath: 'id' });
                 epStore.createIndex('by_feed_id', 'feed_id', { unique: false });

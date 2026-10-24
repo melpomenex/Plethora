@@ -4842,6 +4842,11 @@ pub const MIGRATIONS: &[Migration] = &[
             ON session_learning_drafts(run_id);
         "#,
     ),
+    // Local-only audio authority; no sync entity or legacy progress key is removed.
+    Migration::new(
+        "132_global_audio_checkpoints",
+        include_str!("audio_playback.sql"),
+    ),
 ];
 
 /// Get the migrations directory path

@@ -106,6 +106,10 @@ export async function updateAudioEditionStatus(
 }
 
 export async function deleteAudioEdition(id: string): Promise<void> {
+  const { notifyAudioSourceDeleting } = await import("../services/audio/audioDeletionHook");
+  await notifyAudioSourceDeleting(
+    (key, item) => (key.kind === "audio_edition" && key.sourceId === id) || item?.editionId === id,
+  );
   // Capture the edition's section ids before deletion so their live audio
   // URLs can be revoked afterwards (task 5.2). Dynamic import: the edition
   // generation store imports this module, so a static edge would cycle.

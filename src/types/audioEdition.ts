@@ -113,6 +113,7 @@ export type RemoteMediaCommandSource = "android" | "desktop" | "ios" | "web";
  * controlling, not where the document was opened.
  */
 export type LongFormPlaybackSourceKind =
+  | "recording"
   | "podcast"
   | "audiobook"
   | "audio_edition"
@@ -123,6 +124,7 @@ export type LongFormPlaybackSourceKind =
   | "native_android_tts";
 
 export type LongFormPlaybackState =
+  | "error"
   | "idle"
   | "loading"
   | "playing"
@@ -142,6 +144,17 @@ export interface LongFormPlaybackCapabilities {
   precisePosition: boolean;
   canNext: boolean;
   canPrevious: boolean;
+  /** Optional owner-processing capabilities; absent means unavailable. */
+  canBoostVolume?: boolean;
+  canSkipSilence?: boolean;
+}
+
+/** Source-policy interval in the same global media coordinate as positionSec. */
+export interface AudioPolicyInterval {
+  id: string;
+  category: string;
+  startSec: number;
+  endSec: number;
 }
 
 export interface LongFormPlaybackSection {
@@ -207,10 +220,138 @@ export interface RemoteMediaCommandEnvelope {
   /** Active source/session identity at the time of the physical event. */
   sourceId?: string;
   sessionId?: string;
+  generation?: number;
+  /** A native receipt observes transport already applied by the service. */
+  transportApplied?: boolean;
   /** Optional playback position at press time, used when reconciling queued commands. */
   positionHintSec?: number;
   /** Absolute position for `SeekTo`; relative seeks use the canonical increments. */
   positionSec?: number;
+}
+
+/** Stable library identity; never substitute a podcast episode id for a document id. */
+export interface AudioSourceKey {
+  profileKey: string;
+  kind: "audiobook" | "podcast" | "audio_edition" | "recording";
+  sourceId: string;
+}
+
+export type AudioPauseReason = "user" | "focus" | "headphones" | "sleep" |
+  "source-switch" | "suspend" | "account" | "ended";
+
+export type AudioPlaybackErrorCode = "source_missing" | "permission_denied" |
+  "unsupported_codec" | "network" | "expired_url" | "corrupt_media" |
+  "focus_denied" | "persistence" | "unsupported_command";
+
+export interface AudioPlaybackError {
+  code: AudioPlaybackErrorCode;
+  message: string;
+}
+
+export interface ResolvedAudioPart {
+  partId: string;
+  sourceRevision: string;
+  browserUrl?: string;
+  nativeUri?: string;
+  durationSec: number | null;
+  globalStartSec: number | null;
+  title?: string;
+}
+
+export interface ResolvedAudioItem {
+  sourceKey: AudioSourceKey;
+  title: string;
+  artist?: string;
+  artworkUrl?: string;
+  documentId?: string;
+  editionId?: string;
+  mediaRevision: string;
+  parts: readonly ResolvedAudioPart[];
+  /** False when more synthesis/preparation is required after the ready manifest. */
+  complete: boolean;
+  resume?: { partIndex: number; timeInPart: number };
+  /** Optional sponsor/pre-cut policy intervals owned by the playback session. */
+  policyIntervals?: readonly AudioPolicyInterval[];
+  release?: () => void;
+}
+
+/** Mandatory incarnation fields for authoritative owners; legacy adapters stay compatible. */
+export interface AudioPlaybackSnapshot extends LongFormPlaybackStateSnapshot {
+  schemaVersion: 1;
+  ownerEpoch?: string;
+  ownerSequence?: number;
+  sourceKey: AudioSourceKey;
+  generation: number;
+  revision: number;
+  playIntent: boolean;
+  pauseReason: AudioPauseReason | null;
+  partIndex: number;
+  timeInPart: number;
+  /** Null after an unknown-length part; positionSec then displays part-local elapsed time. */
+  globalPositionSec: number | null;
+  sleepDeadlineMs: number | null;
+  volume: number;
+  mediaRevision: string;
+  checkpointSequence: number;
+  /** Explicit continuation context; mounting a source never creates a queue. */
+  queue?: readonly AudioSourceKey[];
+  /** Latest source-policy skip applied by the owner (safe for native/desktop observers). */
+  policySkip?: { id: string; category: string; fromSec: number; toSec: number; at: number };
+  error?: AudioPlaybackError;
+}
+
+export type AudioPlaybackCommand =
+  | { command: "play" | "toggle" | "stop" | "next" | "previous" | "queueNext" | "queuePrevious" }
+  | { command: "pause"; reason?: AudioPauseReason }
+  | { command: "selectChapter"; index: number }
+  | { command: "seekTo" | "seekRelative" | "setRate" | "setVolume"; value: number }
+  | { command: "sleep"; deadlineMs: number | null };
+
+export interface AudioCommandRequest {
+  schemaVersion: 1;
+  requestId: string;
+  sessionId: string;
+  generation: number;
+  expectedRevision?: number;
+  action: AudioPlaybackCommand;
+}
+
+export interface AudioCommandResult {
+  disposition: "accepted" | "duplicate" | "stale" | "failed";
+  snapshot: AudioPlaybackSnapshot | null;
+  error?: AudioPlaybackError;
+}
+
+export interface AudioCheckpoint {
+  schemaVersion: 1;
+  sourceKey: AudioSourceKey;
+  ownerEpoch: string;
+  checkpointSequence: number;
+  sessionId: string;
+  mediaRevision: string;
+  partIndex: number;
+  timeInPart: number;
+  positionSec: number | null;
+  durationSec: number | null;
+  playbackRate: number;
+  updatedAt: number;
+}
+
+/** Local recovery intent contains identities only, never transient URLs or transcript data. */
+export interface SavedAudioSession {
+  schemaVersion: 1;
+  current: AudioSourceKey | null;
+  queue: AudioSourceKey[];
+  playbackRate: number;
+  volume: number;
+  sleepDeadlineMs: number | null;
+  updatedAt: number;
+}
+
+export interface SavedAudioSessionRecord {
+  ownerEpoch: string;
+  session: SavedAudioSession | null;
+  invalidSession?: boolean;
 }
 
 export type NativeMediaCommandDisposition =

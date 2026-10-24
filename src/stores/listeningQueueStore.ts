@@ -26,6 +26,15 @@ export interface ListeningQueueStoreState {
   updatePosition: (id: string, positionSeconds: number) => void;
   setSpeed: (speed: number) => void;
   clearQueue: () => void;
+  /**
+   * Controller projection: the audio owner supplies identity/order. This keeps
+   * the persisted item shape without becoming a second playback authority.
+   */
+  replaceProjection: (
+    items: ListeningQueueItem[],
+    currentItemId: string | null,
+    playbackSpeed: number,
+  ) => void;
 }
 
 export const useListeningQueueStore = create<ListeningQueueStoreState>()(
@@ -87,6 +96,19 @@ export const useListeningQueueStore = create<ListeningQueueStoreState>()(
 
       clearQueue: () => {
         set({ items: [], currentItemId: null });
+      },
+
+      replaceProjection: (items, currentItemId, playbackSpeed) => {
+        const state = get();
+        const next = items.slice(0, 128);
+        if (
+          state.currentItemId === currentItemId &&
+          state.playbackSpeed === playbackSpeed &&
+          JSON.stringify(state.items) === JSON.stringify(next)
+        ) {
+          return;
+        }
+        set({ items: next, currentItemId, playbackSpeed });
       },
     }),
     {

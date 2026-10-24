@@ -12,6 +12,8 @@ pub mod anna_archive;
 pub mod answer_assessment;
 pub mod article_capture;
 pub mod audio_editions;
+pub mod audio_playback;
+pub mod audio_sources;
 pub mod audiobook;
 pub mod category;
 pub mod cloud;

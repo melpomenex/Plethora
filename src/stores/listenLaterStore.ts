@@ -225,3 +225,19 @@ export const useListenLaterStore = create<ListenLaterState>()(
     }
   )
 );
+
+// Prefetch/synthesis completes outside the enqueue action. Mark the item ready
+// so the controller queue projection can include the next prepared edition.
+useAudioEditionGenerationStore.subscribe((state, previous) => {
+  if (state.jobs === previous.jobs) return;
+  const queue = useListenLaterStore.getState().queue;
+  let changed = false;
+  const nextQueue = queue.map((item) => {
+    if (!item.editionId || item.isSynthesized) return item;
+    const job = state.jobs[item.editionId];
+    if (!job || job.totalSections <= 0 || job.completedSections < job.totalSections) return item;
+    changed = true;
+    return { ...item, isSynthesized: true };
+  });
+  if (changed) useListenLaterStore.setState({ queue: nextQueue });
+});

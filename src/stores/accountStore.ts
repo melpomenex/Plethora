@@ -5,6 +5,7 @@ import { invoke, isTauri } from '../lib/tauri';
 import { isTauriRuntimeTarget } from '../lib/runtimeTarget';
 import { PLETHORA_API_URL, isCloudApiEnabled } from '../config/product';
 import { useEntitlementStore } from './entitlementStore';
+import { completeAudioAccountChange, prepareAudioAccountChange } from '../services/audio/audioAccountBoundary';
 import {
   CAPABILITY_REGISTRY,
   FREE_DEFAULT_SNAPSHOT,
@@ -238,6 +239,7 @@ export const useAccountStore = create<AccountStoreState>()(
       error: null,
 
       signIn: async (email: string, password: string, deviceName?: string) => {
+        await prepareAudioAccountChange();
         set({ loading: true, error: null });
         try {
           if (!isCloudApiEnabled()) {
@@ -291,6 +293,7 @@ export const useAccountStore = create<AccountStoreState>()(
           if (optimistic) useEntitlementStore.getState().setSnapshot(optimistic);
           void useEntitlementStore.getState().refresh();
           void get().loadDevices();
+          void completeAudioAccountChange(normalized.user.id);
         } catch (err) {
           const message = authErrorMessage(err, 'Sign-in failed. Please try again.');
           set({
@@ -306,6 +309,7 @@ export const useAccountStore = create<AccountStoreState>()(
       },
 
       register: async (email: string, password: string, deviceName?: string) => {
+        await prepareAudioAccountChange();
         set({ loading: true, error: null });
         try {
           if (!isCloudApiEnabled()) {
@@ -348,6 +352,7 @@ export const useAccountStore = create<AccountStoreState>()(
           if (optimistic) useEntitlementStore.getState().setSnapshot(optimistic);
           void useEntitlementStore.getState().refresh();
           void get().loadDevices();
+          void completeAudioAccountChange(normalized.user.id);
         } catch (err) {
           const message = authErrorMessage(err, 'Registration failed. Please try again.');
           set({
@@ -363,6 +368,7 @@ export const useAccountStore = create<AccountStoreState>()(
       },
 
       signOut: async (localOnly = true) => {
+        await prepareAudioAccountChange();
         set({ loading: true });
         try {
           const tokens = get().tokens;
@@ -393,6 +399,7 @@ export const useAccountStore = create<AccountStoreState>()(
           // in-memory snapshot already; refresh() then resolves anonymous.
           useEntitlementStore.getState().setSnapshot(FREE_DEFAULT_SNAPSHOT);
           void useEntitlementStore.getState().refresh();
+          void completeAudioAccountChange(null);
         }
       },
 

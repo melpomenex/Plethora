@@ -62,10 +62,14 @@ export interface RemoteMediaContext {
   captureConfidence?: CaptureConfidence;
   provider?: string;
   onPlayPause?: () => void;
+  onPlay?: () => void;
+  onPause?: () => void;
   onNextChapter?: () => void;
   onPrevChapter?: () => void;
   onSeekRelative?: (deltaSec: number) => void;
   onSeekAbsolute?: (positionSec: number) => void;
+  /** Optional owner-scoped ducking for hands-free feedback when no raw HTMLAudioElement is exposed. */
+  onDuckAudio?: (duckRatio: number, durationMs: number) => void;
   /** Optional immediate Q&A hand-off; the durable inbox marker is always persisted too. */
   onAskPlethora?: (passage: string) => void;
 }
@@ -519,7 +523,11 @@ export async function executeStudyAction(
       action === "mark_confusing" ||
       action === "ask_plethora";
     if (isCapture) {
-      duckAudio(ctx.audioElement, duckRatio, 700);
+      if (ctx.onDuckAudio) {
+        ctx.onDuckAudio(duckRatio, 700);
+      } else {
+        duckAudio(ctx.audioElement, duckRatio, 700);
+      }
     }
 
     switch (action) {
@@ -633,22 +641,24 @@ function studyActionForCommand(
   }
 }
 
+function invokeTransport(handler: (() => void) | undefined): boolean {
+  if (!handler) return false;
+  handler();
+  return true;
+}
+
 function runTransport(command: RemoteMediaCommand, ctx: RemoteMediaContext, positionSec?: number): boolean {
   switch (command) {
     case "Play":
+      return invokeTransport(ctx.onPlay ?? ctx.onPlayPause);
     case "Pause":
+      return invokeTransport(ctx.onPause ?? ctx.onPlayPause);
     case "TogglePlayPause":
-      if (!ctx.onPlayPause) return false;
-      ctx.onPlayPause();
-      return true;
+      return invokeTransport(ctx.onPlayPause);
     case "Next":
-      if (!ctx.onNextChapter) return false;
-      ctx.onNextChapter();
-      return true;
+      return invokeTransport(ctx.onNextChapter);
     case "Previous":
-      if (!ctx.onPrevChapter) return false;
-      ctx.onPrevChapter();
-      return true;
+      return invokeTransport(ctx.onPrevChapter);
     case "SeekForward":
       if (!ctx.onSeekRelative) return false;
       ctx.onSeekRelative(NORMAL_SEEK_FORWARD_SEC);
@@ -712,6 +722,15 @@ export function dispatchRemoteMediaCommand(
     const handsFree = settings.handsFreeStudy;
     const isStudyMode = handsFree?.enabled === true;
 
+    // A native observation receipt (`transportApplied === true`) means the OS
+    // media service already executed transport directly against its decoder.
+    // Record & acknowledge the receipt so it is never re-executed in JS.
+    if (envelope.transportApplied === true) {
+      markAcceptedEvent(eventId);
+      if (envelope.source !== "web" && mediaCommandAckHandler) mediaCommandAckHandler([eventId]);
+      return { accepted: true, disposition: "accepted", eventId };
+    }
+
     // A replayed envelope carries the position at press time.
     const dispatchCtx: RemoteMediaContext =
       typeof envelope.positionHintSec === "number" &&
@@ -731,10 +750,9 @@ export function dispatchRemoteMediaCommand(
 
     // Play/Pause are never remapped, in either mode.
     if (command === "Play" || command === "Pause" || command === "TogglePlayPause") {
-      if (!dispatchCtx.onPlayPause) {
+      if (!runTransport(command, dispatchCtx, envelope.positionSec)) {
         return { accepted: false, disposition: "retryable_failure", eventId, reason: "no_active_session" };
       }
-      dispatchCtx.onPlayPause();
       markAcceptedEvent(eventId);
       if (envelope.source !== "web" && mediaCommandAckHandler) mediaCommandAckHandler([eventId]);
       return { accepted: true, disposition: "accepted", eventId };

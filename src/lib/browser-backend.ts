@@ -4,6 +4,8 @@
  */
 
 import * as db from './database.js';
+import { claimBrowserAudioOwner, commitBrowserAudioCheckpoint, getBrowserAudioCheckpoint, getBrowserAudioSession, saveBrowserAudioSession } from '../services/audio/browserAudioCheckpoints';
+import type { AudioCheckpoint, AudioSourceKey, SavedAudioSession } from '../types/audioEdition';
 import { browserCaptureSourceUrl, hasShareCaptureEvidence, shareCaptureSourceUrl } from '../utils/captureSource';
 import { DEFAULT_COLLECTION_ID } from '../types/collection';
 import { ARENA_MODEL_LABEL_ORDER } from "./schedulerCatalog";
@@ -913,6 +915,11 @@ function toUnixSeconds(value: unknown): number | null {
 }
 
 const commandHandlers: Record<string, CommandHandler> = {
+    claim_audio_owner: async (args) => claimBrowserAudioOwner(args.profileKey as string, args.ownerEpoch as string, args.previousOwnerEpoch as string | undefined),
+    commit_audio_checkpoint: async (args) => commitBrowserAudioCheckpoint(args.checkpoint as AudioCheckpoint),
+    get_audio_checkpoint: async (args) => getBrowserAudioCheckpoint(args.sourceKey as AudioSourceKey),
+    get_audio_session: async (args) => getBrowserAudioSession(args.profileKey as string),
+    save_audio_session: async (args) => saveBrowserAudioSession(args.profileKey as string, args.ownerEpoch as string, args.session as SavedAudioSession),
     get_auto_postpone_candidates: async (args) => {
         const collectionId = String(args.collectionId ?? 'default');
         const rawWindowStart = String(args.windowStart ?? '');

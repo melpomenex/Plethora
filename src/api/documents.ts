@@ -242,6 +242,8 @@ export async function archiveDocument(
 }
 
 export async function deleteDocument(id: string): Promise<void> {
+  const { notifyAudioSourceDeleting } = await import("../services/audio/audioDeletionHook");
+  await notifyAudioSourceDeleting((key, item) => key.sourceId === id || item?.documentId === id);
   if (isWebMode()) {
     await browserInvoke("delete_document", { id });
   } else {
@@ -254,6 +256,13 @@ export async function deleteDocument(id: string): Promise<void> {
  * Returns succeeded/failed/errors so partial failures can be surfaced.
  */
 export async function bulkDeleteDocuments(documentIds: string[]): Promise<BulkOperationResult> {
+  if (documentIds.length > 0) {
+    const idSet = new Set(documentIds);
+    const { notifyAudioSourceDeleting } = await import("../services/audio/audioDeletionHook");
+    await notifyAudioSourceDeleting(
+      (key, item) => idSet.has(key.sourceId) || (item?.documentId ? idSet.has(item.documentId) : false),
+    );
+  }
   if (isWebMode()) {
     return await browserInvoke<BulkOperationResult>("bulk_delete_documents", { documentIds });
   }

@@ -453,6 +453,32 @@ pub async fn get_media_stream_url(
     file_path: String,
     repo: tauri::State<'_, crate::database::Repository>,
 ) -> Result<String, String> {
+    let (canonical, granted) = authorize_media_file(&app_handle, &file_path, &repo).await?;
+    let metadata = std::fs::metadata(&canonical)
+        .map_err(|error| format!("Cannot stat media file: {error}"))?;
+    let port = start(&app_handle).await?;
+    if granted {
+        if let Some(state) = MEDIA_SERVER_STATE.get() {
+            grant_path(state, canonical.clone());
+        }
+    }
+    let canonical_string = canonical.to_string_lossy().into_owned();
+    let encoded = urlencoding::encode(&canonical_string);
+    tracing::info!(
+        "[audiobook.source_resolution] file={} size={} strategy=local-media-server port={}",
+        path_label(&canonical),
+        metadata.len(),
+        port
+    );
+    Ok(format!("http://127.0.0.1:{port}/stream?path={encoded}"))
+}
+
+/// Shared authorization for Range streaming and native decoders. Does not start a server.
+pub(crate) async fn authorize_media_file(
+    app_handle: &tauri::AppHandle,
+    file_path: &str,
+    repo: &crate::database::Repository,
+) -> Result<(PathBuf, bool), String> {
     use tauri::Manager;
     let roots = allowed_media_roots(&app_handle)?;
     let requested = Path::new(&file_path);
@@ -508,23 +534,7 @@ pub async fn get_media_stream_url(
             canonical
         }
     };
-    let metadata = std::fs::metadata(&canonical)
-        .map_err(|error| format!("Cannot stat media file: {error}"))?;
-    let port = start(&app_handle).await?;
-    if granted {
-        if let Some(state) = MEDIA_SERVER_STATE.get() {
-            grant_path(state, canonical.clone());
-        }
-    }
-    let canonical_string = canonical.to_string_lossy().into_owned();
-    let encoded = urlencoding::encode(&canonical_string);
-    tracing::info!(
-        "[audiobook.source_resolution] file={} size={} strategy=local-media-server port={}",
-        path_label(&canonical),
-        metadata.len(),
-        port
-    );
-    Ok(format!("http://127.0.0.1:{port}/stream?path={encoded}"))
+    Ok((canonical, granted))
 }
 
 #[cfg(test)]

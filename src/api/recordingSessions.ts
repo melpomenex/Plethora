@@ -872,6 +872,8 @@ export async function deleteSessionMedia(
   if (!isTauri()) {
     throw typedUnavailableError("ingestion", sessionId);
   }
+  const { notifyAudioSourceDeleting } = await import("../services/audio/audioDeletionHook");
+  await notifyAudioSourceDeleting(key => key.kind === "recording" && key.sourceId === sessionId);
   try {
     return await invokeCommand<DeleteSessionMediaResult>("delete_session_media", {
       sessionId,
@@ -894,6 +896,8 @@ export async function deleteRecordingSession(
   if (!isTauri()) {
     throw typedUnavailableError("ingestion", sessionId);
   }
+  const { notifyAudioSourceDeleting } = await import("../services/audio/audioDeletionHook");
+  await notifyAudioSourceDeleting(key => key.kind === "recording" && key.sourceId === sessionId);
   try {
     return await invokeCommand<DeleteRecordingSessionResult>("delete_recording_session", {
       sessionId,

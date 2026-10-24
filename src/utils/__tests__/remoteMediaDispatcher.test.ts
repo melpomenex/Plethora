@@ -460,5 +460,43 @@ describe("Remote Media Dispatcher", () => {
       expect(onNextChapter).toHaveBeenCalledTimes(1);
       expect(acked).toEqual([envelope.eventId]);
     });
+
+    it("treats native transportApplied receipts strictly as observations without re-running transport", () => {
+      const acked: string[] = [];
+      setMediaCommandAckHandler((eventIds) => acked.push(...eventIds));
+      const onPlay = vi.fn();
+      const onSeekRelative = vi.fn();
+      const ctx = makeContext({ onPlay, onSeekRelative });
+
+      const playReceipt = {
+        command: "Play" as const,
+        eventId: "native-applied-play",
+        source: "android" as const,
+        occurredAt: Date.now(),
+        transportApplied: true,
+      };
+      expect(dispatchRemoteMediaCommand(playReceipt, ctx)).toEqual({
+        accepted: true,
+        disposition: "accepted",
+        eventId: "native-applied-play",
+      });
+      expect(onPlay).not.toHaveBeenCalled();
+      expect(acked).toEqual(["native-applied-play"]);
+
+      // Distinct rapid seeks without transportApplied execute each physical press once.
+      dispatchRemoteMediaCommand({
+        command: "SeekForward",
+        eventId: "rapid-seek-1",
+        source: "android",
+        occurredAt: Date.now(),
+      }, ctx);
+      dispatchRemoteMediaCommand({
+        command: "SeekForward",
+        eventId: "rapid-seek-2",
+        source: "android",
+        occurredAt: Date.now(),
+      }, ctx);
+      expect(onSeekRelative).toHaveBeenCalledTimes(2);
+    });
   });
 });
