@@ -2336,6 +2336,9 @@ Exportez vos données avant les changements majeurs (Paramètres → Sauvegarde 
 | `Ctrl/Cmd + R` | Lancer l'évaluation |
 | `Ctrl/Cmd + O` | Ouvrir le document |
 | `Ctrl/Cmd + N` | Document d'importation (alternative) |
+| `Ctrl/Cmd + +` | Augmenter le zoom de l'interface (bureau, 70–150 %) |
+| `Ctrl/Cmd + -` | Diminuer le zoom de l'interface (bureau, 70–150 %) |
+| `Ctrl/Cmd + 0` | Réinitialiser le zoom de l'interface à 100 % (bureau) |
 | `Ctrl/Cmd + /` | Afficher les raccourcis clavier |
 | `?` | Afficher les raccourcis clavier (pas de modificateur) |
 
@@ -2374,9 +2377,7 @@ Exportez vos données avant les changements majeurs (Paramètres → Sauvegarde 
 | `Ctrl/Cmd + C` | Copier le texte sélectionné |
 | `Ctrl/Cmd + E` | Créer un extrait de la sélection |
 | `Ctrl/Cmd + H` | Sélection des surbrillance |
-| `Ctrl/Cmd + +` | Zoomer |
-| `Ctrl/Cmd + -` | Zoom arrière |
-| `Ctrl/Cmd + 0` | Réinitialiser le zoom |
+| `Ctrl/Cmd + Molette` | Zoomer le document (les contrôles de la barre d'outils restent disponibles) |
 | 'F11' | Plein écran |
 
 ---

@@ -2395,6 +2395,9 @@ Exportieren Sie Ihre Daten vor größeren Änderungen (Einstellungen → Backup 
 | „Strg/Befehl + R“ | Rezension starten |
 | `Strg/Befehl + O` | Dokument öffnen |
 | `Strg/Befehl + N` | Dokument importieren (alternativ) |
+| `Strg/Befehl + +` | Schnittstellen-Zoom vergrößern (Desktop, 70–150 %) |
+| `Strg/Befehl + -` | Schnittstellen-Zoom verkleinern (Desktop, 70–150 %) |
+| `Strg/Befehl + 0` | Schnittstellen-Zoom auf 100 % zurücksetzen (Desktop) |
 | `Strg/Befehl + /` | Tastaturkürzel anzeigen |
 | `?` | Tastaturkürzel anzeigen (kein Modifikator) |
 
@@ -2433,9 +2436,7 @@ Exportieren Sie Ihre Daten vor größeren Änderungen (Einstellungen → Backup 
 | `Strg/Befehl + C` | Ausgewählten Text kopieren |
 | „Strg/Befehl + E“ | Auszug aus Auswahl erstellen |
 | `Strg/Befehl + H` | Auswahl hervorheben |
-| `Strg/Befehl + +` | Vergrößern |
-| `Strg/Befehl + -` | Herauszoomen |
-| `Strg/Befehl + 0` | Zoom zurücksetzen |
+| `Strg/Befehl + Scrollen` | Dokument zoomen (auch über die Symbolleisten-Steuerelemente) |
 | `F11` | Vollbild |
 
 ---

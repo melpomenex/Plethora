@@ -2393,6 +2393,9 @@ Exporte sus datos antes de cambios importantes (Configuración → Copia de segu
 | `Ctrl/Cmd + R` | Iniciar revisión |
 | `Ctrl/Cmd + O` | Abrir documento |
 | `Ctrl/Cmd + N` | Documento de importación (alternativo) |
+| `Ctrl/Cmd + +` | Ampliar el zoom de la interfaz (escritorio, 70–150 %) |
+| `Ctrl/Cmd + -` | Reducir el zoom de la interfaz (escritorio, 70–150 %) |
+| `Ctrl/Cmd + 0` | Restablecer el zoom de la interfaz al 100 % (escritorio) |
 | `Ctrl/Cmd + /` | Mostrar atajos de teclado |
 | `?` | Mostrar atajos de teclado (sin modificador) |
 
@@ -2431,9 +2434,7 @@ Exporte sus datos antes de cambios importantes (Configuración → Copia de segu
 | `Ctrl/Cmd + C` | Copiar texto seleccionado |
 | `Ctrl/Cmd + E` | Crear extracto de la selección |
 | `Ctrl/Cmd + H` | Selección destacada |
-| `Ctrl/Cmd + +` | Ampliar |
-| `Ctrl/Cmd + -` | Alejar |
-| `Ctrl/Cmd + 0` | Restablecer zoom |
+| `Ctrl/Cmd + Scroll` | Ampliar el documento (también hay controles en la barra de herramientas) |
 | `F11` | Pantalla completa |
 
 ---
