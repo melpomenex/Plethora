@@ -307,6 +307,18 @@
           "markdownDescription": "Denies the ack_media_commands command without any pre-configured scope."
         },
         {
+          "description": "Enables the audio_command command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-audio-command",
+          "markdownDescription": "Enables the audio_command command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the audio_command command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-audio-command",
+          "markdownDescription": "Denies the audio_command command without any pre-configured scope."
+        },
+        {
           "description": "Enables the cancel_download command without any pre-configured scope.",
           "type": "string",
           "const": "allow-cancel-download",
@@ -367,6 +379,18 @@
           "markdownDescription": "Denies the drain_pending_media_commands command without any pre-configured scope."
         },
         {
+          "description": "Enables the get_audio_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-audio-snapshot",
+          "markdownDescription": "Enables the get_audio_snapshot command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_audio_snapshot command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-audio-snapshot",
+          "markdownDescription": "Denies the get_audio_snapshot command without any pre-configured scope."
+        },
+        {
           "description": "Enables the initialize command without any pre-configured scope.",
           "type": "string",
           "const": "allow-initialize",
@@ -403,6 +427,18 @@
           "markdownDescription": "Denies the list_voices command without any pre-configured scope."
         },
         {
+          "description": "Enables the load_audio command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-load-audio",
+          "markdownDescription": "Enables the load_audio command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the load_audio command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-load-audio",
+          "markdownDescription": "Denies the load_audio command without any pre-configured scope."
+        },
+        {
           "description": "Enables the pause command without any pre-configured scope.",
           "type": "string",
           "const": "allow-pause",
@@ -413,6 +449,18 @@
           "type": "string",
           "const": "deny-pause",
           "markdownDescription": "Denies the pause command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the reconcile_audio_checkpoint command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-reconcile-audio-checkpoint",
+          "markdownDescription": "Enables the reconcile_audio_checkpoint command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the reconcile_audio_checkpoint command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-reconcile-audio-checkpoint",
+          "markdownDescription": "Denies the reconcile_audio_checkpoint command without any pre-configured scope."
         },
         {
           "description": "Enables the resume command without any pre-configured scope.",
@@ -487,10 +535,10 @@
           "markdownDescription": "Denies the update_media_metadata command without any pre-configured scope."
         },
         {
-          "description": "Allows the android-tts plugin's on-device TTS commands to be invoked from the\nfrontend. On Android these drive native sherpa-onnx synthesis, AudioTrack\nplayback, model downloads, and System-TTS fallback; on desktop every command\nreturns an Android-only error and Pocket TTS is used instead.\n\n#### This default permission set includes:\n\n- `allow-initialize`\n- `allow-download-model`\n- `allow-cancel-download`\n- `allow-list-models`\n- `allow-list-voices`\n- `allow-speak`\n- `allow-pause`\n- `allow-resume`\n- `allow-stop`\n- `allow-delete-model`\n- `allow-start-media-session`\n- `allow-stop-media-session`\n- `allow-update-media-metadata`\n- `allow-ack-media-commands`\n- `allow-discard-media-commands`\n- `allow-drain-pending-media-commands`",
+          "description": "Allows the android-tts plugin's on-device TTS commands to be invoked from the\nfrontend. On Android these drive native sherpa-onnx synthesis, AudioTrack\nplayback, model downloads, and System-TTS fallback; on desktop every command\nreturns an Android-only error and Pocket TTS is used instead.\n\n#### This default permission set includes:\n\n- `allow-initialize`\n- `allow-download-model`\n- `allow-cancel-download`\n- `allow-list-models`\n- `allow-list-voices`\n- `allow-speak`\n- `allow-pause`\n- `allow-resume`\n- `allow-stop`\n- `allow-delete-model`\n- `allow-start-media-session`\n- `allow-stop-media-session`\n- `allow-update-media-metadata`\n- `allow-ack-media-commands`\n- `allow-discard-media-commands`\n- `allow-drain-pending-media-commands`\n- `allow-get-audio-snapshot`\n- `allow-load-audio`\n- `allow-audio-command`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Allows the android-tts plugin's on-device TTS commands to be invoked from the\nfrontend. On Android these drive native sherpa-onnx synthesis, AudioTrack\nplayback, model downloads, and System-TTS fallback; on desktop every command\nreturns an Android-only error and Pocket TTS is used instead.\n\n#### This default permission set includes:\n\n- `allow-initialize`\n- `allow-download-model`\n- `allow-cancel-download`\n- `allow-list-models`\n- `allow-list-voices`\n- `allow-speak`\n- `allow-pause`\n- `allow-resume`\n- `allow-stop`\n- `allow-delete-model`\n- `allow-start-media-session`\n- `allow-stop-media-session`\n- `allow-update-media-metadata`\n- `allow-ack-media-commands`\n- `allow-discard-media-commands`\n- `allow-drain-pending-media-commands`"
+          "markdownDescription": "Allows the android-tts plugin's on-device TTS commands to be invoked from the\nfrontend. On Android these drive native sherpa-onnx synthesis, AudioTrack\nplayback, model downloads, and System-TTS fallback; on desktop every command\nreturns an Android-only error and Pocket TTS is used instead.\n\n#### This default permission set includes:\n\n- `allow-initialize`\n- `allow-download-model`\n- `allow-cancel-download`\n- `allow-list-models`\n- `allow-list-voices`\n- `allow-speak`\n- `allow-pause`\n- `allow-resume`\n- `allow-stop`\n- `allow-delete-model`\n- `allow-start-media-session`\n- `allow-stop-media-session`\n- `allow-update-media-metadata`\n- `allow-ack-media-commands`\n- `allow-discard-media-commands`\n- `allow-drain-pending-media-commands`\n- `allow-get-audio-snapshot`\n- `allow-load-audio`\n- `allow-audio-command`"
         }
       ]
     }

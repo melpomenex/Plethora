@@ -3,26 +3,10 @@
 //
 // Remote Media Session Service (design Decision 6/8; tasks 6.1 + 10.1).
 //
-// A real AndroidX Media3 MediaSessionService hosting a MediaSession bound to
-// a forwarding/no-op Player. Audio itself keeps rendering in the WebView (no
-// native ExoPlayer migration); the session exists strictly for command and
-// metadata routing:
-//
-// - Media buttons from Bluetooth/wired/car remotes and lock-screen/
-//   notification action buttons arrive on the session and are normalized into
-//   the canonical command enum (Play/Pause/TogglePlayPause/Next/Previous/
-//   SeekForward/SeekBackward).
-// - Every command is durably appended to the plugin-owned pending-command
-//   queue BEFORE being emitted to the WebView as a `media://remote-command`
-//   CustomEvent carrying the full envelope (eventId/source/occurredAt/
-//   positionHintSec), so a press received while the WebView is suspended is
-//   never lost (frontend reconciles on resume; see MediaCommandQueue).
-// - The service holds media audio-focus conventions: transient loss emits a
-//   Pause envelope (the WebView audio ducks/stops), gain after a transient
-//   loss emits Play.
-//
-// Kotlin unit tests cover the keycode normalization + queue persistence
-// (MediaButtonNormalizerTest / MediaCommandQueueTest).
+// One MediaSession hosts either the service-owned ordinary-media ExoPlayer
+// or the legacy WebView/TTS bridge player. Native transports execute once and
+// publish applied observations; legacy bridge commands retain their durable
+// pending-command queue. The service owns the shared AudioManager request.
 
 package com.plethora.androidtts
 
@@ -40,6 +24,7 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.os.Build
 import android.os.Looper
+import android.os.Handler
 import android.util.Log
 import android.view.KeyEvent
 import androidx.media3.common.AudioAttributes as Media3AudioAttributes
@@ -57,6 +42,9 @@ import com.google.common.util.concurrent.ListenableFuture
 import java.lang.ref.WeakReference
 import java.util.UUID
 import java.util.concurrent.Executor
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import org.json.JSONObject
 
@@ -66,6 +54,14 @@ import org.json.JSONObject
 // ──────────────────────────────────────────────────────────────────────────
 
 object MediaBridge {
+    @Volatile var nativeClientId: String? = null
+    @Volatile var nativeClientProfile: String? = null
+    @Volatile var nativeGenerationFloor: Long = 0
+    fun emitPlaybackState(snapshot: JSONObject) {
+        val view = webView?.get() ?: return
+        val literal = JSONObject.quote(snapshot.toString())
+        view.post { view.evaluateJavascript("window.dispatchEvent(new CustomEvent('media://playback-state',{detail:JSON.parse($literal)}));", null) }
+    }
     @Volatile var webView: WeakReference<android.webkit.WebView>? = null
     @Volatile var sourceId: String? = null
     @Volatile var sessionId: String? = null
@@ -373,14 +369,107 @@ class WebViewBridgePlayer(
 
 @OptIn(UnstableApi::class)
 class RemoteMediaSessionService : MediaSessionService() {
+    private var nativePlayback: PlaybackCoordinator? = null
+    private var speechFocusListener: WeakReference<AudioManager.OnAudioFocusChangeListener>? = null
+    private var speechStartupReference = false
+
+    private fun ordinaryFocus(): Boolean {
+        speechFocusListener?.get()?.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS)
+        speechFocusListener = null
+        nativePlayback?.let { activeSession?.setPlayer(it.sessionPlayer) }
+        return enterForegroundImmediately() && requestFocus()
+    }
+
+    private fun speechFocus(listener: AudioManager.OnAudioFocusChangeListener): Boolean {
+        nativePlayback?.pause("source-switch")
+        speechFocusListener = WeakReference(listener)
+        bridgePlayer?.let { activeSession?.setPlayer(it) }
+        return enterForegroundImmediately() && requestFocus()
+    }
+
+    /** Not an IPC surface: only a Rust-authorized loader may select the native ordinary-media mode. */
+    internal fun nativePlaybackOwner(): PlaybackCoordinator {
+        check(Looper.myLooper() == Looper.getMainLooper())
+        nativePlayback?.let { return it }
+        check(activeSession != null) { "Media session service is not ready" }
+        val owner = PlaybackCoordinator(this, ::ordinaryFocus, MediaBridge::emitPlaybackState)
+        nativePlayback = owner
+        activeSession?.setPlayer(owner.sessionPlayer)
+        return owner
+    }
 
     companion object {
+        @Volatile internal var nativeStopPending = false
+        @Volatile internal var nativeStartupRequested = false
+        @Volatile private var runningService: WeakReference<RemoteMediaSessionService>? = null
+        internal fun currentService(): RemoteMediaSessionService? = runningService?.get()?.takeIf { activeSession != null }
+        internal fun currentNativeOwner(): PlaybackCoordinator? = runningService?.get()?.nativePlayback
         @Volatile private var activeSession: MediaSession? = null
         @Volatile private var bridgePlayer: WebViewBridgePlayer? = null
         private val startReferences = AtomicInteger(0)
         private var audioFocusRequest: AudioFocusRequest? = null
         private var wasPlayingBeforeInterruption = false
         private var ducked = false
+
+        /** TTS worker waits for the same service-owned AudioManager request used by ordinary media. */
+        internal fun requestSpeechFocus(context: Context, listener: AudioManager.OnAudioFocusChangeListener): Boolean {
+            check(Looper.myLooper() != Looper.getMainLooper()) { "Speech focus must be requested by its worker" }
+            val complete = CountDownLatch(1)
+            val accepted = AtomicBoolean(false)
+            val canceled = AtomicBoolean(false)
+            val handler = Handler(Looper.getMainLooper())
+            val app = context.applicationContext
+            val deadline = android.os.SystemClock.elapsedRealtime() + 2500
+            var started = false
+            val attempt = object : Runnable {
+                override fun run() {
+                    if (canceled.get()) return
+                    try {
+                        val service = currentService()
+                        if (service != null && !nativeStopPending) {
+                            accepted.set(service.speechFocus(listener))
+                            if (accepted.get()) service.speechStartupReference = service.speechStartupReference || started
+                            complete.countDown()
+                            return
+                        }
+                        if (android.os.SystemClock.elapsedRealtime() >= deadline) { complete.countDown(); return }
+                        if (!started && !nativeStopPending) { nativeStartupRequested = true; started = start(app) }
+                        handler.postDelayed(this, 25)
+                    } catch (error: Throwable) {
+                        Log.w(AndroidTtsPlugin.MEDIA_LOG_TAG, "speech focus failed", error)
+                        complete.countDown()
+                    }
+                }
+            }
+            handler.post(attempt)
+            val finished = complete.await(3, TimeUnit.SECONDS)
+            canceled.set(true)
+            handler.removeCallbacks(attempt)
+            val success = finished && accepted.get()
+            if (!success) handler.post {
+                val service = currentService()
+                if (service?.speechFocusListener?.get() === listener) {
+                    service.speechFocusListener = null
+                    service.abandonFocus()
+                }
+                if (started) {
+                    service?.speechStartupReference = false
+                    stop(app)
+                }
+                if (service == null) nativeStartupRequested = false
+            }
+            return success
+        }
+
+        internal fun abandonSpeechFocus(listener: AudioManager.OnAudioFocusChangeListener) {
+            Handler(Looper.getMainLooper()).post {
+                val service = currentService() ?: return@post
+                if (service.speechFocusListener?.get() !== listener) return@post
+                service.speechFocusListener = null
+                service.abandonFocus()
+                if (service.speechStartupReference) { service.speechStartupReference = false; stop(service.applicationContext) }
+            }
+        }
 
         /**
          * Set when the service could only be started via
@@ -405,7 +494,7 @@ class RemoteMediaSessionService : MediaSessionService() {
         private const val FOREGROUND_NOTIFICATION_ID = 100
         private const val CHANNEL_ID = "plethora_media_session"
 
-        fun start(ctx: Context) {
+        fun start(ctx: Context): Boolean {
             startReferences.incrementAndGet()
             try {
                 val intent = Intent(ctx, RemoteMediaSessionService::class.java)
@@ -432,8 +521,11 @@ class RemoteMediaSessionService : MediaSessionService() {
                     needsCompliantStartForeground = false
                     ctx.startService(intent)
                 }
+                return true
             } catch (e: Throwable) {
+                startReferences.updateAndGet { value -> (value - 1).coerceAtLeast(0) }
                 Log.w(AndroidTtsPlugin.MEDIA_LOG_TAG, "start failed: ${e.message}")
+                return false
             }
         }
 
@@ -441,8 +533,10 @@ class RemoteMediaSessionService : MediaSessionService() {
             if (startReferences.decrementAndGet() > 0) return
             startReferences.set(0)
             try {
-                ctx.stopService(Intent(ctx, RemoteMediaSessionService::class.java))
+                if (MediaBridge.nativeClientId != null && currentService() != null) nativeStopPending = true
+                if (!ctx.stopService(Intent(ctx, RemoteMediaSessionService::class.java))) nativeStopPending = false
             } catch (_: Throwable) {
+                nativeStopPending = false
             }
         }
 
@@ -460,6 +554,8 @@ class RemoteMediaSessionService : MediaSessionService() {
     private val noisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != AudioManager.ACTION_AUDIO_BECOMING_NOISY) return
+            speechFocusListener?.get()?.let { it.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS); return }
+            nativePlayback?.takeIf { it.snapshot() != null }?.let { it.onHeadphoneDisconnect(); return }
             if (focusPolicy.onHeadphoneDisconnect(MediaBridge.isPlaying) == MediaFocusAction.PAUSE) {
                 wasPlayingBeforeInterruption = false
                 MediaBridge.emitCommand(this@RemoteMediaSessionService, "Pause")
@@ -477,7 +573,7 @@ class RemoteMediaSessionService : MediaSessionService() {
      * Failure is non-fatal: without promotion the service degrades to a
      * background service instead of crashing the process.
      */
-    private fun enterForegroundImmediately() {
+    private fun enterForegroundImmediately(): Boolean {
         try {
             val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -501,14 +597,18 @@ class RemoteMediaSessionService : MediaSessionService() {
                 .setContentText("Playback session active")
                 .setSmallIcon(smallIcon)
                 .setOngoing(true)
-                .setContentIntent(
-                    PendingIntent.getActivity(
-                        this,
-                        0,
-                        packageManager.getLaunchIntentForPackage(packageName),
-                        PendingIntent.FLAG_IMMUTABLE,
-                    )
-                )
+                .apply {
+                    packageManager.getLaunchIntentForPackage(packageName)?.let { launchIntent ->
+                        setContentIntent(
+                            PendingIntent.getActivity(
+                                this@RemoteMediaSessionService,
+                                0,
+                                launchIntent,
+                                PendingIntent.FLAG_IMMUTABLE,
+                            )
+                        )
+                    }
+                }
             val notification: Notification = builder.build()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
@@ -519,13 +619,16 @@ class RemoteMediaSessionService : MediaSessionService() {
             } else {
                 startForeground(FOREGROUND_NOTIFICATION_ID, notification)
             }
+            return true
         } catch (e: Throwable) {
             Log.w(AndroidTtsPlugin.MEDIA_LOG_TAG, "foreground promotion failed: ${e.message}")
+            return false
         }
     }
 
     override fun onCreate() {
         super.onCreate()
+        runningService = WeakReference(this)
         Log.i(AndroidTtsPlugin.MEDIA_LOG_TAG, "service created")
         // Only satisfy the startForegroundService() contract when it actually
         // applies (backgrounded start). In the normal foreground path Media3
@@ -542,15 +645,18 @@ class RemoteMediaSessionService : MediaSessionService() {
             }
             bridgePlayer = player
 
-            val session = MediaSession.Builder(this, player)
-                .setSessionActivity(
+            val sessionBuilder = MediaSession.Builder(this, player)
+            packageManager.getLaunchIntentForPackage(packageName)?.let { launchIntent ->
+                sessionBuilder.setSessionActivity(
                     android.app.PendingIntent.getActivity(
                         this,
                         0,
-                        packageManager.getLaunchIntentForPackage(packageName),
+                        launchIntent,
                         android.app.PendingIntent.FLAG_IMMUTABLE,
                     )
                 )
+            }
+            val session = sessionBuilder
                 .setCallback(object : MediaSession.Callback {
                     override fun onMediaButtonEvent(
                         mediaSession: MediaSession,
@@ -561,6 +667,12 @@ class RemoteMediaSessionService : MediaSessionService() {
                         if (event != null) {
                             val command = MediaButtonNormalizer.fromKeyCode(event.keyCode, event.action)
                             if (command != null) {
+                                if (speechFocusListener?.get() == null) {
+                                    nativePlayback?.takeIf { it.snapshot() != null }?.let { owner ->
+                                        owner.transport(command)
+                                        return true
+                                    }
+                                }
                                 when (command) {
                                     "Play" -> focusPolicy.onUserPlayback(true)
                                     "Pause" -> focusPolicy.onUserPlayback(false)
@@ -591,7 +703,7 @@ class RemoteMediaSessionService : MediaSessionService() {
                 /* handleAudioFocus = */ false, // focus handled natively below
             )
 
-            requestFocus()
+            if (!nativeStartupRequested) requestFocus()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 registerReceiver(
                     noisyReceiver,
@@ -608,13 +720,23 @@ class RemoteMediaSessionService : MediaSessionService() {
         }
     }
 
-    private fun requestFocus() {
+    private fun requestFocus(): Boolean {
         try {
             val attrs = android.media.AudioAttributes.Builder()
                 .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
                 .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
                 .build()
             val listener = AudioManager.OnAudioFocusChangeListener { change ->
+                speechFocusListener?.get()?.let { it.onAudioFocusChange(change); return@OnAudioFocusChangeListener }
+                nativePlayback?.takeIf { it.snapshot() != null }?.let { owner ->
+                    when (change) {
+                        AudioManager.AUDIOFOCUS_LOSS -> owner.onFocusPermanent()
+                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> owner.onFocusTransient()
+                        AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> owner.onDuck()
+                        AudioManager.AUDIOFOCUS_GAIN -> owner.onFocusGain()
+                    }
+                    return@OnAudioFocusChangeListener
+                }
                 when (change) {
                     AudioManager.AUDIOFOCUS_LOSS -> {
                         wasPlayingBeforeInterruption = false
@@ -649,19 +771,21 @@ class RemoteMediaSessionService : MediaSessionService() {
                 }
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                audioFocusRequest?.let { return audioManager.requestAudioFocus(it) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED }
                 val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                     .setAudioAttributes(attrs)
                     .setWillPauseWhenDucked(false)
                     .setOnAudioFocusChangeListener(listener)
                     .build()
                 audioFocusRequest = request
-                audioManager.requestAudioFocus(request)
+                return audioManager.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
             } else {
                 @Suppress("DEPRECATION")
-                audioManager.requestAudioFocus(listener, android.media.AudioAttributes.USAGE_MEDIA, AudioManager.AUDIOFOCUS_GAIN)
+                return audioManager.requestAudioFocus(listener, android.media.AudioAttributes.USAGE_MEDIA, AudioManager.AUDIOFOCUS_GAIN) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
             }
         } catch (e: Throwable) {
             Log.w(AndroidTtsPlugin.MEDIA_LOG_TAG, "focus request failed: ${e.message}")
+            return false
         }
     }
 
@@ -677,15 +801,24 @@ class RemoteMediaSessionService : MediaSessionService() {
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         val player = activeSession?.player
-        if (player == null || !player.playWhenReady) {
+        val keepAlive = player != null &&
+            player.playWhenReady &&
+            player.mediaItemCount > 0 &&
+            player.playbackState != Player.STATE_ENDED
+        if (!keepAlive) {
             stopSelf()
         }
-        super.onTaskRemoved(rootIntent)
     }
 
     override fun onDestroy() {
         Log.i(AndroidTtsPlugin.MEDIA_LOG_TAG, "service destroyed (session teardown)")
         abandonFocus()
+        try { nativePlayback?.dispose() } catch (error: Throwable) { Log.w(AndroidTtsPlugin.MEDIA_LOG_TAG, "native checkpoint on teardown failed", error) }
+        nativePlayback = null
+        speechFocusListener = null
+        if (runningService?.get() === this) runningService = null
+        nativeStopPending = false
+        nativeStartupRequested = false
         try {
             unregisterReceiver(noisyReceiver)
         } catch (_: Throwable) {

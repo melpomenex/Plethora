@@ -60,6 +60,11 @@ class DownloadModelArgs {
 }
 
 @InvokeArg
+class NativeAudioRpcArgs {
+    var payload: String? = null
+}
+
+@InvokeArg
 class UpdateMediaMetadataArgs {
     var sourceId: String? = null
     var sessionId: String? = null
@@ -173,6 +178,8 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
     private val stopFlag = AtomicBoolean(false)
     /** Monotonic utterance counter for sentence-position + completion correlation. */
     private val utteranceSeq = AtomicInteger(0)
+    private val speechRequest = AtomicInteger(0)
+    private val speechFocusPolicy = MediaFocusStateMachine()
 
     /** Audio focus request (API 26+), held while playing. */
     private var focusRequest: AudioFocusRequest? = null
@@ -198,6 +205,7 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
 
     override fun onPause() {
         super.onPause()
+        if (MediaBridge.webView?.get() === webView) RemoteMediaSessionService.currentNativeOwner()?.setObserving(false)
     }
 
     override fun onStop() {
@@ -333,9 +341,12 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
         val rate = args.speed ?: speed
 
         // Single-engine ownership: cancel any in-flight speak first.
+        val request = speechRequest.incrementAndGet()
+        interruptSpeechOutput()
         ttsHandler.post {
+            if (speechRequest.get() != request) return@post
             stopInternal(sendState = false)
-            startUtterance(sentences, manifest, voiceId, rate)
+            startUtterance(sentences, manifest, voiceId, rate, request)
         }
         // Resolve immediately; playback drives the UI via events.
         invoke.resolve()
@@ -343,16 +354,29 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun pause(invoke: Invoke) {
-        ttsHandler.post {
+        speechFocusPolicy.onUserPlayback(false)
+        if (MediaBridge.nativeClientId != null) {
+            paused.set(true)
+            audioTrack?.pause()
+            if (audioTrack == null) { interruptSpeechOutput(); emitPlaybackState(PlaybackState.STOPPED) }
+            else emitPlaybackState(PlaybackState.PAUSED)
+            invoke.resolve()
+        } else ttsHandler.post {
             paused.set(true)
             audioTrack?.pause()
             emitPlaybackState(PlaybackState.PAUSED)
         }
-        invoke.resolve()
+        if (MediaBridge.nativeClientId == null) invoke.resolve()
     }
 
     @Command
     fun resume(invoke: Invoke) {
+        speechFocusPolicy.onUserPlayback(true)
+        if (MediaBridge.nativeClientId != null) {
+            if (audioTrack != null && paused.get()) { paused.set(false); audioTrack?.play(); emitPlaybackState(PlaybackState.PLAYING) }
+            invoke.resolve()
+            return
+        }
         ttsHandler.post {
             val track = audioTrack
             if (track != null && paused.get()) {
@@ -367,8 +391,13 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun stop(invoke: Invoke) {
-        ttsHandler.post { stopInternal(sendState = true) }
-        invoke.resolve()
+        speechFocusPolicy.onUserPlayback(false)
+        speechRequest.incrementAndGet()
+        interruptSpeechOutput()
+        ttsHandler.post {
+            try { stopInternal(sendState = true); invoke.resolve() }
+            catch (error: Throwable) { invoke.reject(error.message ?: "Native speech did not stop") }
+        }
     }
 
     // ──────────────────────────────────────────────────────────────────
@@ -412,14 +441,184 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Command
     fun startMediaSession(invoke: Invoke) {
-        // Android 13+ silently drops the media notification (and therefore the
-        // lock-screen/notification controls) without the runtime grant. Ask at
-        // first playback-session start rather than app launch.
+        // Media3 MediaSessionService notifications are exempt from POST_NOTIFICATIONS
+        // runtime denial on Android 13+; request opportunistically for non-exempt
+        // notifications without failing playback if denied.
         ensureNotificationPermission()
         MediaBridge.ensureQueue(ctx)
         Log.i(MEDIA_LOG_TAG, "starting RemoteMediaSessionService")
-        RemoteMediaSessionService.start(ctx)
+        if (!RemoteMediaSessionService.start(ctx)) {
+            invoke.reject("Media service could not start. Open Plethora and try Play again.")
+            return
+        }
         invoke.resolve()
+    }
+
+    @Command
+    fun getAudioSnapshot(invoke: Invoke) {
+        Handler(Looper.getMainLooper()).post {
+            try {
+                val args = invoke.parseArgs(NativeAudioRpcArgs::class.java)
+                val payload = JSONObject(args.payload ?: "{}")
+                require(payload.getInt("schemaVersion") == 1)
+                val profile = payload.getString("profileKey")
+                require(profile.isNotBlank())
+                val owner = RemoteMediaSessionService.currentNativeOwner()
+                val active = owner?.snapshot()
+                val snapshot = active?.takeIf { it.getJSONObject("sourceKey").getString("profileKey") == profile }
+                if (payload.optBoolean("observing", false)) {
+                    check(MediaBridge.webView?.get() === webView) { "Audio observer was replaced" }
+                    check(!RemoteMediaSessionService.nativeStopPending) { "Audio service is stopping" }
+                    check(active == null || snapshot != null) { "Stop the previous profile before attaching audio" }
+                    val client = payload.getString("clientId")
+                    require(client.isNotBlank())
+                    if (MediaBridge.nativeClientId != client) MediaBridge.nativeGenerationFloor = active?.getLong("generation") ?: 0L
+                    MediaBridge.nativeClientId = client
+                    MediaBridge.nativeClientProfile = profile
+                }
+                if (snapshot != null && payload.has("observing") && payload.optString("clientId") == MediaBridge.nativeClientId) owner.setObserving(payload.getBoolean("observing"))
+                val journal = owner?.dirtyJournal(profile) ?: AudioPlaybackJournal(ctx).snapshot(profile)
+                invoke.resolve(JSObject(JSONObject().put("schemaVersion", 1).put("activeProfileKey", active?.getJSONObject("sourceKey")?.getString("profileKey") ?: JSONObject.NULL).put("generationFloor", MediaBridge.nativeGenerationFloor).put("item", if (snapshot != null) owner.describe() else JSONObject.NULL).put("snapshot", snapshot ?: JSONObject.NULL).put("journal", journal).toString()))
+            } catch (error: Throwable) { invoke.reject(error.message ?: "Native audio snapshot unavailable") }
+        }
+    }
+
+    private fun currentAudioClient(payload: JSONObject): Boolean =
+        MediaBridge.webView?.get() === webView && payload.optString("clientId") == MediaBridge.nativeClientId && payload.optString("profileKey") == MediaBridge.nativeClientProfile
+
+    @Command
+    fun loadAudio(invoke: Invoke) {
+        val handler = Handler(Looper.getMainLooper())
+        handler.post {
+            try {
+                val payload = JSONObject(invoke.parseArgs(NativeAudioRpcArgs::class.java).payload ?: "{}")
+                require(payload.getInt("schemaVersion") == 1)
+                check(currentAudioClient(payload)) { "Audio client is no longer active" }
+                val generation = payload.getLong("generation")
+                if (generation < MediaBridge.nativeGenerationFloor) { invoke.resolve(JSObject().put("disposition", "stale")); return@post }
+                MediaBridge.nativeGenerationFloor = generation
+                val manifest = payload.getJSONObject("manifest")
+                require(manifest.getJSONObject("sourceKey").getString("profileKey") == payload.getString("profileKey"))
+                val deadline = android.os.SystemClock.elapsedRealtime() + 5000
+                var started = false
+                val pending = object : Runnable {
+                    override fun run() {
+                        try {
+                            if (!currentAudioClient(payload) || generation != MediaBridge.nativeGenerationFloor) { invoke.resolve(JSObject().put("disposition", "stale")); return }
+                            if (android.os.SystemClock.elapsedRealtime() >= deadline) { invoke.reject("Media service could not start. Open Plethora and try Play again."); return }
+                            if (RemoteMediaSessionService.nativeStopPending) { handler.postDelayed(this, 50); return }
+                            val service = RemoteMediaSessionService.currentService()
+                            if (service == null) {
+                                if (!started) {
+                                    started = true
+                                    ensureNotificationPermission()
+                                    RemoteMediaSessionService.nativeStartupRequested = true
+                                    MediaBridge.title = manifest.getString("title")
+                                    if (!RemoteMediaSessionService.start(ctx)) {
+                                        RemoteMediaSessionService.nativeStartupRequested = false
+                                        invoke.reject("Media service could not start. Open Plethora and try Play again.")
+                                        return
+                                    }
+                                }
+                                handler.postDelayed(this, 50)
+                                return
+                            }
+                            val owner = service.nativePlaybackOwner()
+                            owner.setObserving(true)
+                            val before = owner.snapshot()
+                            if (before != null && generation <= before.getLong("generation")) { invoke.resolve(JSObject().put("disposition", "stale").put("snapshot", before)); return }
+                            val resume = manifest.optJSONObject("resume")
+                            owner.loadAuthorized(manifest, "paused", resume?.optInt("partIndex", 0) ?: 0, resume?.optDouble("timeInPart", 0.0) ?: 0.0, generation)
+                            var result = JSONObject().put("disposition", "accepted").put("snapshot", owner.snapshot())
+                            if (!payload.isNull("explicitPosition")) {
+                                val snapshot = owner.snapshot()!!
+                                result = owner.command(JSONObject().put("schemaVersion", 1).put("requestId", UUID.randomUUID().toString()).put("sessionId", snapshot.getJSONObject("metadata").getString("sessionId")).put("generation", snapshot.getLong("generation")).put("action", JSONObject().put("command", "seekTo").put("value", payload.getDouble("explicitPosition"))))
+                            }
+                            if (result.getString("disposition") == "accepted" && payload.getString("intent") == "play") result = owner.transport("Play")
+                            invoke.resolve(JSObject(result.toString()))
+                        } catch (error: Throwable) { invoke.reject(error.message ?: "Native audio load failed") }
+                    }
+                }
+                pending.run()
+            } catch (error: Throwable) { invoke.reject(error.message ?: "Native audio load failed") }
+        }
+    }
+
+    @Command
+    fun audioCommand(invoke: Invoke) {
+        val handler = Handler(Looper.getMainLooper())
+        handler.post {
+            try {
+                val payload = JSONObject(invoke.parseArgs(NativeAudioRpcArgs::class.java).payload ?: "{}")
+                require(payload.getInt("schemaVersion") == 1)
+                check(currentAudioClient(payload)) { "Audio client is no longer active" }
+                val owner = RemoteMediaSessionService.currentNativeOwner()
+                if (!payload.isNull("takeoverGeneration")) {
+                    val generation = payload.getLong("takeoverGeneration")
+                    if (generation < MediaBridge.nativeGenerationFloor) { invoke.resolve(JSObject().put("disposition", "stale")); return@post }
+                    MediaBridge.nativeGenerationFloor = generation
+                    owner?.pause("source-switch")
+                }
+                val request = payload.optJSONObject("request")
+                if (request == null) { invoke.resolve(JSObject().put("disposition", "accepted").put("snapshot", owner?.snapshot() ?: JSONObject.NULL)); return@post }
+                if (owner == null || owner.snapshot()?.getJSONObject("sourceKey")?.getString("profileKey") != payload.getString("profileKey")) {
+                    val duplicate = AudioPlaybackJournal(ctx).hasReceipt(payload.getString("profileKey"), request.getString("requestId"))
+                    invoke.resolve(JSObject().put("disposition", if (duplicate) "duplicate" else "stale").put("snapshot", JSONObject.NULL))
+                    return@post
+                }
+                val result = owner.command(request)
+                if (request.getJSONObject("action").getString("command") == "stop" && result.getString("disposition") == "accepted") {
+                    RemoteMediaSessionService.nativeStopPending = true
+                    MediaBridge.nativeGenerationFloor = maxOf(MediaBridge.nativeGenerationFloor, request.getLong("generation") + 1)
+                    ctx.stopService(android.content.Intent(ctx, RemoteMediaSessionService::class.java))
+                    val deadline = android.os.SystemClock.elapsedRealtime() + 2000
+                    val wait = object : Runnable {
+                        override fun run() {
+                            if (RemoteMediaSessionService.currentNativeOwner() == null) { invoke.resolve(JSObject(result.toString())); return }
+                            if (android.os.SystemClock.elapsedRealtime() >= deadline) { invoke.reject("Audio service did not stop"); return }
+                            handler.postDelayed(this, 25)
+                        }
+                    }
+                    wait.run()
+                } else invoke.resolve(JSObject(result.toString()))
+            } catch (error: Throwable) { invoke.reject(error.message ?: "Native audio command failed") }
+        }
+    }
+
+    @Command
+    fun reconcileAudioCheckpoint(invoke: Invoke) {
+        Handler(Looper.getMainLooper()).post {
+            try {
+                val args = invoke.parseArgs(NativeAudioRpcArgs::class.java)
+                val payload = JSONObject(args.payload ?: "{}")
+                require(payload.getInt("schemaVersion") == 1)
+                if (payload.has("acknowledgedCaptures")) {
+                    val profile = payload.getString("profileKey")
+                    require(profile.isNotBlank())
+                    val ids = payload.getJSONArray("acknowledgedCaptures")
+                    require(ids.length() <= 256)
+                    val journal = AudioPlaybackJournal(ctx)
+                    var count = 0
+                    for (index in 0 until ids.length()) if (journal.acknowledgeCapture(profile, ids.getString(index))) count += 1
+                    invoke.resolve(JSObject().put("acknowledgedCaptureCount", count))
+                    return@post
+                }
+                if (payload.has("acknowledgements")) {
+                    val cursors = payload.getJSONArray("acknowledgements")
+                    val count = RemoteMediaSessionService.currentNativeOwner()?.acknowledgeBatch(cursors)
+                        ?: AudioPlaybackJournal(ctx).acknowledgeBatch(cursors)
+                    invoke.resolve(JSObject().put("acknowledgedCount", count))
+                    return@post
+                }
+                val source = payload.getJSONObject("sourceKey")
+                val epoch = payload.getString("ownerEpoch")
+                val sequence = payload.getLong("checkpointSequence")
+                val owner = RemoteMediaSessionService.currentNativeOwner()
+                val acknowledged = owner?.acknowledge(source, epoch, sequence)
+                    ?: AudioPlaybackJournal(ctx).acknowledge(source, epoch, sequence)
+                invoke.resolve(JSObject().put("acknowledged", acknowledged))
+            } catch (error: Throwable) { invoke.reject(error.message ?: "Native audio journal acknowledgement failed") }
+        }
     }
 
     @Command
@@ -523,9 +722,11 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
         manifest: TtsModelManifest,
         voiceId: String,
         rate: Float,
+        requestEpoch: Int,
     ) {
         val utteranceId = utteranceSeq.incrementAndGet()
         speaking.set(true)
+        speechFocusPolicy.onUserPlayback(true)
         paused.set(false)
         stopFlag.set(false)
         activeModelId = manifest.id
@@ -547,7 +748,7 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
         // Decide engine path: sherpa if installed, else System-TTS fallback.
         val installed = assets.isInstalled(manifest)
         if (!installed) {
-            runSystemFallback(sentences, utteranceId)
+            runSystemFallback(sentences, utteranceId, requestEpoch)
             return
         }
 
@@ -559,7 +760,7 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
         } catch (e: Exception) {
             Logger.error("TTS engine load failed (${manifest.id}): ${e.message}")
             emitError("model_load", "Model failed to load: ${e.message}. Using system voice.")
-            runSystemFallback(sentences, utteranceId)
+            runSystemFallback(sentences, utteranceId, requestEpoch)
             return
         }
 
@@ -568,13 +769,14 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
         // blocks on write, letting the next sentence's generation interleave.
         val sampleRate = engine.sampleRate().takeIf { it > 0 } ?: 24000
         for ((index, sentence) in sentences.withIndex()) {
-            if (stopFlag.get()) break
+            if (stopFlag.get() || speechRequest.get() != requestEpoch) break
             // Emit sentence-position for highlighting just before playing.
             emitSentencePosition(utteranceId, index, sentence)
             emitPlaybackState(PlaybackState.PLAYING)
 
             val ok = try {
                 engine.synthesize(sentence, sid, rate) { samples ->
+                    if (stopFlag.get()) return@synthesize false
                     ensureAudioTrack(sampleRate)
                     val track = audioTrack
                     if (track == null || stopFlag.get()) return@synthesize false
@@ -584,24 +786,29 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
                     !stopFlag.get()
                 }
             } catch (e: Exception) {
+                if (stopFlag.get() || speechRequest.get() != requestEpoch) return
                 Logger.error("TTS inference failed: ${e.message}")
                 emitError("inference", "On-device synthesis failed: ${e.message}. Falling back to system voice.")
                 // Stop native playback before engaging fallback (single-engine).
                 teardownPlayback(releaseFocus = false)
-                runSystemFallback(listOf(sentence), utteranceId)
-                continue
+                runSystemFallback(sentences.drop(index), utteranceId, requestEpoch, index)
+                return
             }
             if (!ok && stopFlag.get()) break
         }
 
         teardownPlayback(releaseFocus = true)
         speaking.set(false)
-        emitUtteranceComplete(utteranceId)
-        emitPlaybackState(PlaybackState.IDLE)
+        if (speechRequest.get() == requestEpoch) {
+            emitUtteranceComplete(utteranceId)
+            emitPlaybackState(PlaybackState.IDLE)
+        }
     }
 
     /** Route to the Android platform TextToSpeech engine. */
-    private fun runSystemFallback(sentences: List<String>, utteranceId: Int) {
+    private fun runSystemFallback(sentences: List<String>, utteranceId: Int, requestEpoch: Int, sentenceOffset: Int = 0) {
+        if (speechRequest.get() != requestEpoch) return
+        stopFlag.set(false)
         emitPlaybackState(PlaybackState.PLAYING)
         systemFallback.stop()
         // Track each sentence's start offset in the joined text so word
@@ -614,13 +821,14 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
             rate = speed,
             utteranceId = tag,
             onWordPosition = { _, charIndex, charLength ->
+                if (speechRequest.get() != requestEpoch || stopFlag.get()) return@speak
                 val (sentenceIndex, within, length) = WordPositionOffsets
                     .resolve(sentences, starts, charIndex, charLength)
-                emitWordPosition(utteranceId, sentenceIndex, within, length)
+                emitWordPosition(utteranceId, sentenceIndex + sentenceOffset, within, length)
             },
             onDone = {
                 mainHandler.post {
-                    if (!stopFlag.get()) {
+                    if (!stopFlag.get() && speechRequest.get() == requestEpoch) {
                         emitUtteranceComplete(utteranceId)
                         emitPlaybackState(PlaybackState.IDLE)
                         abandonAudioFocus()
@@ -630,6 +838,7 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
             },
             onErrorFn = { msg ->
                 mainHandler.post {
+                    if (speechRequest.get() != requestEpoch || stopFlag.get()) return@post
                     emitError("system_tts", msg)
                     emitPlaybackState(PlaybackState.IDLE)
                     abandonAudioFocus()
@@ -690,8 +899,16 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
         }
     }
 
+    @Volatile private var speechFocusDelegatedToService = false
+
     @Suppress("DEPRECATION")
     private fun requestAudioFocus(): Boolean {
+        if (MediaBridge.nativeClientId != null || RemoteMediaSessionService.currentService() != null) {
+            val granted = RemoteMediaSessionService.requestSpeechFocus(ctx, focusListener)
+            speechFocusDelegatedToService = granted
+            return granted
+        }
+        speechFocusDelegatedToService = false
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val attr = AudioAttributes.Builder()
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
@@ -715,6 +932,11 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
 
     @Suppress("DEPRECATION")
     private fun abandonAudioFocus() {
+        if (speechFocusDelegatedToService || MediaBridge.nativeClientId != null) {
+            speechFocusDelegatedToService = false
+            RemoteMediaSessionService.abandonSpeechFocus(focusListener)
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             focusRequest?.let { audioManager.abandonAudioFocusRequest(it) }
             focusRequest = null
@@ -724,6 +946,28 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
     }
 
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        if (MediaBridge.nativeClientId != null) {
+            when (change) {
+                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                    if (speechFocusPolicy.onTransientLoss(speaking.get() && !paused.get()) == MediaFocusAction.PAUSE) {
+                        paused.set(true)
+                        audioTrack?.pause()
+                        if (audioTrack == null) { speechFocusPolicy.onUserPlayback(false); interruptSpeechOutput(); emitPlaybackState(PlaybackState.STOPPED) }
+                        else emitPlaybackState(PlaybackState.PAUSED)
+                    }
+                }
+                AudioManager.AUDIOFOCUS_LOSS -> {
+                    speechFocusPolicy.onPermanentLoss(speaking.get())
+                    speechRequest.incrementAndGet()
+                    interruptSpeechOutput()
+                    ttsHandler.post { stopInternal(sendState = true) }
+                }
+                AudioManager.AUDIOFOCUS_GAIN -> if (speechFocusPolicy.onGain(speaking.get() && !paused.get()) == MediaFocusAction.RESTORE && speaking.get() && !stopFlag.get()) {
+                    paused.set(false); audioTrack?.play(); emitPlaybackState(PlaybackState.PLAYING)
+                }
+            }
+            return@OnAudioFocusChangeListener
+        }
         when (change) {
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT,
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
@@ -770,6 +1014,14 @@ class AndroidTtsPlugin(private val activity: Activity) : Plugin(activity) {
         audioTrack = null
         systemFallback.stop()
         if (releaseFocus) abandonAudioFocus()
+    }
+
+    /** Cancel the producer before queuing teardown behind a potentially blocking PCM write. */
+    private fun interruptSpeechOutput() {
+        stopFlag.set(true)
+        paused.set(false)
+        try { audioTrack?.pause(); audioTrack?.flush(); audioTrack?.stop() } catch (_: Throwable) { }
+        systemFallback.stop()
     }
 
     private fun stopInternal(sendState: Boolean) {

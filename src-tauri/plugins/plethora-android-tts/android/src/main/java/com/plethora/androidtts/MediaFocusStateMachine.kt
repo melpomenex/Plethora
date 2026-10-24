@@ -19,7 +19,7 @@ class MediaFocusStateMachine {
     private var userPaused = false
     private var stoppedByNoisy = false
 
-    fun onUserPlayback(isPlaying: Boolean) {
+    @Synchronized fun onUserPlayback(isPlaying: Boolean) {
         userPaused = !isPlaying
         if (isPlaying) {
             stoppedByNoisy = false
@@ -27,24 +27,25 @@ class MediaFocusStateMachine {
         }
     }
 
-    fun onPermanentLoss(isPlaying: Boolean): MediaFocusAction {
+    @Synchronized fun onPermanentLoss(isPlaying: Boolean): MediaFocusAction {
         interruptedPlaying = false
         ducked = false
         stoppedByNoisy = false
         return if (isPlaying) MediaFocusAction.STOP else MediaFocusAction.NONE
     }
 
-    fun onTransientLoss(isPlaying: Boolean): MediaFocusAction {
+    @Synchronized fun onTransientLoss(isPlaying: Boolean): MediaFocusAction {
+        if (interruptedPlaying && !userPaused && !isPlaying) return MediaFocusAction.NONE
         interruptedPlaying = isPlaying && !userPaused
         return if (interruptedPlaying) MediaFocusAction.PAUSE else MediaFocusAction.NONE
     }
 
-    fun onDuck(isPlaying: Boolean): MediaFocusAction {
+    @Synchronized fun onDuck(isPlaying: Boolean): MediaFocusAction {
         ducked = isPlaying && !userPaused
         return if (ducked) MediaFocusAction.DUCK else MediaFocusAction.NONE
     }
 
-    fun onGain(isPlaying: Boolean): MediaFocusAction {
+    @Synchronized fun onGain(isPlaying: Boolean): MediaFocusAction {
         if (ducked) {
             ducked = false
             return MediaFocusAction.RESTORE
@@ -57,7 +58,7 @@ class MediaFocusStateMachine {
         return MediaFocusAction.NONE
     }
 
-    fun onHeadphoneDisconnect(isPlaying: Boolean): MediaFocusAction {
+    @Synchronized fun onHeadphoneDisconnect(isPlaying: Boolean): MediaFocusAction {
         interruptedPlaying = false
         ducked = false
         stoppedByNoisy = isPlaying
@@ -65,5 +66,5 @@ class MediaFocusStateMachine {
         return if (isPlaying) MediaFocusAction.PAUSE else MediaFocusAction.NONE
     }
 
-    fun wasStoppedByNoisy(): Boolean = stoppedByNoisy
+    @Synchronized fun wasStoppedByNoisy(): Boolean = stoppedByNoisy
 }

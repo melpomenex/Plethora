@@ -18,6 +18,16 @@ const COMMANDS: &[&str] = &[
     "resume",
     "stop",
     "delete_model",
+    "start_media_session",
+    "stop_media_session",
+    "update_media_metadata",
+    "ack_media_commands",
+    "discard_media_commands",
+    "drain_pending_media_commands",
+    "get_audio_snapshot",
+    "load_audio",
+    "audio_command",
+    "reconcile_audio_checkpoint",
 ];
 
 fn main() {

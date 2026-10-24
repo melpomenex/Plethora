@@ -50,6 +50,7 @@ dependencies {
     // SimpleBasePlayer's abstract surface has moved between minors before.
     implementation("androidx.media3:media3-common:1.8.0")
     implementation("androidx.media3:media3-session:1.8.0")
+    implementation("androidx.media3:media3-exoplayer:1.8.0")
     // sherpa-onnx native inference runtime (Apache-2.0). Pinned: a version bump
     // is an explicit change because the model-config API can move between
     // releases. OfflineTts / OfflineTtsKittenModelConfig /

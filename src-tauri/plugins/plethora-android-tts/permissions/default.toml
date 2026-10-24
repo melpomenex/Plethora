@@ -23,5 +23,8 @@ permissions = [
   "allow-update-media-metadata",
   "allow-ack-media-commands",
   "allow-discard-media-commands",
-  "allow-drain-pending-media-commands"
+  "allow-drain-pending-media-commands",
+  "allow-get-audio-snapshot",
+  "allow-load-audio",
+  "allow-audio-command"
 ]

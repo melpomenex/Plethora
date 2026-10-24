@@ -23,6 +23,9 @@ returns an Android-only error and Pocket TTS is used instead.
 - `allow-ack-media-commands`
 - `allow-discard-media-commands`
 - `allow-drain-pending-media-commands`
+- `allow-get-audio-snapshot`
+- `allow-load-audio`
+- `allow-audio-command`
 
 ## Permission Table
 
@@ -55,6 +58,32 @@ Enables the ack_media_commands command without any pre-configured scope.
 <td>
 
 Denies the ack_media_commands command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-android-tts:allow-audio-command`
+
+</td>
+<td>
+
+Enables the audio_command command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-android-tts:deny-audio-command`
+
+</td>
+<td>
+
+Denies the audio_command command without any pre-configured scope.
 
 </td>
 </tr>
@@ -192,6 +221,32 @@ Denies the drain_pending_media_commands command without any pre-configured scope
 <tr>
 <td>
 
+`plethora-android-tts:allow-get-audio-snapshot`
+
+</td>
+<td>
+
+Enables the get_audio_snapshot command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-android-tts:deny-get-audio-snapshot`
+
+</td>
+<td>
+
+Denies the get_audio_snapshot command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `plethora-android-tts:allow-initialize`
 
 </td>
@@ -270,6 +325,32 @@ Denies the list_voices command without any pre-configured scope.
 <tr>
 <td>
 
+`plethora-android-tts:allow-load-audio`
+
+</td>
+<td>
+
+Enables the load_audio command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-android-tts:deny-load-audio`
+
+</td>
+<td>
+
+Denies the load_audio command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
 `plethora-android-tts:allow-pause`
 
 </td>
@@ -289,6 +370,32 @@ Enables the pause command without any pre-configured scope.
 <td>
 
 Denies the pause command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-android-tts:allow-reconcile-audio-checkpoint`
+
+</td>
+<td>
+
+Enables the reconcile_audio_checkpoint command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`plethora-android-tts:deny-reconcile-audio-checkpoint`
+
+</td>
+<td>
+
+Denies the reconcile_audio_checkpoint command without any pre-configured scope.
 
 </td>
 </tr>

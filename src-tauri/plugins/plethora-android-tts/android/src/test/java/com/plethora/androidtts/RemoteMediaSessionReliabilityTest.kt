@@ -274,14 +274,95 @@ class MediaManifestContractTest {
     }
 
     @Test
-    fun `manifest declares POST_NOTIFICATIONS`() {
+    fun `manifest declares foreground media permissions wake lock and no boot autoplay receiver`() {
         val doc = readManifestXml()
         val permissions = doc.getElementsByTagName("uses-permission")
         val names = (0 until permissions.length).map { idx ->
             (permissions.item(idx) as org.w3c.dom.Element).getAttribute("android:name")
         }
-        assertTrue(names.contains("android.permission.POST_NOTIFICATIONS"))
+        assertTrue(names.contains("android.permission.FOREGROUND_SERVICE"))
         assertTrue(names.contains("android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"))
+        assertTrue(names.contains("android.permission.WAKE_LOCK"))
+        assertTrue(names.contains("android.permission.POST_NOTIFICATIONS"))
+        assertFalse(names.contains("android.permission.RECEIVE_BOOT_COMPLETED"))
+        assertEquals(0, doc.getElementsByTagName("receiver").length)
+    }
+
+    @Test
+    fun `app build targets SDK 36 without boot receivers in host manifest`() {
+        val gradleCandidates = listOf(
+            File("../../../gen/android/app/build.gradle.kts"),
+            File("../../gen/android/app/build.gradle.kts"),
+        )
+        val gradleFile = gradleCandidates.firstOrNull { it.exists() }
+            ?: error("app build.gradle.kts not found from ${File(".").absolutePath}")
+        val gradleText = gradleFile.readText()
+        assertTrue(gradleText.contains("compileSdk = 36"))
+        assertTrue(gradleText.contains("targetSdk = 36"))
+
+        val hostManifest = File(gradleFile.parentFile, "src/main/AndroidManifest.xml")
+        val hostDoc = DocumentBuilderFactory.newInstance().newDocumentBuilder().parse(hostManifest)
+        assertEquals(0, hostDoc.getElementsByTagName("receiver").length)
+        val hostPerms = hostDoc.getElementsByTagName("uses-permission")
+        val hostPermNames = (0 until hostPerms.length).map { idx ->
+            (hostPerms.item(idx) as org.w3c.dom.Element).getAttribute("android:name")
+        }
+        assertFalse(hostPermNames.contains("android.permission.RECEIVE_BOOT_COMPLETED"))
+    }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
+class ServiceNotificationAndTaskLifecycleTest {
+
+    @Test
+    fun `exempt media session service starts and promotes with POST_NOTIFICATIONS denied and preserves playing task dismissal`() {
+        val app = RuntimeEnvironment.getApplication()
+        org.robolectric.Shadows.shadowOf(app).denyPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
+        val controller = org.robolectric.Robolectric.buildService(RemoteMediaSessionService::class.java).create()
+        val service = controller.get()
+        try {
+            val samples = 8000 * 2 * 2
+            val bytes = java.nio.ByteBuffer.allocate(44 + samples).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            bytes.put("RIFF".toByteArray()).putInt(36 + samples).put("WAVEfmt ".toByteArray()).putInt(16)
+                .putShort(1).putShort(1).putInt(8000).putInt(16000).putShort(2).putShort(16)
+                .put("data".toByteArray()).putInt(samples)
+            val audio = File(app.filesDir, "service-lifecycle.wav")
+            audio.writeBytes(bytes.array())
+            val parts = org.json.JSONArray().put(
+                org.json.JSONObject()
+                    .put("partId", "p0")
+                    .put("sourceRevision", "v1")
+                    .put("nativeUri", audio.toURI().toString())
+                    .put("durationSec", 2.0)
+            )
+            val manifest = org.json.JSONObject()
+                .put("schemaVersion", 1)
+                .put("sourceKey", org.json.JSONObject().put("profileKey", "test").put("kind", "audiobook").put("sourceId", "svc-book"))
+                .put("title", "Service Book")
+                .put("mediaRevision", "v1")
+                .put("parts", parts)
+                .put("complete", true)
+
+            val owner = service.nativePlaybackOwner()
+            // Acquire system audio focus via ShadowAudioManager and verify play succeeds despite denied POST_NOTIFICATIONS.
+            val audioManager = app.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+            org.robolectric.Shadows.shadowOf(audioManager).setNextFocusRequestResponse(android.media.AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+            owner.loadAuthorized(manifest, "play")
+            assertTrue(owner.snapshot()!!.getBoolean("playIntent"))
+            assertEquals(1, org.robolectric.Shadows.shadowOf(audioManager).lastAudioFocusRequest?.let { 1 } ?: 0)
+
+            // Ongoing playing session survives task removal.
+            service.onTaskRemoved(android.content.Intent())
+            assertFalse(org.robolectric.Shadows.shadowOf(service).isStoppedBySelf)
+
+            // Paused session tears down cleanly on task removal.
+            owner.pause("user")
+            service.onTaskRemoved(android.content.Intent())
+            assertTrue(org.robolectric.Shadows.shadowOf(service).isStoppedBySelf)
+        } finally {
+            controller.destroy()
+        }
     }
 }
 

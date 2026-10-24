@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-reconcile-audio-checkpoint"
+description = "Enables the reconcile_audio_checkpoint command without any pre-configured scope."
+commands.allow = ["reconcile_audio_checkpoint"]
+
+[[permission]]
+identifier = "deny-reconcile-audio-checkpoint"
+description = "Denies the reconcile_audio_checkpoint command without any pre-configured scope."
+commands.deny = ["reconcile_audio_checkpoint"]

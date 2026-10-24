@@ -29,6 +29,66 @@ use tauri::{
 };
 use thiserror::Error;
 
+struct AuthorizedAudioManifest {
+    profile: String,
+    manifest: serde_json::Value,
+    issued: std::time::Instant,
+}
+
+static AUTHORIZED_AUDIO: std::sync::OnceLock<
+    std::sync::Mutex<std::collections::HashMap<String, AuthorizedAudioManifest>>,
+> = std::sync::OnceLock::new();
+
+/// Only trusted Rust source resolution can issue these one-use capabilities.
+pub fn authorize_audio_manifest(token: String, manifest: serde_json::Value) -> Result<(), Error> {
+    let profile = manifest
+        .get("sourceKey")
+        .and_then(|key| key.get("profileKey"))
+        .and_then(serde_json::Value::as_str)
+        .ok_or_else(|| Error::Message("Audio manifest profile is missing".into()))?
+        .to_string();
+    if token.len() < 32 || manifest.to_string().len() > 4 * 1024 * 1024 {
+        return Err(Error::Message("Invalid audio manifest capability".into()));
+    }
+    let mut entries = AUTHORIZED_AUDIO
+        .get_or_init(Default::default)
+        .lock()
+        .map_err(|_| Error::Message("Audio manifest registry unavailable".into()))?;
+    entries.retain(|_, entry| entry.issued.elapsed().as_secs() < 120);
+    if entries.len() >= 64 {
+        if let Some(oldest) = entries
+            .iter()
+            .min_by_key(|(_, value)| value.issued)
+            .map(|(key, _)| key.clone())
+        {
+            entries.remove(&oldest);
+        }
+    }
+    entries.insert(
+        token,
+        AuthorizedAudioManifest {
+            profile,
+            manifest,
+            issued: std::time::Instant::now(),
+        },
+    );
+    Ok(())
+}
+
+fn consume_audio_manifest(token: &str, profile: &str) -> Result<serde_json::Value, Error> {
+    let mut entries = AUTHORIZED_AUDIO
+        .get_or_init(Default::default)
+        .lock()
+        .map_err(|_| Error::Message("Audio manifest registry unavailable".into()))?;
+    let authorized = entries
+        .get(token)
+        .filter(|entry| entry.profile == profile && entry.issued.elapsed().as_secs() < 120)
+        .ok_or_else(|| Error::Message("Audio manifest capability is invalid or expired".into()))?;
+    let manifest = authorized.manifest.clone();
+    entries.remove(token);
+    Ok(manifest)
+}
+
 /// Errors surfaced to the frontend over IPC.
 #[derive(Debug, Error)]
 pub enum Error {
@@ -59,6 +119,67 @@ fn not_android() -> Error {
          Pocket TTS remains the local option on desktop."
             .to_string(),
     )
+}
+
+fn native_audio_call(
+    state: &AndroidTts,
+    command: &str,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, Error> {
+    #[cfg(target_os = "android")]
+    {
+        state
+            .handle
+            .run_mobile_plugin(
+                command,
+                serde_json::json!({ "payload": payload.to_string() }),
+            )
+            .map_err(|error| Error::Message(error.to_string()))
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (state, command, payload);
+        Err(not_android())
+    }
+}
+
+/// App-owned SQLite reconciliation reads service authority directly rather than accepting frontend cursors.
+pub fn read_native_audio_journal(
+    app: &AppHandle<Wry>,
+    profile: &str,
+) -> Result<serde_json::Value, Error> {
+    #[cfg(target_os = "android")]
+    {
+        native_audio_call(
+            &app.state::<AndroidTts>(),
+            "getAudioSnapshot",
+            serde_json::json!({ "schemaVersion": 1, "profileKey": profile }),
+        )
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, profile);
+        Err(not_android())
+    }
+}
+
+pub fn acknowledge_native_audio_checkpoint(
+    app: &AppHandle<Wry>,
+    checkpoint: serde_json::Value,
+) -> Result<serde_json::Value, Error> {
+    #[cfg(target_os = "android")]
+    {
+        native_audio_call(
+            &app.state::<AndroidTts>(),
+            "reconcileAudioCheckpoint",
+            checkpoint,
+        )
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (app, checkpoint);
+        Err(not_android())
+    }
 }
 
 /// Managed plugin state.
@@ -167,6 +288,101 @@ fn init_mobile<C: DeserializeOwned>(
 
 mod commands {
     use super::*;
+
+    #[tauri::command]
+    pub async fn load_audio(
+        state: State<'_, AndroidTts>,
+        window: tauri::WebviewWindow<Wry>,
+        schema_version: u32,
+        authorization_id: String,
+        profile_key: String,
+        client_id: String,
+        generation: i64,
+        intent: String,
+        explicit_position: Option<f64>,
+    ) -> Result<serde_json::Value, Error> {
+        if window.label() != "main" {
+            return Err(Error::Message(
+                "Audio playback belongs to the main window".into(),
+            ));
+        }
+        if schema_version != 1
+            || generation <= 0
+            || !matches!(intent.as_str(), "play" | "paused")
+            || explicit_position.is_some_and(|value| !value.is_finite() || value < 0.0)
+        {
+            return Err(Error::Message("Invalid native audio load".into()));
+        }
+        let manifest = consume_audio_manifest(&authorization_id, &profile_key)?;
+        native_audio_call(
+            &state,
+            "loadAudio",
+            serde_json::json!({ "schemaVersion": 1, "manifest": manifest, "profileKey": profile_key, "clientId": client_id, "generation": generation, "intent": intent, "explicitPosition": explicit_position }),
+        )
+    }
+
+    #[tauri::command]
+    pub async fn audio_command(
+        state: State<'_, AndroidTts>,
+        window: tauri::WebviewWindow<Wry>,
+        profile_key: String,
+        client_id: String,
+        request: serde_json::Value,
+        takeover_generation: Option<i64>,
+    ) -> Result<serde_json::Value, Error> {
+        if window.label() != "main" {
+            return Err(Error::Message(
+                "Audio playback belongs to the main window".into(),
+            ));
+        }
+        native_audio_call(
+            &state,
+            "audioCommand",
+            serde_json::json!({ "schemaVersion": 1, "profileKey": profile_key, "clientId": client_id, "request": request, "takeoverGeneration": takeover_generation }),
+        )
+    }
+
+    #[tauri::command]
+    pub async fn get_audio_snapshot(
+        state: State<'_, AndroidTts>,
+        window: tauri::WebviewWindow<Wry>,
+        profile_key: String,
+        observing: Option<bool>,
+        client_id: Option<String>,
+    ) -> Result<serde_json::Value, Error> {
+        if window.label() != "main" {
+            return Err(Error::Message(
+                "Audio state belongs to the main window".into(),
+            ));
+        }
+        let mut payload = serde_json::json!({ "schemaVersion": 1, "profileKey": profile_key });
+        if let Some(observing) = observing {
+            payload["observing"] = serde_json::json!(observing);
+        }
+        if observing == Some(true) && window.label() != "main" {
+            return Err(Error::Message(
+                "Audio observation belongs to the main window".into(),
+            ));
+        }
+        if let Some(client_id) = client_id {
+            payload["clientId"] = serde_json::json!(client_id);
+        }
+        native_audio_call(&state, "getAudioSnapshot", payload)
+    }
+
+    #[tauri::command]
+    pub async fn reconcile_audio_checkpoint(
+        state: State<'_, AndroidTts>,
+        source_key: serde_json::Value,
+        owner_epoch: String,
+        checkpoint_sequence: i64,
+    ) -> Result<serde_json::Value, Error> {
+        native_audio_call(
+            &state,
+            "reconcileAudioCheckpoint",
+            serde_json::json!({ "schemaVersion": 1, "sourceKey": source_key, "ownerEpoch": owner_epoch, "checkpointSequence": checkpoint_sequence }),
+        )
+    }
 
     /// Initialize the native TTS engine and report readiness. Called once on
     /// first use; safe to call repeatedly.
@@ -361,10 +577,7 @@ mod commands {
 
     /// Delete a model's files and return its disk usage to zero.
     #[tauri::command]
-    pub async fn delete_model(
-        state: State<'_, AndroidTts>,
-        model_id: String,
-    ) -> Result<(), Error> {
+    pub async fn delete_model(state: State<'_, AndroidTts>, model_id: String) -> Result<(), Error> {
         #[cfg(target_os = "android")]
         {
             let payload = serde_json::json!({ "modelId": model_id });
@@ -490,7 +703,10 @@ mod commands {
         {
             state
                 .handle
-                .run_mobile_plugin::<serde_json::Value>("drainPendingMediaCommands", serde_json::json!({}))
+                .run_mobile_plugin::<serde_json::Value>(
+                    "drainPendingMediaCommands",
+                    serde_json::json!({}),
+                )
                 .map_err(|e| Error::Message(e.to_string()))
         }
         #[cfg(not(target_os = "android"))]
@@ -501,20 +717,20 @@ mod commands {
     }
 }
 
+pub use commands::ack_media_commands;
 pub use commands::cancel_download;
 pub use commands::delete_model;
+pub use commands::discard_media_commands;
 pub use commands::download_model;
+pub use commands::drain_pending_media_commands;
 pub use commands::initialize;
 pub use commands::list_models;
 pub use commands::list_voices;
 pub use commands::pause;
 pub use commands::resume;
 pub use commands::speak;
-pub use commands::stop;
-pub use commands::ack_media_commands;
-pub use commands::discard_media_commands;
-pub use commands::drain_pending_media_commands;
 pub use commands::start_media_session;
+pub use commands::stop;
 pub use commands::stop_media_session;
 pub use commands::update_media_metadata;
 
@@ -528,6 +744,10 @@ pub fn init() -> TauriPlugin<Wry> {
     tauri::plugin::Builder::<Wry>::new("plethora-android-tts")
         .invoke_handler(tauri::generate_handler![
             commands::initialize,
+            commands::get_audio_snapshot,
+            commands::load_audio,
+            commands::audio_command,
+            commands::reconcile_audio_checkpoint,
             commands::download_model,
             commands::cancel_download,
             commands::list_models,
@@ -571,6 +791,38 @@ mod tests {
     use super::*;
 
     #[test]
+    fn native_audio_capabilities_are_profile_bound_and_one_use() {
+        let token = "native-audio-test-one-use-capability";
+        authorize_audio_manifest(
+            token.into(),
+            serde_json::json!({ "sourceKey": { "profileKey": "a" }, "parts": [] }),
+        )
+        .unwrap();
+        assert!(consume_audio_manifest(token, "b").is_err());
+        assert!(consume_audio_manifest(token, "a").is_ok());
+        assert!(consume_audio_manifest(token, "a").is_err());
+    }
+
+    #[test]
+    fn native_audio_capabilities_expire_without_persisting_paths() {
+        let token = "native-audio-test-expired-capability";
+        authorize_audio_manifest(
+            token.into(),
+            serde_json::json!({ "sourceKey": { "profileKey": "a" } }),
+        )
+        .unwrap();
+        AUTHORIZED_AUDIO
+            .get()
+            .unwrap()
+            .lock()
+            .unwrap()
+            .get_mut(token)
+            .unwrap()
+            .issued = std::time::Instant::now() - std::time::Duration::from_secs(121);
+        assert!(consume_audio_manifest(token, "a").is_err());
+    }
+
+    #[test]
     fn word_position_event_round_trips_camel_case() {
         let event = WordPositionEvent {
             utterance_id: 7,
@@ -579,7 +831,10 @@ mod tests {
             char_length: Some(5),
         };
         let json = serde_json::to_string(&event).expect("serialize");
-        assert!(json.contains("\"sentenceIndex\""), "camelCase missing: {json}");
+        assert!(
+            json.contains("\"sentenceIndex\""),
+            "camelCase missing: {json}"
+        );
         assert!(json.contains("\"charLength\""), "camelCase missing: {json}");
         let back: WordPositionEvent = serde_json::from_str(&json).expect("deserialize");
         assert_eq!(back, event);
