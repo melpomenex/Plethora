@@ -7,15 +7,17 @@
 //! state updates from the frontend via the `update_media_metadata` command.
 //!
 //! The bridge is created when the frontend player first pushes metadata and
-//! detached when playback stops/idles, so OS media UIs stay accurate and the
-//! integration tears down cleanly (design Decision 6).
+//! detached explicitly by the playback owner. A paused session keeps its OS
+//! controls without a metadata heartbeat.
 
 use std::sync::mpsc::{channel, Sender};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
-use souvlaki::{MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig};
+use souvlaki::{
+    MediaControlEvent, MediaControls, MediaMetadata, MediaPlayback, MediaPosition, PlatformConfig,
+};
 use tauri::{AppHandle, Emitter, Manager};
 
 /// The normalized envelope every adapter emits (mirrors the TS type).
@@ -105,97 +107,149 @@ fn event_position_sec(event: &MediaControlEvent) -> Option<f64> {
     }
 }
 
-/// Create the platform media controls on a dedicated thread and register the
-/// command→event callbacks. Returns the command sender on success.
-fn spawn_bridge(app: AppHandle, initial: MediaSnapshot) -> Option<Sender<BridgeCommand>> {
+/// Initialize, use and release the platform object on its owning worker.
+/// Only the numeric HWND crosses threads; no COM object is moved between apartments.
+fn spawn_bridge(app: AppHandle, initial: MediaSnapshot) -> Result<Sender<BridgeCommand>, String> {
+    #[cfg(target_os = "windows")]
+    let hwnd = Some(
+        app.get_webview_window("main")
+            .ok_or("Main window is unavailable for system media controls")?
+            .hwnd()
+            .map_err(|error| error.to_string())?
+            .0 as usize,
+    );
+    #[cfg(not(target_os = "windows"))]
+    let hwnd: Option<usize> = None;
+    let (tx, rx) = channel::<BridgeCommand>();
+    let (ready_tx, ready_rx) = channel::<Result<(), String>>();
+    std::thread::Builder::new()
+        .name("plethora-media-bridge".into())
+        .spawn(move || {
+            #[cfg(target_os = "windows")]
+            let _apartment = match MediaApartment::initialize() {
+                Ok(apartment) => apartment,
+                Err(error) => {
+                    let _ = ready_tx.send(Err(error));
+                    return;
+                }
+            };
+            let result = create_controls(&app, &initial, hwnd);
+            let (mut controls, identity) = match result {
+                Ok(controls) => controls,
+                Err(error) => {
+                    let _ = ready_tx.send(Err(error));
+                    return;
+                }
+            };
+            if let Err(error) = apply_snapshot(&mut controls, &initial) {
+                let _ = controls.detach();
+                let _ = ready_tx.send(Err(error.to_string()));
+                return;
+            }
+            if ready_tx.send(Ok(())).is_err() {
+                let _ = controls.detach();
+                return;
+            }
+            let mut snapshot = initial;
+            // No timeout: silence while paused is normal. Owner detach or app
+            // shutdown closes the channel and releases the platform object.
+            while let Ok(command) = rx.recv() {
+                match command {
+                    BridgeCommand::Update(next) if accepts_snapshot(&snapshot, &next) => {
+                        if let Ok(mut identity) = identity.lock() {
+                            *identity = (next.source_id.clone(), next.session_id.clone());
+                        }
+                        snapshot = next;
+                        if let Err(error) = apply_snapshot(&mut controls, &snapshot) {
+                            let _ = app.emit("media-control-error", error.to_string());
+                            break;
+                        }
+                    }
+                    BridgeCommand::Update(_) => {}
+                    BridgeCommand::Detach => break,
+                }
+            }
+            let _ = controls.detach();
+        })
+        .map_err(|error| error.to_string())?;
+    ready_rx
+        .recv_timeout(Duration::from_secs(5))
+        .map_err(|error| format!("System media controls did not initialize: {error}"))??;
+    Ok(tx)
+}
+
+#[cfg(target_os = "windows")]
+struct MediaApartment;
+#[cfg(target_os = "windows")]
+impl MediaApartment {
+    fn initialize() -> Result<Self, String> {
+        use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+        unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) }
+            .ok()
+            .map_err(|error| format!("System media COM initialization failed: {error}"))?;
+        Ok(Self)
+    }
+}
+#[cfg(target_os = "windows")]
+impl Drop for MediaApartment {
+    fn drop(&mut self) {
+        unsafe { windows::Win32::System::Com::CoUninitialize() };
+    }
+}
+
+fn accepts_snapshot(current: &MediaSnapshot, next: &MediaSnapshot) -> bool {
+    next.session_id != current.session_id || next.updated_at >= current.updated_at
+}
+
+type BridgeIdentity = Arc<Mutex<(String, String)>>;
+
+fn create_controls(
+    app: &AppHandle,
+    initial: &MediaSnapshot,
+    hwnd: Option<usize>,
+) -> Result<(MediaControls, BridgeIdentity), String> {
     let config = PlatformConfig {
         dbus_name: "plethora",
         display_name: "Plethora",
-        // Windows SMTC requires the main window handle; souvlaki accepts an
-        // optional hwnd. None degrades to no SMTC on Windows (documented
-        // fallback: in-app keyboard controls), other platforms ignore it.
-        hwnd: None,
+        hwnd: hwnd.map(|value| value as *mut std::ffi::c_void),
     };
-
-    let mut controls = MediaControls::new(config).ok()?;
-
-    let handle_for_cb = app.clone();
-    let identity = Arc::new(Mutex::new((initial.source_id.clone(), initial.session_id.clone())));
-    let identity_for_cb = Arc::clone(&identity);
+    let mut controls = MediaControls::new(config).map_err(|error| error.to_string())?;
+    let handle = app.clone();
+    let identity = Arc::new(Mutex::new((
+        initial.source_id.clone(),
+        initial.session_id.clone(),
+    )));
+    let callback_identity = Arc::clone(&identity);
     controls
         .attach(move |event: MediaControlEvent| {
             if let Some(command) = event_name(&event) {
-                let (source_id, session_id) = identity_for_cb
+                // Read the identity updated by the worker instead of capturing the
+                // initial source. The callback never issues transport directly.
+                let identity = callback_identity
                     .lock()
-                    .map(|value| (Some(value.0.clone()), Some(value.1.clone())))
-                    .unwrap_or((None, None));
+                    .map(|value| value.clone())
+                    .unwrap_or_default();
                 let envelope = RemoteMediaCommandEnvelope {
                     command,
                     event_id: new_event_id(),
                     source: "desktop",
                     occurred_at: chrono::Utc::now().timestamp_millis(),
-                    source_id,
-                    session_id,
+                    source_id: Some(identity.0),
+                    session_id: Some(identity.1),
                     position_hint_sec: None,
                     position_sec: event_position_sec(&event),
                 };
-                // The WebView listener normalizes + dispatches; failures are
-                // non-fatal (window may be closing).
-                let _ = handle_for_cb.emit("remote-media-command", envelope);
+                let _ = handle.emit("remote-media-command", envelope);
             }
         })
-        .ok()?;
-
-    let (tx, rx) = channel::<BridgeCommand>();
-
-    std::thread::Builder::new()
-        .name("plethora-media-bridge".into())
-        .spawn(move || {
-            let mut controls = controls;
-            let mut snapshot = initial;
-            let mut idle_ticks = 0u32;
-
-            // Apply the initial snapshot so OS media UIs populate immediately.
-            let _ = apply_snapshot(&mut controls, &snapshot);
-
-            loop {
-                // Poll for updates; detach after sustained silence (player
-                // stopped without a final update) so the OS integration
-                // tears down cleanly.
-                match rx.recv_timeout(Duration::from_millis(5_000)) {
-                    Ok(BridgeCommand::Update(next)) => {
-                        // Source switches always win; same-source updates use
-                        // the monotonic frontend timestamp so a late WebView
-                        // event cannot overwrite a newer seek.
-                        if next.session_id != snapshot.session_id
-                            || next.updated_at >= snapshot.updated_at
-                        {
-                            if let Ok(mut current_identity) = identity.lock() {
-                                *current_identity = (next.source_id.clone(), next.session_id.clone());
-                            }
-                            idle_ticks = 0;
-                            snapshot = next;
-                            let _ = apply_snapshot(&mut controls, &snapshot);
-                        }
-                    }
-                    Ok(BridgeCommand::Detach) | Err(_) => {
-                        // Explicit detach, or the frontend stopped pushing
-                        // state (player unmounted): clear and exit.
-                        idle_ticks += 1;
-                        if idle_ticks >= 2 || matches!(rx.try_recv(), Ok(BridgeCommand::Detach) | Err(std::sync::mpsc::TryRecvError::Disconnected)) {
-                            let _ = controls.detach();
-                            return;
-                        }
-                    }
-                }
-            }
-        })
-        .ok()?;
-
-    Some(tx)
+        .map_err(|error| error.to_string())?;
+    Ok((controls, identity))
 }
 
-fn apply_snapshot(controls: &mut MediaControls, snapshot: &MediaSnapshot) -> Result<(), souvlaki::Error> {
+fn apply_snapshot(
+    controls: &mut MediaControls,
+    snapshot: &MediaSnapshot,
+) -> Result<(), souvlaki::Error> {
     controls.set_metadata(MediaMetadata {
         title: Some(&snapshot.title),
         artist: Some(&snapshot.artist),
@@ -209,11 +263,15 @@ fn apply_snapshot(controls: &mut MediaControls, snapshot: &MediaSnapshot) -> Res
     })?;
     controls.set_playback(if snapshot.is_playing {
         MediaPlayback::Playing {
-            progress: Some(MediaPosition(Duration::from_secs_f64(snapshot.position_sec.max(0.0)))),
+            progress: Some(MediaPosition(Duration::from_secs_f64(
+                snapshot.position_sec.max(0.0),
+            ))),
         }
     } else {
         MediaPlayback::Paused {
-            progress: Some(MediaPosition(Duration::from_secs_f64(snapshot.position_sec.max(0.0)))),
+            progress: Some(MediaPosition(Duration::from_secs_f64(
+                snapshot.position_sec.max(0.0),
+            ))),
         }
     })
 }
@@ -256,7 +314,14 @@ pub async fn update_media_metadata(
         position_sec: position_sec.unwrap_or(0.0),
         playback_rate: playback_rate.unwrap_or(1.0),
         is_playing: is_playing.unwrap_or(false),
-        state: state.unwrap_or_else(|| if is_playing.unwrap_or(false) { "playing" } else { "paused" }.into()),
+        state: state.unwrap_or_else(|| {
+            if is_playing.unwrap_or(false) {
+                "playing"
+            } else {
+                "paused"
+            }
+            .into()
+        }),
         updated_at: updated_at.unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
     };
 
@@ -264,21 +329,19 @@ pub async fn update_media_metadata(
     let mut guard = bridge.sender.lock().map_err(|e| e.to_string())?;
 
     if let Some(tx) = guard.as_ref() {
-        let _ = tx.send(BridgeCommand::Update(snapshot));
-    } else {
-        // First update while audio is active: create the bridge.
-        if snapshot.is_playing || snapshot.session_id != "desktop:unknown" {
-            if let Some(tx) = spawn_bridge(app.clone(), snapshot) {
-                *guard = Some(tx);
-            }
-            // Creation failure (no DBus session, no SMTC hwnd, …) is not an
-            // error: in-app controls keep working; the bridge stays detached.
+        if tx.send(BridgeCommand::Update(snapshot.clone())).is_ok() {
+            return Ok(());
         }
+        // A failed adapter worker is recoverable on the next publication.
+        *guard = None;
+    }
+    if snapshot.is_playing || snapshot.session_id != "desktop:unknown" {
+        *guard = Some(spawn_bridge(app.clone(), snapshot)?);
     }
     Ok(())
 }
 
-/// Explicit teardown when the player unmounts (clean OS integration).
+/// Explicit teardown when the playback owner closes its session.
 #[tauri::command]
 pub async fn detach_media_controls(app: AppHandle) -> Result<(), String> {
     let bridge = app.state::<MediaControlBridge>();
@@ -302,7 +365,10 @@ mod tests {
 
         assert_eq!(event_name(&MediaControlEvent::Play), Some("Play"));
         assert_eq!(event_name(&MediaControlEvent::Pause), Some("Pause"));
-        assert_eq!(event_name(&MediaControlEvent::Toggle), Some("TogglePlayPause"));
+        assert_eq!(
+            event_name(&MediaControlEvent::Toggle),
+            Some("TogglePlayPause")
+        );
         assert_eq!(event_name(&MediaControlEvent::Next), Some("Next"));
         assert_eq!(event_name(&MediaControlEvent::Previous), Some("Previous"));
         assert_eq!(event_name(&MediaControlEvent::Stop), Some("Pause"));
@@ -315,17 +381,24 @@ mod tests {
             Some("SeekBackward")
         );
         assert_eq!(
-            event_name(&MediaControlEvent::SeekBy(SeekDirection::Forward, Duration::from_secs(15))),
+            event_name(&MediaControlEvent::SeekBy(
+                SeekDirection::Forward,
+                Duration::from_secs(15)
+            )),
             Some("SeekForward")
         );
         // Volume/position changes are metadata, not commands.
         assert_eq!(event_name(&MediaControlEvent::SetVolume(0.5)), None);
         assert_eq!(
-            event_name(&MediaControlEvent::SetPosition(MediaPosition(Duration::from_secs(5)))),
+            event_name(&MediaControlEvent::SetPosition(MediaPosition(
+                Duration::from_secs(5)
+            ))),
             Some("SeekTo")
         );
         assert_eq!(
-            event_position_sec(&MediaControlEvent::SetPosition(MediaPosition(Duration::from_secs(5)))),
+            event_position_sec(&MediaControlEvent::SetPosition(MediaPosition(
+                Duration::from_secs(5)
+            ))),
             Some(5.0)
         );
     }
@@ -353,5 +426,32 @@ mod tests {
             position_sec: None,
         };
         assert_ne!(a.event_id, b.event_id);
+    }
+
+    #[test]
+    fn stale_same_session_updates_cannot_reverse_a_seek() {
+        let current = MediaSnapshot {
+            session_id: "active".into(),
+            updated_at: 20,
+            ..Default::default()
+        };
+        let stale = MediaSnapshot {
+            session_id: "active".into(),
+            updated_at: 19,
+            ..Default::default()
+        };
+        let newer = MediaSnapshot {
+            session_id: "active".into(),
+            updated_at: 21,
+            ..Default::default()
+        };
+        let takeover = MediaSnapshot {
+            session_id: "new".into(),
+            updated_at: 1,
+            ..Default::default()
+        };
+        assert!(!accepts_snapshot(&current, &stale));
+        assert!(accepts_snapshot(&current, &newer));
+        assert!(accepts_snapshot(&current, &takeover));
     }
 }

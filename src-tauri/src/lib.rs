@@ -32,6 +32,7 @@ mod legacy_data;
 mod migrations;
 mod mcp;
 mod media_control;
+mod audio_lifecycle;
 pub mod models;
 mod notebooklm;
 mod notifications;
@@ -1219,6 +1220,8 @@ pub fn run() {
                 });
                 app.manage(FocusTimer::new());
             app.manage(media_control::MediaControlBridge::default());
+            app.manage(audio_lifecycle::AudioLifecycleState::default());
+            audio_lifecycle::start(app.handle());
                 app.manage(commands::podcast::PodcastTranscriptionTokens::default());
                 // document_id -> plugin job id for running on-device STT jobs
                 // (cancel support for transcribe_audio_file_on_device).
@@ -1787,6 +1790,13 @@ pub fn run() {
             commands::saved_queues::get_active_saved_queue_id,
             commands::saved_queues::set_active_saved_queue_id,
             commands::get_document_position,
+            commands::audio_playback::claim_audio_owner,
+            commands::audio_playback::commit_audio_checkpoint,
+            commands::audio_playback::get_audio_checkpoint,
+            commands::audio_playback::get_audio_session,
+            commands::audio_playback::save_audio_session,
+            commands::audio_playback::reconcile_native_audio_journal,
+            commands::audio_sources::resolve_native_audio_source,
             commands::save_document_position,
             commands::get_document_progress,
             commands::create_bookmark,
@@ -2611,6 +2621,7 @@ pub fn run() {
             commands::associate_session_document,
             commands::disassociate_session_document,
             commands::list_session_related_documents,
+            audio_lifecycle::get_audio_lifecycle_capabilities,
         ])
         .build({
             startup_trace::mark("context-construction-start");
@@ -2622,5 +2633,6 @@ pub fn run() {
         .run(|app_handle, event| {
             external_open::on_run_event(&app_handle, &event);
             sync::scheduler::on_run_event(&event);
+            audio_lifecycle::on_run_event(&app_handle, &event);
         });
 }

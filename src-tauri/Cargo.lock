@@ -6636,6 +6636,7 @@ dependencies = [
  "windows 0.61.3",
  "x25519-dalek",
  "xcap",
+ "zbus 5.19.0",
  "zip 0.6.6",
 ]
 

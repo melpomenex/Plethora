@@ -254,13 +254,18 @@ tauri-plugin-window-state = "2"
 # Already linked transitively via tao on macOS; declared directly so setup can
 # set the Dock icon for unbundled (tauri dev) runs, where macOS never applies
 # the .app bundle's icns.
+[target.'cfg(target_os = "linux")'.dependencies]
+# Already in Cargo.lock (5.19.0); used by audio_lifecycle.rs to observe login1
+# PrepareForSleep and BlueZ audio sink disconnects over the system D-Bus.
+zbus = "5"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSImage"] }
 objc2-foundation = { version = "0.3", features = ["NSData"] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Graphics_Dxgi"] }
+windows = { version = "0.61.3", features = ["Win32_Foundation", "Win32_Graphics_Dxgi", "Win32_System_Com"] }
 
 [features]
 startup-bench = []
