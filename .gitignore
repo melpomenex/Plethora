@@ -21,6 +21,7 @@ lerna-debug.log*
 # (ignored at the bottom of this file with the rest of the scratch output).
 .claude/settings.local.json
 .impeccable/config.local.json
+.impeccable/review/
 
 # Local scratch/scratchpad scripts — not part of the app.
 scratch/

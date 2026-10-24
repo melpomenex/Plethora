@@ -60,6 +60,14 @@ Enables first-class desktop and mobile OS integration, making Plethora feel like
 ## Platform Behavior
 - **macOS**: Souvlaki Now Playing metadata and hardware-control bridge; manual device regression remains pending.
 - **Linux**: Souvlaki/MPRIS metadata and hardware-control bridge; manual desktop regression remains pending.
-- **Windows**: In-app and shared-dispatcher behavior is supported, but the current Tauri platform configuration does not provide the native window handle required to claim full SMTC wiring. In-app playback remains the fallback until HWND plumbing is added.
+- **Windows**: The desktop bridge now supplies the main window handle and owns its COM objects on one initialized worker thread. Packaged Windows compilation and physical SMTC verification remain pending; use in-app controls if the adapter reports an error.
 - **Android**: Media3 session, ongoing notification, lock-screen/headset command queue, focus handling, and background lifecycle are implemented; physical lock-screen, car, watch, and Bluetooth verification remains pending.
 - **iOS**: Conditional only. The shared contract includes an iOS source kind, but this target has no verified native adapter in the current build and therefore makes no native-control support claim.
+
+## Persistent playback rollout
+
+The application-owned persistent player is under development and its production rollout is disabled. Existing source players remain active in normal builds. The development path keeps ordinary playback above navigation, uses one service-owned Android decoder, and restores a cold session paused. Closing the expanded controls only collapses them; Stop saves progress and releases playback. A failed save retains an inline error and requires a successful retry before closing or switching accounts.
+
+Prepared queue items advance under the owner, with chapter navigation separate from queue skips. Sleep takes precedence over continuation. Android stops at an unprepared boundary rather than relying on suspended JavaScript to synthesize or replay transport commands. Session intent and queue identities are local to the current profile. Full Listen Later synthesis, Study Mode, transcript/learning/DSP parity, complete-app continuity, memory/performance measurements and physical platform acceptance remain rollout requirements.
+
+Paused desktop controls remain attached until the playback owner explicitly closes the session; they do not require periodic metadata updates to stay alive. Adapter failures leave the in-app transport available and are reported by the development player.

@@ -1,4 +1,10 @@
-## ADDED Requirements
+# Podcast Position Persistence
+
+## Purpose
+
+Preserve and restore listening progress for podcast episodes and promoted audio documents across playback and application navigation.
+
+## Requirements
 
 ### Requirement: Playback Position Restoration
 The AudiobookViewer SHALL restore the last saved playback position for any audio content (documents or podcast episodes) upon loading.
