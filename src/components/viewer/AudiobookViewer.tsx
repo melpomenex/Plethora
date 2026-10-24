@@ -11,6 +11,11 @@
  - Progress tracking
  */
 
+import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../../services/audio/audioPlaybackRollout";
+import { useAudioPlaybackStore } from "../../stores/audioPlaybackStore";
+import { useAccountStore } from "../../stores/accountStore";
+import { runAudioAction } from "../audio/audioPlayerActions";
+import { getActiveSession } from "../../utils/listeningSessionService";
 import { useState, useRef, useEffect, useCallback, useMemo, type SyntheticEvent } from "react";
 import {
   ArrowCounterClockwise,
@@ -103,7 +108,7 @@ import { sectionAudioBlobCache, useAudioEditionGenerationStore, type GenerationJ
 import { ensureTranscriptEdition } from "../../utils/transcriptEdition";
 import { resolveRecentPassage } from "../../utils/audioEditionAnchors";
 import type { RemoteMediaContext } from "../../utils/remoteMediaDispatcher";
-import type { AudioEdition, AudioEditionAnchor } from "../../types/audioEdition";
+import type { AudioEdition, AudioEditionAnchor, AudioSourceKey } from "../../types/audioEdition";
 import {
   getAudioEditionPosition,
   saveAudioEditionPosition,
@@ -160,7 +165,7 @@ export function AudiobookPlaybackErrorNotice({
   );
 }
 
-interface AudiobookViewerProps {
+export interface AudiobookViewerProps {
   document: Document;
   fileContent?: string;
   initialSeekTime?: number;
@@ -185,6 +190,14 @@ interface AudiobookViewerProps {
   hideTitleHeader?: boolean;
   /** Publishes transcript-backed chapters to the surrounding Assistant panel. */
   onAssistantSectionsChange?: (sections: SectionNode[]) => void;
+  /** Optional explicit controller-backed override (defaults to GLOBAL_AUDIO_PLAYBACK_ENABLED). */
+  controllerBacked?: boolean;
+  /** Optional explicit queue context when starting playback from a feed/queue. */
+  queueKeys?: readonly AudioSourceKey[];
+}
+
+function sameAudioSourceKey(left: AudioSourceKey | undefined | null, right: AudioSourceKey | undefined | null): boolean {
+  return Boolean(left && right && left.profileKey === right.profileKey && left.kind === right.kind && left.sourceId === right.sourceId);
 }
 
 interface AudiobookBookmark {
@@ -294,7 +307,11 @@ function PodcastSegmentText({
   );
 }
 
-export function AudiobookViewer({
+export function AudiobookViewer(props: AudiobookViewerProps) {
+  return <AudiobookViewerSurface {...props} />;
+}
+
+function AudiobookViewerSurface({
   document,
   fileContent,
   initialSeekTime,
@@ -311,7 +328,11 @@ export function AudiobookViewer({
   onBack,
   hideTitleHeader = false,
   onAssistantSectionsChange,
+  controllerBacked: controllerBackedProp,
+  queueKeys,
 }: AudiobookViewerProps) {
+  const controllerBacked = controllerBackedProp ?? GLOBAL_AUDIO_PLAYBACK_ENABLED;
+  const profileKey = useAccountStore((state) => (state.user?.id ? `account:${state.user.id}` : "local"));
   const internalAudioRef = useRef<HTMLAudioElement>(null);
   const audioRef = externalAudioRef ?? internalAudioRef;
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -334,13 +355,20 @@ export function AudiobookViewer({
   const temporarilyDisabledSegmentsRef = useRef<Set<string>>(new Set());
   const skipNotificationTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  const handleUndoSkip = (originalStart: number, originalEnd: number, category: string) => {
+  const handleUndoSkip = (originalStart: number, _originalEnd: number, category: string) => {
     const segment = sponsorBlockSegments.find(s => s.segment[0] === originalStart);
     if (segment) {
       temporarilyDisabledSegmentsRef.current.add(segment.UUID);
     }
-    
-    if (audioRef.current) {
+
+    if (controllerBacked) {
+      setCurrentTime(originalStart);
+      currentTimeRef.current = originalStart;
+      void runAudioAction(async (owner) => {
+        await owner.seekTo(originalStart);
+        await owner.play();
+      });
+    } else if (audioRef.current) {
       audioRef.current.currentTime = originalStart;
       setCurrentTime(originalStart);
       currentTimeRef.current = originalStart;
@@ -714,7 +742,7 @@ export function AudiobookViewer({
   useEffect(() => {
     const isDirectAudio = isDirectAudioDocument(document);
     const ext = document.filePath?.split(".").pop()?.toLowerCase();
-    if (!isTauri() || !document.filePath || editionOwnsPlaylistRef.current || !isDirectAudio) {
+    if (controllerBacked || !isTauri() || !document.filePath || editionOwnsPlaylistRef.current || !isDirectAudio) {
       setPreparedPlaybackPath(null);
       setPreparedPlaybackSrc(null);
       return;
@@ -811,7 +839,7 @@ export function AudiobookViewer({
   }, [document.id, document.filePath, retryAttempt]);
 
   useEffect(() => {
-    if (!isTauri() || !episodeId) {
+    if (controllerBacked || !isTauri() || !episodeId) {
       setPodcastLocalSrc(null);
       setIsDownloading(false);
       return;
@@ -1006,6 +1034,7 @@ export function AudiobookViewer({
   // -----------------------------------------------------------------------
 
   const [audioEdition, setAudioEdition] = useState<AudioEdition | null>(null);
+  const [editionLookupDone, setEditionLookupDone] = useState(false);
   const audioEditionRef = useRef<AudioEdition | null>(null);
   useEffect(() => {
     audioEditionRef.current = audioEdition;
@@ -1013,6 +1042,56 @@ export function AudiobookViewer({
   const [sectionAnchors, setSectionAnchors] = useState<AudioEditionAnchor[]>([]);
   const [showInbox, setShowInbox] = useState(false);
   const [showListenLater, setShowListenLater] = useState(false);
+  const [ownerTimeInPart, setOwnerTimeInPart] = useState(0);
+  const preMuteVolumeRef = useRef(1);
+  const [controllerAttemptedSourceSig, setControllerAttemptedSourceSig] = useState<string | null>(null);
+
+  const viewerSourceKey = useMemo<AudioSourceKey | null>(() => {
+    if (episodeId) return { profileKey, kind: "podcast", sourceId: episodeId };
+    if (isDirectAudioDocument(document)) return { profileKey, kind: "audiobook", sourceId: document.id };
+    if (audioEdition && audioEdition.provider !== "transcript") {
+      return { profileKey, kind: "audio_edition", sourceId: audioEdition.id };
+    }
+    return null;
+  }, [audioEdition, document, episodeId, profileKey]);
+  const viewerSourceSignature = viewerSourceKey ? JSON.stringify(viewerSourceKey) : "";
+  const isOwnerSource = useAudioPlaybackStore((state) =>
+    Boolean(controllerBacked && viewerSourceKey && sameAudioSourceKey(state.snapshot?.sourceKey, viewerSourceKey)),
+  );
+  const activeOtherTitle = useAudioPlaybackStore((state) =>
+    controllerBacked && state.snapshot && (!viewerSourceKey || !sameAudioSourceKey(state.snapshot.sourceKey, viewerSourceKey))
+      ? state.snapshot.metadata.title
+      : null,
+  );
+  const ownerControlError = useAudioPlaybackStore((state) => (controllerBacked ? state.controlError : null));
+  const ownerCapabilities = useAudioPlaybackStore((state) => (controllerBacked ? state.snapshot?.capabilities : undefined));
+  const ownerPolicySkip = useAudioPlaybackStore((state) => (controllerBacked ? state.snapshot?.policySkip : undefined));
+
+  // Owner-lifetime source policy: the session skips sponsor intervals even when
+  // this presentation unmounts. The viewer only supplies policy and notification.
+  useEffect(() => {
+    if (!controllerBacked || !isOwnerSource) return;
+    const intervals = sponsorBlockSegments.map(segment => ({
+      id: segment.UUID,
+      category: segment.category,
+      startSec: segment.segment[0],
+      endSec: segment.segment[1],
+    }));
+    void runAudioAction(owner => { owner.setPolicyIntervals?.(intervals); });
+  }, [controllerBacked, isOwnerSource, sponsorBlockSegments]);
+
+  useEffect(() => {
+    if (!controllerBacked || !ownerPolicySkip) return;
+    setSkipNotification({
+      category: ownerPolicySkip.category,
+      savedSeconds: Math.round(ownerPolicySkip.toSec - ownerPolicySkip.fromSec),
+      originalStart: ownerPolicySkip.fromSec,
+      originalEnd: ownerPolicySkip.toSec,
+      undoable: true,
+    });
+    if (skipNotificationTimeoutRef.current) clearTimeout(skipNotificationTimeoutRef.current);
+    skipNotificationTimeoutRef.current = setTimeout(() => setSkipNotification(null), 4000);
+  }, [controllerBacked, ownerPolicySkip]);
   /** Sections kept live ahead of the playhead (working set, task 5.6). */
 const WORKING_SET_AHEAD = 2;
 
@@ -1060,6 +1139,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
   useEffect(() => {
     let cancelled = false;
     setAudioEdition(null);
+    setEditionLookupDone(false);
     setSectionAnchors([]);
     editionSectionIdsRef.current = [];
     editionReadySectionsRef.current = [];
@@ -1129,7 +1209,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
           // NOT usable as <audio src> directly — the async resolver effect
           // below turns them into media-server/local-media URLs.
           const sources = readySections.map((s, i) => {
-            const live = i <= WORKING_SET_AHEAD ? getSectionAudioUrl(s.id) : undefined;
+            const live = !controllerBacked && i <= WORKING_SET_AHEAD ? getSectionAudioUrl(s.id) : undefined;
             return live || (isDirectPlaybackUrl(s.audioFilePath) ? (s.audioFilePath as string) : "") || "";
           });
           const durations = readySections.map((s) => s.durationSec || 0);
@@ -1155,7 +1235,14 @@ const editionSectionIdsRef = useRef<string[]>([]);
           // Restore saved audio edition position if no explicit initial seek time is provided
           if (typeof initialSeekTime !== "number" || !Number.isFinite(initialSeekTime)) {
             const savedPos = await getAudioEditionPosition(edition.id, document.id);
+            const editionKey: AudioSourceKey = isDirectAudioDocument(document)
+              ? { profileKey, kind: "audiobook", sourceId: document.id }
+              : { profileKey, kind: "audio_edition", sourceId: edition.id };
+            const isActiveInOwner =
+              controllerBacked &&
+              sameAudioSourceKey(useAudioPlaybackStore.getState().snapshot?.sourceKey, editionKey);
             if (
+              !isActiveInOwner &&
               savedPos &&
               savedPos.partIndex >= 0 &&
               savedPos.partIndex < readySections.length &&
@@ -1168,39 +1255,41 @@ const editionSectionIdsRef = useRef<string[]>([]);
                 setCurrentPartIndex(targetPart);
                 currentPartIndexRef.current = targetPart;
               }
-              currentTimeRef.current = targetTime;
-              setCurrentTime(targetTime);
-              pendingSeekTimeRef.current = targetTime;
+              const displayTime = controllerBacked ? savedPos.globalTimeSec : targetTime;
+              currentTimeRef.current = displayTime;
+              setCurrentTime(displayTime);
               currentGlobalTimeRef.current = savedPos.globalTimeSec;
-
-              const immediate = sources[targetPart] || getSectionAudioUrl(readySections[targetPart].id);
-              if (immediate) {
-                if (audioRef.current) {
-                  audioRef.current.src = immediate;
-                  if (audioRef.current.readyState >= 1) {
-                    audioRef.current.currentTime = targetTime;
-                  }
-                }
-              } else if (readySections[targetPart]?.audioFilePath) {
-                try {
-                  const url = await resolveSectionPlaybackUrl(readySections[targetPart].audioFilePath!);
-                  if (url) {
-                    resolvedSectionUrlsRef.current[readySections[targetPart].id] = url;
-                    setResolvedSectionUrls((prev) => ({ ...prev, [readySections[targetPart].id]: url }));
-                    setPartSources((prev) => {
-                      const next = [...prev];
-                      next[targetPart] = url;
-                      return next;
-                    });
-                    if (audioRef.current) {
-                      audioRef.current.src = url;
-                      if (audioRef.current.readyState >= 1) {
-                        audioRef.current.currentTime = targetTime;
-                      }
+              if (!controllerBacked) {
+                pendingSeekTimeRef.current = targetTime;
+                const immediate = sources[targetPart] || getSectionAudioUrl(readySections[targetPart].id);
+                if (immediate) {
+                  if (audioRef.current) {
+                    audioRef.current.src = immediate;
+                    if (audioRef.current.readyState >= 1) {
+                      audioRef.current.currentTime = targetTime;
                     }
                   }
-                } catch (err) {
-                  console.warn("[AudiobookViewer] Failed to resolve section source on resume:", err);
+                } else if (readySections[targetPart]?.audioFilePath) {
+                  try {
+                    const url = await resolveSectionPlaybackUrl(readySections[targetPart].audioFilePath!);
+                    if (url) {
+                      resolvedSectionUrlsRef.current[readySections[targetPart].id] = url;
+                      setResolvedSectionUrls((prev) => ({ ...prev, [readySections[targetPart].id]: url }));
+                      setPartSources((prev) => {
+                        const next = [...prev];
+                        next[targetPart] = url;
+                        return next;
+                      });
+                      if (audioRef.current) {
+                        audioRef.current.src = url;
+                        if (audioRef.current.readyState >= 1) {
+                          audioRef.current.currentTime = targetTime;
+                        }
+                      }
+                    }
+                  } catch (err) {
+                    console.warn("[AudiobookViewer] Failed to resolve section source on resume:", err);
+                  }
                 }
               }
             }
@@ -1208,6 +1297,10 @@ const editionSectionIdsRef = useRef<string[]>([]);
         }
       } catch (err) {
         console.warn("[AudiobookViewer] Failed to load audio edition:", err);
+      } finally {
+        if (!cancelled) {
+          setEditionLookupDone(true);
+        }
       }
     };
 
@@ -1280,7 +1373,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
   // the local-media resolver (native mobile), never the raw path. Resolved
   // URLs are cached per section id and patched into the playlist.
   useEffect(() => {
-    if (!multiPartInfo || !isTauri()) return;
+    if (controllerBacked || !multiPartInfo || !isTauri()) return;
     let cancelled = false;
     void (async () => {
       for (let ahead = 0; ahead <= WORKING_SET_AHEAD; ahead++) {
@@ -1316,14 +1409,14 @@ const editionSectionIdsRef = useRef<string[]>([]);
     return () => {
       cancelled = true;
     };
-  }, [currentPartIndex, multiPartInfo?.totalParts, resolvedSectionUrls]);
+  }, [controllerBacked, currentPartIndex, multiPartInfo?.totalParts, resolvedSectionUrls]);
 
   // Prefetch across section boundaries: keep the current + next sections
   // live in the LRU (touched = most recent = never the eviction victim) and
   // patch their playlist entries so handleEnded finds a live source. This is
   // the "no gap at the boundary" half of the working set.
   useEffect(() => {
-    if (!multiPartInfo) return;
+    if (controllerBacked || !multiPartInfo) return;
     setPartSources((prev) => {
       let changed = false;
       const next = [...prev];
@@ -1338,14 +1431,17 @@ const editionSectionIdsRef = useRef<string[]>([]);
       }
       return changed ? next : prev;
     });
-  }, [currentPartIndex, multiPartInfo?.totalParts, resolveSectionSourceAt, resolvedSectionUrls]);
+  }, [controllerBacked, currentPartIndex, multiPartInfo?.totalParts, resolveSectionSourceAt, resolvedSectionUrls]);
 
-  // Listening session lifecycle: create/resume on play, close on
-  // inactivity/content change/unmount (no micro-sessions).
-  const listeningSession = useListeningSessionTracker({
-    editionId: audioEdition?.id,
+  // Listening session lifecycle: in controllerBacked mode, audioRuntime owns
+  // session creation/touch/inactivity close across tab unmounts.
+  const trackedListeningSession = useListeningSessionTracker({
+    editionId: controllerBacked ? undefined : audioEdition?.id,
     isPlaying,
   });
+  const listeningSession = controllerBacked
+    ? (audioEdition?.id ? getActiveSession(audioEdition.id) : null)
+    : trackedListeningSession;
 
   // Listen Later lazy prefetch (task 8.5): near the end of the current item,
   // start synthesizing the next queued item so playback continues without a
@@ -1353,7 +1449,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
   const prefetchGuardRef = useRef<string | null>(null);
   const listenLaterCount = useListenLaterStore((s) => s.queue.length);
   useEffect(() => {
-    if (!isPlaying || !Number.isFinite(duration) || duration <= 0) return;
+    if ((controllerBacked && !isOwnerSource) || !isPlaying || !Number.isFinite(duration) || duration <= 0) return;
     const remaining = duration - currentTime;
     if (remaining > 60) return;
 
@@ -1364,7 +1460,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
 
     prefetchGuardRef.current = next.id;
     void store.ensureItemSynthesized(next);
-  }, [isPlaying, currentTime, duration]);
+  }, [controllerBacked, isOwnerSource, isPlaying, currentTime, duration]);
 
   // Source-provenance flashcard from the recent passage (task 7.6).
   const createFlashcardFromPassage = useCallback(async () => {
@@ -1462,6 +1558,17 @@ const editionSectionIdsRef = useRef<string[]>([]);
       return;
     }
 
+    if (controllerBacked) {
+      const { partIndex } = fromGlobalSeconds(savedSeconds);
+      if (multiPartInfo && partIndex !== currentPartIndex) {
+        setCurrentPartIndex(partIndex);
+      }
+      setCurrentTime(savedSeconds);
+      currentTimeRef.current = savedSeconds;
+      currentGlobalTimeRef.current = savedSeconds;
+      return;
+    }
+
     const { partIndex, timeInPart } = fromGlobalSeconds(savedSeconds);
     if (multiPartInfo && partIndex !== currentPartIndex) {
       setCurrentPartIndex(partIndex);
@@ -1475,7 +1582,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
     } else {
       pendingSeekTimeRef.current = timeInPart;
     }
-  }, [currentPartIndex, document.currentPage, document.id, fromGlobalSeconds, multiPartInfo]);
+  }, [controllerBacked, currentPartIndex, document.currentPage, document.id, fromGlobalSeconds, multiPartInfo]);
 
   // Keep a ref to the latest loadSavedPosition so the once-per-session restore
   // effect (below) can call it without re-running every time this callback is
@@ -1506,8 +1613,14 @@ const editionSectionIdsRef = useRef<string[]>([]);
     if (restoredSessionRef.current === sessionKey) return;
     restoredSessionRef.current = sessionKey;
 
+    if (controllerBacked && viewerSourceKey && sameAudioSourceKey(useAudioPlaybackStore.getState().snapshot?.sourceKey, viewerSourceKey)) {
+      return;
+    }
+
     if (typeof initialSeekTime !== "number" || !Number.isFinite(initialSeekTime)) {
-      void loadSavedPositionRef.current();
+      if (!episodeId && (!controllerBacked || isDirectAudioDocument(document))) {
+        void loadSavedPositionRef.current();
+      }
     }
 
     // For podcast episodes, restore saved position
@@ -1516,7 +1629,13 @@ const editionSectionIdsRef = useRef<string[]>([]);
         try {
           const pos = await getEpisodePosition(episodeId);
           if (pos > 0) {
-            if (audioRef.current && audioRef.current.readyState >= 1) {
+            if (controllerBacked) {
+              if (!sameAudioSourceKey(useAudioPlaybackStore.getState().snapshot?.sourceKey, { profileKey, kind: "podcast", sourceId: episodeId })) {
+                setCurrentTime(pos);
+                currentTimeRef.current = pos;
+                currentGlobalTimeRef.current = pos;
+              }
+            } else if (audioRef.current && audioRef.current.readyState >= 1) {
               audioRef.current.currentTime = pos;
               setCurrentTime(pos);
               currentTimeRef.current = pos;
@@ -1534,31 +1653,294 @@ const editionSectionIdsRef = useRef<string[]>([]);
 
     const savedVolume = localStorage.getItem("audiobook-volume");
     if (savedVolume) {
-      setVolume(parseFloat(savedVolume));
-      if (audioRef.current) {
-        audioRef.current.volume = parseFloat(savedVolume);
+      const parsedVol = parseFloat(savedVolume);
+      setVolume(parsedVol);
+      preMuteVolumeRef.current = parsedVol > 0 ? parsedVol : 1;
+      if (!controllerBacked && audioRef.current) {
+        audioRef.current.volume = parsedVol;
       }
     }
 
     const savedRate = localStorage.getItem("audiobook-rate");
     if (savedRate) {
-      setPlaybackRate(parseFloat(savedRate));
-      if (audioRef.current) {
-        audioRef.current.playbackRate = parseFloat(savedRate);
+      const parsedRate = parseFloat(savedRate);
+      setPlaybackRate(parsedRate);
+      if (!controllerBacked && audioRef.current) {
+        audioRef.current.playbackRate = parsedRate;
       }
     }
     // Deliberately minimal: only re-run when the actual playback session
     // identity changes (different document / episode / source). Progress writes
     // and callback identity changes must NOT re-trigger the restore.
   }, [
-    document.id,
+    controllerBacked,
+    document,
     episodeId,
+    profileKey,
     remoteAudioUrl,
     initialSeekTime,
     currentPartIndex,
     toGlobalSeconds,
+    viewerSourceKey,
   ]);
   
+  const syncTranscriptAndSponsorBlockAtTime = useCallback((time: number, playingNow: boolean) => {
+    const diff = time - lastTimeRef.current;
+    if (playingNow && diff > 0 && diff < 5) {
+      accumulateListeningTime(diff);
+    }
+    lastTimeRef.current = time;
+
+    if (sponsorBlock.canSkip && sponsorBlockCuts && sponsorBlockCuts.length > 0) {
+      for (const cut of sponsorBlockCuts) {
+        if (time >= cut.cutStart && time <= cut.cutStart + 1.5) {
+          if (!notifiedCutsRef.current.has(cut.uuid)) {
+            notifiedCutsRef.current.add(cut.uuid);
+            setSkipNotification({
+              category: cut.category,
+              savedSeconds: Math.round(cut.originalEnd - cut.originalStart),
+              undoable: false,
+            });
+            if (skipNotificationTimeoutRef.current) clearTimeout(skipNotificationTimeoutRef.current);
+            skipNotificationTimeoutRef.current = setTimeout(() => {
+              setSkipNotification(null);
+            }, 4000);
+          }
+        }
+      }
+    }
+
+    if (!controllerBacked && sponsorBlock.canSkip && sponsorBlockSegments && sponsorBlockSegments.length > 0) {
+      for (const segment of sponsorBlockSegments) {
+        const [start, end] = segment.segment;
+        if (time >= start && time < end) {
+          if (!skippedSegmentsRef.current.has(segment.UUID) && !temporarilyDisabledSegmentsRef.current.has(segment.UUID)) {
+            skippedSegmentsRef.current.add(segment.UUID);
+            if (audioRef.current) {
+              audioRef.current.currentTime = end;
+            }
+            setCurrentTime(end);
+            currentTimeRef.current = end;
+            setSkipNotification({
+              category: segment.category,
+              savedSeconds: Math.round(end - start),
+              originalStart: start,
+              originalEnd: end,
+              undoable: true,
+            });
+            if (skipNotificationTimeoutRef.current) clearTimeout(skipNotificationTimeoutRef.current);
+            skipNotificationTimeoutRef.current = setTimeout(() => {
+              setSkipNotification(null);
+            }, 4000);
+            break;
+          }
+        }
+      }
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const allSegments: any[] = isPodcast
+      ? (podcastTranscriptSegments.length > 0
+          ? podcastTranscriptSegments.map((s, i) => ({
+              id: `pod-seg-${i}`,
+              startTime: s.start || 0,
+              endTime: s.end || 0,
+              text: s.text,
+              wordTimings: s.wordTimings,
+            }))
+          : (podcastTranscriptText || "").split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean).map((text, i) => ({ id: `pod-seg-${i}`, startTime: 0, endTime: 0, text })))
+      : (transcript?.segments || documentTranscriptSegments);
+    if (allSegments.length > 0) {
+      const checkTime = sponsorBlockCuts.length > 0
+        ? mapCutTimeToOriginalTime(time, sponsorBlockCuts)
+        : time;
+      const segment = allSegments.find((s) => {
+        const start = s.startTime ?? s.start_ms / 1000;
+        const end = s.endTime ?? s.end_ms / 1000;
+        return checkTime >= start && checkTime < end;
+      });
+      const id = segment ? (segment.id || `seg-${allSegments.indexOf(segment)}`) : null;
+      if (id && id !== activeSegmentId) {
+        setActiveSegmentId(id);
+        const element = window.document.getElementById(`segment-${id}`);
+        const container = transcriptRef.current;
+        if (element && container && showTranscript) {
+          const containerRect = container.getBoundingClientRect();
+          const elementRect = element.getBoundingClientRect();
+          const relativeTop = elementRect.top - containerRect.top + container.scrollTop;
+          const targetScrollTop = relativeTop - (containerRect.height / 2) + (elementRect.height / 2);
+          const padding = 50;
+          const isAbove = elementRect.top < containerRect.top + padding;
+          const isBelow = elementRect.bottom > containerRect.bottom - padding;
+          if (isAbove || isBelow) {
+            container.scrollTo({ top: targetScrollTop, behavior: "smooth" });
+          }
+        }
+      }
+    }
+  }, [
+    activeSegmentId,
+    audioRef,
+    controllerBacked,
+    documentTranscriptSegments,
+    isPodcast,
+    podcastTranscriptSegments,
+    podcastTranscriptText,
+    showTranscript,
+    sponsorBlock.canSkip,
+    sponsorBlockCuts,
+    sponsorBlockSegments,
+    transcript,
+  ]);
+
+  const syncTimeEffectsRef = useRef(syncTranscriptAndSponsorBlockAtTime);
+  syncTimeEffectsRef.current = syncTranscriptAndSponsorBlockAtTime;
+  const publicCallbacksRef = useRef({ onTimeUpdate, onDurationChange, onEpisodeEnded });
+  publicCallbacksRef.current = { onTimeUpdate, onDurationChange, onEpisodeEnded };
+  const controllerIntentTokenRef = useRef("");
+
+  useEffect(() => {
+    if (!controllerBacked || !viewerSourceKey) return;
+    if (!episodeId && !isDirectAudioDocument(document) && !editionLookupDone) return;
+    const hasExplicitSeek = typeof initialSeekTime === "number" && Number.isFinite(initialSeekTime);
+    const token = JSON.stringify([viewerSourceSignature, hasExplicitSeek ? initialSeekTime : null, Boolean(autoPlayOnOpen)]);
+    if (controllerIntentTokenRef.current === token) return;
+    const previousToken = controllerIntentTokenRef.current;
+    controllerIntentTokenRef.current = token;
+
+    const activeSnapshot = useAudioPlaybackStore.getState().snapshot;
+    if (sameAudioSourceKey(activeSnapshot?.sourceKey, viewerSourceKey)) {
+      if (previousToken && hasExplicitSeek) {
+        void runAudioAction(async (owner) => {
+          await owner.seekTo(Math.max(0, initialSeekTime!));
+          if (autoPlayOnOpen) await owner.play();
+        });
+      }
+      return;
+    }
+
+    if (!autoPlayOnOpen && !hasExplicitSeek) return;
+    const hadActiveSession = activeSnapshot !== null;
+    setControllerAttemptedSourceSig(viewerSourceSignature);
+    void runAudioAction(async (owner) => {
+      const savedRateRaw = !hadActiveSession ? localStorage.getItem("audiobook-rate") : null;
+      const savedVolumeRaw = !hadActiveSession ? localStorage.getItem("audiobook-volume") : null;
+      await owner.load(viewerSourceKey, {
+        intent: autoPlayOnOpen ? "play" : "paused",
+        explicitPosition: hasExplicitSeek ? Math.max(0, initialSeekTime!) : undefined,
+        queue: queueKeys,
+      });
+      if (savedRateRaw) {
+        const parsedRate = parseFloat(savedRateRaw);
+        if (Number.isFinite(parsedRate) && parsedRate >= 0.5 && parsedRate <= 3) {
+          await owner.setRate(parsedRate);
+        }
+      }
+      if (savedVolumeRaw) {
+        const parsedVol = parseFloat(savedVolumeRaw);
+        if (Number.isFinite(parsedVol) && parsedVol >= 0 && parsedVol <= 1) {
+          await owner.setVolume(parsedVol);
+        }
+      }
+    });
+  }, [
+    autoPlayOnOpen,
+    controllerBacked,
+    document,
+    editionLookupDone,
+    episodeId,
+    initialSeekTime,
+    queueKeys,
+    viewerSourceKey,
+    viewerSourceSignature,
+  ]);
+
+  const tRef = useRef(t);
+  tRef.current = t;
+  const viewerSourceKeyRef = useRef(viewerSourceKey);
+  viewerSourceKeyRef.current = viewerSourceKey;
+
+  useEffect(() => {
+    const targetKey = viewerSourceKeyRef.current;
+    if (!controllerBacked || !targetKey) return;
+    let prevPos: number | undefined;
+    let prevDuration: number | undefined;
+    let endedSessionId: string | undefined;
+
+    const syncFromOwner = () => {
+      const storeState = useAudioPlaybackStore.getState();
+      const snap = storeState.snapshot;
+      if (!snap || !sameAudioSourceKey(snap.sourceKey, targetKey)) {
+        setIsPlaying(false);
+        return;
+      }
+      const playingNow = snap.playIntent && snap.state !== "error" && snap.state !== "ended";
+      setIsPlaying(playingNow);
+      setOwnerTimeInPart(snap.timeInPart);
+      if (currentPartIndexRef.current !== snap.partIndex) {
+        currentPartIndexRef.current = snap.partIndex;
+        setCurrentPartIndex(snap.partIndex);
+      }
+      setCurrentTime(snap.positionSec);
+      currentTimeRef.current = snap.positionSec;
+      currentGlobalTimeRef.current = snap.globalPositionSec ?? snap.positionSec;
+      if (snap.positionSec !== prevPos) {
+        prevPos = snap.positionSec;
+        publicCallbacksRef.current.onTimeUpdate?.(snap.positionSec);
+        syncTimeEffectsRef.current(snap.positionSec, playingNow);
+      }
+      if (snap.durationSec !== null && Number.isFinite(snap.durationSec) && snap.durationSec > 0) {
+        setDuration(snap.durationSec);
+        durationRef.current = snap.durationSec;
+        if (snap.durationSec !== prevDuration) {
+          prevDuration = snap.durationSec;
+          publicCallbacksRef.current.onDurationChange?.(snap.durationSec);
+        }
+      }
+      setPlaybackRate(snap.playbackRate);
+      setVolume(snap.volume);
+      setIsMuted(snap.volume === 0);
+      if (snap.volume > 0) preMuteVolumeRef.current = snap.volume;
+      setSleepTimer((prev) => {
+        if (snap.sleepDeadlineMs === null) return null;
+        if (prev && prev.endTime === snap.sleepDeadlineMs) return prev;
+        return { mode: prev?.mode ?? "time", endTime: snap.sleepDeadlineMs };
+      });
+      if (snap.error) {
+        const nextKind = snap.error.code === "unsupported_codec" ? "codec" : "source";
+        const nextMessage = `${tRef.current("viewer.unableToLoadAudio")}: ${snap.error.message}`;
+        setPlaybackError((prev) =>
+          prev && prev.kind === nextKind && prev.message === nextMessage
+            ? prev
+            : { kind: nextKind, message: nextMessage },
+        );
+      } else {
+        setPlaybackError(null);
+      }
+      if (snap.state === "ended" && endedSessionId !== snap.metadata.sessionId) {
+        endedSessionId = snap.metadata.sessionId;
+        if (episodeId && !snap.queue?.length) {
+          publicCallbacksRef.current.onEpisodeEnded?.();
+        }
+      }
+    };
+
+    syncFromOwner();
+    return useAudioPlaybackStore.subscribe(syncFromOwner);
+  }, [controllerBacked, episodeId, viewerSourceSignature]);
+
+  useEffect(() => {
+    if (!controllerBacked) return;
+    if (!isOwnerSource && controllerAttemptedSourceSig === viewerSourceSignature && ownerControlError) {
+      const nextMessage = `${tRef.current("viewer.unableToLoadAudio")}: ${ownerControlError}`;
+      setPlaybackError((prev) =>
+        prev && prev.kind === "source" && prev.message === nextMessage
+          ? prev
+          : { kind: "source", message: nextMessage },
+      );
+    }
+  }, [controllerAttemptedSourceSig, controllerBacked, isOwnerSource, ownerControlError, viewerSourceSignature]);
+
   const handleTimeUpdate = useCallback((event?: SyntheticEvent<HTMLAudioElement>) => {
     const audio = event?.currentTarget ?? audioRef.current;
     if (audio) {
@@ -1567,145 +1949,60 @@ const editionSectionIdsRef = useRef<string[]>([]);
       currentTimeRef.current = time;
       currentGlobalTimeRef.current = toGlobalSeconds(currentPartIndex, time);
       onTimeUpdate?.(toGlobalSeconds(currentPartIndex, time));
+      syncTranscriptAndSponsorBlockAtTime(time, isPlaying);
 
-      // Accumulate listening stats
-      const diff = time - lastTimeRef.current;
-      if (isPlaying && diff > 0 && diff < 5) {
-        accumulateListeningTime(diff);
-      }
-      lastTimeRef.current = time;
-
-      // SponsorBlock cut metadata (pre-cut) check. Gated on canSkip like the
-      // live-segment check below: with SponsorBlock off, playback never moves on
-      // its own, whether the cuts were baked in at download time or fetched live.
-      if (sponsorBlock.canSkip && sponsorBlockCuts && sponsorBlockCuts.length > 0) {
-        for (const cut of sponsorBlockCuts) {
-          if (time >= cut.cutStart && time <= cut.cutStart + 1.5) {
-            if (!notifiedCutsRef.current.has(cut.uuid)) {
-              notifiedCutsRef.current.add(cut.uuid);
-              
-              setSkipNotification({
-                category: cut.category,
-                savedSeconds: Math.round(cut.originalEnd - cut.originalStart),
-                undoable: false,
-              });
-              
-              if (skipNotificationTimeoutRef.current) clearTimeout(skipNotificationTimeoutRef.current);
-              skipNotificationTimeoutRef.current = setTimeout(() => {
-                setSkipNotification(null);
-              }, 4000);
-            }
-          }
-        }
-      }
-
-      // SponsorBlock live segment check (streaming / uncut)
-      if (sponsorBlock.canSkip && sponsorBlockSegments && sponsorBlockSegments.length > 0) {
-        for (const segment of sponsorBlockSegments) {
-          const [start, end] = segment.segment;
-          if (time >= start && time < end) {
-            if (!skippedSegmentsRef.current.has(segment.UUID) && !temporarilyDisabledSegmentsRef.current.has(segment.UUID)) {
-              skippedSegmentsRef.current.add(segment.UUID);
-              
-              audioRef.current.currentTime = end;
-              setCurrentTime(end);
-              currentTimeRef.current = end;
-              
-              setSkipNotification({
-                category: segment.category,
-                savedSeconds: Math.round(end - start),
-                originalStart: start,
-                originalEnd: end,
-                undoable: true,
-              });
-              
-              if (skipNotificationTimeoutRef.current) clearTimeout(skipNotificationTimeoutRef.current);
-              skipNotificationTimeoutRef.current = setTimeout(() => {
-                setSkipNotification(null);
-              }, 4000);
-              break;
-            }
-          }
-        }
-      }
-
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      // Use the podcast transcript segments for podcasts (they live in a separate
-      // system from the audiobook document-transcript store); otherwise the
-      // audiobook sources. This is what drives active-segment highlighting +
-      // auto-scroll as the audio plays. Built from raw state here (not the
-      // podcastDisplaySegments derivation, which is declared later in the component)
-      // — the segment lookup below already normalizes startTime/endTime.
-      const allSegments: any[] = isPodcast
-        ? (podcastTranscriptSegments.length > 0
-            ? podcastTranscriptSegments.map((s, i) => ({
-                id: `pod-seg-${i}`,
-                startTime: s.start || 0,
-                endTime: s.end || 0,
-                text: s.text,
-                wordTimings: s.wordTimings,
-              }))
-            : (podcastTranscriptText || "").split(/(?<=[.!?])\s+/).map((s, i) => s.trim()).filter(Boolean).map((text, i) => ({ id: `pod-seg-${i}`, startTime: 0, endTime: 0, text })))
-        : (transcript?.segments || documentTranscriptSegments);
-      if (allSegments.length > 0) {
-        const checkTime = sponsorBlockCuts.length > 0
-          ? mapCutTimeToOriginalTime(time, sponsorBlockCuts)
-          : time;
-        const segment = allSegments.find(
-          s => {
-            const start = s.startTime ?? s.start_ms / 1000;
-            const end = s.endTime ?? s.end_ms / 1000;
-            return checkTime >= start && checkTime < end;
-          }
-        );
-        const id = segment ? (segment.id || `seg-${allSegments.indexOf(segment)}`) : null;
-        if (id && id !== activeSegmentId) {
-          setActiveSegmentId(id);
-          // Scroll segment into view using container-relative scrolling
-          // to avoid scrolling the entire page and affecting other elements
-          const element = window.document.getElementById(`segment-${id}`);
-          const container = transcriptRef.current;
-          if (element && container && showTranscript) {
-            // Calculate the element's position relative to the container
-            const containerRect = container.getBoundingClientRect();
-            const elementRect = element.getBoundingClientRect();
-            
-            // Calculate relative position (accounting for container's scroll position)
-            const relativeTop = elementRect.top - containerRect.top + container.scrollTop;
-            const elementHeight = elementRect.height;
-            const containerHeight = containerRect.height;
-            
-            // Calculate target scroll position to center the element
-            const targetScrollTop = relativeTop - (containerHeight / 2) + (elementHeight / 2);
-            
-            // Only scroll if the element is outside the visible area (with some padding)
-            const padding = 50;
-            const isAbove = elementRect.top < containerRect.top + padding;
-            const isBelow = elementRect.bottom > containerRect.bottom - padding;
-            
-            if (isAbove || isBelow) {
-              container.scrollTo({
-                top: targetScrollTop,
-                behavior: "smooth",
-              });
-            }
-          }
-        }
-      }
-      
       if (audio.buffered.length > 0) {
         setBuffered(audio.buffered.end(audio.buffered.length - 1));
       }
     }
-  }, [activeSegmentId, currentPartIndex, documentTranscriptSegments, showTranscript, toGlobalSeconds, transcript, sponsorBlockCuts, sponsorBlockSegments, sponsorBlock.canSkip, isPodcast, podcastTranscriptSegments, podcastTranscriptText]);
+  }, [audioRef, currentPartIndex, isPlaying, onTimeUpdate, syncTranscriptAndSponsorBlockAtTime, toGlobalSeconds]);
   
   const [isWaitingForSeek, setIsWaitingForSeek] = useState(false);
   const seekRetryCountRef = useRef(0);
 
   const seek = useCallback((time: number) => {
-    if (!audioRef.current) return;
-
     const clamped = Math.max(0, Math.min(durationRef.current || duration || time, time));
+
+    const resetSponsorBlockPast = (targetSec: number) => {
+      if (sponsorBlockCuts.length > 0) {
+        sponsorBlockCuts.forEach(cut => {
+          if (targetSec < cut.cutStart) {
+            notifiedCutsRef.current.delete(cut.uuid);
+          }
+        });
+      }
+      if (sponsorBlockSegments.length > 0) {
+        sponsorBlockSegments.forEach(seg => {
+          if (targetSec < seg.segment[0]) {
+            skippedSegmentsRef.current.delete(seg.UUID);
+            temporarilyDisabledSegmentsRef.current.delete(seg.UUID);
+          }
+        });
+      }
+    };
+
+    if (controllerBacked) {
+      if (!viewerSourceKey) return;
+      setCurrentTime(clamped);
+      currentTimeRef.current = clamped;
+      currentGlobalTimeRef.current = clamped;
+      resetSponsorBlockPast(clamped);
+      setControllerAttemptedSourceSig(viewerSourceSignature);
+      void runAudioAction(async (owner) => {
+        if (sameAudioSourceKey(owner.getSnapshot()?.sourceKey, viewerSourceKey)) {
+          await owner.seekTo(clamped);
+        } else {
+          await owner.load(viewerSourceKey, {
+            intent: "paused",
+            explicitPosition: clamped,
+            queue: queueKeys,
+          });
+        }
+      });
+      return;
+    }
+
+    if (!audioRef.current) return;
 
     try {
       audioRef.current.currentTime = clamped;
@@ -1718,28 +2015,13 @@ const editionSectionIdsRef = useRef<string[]>([]);
       seekRetryCountRef.current = 0;
       setIsWaitingForSeek(false);
 
-      // Reset SponsorBlock notification tracking for positions past the new seek time
-      if (sponsorBlockCuts.length > 0) {
-        sponsorBlockCuts.forEach(cut => {
-          if (clamped < cut.cutStart) {
-            notifiedCutsRef.current.delete(cut.uuid);
-          }
-        });
-      }
-      if (sponsorBlockSegments.length > 0) {
-        sponsorBlockSegments.forEach(seg => {
-          if (clamped < seg.segment[0]) {
-            skippedSegmentsRef.current.delete(seg.UUID);
-            temporarilyDisabledSegmentsRef.current.delete(seg.UUID);
-          }
-        });
-      }
+      resetSponsorBlockPast(clamped);
     } catch (err) {
       console.error("[AudiobookViewer] Seek error:", err);
       pendingSeekTimeRef.current = clamped;
       setIsWaitingForSeek(true);
     }
-  }, [currentPartIndex, duration, toGlobalSeconds, sponsorBlockCuts, sponsorBlockSegments]);
+  }, [controllerBacked, currentPartIndex, duration, queueKeys, sponsorBlockCuts, sponsorBlockSegments, toGlobalSeconds, viewerSourceKey, viewerSourceSignature]);
 
   const attemptPendingSeek = useCallback(() => {
     if (pendingSeekTimeRef.current != null && audioRef.current) {
@@ -1772,6 +2054,23 @@ const editionSectionIdsRef = useRef<string[]>([]);
       const detail = (event as CustomEvent<{ documentId?: string; mediaId?: string; startMs?: number; endMs?: number }>).detail;
       if (!detail || detail.documentId !== document.id || typeof detail.startMs !== "number" || typeof detail.endMs !== "number") return;
       const targetGlobalSeconds = Math.max(0, detail.startMs / 1000);
+      if (controllerBacked) {
+        if (!viewerSourceKey) return;
+        setControllerAttemptedSourceSig(viewerSourceSignature);
+        void runAudioAction(async (owner) => {
+          if (sameAudioSourceKey(owner.getSnapshot()?.sourceKey, viewerSourceKey)) {
+            await owner.seekTo(targetGlobalSeconds);
+            await owner.play();
+          } else {
+            await owner.load(viewerSourceKey, {
+              intent: "play",
+              explicitPosition: targetGlobalSeconds,
+              queue: queueKeys,
+            });
+          }
+        });
+        return;
+      }
       const { partIndex, timeInPart } = fromGlobalSeconds(targetGlobalSeconds);
       if (multiPartInfo && partIndex !== currentPartIndex) {
         setCurrentPartIndex(partIndex);
@@ -1784,7 +2083,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
     };
     window.addEventListener("plethora-language-original-audio-range", onLanguageReplay);
     return () => window.removeEventListener("plethora-language-original-audio-range", onLanguageReplay);
-  }, [audioRef, currentPartIndex, document.id, fromGlobalSeconds, multiPartInfo, seek]);
+  }, [audioRef, controllerBacked, currentPartIndex, document.id, fromGlobalSeconds, multiPartInfo, queueKeys, seek, viewerSourceKey, viewerSourceSignature]);
 
   const publishAudioDuration = (audio: HTMLAudioElement | null) => {
     const mediaDuration = getFiniteMediaDuration(audio?.duration ?? Number.NaN);
@@ -1892,10 +2191,10 @@ const editionSectionIdsRef = useRef<string[]>([]);
       return;
     }
 
-    // Listen Later auto-advance (task 8.4): when the queue is armed, natural
-    // end of the current item opens the next queued item's edition player.
+    // Listen Later auto-advance (task 8.1): the controller queue owns the next
+    // edition when it is playing, so only the legacy element advances views here.
     const listenLater = useListenLaterStore.getState();
-    if (listenLater.queue.length > 1 && listenLater.currentIndex < listenLater.queue.length - 1) {
+    if (!controllerBacked && listenLater.queue.length > 1 && listenLater.currentIndex < listenLater.queue.length - 1) {
       listenLater.nextTrack();
       const next = listenLater.queue[listenLater.currentIndex];
       if (next) {
@@ -1954,6 +2253,25 @@ const editionSectionIdsRef = useRef<string[]>([]);
   // would fire a media error and latch the fallback machinery.
   const goToPart = (partIndex: number) => {
     if (!multiPartInfo || partIndex < 0 || partIndex >= multiPartInfo.partFiles.length) return;
+
+    if (controllerBacked) {
+      if (!viewerSourceKey) return;
+      setCurrentPartIndex(partIndex);
+      currentPartIndexRef.current = partIndex;
+      setControllerAttemptedSourceSig(viewerSourceSignature);
+      void runAudioAction(async (owner) => {
+        if (sameAudioSourceKey(owner.getSnapshot()?.sourceKey, viewerSourceKey)) {
+          await owner.selectChapter(partIndex);
+        } else {
+          await owner.load(viewerSourceKey, {
+            intent: "play",
+            explicitPosition: toGlobalSeconds(partIndex, 0),
+            queue: queueKeys,
+          });
+        }
+      });
+      return;
+    }
 
     setCurrentPartIndex(partIndex);
     currentPartIndexRef.current = partIndex;
@@ -2178,6 +2496,50 @@ const editionSectionIdsRef = useRef<string[]>([]);
 
   // Playback controls
   const togglePlay = async () => {
+    if (controllerBacked) {
+      if (!viewerSourceKey) {
+        if (generationJob && generationJob.status === "generating") {
+          showInfo(
+            "Synthesizing Audio",
+            `Generating audio edition (${generationJob.completedSections} of ${generationJob.totalSections} sections ready). Playback will be available shortly.`,
+          );
+        } else if (!isDirectAudioDocument(document)) {
+          showInfo(
+            "Audio Edition Required",
+            "Audio has not been generated for this document yet. Create an audio edition to start listening.",
+          );
+        } else {
+          showError(t("viewer.playbackFailed"), t("viewer.unableToLoadAudio"));
+        }
+        return;
+      }
+      setControllerAttemptedSourceSig(viewerSourceSignature);
+      await runAudioAction(async (owner) => {
+        if (sameAudioSourceKey(owner.getSnapshot()?.sourceKey, viewerSourceKey)) {
+          await owner.toggle();
+        } else {
+          const hadActive = owner.getSnapshot() !== null;
+          await owner.load(viewerSourceKey, { intent: "play", queue: queueKeys });
+          if (!hadActive) {
+            const savedRateRaw = localStorage.getItem("audiobook-rate");
+            if (savedRateRaw) {
+              const parsedRate = parseFloat(savedRateRaw);
+              if (Number.isFinite(parsedRate) && parsedRate >= 0.5 && parsedRate <= 3) {
+                await owner.setRate(parsedRate);
+              }
+            }
+            const savedVolRaw = localStorage.getItem("audiobook-volume");
+            if (savedVolRaw) {
+              const parsedVol = parseFloat(savedVolRaw);
+              if (Number.isFinite(parsedVol) && parsedVol >= 0 && parsedVol <= 1) {
+                await owner.setVolume(parsedVol);
+              }
+            }
+          }
+        }
+      });
+      return;
+    }
     if (isDownloading) {
       shouldPlayAfterDownloadRef.current = !shouldPlayAfterDownloadRef.current;
       setIsPlaying(shouldPlayAfterDownloadRef.current);
@@ -2298,6 +2660,15 @@ const editionSectionIdsRef = useRef<string[]>([]);
     // Re-run source preparation (get_media_stream_url) so the retry either
     // recovers a now-available source or re-surfaces the error.
     setRetryAttempt((attempt) => attempt + 1);
+    if (controllerBacked) {
+      if (viewerSourceKey) {
+        setControllerAttemptedSourceSig(viewerSourceSignature);
+        void runAudioAction((owner) =>
+          owner.load(viewerSourceKey, { intent: "play", queue: queueKeys }),
+        );
+      }
+      return;
+    }
     window.setTimeout(() => {
       const audio = audioRef.current;
       if (!audio) return;
@@ -2306,7 +2677,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
         console.warn("[AudiobookViewer] Retry playback failed:", error);
       });
     }, 0);
-  }, [audioRef]);
+  }, [audioRef, controllerBacked, queueKeys, viewerSourceKey, viewerSourceSignature]);
 
   useEffect(() => {
     if (typeof initialSeekTime !== "number" || !Number.isFinite(initialSeekTime)) return;
@@ -2321,6 +2692,8 @@ const editionSectionIdsRef = useRef<string[]>([]);
       setActiveSegmentId(initialTranscriptSegmentId);
     }
 
+    if (controllerBacked) return;
+
     if (multiPartInfo && partIndex !== currentPartIndex) {
       setCurrentPartIndex(partIndex);
     }
@@ -2329,6 +2702,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
     attemptPendingSeek();
   }, [
     attemptPendingSeek,
+    controllerBacked,
     currentPartIndex,
     document.id,
     fromGlobalSeconds,
@@ -2346,6 +2720,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
   }, [documentTranscriptSegments.length, initialTranscriptSegmentId, showTranscript, transcript?.segments?.length]);
 
   useEffect(() => {
+    if (controllerBacked) return;
     const handleBeforeUnload = () => {
       const currentEdition = audioEditionRef.current;
       const docId = documentIdRef.current;
@@ -2375,11 +2750,11 @@ const editionSectionIdsRef = useRef<string[]>([]);
       }
       handleBeforeUnload();
     };
-  }, [persistPosition, toGlobalSeconds]);
+  }, [controllerBacked, persistPosition, toGlobalSeconds]);
 
-  // Auto-save every 5s while playing
+  // Auto-save every 5s while playing (legacy path only; controller owns 5s scheduler)
   useEffect(() => {
-    if (!isPlaying) return;
+    if (controllerBacked || !isPlaying) return;
 
     const id = window.setInterval(() => {
       if (audioRef.current) {
@@ -2388,10 +2763,10 @@ const editionSectionIdsRef = useRef<string[]>([]);
     }, 5000);
 
     return () => window.clearInterval(id);
-  }, [isPlaying, persistPosition]);
+  }, [controllerBacked, isPlaying, persistPosition]);
 
   useEffect(() => {
-    if (!fallbackSrc || !pendingAutoplayAfterFallbackRef.current || !audioRef.current) {
+    if (controllerBacked || !fallbackSrc || !pendingAutoplayAfterFallbackRef.current || !audioRef.current) {
       return;
     }
 
@@ -2409,7 +2784,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
           err instanceof Error ? err.message : t("viewer.audioFormatNotSupported")
         );
       });
-  }, [fallbackSrc, showError, showSuccess, t]);
+  }, [controllerBacked, fallbackSrc, showError, showSuccess, t]);
 
   useEffect(() => {
     return () => {
@@ -2420,6 +2795,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
   }, [fallbackSrc]);
 
   useEffect(() => {
+    if (controllerBacked) return;
     return () => {
       const docId = documentIdRef.current;
       const globalRounded = Math.floor(
@@ -2432,9 +2808,13 @@ const editionSectionIdsRef = useRef<string[]>([]);
         void saveDocumentPosition(docId, timePosition(globalRounded, totalDurationSecondsRef.current));
       }
     };
-  }, []); // Empty deps: refs carry the latest values
+  }, [controllerBacked]); // Refs carry the latest values
   
   const skip = (seconds: number) => {
+    if (controllerBacked && viewerSourceKey && sameAudioSourceKey(useAudioPlaybackStore.getState().snapshot?.sourceKey, viewerSourceKey)) {
+      void runAudioAction((owner) => owner.seekRelative(seconds));
+      return;
+    }
     seek(currentTime + seconds);
   };
   
@@ -2448,7 +2828,12 @@ const editionSectionIdsRef = useRef<string[]>([]);
   const handleVolumeChange = (newVolume: number) => {
     setVolume(newVolume);
     setIsMuted(newVolume === 0);
-    if (audioRef.current) {
+    if (newVolume > 0) preMuteVolumeRef.current = newVolume;
+    if (controllerBacked) {
+      if (isOwnerSource) {
+        void runAudioAction((owner) => owner.setVolume(newVolume));
+      }
+    } else if (audioRef.current) {
       audioRef.current.volume = newVolume;
       audioRef.current.muted = newVolume === 0;
     }
@@ -2456,6 +2841,16 @@ const editionSectionIdsRef = useRef<string[]>([]);
   };
   
   const toggleMute = () => {
+    if (controllerBacked) {
+      const newMuted = !isMuted;
+      setIsMuted(newMuted);
+      const targetVol = newMuted ? 0 : (preMuteVolumeRef.current > 0 ? preMuteVolumeRef.current : 0.5);
+      if (!newMuted) setVolume(targetVol);
+      if (isOwnerSource) {
+        void runAudioAction((owner) => owner.setVolume(targetVol));
+      }
+      return;
+    }
     if (audioRef.current) {
       const newMuted = !isMuted;
       audioRef.current.muted = newMuted;
@@ -2469,14 +2864,21 @@ const editionSectionIdsRef = useRef<string[]>([]);
   
   // Playback rate (0.5x intervals up to 3x, per the mobile spec).
   const playbackRates = [0.5, 1, 1.5, 2, 2.5, 3];
-  const cyclePlaybackRate = () => {
-    const currentIndex = playbackRates.indexOf(playbackRate);
-    const nextRate = playbackRates[(currentIndex + 1) % playbackRates.length];
+  const applyPlaybackRate = (nextRate: number) => {
     setPlaybackRate(nextRate);
-    if (audioRef.current) {
+    if (controllerBacked) {
+      if (isOwnerSource) {
+        void runAudioAction((owner) => owner.setRate(nextRate));
+      }
+    } else if (audioRef.current) {
       audioRef.current.playbackRate = nextRate;
     }
     localStorage.setItem("audiobook-rate", nextRate.toString());
+  };
+  const cyclePlaybackRate = () => {
+    const currentIndex = playbackRates.indexOf(playbackRate);
+    const nextRate = playbackRates[(currentIndex + 1) % playbackRates.length];
+    applyPlaybackRate(nextRate);
   };
 
   // Listening statistics accumulator
@@ -2642,7 +3044,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
     audioElement: audioRef.current,
     // Anchors are section-local: the capture timestamp is the time within the
     // CURRENT part, not the global timeline.
-    currentTimestampSec: currentTime,
+    currentTimestampSec: controllerBacked && isOwnerSource ? ownerTimeInPart : currentTime,
     anchors: sectionAnchors,
     sectionId: editionSectionIdsRef.current[currentPartIndex],
     // Generated editions anchor precisely; anything without anchors falls to
@@ -2690,10 +3092,10 @@ const editionSectionIdsRef = useRef<string[]>([]);
     duration: getTotalDurationSeconds() ?? duration,
     currentTime: Math.floor(currentGlobalTimeRef.current || currentTime),
     playbackRate: playbackRate,
-    // Only mount the OS media session for a real playback session: playing,
-    // or paused with audible progress (a resumable position). A freshly
-    // opened, never-started viewer must not advertise media controls.
-    enabled: isPlaying || currentTime > 0,
+    // Only mount the OS media session for a real legacy playback session:
+    // when controllerBacked / GLOBAL_AUDIO_PLAYBACK_ENABLED is active, the
+    // single GlobalAudioDesktopBridge owns OS media registration.
+    enabled: !controllerBacked && !GLOBAL_AUDIO_PLAYBACK_ENABLED && (isPlaying || currentTime > 0),
     capabilities: {
       canPlay: true,
       canPause: true,
@@ -2747,27 +3149,65 @@ const editionSectionIdsRef = useRef<string[]>([]);
   // Sleep timer
   const startSleepTimer = (minutes: number) => {
     const endTime = Date.now() + minutes * 60 * 1000;
+    if (controllerBacked) {
+      void runAudioAction((owner) => owner.setSleepTimer(endTime));
+    }
     setSleepTimer({ minutes, endTime, mode: "time" });
     setShowSleepTimer(false);
     showSuccess("Sleep timer set", `Playback will pause in ${minutes} minutes`);
   };
 
   const startChapterSleepTimer = () => {
-    setSleepTimer({ mode: "chapter" });
+    if (controllerBacked) {
+      const activeChapter = getCurrentChapter();
+      const nextChapter = activeChapter
+        ? chapters.find((c) => c.startTime > activeChapter.startTime)
+        : undefined;
+      const chapEnd = activeChapter?.endTime
+        || nextChapter?.startTime
+        || (activeChapter ? activeChapter.startTime + (activeChapter.duration || 0) : 0)
+        || duration;
+      if (chapEnd > currentTime) {
+        const deadline = Date.now() + ((chapEnd - currentTime) / Math.max(0.5, playbackRate)) * 1000;
+        void runAudioAction((owner) => owner.setSleepTimer(deadline));
+        setSleepTimer({ mode: "chapter", endTime: deadline });
+      } else {
+        setSleepTimer({ mode: "chapter" });
+      }
+    } else {
+      setSleepTimer({ mode: "chapter" });
+    }
     setShowSleepTimer(false);
     showSuccess("Sleep timer set", "Playback will pause at the end of the current chapter");
   };
   
   const cancelSleepTimer = () => {
+    if (controllerBacked) {
+      void runAudioAction((owner) => owner.setSleepTimer(null));
+    }
     setSleepTimer(null);
   };
 
   const handleToggleSilenceSkip = () => {
+    if (controllerBacked) {
+      void runAudioAction(async (owner) => {
+        const next = !silenceSkipEnabled;
+        if (await owner.setSilenceSkip?.(next)) setSilenceSkipEnabled(next);
+      });
+      return;
+    }
     initAudioNodes();
     setSilenceSkipEnabled(!silenceSkipEnabled);
   };
 
   const handleToggleVolumeBoost = () => {
+    if (controllerBacked) {
+      void runAudioAction(async (owner) => {
+        const next = !volumeBoostEnabled;
+        if (await owner.setVolumeBoost?.(next)) setVolumeBoostEnabled(next);
+      });
+      return;
+    }
     initAudioNodes();
     setVolumeBoostEnabled(!volumeBoostEnabled);
   };
@@ -2801,7 +3241,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
   );
   
   useEffect(() => {
-    if (!sleepTimer) return;
+    if (controllerBacked || !sleepTimer) return;
     
     const interval = setInterval(() => {
       if (!audioRef.current) return;
@@ -3337,8 +3777,13 @@ const editionSectionIdsRef = useRef<string[]>([]);
   }, [documentTranscriptSegments, document.id, isTauri, transcript?.segments?.length]);
 
   useEffect(() => {
+    if (controllerBacked || !isActiveTab) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+      if (
+        e.target instanceof HTMLInputElement ||
+        e.target instanceof HTMLTextAreaElement ||
+        (e.target instanceof HTMLElement && e.target.isContentEditable)
+      ) {
         return;
       }
       
@@ -3398,7 +3843,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
     
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isPlaying, volume, playbackRate]);
+  }, [controllerBacked, isActiveTab, isPlaying, volume, playbackRate]);
   
   // Progress bar click handler
   const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -3502,22 +3947,51 @@ const editionSectionIdsRef = useRef<string[]>([]);
           </div>
         </div>
       )}
-      {/* Audio element - Tauri uses the prepared/range-served source owned by
-          this viewer; browser callers may provide an object/blob URL. */}
-      <audio
-        ref={audioRef}
-        src={fallbackSrc || podcastLocalSrc || (!isTauri() || downloadError ? remoteAudioUrl : undefined) || preparedPlaybackSrc || (!isTauri() && isDirectAudioDocument(document) ? fileContent : undefined) || (multiPartInfo ? partSources[currentPartIndex] || null : null) || undefined}
-        onTimeUpdate={handleTimeUpdate}
-        onLoadedMetadata={handleLoadedMetadata}
-        onDurationChange={handleDurationChange}
-        onCanPlay={handleCanPlay}
-        onProgress={handleProgress}
-        onStalled={handleStalled}
-        onEnded={handleEnded}
-        onPlay={() => setIsPlaying(true)}
-        onPause={handlePause}
-        onError={handleAudioError}
-      />
+      {/* Audio element - mounted only on the legacy path; controller-backed
+          presentations own zero media elements. */}
+      {!controllerBacked && (
+        <audio
+          ref={audioRef}
+          src={fallbackSrc || podcastLocalSrc || (!isTauri() || downloadError ? remoteAudioUrl : undefined) || preparedPlaybackSrc || (!isTauri() && isDirectAudioDocument(document) ? fileContent : undefined) || (multiPartInfo ? partSources[currentPartIndex] || null : null) || undefined}
+          onTimeUpdate={handleTimeUpdate}
+          onLoadedMetadata={handleLoadedMetadata}
+          onDurationChange={handleDurationChange}
+          onCanPlay={handleCanPlay}
+          onProgress={handleProgress}
+          onStalled={handleStalled}
+          onEnded={handleEnded}
+          onPlay={() => setIsPlaying(true)}
+          onPause={handlePause}
+          onError={handleAudioError}
+        />
+      )}
+
+      {controllerBacked && activeOtherTitle && !isOwnerSource && (
+        <div
+          role="status"
+          className="mx-4 mt-3 mb-1 flex items-center justify-between gap-3 rounded-lg border border-border bg-muted/40 px-3 py-2 text-sm"
+        >
+          <span className="truncate text-muted-foreground">
+            {t("audio.playingElsewhere", { title: activeOtherTitle }) !== "audio.playingElsewhere"
+              ? t("audio.playingElsewhere", { title: activeOtherTitle })
+              : `Playing elsewhere: ${activeOtherTitle}`}
+          </span>
+          {viewerSourceKey && (
+            <button
+              type="button"
+              className="shrink-0 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90"
+              onClick={() => {
+                setControllerAttemptedSourceSig(viewerSourceSignature);
+                void runAudioAction((owner) =>
+                  owner.load(viewerSourceKey, { intent: "play", queue: queueKeys }),
+                );
+              }}
+            >
+              {t("viewer.play") !== "viewer.play" ? t("viewer.play") : "Play"}
+            </button>
+          )}
+        </div>
+      )}
 
       <AudiobookPlaybackErrorNotice
         error={playbackError}
@@ -3977,6 +4451,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
                 {/* Silence Skipping */}
                 <button
                   onClick={handleToggleSilenceSkip}
+                  disabled={controllerBacked && ownerCapabilities?.canSkipSilence !== true}
                   className={cn(
                     "p-2 rounded-lg transition-colors relative",
                     silenceSkipEnabled ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"
@@ -3989,6 +4464,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
                 {/* Volume Boost */}
                 <button
                   onClick={handleToggleVolumeBoost}
+                  disabled={controllerBacked && ownerCapabilities?.canBoostVolume !== true}
                   className={cn(
                     "p-2 rounded-lg transition-colors relative",
                     volumeBoostEnabled ? "bg-primary text-primary-foreground" : "hover:bg-muted text-muted-foreground"
@@ -4009,11 +4485,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
                     value={playbackRate}
                     onChange={(e) => {
                       const rate = parseFloat(e.target.value);
-                      setPlaybackRate(rate);
-                      if (audioRef.current) {
-                        audioRef.current.playbackRate = rate;
-                      }
-                      localStorage.setItem("audiobook-rate", rate.toString());
+                      applyPlaybackRate(rate);
                     }}
                     className="w-16 h-1 bg-muted rounded-full appearance-none cursor-pointer accent-primary [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-2.5 [&::-webkit-slider-thumb]:h-2.5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary"
                   />

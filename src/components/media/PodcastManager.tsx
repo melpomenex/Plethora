@@ -73,6 +73,12 @@ import { useMobileShell } from "../../hooks/useMobileShell";
 import { useLongPress } from "../../hooks/useLongPress";
 import { useSwipeGestures } from "../../hooks/useSwipeGestures";
 import { AudiobookViewer } from "../viewer/AudiobookViewer";
+import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../../services/audio/audioPlaybackRollout";
+import { useAudioPlaybackStore } from "../../stores/audioPlaybackStore";
+import { useDocumentStore } from "../../stores/documentStore";
+import { runAudioAction } from "../audio/audioPlayerActions";
+import { useAudioProfileKey } from "../audio/AudioSourceControls";
+import type { AudioSourceKey } from "../../types/audioEdition";
 import { TranscriptSync, type TranscriptSearchState } from "./TranscriptSync";
 import { cn } from "../../utils";
 import { podcastFeedSearch } from "../../utils/podcastSearch";
@@ -170,6 +176,27 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
   const [isLoadingEpisodes, setIsLoadingEpisodes] = useState(false);
   const [playingEpisode, setPlayingEpisode] = useState<{ episode: PodcastEpisode; feed: PodcastFeed } | null>(null);
   const [playerInitialSeekTime, setPlayerInitialSeekTime] = useState<number | undefined>(undefined);
+  const audioProfileKey = useAudioProfileKey();
+  const activeOwnerEpisodeId = useAudioPlaybackStore((state) =>
+    GLOBAL_AUDIO_PLAYBACK_ENABLED && state.snapshot?.sourceKey.kind === "podcast"
+      ? state.snapshot.sourceKey.sourceId
+      : null,
+  );
+  const activeOwnerIsPlaying = useAudioPlaybackStore((state) =>
+    Boolean(
+      GLOBAL_AUDIO_PLAYBACK_ENABLED &&
+        state.snapshot?.sourceKey.kind === "podcast" &&
+        state.snapshot.playIntent &&
+        state.snapshot.state === "playing",
+    ),
+  );
+  const promotedPodcastDocId = useDocumentStore((state) =>
+    playingEpisode
+      ? state.documents.find(
+          (doc) => doc.fileType === "audio" && doc.metadata?.source === `podcast:${playingEpisode.episode.id}`,
+        )?.id
+      : undefined,
+  );
   const [playerWidth, setPlayerWidth] = useState(() => {
     const saved = localStorage.getItem("podcast-player-width");
     return saved ? parseInt(saved, 10) : 320;
@@ -574,7 +601,20 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
 
   // Play episode
   const handlePlayEpisode = (feed: PodcastFeed, episode: PodcastEpisode) => {
+    if (GLOBAL_AUDIO_PLAYBACK_ENABLED && activeOwnerEpisodeId === episode.id) {
+      if (playingEpisode?.episode.id === episode.id) {
+        void runAudioAction((owner) => owner.toggle());
+        return;
+      }
+      setPlayerInitialSeekTime(undefined);
+      setPlayingEpisode({ episode, feed });
+      if (!activeOwnerIsPlaying) {
+        void runAudioAction((owner) => owner.play());
+      }
+      return;
+    }
     onPlayEpisode?.(feed, episode);
+    setPlayerInitialSeekTime(undefined);
     setPlayingEpisode({ episode, feed });
   };
 
@@ -735,6 +775,43 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
 
   const totalUnplayed = feeds.reduce((acc, feed) => acc + (feed.unplayedCount ?? 0), 0);
   const filteredEpisodes = selectedFeed ? getFilteredEpisodes() : [];
+
+  const podcastQueueKeys = useMemo<AudioSourceKey[] | undefined>(() => {
+    if (!GLOBAL_AUDIO_PLAYBACK_ENABLED || !playingEpisode) return undefined;
+    const sourceList = filteredEpisodes.some((ep) => ep.id === playingEpisode.episode.id)
+      ? filteredEpisodes
+      : episodes;
+    const startIdx = sourceList.findIndex((ep) => ep.id === playingEpisode.episode.id);
+    const ordered = startIdx >= 0
+      ? [
+          playingEpisode.episode,
+          ...sourceList.slice(startIdx + 1).filter((ep) => !ep.played),
+        ]
+      : [playingEpisode.episode];
+    const seen = new Set<string>();
+    const keys: AudioSourceKey[] = [];
+    for (const ep of ordered) {
+      if (!ep.id || seen.has(ep.id)) continue;
+      seen.add(ep.id);
+      keys.push({ profileKey: audioProfileKey, kind: "podcast", sourceId: ep.id });
+    }
+    return keys;
+  }, [audioProfileKey, episodes, filteredEpisodes, playingEpisode]);
+
+  const prevOwnerEpisodeIdRef = useRef<string | null>(activeOwnerEpisodeId);
+  useEffect(() => {
+    const prevId = prevOwnerEpisodeIdRef.current;
+    prevOwnerEpisodeIdRef.current = activeOwnerEpisodeId;
+    if (!GLOBAL_AUDIO_PLAYBACK_ENABLED || !playingEpisode || !activeOwnerEpisodeId) return;
+    if (prevId === activeOwnerEpisodeId || playingEpisode.episode.id === activeOwnerEpisodeId) return;
+    const nextEp = episodes.find((ep) => ep.id === activeOwnerEpisodeId);
+    if (nextEp && selectedFeed) {
+      setPlayerInitialSeekTime(undefined);
+      setPlayingEpisode({ episode: nextEp, feed: selectedFeed });
+      void loadEpisodes(selectedFeed.id);
+      void loadFeeds();
+    }
+  }, [activeOwnerEpisodeId, episodes, loadEpisodes, loadFeeds, playingEpisode, selectedFeed]);
 
   const getEpisodeProgressPercent = (episode: PodcastEpisode) => {
     if (episode.played) return 100;
@@ -1498,7 +1575,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                         key={episode.id}
                         className={cn(
                           "p-4 bg-card border rounded-lg hover:border-primary/50 transition-colors",
-                          playingEpisode?.episode.id === episode.id ? "border-primary" : "border-border"
+                          playingEpisode?.episode.id === episode.id || activeOwnerEpisodeId === episode.id ? "border-primary" : "border-border"
                         )}
                         onContextMenu={(e) => handleEpisodeContextMenu(e, episode, selectedFeed)}
                         onTouchStart={(e) => { contextEpisodeRef.current = episode; episodeLongPress.onTouchStart(e); }}
@@ -1513,7 +1590,9 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                             className="flex-shrink-0 w-10 h-10 bg-primary text-primary-foreground rounded-full hover:opacity-90 transition-opacity flex items-center justify-center"
                             title={getEpisodeProgressPercent(episode) > 0 && !episode.played ? "Resume episode" : "Play episode"}
                           >
-                            {playingEpisode?.episode.id === episode.id ? (
+                            {(GLOBAL_AUDIO_PLAYBACK_ENABLED
+                              ? activeOwnerEpisodeId === episode.id && activeOwnerIsPlaying
+                              : playingEpisode?.episode.id === episode.id) ? (
                               <Pause className="w-5 h-5" fill="currentColor" />
                             ) : (
                               <Play className="w-5 h-5" fill="currentColor" />
@@ -1558,7 +1637,9 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                           })()}
 
                           {/* Now Playing indicator */}
-                          {playingEpisode?.episode.id === episode.id && (
+                          {(GLOBAL_AUDIO_PLAYBACK_ENABLED
+                            ? activeOwnerEpisodeId === episode.id && activeOwnerIsPlaying
+                            : playingEpisode?.episode.id === episode.id) && (
                             <div className="flex-shrink-0 flex items-center gap-1 px-2 py-1 bg-primary/10 text-primary rounded-full text-xs font-medium">
                               <div className="flex gap-0.5">
                                 {[1, 2, 3].map(i => (
@@ -1983,7 +2064,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
           <div className="flex-1 min-h-0">
           <AudiobookViewer
             document={{
-              id: playingEpisode.episode.id,
+              id: promotedPodcastDocId || playingEpisode.episode.id,
               title: playingEpisode.episode.title,
               filePath: downloadedEpisodes.get(playingEpisode.episode.id) || "",
               fileType: "audio",
@@ -1992,7 +2073,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                 playingEpisode.episode.imageUrl || playingEpisode.feed.imageUrl,
                 isMobile ? 320 : 600
               ),
-              metadata: {},
+              metadata: promotedPodcastDocId ? { source: `podcast:${playingEpisode.episode.id}` } : {},
               createdAt: playingEpisode.episode.publishedDate
                 ? new Date(playingEpisode.episode.publishedDate).toISOString()
                 : new Date().toISOString(),
@@ -2002,6 +2083,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
             episodeId={playingEpisode.episode.id}
             episodeTitle={playingEpisode.episode.title}
             podcastTitle={playingEpisode.feed.title}
+            queueKeys={podcastQueueKeys}
             onEpisodeEnded={handleEpisodeEnded}
             autoPlayOnOpen={true}
             initialSeekTime={playerInitialSeekTime}

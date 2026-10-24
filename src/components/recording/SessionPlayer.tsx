@@ -13,12 +13,15 @@ import {
 import type { RecordingSession, SessionMediaAsset } from "../../types/recordingSession";
 import { isTauri, invokeCommand } from "../../lib/tauri";
 import { cn } from "../../utils/cn";
+import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../../services/audio/audioPlaybackRollout";
+import { ControllerSessionPlayer } from "../audio/ControllerSessionPlayer";
 
 export interface SessionPlayerProps {
   session: RecordingSession;
   mediaAsset?: SessionMediaAsset | null;
   initialSeekTimeSec?: number;
   seekTimeSec?: number | null;
+  seekRequestId?: number;
   onTimeUpdate?: (timeSec: number) => void;
   onPlayStateChange?: (playing: boolean) => void;
   className?: string;
@@ -37,7 +40,14 @@ export function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
-export const SessionPlayer: React.FC<SessionPlayerProps> = ({
+export const SessionPlayer: React.FC<SessionPlayerProps> = props =>
+  GLOBAL_AUDIO_PLAYBACK_ENABLED ? (
+    <ControllerSessionPlayer {...props} />
+  ) : (
+    <LegacySessionPlayer {...props} />
+  );
+
+const LegacySessionPlayer: React.FC<SessionPlayerProps> = ({
   session,
   mediaAsset,
   initialSeekTimeSec,

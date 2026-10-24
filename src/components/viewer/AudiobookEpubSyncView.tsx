@@ -30,6 +30,10 @@ import {
 } from "../../lib/ebookAudiobookAlignment";
 import { speechSectionsToChapters, simpleContentHash } from "../../lib/ebookAudiobookAlignment/epubChapterExtract";
 import { useAlignmentPlayback, useSeekToAlignedWord } from "../../hooks/useAlignmentPlayback";
+import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../../services/audio/audioPlaybackRollout";
+import { runAudioAction } from "../audio/audioPlayerActions";
+import { useAudioProfileKey, sameAudioSourceKey } from "../audio/AudioSourceControls";
+import { useAudioPlaybackStore } from "../../stores/audioPlaybackStore";
 
 type SyncTranscriptSegment = {
   text: string;
@@ -165,8 +169,27 @@ export function AudiobookEpubSyncView({
 
   const getAudioTimeSec = useCallback(() => audioTimeRef.current, []);
 
+  const audioProfileKey = useAudioProfileKey();
+  const handleAlignedWordSeek = useCallback(
+    (seconds: number) => {
+      const sourceKey = { profileKey: audioProfileKey, kind: "audiobook" as const, sourceId: audioDocumentId };
+      void runAudioAction(async (owner) => {
+        if (sameAudioSourceKey(useAudioPlaybackStore.getState().snapshot?.sourceKey, sourceKey)) {
+          await owner.seekTo(seconds);
+        } else {
+          await owner.load(sourceKey, { intent: "paused", explicitPosition: seconds });
+        }
+      });
+    },
+    [audioDocumentId, audioProfileKey],
+  );
+
   const playback = useAlignmentPlayback(alignmentMap, getAudioTimeSec, useWordSync);
-  const seekToWord = useSeekToAlignedWord(audioRef, playback.lookup);
+  const seekToWord = useSeekToAlignedWord(
+    audioRef,
+    playback.lookup,
+    GLOBAL_AUDIO_PLAYBACK_ENABLED ? handleAlignedWordSeek : undefined,
+  );
 
   const handleAudioTimeUpdate = useCallback(
     (t: number) => {

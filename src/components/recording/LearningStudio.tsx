@@ -77,9 +77,8 @@ export const LearningStudio: React.FC<LearningStudioProps> = ({
 
   // Playback coordination
   const [currentTimeSec, setCurrentTimeSec] = useState<number>(initialSeekTimeSec);
-  const [seekTargetSec, setSeekTargetSec] = useState<number | null>(
-    initialSeekTimeSec > 0 ? initialSeekTimeSec : null
-  );
+  const [seekTargetSec, setSeekTargetSec] = useState<number | null>(null);
+  const [seekRequestId, setSeekRequestId] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
   // 1. Resolve session by document ID if not provided as prop
@@ -199,6 +198,7 @@ export const LearningStudio: React.FC<LearningStudioProps> = ({
   // Seek handler called from transcript or marker clicks
   const handleSeek = useCallback((timeSec: number) => {
     setSeekTargetSec(timeSec);
+    setSeekRequestId((prev) => prev + 1);
   }, []);
 
   // Studio opening handler
@@ -319,6 +319,7 @@ export const LearningStudio: React.FC<LearningStudioProps> = ({
           mediaAsset={mediaAsset}
           initialSeekTimeSec={initialSeekTimeSec}
           seekTimeSec={seekTargetSec}
+          seekRequestId={seekRequestId}
           onTimeUpdate={setCurrentTimeSec}
           onPlayStateChange={setIsPlaying}
           className="mt-1"

@@ -34,6 +34,8 @@ import { useDocumentStore } from "../stores/documentStore";
 import { defaultSettings, useSettingsStore } from "../stores/settingsStore";
 import { DocumentViewer } from "../components/viewer/DocumentViewerWrapper";
 import { AudiobookViewer } from "../components/viewer/AudiobookViewer";
+import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../services/audio/audioPlaybackRollout";
+import { useAudioPlaybackStore } from "../stores/audioPlaybackStore";
 import { FlashcardScrollItem } from "../components/review/FlashcardScrollItem";
 import { InlineCardEditor } from "../components/review/InlineCardEditor";
 import { rateDocumentEngaging, getSmartStartPosition } from "../api/algorithm";
@@ -4225,13 +4227,15 @@ export function QueueScrollPage() {
           ) : renderedItem?.type === "document" ? (() => {
             const doc = documents.find(d => d.id === renderedItem.documentId);
             const isAudioEdition = Boolean(renderedItem.hasAudioEdition);
+            const shouldAutoPlayEdition =
+              isAudioEdition && (!GLOBAL_AUDIO_PLAYBACK_ENABLED || useAudioPlaybackStore.getState().snapshot === null);
             return (
               <DocumentViewer
                 key={renderedItem.documentId}
                 documentId={renderedItem.documentId!}
                 openedFrom="queue"
                 listenToEdition={isAudioEdition}
-                autoPlay={isAudioEdition}
+                autoPlay={shouldAutoPlayEdition}
                 embedded={true}
                 hideRatingOrbs={true}
                 onVideoContextChange={setLiveVideoContext}

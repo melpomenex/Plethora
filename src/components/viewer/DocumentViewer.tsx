@@ -87,6 +87,8 @@ import { EPUBViewer } from "./EPUBViewer";
 import { YouTubeViewer } from "./YouTubeViewer";
 import { LocalVideoPlayer } from "./LocalVideoPlayerWrapper";
 import { AudiobookViewer } from "./AudiobookViewer";
+import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../../services/audio/audioPlaybackRollout";
+import { selectHasActiveAudio, useAudioPlaybackStore } from "../../stores/audioPlaybackStore";
 import { findSessionByDocumentId } from "../../api/recordingSessions";
 import type { RecordingSession } from "../../types/recordingSession";
 import { getAudioEditionByDocument } from "../../api/audioEditions";
@@ -3383,11 +3385,12 @@ export function DocumentViewer({
         setMediaError("Audio document is missing a file path.");
         setIsLoading(false);
         lastLoadedDocumentIdRef.current = null;
-      } else if (isTauri()) {
-        // AudiobookViewer owns the native Tauri source lifecycle, including
-        // m4b preparation, mobile range streaming, and playback fallbacks.
-        // Let it mount immediately instead of waiting for a second native
-        // source request here.
+      } else if (isTauri() || GLOBAL_AUDIO_PLAYBACK_ENABLED) {
+        // AudiobookViewer (or GlobalAudioController when global playback is
+        // enabled) owns the source lifecycle, including m4b preparation,
+        // range streaming, browser-file object URL release, and fallbacks.
+        // Let it mount immediately instead of waiting for a second source
+        // resolution request here.
         if (currentGen !== loadGenerationRef.current) return;
         setIsLoading(false);
         lastLoadedDocumentIdRef.current = doc.id;
@@ -8483,7 +8486,7 @@ export function DocumentViewer({
               episodeTitle={currentDocument.title}
               initialSeekTime={initialJump?.kind === "audio" ? initialJump.timeSeconds : undefined}
               initialTranscriptSegmentId={initialJump?.kind === "audio" ? initialJump.segmentId : undefined}
-              autoPlayOnOpen={!!autoPlay && initialJump?.kind === "audio"}
+              autoPlayOnOpen={Boolean(autoPlay && (!initialJump || initialJump.kind === "audio"))}
               onEpisodeEnded={onEnded}
               onBack={handleBack}
               hideTitleHeader={true}
@@ -9431,7 +9434,7 @@ export function DocumentViewer({
           {/* Semi-transparent trigger area */}
           <div className="h-8 bg-transparent hover:bg-black/20 transition-colors">
             {/* Control bar that appears on hover */}
-            <div className="opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex items-center justify-center py-2">
+            <div className="opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200 flex items-center justify-center gap-2 py-2">
               <button
                 onClick={toggleFullscreen}
                 className="flex items-center gap-2 px-4 py-2 bg-background/95 backdrop-blur-sm border border-border rounded-lg shadow-lg hover:bg-background transition-colors"
@@ -9441,6 +9444,7 @@ export function DocumentViewer({
                 <span className="text-sm font-medium text-foreground">{t("viewer.exitFullscreenShort")}</span>
                 <span className="text-xs text-muted-foreground ml-2">{t("viewer.pressF11OrEsc")}</span>
               </button>
+              {GLOBAL_AUDIO_PLAYBACK_ENABLED && <FullscreenAudioChromeButton label={t("audio.player")} />}
             </div>
           </div>
         </div>
@@ -9450,7 +9454,7 @@ export function DocumentViewer({
       {!isFullscreen && !isTauri() && (
         <button
           onClick={toggleFullscreen}
-          className="fixed bottom-[calc(80px+env(safe-area-inset-bottom,0px))] right-4 z-40 md:hidden"
+          className="fixed bottom-[calc(80px+var(--shell-audio-player-height,0px)+env(safe-area-inset-bottom,0px))] right-4 z-40 md:hidden"
           title={t("viewer.enterFullscreen")}
           aria-label={t("viewer.enterFullscreenMode")}
         >
@@ -9602,5 +9606,22 @@ function isBlockElementForVimium(tag: string): boolean {
     t === "P" || t === "DIV" || t === "LI" || t === "BLOCKQUOTE" ||
     t === "H1" || t === "H2" || t === "H3" || t === "H4" || t === "H5" || t === "H6" ||
     t === "SECTION" || t === "ARTICLE" || t === "TD" || t === "TH" || t === "PRE"
+  );
+}
+
+function FullscreenAudioChromeButton({ label }: { label: string }) {
+  const hasActiveAudio = useAudioPlaybackStore(selectHasActiveAudio);
+  if (!hasActiveAudio) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => useAudioPlaybackStore.setState({ expanded: true })}
+      className="flex items-center gap-2 px-4 py-2 bg-background/95 backdrop-blur-sm border border-border rounded-lg shadow-lg hover:bg-background transition-colors"
+      aria-label={label}
+      title={label}
+    >
+      <Headphones className="w-4 h-4 text-foreground" aria-hidden="true" />
+      <span className="text-sm font-medium text-foreground">{label}</span>
+    </button>
   );
 }
