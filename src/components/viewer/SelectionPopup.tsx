@@ -12,7 +12,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { ChatDots, Copy, Highlighter } from "@phosphor-icons/react";
 import { useI18n } from "../../lib/i18n";
-import { placeAnchoredBar } from "./selectionInteraction/geometry";
+import { placeAnchoredBar, readSafeInsets } from "./selectionInteraction/geometry";
 
 export type HighlightColor = "yellow" | "green" | "blue" | "pink" | "purple";
 
@@ -120,6 +120,7 @@ function calculatePopupPosition(
     },
     { width: popupWidth, height: popupHeight },
     { width: window.innerWidth, height: window.innerHeight },
+    readSafeInsets(),
   );
   return { top: placement.top, left: placement.left };
 }

@@ -4,6 +4,7 @@ import {
   captureSelectionGeometry,
   fingerprintRange,
   placeAnchoredBar,
+  readSafeInsets,
   type Rect,
   type SafeInsets,
   type SelectionGeometry,
@@ -253,5 +254,28 @@ describe("fingerprintRange / captureSelectionGeometry", () => {
       { left: 52, top: 172, width: 40, height: 18 },
     ]);
     expect(shifted.fingerprint).toBe(direct.fingerprint);
+  });
+});
+
+describe("readSafeInsets — shell audio dock and mobile nav clearance", () => {
+  it("reserves desktop audio dock and mobile nav + audio dock without double-counting safe-bottom", () => {
+    const doc = document.implementation.createHTMLDocument("insets");
+    const shell = doc.createElement("div");
+    shell.className = "adaptive-shell-root";
+    shell.style.setProperty("--shell-safe-bottom", "34px");
+    shell.style.setProperty("--shell-audio-player-height", "64px");
+    doc.body.appendChild(shell);
+
+    // Desktop shell: safeBottom (34) + audioDock (64) = 98
+    expect(readSafeInsets(doc).bottom).toBe(98);
+
+    // Mobile shell with calc(58px + var(--shell-safe-bottom)) + 64px audio dock = (58 + 34) + 64 = 156 (safeBottom counted once!)
+    shell.dataset.mobileShell = "true";
+    shell.style.setProperty("--shell-mobile-nav-height", "calc(58px + var(--shell-safe-bottom))");
+    expect(readSafeInsets(doc).bottom).toBe(156);
+
+    // Fullscreen suppresses mobile nav + audio dock reservation
+    shell.dataset.fullscreen = "true";
+    expect(readSafeInsets(doc).bottom).toBe(34);
   });
 });

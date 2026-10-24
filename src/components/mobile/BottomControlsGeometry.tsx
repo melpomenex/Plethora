@@ -30,9 +30,11 @@ export function visibleControlTop(element: HTMLElement | null, top: number, bott
 }
 
 /** Owners publish only their own controls; the dock never moves those controls. */
-export function usePublishBottomControls({ viewport, navRef, pillRef, pillVisible, blocked, fullscreen }: {
+export function usePublishBottomControls({ viewport, navRef, audioRef, audioVisible, pillRef, pillVisible, blocked, fullscreen }: {
   viewport: AssistantViewport;
   navRef: RefObject<HTMLElement | null>;
+  audioRef?: RefObject<HTMLElement | null>;
+  audioVisible?: boolean;
   pillRef: RefObject<HTMLButtonElement | null>;
   pillVisible: boolean;
   blocked: boolean;
@@ -44,8 +46,9 @@ export function usePublishBottomControls({ viewport, navRef, pillRef, pillVisibl
     const read = () => {
       const bottom = viewport.top + viewport.height;
       const navTop = fullscreen ? undefined : visibleControlTop(navRef.current, viewport.top, bottom);
+      const audioTop = fullscreen ? undefined : visibleControlTop(audioRef?.current ?? null, viewport.top, bottom);
       const pillTop = pillVisible ? visibleControlTop(pillRef.current, viewport.top, bottom) : undefined;
-      const occupiedTop = Math.min(navTop ?? bottom, pillTop ?? bottom);
+      const occupiedTop = Math.min(navTop ?? bottom, audioTop ?? bottom, pillTop ?? bottom);
       const next: BottomControlsGeometry = { viewportTop: viewport.top, viewportHeight: viewport.height,
         safeBottom: viewport.safeBottom, occupiedTop: occupiedTop < bottom ? occupiedTop : undefined, blocked };
       publish(old => old && Object.keys(next).every(key => old[key as keyof BottomControlsGeometry] === next[key as keyof BottomControlsGeometry]) ? old : next);
@@ -53,7 +56,7 @@ export function usePublishBottomControls({ viewport, navRef, pillRef, pillVisibl
     read();
     const resize = new ResizeObserver(read);
     const attributes = new MutationObserver(read);
-    const elements = [navRef.current, pillRef.current];
+    const elements = [navRef.current, audioRef?.current, pillRef.current];
     for (const element of elements) {
       if (!element) continue;
       resize.observe(element);
@@ -64,7 +67,7 @@ export function usePublishBottomControls({ viewport, navRef, pillRef, pillVisibl
       resize.disconnect(); attributes.disconnect();
       for (const element of elements) element?.removeEventListener("transitionend", read);
     };
-  }, [publish, viewport, navRef, pillRef, pillVisible, blocked, fullscreen]);
+  }, [publish, viewport, navRef, audioRef, audioVisible, pillRef, pillVisible, blocked, fullscreen]);
   useLayoutEffect(() => () => { publish?.(null); }, [publish]);
 }
 

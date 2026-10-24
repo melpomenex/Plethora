@@ -295,17 +295,40 @@ export function placePeekCard(
  * viewport.
  */
 export function readSafeInsets(doc: Document = document): SafeInsets {
-  const computed = getComputedStyle(doc.documentElement);
-  const read = (name: string): number => {
-    const raw = computed.getPropertyValue(name).trim();
-    if (!raw) return 0;
-    const value = Number.parseFloat(raw.replace(/^calc\(/, "").replace(/px\)?$/, ""));
-    return Number.isFinite(value) ? value : 0;
+  const rootComputed = getComputedStyle(doc.documentElement);
+  const shell = doc.querySelector<HTMLElement>(".adaptive-shell-root");
+  const shellComputed = shell ? getComputedStyle(shell) : null;
+  const parseCssPx = (raw: string, safeBottomPx = 0): number => {
+    const trimmed = raw.trim();
+    if (!trimmed) return 0;
+    const base = Number.parseFloat(trimmed.replace(/^calc\(/, "").replace(/px\)?$/, ""));
+    if (!Number.isFinite(base)) return 0;
+    return trimmed.startsWith("calc(") && trimmed.includes("--shell-safe-bottom")
+      ? base + safeBottomPx
+      : base;
   };
-  const keyboard = read("--app-keyboard-height");
+  const readFrom = (styles: CSSStyleDeclaration | null, name: string, safeBottomPx = 0): number =>
+    styles ? parseCssPx(styles.getPropertyValue(name), safeBottomPx) : 0;
+  const read = (name: string): number =>
+    readFrom(shellComputed, name) || readFrom(rootComputed, name);
+
+  const safeBottom = read("--shell-safe-bottom");
+  const keyboard =
+    readFrom(rootComputed, "--app-keyboard-height") ||
+    readFrom(shellComputed, "--app-keyboard-height");
+  const isFullscreen = shell?.dataset.fullscreen === "true";
+  const isMobileShell = shell?.dataset.mobileShell === "true";
+  const mobileNavBottom =
+    !isFullscreen && isMobileShell
+      ? Math.max(safeBottom, readFrom(shellComputed, "--shell-mobile-nav-height", safeBottom))
+      : safeBottom;
+  const audioDockHeight = !isFullscreen
+    ? readFrom(shellComputed, "--shell-audio-player-height")
+    : 0;
+
   return {
     top: read("--shell-safe-top"),
-    bottom: read("--shell-safe-bottom"),
+    bottom: mobileNavBottom + audioDockHeight,
     left: read("--shell-safe-left"),
     right: read("--shell-safe-right"),
     keyboard: keyboard > 0 ? keyboard : 0,

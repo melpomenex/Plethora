@@ -7,11 +7,12 @@ function Consumer() {
   const geometry = useBottomControlsGeometry();
   return <output data-testid="geometry">{geometry ? JSON.stringify({ ...geometry, clearance: bottomDockClearance(geometry) }) : "empty"}</output>;
 }
-function Fixture({ visible = true, blocked = false }: { visible?: boolean; blocked?: boolean }) {
+function Fixture({ visible = true, blocked = false, audio = false }: { visible?: boolean; blocked?: boolean; audio?: boolean }) {
   const navRef = useRef<HTMLElement>(null);
   const pillRef = useRef<HTMLButtonElement>(null);
-  usePublishBottomControls({ navRef, pillRef, viewport: { top: 100, height: 700, width: 390, safeTop: 0, safeBottom: 34, keyboardHeight: 0 }, pillVisible: visible, blocked, fullscreen: false });
-  return <><nav ref={navRef} data-control="nav" /><button ref={pillRef} hidden={!visible} data-control="pill">Assistant</button></>;
+  const audioRef = useRef<HTMLDivElement>(null);
+  usePublishBottomControls({ navRef, audioRef, audioVisible: audio, pillRef, viewport: { top: 100, height: 700, width: 390, safeTop: 0, safeBottom: 34, keyboardHeight: 0 }, pillVisible: visible, blocked, fullscreen: false });
+  return <><nav ref={navRef} data-control="nav" />{audio && <div ref={audioRef} data-control="audio" />}<button ref={pillRef} hidden={!visible} data-control="pill">Assistant</button></>;
 }
 afterEach(() => vi.restoreAllMocks());
 describe("shell bottom geometry", () => {
@@ -37,5 +38,17 @@ describe("shell bottom geometry", () => {
     expect(current().occupiedTop).toBeUndefined();
     view.rerender(<BottomControlsGeometryProvider><Consumer /></BottomControlsGeometryProvider>);
     expect(screen.getByTestId("geometry")).toHaveTextContent("empty");
+  });
+  it("includes a newly mounted audio dock in the same bottom boundary without adding safe area twice", () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function () {
+      const top = this.dataset.control === "audio" ? 676 : 740;
+      return { top, bottom: top + 64, left: 0, right: 390, width: 390, height: 64, x: 0, y: top, toJSON() {} };
+    });
+    const view = render(<BottomControlsGeometryProvider><Fixture visible={false} /><Consumer /></BottomControlsGeometryProvider>);
+    expect(JSON.parse(screen.getByTestId("geometry").textContent!).occupiedTop).toBe(740);
+    view.rerender(<BottomControlsGeometryProvider><Fixture visible={false} audio /><Consumer /></BottomControlsGeometryProvider>);
+    expect(JSON.parse(screen.getByTestId("geometry").textContent!)).toMatchObject({ occupiedTop: 676, clearance: 132, safeBottom: 34 });
+    view.rerender(<BottomControlsGeometryProvider><Fixture visible={false} /><Consumer /></BottomControlsGeometryProvider>);
+    expect(JSON.parse(screen.getByTestId("geometry").textContent!).occupiedTop).toBe(740);
   });
 });

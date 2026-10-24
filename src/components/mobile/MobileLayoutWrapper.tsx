@@ -20,6 +20,9 @@ import { requestApplicationBack } from "../../lib/applicationBack";
 import { nativePlatform } from "../../lib/tauri";
 import { startNativeBackBridge } from "../../lib/nativeBackBridge";
 import { BottomControlsGeometryProvider } from "./BottomControlsGeometry";
+import { AudioDock } from "../audio/MiniAudioPlayer";
+import { useAudioPlaybackStore } from "../../stores/audioPlaybackStore";
+import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../../services/audio/audioPlaybackRollout";
 
 interface MobileLayoutWrapperProps {
   children: React.ReactNode;
@@ -27,6 +30,8 @@ interface MobileLayoutWrapperProps {
 
 export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
   const navRef = useRef<HTMLElement | null>(null);
+  const audioRef = useRef<HTMLDivElement | null>(null);
+  const audioVisible = useAudioPlaybackStore(state => GLOBAL_AUDIO_PLAYBACK_ENABLED && state.snapshot !== null);
   const queueItems = useQueueStore((state) => state.items);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const isMobile = useMobileShell();
@@ -96,7 +101,8 @@ export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
   if (!isMobile) {
     return (
       <AdaptiveAppScaffold mobile={false} fullscreen={isFullscreen}>
-        {children}
+        <div className="min-h-0 flex-1">{children}</div>
+        <AudioDock fullscreen={isFullscreen} />
       </AdaptiveAppScaffold>
     );
   }
@@ -124,7 +130,8 @@ export function MobileLayoutWrapper({ children }: MobileLayoutWrapperProps) {
         unreadCount={unreadCount}
         hidden={isFullscreen}
       />
-      <MobileAssistantHost navRef={navRef} fullscreen={isFullscreen} />
+      <AudioDock mobile fullscreen={isFullscreen} dockRef={audioRef} />
+      <MobileAssistantHost navRef={navRef} audioRef={audioRef} audioVisible={audioVisible} fullscreen={isFullscreen} />
     </AdaptiveAppScaffold>
     </BottomControlsGeometryProvider>
     </MobileAssistantContextProvider>

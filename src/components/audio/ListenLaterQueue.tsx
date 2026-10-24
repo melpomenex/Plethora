@@ -20,7 +20,8 @@ import {
   Hourglass,
   Cards,
 } from "@phosphor-icons/react";
-import { useListenLaterStore } from "../../stores/listenLaterStore";
+import { useListenLaterStore, type ListenLaterItem } from "../../stores/listenLaterStore";
+import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../../services/audio/audioPlaybackRollout";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useTabsStore } from "../../stores/tabsStore";
 import { formatAudioDuration } from "../../utils/audioEditionEstimation";
@@ -56,7 +57,7 @@ export function ListenLaterQueue({ isOpen, onClose }: { isOpen: boolean; onClose
 
   const totalDuration = queue.reduce((acc, item) => acc + item.durationSec, 0);
 
-  const playItem = (documentId: string, title: string) => {
+  const openLegacyPlayer = (documentId: string, title: string) => {
     void import("../viewer/DocumentViewerWrapper").then(({ DocumentViewer: PlayerTab }) => {
       useTabsStore.getState().addTab({
         title,
@@ -72,7 +73,24 @@ export function ListenLaterQueue({ isOpen, onClose }: { isOpen: boolean; onClose
         },
       });
     });
+  };
+
+  /** A ready edition plays through the one owner; unsynthesized items keep the synthesis view. */
+  const playItem = (item: ListenLaterItem) => {
     onClose();
+    if (GLOBAL_AUDIO_PLAYBACK_ENABLED && item.isSynthesized && item.editionId) {
+      void (async () => {
+        try {
+          const { playListenLaterItem } = await import("../../services/audio/listeningQueueProjection");
+          if (await playListenLaterItem(item)) return;
+        } catch {
+          // Fall back to the synthesizing document view below.
+        }
+        openLegacyPlayer(item.documentId, item.title);
+      })();
+      return;
+    }
+    openLegacyPlayer(item.documentId, item.title);
   };
 
   return (
@@ -195,7 +213,7 @@ export function ListenLaterQueue({ isOpen, onClose }: { isOpen: boolean; onClose
                     </button>
                   )}
                   <button
-                    onClick={() => playItem(item.documentId, item.title)}
+                    onClick={() => playItem(item)}
                     className="p-1.5 bg-primary text-primary-foreground rounded-full hover:scale-105 transition-transform"
                     title="Play"
                     aria-label={`Play ${item.title}`}

@@ -126,6 +126,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { initializePWA } from "./lib/pwa";
 import { isTauri } from "./lib/tauri";
+import { GlobalAudioHost } from "./components/audio/GlobalAudioHost";
 import { logBuildFingerprint } from "./lib/buildDiagnostics";
 import { installNetworkDebugInstrumentation, isNetworkDebugEnabled } from "./debug/networkDebug";
 import { installConsoleLogcatBridge } from "./lib/consoleLogcatBridge";
@@ -553,6 +554,7 @@ reactRoot.render(
         <LanguageProfileProvider>
         <BatteryProvider>
           <ThemeProvider>
+          <GlobalAudioHost />
           <HashRouter>
             <Suspense fallback={<PageLoader />}>
               <Routes>
