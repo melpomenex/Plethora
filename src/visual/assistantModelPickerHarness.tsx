@@ -9,7 +9,7 @@
  *   - a disabled provider, a key-missing provider, and two setup rows
  *
  * Query parameters:
- *   variant=desktop       render the anchored desktop menu inside a short pane
+ *   Desktop geometry is covered by assistantControlsHarness.tsx (real panel).
  *   detent=partial        constrain the mobile sheet to 52dvh
  *   text=200              enlarge the root font to 200%
  *
@@ -38,7 +38,6 @@ declare global {
 }
 
 const params = new URLSearchParams(window.location.search);
-const variant = params.get("variant") === "desktop" ? "desktop" : "mobile";
 const detent = params.get("detent") === "partial" ? "partial" : "expanded";
 document.documentElement.style.fontSize = params.get("text") === "200" ? "200%" : "100%";
 
@@ -91,8 +90,8 @@ function Harness() {
 
   const picker = open ? (
     <AssistantModelPicker
-      variant={variant}
-      className={variant === "mobile" ? "mx-2 mb-2 overflow-hidden rounded-2xl border border-border bg-surface-container-high" : undefined}
+      variant="mobile"
+      className="mx-2 mb-2 overflow-hidden rounded-2xl border border-border bg-surface-container-high"
       providers={providers}
       configuredProviders={configuredProviders}
       activeProvider={active}
@@ -111,42 +110,6 @@ function Harness() {
     </div>
   );
 
-  if (variant === "desktop") {
-    return (
-      <div style={{ minHeight: "100dvh", display: "flex", justifyContent: "flex-end", background: "var(--color-background, #ded8c8)" }}>
-        <aside
-          data-harness-sheet
-          style={{
-            width: 360,
-            maxWidth: "100%",
-            height: "min(520px, 100dvh)",
-            display: "flex",
-            flexDirection: "column",
-            overflow: "hidden",
-            borderLeft: "1px solid var(--color-border, #b6ad99)",
-            background: "var(--color-card, #f4ecd3)",
-          }}
-        >
-          <div data-harness-toolbar style={{ height: 56, flexShrink: 0, display: "flex", alignItems: "center", padding: "0 12px", borderBottom: "1px solid var(--color-border, #b6ad99)", fontSize: 14 }}>
-            Assistant
-          </div>
-          <div style={{ position: "relative", padding: 12, flex: "0 0 auto" }}>
-            <div style={{ display: "flex", justifyContent: "flex-end" }}>
-              <span style={{ fontSize: 12, color: "var(--color-muted-foreground, #6d6452)" }}>Model control</span>
-            </div>
-            {open && (
-              <div
-                className="glass-panel-heavy absolute right-3 top-9 z-50 w-72 rounded-xl border border-glass-border/40 bg-card/95 p-3 shadow-glass-lg backdrop-blur-md"
-              >
-                {picker}
-              </div>
-            )}
-          </div>
-          {!open && picker}
-        </aside>
-      </div>
-    );
-  }
 
   return (
     <div style={{ minHeight: "100dvh", display: "flex", flexDirection: "column", background: "var(--color-background, #ded8c8)" }}>

@@ -100,14 +100,20 @@ export function AssistantModelPicker({
       const active = listRef.current?.querySelector<HTMLElement>(
         '[data-assistant-provider-option][aria-pressed="true"]',
       );
-      active?.scrollIntoView?.({ block: "nearest" });
+      const list = listRef.current;
+      if (!active || !list) return;
+      const bounds = list.getBoundingClientRect();
+      const row = active.getBoundingClientRect();
+      const scale = bounds.height / list.clientHeight || 1;
+      if (row.top < bounds.top) list.scrollTop += (row.top - bounds.top) / scale;
+      else if (row.bottom > bounds.bottom) list.scrollTop += (row.bottom - bounds.bottom) / scale;
     });
     return () => window.cancelAnimationFrame(frame);
   }, []);
 
   useEffect(() => () => {
     const target = returnFocusRef.current;
-    if (target?.isConnected && !target.closest("[hidden]")) target.focus();
+    if (target?.isConnected && !target.closest("[hidden]")) target.focus({ preventScroll: true });
   }, [returnFocusRef]);
 
   const listLabel = t("assistant.modelPicker.title");
@@ -118,7 +124,7 @@ export function AssistantModelPicker({
       data-variant={variant}
       role="group"
       aria-labelledby={headingId}
-      className={cn("flex min-h-0 flex-col", variant === "mobile" && "flex-1", className)}
+      className={cn("flex min-h-0 flex-col", variant === "mobile" ? "flex-1" : "overflow-hidden", className)}
     >
       <div
         className={cn(

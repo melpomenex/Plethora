@@ -15,6 +15,8 @@ import type { ThemeId } from "../types/theme";
 const params = new URLSearchParams(location.search);
 const mobile = params.has("mobile");
 const keyboard = params.has("keyboard");
+const pickerFixture = params.has("picker");
+const position = params.get("side") === "left" ? "left" : "right";
 const locale: SupportedLocale = params.get("locale") === "fr" ? "fr" : "en";
 const theme: ThemeId = params.get("theme") ?? "milky-matcha";
 const context = {
@@ -25,6 +27,7 @@ const context = {
 };
 document.documentElement.style.fontSize = params.has("zoom") ? "200%" : "100%";
 localStorage.removeItem("assistant-panel-conversations-v1");
+if (pickerFixture) localStorage.setItem("assistant-llm-provider", params.get("active") ?? "deepseek");
 useSettingsStore.setState(({ settings }) => ({ settings: {
   ...settings,
   general: { ...settings.general, language: locale },
@@ -34,6 +37,14 @@ useLLMProvidersStore.setState({ providers: [{
   id: "fixture", provider: "openai", name: "OpenAI", model: "gpt-4o",
   apiKey: "fixture-never-submitted", enabled: true, temperature: 0.7, maxTokens: 1024,
 }] });
+if (pickerFixture) {
+  useLLMProvidersStore.setState({ providers: [
+    { id: "openai", provider: "openai", name: "OpenAI", model: "gpt-4o", apiKey: "fixture", enabled: true, temperature: 0.7, maxTokens: 1024 },
+    { id: "ollama", provider: "ollama", name: "Ollama", model: "llama3.2:latest", apiKey: "", enabled: true, temperature: 0.7, maxTokens: 1024 },
+    { id: "openrouter", provider: "openrouter", name: "OpenRouter", model: "openrouter/free", apiKey: "fixture", enabled: true, temperature: 0.7, maxTokens: 1024 },
+    { id: "deepseek", provider: "deepseek", name: "DeepSeek", model: "deepseek-chat", apiKey: "fixture", enabled: true, temperature: 0.7, maxTokens: 1024 },
+  ] });
+}
 await loadLocale(locale);
 
 declare global {
@@ -48,9 +59,13 @@ function Harness() {
   const [partial, setPartial] = useState(params.has("partial"));
   const closeRef = useRef<HTMLButtonElement>(null);
   const sheetRef = useDialogFocus(mobile && open, () => setOpen(false), closeRef, { priority: 60, global: true, containFocus: !partial });
-  const available = keyboard ? "calc(100dvh - 280px)" : "100dvh";
+  const viewportHeight = "var(--harness-viewport-height, 100dvh)";
+  const available = keyboard ? `calc(${viewportHeight} - 280px)` : viewportHeight;
   if (!open) return <p>Assistant closed</p>;
-  return <div className="flex min-h-dvh flex-col bg-background text-foreground">
+  return <div style={{ minHeight: viewportHeight }} className="flex flex-col bg-background text-foreground">
+    {pickerFixture && <div data-harness-reader className="fixed inset-y-0 w-1/2 overflow-auto" style={{ [position === "right" ? "left" : "right"]: 0 }}>
+      {Array.from({ length: 40 }, (_, index) => <p key={index} className="p-4">{context.content}</p>)}
+    </div>}
     <div style={{ height: available }} className="flex min-h-0 flex-col justify-end">
       <aside
         ref={sheetRef}
@@ -59,11 +74,11 @@ function Harness() {
           height: partial ? "60%" : "100%",
           width: mobile ? "100%" : Number(params.get("width") ?? 420),
           maxWidth: "100%",
-          marginLeft: "auto",
+          marginLeft: position === "right" ? "auto" : undefined,
         }}
         className="min-h-0 overflow-hidden"
       >
-        <AssistantPanel context={context} fillContainer appendContextMessages={false}
+        <AssistantPanel context={context} position={position} fillContainer appendContextMessages={false}
           conversationKey="controls-fixture"
           mobilePresentation={mobile ? { visible: true, sheet: {
             detent: partial ? "partial" : "expanded", hasPartial: true,

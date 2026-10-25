@@ -45,16 +45,15 @@ const PHONE_VIEWPORTS = [
   { name: "390x844-text200", width: 390, height: 844, detent: "expanded", text: "200" },
 ];
 
-function harnessUrl(options: { variant?: "mobile" | "desktop"; detent?: string; text?: string | null }) {
+function harnessUrl(options: { detent?: string; text?: string | null }) {
   const params = new URLSearchParams();
-  if (options.variant === "desktop") params.set("variant", "desktop");
   if (options.detent) params.set("detent", options.detent);
   if (options.text) params.set("text", options.text);
   const query = params.toString();
   return `${HARNESS}${query ? `?${query}` : ""}`;
 }
 
-async function openPicker(page: Page, options: { variant?: "mobile" | "desktop"; detent?: string; text?: string | null }) {
+async function openPicker(page: Page, options: { detent?: string; text?: string | null }) {
   await page.goto(harnessUrl(options), { timeout: 30_000 });
   await expect(page.locator("[data-assistant-model-picker]")).toBeVisible({ timeout: 20_000 });
 }
@@ -157,32 +156,114 @@ test.describe("assistant model picker containment", () => {
     await expect(page.locator("[data-assistant-model-picker]")).toBeVisible();
     expect(await page.evaluate(() => window.__assistantModelPickerHarness?.settingsOpened)).toBe(1);
   });
+});
 
-  test("keeps the anchored desktop menu scrollable in a short pane", async ({ page }) => {
-    await page.setViewportSize({ width: 360, height: 500 });
-    await openPicker(page, { variant: "desktop" });
+async function expectDesktopBounds(page: Page) {
+  const picker = page.locator("[data-assistant-model-picker]");
+  const trigger = page.getByTitle("Change Active AI Model");
+  const value = await geometry(page);
+  expectContained(value);
+  const menu = await picker.locator("..").boundingBox();
+  const control = await trigger.boundingBox();
+  expect(menu!.y).toBeGreaterThanOrEqual(control!.y + control!.height);
+  expect(menu!.y).toBeGreaterThanOrEqual(0);
+  expect(menu!.y + menu!.height).toBeLessThanOrEqual(page.viewportSize()!.height + 1);
+  expect(menu!.x).toBeGreaterThanOrEqual(Math.max(0, value.sheet.left) - 1);
+  expect(menu!.x + menu!.width).toBeLessThanOrEqual(Math.min(page.viewportSize()!.width, value.sheet.right) + 1);
+  await expect(picker.getByRole("heading")).toBeInViewport({ ratio: 1 });
+  await expect(page.getByRole("button", { name: "Manage AI providers" })).toBeInViewport({ ratio: 1 });
+}
 
-    const initial = await geometry(page);
-    expectContained(initial);
-    expect(initial.listScrollHeight).toBeGreaterThan(initial.listClientHeight);
-    await expect(page.getByRole("button", { name: "Manage AI providers" })).toBeVisible();
-    const active = page.locator('[data-assistant-provider-option][aria-pressed="true"]');
-    await expect(active).toBeVisible();
-    const activeBox = await active.boundingBox();
-    expect(activeBox).not.toBeNull();
-    expect(activeBox!.y).toBeGreaterThanOrEqual(initial.list.top - 1);
-    expect(activeBox!.y + activeBox!.height).toBeLessThanOrEqual(initial.list.bottom + 2);
-    await page.screenshot({ path: `${RESULTS_DIR}/assistant-model-picker-desktop-360x500.png` });
+async function expectRowInList(page: Page, selector: string) {
+  const list = page.locator("[data-assistant-model-list]");
+  const row = page.locator(selector);
+  const rowBox = await row.boundingBox();
+  const listBox = await list.boundingBox();
+  expect(rowBox!.y).toBeGreaterThanOrEqual(listBox!.y - 1);
+  expect(rowBox!.y + rowBox!.height).toBeLessThanOrEqual(listBox!.y + listBox!.height + 1);
+}
 
-    const last = page.locator("[data-assistant-provider-option]").last();
-    await last.scrollIntoViewIfNeeded();
-    const scrolled = await geometry(page);
-    expectContained(scrolled);
-    const lastRect = scrolled.rows[scrolled.rows.length - 1];
-    expect(lastRect.top).toBeGreaterThanOrEqual(scrolled.list.top - 1);
-    expect(lastRect.bottom).toBeLessThanOrEqual(scrolled.list.bottom + 2);
-
-    await last.click();
-    await expect.poll(() => page.evaluate(() => window.__assistantModelPickerHarness?.lastSelected)).toBe("deepseek");
+// Desktop uses the actual AssistantPanel; a separate positioned approximation
+// cannot reproduce flex static-position regressions in the toolbar.
+test.describe("production desktop provider picker", () => {
+  test("reflows while open after panel, viewport, and scale changes", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 720 });
+    await page.goto("/assistant-controls-harness.html?picker&width=420&side=right");
+    await page.getByTitle("Change Active AI Model").click();
+    const menu = page.locator("[data-assistant-model-menu]");
+    await menu.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
+    for (const layout of [
+      { width: 1024, height: 600, panel: 320, scale: 1.5 },
+      { width: 900, height: 360, panel: 420, scale: 1 },
+      { width: 1280, height: 720, panel: 320, scale: 0.7 },
+    ]) {
+      await page.setViewportSize({ width: layout.width, height: layout.height });
+      await page.evaluate(({ panel, scale }) => {
+        document.documentElement.style.zoom = String(scale);
+        document.documentElement.style.setProperty("--harness-viewport-height", `${innerHeight / scale}px`);
+        (document.querySelector("[data-harness-sheet]") as HTMLElement).style.width = `${panel}px`;
+        return new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
+      }, layout);
+      await expectDesktopBounds(page);
+      const list = page.locator("[data-assistant-model-list]");
+      await list.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+      await expectRowInList(page, "[data-assistant-provider-option]:last-child");
+    }
   });
+
+  for (const side of ["left", "right"]) {
+    for (const panelWidth of [320, 420]) {
+      for (const viewport of [{ width: 1280, height: 720 }, { width: 1024, height: 600 }]) {
+        for (const zoom of [0.7, 1, 1.5]) {
+          test(`${side} ${panelWidth}px ${viewport.width}x${viewport.height} scale ${zoom}`, async ({ page }) => {
+            await page.setViewportSize(viewport);
+            const active = panelWidth === 320 ? "deepseek" : "openai";
+            await page.goto(`/assistant-controls-harness.html?picker&width=${panelWidth}&side=${side}&active=${active}&theme=legal-pad`);
+            const trigger = page.getByTitle("Change Active AI Model");
+            await expect(trigger).toBeVisible({ timeout: 30_000 });
+            // CSS scale exercises conversion between viewport rectangles and
+            // local lengths; native WebView zoom still needs a platform check.
+            await page.evaluate((scale) => {
+              // WebView zoom changes the layout viewport as well as scale.
+              // Compensate this fixed-height fixture to model the same space.
+              document.documentElement.style.setProperty("--harness-viewport-height", `${innerHeight / scale}px`);
+              document.documentElement.style.zoom = String(scale);
+              document.querySelector("[data-harness-reader]")!.scrollTop = 80;
+            }, zoom);
+            const input = page.getByRole("textbox");
+            await input.fill("Keep this unsent draft");
+            const scrollOffsets = () => page.evaluate(() => [
+              document.scrollingElement!.scrollTop,
+              document.querySelector("[data-harness-sheet]")!.scrollTop,
+              document.querySelector("[data-harness-sheet] > div")!.scrollTop,
+              document.querySelector("[data-harness-reader]")!.scrollTop,
+            ]);
+            const before = await scrollOffsets();
+            await trigger.click();
+            const picker = page.locator("[data-assistant-model-picker]");
+            await expect(picker).toBeVisible();
+            // Wait for the existing entrance animation before measuring.
+            await picker.evaluate((element) => Promise.all(element.parentElement!.getAnimations().map((animation) => animation.finished)));
+
+            await expectDesktopBounds(page);
+            const list = page.locator("[data-assistant-model-list]");
+
+            await expectRowInList(page, '[data-assistant-provider-option][aria-pressed="true"]');
+            await list.evaluate((element) => { element.scrollTop = 0; });
+            await expectRowInList(page, '[data-assistant-provider-option]:first-child');
+            await list.evaluate((element) => { element.scrollTop = element.scrollHeight; });
+            await expectRowInList(page, '[data-assistant-provider-option]:last-child');
+            await expectDesktopBounds(page);
+            expect(await scrollOffsets()).toEqual(before);
+            await page.screenshot({ path: `${RESULTS_DIR}/desktop-picker-${side}-${panelWidth}-${viewport.height}-${zoom}.png`, animations: "disabled" });
+            await page.keyboard.press("Escape");
+            await expect(picker).toHaveCount(0);
+            await expect(trigger).toBeFocused();
+            await expect(input).toHaveValue("Keep this unsent draft");
+            expect(await scrollOffsets()).toEqual(before);
+          });
+        }
+      }
+    }
+  }
 });

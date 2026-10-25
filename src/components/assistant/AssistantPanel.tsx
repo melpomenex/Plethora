@@ -3,6 +3,7 @@ import { ComposerDictationButton } from "./ComposerDictationControl";
 import { ASSISTANT_SLASH_COMMANDS } from "./assistantSlashCommands";
 import { MobileComposerMenu } from "./mobile/MobileComposerMenu";
 import { AgentSourcePicker } from "./AgentSourcePicker";
+import { useAssistantModelMenuBounds } from "./useAssistantModelMenuBounds";
 import { AssistantModelPicker, type AssistantProviderOption, type AssistantProviderStatus } from "./AssistantModelPicker";
 import { MOBILE_ASSISTANT_CONVERSATION_KEY, type MobileAssistantPresentation, type AssistantSourceProvenance } from "./mobile/contracts";
 import { assistantSourceProvenance, authorizeAssistantHistory, mergeAssistantProvenance } from "./mobile/provenance";
@@ -553,6 +554,9 @@ export function AssistantPanel({
   // Model selection UI states and store subscription
   const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const [isSourceMenuOpen, setIsSourceMenuOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const desktopModelMenuRef = useRef<HTMLDivElement>(null);
+  useAssistantModelMenuBounds(desktopModelMenuRef, panelRef, !isMobilePresentation && isModelDropdownOpen, position);
   const closeModelPicker = useCallback(() => setIsModelDropdownOpen(false), []);
   // Whole-library RAG scope: when true, messages route through the Ask
   // library task (retrieve top-k chunks across the semantic index + grounded
@@ -3572,6 +3576,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
 
   return (
     <div
+      ref={panelRef}
       data-paper-surface="chrome" className={`flex flex-col h-full max-h-full min-h-0 overflow-hidden bg-card ${position === "right" ? "border-l" : "border-r"} border-border relative ${className}`}
       style={{ width: fillContainer ? "100%" : isCollapsed ? "auto" : width, containerType: "size" }}
       onContextMenu={(e) => handleContextMenu(e)}
@@ -3622,61 +3627,95 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
 
           {/* Model Status Pill & Selector */}
           <div className={mobilePresentation ? "contents" : "relative flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1"}>
-            <button
-              ref={modelPickerTriggerRef}
-              type="button"
-              onClick={toggleModelPicker}
-              aria-haspopup={mobilePresentation ? undefined : "menu"}
-              aria-expanded={isModelDropdownOpen}
-              aria-label={mobilePresentation ? `${t("assistant.composer.model")}: ${(() => {
-                const activeConfig = configuredProvidersList.find(p => p.provider === effectiveProvider && p.enabled);
-                return getFriendlyModelName(effectiveProvider, activeConfig?.model);
-              })()}` : undefined}
-              className={`
-                flex items-center gap-1.5 rounded-full text-xs font-semibold
-                bg-background border border-border shadow-sm transition-all duration-200
-                hover:bg-muted/80 cursor-pointer select-none active:scale-[0.98]
-                ${mobilePresentation ? "min-h-10 gap-1 px-2" : "px-2.5 py-1"}
-                ${isModelDropdownOpen ? "border-primary ring-2 ring-primary/10 bg-muted/30" : ""}
-              `}
-              title="Change Active AI Model"
-            >
-              {/* Pulsing indicator dot */}
-              {!mobilePresentation && <span className="relative flex h-1.5 w-1.5">
-                <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                  effectiveProvider === "openai" ? "bg-emerald-400" :
-                  effectiveProvider === "anthropic" ? "bg-orange-400" :
-                  effectiveProvider === "ollama" ? "bg-cyan-400" :
-                  isAppleFmAssistantProvider(effectiveProvider) ? "bg-slate-400" : "bg-purple-400"
-                }`}></span>
-                <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
-                  effectiveProvider === "openai" ? "bg-emerald-500" :
-                  effectiveProvider === "anthropic" ? "bg-orange-500" :
-                  effectiveProvider === "ollama" ? "bg-cyan-500" :
-                  isAppleFmAssistantProvider(effectiveProvider) ? "bg-slate-500" : "bg-purple-500"
-                }`}></span>
-              </span>}
-
-              {/* Icon */}
-              {(() => {
-                const activeProvObj = providers.find(p => p.id === effectiveProvider);
-                if (!activeProvObj) return null;
-                return <activeProvObj.icon className={`w-3 h-3 ${activeProvObj.color}`} />;
-              })()}
-
-              {/* Active Model Name (desktop; the mobile pill stays icon-sized) */}
-              {!mobilePresentation && <span className="truncate text-foreground/90 font-medium tracking-tight max-w-[110px]">
-                {(() => {
+            <div className={mobilePresentation ? "contents" : "relative min-w-0 max-w-full"}>
+              <button
+                ref={modelPickerTriggerRef}
+                type="button"
+                onClick={toggleModelPicker}
+                aria-haspopup={mobilePresentation ? undefined : "menu"}
+                aria-expanded={isModelDropdownOpen}
+                aria-label={mobilePresentation ? `${t("assistant.composer.model")}: ${(() => {
                   const activeConfig = configuredProvidersList.find(p => p.provider === effectiveProvider && p.enabled);
                   return getFriendlyModelName(effectiveProvider, activeConfig?.model);
-                })()}
-              </span>}
+                })()}` : undefined}
+                className={`
+                  flex items-center gap-1.5 rounded-full text-xs font-semibold
+                  bg-background border border-border shadow-sm transition-all duration-200
+                  hover:bg-muted/80 cursor-pointer select-none active:scale-[0.98]
+                  ${mobilePresentation ? "min-h-10 gap-1 px-2" : "px-2.5 py-1"}
+                  ${isModelDropdownOpen ? "border-primary ring-2 ring-primary/10 bg-muted/30" : ""}
+                `}
+                title="Change Active AI Model"
+              >
+                {/* Pulsing indicator dot */}
+                {!mobilePresentation && <span className="relative flex h-1.5 w-1.5">
+                  <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                    effectiveProvider === "openai" ? "bg-emerald-400" :
+                    effectiveProvider === "anthropic" ? "bg-orange-400" :
+                    effectiveProvider === "ollama" ? "bg-cyan-400" :
+                    isAppleFmAssistantProvider(effectiveProvider) ? "bg-slate-400" : "bg-purple-400"
+                  }`}></span>
+                  <span className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
+                    effectiveProvider === "openai" ? "bg-emerald-500" :
+                    effectiveProvider === "anthropic" ? "bg-orange-500" :
+                    effectiveProvider === "ollama" ? "bg-cyan-500" :
+                    isAppleFmAssistantProvider(effectiveProvider) ? "bg-slate-500" : "bg-purple-500"
+                  }`}></span>
+                </span>}
 
-              {/* Chevron */}
-              <CaretDown className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${
-                isModelDropdownOpen ? "transform rotate-180" : ""
-              }`} />
-            </button>
+                {/* Icon */}
+                {(() => {
+                  const activeProvObj = providers.find(p => p.id === effectiveProvider);
+                  if (!activeProvObj) return null;
+                  return <activeProvObj.icon className={`w-3 h-3 ${activeProvObj.color}`} />;
+                })()}
+
+                {/* Active Model Name (desktop; the mobile pill stays icon-sized) */}
+                {!mobilePresentation && <span className="truncate text-foreground/90 font-medium tracking-tight max-w-[110px]">
+                  {(() => {
+                    const activeConfig = configuredProvidersList.find(p => p.provider === effectiveProvider && p.enabled);
+                    return getFriendlyModelName(effectiveProvider, activeConfig?.model);
+                  })()}
+                </span>}
+
+                {/* Chevron */}
+                <CaretDown className={`w-3 h-3 text-muted-foreground transition-transform duration-200 ${
+                  isModelDropdownOpen ? "transform rotate-180" : ""
+                }`} />
+              </button>
+
+              {/* Desktop AI Engine Center menu — mobile uses the in-sheet picker below. */}
+              {!isMobilePresentation && isModelDropdownOpen && (
+                <>
+                  {/* Backdrop overlay to close dropdown */}
+                  <div
+                    data-assistant-model-backdrop
+                    className="fixed inset-0 z-40 bg-transparent"
+                    onClick={closeModelPicker}
+                  />
+
+                  {/* Dropdown Menu container */}
+                  <div ref={desktopModelMenuRef} data-assistant-model-menu className={`
+                    absolute top-full mt-2 flex min-h-0 w-72 flex-col overflow-hidden z-50 transition-none
+                    glass-panel-heavy rounded-xl border border-glass-border/40 shadow-glass-lg
+                    p-3 select-none animate-in fade-in slide-in-from-bottom-2 duration-150
+                    bg-card/95 backdrop-blur-md
+                  `}>
+                    <AssistantModelPicker
+                      variant="desktop"
+                      providers={providers}
+                      configuredProviders={configuredProvidersList}
+                      activeProvider={effectiveProvider}
+                      getStatus={getProviderStatus}
+                      onSelect={handleSelectProviderFromPicker}
+                      onConfigure={handleConfigureProviderFromPicker}
+                      onClose={closeModelPicker}
+                      returnFocusRef={modelPickerTriggerRef}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
 
             {/* Explicit secondary Learning Agent mode. Ordinary chat is the
                 default; this only selects the agent path on submit. */}
@@ -3729,37 +3768,6 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 {t("assistant.mode.agent")}
               </button>
             </div>
-
-            {/* Desktop AI Engine Center menu — mobile uses the in-sheet picker below. */}
-            {!isMobilePresentation && isModelDropdownOpen && (
-              <>
-                {/* Backdrop overlay to close dropdown */}
-                <div
-                  className="fixed inset-0 z-40 bg-transparent"
-                  onClick={closeModelPicker}
-                />
-
-                {/* Dropdown Menu container */}
-                <div className={`
-                  absolute ${position === "right" ? "right-0" : "left-0"} mt-2 w-72 z-50
-                  glass-panel-heavy rounded-xl border border-glass-border/40 shadow-glass-lg
-                  p-3 select-none animate-in fade-in slide-in-from-bottom-2 duration-150
-                  bg-card/95 backdrop-blur-md
-                `}>
-                  <AssistantModelPicker
-                    variant="desktop"
-                    providers={providers}
-                    configuredProviders={configuredProvidersList}
-                    activeProvider={effectiveProvider}
-                    getStatus={getProviderStatus}
-                    onSelect={handleSelectProviderFromPicker}
-                    onConfigure={handleConfigureProviderFromPicker}
-                    onClose={closeModelPicker}
-                    returnFocusRef={modelPickerTriggerRef}
-                  />
-                </div>
-              </>
-            )}
           </div>
           {/* Mobile expand/collapse — the handle also toggles, this keeps an explicit control. */}
           {mobileSheet?.hasPartial && <button

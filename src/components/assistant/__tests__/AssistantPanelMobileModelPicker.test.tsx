@@ -149,6 +149,41 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe("desktop AI-engine picker", () => {
+  it.each(["left", "right"] as const)("selects a provider in the %s panel without losing the draft", async (position) => {
+    render(<AssistantPanel position={position} />);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "Unsent desktop draft" } });
+    await openPicker();
+    fireEvent.click(screen.getByRole("button", { name: "DeepSeek, deepseek-chat, Active" }));
+    await waitFor(() => expect(pickerElement()).toBeNull());
+    expect(localStorage.getItem("assistant-llm-provider")).toBe("deepseek");
+    expect(input).toHaveValue("Unsent desktop draft");
+    expect(modelTrigger()).toHaveFocus();
+  });
+
+  it.each(["Escape", "outside"])("dismisses using %s and restores focus without changing providers", async (action) => {
+    const { container } = render(<AssistantPanel />);
+    await openPicker();
+    if (action === "Escape") fireEvent.keyDown(document, { key: "Escape" });
+    else fireEvent.click(container.querySelector("[data-assistant-model-backdrop]")!);
+    await waitFor(() => expect(pickerElement()).toBeNull());
+    expect(modelTrigger()).toHaveFocus();
+    expect(localStorage.getItem("assistant-llm-provider")).toBe("ollama");
+  });
+
+  it.each(["Manage AI providers", "OpenAI, Setup, Click to configure API key"])("opens settings using %s without changing providers", async (name) => {
+    const addTab = vi.spyOn(useTabsStore.getState(), "addTab");
+    render(<AssistantPanel />);
+    await openPicker();
+    fireEvent.click(screen.getByRole("button", { name }));
+    await waitFor(() => expect(pickerElement()).toBeNull());
+    expect(addTab).toHaveBeenCalledWith(expect.objectContaining({ type: "settings" }));
+    expect(localStorage.getItem("plethora_settings_initial_tab")).toBe("ai");
+    expect(localStorage.getItem("assistant-llm-provider")).toBe("ollama");
+  });
+});
+
 describe("mobile AI-engine picker", () => {
   it("opens as an in-flow sheet body, expands the partial detent, and focuses its heading", async () => {
     const { container } = render(<AssistantPanel {...mobileProps} />);
