@@ -19,7 +19,7 @@
         "devtools": true,
         "hiddenTitle": false,
         "dragDropEnabled": true,
-        "transparent": true
+        "transparent": false
       }
     ]
   },
