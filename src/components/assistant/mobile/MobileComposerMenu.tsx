@@ -1,12 +1,15 @@
-import { useEffect, useMemo, useRef, useState, type RefObject } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type RefObject, type ReactNode } from "react";
 import { ChatCircleDots, Images, MagnifyingGlass, ShareNetwork } from "@phosphor-icons/react";
-import { registerOverlayDismissal } from "../../../lib/overlayStack";
+import { useAssistantMenuDismissal } from "../useAssistantMenuDismissal";
 import { useI18n } from "../../../lib/i18n";
 import { matchAssistantSlashCommands } from "../assistantSlashCommands";
 import { MobileAssistantCommands, useAssistantCommandMatches } from "./MobileAssistantCommands";
 
 export interface MobileComposerMenuProps {
   open: boolean;
+  actions?: (query: string) => ReactNode;
+  actionsMatch?: (query: string) => boolean;
+  startAtActions?: boolean;
   /** The add control; dismissal and outside taps keep it as the focus anchor. */
   anchorRef: RefObject<HTMLButtonElement | null>;
   sourceTitle?: string;
@@ -31,36 +34,31 @@ export function MobileComposerMenu(props: MobileComposerMenuProps) {
   return <MobileComposerMenuBody {...props} />;
 }
 
-function MobileComposerMenuBody({ anchorRef, sourceTitle, onClose, onInsert, onAttach, onNewConversation, onShare }: MobileComposerMenuProps) {
+function MobileComposerMenuBody({ actions, actionsMatch, startAtActions, anchorRef, sourceTitle, onClose, onInsert, onAttach, onNewConversation, onShare }: MobileComposerMenuProps) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
   const slashCommands = useMemo(() => matchAssistantSlashCommands(query, t), [query, t]);
   const registryCommands = useAssistantCommandMatches(sourceTitle, query);
-  const empty = slashCommands.length === 0 && registryCommands.length === 0;
+  const empty = slashCommands.length === 0 && registryCommands.length === 0 && !actionsMatch?.(query);
 
-  useEffect(() => {
-    // Above the sheet's own 60 so Back closes the menu first.
-    return registerOverlayDismissal(onClose, { priority: 70 });
-  }, [onClose]);
+  useAssistantMenuDismissal(true, containerRef, anchorRef, onClose);
 
-  useEffect(() => {
-    const dismiss = () => { onClose(); anchorRef.current?.focus(); };
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === "Escape") { event.stopPropagation(); dismiss(); } };
-    const onPointerDown = (event: MouseEvent | TouchEvent) => {
-      const target = event.target as Node;
-      if (containerRef.current?.contains(target) || anchorRef.current?.contains(target)) return;
-      onClose();
+  useLayoutEffect(() => {
+    const element = containerRef.current;
+    const panel = element?.parentElement;
+    if (!element || !panel) return;
+    const measure = () => {
+      const siblings = Array.from(panel.children).filter((child): child is HTMLElement => child instanceof HTMLElement && child !== element && !child.hasAttribute('data-assistant-messages'));
+      const reserved = siblings.reduce((sum, child) => sum + child.offsetHeight, 0);
+      element.style.maxHeight = `${Math.max(48, Math.min(panel.clientHeight * 0.6, panel.clientHeight - reserved - 8))}px`;
     };
-    document.addEventListener("keydown", onKeyDown);
-    document.addEventListener("mousedown", onPointerDown);
-    document.addEventListener("touchstart", onPointerDown);
-    return () => {
-      document.removeEventListener("keydown", onKeyDown);
-      document.removeEventListener("mousedown", onPointerDown);
-      document.removeEventListener("touchstart", onPointerDown);
-    };
-  }, [onClose, anchorRef]);
+    const observer = new ResizeObserver(measure);
+    observer.observe(panel);
+    for (const child of Array.from(panel.children)) if (child instanceof HTMLElement && child !== element && !child.hasAttribute('data-assistant-messages')) observer.observe(child);
+    measure();
+    return () => observer.disconnect();
+  }, []);
 
   // The menu is an in-flow sibling of the conversation: it shrinks the
   // conversation instead of overlaying it, so it can never be clipped by the
@@ -76,7 +74,7 @@ function MobileComposerMenuBody({ anchorRef, sourceTitle, onClose, onInsert, onA
     data-assistant-composer-menu
     className="mx-2 mb-2 flex max-h-[60%] min-h-0 shrink-0 flex-col overflow-hidden rounded-2xl border border-border bg-surface-container-high"
   >
-    <label className="flex min-h-12 shrink-0 items-center gap-2 border-b border-border/60 px-3">
+    <label className="flex min-h-[48px] shrink-0 items-center gap-2 border-b border-border/60 px-3">
       <MagnifyingGlass size={18} aria-hidden="true" />
       <input
         type="search"
@@ -88,10 +86,12 @@ function MobileComposerMenuBody({ anchorRef, sourceTitle, onClose, onInsert, onA
       />
     </label>
     <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-1">
+      {startAtActions && actions?.(query)}
       <button type="button" className={ROW_CLASS} onClick={() => { onAttach(); dismiss(); }}>
         <Images size={20} aria-hidden="true" />
         <span className="text-sm font-medium">{t("assistant.composer.attachImage")}</span>
       </button>
+      {!startAtActions && actions?.(query)}
       {slashCommands.length > 0 && <>
         <p className={SECTION_CLASS}>{t("assistant.composer.slashCommands")}</p>
         {slashCommands.map((command) => <button key={command.command} type="button" className={ROW_CLASS} onClick={() => { onInsert(command.command); dismiss(); }}>
@@ -118,6 +118,6 @@ function MobileComposerMenuBody({ anchorRef, sourceTitle, onClose, onInsert, onA
         </button>}
       </div>
     </div>
-    <p className="shrink-0 border-t border-border/60 px-3 py-2 text-[11px] text-muted-foreground">{t("assistant.composer.slashHint")}</p>
+    {!actions && <p className="shrink-0 border-t border-border/60 px-3 py-2 text-[11px] text-muted-foreground">{t("assistant.composer.slashHint")}</p>}
   </div>;
 }

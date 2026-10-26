@@ -506,6 +506,7 @@ export function DocumentViewer({
       status: assistantStatus,
       statusMessage: assistantStatusMessage,
       source: assistantSource,
+      coverage: assistantCoverageRef.current,
       sections: mediaSections.length > 0 ? mediaSections : undefined,
       resolveForPrompt: resolveContextForPrompt,
     };

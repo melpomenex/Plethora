@@ -1,0 +1,5 @@
+.assistant-context-action-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+  gap: 0.25rem;
+}

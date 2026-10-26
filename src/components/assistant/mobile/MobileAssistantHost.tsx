@@ -1,3 +1,4 @@
+import { actionStripGeometry } from "./actionStripGeometry";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { Sparkle } from "@phosphor-icons/react";
@@ -23,6 +24,7 @@ export function MobileAssistantHost({ navRef, audioRef, audioVisible, fullscreen
   const [viewport, setViewport] = useState(readAssistantViewport);
   const [navTop, setNavTop] = useState<number>();
   const [singleDetent, setSingleDetent] = useState(false);
+  const [actionsSuppressed, setActionsSuppressed] = useState(false);
   const [detent, setDetent] = useState<AssistantDetent>("closed");
   const [preview, setPreview] = useState(false);
   const [exiting, setExiting] = useState(false);
@@ -183,16 +185,26 @@ export function MobileAssistantHost({ navRef, audioRef, audioVisible, fullscreen
       if (!composer || !toolbar || !surface) return;
       // The conversation must keep at least 96px inside the partial stop; the
       // single-stop fallback only fires for genuinely oversized chrome.
+      const strip = surface.querySelector<HTMLElement>('[data-assistant-action-strip]');
       const chrome = composer.offsetHeight + toolbar.offsetHeight + (surface.querySelector<HTMLElement>(".mobile-assistant-sheet-header")?.offsetHeight ?? 0);
-      if (chrome + 96 > geometryRef.current.partial) {
+      const partial = assistantSheetGeometry(viewport.height - viewport.safeTop - viewport.safeBottom, Math.max(320, (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16) * 20)).partial;
+      const decision = actionStripGeometry(chrome, strip?.offsetHeight ?? 0, partial, actionsSuppressed);
+      if (decision.suppress !== actionsSuppressed) setActionsSuppressed(decision.suppress);
+      if (decision.singleDetent) {
         setSingleDetent(true); setDetent("expanded"); currentDetent.current = "expanded";
-      }
+      } else if (singleDetent) setSingleDetent(false);
     };
+    const resize = new ResizeObserver(measure);
+    if (surfaceRef.current) resize.observe(surfaceRef.current);
+    const composer = surfaceRef.current?.querySelector<HTMLElement>('[data-assistant-composer]');
+    if (composer) resize.observe(composer);
+    const toolbar = surfaceRef.current?.querySelector<HTMLElement>("[data-assistant-toolbar]");
+    if (toolbar) resize.observe(toolbar);
     const observer = new MutationObserver(measure);
     if (surfaceRef.current) observer.observe(surfaceRef.current, { childList: true, subtree: true });
     measure();
-    return () => observer.disconnect();
-  }, [open, mounted]);
+    return () => { observer.disconnect(); resize.disconnect(); };
+  }, [open, mounted, viewport, actionsSuppressed, singleDetent]);
   useEffect(() => { if (fullscreen && open) close(); }, [fullscreen, open, close]);
   // Modal ownership belongs to the EXPANDED detent only (design D7). A
   // partial sheet is a named nonmodal region: the reader above its bounds
@@ -242,6 +254,7 @@ export function MobileAssistantHost({ navRef, audioRef, audioVisible, fullscreen
         {mounted && <div id="mobile-assistant-chat" className="mobile-assistant-conversation" hidden={!open} inert={!open}>
           <Suspense fallback={<p role="status">Loading Assistant…</p>}><Panel context={active.context} conversationKey={MOBILE_ASSISTANT_CONVERSATION_KEY} mobilePresentation={{
             visible: open,
+            actionsSuppressed: actionsSuppressed || viewport.keyboardHeight > 0,
             viewIdentity: `${active.ownerKey}:${detent}`,
             sheet: {
               detent,

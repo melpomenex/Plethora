@@ -69,14 +69,16 @@ describe("AssistantPanel 20 Rules Integration", () => {
     vi.mocked(chatWithContext).mockReset();
   });
 
-  it("renders the /20rules quick action button in the footer", () => {
+  it("keeps /20rules in the contextual More menu", () => {
     render(<AssistantPanel />);
+    fireEvent.click(screen.getByRole("button", { name: /More|Actions/ }));
     const button = screen.getByRole("button", { name: /\/20rules/i });
     expect(button).toBeInTheDocument();
   });
 
   it("clicking /20rules populates the composer input", () => {
     render(<AssistantPanel />);
+    fireEvent.click(screen.getByRole("button", { name: /More|Actions/ }));
     const button = screen.getByRole("button", { name: /\/20rules/i });
     fireEvent.click(button);
 

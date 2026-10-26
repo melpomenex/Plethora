@@ -17,12 +17,13 @@ const mobile = params.has("mobile");
 const keyboard = params.has("keyboard");
 const pickerFixture = params.has("picker");
 const position = params.get("side") === "left" ? "left" : "right";
-const locale: SupportedLocale = params.get("locale") === "fr" ? "fr" : "en";
+const locale: SupportedLocale = ["en","de","es","fr","ja","zh"].includes(params.get("locale") ?? "") ? params.get("locale") as SupportedLocale : "en";
 const theme: ThemeId = params.get("theme") ?? "milky-matcha";
 const context = {
   type: "document" as const,
   documentId: "controls-fixture",
   content: "Music and identity: a conversation about navigating change.",
+  ...(params.has("actions") ? { selection: "Complex cells convert nutrients into usable energy.", coverage: "window" as const, position: { pageNumber: 42 } } : {}),
   metadata: { title: "What this musician’s identity crisis teaches us about navigating change" },
 };
 document.documentElement.style.fontSize = params.has("zoom") ? "200%" : "100%";
@@ -80,7 +81,7 @@ function Harness() {
       >
         <AssistantPanel context={context} position={position} fillContainer appendContextMessages={false}
           conversationKey="controls-fixture"
-          mobilePresentation={mobile ? { visible: true, sheet: {
+          mobilePresentation={mobile ? { visible: true, actionsSuppressed: keyboard, sheet: {
             detent: partial ? "partial" : "expanded", hasPartial: true,
             onClose: () => setOpen(false), onToggleDetent: () => setPartial((value) => !value), closeRef,
             source: { title: context.metadata.title, removed: false, onToggle: () => {} },

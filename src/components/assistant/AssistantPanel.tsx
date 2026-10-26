@@ -1,3 +1,10 @@
+import { ContextActionStrip, ContextActionMenu, QuizControls, contextActionsMatch, useTargetLabel, ACTION_CONTROL_CLASS } from "./ContextActions";
+import "./context-actions.css";
+import { CONTEXT_ACTIONS, CARD_ACTION_TOOLS, actionBlockReason, buildActionPrompt, captureAction, parseQuizQuestion, restoreActionEnvelope, isolateCardActionParameters, type ActionEnvelope, type ActionId, type ActionTarget, type ActionParameters, type QuizQuestion } from "../../features/assistant/contextActions/model";
+import { actionSourceIdentity, resolveActionTargets } from "../../features/assistant/contextActions/targets";
+import { useAssistantActionMenuBounds } from "./useAssistantActionMenuBounds";
+import { useAssistantMenuDismissal } from "./useAssistantMenuDismissal";
+import { resolveActionEnvelope, actionTurnContext, actionProvenance, parseSubmittedActionReply, ContextActionError } from "../../features/assistant/contextActions/execution";
 import { useComposerDictation } from "../../hooks/useComposerDictation";
 import { ComposerDictationButton } from "./ComposerDictationControl";
 import { ASSISTANT_SLASH_COMMANDS } from "./assistantSlashCommands";
@@ -12,7 +19,7 @@ import { runAssistantTurn } from "../../lib/ai/assistant/orchestrator";
 import { isWholeDocumentRequest } from "../../lib/ai/assistant/documentIntent";
 import { countTokens } from "../../utils/tokenizer";
 import { isAssistantScope, type AssistantScope } from "../../lib/ai/assistant/scopes";
-import { parseAssistantToolCalls, normalizeAssistantToolParameters } from "../../lib/ai/assistant/toolCallParser";
+import { normalizeAssistantToolParameters } from "../../lib/ai/assistant/toolCallParser";
 import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, type ReactNode } from "react";
 import {
   ArrowsInSimple,
@@ -191,6 +198,7 @@ export interface AssistantContext {
   status?: "ready" | "loading" | "unavailable";
   statusMessage?: string;
   source?: string;
+  coverage?: "full" | "window" | "chunks";
   /** Authoritative viewer-supplied sections (for example timed audiobook chapters). */
   sections?: SectionNode[];
   snapshotForSubmit?: () => AssistantContext;
@@ -207,6 +215,9 @@ export interface AttachedImage {
 }
 
 interface Message {
+  action?: ActionEnvelope;
+  quiz?: QuizQuestion;
+  actionError?: boolean;
   provenance?: AssistantSourceProvenance;
   scope?: AssistantScope;
   id: string;
@@ -318,7 +329,11 @@ const readStoredConversations = (): StoredConversationMap => {
       if (!value || typeof value !== "object") return;
       const candidate = value as Partial<StoredConversation>;
       const messages = Array.isArray(candidate.messages)
-        ? candidate.messages.filter(isValidMessage).slice(-MAX_STORED_MESSAGES)
+        ? candidate.messages.filter(isValidMessage).slice(-MAX_STORED_MESSAGES).map(message => {
+          const action = restoreActionEnvelope(message.action);
+          const quiz = action?.actionId === "quiz" && message.quiz ? parseQuizQuestion(JSON.stringify(message.quiz)) : undefined;
+          return { ...message, action, quiz: quiz ? { ...quiz, answerRevealed: message.quiz?.answerRevealed === true, hintRevealed: message.quiz?.hintRevealed === true, retired: message.quiz?.retired === true } : undefined };
+        })
         : [];
       normalized[key] = {
         messages,
@@ -415,7 +430,8 @@ export function AssistantPanel({
   conversationKey: explicitConversationKey,
   mobilePresentation,
 }: AssistantPanelProps) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const labelActionTarget = useTargetLabel();
   const sessionKey = explicitConversationKey ?? getConversationKey(context);
   const isMobileSession = sessionKey === MOBILE_ASSISTANT_CONVERSATION_KEY;
   const isMobilePresentation = Boolean(mobilePresentation);
@@ -426,6 +442,7 @@ export function AssistantPanel({
     const background = () => {
       if (!document.hidden) return;
       requestEpochRef.current += 1;
+      actionFlightRef.current = null;
       setIsLoading(false);
     };
     document.addEventListener("visibilitychange", background);
@@ -466,6 +483,12 @@ export function AssistantPanel({
   const composerAddRef = useRef<HTMLButtonElement>(null);
   const modelPickerTriggerRef = useRef<HTMLButtonElement>(null);
   const [isComposerMenuOpen, setIsComposerMenuOpen] = useState(false);
+  const actionMoreRef = useRef<HTMLButtonElement>(null);
+  const desktopActionsRef = useRef<HTMLDivElement>(null);
+  const [actionsMenuOpen, setActionsMenuOpen] = useState(false);
+  const [menuStartsAtActions, setMenuStartsAtActions] = useState(false);
+  const [manualActionTarget, setManualActionTarget] = useState<{ owner: string; key: string }>();
+  const actionFlightRef = useRef<string | null>(null);
   const [dictationNotice, setDictationNotice] = useState<string | null>(null);
 
   // Section # mention support - new tree UX
@@ -1036,6 +1059,7 @@ export function AssistantPanel({
 
   useEffect(() => {
     requestEpochRef.current += 1;
+    actionFlightRef.current = null;
     // A conversation switch stops the run: its frozen envelope belongs to the
     // previous conversation and can never append here or trigger fallback.
     agentAbortRef.current?.abort();
@@ -1333,7 +1357,28 @@ export function AssistantPanel({
     return `${mins}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const actionResolution = useMemo(() => resolveActionTargets({ context, pin: pinnedSelection, sections: selectedSectionNodes,
+    messages, manual: manualActionTarget,
+    revision: useDocumentStore.getState().documents.find(d => d.id === context?.documentId)?.contentHash,
+  }), [context, pinnedSelection, selectedSectionNodes, messages, manualActionTarget]);
+  const actionOwner = actionSourceIdentity(context);
+  const actionProvider = configuredProvidersList.find(provider => provider.provider === effectiveProvider);
+  const actionProviderReady = isAppleFmAssistantProvider(effectiveProvider)
+    ? assistantUseAppleFoundation && appleFmAvailable
+    : Boolean(actionProvider?.enabled && (!providerRequiresApiKey(actionProvider.provider, actionProvider.baseUrl) || actionProvider.apiKey?.trim()));
+  const closeActionsMenu = useCallback(() => {
+    setActionsMenuOpen(false); setIsComposerMenuOpen(false);
+    (actionMoreRef.current ?? composerAddRef.current)?.focus();
+  }, [menuStartsAtActions]);
+  useEffect(() => {
+    setManualActionTarget(undefined);
+    setMessages(prev => prev.map(m => m.quiz && m.action?.target.owner !== actionOwner ? { ...m, quiz: { ...m.quiz, retired: true } } : m));
+  }, [actionOwner]);
+  useAssistantMenuDismissal(actionsMenuOpen, desktopActionsRef, actionMoreRef, closeActionsMenu);
+  useAssistantActionMenuBounds(actionsMenuOpen, desktopActionsRef, actionMoreRef, panelRef);
+
   interface AssistantSubmitRequest {
+    action?: ActionEnvelope;
     requestContent: string;
     displayContent?: string;
     images?: AttachedImage[];
@@ -1358,8 +1403,12 @@ export function AssistantPanel({
     });
   };
 
+  const requestInFlight = () => isLoading || actionFlightRef.current !== null;
   const submitAssistantRequest = async (request: AssistantSubmitRequest) => {
-    if (isLoading) return;
+    if (requestInFlight()) return;
+    const flightId = crypto.randomUUID();
+    actionFlightRef.current = flightId;
+    let action = request.action;
 
     const conversationKeyAtStart = `${activeConversationKeyRef.current}:${requestEpochRef.current}`;
     toolExecutionContextRef.current = request.capturedDocumentContext
@@ -1369,10 +1418,12 @@ export function AssistantPanel({
       setFlashcardGeneratingMessageId(request.originatingMessageId);
     }
 
-    const turnContext = isMobileSession ? context?.snapshotForSubmit?.() ?? context : context;
-    const turnProvenance = isMobileSession ? mergeAssistantProvenance(assistantSourceProvenance(turnContext), messages.map(m => m.provenance)) : undefined;
+    const turnContext = actionTurnContext(action) ?? (isMobileSession ? context?.snapshotForSubmit?.() ?? context : context);
+    const turnProvenance = actionProvenance(action) ?? (isMobileSession ? mergeAssistantProvenance(assistantSourceProvenance(turnContext), messages.map(m => m.provenance)) : undefined);
     const hasImages = (request.images?.length ?? 0) > 0;
     const userMessage: Message = {
+      action,
+      scope: action?.scope,
       provenance: turnProvenance,
       id: `user-${Date.now()}`,
       role: "user",
@@ -1382,10 +1433,16 @@ export function AssistantPanel({
     };
 
     appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, userMessage]);
-    const userInput = request.requestContent;
+    let userInput = request.requestContent;
     setIsLoading(true);
 
     try {
+      if (action) {
+        action = await resolveActionEnvelope(action, effectiveProvider, useLLMProvidersStore.getState().providers.find(p => p.provider === effectiveProvider));
+        if (!isCurrentRequest(conversationKeyAtStart)) return;
+        userInput = buildActionPrompt(action, locale);
+        appendMessagesIfSameConversation(conversationKeyAtStart, prev => prev.map(m => m.id === userMessage.id ? { ...m, action } : m));
+      }
       if (!request.skipLocalCommands) {
         if (userInput === "/help") {
           const toolsList = getAvailableTools()
@@ -1482,17 +1539,19 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         providerSnapshot: useLLMProvidersStore.getState().providers.map(provider => ({ ...provider })),
         currentProvider: effectiveProvider,
         currentModel: useLLMProvidersStore.getState().providers.find((p) => p.provider === effectiveProvider)?.model,
-        sourceContentOverride: request.sourceContentOverride,
+        sourceContentOverride: action?.target.content ?? request.sourceContentOverride,
+        action,
+        turnProvenance,
       };
 
       const isTwentyRules = isTwentyRulesCommand(userInput);
-      const response = await callLLM(userInput, contextData, isTwentyRules, Boolean(request.sourceContentOverride));
+      const response = await callLLM(userInput, contextData, isTwentyRules, Boolean(action || request.sourceContentOverride));
       if (request.sourceContentOverride && response.content.startsWith("Error calling LLM:")) {
         throw new Error(response.content.replace(/^Error calling LLM:\s*/, ""));
       }
       if (!isCurrentRequest(conversationKeyAtStart)) return;
       const parsedResponse = parseAssistantThinking(response.content);
-      const { cleanedContent, toolCalls } = parseToolCalls(parsedResponse.answer);
+      const { cleanedContent, toolCalls, quiz } = parseSubmittedActionReply(parsedResponse.answer, availableTools, action);
 
       if (response.imagesStripped && response.modelName) {
         const warningMessage: Message = {
@@ -1506,11 +1565,14 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 
       const displayContent = cleanedContent || (toolCalls.length > 0 ? "Running tool calls..." : parsedResponse.answer);
       const assistantMessage: Message = {
+        action,
+        scope: action?.scope,
+        quiz,
         provenance: turnProvenance,
         id: `assistant-${Date.now()}`,
         role: "assistant",
-        content: displayContent,
-        thinking: parsedResponse.thinking || undefined,
+        content: quiz?.question ?? displayContent,
+        thinking: quiz ? undefined : parsedResponse.thinking || undefined,
         timestamp: Date.now(),
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         sourceContext: response.sourceContext,
@@ -1518,7 +1580,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 
       appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, assistantMessage]);
 
-      if (!request.skipMemoryExtraction && useSettingsStore.getState().settings.ai.memoryEnabled) {
+      if (!action && !request.skipMemoryExtraction && useSettingsStore.getState().settings.ai.memoryEnabled) {
         const chatHistory = [...messages, userMessage, assistantMessage].map((m) => {
           let mappedRole: "System" | "User" | "Assistant" = "System";
           if (m.role === "user") mappedRole = "User";
@@ -1534,7 +1596,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       }
 
       if (toolCalls.length > 0 && isCurrentRequest(conversationKeyAtStart)) {
-        const results = await executeToolCalls(assistantMessage.id, toolCalls, response.sourceContext);
+        const results = await executeToolCalls(assistantMessage.id, toolCalls, response.sourceContext, () => isCurrentRequest(conversationKeyAtStart));
         const confirmation = buildConfirmationMessage(results);
         if (confirmation) {
           const confirmationMessage: Message = {
@@ -1552,20 +1614,42 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         historyDraftRef.current = request.restoreInputOnError;
       }
       const errorMessage: Message = {
+        action,
+        actionError: Boolean(action),
         id: `error-${Date.now()}`,
         role: "system",
-        content: `Error: ${error instanceof Error ? error.message : "Failed to get response"}`,
+        content: `Error: ${error instanceof ContextActionError ? t(error.key) : error instanceof Error ? error.message : "Failed to get response"}`,
         timestamp: Date.now(),
       };
       appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, errorMessage]);
     } finally {
+      if (actionFlightRef.current === flightId) actionFlightRef.current = null;
       if (isCurrentRequest(conversationKeyAtStart)) {
         toolExecutionContextRef.current = {};
         setFlashcardGeneratingMessageId(null);
         setIsLoading(false);
-        if (!request.sourceContentOverride) setSelectedSectionNodes([]);
+        if (!request.action && !request.sourceContentOverride) setSelectedSectionNodes([]);
       }
     }
+  };
+
+  const runContextAction = (id: ActionId, target: ActionTarget, parameters: ActionParameters = {}, captured?: ActionEnvelope) => {
+    if (isLoading || actionFlightRef.current) return;
+    const definition = CONTEXT_ACTIONS.find(a => a.id === id)!;
+    const reason = captured ? (!actionProviderReady ? 'noProvider' : undefined) : actionBlockReason(definition, { target, fullTarget: target.kind === 'document' ? target : actionResolution.fullTarget, scope, providerReady: actionProviderReady, cardToolsReady: availableTools.some(tool => CARD_ACTION_TOOLS.has(tool.name)), mismatch: actionResolution.mismatch });
+    if (reason) { toast.info(t(`assistant.actions.${reason}`)); return; }
+    const action = captured ?? captureAction(id, target, scope, { language: locale, ...parameters });
+    closeActionsMenu();
+    void submitAssistantRequest({ action, requestContent: buildActionPrompt(action, locale),
+      displayContent: `${t(`assistant.actions.${id === 'summarize' && target.kind === 'conversation' ? 'recap' : id}`)} · ${labelActionTarget(target)}`,
+      conversationHistoryOverride: [], capturedDocumentContext: { ...captureDocumentContext(target.documentId, target.title), isolated: true },
+      skipLocalCommands: true, skipMemoryExtraction: true,
+    });
+  };
+  const stopContextAction = () => {
+    const action = [...messages].reverse().find(m => m.role === 'user')?.action;
+    requestEpochRef.current += 1; actionFlightRef.current = null; setIsLoading(false);
+    if (action) setMessages(prev => [...prev, { id: `stopped-${Date.now()}`, role: 'system', content: t('assistant.actions.stopped'), action, actionError: true, timestamp: Date.now() }]);
   };
 
   const handleSendMessage = async () => {
@@ -2104,11 +2188,10 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     const mentionCandidates = selectionSection
       ? [selectionSection, ...assistantSectionFlat]
       : assistantSectionFlat;
-    const mentionResolution = resolvePromptSectionMentions(
-      prompt,
-      selectedSectionNodes,
-      mentionCandidates,
-    );
+    const action = contextData.action as ActionEnvelope | undefined;
+    const turnScope = action?.scope ?? scope;
+    const turnTools = action ? getAvailableTools().filter(tool => action.actionId === 'flashcards' && CARD_ACTION_TOOLS.has(tool.name)) : getAvailableTools();
+    const mentionResolution = resolvePromptSectionMentions(action ? '' : prompt, action ? [] : selectedSectionNodes, action ? [] : mentionCandidates);
     const hasSectionMentions = mentionResolution.tokens.length > 0;
     if (mentionResolution.ambiguous.length > 0) {
       const detail = mentionResolution.ambiguousTitles.find(
@@ -2127,11 +2210,11 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     const promptSectionNodes = mentionResolution.nodes;
 
     try {
-      const privacyDocuments = isMobileSession ? await authorizeAssistantHistory({
-        sources: [assistantSourceProvenance(contextData.currentContext as AssistantContext), ...(contextData.conversationHistory as Message[]).map(m => m.provenance)],
+      const privacyDocuments = (isMobileSession || action) ? await authorizeAssistantHistory({
+        sources: [action ? contextData.turnProvenance : assistantSourceProvenance(contextData.currentContext as AssistantContext), ...(contextData.conversationHistory as Message[]).map(m => m.provenance)],
         providerId: effectiveProvider, strictLocalOnly: useSettingsStore.getState().settings.ai.strictLocalOnly, getDocument,
       }) : undefined;
-      const toolInstruction = buildToolInstruction(getAvailableTools(), isTwentyRules);
+      const toolInstruction = buildToolInstruction(turnTools, isTwentyRules);
       const effectivePrompt = isTwentyRules
         ? (stripTwentyRulesCommand(prompt) || "Create atomic flashcards from the provided content strictly following the 20 Rules of Knowledge Formulation.")
         : prompt;
@@ -2202,7 +2285,8 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       if (sourceContentOverride) {
         finalResolvedContent = sourceContentOverride;
         contextContent = sourceContentOverride;
-        sourceCoverageForRequest = "full";
+        sourceCoverageForRequest = action?.target.coverage ?? "full";
+        sourceContext = action?.target.sourceContext;
         resolvedUserPrompt = effectivePrompt;
       } else {
       finalResolvedContent = resolvedContext.content ?? "";
@@ -2415,14 +2499,15 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           ? (prompt.replace(/#{([^}]+)}/g, "").trim() || effectivePrompt)
           : effectivePrompt;
         const fmResponse = await runAssistantTurn({
-          scope, userQuestion: appleFmUserPrompt, sourceType: llmContext?.type,
-          sourceId: llmContext?.documentId, sourceTitle: assistantDocumentTitle,
+          action,
+          scope: turnScope, userQuestion: appleFmUserPrompt, sourceType: llmContext?.type,
+          sourceId: llmContext?.documentId, sourceTitle: action?.target.title ?? llmContext?.metadata?.title ?? assistantDocumentTitle,
           sourceContent: contextContent, sourceCoverage: sourceCoverageForRequest,
           explicitSourceContent: Boolean(sourceContentOverride),
           playbackTimeSeconds: llmContext?.position?.currentTime,
-          history: (contextData.conversationHistory as Message[]).map((m) => ({ ...m, images: m.images?.map((image) => image.dataUrl) })), tools: getAvailableTools(),
+          history: (contextData.conversationHistory as Message[]).map((m) => ({ ...m, images: m.images?.map((image) => image.dataUrl) })), tools: turnTools,
           provider: "apple-foundation", isTwentyRules, twentyRulesPrompt: buildTwentyRulesSystemPrompt(),
-          documentsForPrivacyCheck: privacyDocuments ?? (context?.documentId ? [await getDocument(context.documentId)] : []),
+          documentsForPrivacyCheck: privacyDocuments ?? (llmContext?.documentId ? [await getDocument(llmContext.documentId)] : []),
           strictLocalOnly: useSettingsStore.getState().settings.ai.strictLocalOnly,
           chatExecutor: async ({ messages, context: source }) => runAssistantAppleFmChat({
             systemInstruction: String(messages[0].content),
@@ -2470,13 +2555,14 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       const modelName = (provider.model || effectiveProvider) as string;
       const imagesStripped = Boolean(currentUserImages?.length && !supportsVision(effectiveProvider, modelName));
       const response = await runAssistantTurn({
-        scope, userQuestion: resolvedUserPrompt, history: (contextData.conversationHistory as Message[]).map((m) => ({
+        action,
+        scope: turnScope, userQuestion: resolvedUserPrompt, history: (contextData.conversationHistory as Message[]).map((m) => ({
           ...m, content: m.role === "assistant" ? getAssistantAnswer(m.content) : m.content,
           images: m.images?.map((image) => image.dataUrl),
         })),
         sourceType: llmContext?.type ?? "general", sourceId: llmContext?.documentId,
-        sourceTitle: assistantDocumentTitle, sourceUrl: llmContext?.url,
-        sourceContent: contextContent, selectionExcerpt: pinnedSelection?.excerpt ?? llmContext?.selection,
+        sourceTitle: action?.target.title ?? llmContext?.metadata?.title ?? assistantDocumentTitle, sourceUrl: llmContext?.url,
+        sourceContent: contextContent, selectionExcerpt: action ? undefined : pinnedSelection?.excerpt ?? llmContext?.selection,
         sourceCoverage: sourceCoverageForRequest,
         explicitSourceContent: Boolean(sourceContentOverride),
         playbackTimeSeconds: llmContext?.position?.currentTime, transcriptStatus: llmContext?.transcriptStatus,
@@ -2486,7 +2572,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         baseUrl: provider.baseUrl?.trim() || undefined, temperature: provider.temperature,
         maxOutputTokens: provider.maxTokens, configuredContextTokens: policy.configuredContextTokens,
         memoryEnabled: useSettingsStore.getState().settings.ai.memoryEnabled,
-        tools: getAvailableTools(), isTwentyRules, twentyRulesPrompt: buildTwentyRulesSystemPrompt(),
+        tools: turnTools, isTwentyRules, twentyRulesPrompt: buildTwentyRulesSystemPrompt(),
         systemInstruction: [provider.systemPrompt, toolInstruction].filter(Boolean).join("\n\n"),
         userImages: imagesStripped ? undefined : currentUserImages?.map((image) => image.dataUrl),
         libraryExecutor: async ({ rewrittenQuery, history, contextPassage, contextBudgetTokens, k }) => {
@@ -2544,13 +2630,13 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     return availableTools;
   };
 
-  const parseToolCalls = (content: string) => parseAssistantToolCalls(content, availableTools);
-
   const executeToolCalls = async (
     messageId: string,
     calls: ToolCall[],
     sectionSourceContext?: SectionSourceReference,
+    stillCurrent: () => boolean = () => true,
   ) => {
+    const capturedToolContext = { ...toolExecutionContextRef.current };
     const results: Array<{ name: string; status: "success" | "error"; count?: number; error?: string }> = [];
     // Track deck names created in this batch so we can tag subsequent cards with matching tags
     const batchDeckNames: string[] = [];
@@ -2574,15 +2660,16 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         })()
       : undefined;
     const resolvedDocumentTitle = createsCards
-      ? await resolveDocumentTitleForCards()
+      ? await resolveDocumentTitleForCards(capturedToolContext)
       : assistantDocumentTitle;
     const missingDocumentDeckTitle = Boolean(
       createsCards
-      && (toolExecutionContextRef.current.documentId ?? context?.documentId)
+      && (capturedToolContext.isolated ? capturedToolContext.documentId : capturedToolContext.documentId ?? context?.documentId)
       && !getDocumentDeckName(resolvedDocumentTitle),
     );
 
     for (let index = 0; index < calls.length; index += 1) {
+      if (!stillCurrent()) break;
       const call = calls[index];
       const createdCount = call.name === "batch_create_cards" && Array.isArray(call.parameters.cards)
         ? call.parameters.cards.length
@@ -2593,7 +2680,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         results.push({ name: call.name, status: "error", count: createdCount, error });
         continue;
       }
-      let parameters = normalizeToolParameters(call.name, call.parameters, resolvedDocumentTitle);
+      let parameters = normalizeToolParameters(call.name, call.parameters, resolvedDocumentTitle, capturedToolContext);
 
       // Attach section provenance to card-creation calls unless the call
       // already carries its own (per-card source beats the shared one).
@@ -2740,12 +2827,12 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     );
   };
 
-  const resolveDocumentTitleForCards = async (): Promise<string | undefined> => {
-    if (toolExecutionContextRef.current.documentTitle?.trim()) {
-      return toolExecutionContextRef.current.documentTitle;
+  const resolveDocumentTitleForCards = async (captured = toolExecutionContextRef.current): Promise<string | undefined> => {
+    if (captured.documentTitle?.trim()) {
+      return captured.documentTitle;
     }
-    if (assistantDocumentTitle?.trim()) return assistantDocumentTitle;
-    const documentId = toolExecutionContextRef.current.documentId ?? context?.documentId;
+    if (!captured.isolated && assistantDocumentTitle?.trim()) return assistantDocumentTitle;
+    const documentId = captured.isolated ? captured.documentId : captured.documentId ?? context?.documentId;
     if (!documentId) return undefined;
     try {
       return (await getDocument(documentId))?.title?.trim() || undefined;
@@ -2759,10 +2846,11 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     toolName: string,
     parameters: Record<string, unknown>,
     documentTitleOverride?: string,
+    captured = toolExecutionContextRef.current,
   ) => {
-    return normalizeAssistantToolParameters(toolName, parameters, {
-      documentId: toolExecutionContextRef.current.documentId ?? context?.documentId,
-      documentTitle: documentTitleOverride ?? toolExecutionContextRef.current.documentTitle ?? assistantDocumentTitle,
+    return normalizeAssistantToolParameters(toolName, captured.isolated ? isolateCardActionParameters(parameters) : parameters, {
+      documentId: captured.isolated ? captured.documentId : captured.documentId ?? context?.documentId,
+      documentTitle: documentTitleOverride ?? captured.documentTitle ?? (captured.isolated ? undefined : assistantDocumentTitle),
     });
   };
 
@@ -2818,10 +2906,11 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
   const retryChatCard = async (messageId: string, artifact: ChatFlashcardArtifact) => {
     const message = messages.find((item) => item.id === messageId);
     const call = message?.toolCalls?.[artifact.callIndex];
-    if (!call) return;
+    if (!call || call.status === "success" || call.status === "pending") return;
+    if (message?.action && call.name === "batch_create_cards") return;
     updateToolCall(messageId, artifact.callIndex, { status: "pending", result: undefined });
     try {
-      const parameters = normalizeToolParameters(
+      const parameters = message?.action ? call.parameters : normalizeToolParameters(
         call.name,
         call.parameters,
         await resolveDocumentTitleForCards(),
@@ -3259,6 +3348,11 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
   };
 
   const handleRetryMessage = (targetMessage: Message) => {
+    if (targetMessage.action) {
+      if (targetMessage.action.actionId === 'flashcards' && targetMessage.toolCalls?.length) return;
+      runContextAction(targetMessage.action.actionId, targetMessage.action.target, targetMessage.action.parameters, targetMessage.action);
+      return;
+    }
     const index = messages.findIndex((m) => m.id === targetMessage.id);
     if (index === -1) return;
 
@@ -3303,6 +3397,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
 
   const handleClearChat = () => {
     dictation.cancel();
+    actionFlightRef.current = null;
     requestEpochRef.current += 1;
     agentAbortRef.current?.abort();
     agentAbortRef.current = null;
@@ -3543,6 +3638,13 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
 
   const canSend = (input.trim().length > 0 || attachedImages.length > 0) && !isLoading;
   const mobileSheet = mobilePresentation?.sheet;
+  const openActionMenu = () => {
+    setIsSourceMenuOpen(false); setIsModelDropdownOpen(false); setMenuStartsAtActions(true);
+    if (mobilePresentation) setIsComposerMenuOpen(open => !open); else setActionsMenuOpen(open => !open);
+  };
+  const actionProps = { cardToolsReady: availableTools.some(tool => CARD_ACTION_TOOLS.has(tool.name)), resolution: actionResolution, scope, providerReady: actionProviderReady, busy: isLoading, onRun: runContextAction };
+  const renderActionMenu = (query: string) => <ContextActionMenu {...actionProps} query={query} onSelectTarget={key => setManualActionTarget({ owner: actionOwner, key })} onSetup={() => { closeActionsMenu(); handleOpenSettingsToAI(); }} />;
+  const showActionStrip = composerMode === 'chat' && (!mobilePresentation || (actionResolution.target && !input.trim() && !attachedImages.length && !isInputFocused && dictation.phase === 'idle' && !isLoading && !isComposerMenuOpen && context?.status !== "loading" && context?.transcriptStatus !== "loading" && !mobilePresentation.actionsSuppressed));
   // The mobile header source chip already carries document/web context, so the
   // banner only survives on phones when it shows actionable transcript state.
   const showContextBanner = Boolean(context) && (!isMobilePresentation || isThreadContext
@@ -3555,6 +3657,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       return;
     }
     setIsSourceMenuOpen(false);
+    setActionsMenuOpen(false);
     setIsModelDropdownOpen(true);
     if (isMobilePresentation) {
       setIsComposerMenuOpen(false);
@@ -3585,7 +3688,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       <div data-assistant-toolbar className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
         {mobileSheet?.source && (
           <div data-testid="mobile-assistant-source" className="flex min-w-0 basis-32 flex-1 items-center gap-1 rounded-full bg-muted/50 pe-1 ps-2.5">
-            <span className="min-w-0 flex-1 truncate text-xs text-foreground/90">{mobileSheet.source.title}</span>
+            <span className="min-w-0 flex-1 truncate text-xs text-foreground/90">{composerMode === "chat" && actionResolution.target ? labelActionTarget(actionResolution.target) : mobileSheet.source.title}</span>
             <button type="button" onClick={mobileSheet.source.onToggle} className="md-state min-h-8 shrink-0 rounded-full px-2 text-[11px] font-medium text-primary">
               {t(mobileSheet.source.removed ? "assistant.sourceAttach" : "assistant.sourceRemove")}
             </button>
@@ -3594,7 +3697,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         {!mobilePresentation && (
           <div className="flex items-center gap-2">
             <ChatCircle className="w-4 h-4 text-primary" />
-            <h2 className="text-sm font-semibold text-foreground">Assistant</h2>
+            <div className="min-w-0"><h2 className="text-sm font-semibold text-foreground">Assistant</h2>{!showContextBanner && actionResolution.target && <p className="max-w-44 truncate text-xs text-on-surface-variant" title={labelActionTarget(actionResolution.target)}>{labelActionTarget(actionResolution.target)}</p>}</div>
           </div>
         )}
         <div className={mobilePresentation ? "contents" : "ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1"}>
@@ -3837,7 +3940,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           <div className="flex items-center gap-2">
             {context.type === "document" && <TextT className="w-3 h-3" />}
             {context.type === "web" && <Code className="w-3 h-3" />}
-            <span>{getContextMessage(context)}</span>
+            <span data-assistant-action-target>{composerMode === "chat" && actionResolution.target ? labelActionTarget(actionResolution.target) : getContextMessage(context)}</span>
             {isThreadContext ? (
               <span className="ml-auto px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 font-medium text-[10px]">
                 Scope: This X thread
@@ -3855,6 +3958,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       {!mobileModelPickerOpen && composerMode === "chat" && suggestSwitchToChat && scope !== "chat" && <button type="button" onClick={() => { setScope("chat"); setSuggestSwitchToChat(false); }} className="md-state min-h-10 px-3 text-sm text-primary underline focus-visible:ring-2 focus-visible:ring-primary">{t("assistant.answerFrom.useGeneralKnowledge")}</button>}
       {/* Messages */}
       <div
+        data-assistant-messages
         ref={messagesContainerRef}
         className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 space-y-4 ${mobileModelPickerOpen ? "hidden" : ""}`}
       >
@@ -3863,7 +3967,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             <Sparkle className="w-8 h-8 mx-auto mb-2 opacity-50 text-primary" />
             <div>
               <p className="font-medium text-foreground">
-                {isThreadContext ? "Analyze X Thread" : "Ask me anything about your documents"}
+                {isThreadContext ? "Analyze X Thread" : t("assistant.actions.startReading")}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
                 {isThreadContext ? "Instant summary, key insights, and flashcards" : "I have context of what you're viewing"}
@@ -4005,6 +4109,15 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 )}
               </div>
 
+              {message.quiz && message.action && <QuizControls quiz={message.quiz} retired={Boolean(message.quiz.retired || message.action.target.owner !== actionOwner)} busy={isLoading}
+                onReveal={part => setMessages(prev => prev.map(m => m.id === message.id && m.quiz ? { ...m, quiz: { ...m.quiz, [part === 'hint' ? 'hintRevealed' : 'answerRevealed']: true } } : m))}
+                onNext={() => { const action = message.action!; const parameters = { ...action.parameters, excludedQuestions: [...new Set([...(action.parameters.excludedQuestions ?? []), ...messages.filter(m => m.quiz && m.action?.target.key === action.target.key).map(m => m.quiz!.question)])] }; runContextAction('quiz', action.target, parameters, captureAction('quiz', action.target, action.scope, parameters)); }}
+                onRestart={() => actionResolution.target && runContextAction('quiz', actionResolution.target)} />}
+              {message.actionError && message.action && <div className="flex flex-wrap gap-1">
+                <button type="button" disabled={isLoading} className={ACTION_CONTROL_CLASS} onClick={() => handleRetryMessage(message)}>{t('assistant.actions.retry')}</button>
+                {message.action.target.owner !== actionOwner && actionResolution.target && <button type="button" disabled={isLoading} className={ACTION_CONTROL_CLASS} onClick={() => message.action!.actionId === "translate" ? openActionMenu() : runContextAction(message.action!.actionId, actionResolution.target!)}>{t('assistant.actions.runCurrent')}</button>}
+              </div>}
+
               {/* Learning Agent review artifact — rendered outside legacy tool
                   execution; it can never enter parseToolCalls/MCP dispatch. */}
               {message.agentRun && (
@@ -4043,7 +4156,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                       || isLoading
                       || flashcardGeneratingMessageId === message.id
                     }
-                    hidden={Boolean(message.agentRun)}
+                    hidden={Boolean(message.agentRun || message.quiz)}
                     className="inline-flex items-center gap-1 px-1.5 py-1 text-muted-foreground hover:text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary rounded disabled:opacity-40 disabled:pointer-events-none"
                     aria-label={t(ASSISTANT_MESSAGE_FLASHCARD_DISPLAY_KEY)}
                     title={
@@ -4129,6 +4242,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           <div className="flex items-center gap-2 self-start text-xs text-muted-foreground" role="status">
             <CircleNotch className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
             <span>{t("assistant.thinkingInProgress")}</span>
+            {actionFlightRef.current && <button type="button" className={ACTION_CONTROL_CLASS} onClick={stopContextAction}>{t('common.stop')}</button>}
           </div>
         )}
       </div>
@@ -4138,8 +4252,11 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         <MobileComposerMenu
           open={isComposerMenuOpen && !mobileModelPickerOpen}
           anchorRef={composerAddRef}
+          actions={composerMode === 'chat' ? renderActionMenu : undefined}
+          actionsMatch={composerMode === 'chat' ? query => contextActionsMatch(query, t) : undefined}
+          startAtActions={menuStartsAtActions}
           sourceTitle={assistantDocumentTitle}
-          onClose={() => setIsComposerMenuOpen(false)}
+          onClose={closeActionsMenu}
           onInsert={(command) => { setInput(command); textareaRef.current?.focus(); }}
           onAttach={() => fileInputRef.current?.click()}
           onNewConversation={handleClearChat}
@@ -4147,11 +4264,16 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         />
       )}
 
+            {!mobilePresentation && actionsMenuOpen && <div ref={desktopActionsRef} role="dialog" aria-label={t('assistant.actions.title')} className="absolute left-2 right-2 z-[var(--md-z-menu)] overflow-y-auto overscroll-contain rounded-2xl border border-border bg-surface-container-high p-1 shadow-lg">
+              {renderActionMenu('')}
+              <div className="border-t border-border pt-1">{ASSISTANT_SLASH_COMMANDS.map(command => <button type="button" key={command.command} className={`${ACTION_CONTROL_CLASS} block w-full text-start`} onClick={() => { setInput(command.command); setActionsMenuOpen(false); textareaRef.current?.focus(); }}>{command.command} · {t(command.descriptionKey)}</button>)}</div>
+            </div>}
+
       {/* Input Area */}
       <div data-paper-surface="inset" data-assistant-composer className={`min-h-0 max-h-[65%] flex-shrink-0 overflow-y-auto p-3 border-t border-border bg-card relative ${mobileModelPickerOpen ? "hidden" : ""}`}>
         <div className="flex flex-col gap-2">
           {/* Image Preview Strip */}
-          {attachedImages.length > 0 && (
+          {attachedImages.length > 0 && !(isMobilePresentation && isComposerMenuOpen) && (
             <div className="flex gap-2 overflow-x-auto pb-1">
               {attachedImages.map((img) => (
                 <div
@@ -4181,7 +4303,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           )}
 
           {/* Pinned selection context (selection-aware-assistant) */}
-          {pinnedSelection && (
+          {pinnedSelection && !(isMobilePresentation && isComposerMenuOpen) && (
             <div
               data-testid="selection-context-chip"
               className="flex items-start gap-2 rounded-lg border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs"
@@ -4210,7 +4332,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           )}
 
           {/* Selected section cards - collapsed by default, expandable to read */}
-          {selectedSectionNodes.length > 0 && (
+          {selectedSectionNodes.length > 0 && !(isMobilePresentation && isComposerMenuOpen) && (
             <div className="flex flex-wrap gap-1.5">
               {selectedSectionNodes.map((node) => {
                 const latestNode = assistantSectionFlat.find((n) => n.id === node.id) || node;
@@ -4225,7 +4347,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             </div>
           )}
 
-          {composerMode === "chat" && (
+          {composerMode === "chat" && !(isMobilePresentation && isComposerMenuOpen) && (
             <AssistantScopeSelector
               value={scope}
               onChange={setScope}
@@ -4236,6 +4358,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 setIsSourceMenuOpen(open);
                 if (open) {
                   setIsModelDropdownOpen(false);
+                  setActionsMenuOpen(false);
                   setIsComposerMenuOpen(false);
                   if (mobileSheet?.detent === "partial") mobileSheet.onToggleDetent();
                 }
@@ -4442,6 +4565,11 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             </div>
           )}
 
+          {showActionStrip && <div className="relative min-w-0">
+            <ContextActionStrip {...actionProps} moreRef={actionMoreRef} onMore={openActionMenu} expanded={mobilePresentation ? isComposerMenuOpen : actionsMenuOpen} />
+
+          </div>}
+
           {/* Text Input — one bar on phones, the stacked desktop composer elsewhere. */}
           <div
             data-assistant-composer-input
@@ -4461,7 +4589,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 aria-expanded={isComposerMenuOpen}
                 aria-haspopup="dialog"
                 className="md-state flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full text-foreground/80"
-                onClick={() => { setIsSourceMenuOpen(false); setIsComposerMenuOpen((open) => !open); }}
+                onClick={() => { setMenuStartsAtActions(false); setIsSourceMenuOpen(false); setIsModelDropdownOpen(false); setIsComposerMenuOpen((open) => !open); }}
               >
                 <Plus size={22} aria-hidden="true" />
               </button>
@@ -4564,19 +4692,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             }}
           />
 
-          {/* Quick Actions (desktop; the mobile add menu lists these slash commands) */}
-          {!mobilePresentation && <div className="flex items-center gap-2 text-xs">
-            {ASSISTANT_SLASH_COMMANDS.map((command, index) => (
-              <button
-                key={command.command}
-                onClick={() => setInput(command.command)}
-                className={`px-2 py-1 bg-muted hover:bg-muted/80 rounded text-muted-foreground transition-colors font-medium${index === ASSISTANT_SLASH_COMMANDS.length - 1 ? " ml-auto" : ""}`}
-                title={t(command.descriptionKey)}
-              >
-                {command.command}
-              </button>
-            ))}
-          </div>}
+
         </div>
       </div>
 

@@ -164,11 +164,12 @@ describe("mobile dictation feedback", () => {
 });
 
 describe("desktop composer regression", () => {
-  it("keeps the hint row, quick-action chips and stacked attach button", () => {
+  it("keeps the hint and attach button and moves utility commands into Actions", () => {
     render(<AssistantPanel context={{ type: "general" }} />);
     expect(screen.getByText(/Type \/tools to see available tools/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "/20rules" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "/clear" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /More|Actions/ }));
+    expect(screen.getByRole("button", { name: /\/20rules/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /\/clear/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Attach image" })).toBeInTheDocument();
     const column = document.querySelector("[data-assistant-composer]")!.firstElementChild as HTMLElement;
     expect(column.children.length).toBeGreaterThan(2);

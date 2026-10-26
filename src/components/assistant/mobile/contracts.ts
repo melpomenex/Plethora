@@ -37,6 +37,7 @@ export interface MobileAssistantSheetControls {
 
 export interface MobileAssistantPresentation {
   visible: boolean;
+  actionsSuppressed?: boolean;
   viewIdentity?: string;
   sheet?: MobileAssistantSheetControls;
 }

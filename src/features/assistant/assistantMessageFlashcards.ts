@@ -79,6 +79,7 @@ export function isAssistantMessageFlashcardRequest(requestContent: string): bool
 }
 
 export interface CapturedDocumentContext {
+  isolated?: boolean;
   documentId?: string;
   documentTitle?: string;
 }

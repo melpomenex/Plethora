@@ -1,3 +1,4 @@
+import { CARD_ACTION_TOOLS, isolateCardActionParameters, type ActionEnvelope } from "../../../features/assistant/contextActions/model";
 import { resolveRequestPolicy } from "../../../api/llm/policy";
 import { resolveVideoSourceContext } from "./contextResolver";
 import type { VideoSegment } from "./videoContextPlanner";
@@ -40,6 +41,7 @@ import {
 import type { AskLibraryResult } from "../tasks/definitions/libraryTask";
 
 export interface AssistantTurnRequest {
+  action?: ActionEnvelope;
   scope: AssistantScope;
   systemInstruction?: string;
   cloudFallback?: boolean;
@@ -163,6 +165,18 @@ export function resolveDynamicRagBudget(promptBudgetTokens: number): {
 export async function runAssistantTurn(
   request: AssistantTurnRequest,
 ): Promise<AssistantTurnResult> {
+  if (request.action) {
+    const { target, scope, actionId } = request.action;
+    request = { ...request, scope, sourceType: target.sourceType, sourceId: target.documentId,
+      sourceTitle: target.title, sourceUrl: target.url, sourceContent: target.content,
+      sourceCoverage: target.coverage, explicitSourceContent: true, selectionExcerpt: undefined,
+      sectionFocusLabel: target.locator, history: [], rollingSummary: undefined,
+      memoryEnabled: false, memoryContent: undefined, userImages: undefined,
+      libraryExecutor: undefined, completeTranscriptSource: false,
+      tools: (request.tools ?? []).filter(tool => actionId === 'flashcards' && CARD_ACTION_TOOLS.has(tool.name)),
+      isTwentyRules: actionId === 'flashcards',
+    };
+  }
   const normalizedSourceContent =
     typeof request.sourceContent === "string"
       ? request.sourceContent
@@ -288,7 +302,7 @@ export async function runAssistantTurn(
   //    unavailable. Live evidence (loaded document text, transcript, focused
   //    section, selection) is the strongest grounding and must not be replaced
   //    by — or overridden with — possibly empty retrieval results.
-  const wantsToolExecution =
+  const wantsToolExecution = request.action ? request.action.actionId === "flashcards" :
     Boolean(request.isTwentyRules) ||
     /\b(flashcards?|clozes?|extracts?|create_qa_card|create_cloze_card|batch_create_cards)\b/i.test(
       request.userQuestion,
@@ -453,7 +467,7 @@ export async function runAssistantTurn(
   if (!wantsToolExecution) parsedTools.toolCalls = [];
   if (request.executeTool) {
     for (const call of parsedTools.toolCalls) {
-      call.parameters = normalizeAssistantToolParameters(call.name, call.parameters, { documentId: request.sourceId, documentTitle: request.sourceTitle });
+      call.parameters = normalizeAssistantToolParameters(call.name, request.action ? isolateCardActionParameters(call.parameters) : call.parameters, { documentId: request.sourceId, documentTitle: request.sourceTitle });
       try { call.result = await request.executeTool(call.name, call.parameters); call.status = "success"; }
       catch (error) { call.result = String(error); call.status = "error"; }
     }
