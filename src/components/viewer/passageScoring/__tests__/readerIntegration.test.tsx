@@ -1,13 +1,44 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { useMemo, useRef } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { usePassageScoring } from "../usePassageScoring";
+import { PassageScoreOverlay } from "../PassageScoreOverlay";
 import { createPassageScoringDeps } from "../deps";
 import { DomBlockPassageAdapter, type DomVisibilitySource } from "../adapters/domBlocks";
 import { FakeAIProvider } from "../../../../lib/ai/__fixtures__/FakeAIProvider";
 import type { PassageScoringControllerDeps } from "../controller";
 import { sharedRecentPassageScores, type StoredPassageScore } from "../cache";
-import { PASSAGE_CLASSIFIER_VERSION } from "../policy";
+import {
+  PASSAGE_CLASSIFIER_VERSION,
+  type PassagePolicyResolution,
+  type ResolvedPassageScoringPolicy,
+} from "../policy";
+
+const readinessState = vi.hoisted(() => ({
+  status: "ready" as "ready" | "setup-required",
+}));
+
+vi.mock("../../../../lib/ai/features/useFeatureReadiness", () => ({
+  useFeatureReadiness: () => ({
+    rows: [{
+      featureId: "extract-worthiness",
+      enabled: true,
+      status: readinessState.status,
+      checkedAt: 1,
+      checking: false,
+      dependencyRevision: "readiness-fixture",
+      dependencies: [],
+      operations: [],
+      recoveryActions: [],
+      limitations: [],
+    }],
+    context: null,
+    loading: false,
+    checkedAt: 1,
+    revision: "readiness-fixture",
+    refresh: vi.fn(),
+  }),
+}));
 
 vi.mock("../../../../lib/i18n", () => ({
   useI18n: () => ({ t: (key: string) => key }),
@@ -45,6 +76,9 @@ interface HarnessProps {
   sourceRevision: string;
   text: string;
   featureEnabled?: boolean;
+  remoteAuthorizationDenied?: boolean;
+  skipReadinessGate?: boolean;
+  showOverlay?: boolean;
   persistent: Map<string, StoredPassageScore>;
   counters: { classifications: number; lookups: number };
   visibilityRef: { current: ReturnType<typeof manualVisibility> | null };
@@ -55,6 +89,9 @@ function Harness({
   sourceRevision,
   text,
   featureEnabled = true,
+  remoteAuthorizationDenied = false,
+  skipReadinessGate = true,
+  showOverlay = false,
   persistent,
   counters,
   visibilityRef,
@@ -95,28 +132,45 @@ function Harness({
     });
     return {
       ...base,
-      resolvePolicy: async () => ({
-        status: "ready",
-        policy: {
+      resolvePolicy: async () => {
+        const policy: ResolvedPassageScoringPolicy = {
           classifierVersion: PASSAGE_CLASSIFIER_VERSION,
           servingRevision: "fake-ondevice\u0000fixture-model",
-          providerClass: "android-nano",
+          providerClass: remoteAuthorizationDenied ? "configured-external" : "android-nano",
           capabilityRevision: "cap-fixture",
           provider,
           providerId: "fake-ondevice",
-          destination: {
-            providerClass: "android-nano",
-            locality: "device",
-            keyless: true,
-            billable: false,
-            sendsOffDevice: false,
-            requiresDisclosure: false,
-            requiresCostConsent: false,
-          },
-          remote: false,
-          authorized: true,
-        },
-      }),
+          destination: remoteAuthorizationDenied
+            ? {
+                providerClass: "configured-external",
+                locality: "remote",
+                keyless: true,
+                billable: false,
+                sendsOffDevice: true,
+                requiresDisclosure: true,
+                requiresCostConsent: false,
+              }
+            : {
+                providerClass: "android-nano",
+                locality: "device",
+                keyless: true,
+                billable: false,
+                sendsOffDevice: false,
+                requiresDisclosure: false,
+                requiresCostConsent: false,
+              },
+          remote: remoteAuthorizationDenied,
+          authorized: !remoteAuthorizationDenied,
+        };
+        const resolution: PassagePolicyResolution = remoteAuthorizationDenied
+          ? {
+              status: "denied-remote",
+              policy,
+              reasonKey: "ai.passageScoring.remoteAuthorizationRequired",
+            }
+          : { status: "ready", policy };
+        return resolution;
+      },
       lookup: async (digest) => {
         counters.lookups += 1;
         return persistent.get(digest) ?? null;
@@ -145,7 +199,7 @@ function Harness({
         };
       },
     };
-  }, [sourceRevision, provider]);
+  }, [sourceRevision, provider, remoteAuthorizationDenied]);
 
   const scoring = usePassageScoring({
     documentId: "doc-1",
@@ -157,7 +211,7 @@ function Harness({
     featureEnabled,
     durable: false,
     depsFactory,
-    skipReadinessGate: true,
+    skipReadinessGate,
   });
 
   return (
@@ -168,6 +222,25 @@ function Harness({
       <span data-testid="result-count">{scoring.results.length}</span>
       <span data-testid="cache-hits">{scoring.counters.cacheHits}</span>
       <span data-testid="classifications">{scoring.counters.classifications}</span>
+      <span data-testid="scoring-status">{scoring.status}</span>
+      <span data-testid="status-reason">{scoring.statusReasonKey ?? ""}</span>
+      <span data-testid="scoring-visible">{String(scoring.visible)}</span>
+      <span data-testid="open-passage-id">{scoring.openPassageId ?? ""}</span>
+      {showOverlay ? (
+        <PassageScoreOverlay
+          results={scoring.results}
+          projectRects={() => [{ x: 300, y: 200, width: 220, height: 40 }]}
+          narrow={false}
+          visible={scoring.visible}
+          openPassageId={scoring.openPassageId}
+          onOpen={scoring.openSuggestion}
+          onClose={scoring.closeSuggestion}
+          onAction={scoring.performAction}
+          onDismiss={scoring.dismiss}
+          onShowSource={scoring.showSource}
+          statusReasonKey={scoring.statusReasonKey}
+        />
+      ) : null}
     </div>
   );
 }
@@ -195,6 +268,7 @@ beforeEach(() => {
   counters.lookups = 0;
   adapterFactoryCalls.count = 0;
   visibilityRef.current = null;
+  readinessState.status = "ready";
 });
 
 afterEach(() => {
@@ -211,6 +285,7 @@ describe("reader surface integration (real adapter + classifier + cache)", () =>
         counters={counters}
         visibilityRef={visibilityRef}
         adapterFactoryCalls={adapterFactoryCalls}
+        showOverlay
       />
     );
     await advance(10);
@@ -226,6 +301,30 @@ describe("reader surface integration (real adapter + classifier + cache)", () =>
     expect(stored.classifierVersion).toBeTruthy();
     expect(stored.modelRevision).toBe("fake-ondevice\u0000fixture-model");
     expect(stored.normalizationVersion).toBe("passage-normalization-v1");
+
+    const marker = screen.getByRole("button", { name: /ai\.passageScoring\.indicatorLabel/ });
+    fireEvent.click(marker);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    expect(screen.getByTestId("open-passage-id").textContent).not.toBe("");
+
+    first.rerender(
+      <Harness
+        sourceRevision="rev-1"
+        text={longText}
+        featureEnabled={false}
+        persistent={persistent}
+        counters={counters}
+        visibilityRef={visibilityRef}
+        adapterFactoryCalls={adapterFactoryCalls}
+        showOverlay
+      />
+    );
+    expect(screen.getByTestId("result-count").textContent).toBe("0");
+    expect(screen.getByTestId("open-passage-id").textContent).toBe("");
+    expect(screen.getByTestId("scoring-status").textContent).toBe("disabled");
+    expect(screen.getByTestId("scoring-visible").textContent).toBe("false");
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(first.container.querySelector("[data-passage-scoring-ui]")).toBeNull();
 
     first.unmount();
 
@@ -288,6 +387,87 @@ describe("reader surface integration (real adapter + classifier + cache)", () =>
     await advance(1_100);
     expect(counters.classifications).toBe(2);
     expect(persistent.size).toBe(2);
+  });
+
+  it("clears a remote authorization warning immediately when scoring is disabled", async () => {
+    const mounted = render(
+      <Harness
+        sourceRevision="rev-1"
+        text={longText}
+        remoteAuthorizationDenied
+        persistent={persistent}
+        counters={counters}
+        visibilityRef={visibilityRef}
+        adapterFactoryCalls={adapterFactoryCalls}
+        showOverlay
+      />
+    );
+    await advance(10);
+    act(() => visibilityRef.current?.enterAll());
+    await advance(1_100);
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "ai.passageScoring.remoteAuthorizationRequired"
+    );
+    expect(screen.getByTestId("scoring-visible").textContent).toBe("true");
+
+    mounted.rerender(
+      <Harness
+        sourceRevision="rev-1"
+        text={longText}
+        featureEnabled={false}
+        remoteAuthorizationDenied
+        persistent={persistent}
+        counters={counters}
+        visibilityRef={visibilityRef}
+        adapterFactoryCalls={adapterFactoryCalls}
+        showOverlay
+      />
+    );
+
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByTestId("status-reason").textContent).toBe("");
+    expect(screen.getByTestId("scoring-status").textContent).toBe("disabled");
+    expect(screen.getByTestId("scoring-visible").textContent).toBe("false");
+    expect(mounted.container.querySelector("[data-passage-scoring-ui]")).toBeNull();
+  });
+
+  it("keeps model readiness warnings visible only while scoring is enabled", () => {
+    readinessState.status = "setup-required";
+    const mounted = render(
+      <Harness
+        sourceRevision="rev-1"
+        text={longText}
+        skipReadinessGate={false}
+        persistent={persistent}
+        counters={counters}
+        visibilityRef={visibilityRef}
+        adapterFactoryCalls={adapterFactoryCalls}
+        showOverlay
+      />
+    );
+
+    expect(screen.getByRole("status")).toHaveTextContent(
+      "ai.passageScoring.unavailableModel"
+    );
+    expect(screen.getByTestId("scoring-visible").textContent).toBe("true");
+
+    mounted.rerender(
+      <Harness
+        sourceRevision="rev-1"
+        text={longText}
+        featureEnabled={false}
+        skipReadinessGate={false}
+        persistent={persistent}
+        counters={counters}
+        visibilityRef={visibilityRef}
+        adapterFactoryCalls={adapterFactoryCalls}
+        showOverlay
+      />
+    );
+
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByTestId("scoring-visible").textContent).toBe("false");
   });
 
   it("disabled creates no adapter, no lookups and no inference", async () => {

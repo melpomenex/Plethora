@@ -158,6 +158,15 @@ export function usePassageScoring(
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
 
+  useEffect(() => {
+    if (featureEnabled) return;
+
+    setStatusReasonKey(null);
+    setStatus("disabled");
+    setResultMap(new Map());
+    setOpenPassageId(null);
+  }, [featureEnabled]);
+
   // Build one controller per active adapter/revision. Cleanup disposes the
   // adapter and clears indicators immediately.
   useEffect(() => {
@@ -348,8 +357,9 @@ export function usePassageScoring(
     results,
     counters,
     status,
-    statusReasonKey: statusReasonKey ?? readinessReasonKey,
+    statusReasonKey: featureEnabled ? (statusReasonKey ?? readinessReasonKey) : null,
     visible:
+      featureEnabled &&
       foreground &&
       (results.length > 0 || Boolean(statusReasonKey) || Boolean(readinessReasonKey)),
     openPassageId,
