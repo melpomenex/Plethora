@@ -203,7 +203,7 @@ impl Repository {
         drop(rows);
         let mut documents = Vec::new();
         for chunk in ids.chunks(100) {
-            let mut query = QueryBuilder::<Sqlite>::new("SELECT id, collection_id, title, file_path, file_type, total_pages, current_page, current_scroll_percent, current_cfi, current_view_state, position_json, progress_percent, category, tags, date_added, date_modified, date_last_reviewed, extract_count, learning_item_count, priority_rating, priority_slider, priority_score, priority_explicitly_set, is_archived, is_favorite, is_dismissed, cover_image_url, cover_image_source, next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, consecutive_count, interval_modifier, first_reviewed_at, NULL AS content, NULL AS content_hash, CASE WHEN json_valid(metadata) THEN json_remove(metadata, '$.articleHtml', '$.extractedImages', '$.structuredContent') ELSE NULL END AS metadata FROM documents WHERE id IN (");
+            let mut query = QueryBuilder::<Sqlite>::new("SELECT id, collection_id, title, file_path, file_type, total_pages, current_page, current_scroll_percent, current_cfi, current_view_state, position_json, progress_percent, category, tags, date_added, date_modified, date_last_reviewed, extract_count, learning_item_count, priority_rating, priority_slider, priority_score, priority_explicitly_set, is_archived, is_favorite, is_dismissed, is_local_only, is_ai_excluded, privacy_version, cover_image_url, cover_image_source, next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, consecutive_count, interval_modifier, first_reviewed_at, NULL AS content, NULL AS content_hash, CASE WHEN json_valid(metadata) THEN json_remove(metadata, '$.articleHtml', '$.extractedImages', '$.structuredContent') ELSE NULL END AS metadata FROM documents WHERE id IN (");
             let mut separated = query.separated(", ");
             for id in chunk {
                 separated.push_bind(id);
@@ -367,5 +367,79 @@ mod tests {
         let plan = sqlx::query("EXPLAIN QUERY PLAN SELECT id FROM documents WHERE is_archived = 0 ORDER BY date_added DESC")
             .fetch_all(repo.pool()).await.unwrap();
         assert!(!plan.is_empty());
+    }
+
+    #[tokio::test]
+    async fn capture_summaries_preserve_privacy_and_filter_across_collections() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = crate::database::Database::new(dir.path().join("capture-privacy.db"))
+            .await
+            .unwrap();
+        db.migrate().await.unwrap();
+        let repo = Repository::new(db.pool().clone());
+        sqlx::query("INSERT INTO collections (id, name, created_at, modified_at) VALUES ('other', 'Other', '2025-01-01', '2025-01-01')")
+            .execute(repo.pool()).await.unwrap();
+
+        let mut ids = Vec::new();
+        for (index, source) in [
+            "browser_extension",
+            "browser_extension",
+            "android_share",
+            "android_share",
+            "manual",
+            "browser_extension",
+        ]
+        .iter()
+        .enumerate()
+        {
+            let mut doc = Document::new(
+                format!("Document {index}"),
+                format!("https://example.org/{index}"),
+                crate::models::FileType::Html,
+            );
+            doc.date_added = DateTime::parse_from_rfc3339(&format!(
+                "2025-01-{:02}T00:00:00Z",
+                index + 1
+            ))
+            .unwrap()
+            .with_timezone(&Utc);
+            if index % 2 == 1 {
+                doc.collection_id = "other".into();
+            }
+            if index == 1 || index == 3 {
+                doc.is_local_only = true;
+                doc.is_ai_excluded = true;
+                doc.privacy_version = 7;
+            }
+            doc.is_archived = index == 5;
+            doc.content = Some("Large document body".into());
+            doc.metadata = Some(crate::models::DocumentMetadata {
+                source: Some((*source).into()),
+                article_html: Some("Large article body".into()),
+                ..Default::default()
+            });
+            repo.create_document(&doc).await.unwrap();
+            ids.push(doc.id);
+        }
+
+        for (source, expected) in [("browser-extension", [1, 0]), ("share-target", [3, 2])] {
+            let found = repo.list_capture_summaries(source).await.unwrap();
+            assert_eq!(
+                found.iter().map(|doc| doc.id.as_str()).collect::<Vec<_>>(),
+                expected.iter().map(|&i| ids[i].as_str()).collect::<Vec<_>>()
+            );
+            assert_eq!(
+                (found[0].is_local_only, found[0].is_ai_excluded, found[0].privacy_version),
+                (true, true, 7)
+            );
+            assert_eq!(
+                (found[1].is_local_only, found[1].is_ai_excluded, found[1].privacy_version),
+                (false, false, 1)
+            );
+            for doc in found {
+                assert!(doc.content.is_none());
+                assert!(doc.metadata.unwrap().article_html.is_none());
+            }
+        }
     }
 }
