@@ -234,6 +234,7 @@ impl HfRuntime {
     pub fn tag(self) -> &'static str {
         match self {
             HfRuntime::WhisperCpp => "whisper-cpp",
+            HfRuntime::LlamaCppTts => "llama-cpp-tts",
             HfRuntime::SherpaOnnxStt => "sherpa-onnx-stt",
             HfRuntime::SherpaOnnxTts => "sherpa-onnx-tts",
             HfRuntime::NemotronAsr => "nemotron-asr",
@@ -246,6 +247,7 @@ impl HfRuntime {
         match tag {
             // Canonical (== serde kebab-case == what the frontend sends).
             "whisper-cpp" => Some(HfRuntime::WhisperCpp),
+            "llama-cpp-tts" => Some(HfRuntime::LlamaCppTts),
             "sherpa-onnx-stt" => Some(HfRuntime::SherpaOnnxStt),
             "sherpa-onnx-tts" => Some(HfRuntime::SherpaOnnxTts),
             "nemotron-asr" => Some(HfRuntime::NemotronAsr),
@@ -264,6 +266,7 @@ impl HfRuntime {
     pub fn adapter(self) -> Box<dyn RuntimeAdapter> {
         match self {
             HfRuntime::WhisperCpp => Box::new(WhisperCppAdapter),
+            HfRuntime::LlamaCppTts => Box::new(super::lfm3::Lfm3AudioAdapter),
             HfRuntime::SherpaOnnxStt => Box::new(SherpaOnnxSttAdapter),
             HfRuntime::SherpaOnnxTts => Box::new(SherpaOnnxTtsAdapter),
             HfRuntime::NemotronAsr => Box::new(NemotronAsrAdapter),
@@ -763,7 +766,7 @@ pub async fn resolve_installed_path(pool: &Pool<sqlx::Sqlite>, id: &str) -> Opti
         // resolve. Returning `Some(root)` would imply one exists.
         HfRuntime::LayaDecision => None,
         // sherpa engines take the model *directory*.
-        HfRuntime::SherpaOnnxStt | HfRuntime::SherpaOnnxTts => Some(root),
+        HfRuntime::SherpaOnnxStt | HfRuntime::SherpaOnnxTts | HfRuntime::LlamaCppTts => Some(root),
     }
 }
 
@@ -800,7 +803,7 @@ pub async fn resolve_installed_tts(
 ) -> Option<(PathBuf, RunContract)> {
     let canonical = canonicalize_hf_model_id(id);
     let (runtime, contract) = resolve_run_contract(pool, &canonical).await?;
-    if runtime != HfRuntime::SherpaOnnxTts {
+    if runtime != HfRuntime::SherpaOnnxTts && runtime != HfRuntime::LlamaCppTts {
         return None;
     }
     if contract.validate().is_err() {
@@ -933,7 +936,7 @@ pub async fn stt_route_for_model(pool: &Pool<sqlx::Sqlite>, model_id: &str) -> S
                     model: model_file,
                 },
             },
-            RunContract::SherpaTts { .. } => SttEngineRoute::NotTranscription,
+            RunContract::SherpaTts { .. } | RunContract::Lfm3AudioTts { .. } => SttEngineRoute::NotTranscription,
             RunContract::Whistle { model_file } => {
                 SttEngineRoute::Whistle { model: model_file }
             }
@@ -1019,7 +1022,7 @@ pub async fn resolve_install_target(
     artifact_kind: &str,
 ) -> Result<InstallTarget> {
     let client = hf_metadata_client();
-    let revision = clean_revision(repo_input.revision.as_deref().unwrap_or("main"));
+    let revision = clean_revision(if runtime == HfRuntime::LlamaCppTts { super::lfm3::REVISION } else { repo_input.revision.as_deref().unwrap_or("main") });
     let revision = if revision.is_empty() { "main" } else { revision.as_str() };
 
     let info = fetch_repo_info(&client, &repo_input.repo_id, Some(revision)).await?;
@@ -1330,6 +1333,12 @@ pub async fn uninstall_with_app_data(
 /// Uninstall wrapper used by the Tauri command (resolves the app-data dir and
 /// emits the finished event).
 pub async fn uninstall(app: &AppHandle, repo: &Repository, id: &str) -> Result<()> {
+    let uses_lfm3 = registry_get(repo.pool(), id).await
+        .is_some_and(|model| model.runtime == HfRuntime::LlamaCppTts);
+    let lfm3_state = if uses_lfm3 { app.try_state::<crate::tts::lfm3::Lfm3TtsState>() } else { None };
+    let _lfm3_guard = if let Some(state) = lfm3_state.as_ref() {
+        Some(state.prepare_uninstall(id).await.map_err(|e| anyhow!(e))?)
+    } else { None };
     let app_data = app_data_dir(app)?;
     let repo_id = uninstall_with_app_data(repo, id, &app_data).await?;
     let _ = app.emit(

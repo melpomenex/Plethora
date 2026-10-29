@@ -296,7 +296,7 @@ async fn fetch_repo_info_from_base(
 ) -> Result<HfRepoInfo> {
     let mut url = format!("{}/{}", api_base, url_encode_segments(repo_id));
     if let Some(rev) = revision.filter(|r| !r.is_empty() && *r != "main") {
-        url.push_str(&format!("?revision={}", url_encode(rev)));
+        url.push_str(&format!("/revision/{}", url_encode(rev)));
     }
     let response = client.get(&url).send().await?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
@@ -339,7 +339,7 @@ async fn fetch_repo_info_from_base(
 }
 
 /// Percent-encode `value` for use as a single URL path/query segment
-/// (mirrors `fetch_repo_info`, which encodes the `revision` query param).
+/// (mirrors `fetch_repo_info`, which encodes revision path segments).
 fn url_encode(value: &str) -> String {
     urlencoding::encode(value).into_owned()
 }
@@ -569,6 +569,7 @@ pub async fn build_file_index(
         .filter(|p| {
             let lower = p.to_lowercase();
             lower.ends_with(".onnx")
+                || lower.ends_with(".gguf")
                 || lower.ends_with(".bin")
                 || lower.ends_with(".json")
                 || lower == "tokens.txt"
@@ -794,4 +795,16 @@ mod tests {
         );
         server.stop();
     }
+    #[tokio::test]
+    async fn repo_revision_uses_the_revision_endpoint_and_refuses_missing_refs() {
+        let server = TestServerBuilder::new(|n| if n == 1 { (200, br#"{"id":"owner/model","sha":"pinned"}"#.to_vec()) } else { (404, vec![]) }).spawn().await;
+        let info = fetch_repo_info_from_base(&Client::new(), &server.url, "owner/model", Some("branch-name")).await.unwrap();
+        assert_eq!(info.sha.as_deref(), Some("pinned"));
+        assert!(fetch_repo_info_from_base(&Client::new(), &server.url, "owner/model", Some("missing")).await.is_err());
+        let requests = server.requests().await;
+        assert!(requests[0].head.contains("/owner/model/revision/branch-name"));
+        assert!(!requests[0].head.contains("?revision="));
+        server.stop();
+    }
+
 }

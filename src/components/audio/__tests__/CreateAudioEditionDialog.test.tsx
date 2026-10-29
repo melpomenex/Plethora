@@ -8,6 +8,8 @@ import { useAudioEditionGenerationStore } from "../../../stores/audioEditionGene
 import { useToastStore } from "../../common/Toast";
 import * as pdfExtractor from "../../../utils/pdfTextExtractor";
 import { useSettingsStore } from "../../../stores/settingsStore";
+import { createDefaultTTSSettings } from "../../../utils/ttsSettings";
+import { LFM3_MODEL_ID } from "../../../utils/lfm3Tts";
 import type { Document } from "../../../types/document";
 
 vi.mock("../../../api/documents", () => ({
@@ -28,6 +30,10 @@ vi.mock("../../../api/audioEditions", () => ({
   createAudioEdition: vi.fn().mockResolvedValue({ id: "test-edition" }),
   auditionVoicePreview: vi.fn().mockResolvedValue(new Blob(["audio"], { type: "audio/wav" })),
 }));
+
+function selectProvider(provider: string) {
+  fireEvent.change(screen.getByRole("combobox", { name: "Narration provider" }), { target: { value: provider } });
+}
 
 describe("CreateAudioEditionDialog", () => {
   const dummyDocSummary: Document = {
@@ -50,16 +56,58 @@ describe("CreateAudioEditionDialog", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    const ttsDefaults = createDefaultTTSSettings();
+    ttsDefaults.providers["openai-compatible"].modelId = "chatterbox-turbo";
+    ttsDefaults.providers["openai-compatible"].voiceId = "default";
     useToastStore.setState({ toasts: [] });
     useSettingsStore.setState((state) => ({
       settings: {
         ...state.settings,
         tts: {
-          ...state.settings.tts,
+          ...ttsDefaults,
+          provider: "pocket",
           paidTtsEnabled: true,
         } as any,
       },
     }));
+  });
+
+  it("starts an HTML edition with saved LFM3 settings without opening options", async () => {
+    const doc = { ...dummyDocSummary, fileType: "html" as const, content: "<h1>River notes</h1><p>The river flows past the old bridge.</p>" };
+    vi.mocked(documentsApi.getDocument).mockResolvedValue(doc);
+    vi.spyOn(useAudioEditionGenerationStore.getState(), "startJob").mockResolvedValue();
+    useSettingsStore.setState((state) => ({ settings: { ...state.settings, tts: {
+      ...state.settings.tts, provider: "lfm3", providers: { ...state.settings.tts.providers,
+        lfm3: { ...state.settings.tts.providers.lfm3, apiKey: "", voiceId: "male", language: "en-GB" },
+      },
+    } } }));
+    render(<CreateAudioEditionDialog isOpen onClose={vi.fn()} document={doc} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Create Audio Edition" })).toBeEnabled());
+    expect(screen.getByRole("combobox", { name: "Narration provider" })).toHaveValue("lfm3");
+    expect(screen.getByRole("combobox", { name: "Voice" })).toHaveValue("male");
+    expect(screen.getByRole("combobox", { name: "Language" })).toHaveValue("en-GB");
+    expect(screen.queryByText("Quality & Voice Profile")).toBeNull();
+    expect(screen.queryByTestId("advanced-voice-select")).toBeNull();
+    expect(screen.queryByRole("slider")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Create Audio Edition" }));
+    await waitFor(() => expect(audioEditionsApi.createAudioEdition).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: "lfm3", model: LFM3_MODEL_ID, voice: "male", generationSettings: expect.objectContaining({ language: "en-GB", responseFormat: "wav", speed: undefined }) }),
+      expect.arrayContaining([expect.objectContaining({ audioMimeType: "audio/wav" })]),
+    ));
+  });
+
+  it("asks for a file-generating provider when the saved choice is live System speech", async () => {
+    const doc = { ...dummyDocSummary, content: "A short passage." };
+    vi.mocked(documentsApi.getDocument).mockResolvedValue(doc);
+    useSettingsStore.setState((state) => ({ settings: { ...state.settings, tts: { ...state.settings.tts, provider: "system" } } }));
+    render(<CreateAudioEditionDialog isOpen onClose={vi.fn()} document={doc} />);
+    await waitFor(() => expect(screen.queryByText(/Reading document content/i)).toBeNull());
+    expect(screen.getByRole("combobox", { name: "Narration provider" })).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Create Audio Edition" })).toBeDisabled();
+    expect(screen.queryByRole("option", { name: "System TTS" })).toBeNull();
+    selectProvider("lfm3");
+    expect(screen.getByRole("button", { name: "Create Audio Edition" })).toBeEnabled();
+    expect(useSettingsStore.getState().settings.tts.provider).toBe("system");
   });
 
   it("hydrates document content when summary has empty content and renders loading state", async () => {
@@ -95,7 +143,7 @@ describe("CreateAudioEditionDialog", () => {
 
     // Button should now be enabled
     expect(createButton).not.toBeDisabled();
-    expect(screen.getByText(/1 Chapters/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 chapter/i)).toBeInTheDocument();
   });
 
   it("displays alert banner and disables create button when document has 0 readable characters", async () => {
@@ -145,8 +193,7 @@ describe("CreateAudioEditionDialog", () => {
     });
 
     // Select Fast (Pocket / Local)
-    const fastButton = screen.getByRole("button", { name: /Fast/i });
-    fireEvent.click(fastButton);
+    selectProvider("pocket");
 
     const createButton = screen.getByRole("button", { name: /Create Audio Edition/i });
     expect(createButton).not.toBeDisabled();
@@ -229,7 +276,7 @@ describe("CreateAudioEditionDialog", () => {
     await waitFor(() => {
       const createButton = screen.getByRole("button", { name: /Create Audio Edition/i });
       expect(createButton).not.toBeDisabled();
-      expect(screen.getByText(/2 Chapters/i)).toBeInTheDocument();
+      expect(screen.getByText(/2 chapters/i)).toBeInTheDocument();
     });
   });
 
@@ -283,7 +330,7 @@ describe("CreateAudioEditionDialog", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/1 Chapters/i)).toBeInTheDocument();
+      expect(screen.getByText(/1 chapter/i)).toBeInTheDocument();
     });
   });
 
@@ -307,8 +354,7 @@ describe("CreateAudioEditionDialog", () => {
       expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
     });
 
-    const fastButton = screen.getByRole("button", { name: /Fast/i });
-    fireEvent.click(fastButton);
+    selectProvider("pocket");
 
     const toggle = screen.getByTestId("add-to-queue-toggle") as HTMLInputElement;
     expect(toggle.checked).toBe(true);
@@ -346,8 +392,7 @@ describe("CreateAudioEditionDialog", () => {
       expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
     });
 
-    const fastButton = screen.getByRole("button", { name: /Fast/i });
-    fireEvent.click(fastButton);
+    selectProvider("pocket");
 
     const toggle = screen.getByTestId("add-to-queue-toggle");
     fireEvent.click(toggle);
@@ -383,8 +428,7 @@ describe("CreateAudioEditionDialog", () => {
     });
 
     // Select Fast (Pocket / Local)
-    const fastButton = screen.getByRole("button", { name: /Fast/i });
-    fireEvent.click(fastButton);
+    selectProvider("pocket");
 
     const voiceSelect = screen.getByTestId("voice-select") as HTMLSelectElement;
     expect(voiceSelect).toBeInTheDocument();
@@ -399,7 +443,7 @@ describe("CreateAudioEditionDialog", () => {
     expect(voiceSelect.value).toBe("marius");
 
     // The audition section should display Marius
-    expect(screen.getByText("(Marius)")).toBeInTheDocument();
+    expect(within(voiceSelect).getByRole("option", { name: "Marius" })).toBeInTheDocument();
 
     // Click Audition button
     const auditionButton = screen.getByTestId("audition-voice-button");
@@ -409,14 +453,35 @@ describe("CreateAudioEditionDialog", () => {
       expect(audioEditionsApi.auditionVoicePreview).toHaveBeenCalledWith(
         expect.stringContaining("Paragraph 1"),
         "pocket",
-        "default",
+        "pocket-tts",
         "marius",
-        expect.objectContaining({ speed: 1.0 })
+        expect.objectContaining({ speed: 1.0 }),
+        expect.any(AbortSignal)
       );
     });
   });
 
-  it("updates voice options when switching quality presets and persists selected voice", async () => {
+  it("offers LFM3 in the existing provider selector and cancels its WAV audition", async () => {
+    vi.mocked(documentsApi.getDocument).mockResolvedValue({ ...dummyDocSummary, content: "A short passage for local speech." });
+    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
+    try {
+      render(<CreateAudioEditionDialog isOpen={true} onClose={vi.fn()} document={dummyDocSummary} />);
+      await waitFor(() => expect(screen.queryByText(/Reading document content/i)).toBeNull());
+      const selector = screen.getByRole("combobox", { name: "Narration provider" });
+      fireEvent.change(selector, { target: { value: "lfm3" } });
+      fireEvent.click(screen.getByTestId("audition-voice-button"));
+      await waitFor(() => expect(audioEditionsApi.auditionVoicePreview).toHaveBeenCalledWith(
+        expect.any(String), "lfm3", expect.stringContaining("hf:llama-cpp-tts:"), "female",
+        expect.objectContaining({ responseFormat: "wav", language: "en-US" }), expect.any(AbortSignal)
+      ));
+      const signal = vi.mocked(audioEditionsApi.auditionVoicePreview).mock.calls[0][5]!;
+      fireEvent.click(screen.getByTestId("audition-voice-button"));
+      expect(signal.aborted).toBe(true);
+    } finally { play.mockRestore(); pause.mockRestore(); }
+  });
+
+  it("updates voice options when switching providers and persists selected voice", async () => {
     vi.mocked(documentsApi.getDocument).mockResolvedValue({
       ...dummyDocSummary,
       content: "Chapter 1: The philosophy of audio editions and voice options.\nThis is a substantial text content that should generate an audio edition.",
@@ -436,8 +501,7 @@ describe("CreateAudioEditionDialog", () => {
     });
 
     // 1. Best preset (ElevenLabs)
-    const bestButton = screen.getByRole("button", { name: /Best/i });
-    fireEvent.click(bestButton);
+    selectProvider("elevenlabs");
 
     const voiceSelect = screen.getByTestId("voice-select") as HTMLSelectElement;
     expect(voiceSelect.value).toBe("21m00Tcm4TlvDq8ikWAM"); // Rachel
@@ -496,7 +560,7 @@ describe("CreateAudioEditionDialog", () => {
     expect(content.className).toContain("flex-1");
   });
 
-  it("selects the Expressive (Chatterbox) preset with fallback voice and Free summary", async () => {
+  it("selects the Chatterbox provider with fallback voice and Free summary", async () => {
     render(
       <CreateAudioEditionDialog
         isOpen={true}
@@ -509,27 +573,25 @@ describe("CreateAudioEditionDialog", () => {
       expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
     });
 
-    const expressiveButton = screen.getByRole("button", { name: /Chatterbox \/ Local/i });
-    fireEvent.click(expressiveButton);
+    selectProvider("openai-compatible");
 
     // Fallback voice roster applies before enumeration lands
     const voiceSelect = screen.getByTestId("voice-select") as HTMLSelectElement;
     expect(voiceSelect.value).toBe("default");
     expect(
-      within(voiceSelect).getByRole("option", { name: /Default.*Local Chatterbox voice/i })
+      within(voiceSelect).getByRole("option", { name: "Default" })
     ).toBeInTheDocument();
 
     // Free-tier pricing applies to the local service
     expect(screen.getByText(/^Free$/i)).toBeInTheDocument();
 
     // Speed slider is gated with an explanation once Advanced is shown
-    fireEvent.click(screen.getByRole("button", { name: /Show Advanced Settings/i }));
-    const slider = screen.getByRole("slider") as HTMLInputElement;
-    expect(slider).toBeDisabled();
-    expect(screen.getByText(/Speed is not supported by Chatterbox Turbo/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /More options/i }));
+    expect(screen.queryByRole("slider")).toBeNull();
+    expect(screen.getByText(/natural speaking pace/i)).toBeInTheDocument();
   });
 
-  it("lists Chatterbox in the Advanced provider dropdown", async () => {
+  it("lists Chatterbox in the primary provider dropdown", async () => {
     render(
       <CreateAudioEditionDialog
         isOpen={true}
@@ -542,7 +604,7 @@ describe("CreateAudioEditionDialog", () => {
       expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Show Advanced Settings/i }));
+    fireEvent.click(screen.getByRole("button", { name: /More options/i }));
     const providerSelect = screen
       .getAllByRole("combobox")
       .find((el) => within(el as HTMLElement).queryByRole("option", { name: /Pocket TTS/i })) as HTMLSelectElement;
@@ -581,7 +643,7 @@ describe("CreateAudioEditionDialog", () => {
         expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /Chatterbox \/ Local/i }));
+      selectProvider("openai-compatible");
       fireEvent.click(screen.getByTestId("audition-voice-button"));
 
       await waitFor(() => {
@@ -590,7 +652,8 @@ describe("CreateAudioEditionDialog", () => {
           "openai-compatible",
           "chatterbox-turbo",
           expect.any(String),
-          expect.objectContaining({ responseFormat: "wav", speed: undefined })
+          expect.objectContaining({ responseFormat: "wav", speed: undefined }),
+          expect.any(AbortSignal)
         );
       });
       expect(fetchMock).toHaveBeenCalledWith(
@@ -622,7 +685,7 @@ describe("CreateAudioEditionDialog", () => {
         expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /Chatterbox \/ Local/i }));
+      selectProvider("openai-compatible");
       fireEvent.click(screen.getByTestId("audition-voice-button"));
 
       await waitFor(() => {
@@ -645,7 +708,7 @@ describe("CreateAudioEditionDialog", () => {
     }
   });
 
-  it("selects Fal.ai preset, populates Fal voices, displays cost, and gates speed slider", async () => {
+  it("selects Fal.ai, populates Fal voices, displays cost, and gates speed slider", async () => {
     render(
       <CreateAudioEditionDialog
         isOpen={true}
@@ -658,9 +721,7 @@ describe("CreateAudioEditionDialog", () => {
       expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
     });
 
-    const falButton = screen.getByRole("button", { name: /Fal\.ai \/ Cloud/i });
-    expect(falButton).toBeInTheDocument();
-    fireEvent.click(falButton);
+    selectProvider("fal");
 
     const voiceSelect = screen.getByTestId("voice-select") as HTMLSelectElement;
     expect(voiceSelect.value).toBe("Vivian");
@@ -671,13 +732,12 @@ describe("CreateAudioEditionDialog", () => {
     expect(screen.queryByText(/^Free$/i)).not.toBeInTheDocument();
 
     // Speed slider should be disabled when Advanced is shown
-    fireEvent.click(screen.getByRole("button", { name: /Show Advanced Settings/i }));
-    const slider = screen.getByRole("slider") as HTMLInputElement;
-    expect(slider).toBeDisabled();
-    expect(screen.getByText(/Speed is not supported by Fal\.ai models and is ignored/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /More options/i }));
+    expect(screen.queryByRole("slider")).toBeNull();
+    expect(screen.getByText(/natural speaking pace/i)).toBeInTheDocument();
   });
 
-  it("lists Fal.ai in the Advanced provider dropdown and updates selection", async () => {
+  it("lists Fal.ai in the primary provider dropdown and updates selection", async () => {
     render(
       <CreateAudioEditionDialog
         isOpen={true}
@@ -690,10 +750,10 @@ describe("CreateAudioEditionDialog", () => {
       expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Show Advanced Settings/i }));
+    fireEvent.click(screen.getByRole("button", { name: /More options/i }));
     const providerSelect = screen
       .getAllByRole("combobox")
-      .find((el) => within(el as HTMLElement).queryByRole("option", { name: /Fal\.ai \(Cloud\)/i })) as HTMLSelectElement;
+      .find((el) => within(el as HTMLElement).queryByRole("option", { name: /Fal\.ai/i })) as HTMLSelectElement;
     expect(providerSelect).toBeInTheDocument();
 
     fireEvent.change(providerSelect, { target: { value: "fal" } });
@@ -703,9 +763,8 @@ describe("CreateAudioEditionDialog", () => {
       expect(voiceSelect.value).toBe("Vivian");
     });
 
-    const slider = screen.getByRole("slider") as HTMLInputElement;
-    expect(slider).toBeDisabled();
-    expect(screen.getByText(/Speed is not supported by Fal\.ai models and is ignored/i)).toBeInTheDocument();
+    expect(screen.queryByRole("slider")).toBeNull();
+    expect(screen.getByText(/natural speaking pace/i)).toBeInTheDocument();
   });
 
   it("auditions with Fal.ai voice omitting speed parameter", async () => {
@@ -726,7 +785,7 @@ describe("CreateAudioEditionDialog", () => {
         expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
       });
 
-      fireEvent.click(screen.getByRole("button", { name: /Fal\.ai \/ Cloud/i }));
+      selectProvider("fal");
       fireEvent.click(screen.getByTestId("audition-voice-button"));
 
       await waitFor(() => {
@@ -735,7 +794,8 @@ describe("CreateAudioEditionDialog", () => {
           "fal",
           "fal-ai/qwen-3-tts/text-to-speech/1.7b",
           "Vivian",
-          expect.objectContaining({ speed: undefined })
+          expect.objectContaining({ speed: undefined }),
+          expect.any(AbortSignal)
         );
       });
     } finally {
@@ -758,7 +818,7 @@ describe("CreateAudioEditionDialog", () => {
       expect(screen.queryByText(/Reading document content/i)).not.toBeInTheDocument();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Fal\.ai \/ Cloud/i }));
+    selectProvider("fal");
 
     const createButton = screen.getByRole("button", { name: /Create Audio Edition/i });
     expect(createButton).not.toBeDisabled();
@@ -770,7 +830,7 @@ describe("CreateAudioEditionDialog", () => {
           provider: "fal",
           model: "fal-ai/qwen-3-tts/text-to-speech/1.7b",
           voice: "Vivian",
-          qualityPreset: "fal",
+          qualityPreset: null,
           generationSettings: expect.objectContaining({
             speed: undefined,
           }),

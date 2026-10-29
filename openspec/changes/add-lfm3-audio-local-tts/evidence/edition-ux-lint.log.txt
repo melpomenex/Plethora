@@ -1,0 +1,12 @@
+
+/home/ubuntu/Code/Plethora/src/components/audio/__tests__/CreateAudioEditionDialog.test.tsx
+  534:13  warning  'container' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+/home/ubuntu/Code/Plethora/src/components/settings/TTSSettings.tsx
+  828:9  warning  'showSystemOption' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+/home/ubuntu/Code/Plethora/src/components/viewer/TTSSetupSheet.tsx
+  9:11  warning  't' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+✖ 3 problems (0 errors, 3 warnings)
+

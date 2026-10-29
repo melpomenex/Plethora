@@ -1,3 +1,4 @@
+import { LFM3_MODEL_ID } from "./lfm3Tts";
 export const TTS_SETTINGS_SCHEMA_VERSION = 4;
 
 export const FAL_BUILTIN_VOICES = [
@@ -64,6 +65,7 @@ export type FalLanguage = (typeof FAL_LANGUAGES)[number];
 export type TTSProvider =
   | "fal"
   | "groq"
+  | "lfm3"
   | "pocket"
   | "system"
   | "openrouter"
@@ -80,6 +82,7 @@ export const TTS_PROVIDER_IDS: readonly TTSProvider[] = [
   "fal",
   "groq",
   "pocket",
+  "lfm3",
   "system",
   "openrouter",
   "elevenlabs",
@@ -129,7 +132,7 @@ export interface TTSProviderSettings {
   requestMode: TTSRequestMode;
   proxyUrl: string;
   cloneModelId: string;
-  language: FalLanguage;
+  language: string;
   pocketSpeed: number;
 }
 
@@ -240,6 +243,7 @@ function makeProviderSettings(): TTSProviderSettingsMap {
       voiceId: "Vivian",
     }),
     groq: defaultProviderSettings({ modelId: "playai-tts", voiceId: "Fiora" }),
+    lfm3: defaultProviderSettings({ modelId: LFM3_MODEL_ID, voiceId: "female", language: "en-US", responseFormat: "wav" }),
     pocket: defaultProviderSettings({ modelId: "pocket-tts", voiceId: "alba" }),
     system: defaultProviderSettings({ modelId: "system", voiceId: "system-default" }),
     openrouter: defaultProviderSettings({ modelId: "hexgrad/kokoro-82m", voiceId: "af_bella" }),
@@ -292,6 +296,8 @@ export function defaultVoiceIdForProvider(provider: string): string {
   switch (provider) {
     case "groq":
       return "groq-builtin-fiora";
+    case "lfm3":
+      return "female";
     case "pocket":
       return "pocket-builtin-alba";
     case "system":
@@ -335,7 +341,7 @@ function legacyMirrors(
     cloneModelId: providers.fal.cloneModelId,
     groqModelId: providers.groq.modelId,
     groqResponseFormat: providers.groq.responseFormat === "wav" ? "wav" : "mp3",
-    language: providers.fal.language,
+    language: providers.fal.language as FalLanguage,
     pocketSpeed: providers.pocket.pocketSpeed,
   };
 }
@@ -469,7 +475,7 @@ function normalizeProviderSettings(
 ): TTSProviderSettings {
   const item = isObject(persisted) ? persisted : {};
   const responseFormat = asString(item.responseFormat, defaults.responseFormat);
-  const language = (FAL_LANGUAGES as readonly string[]).includes(asString(item.language))
+  const language = provider === "lfm3" ? asString(item.language, defaults.language) : (FAL_LANGUAGES as readonly string[]).includes(asString(item.language))
     ? (asString(item.language) as FalLanguage)
     : defaults.language;
   return {
@@ -639,7 +645,7 @@ export function validateTTSConfiguration(settings: TTSSettings): {
 } {
   if (!settings.enabled) return { valid: true };
   const provider = String(settings.provider);
-  if (provider === "pocket" || provider === "system") return { valid: true };
+  if (["pocket", "system", "lfm3", "android", "plethora"].includes(provider)) return { valid: true };
   const config = getProviderSettings(settings, provider);
   if (provider === "fal" && config.requestMode === "proxy" && !config.proxyUrl.trim()) {
     return { valid: false, error: "Proxy URL is required for proxy mode." };

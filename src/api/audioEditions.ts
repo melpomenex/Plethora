@@ -274,7 +274,8 @@ export async function auditionVoicePreview(
   providerId: string,
   modelId: string,
   voiceId: string,
-  settings?: AudioEditionSettings
+  settings?: AudioEditionSettings,
+  signal?: AbortSignal
 ): Promise<Blob> {
   const adapter = getAdapter(providerId);
   if (!adapter) {
@@ -316,6 +317,8 @@ export async function auditionVoicePreview(
     },
     {
       text: sample,
+      signal,
+      language: settings?.language,
       voice: voiceId,
       model: modelId,
       speed: settings?.speed || 1.0,

@@ -250,6 +250,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   }, [settings]);
 
   // Audio buffer: Map of chunk index -> audio URL
+  const generationControllersRef = useRef(new Set<AbortController>());
   const audioBufferRef = useRef<Map<number, BufferedAudio>>(new Map());
   const [bufferStatus, setBufferStatus] = useState<
     Map<number, "pending" | "loading" | "ready" | "error">
@@ -627,6 +628,12 @@ ref: React.ForwardedRef<ReaderTTSHandle>
     },
   });
 
+  const cancelPendingGenerationRef = useRef(() => {
+    for (const controller of generationControllersRef.current) controller.abort();
+    generationControllersRef.current.clear();
+    bufferMgrRef.current.reset();
+  });
+
   // Create a text fingerprint to detect when content actually changes. Uses the
   // persistence module's fingerprint (folded head/tail + length) so the reset
   // effect and the persisted record share one definition of "genuine change".
@@ -801,6 +808,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       // second time AFTER the refs below have been reset to the new document,
       // overwriting the old record with new-document content identity.
       prevDocumentIdRef.current = documentIdRef.current;
+      cancelPendingGenerationRef.current();
       playbackIdRef.current++;
       applySessionLeading(null);
       pendingAnchorRef.current = null;
@@ -830,6 +838,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       const preserved = resolvePreservedPosition();
       const pos = preserved ?? { chunkIndex: getInitialChunk(), wordIndex: 0 };
       pausedRestartPositionRef.current = pos;
+      cancelPendingGenerationRef.current();
       playbackIdRef.current++;
       applySessionLeading(null);
       setIsBuffering(false);
@@ -848,6 +857,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       // Genuine mid-playback text change: reconcile the canonical position
       // against the rebuilt index and continue from the preserved location.
       const preserved = resolvePreservedPosition();
+      cancelPendingGenerationRef.current();
       playbackIdRef.current++;
       applySessionLeading(null);
       pendingAnchorRef.current = null;
@@ -863,6 +873,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
     }
 
     // Stopped: rebuild buffers for the new text without starting playback.
+    cancelPendingGenerationRef.current();
     playbackIdRef.current++;
     applySessionLeading(null);
     pendingAnchorRef.current = null;
@@ -984,6 +995,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   const acquireReaderOutput = useCallback(async () => {
     const lease = await appAudioFocus.acquire(`reader:${outputId}`, async () => {
       intentionalStopRef.current = true;
+      cancelPendingGenerationRef.current();
       playbackIdRef.current++;
       setIsAutoPlaying(false);
       saveListeningPosition(true);
@@ -1027,6 +1039,8 @@ ref: React.ForwardedRef<ReaderTTSHandle>
         return buffered;
       }
 
+      const controller = new AbortController();
+      generationControllersRef.current.add(controller);
       try {
         setBufferStatus((prev) => new Map(prev).set(index, "loading"));
         // Session epoch: a retarget/stop/voice change while this request is in
@@ -1036,6 +1050,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
 
         const result = await generateSpeech(settings, {
           text: chunkText,
+          signal: settings.tts.provider === "lfm3" ? controller.signal : undefined,
           voiceId,
           includeTimings: true,
         });
@@ -1069,11 +1084,14 @@ ref: React.ForwardedRef<ReaderTTSHandle>
 
         return buffered;
       } catch (error) {
+        if (controller.signal.aborted) return null;
         console.error(`Failed to generate audio for chunk ${index}:`, error);
         setBufferStatus((prev) => new Map(prev).set(index, "error"));
         bufferMgrRef.current.activeGenCount = Math.max(0, bufferMgrRef.current.activeGenCount - 1);
         bufferMgrRef.current.queuedIndices.delete(index);
         return null;
+      } finally {
+        generationControllersRef.current.delete(controller);
       }
     },
     [playlist, settings, voiceId]
@@ -1489,6 +1507,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   const startFrom = useCallback(
     async (anchor: TTSStartAnchor) => {
       saveListeningPosition(true);
+      cancelPendingGenerationRef.current();
       playbackIdRef.current++;
       stopAudio();
       const pos = resolveStartPosition(anchor);
@@ -1526,6 +1545,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   useEffect(() => {
     return () => {
       mountedRef.current = false;
+      cancelPendingGenerationRef.current();
       playbackIdRef.current++;
       if (audioRef.current) {
         try {
@@ -1552,6 +1572,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
       } else if (isAndroidProvider && isAndroidTtsAvailable()) {
         nativePause().catch(() => {});
       } else {
+        cancelPendingGenerationRef.current();
         playbackIdRef.current++;
         audioRef.current?.pause();
       }
@@ -1650,6 +1671,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   };
 
   const handleStop = () => {
+    cancelPendingGenerationRef.current();
     playbackIdRef.current++;
     intentionalStopRef.current = true;
     saveListeningPosition(true);
@@ -1662,6 +1684,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   handleStopRef.current = handleStop;
 
   const handlePrev = async () => {
+    cancelPendingGenerationRef.current();
     playbackIdRef.current++;
     intentionalStopRef.current = true;
     saveListeningPosition(true);
@@ -1672,6 +1695,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   };
 
   const handleNext = async () => {
+    cancelPendingGenerationRef.current();
     playbackIdRef.current++;
     intentionalStopRef.current = true;
     saveListeningPosition(true);
@@ -1767,6 +1791,7 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   });
 
   const handleVoiceChange = (voiceId: string) => {
+    cancelPendingGenerationRef.current();
     playbackIdRef.current++;
     setSelectedVoiceId(voiceId);
     if (!tts) return;

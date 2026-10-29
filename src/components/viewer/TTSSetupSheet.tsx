@@ -11,7 +11,7 @@ export function TTSSetupSheet({ onClose, onStart }: { onClose: () => void; onSta
   const updateSettings = useSettingsStore((s) => s.updateSettings);
   const { available } = useSystemVoices();
   const adapters = listAdapters().filter((a) => {
-    if (a.id === "pocket") return isTauri() && !isNativeMobile();
+    if (a.id === "pocket" || a.id === "lfm3") return isTauri() && !isNativeMobile();
     if (a.id === "android") return isNativeMobile();
     return true;
   });
@@ -27,7 +27,7 @@ export function TTSSetupSheet({ onClose, onStart }: { onClose: () => void; onSta
           )}
           {adapters.filter(a=>a.id!=="system").map((a)=>(
             <button key={a.id} onClick={()=>{ window.location.hash="#settings/tts"; onClose(); }} className="flex w-full items-center gap-3 rounded-lg border border-border px-3 py-2 text-left opacity-70">
-              <span className="font-medium">{a.label}</span><span className="ml-auto text-xs text-amber-600">Needs API key</span>
+              <span className="font-medium">{a.label}</span><span className="ml-auto text-xs text-muted-foreground">{a.auth.mode === "none" ? "No API key needed" : "Configure provider"}</span>
             </button>
           ))}
           <button onClick={()=>{ window.location.hash="#settings/tts"; onClose(); }} className="flex w-full items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"><Gear className="h-4 w-4" />Configure more…</button>

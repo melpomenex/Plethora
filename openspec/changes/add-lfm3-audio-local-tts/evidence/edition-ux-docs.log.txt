@@ -1,0 +1,8 @@
+
+> plethora-tauri@3.5.0 docs:validate
+> node scripts/docs-validate.mjs
+
+Validating canonical product documentation in docs/product/ ...
+
+Inspected 76 documentation files.
+✅ All 76 product documentation files passed validation with 0 errors.

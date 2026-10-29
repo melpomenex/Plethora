@@ -1,0 +1,78 @@
+{
+  "release": "13.4.1",
+  "source": "https://developer.download.nvidia.com/compute/cuda/redist/redistrib_13.4.1.json",
+  "metadataSha256": "e24677584a7161a69f370271fc638b252a0e77e48bdf5fccf1862bae028c08d5",
+  "packages": [
+    {
+      "component": "cuda_nvcc",
+      "version": "13.4.59",
+      "license": "CUDA Toolkit",
+      "licensePath": "cuda_nvcc/LICENSE.txt",
+      "relative_path": "cuda_nvcc/linux-x86_64/cuda_nvcc-linux-x86_64-13.4.59-archive.tar.xz",
+      "sha256": "0c08d1df80b5d0bd081778d392446ab50a6a54b047c0136b39c8dbfdf2cfed3f",
+      "md5": "0c2ed055e0512be292b0073ef15968ab",
+      "size": "33303216"
+    },
+    {
+      "component": "cuda_cudart",
+      "version": "13.4.49",
+      "license": "CUDA Toolkit",
+      "licensePath": "cuda_cudart/LICENSE.txt",
+      "relative_path": "cuda_cudart/linux-x86_64/cuda_cudart-linux-x86_64-13.4.49-archive.tar.xz",
+      "sha256": "ec3df9f91560db23a064c6b395d4fde17b2893f5bf954c6bd193dd03a44de522",
+      "md5": "45ac303dd08b4c5060ad35714675099b",
+      "size": "1702296"
+    },
+    {
+      "component": "cccl",
+      "version": "13.3.4.2.1",
+      "license": "CCCL EULA",
+      "licensePath": "cccl/LICENSE.txt",
+      "relative_path": "cccl/linux-x86_64/cccl-linux-x86_64-13.3.4.2.1-archive.tar.xz",
+      "sha256": "7c973e70d8f8d732f801fe2297c9cb5a541f22824fa6ad64ac4f0e183f9c4397",
+      "md5": "ed3a0f467187c9cfc4a8b6b34fc74f5d",
+      "size": "1403032"
+    },
+    {
+      "component": "cuda_crt",
+      "version": "13.4.59",
+      "license": "CUDA Toolkit",
+      "licensePath": "cuda_crt/LICENSE.txt",
+      "relative_path": "cuda_crt/linux-x86_64/cuda_crt-linux-x86_64-13.4.59-archive.tar.xz",
+      "sha256": "0a62d47788ffc1ec9d85c248d61a0941b8f0c47c6eeba9a26e27c01955094d3c",
+      "md5": "ae57d12618572213b91a286c4345b38d",
+      "size": "101972"
+    },
+    {
+      "component": "libcublas",
+      "version": "13.7.0.27",
+      "license": "CUDA Toolkit",
+      "licensePath": "libcublas/LICENSE.txt",
+      "relative_path": "libcublas/linux-x86_64/libcublas-linux-x86_64-13.7.0.27-archive.tar.xz",
+      "sha256": "cc38b57206f5fbfe1f7f510bffde3059c525c0119ff3af8e40a6f90f147c01c3",
+      "md5": "aba7f9a896d3eef00ff663272e744c79",
+      "size": "880573744"
+    },
+    {
+      "component": "libnvvm",
+      "version": "13.4.59",
+      "license": "CUDA Toolkit",
+      "licensePath": "libnvvm/LICENSE.txt",
+      "relative_path": "libnvvm/linux-x86_64/libnvvm-linux-x86_64-13.4.59-archive.tar.xz",
+      "sha256": "8966b24692ef664b77a3d3411a0c82b4960a2d6a179e0281dac0752c5c1518c7",
+      "md5": "6060dc1fc67f291b79a6b34c9afd12fb",
+      "size": "51311984"
+    },
+    {
+      "component": "cuda_culibos",
+      "version": "13.4.49",
+      "license": "CUDA Toolkit",
+      "licensePath": "cuda_culibos/LICENSE.txt",
+      "relative_path": "cuda_culibos/linux-x86_64/cuda_culibos-linux-x86_64-13.4.49-archive.tar.xz",
+      "sha256": "4fe0ec5e69bb7f46858aaa7c94de68b34de004dac91e88fb4e5217f3866b440a",
+      "md5": "3e42052816b31cf7e642d8e732ce51bd",
+      "size": "21444"
+    }
+  ],
+  "purpose": "local development only; no packaged redistribution performed"
+}

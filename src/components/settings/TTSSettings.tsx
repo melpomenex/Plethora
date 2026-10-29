@@ -1,3 +1,5 @@
+import { Lfm3TtsSetup } from "./Lfm3TtsSetup";
+import { LFM3_LANGUAGES, LFM3_REPO, LFM3_REVISION } from "../../utils/lfm3Tts";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getCacheSize, clearAudioCache, updateMaxCacheSize, bytesToMiB } from "../../utils/ttsCache";
 
@@ -812,6 +814,7 @@ export function TTSSettings() {
     });
   };
 
+  const isLfm3Provider = tts.provider === "lfm3";
   const isPocketProvider = tts.provider === "pocket";
   const isAndroidProvider = tts.provider === "android";
   // Pocket TTS bundles a desktop sidecar (no Android/iOS binary), so only offer
@@ -881,6 +884,7 @@ export function TTSSettings() {
                   // provider is Android-only via the platform capability
                   // registry (never iOS). Hide each where it can't run.
                   if (adapter.id === "pocket") return showPocketOption;
+                  if (adapter.id === "lfm3") return showPocketOption || tts.provider === "lfm3";
                   if (adapter.id === "android") return androidAdapterAvailable;
                   // Harness-only synthetic provider: never user-selectable.
                   if (adapter.id === "scenario-synth") return false;
@@ -914,7 +918,7 @@ export function TTSSettings() {
                         )}
                       >
                         {adapter.kind === "local"
-                          ? "Available offline"
+                          ? (adapter.id === "lfm3" ? "Local model · setup below" : "Available offline")
                           : ready
                             ? "Configured"
                             : "Needs an API key"}
@@ -961,7 +965,7 @@ export function TTSSettings() {
                 {t("settings.ttsDirectToGroq")}
               </div>
             </div>
-          ) : isPocketProvider ? (
+          ) : isPocketProvider || isLfm3Provider ? (
             <div className="space-y-1 text-sm">
               <span className="font-medium text-foreground">{t("settings.ttsRequestMode")}</span>
               <div className="w-full rounded-lg border border-border bg-muted/30 px-3 py-2 text-foreground">
@@ -1033,7 +1037,7 @@ export function TTSSettings() {
                 }
                 className="w-full rounded-lg border border-border bg-background px-3 py-2"
               >
-                {FAL_LANGUAGES.map((language) => (
+                {isLfm3Provider ? LFM3_LANGUAGES.map(([id, , label]) => <option key={id} value={id}>{label}</option>) : FAL_LANGUAGES.map((language) => (
                   <option key={language} value={language}>
                     {language}
                   </option>
@@ -1072,6 +1076,7 @@ export function TTSSettings() {
         </div>
 
         {/* Pocket TTS Status Panel */}
+        {isLfm3Provider && <Lfm3TtsSetup />}
         {isPocketProvider && <PocketTtsStatusPanel />}
 
         {!ttsConfigValidation.valid && (
@@ -1114,8 +1119,7 @@ export function TTSSettings() {
           </div>
         )}
 
-        {/* API Key section - not needed for Pocket TTS */}
-        {!isPocketProvider && !isSystemProvider && (
+        {activeAdapter.auth.mode !== "none" && (
           <div className="grid gap-4 md:grid-cols-2">
             <label className="space-y-1 text-sm">
               <span className="font-medium text-foreground">{activeAdapter.label} API key</span>
@@ -1519,7 +1523,7 @@ export function TTSSettings() {
         )}
       </section>
 
-      {!isGroqProvider && !isSystemProvider && (
+      {!isGroqProvider && !isSystemProvider && !isLfm3Provider && (
         <section className="space-y-4 rounded-xl border border-border bg-card p-5">
           <SettingsSearchTarget id="tts.presets" label={t("settings.ttsPresets")}>
             <h4 className="text-base font-semibold text-foreground">{t("settings.ttsPresets")}</h4>
@@ -1974,7 +1978,7 @@ export function TTSSettings() {
       {/* Local TTS models from Hugging Face (requirement #19). Desktop-only:
           the sherpa-onnx TTS runtime surface lives in the desktop build. */}
       {showPocketOption && (
-        <section className="space-y-4 rounded-xl border border-border bg-card p-5">
+        <SettingsSearchTarget id="tts.localModels" label="Local TTS models (Hugging Face)" className="space-y-4 rounded-xl border border-border bg-card p-5">
           <div className="flex items-center gap-2">
             <Download className="h-4 w-4 text-muted-foreground" />
             <h4 className="text-base font-semibold text-foreground">
@@ -1982,13 +1986,11 @@ export function TTSSettings() {
             </h4>
           </div>
           <p className="text-sm text-muted-foreground">
-            Install sherpa-onnx ONNX TTS models from Hugging Face. Plethora checks hardware
-            suitability and only offers models the sherpa runtime can load. The desktop sherpa
-            sidecar in this build is speech-to-text only, so installed TTS models are registered
-            and ready for a TTS-capable runtime; on Android the native sherpa TTS plugin is used.
+            Install compatible local speech models from Hugging Face. LFM3 requires its backbone
+            and audio projector. Model details show the download size, license and runtime requirements.
           </p>
-          <HuggingFaceModelManager mode="tts" />
-        </section>
+          <HuggingFaceModelManager mode="tts" initialRepo={isLfm3Provider ? `${LFM3_REPO}#${LFM3_REVISION}` : undefined} />
+        </SettingsSearchTarget>
       )}
 
       <section className="space-y-4 rounded-xl border border-border bg-card p-5">

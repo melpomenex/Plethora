@@ -1,0 +1,14 @@
+{
+  "backend": "CUDA",
+  "runtimeCommit": "ac8e1694d837b11ed0aab944a6a2eee34b9c4d80",
+  "deviceRole": "development smoke only; no product hardware restriction",
+  "binarySha256": "acd901cbcc7ea4a269a2f76a0606e700449724ab371a10d4fb79a8fbf123b408",
+  "sourceSha256": "17137d74d9f071fdf55c95120308c94a787fe9519c5836fb52adf49ee111f2c3",
+  "outputHashes": {
+    "female-en.wav": "b4936b918f058d402606af90283efb5f08b46926909e990b936133bb8b0ba90e",
+    "female-en-gb.wav": "05e221760071b3b468100d6810a41bb63a6712f42e5a943735694a1a78d1fdf8",
+    "male-en.wav": "fe6b04dd9a29fecaf8a5236ae539c7d6a46ce8171b6c36f33ff283046f516d51",
+    "male-en-gb.wav": "0a942a098440a745b8feb13b8d27744dbc33e1a89120da9df7450130dc2412d7",
+    "female-en-repeat.wav": "b4936b918f058d402606af90283efb5f08b46926909e990b936133bb8b0ba90e"
+  }
+}

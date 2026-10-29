@@ -126,11 +126,13 @@ export const SETTINGS_SEARCH_COVERAGE: readonly SettingsSearchCoverageRow[] = [
   },
   {
     section: SettingsTab.TTS,
-    sources: ["TTSSettings.tsx", "VoiceBrowser.tsx", "AndroidTtsModelManager.tsx"],
+    sources: ["TTSSettings.tsx", "Lfm3TtsSetup.tsx", "HuggingFaceModelManager.tsx", "VoiceBrowser.tsx", "AndroidTtsModelManager.tsx"],
     catalogPrefixes: ["section.tts", "tts."],
     exclusions: [
       "API keys, proxy URLs, and generated audio are private/runtime values.",
       "Provider-specific language/speed/system-voice rows are indexed only in the provider states that render them.",
+      "Credential fields follow adapter authentication; local LFM3 has model setup and no API-key or proxy control.",
+      "LFM3 reuses shared provider, active voice, language and preview targets; its model setup has tts.lfm3.model. Download/manage actions are never run by search.",
       "Generate/preview/play controls execute actions and are never invoked by search.",
     ],
   },

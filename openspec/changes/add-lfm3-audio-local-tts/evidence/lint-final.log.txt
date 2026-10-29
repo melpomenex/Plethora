@@ -1,0 +1,23 @@
+
+/home/ubuntu/Code/Plethora/src/api/tts.ts
+   59:11  warning  Empty block statement  no-empty
+  156:11  warning  Empty block statement  no-empty
+
+/home/ubuntu/Code/Plethora/src/components/audio/CreateAudioEditionDialog.tsx
+  19:3  warning  'User' is defined but never used. Allowed unused vars must match /^_/u                   @typescript-eslint/no-unused-vars
+  50:3  warning  'POCKET_BUILTIN_VOICES' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+/home/ubuntu/Code/Plethora/src/components/audio/__tests__/CreateAudioEditionDialog.test.tsx
+  492:13  warning  'container' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+/home/ubuntu/Code/Plethora/src/components/common/ReaderTTSControls.tsx
+   36:3  warning  'CHUNK_TARGET' is defined but never used. Allowed unused vars must match /^_/u                  @typescript-eslint/no-unused-vars
+   38:8  warning  'ResolveStartContext' is defined but never used. Allowed unused vars must match /^_/u           @typescript-eslint/no-unused-vars
+  373:5  warning  Unused eslint-disable directive (no problems were reported from 'react-hooks/exhaustive-deps')
+
+/home/ubuntu/Code/Plethora/src/components/settings/TTSSettings.tsx
+  828:9  warning  'showSystemOption' is assigned a value but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+✖ 9 problems (0 errors, 9 warnings)
+  0 errors and 1 warning potentially fixable with the `--fix` option.
+

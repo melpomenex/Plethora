@@ -1,0 +1,7 @@
+     ✓ opens a nested provider tab before focusing its configuration without changing settings  380ms
+
+ Test Files  24 passed (24)
+      Tests  195 passed (195)
+   Start at  19:15:52
+   Duration  11.02s (transform 35.07s, setup 7.07s, import 38.70s, tests 10.76s, environment 45.21s)
+

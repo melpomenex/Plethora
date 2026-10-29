@@ -1,3 +1,4 @@
+import { LFM3_LANGUAGES } from "../../utils/lfm3Tts";
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { createOwnedObjectUrl, revokeOwnedObjectUrl } from "../../diagnostics/ownedObjectUrl";
@@ -5,21 +6,16 @@ import {
   X,
   Play,
   Stop,
-  Sparkle,
   Sliders,
   SpeakerHigh,
   Coins,
   Clock,
   BookOpen,
   WarningCircle,
-  CheckCircle,
-  Lightning,
   CircleNotch,
-  User,
-  Cloud,
 } from "@phosphor-icons/react";
 import type { Document } from "../../types/document";
-import type { QualityPreset, AudioEdition } from "../../types/audioEdition";
+import type { AudioEdition } from "../../types/audioEdition";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useTabsStore } from "../../stores/tabsStore";
 import { useAudioEditionGenerationStore } from "../../stores/audioEditionGenerationStore";
@@ -40,13 +36,9 @@ import {
   type PdfPageContent,
   type PdfOutlineItem,
 } from "../../utils/pdfTextExtractor";
+import { estimateAudioEditionCost, formatAudioDuration } from "../../utils/audioEditionEstimation";
+import { getAdapter, listAdapters } from "../../api/tts/registry";
 import {
-  estimateAudioEditionCost,
-  formatAudioDuration,
-} from "../../utils/audioEditionEstimation";
-import { getAdapter } from "../../api/tts/registry";
-import {
-  POCKET_BUILTIN_VOICES,
   GROQ_BUILTIN_VOICES,
   FAL_BUILTIN_VOICES,
   getProviderSettings,
@@ -55,7 +47,6 @@ import { resolveProviderKey } from "../../api/tts/auth";
 import { isPaidTtsProvider, requestPaidConsent } from "../../utils/aiBillingConsent";
 import {
   CHATTERBOX_DEFAULT_VOICE,
-  CHATTERBOX_MODEL_ID,
   CHATTERBOX_PROVIDER_ID,
   checkChatterboxHealth,
 } from "../../utils/chatterboxAudio";
@@ -81,7 +72,12 @@ const POCKET_DEFAULT_VOICES: AvailableVoice[] = [
 ];
 
 const OPENAI_DEFAULT_VOICES: AvailableVoice[] = [
-  { id: "alloy", name: "Alloy", gender: "Neutral", description: "Balanced and versatile (Default)" },
+  {
+    id: "alloy",
+    name: "Alloy",
+    gender: "Neutral",
+    description: "Balanced and versatile (Default)",
+  },
   { id: "echo", name: "Echo", gender: "Male", description: "Deep and resonant" },
   { id: "fable", name: "Fable", gender: "Male", description: "British accent, expressive" },
   { id: "onyx", name: "Onyx", gender: "Male", description: "Warm, authoritative" },
@@ -93,12 +89,32 @@ const OPENAI_DEFAULT_VOICES: AvailableVoice[] = [
 ];
 
 const ELEVENLABS_DEFAULT_VOICES: AvailableVoice[] = [
-  { id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel", gender: "Female", description: "Calm, studio narration (Default)" },
-  { id: "pNInz6obpgDQGcFmaJgB", name: "Adam", gender: "Male", description: "Warm, deep audiobook narrator" },
-  { id: "ErXwobaYiN019PkySvjV", name: "Antoni", gender: "Male", description: "Well-rounded, pleasant" },
+  {
+    id: "21m00Tcm4TlvDq8ikWAM",
+    name: "Rachel",
+    gender: "Female",
+    description: "Calm, studio narration (Default)",
+  },
+  {
+    id: "pNInz6obpgDQGcFmaJgB",
+    name: "Adam",
+    gender: "Male",
+    description: "Warm, deep audiobook narrator",
+  },
+  {
+    id: "ErXwobaYiN019PkySvjV",
+    name: "Antoni",
+    gender: "Male",
+    description: "Well-rounded, pleasant",
+  },
   { id: "VR6AewLTigWG4xSOukaG", name: "Arnold", gender: "Male", description: "Crisp, clear" },
   { id: "AZnzlk1XvdvUeBnXmlld", name: "Domi", gender: "Female", description: "Strong, confident" },
-  { id: "MF3mGyEYCl7XYWbV9V6O", name: "Elli", gender: "Female", description: "Young, clear narration" },
+  {
+    id: "MF3mGyEYCl7XYWbV9V6O",
+    name: "Elli",
+    gender: "Female",
+    description: "Young, clear narration",
+  },
   { id: "TxGEqnHWrfWFTfGW9XjX", name: "Josh", gender: "Male", description: "Deep, conversational" },
   { id: "yoZ06aMxZJJ28mfd3POQ", name: "Sam", gender: "Male", description: "Dynamic storytelling" },
   { id: "EXAVITQu4vr4xnSDxMaL", name: "Bella", gender: "Female", description: "Expressive" },
@@ -118,7 +134,12 @@ const KOKORO_DEFAULT_VOICES: AvailableVoice[] = [
 ];
 
 const CHATTERBOX_DEFAULT_VOICES: AvailableVoice[] = [
-  { id: CHATTERBOX_DEFAULT_VOICE, name: "Default", gender: "Neutral", description: "Local Chatterbox voice" },
+  {
+    id: CHATTERBOX_DEFAULT_VOICE,
+    name: "Default",
+    gender: "Neutral",
+    description: "Local Chatterbox voice",
+  },
 ];
 
 interface CreateAudioEditionDialogProps {
@@ -135,18 +156,28 @@ export function CreateAudioEditionDialog({
   onCreated,
 }: CreateAudioEditionDialogProps) {
   const settings = useSettingsStore((state) => state.settings);
-  const [quality, setQuality] = useState<QualityPreset>("natural");
+  const fileAdapters = listAdapters().filter(
+    (adapter) => adapter.capabilities.audioFormats.length > 0
+  );
+  const preferredProvider = fileAdapters.some((adapter) => adapter.id === settings.tts.provider)
+    ? settings.tts.provider
+    : "";
+  const initialConfig = getProviderSettings(settings.tts, preferredProvider);
   const [showAdvanced, setShowAdvanced] = useState(false);
-
-  // Advanced overrides
-  const [provider, setProvider] = useState<string>("openrouter");
-  const [model, setModel] = useState<string>("openai/tts-1");
-  const [voice, setVoice] = useState<string>("alloy");
-  const [speed, setSpeed] = useState<number>(1.0);
-  const [instructions, setInstructions] = useState<string>("");
+  const [provider, setProvider] = useState<string>(preferredProvider);
+  const [model, setModel] = useState(preferredProvider ? initialConfig.modelId : "");
+  const [voice, setVoice] = useState(preferredProvider ? initialConfig.voiceId : "");
+  const [language, setLanguage] = useState(initialConfig.language);
+  const [speed, setSpeed] = useState(initialConfig.speed);
+  const [instructions, setInstructions] = useState(initialConfig.instructions);
+  const activeAdapter = getAdapter(provider);
+  const supportsSpeed =
+    Boolean(provider) &&
+    activeAdapter.capabilities.supportsSpeed &&
+    provider !== CHATTERBOX_PROVIDER_ID;
+  const supportsInstructions = Boolean(provider) && activeAdapter.capabilities.supportsInstructions;
 
   const isChatterboxPath = provider === CHATTERBOX_PROVIDER_ID;
-  const isFalPath = provider === "fal";
   // Tracks whether the user hand-picked a Chatterbox voice: while untouched,
   // freshly enumerated voices upgrade the "default" fallback automatically.
   const chatterboxVoiceTouchedRef = useRef(false);
@@ -154,6 +185,7 @@ export function CreateAudioEditionDialog({
   // Audition preview state
   const [isAuditioning, setIsAuditioning] = useState(false);
   const [auditionError, setAuditionError] = useState<string | null>(null);
+  const auditionControllerRef = useRef<AbortController | null>(null);
   const auditionAudioRef = useRef<HTMLAudioElement | null>(null);
   const auditionUrlRef = useRef<string | null>(null);
 
@@ -253,6 +285,8 @@ export function CreateAudioEditionDialog({
 
   // Stop audition helper
   const stopAudition = () => {
+    auditionControllerRef.current?.abort();
+    auditionControllerRef.current = null;
     if (auditionAudioRef.current) {
       auditionAudioRef.current.pause();
       auditionAudioRef.current = null;
@@ -262,105 +296,55 @@ export function CreateAudioEditionDialog({
     auditionUrlRef.current = null;
   };
 
-  const handleQualityChange = (newQuality: QualityPreset) => {
-    stopAudition();
-    setQuality(newQuality);
-    setShowAdvanced(false);
-    if (newQuality === "fast") {
-      setProvider("pocket");
-      setModel("default");
-      setVoice("alba");
-    } else if (newQuality === "natural") {
-      setProvider("openrouter");
-      setModel("openai/tts-1");
-      setVoice("alloy");
-    } else if (newQuality === "best") {
-      setProvider("elevenlabs");
-      setModel("eleven_multilingual_v2");
-      setVoice("21m00Tcm4TlvDq8ikWAM"); // Rachel
-    } else if (newQuality === "expressive") {
-      setProvider(CHATTERBOX_PROVIDER_ID);
-      setModel(CHATTERBOX_MODEL_ID);
-      chatterboxVoiceTouchedRef.current = false;
-      setVoice(dynamicVoices[0]?.id || CHATTERBOX_DEFAULT_VOICE);
-    } else if (newQuality === "fal") {
-      setProvider("fal");
-      const falSettings = getProviderSettings(settings.tts, "fal");
-      setModel(falSettings.modelId || "fal-ai/qwen-3-tts/text-to-speech/1.7b");
-      setVoice(falSettings.voiceId || "Vivian");
-    }
-  };
-
   const handleProviderChange = (newProvider: string) => {
     stopAudition();
+    const config = getProviderSettings(useSettingsStore.getState().settings.tts, newProvider);
     setProvider(newProvider);
-    if (newProvider === CHATTERBOX_PROVIDER_ID) {
-      setModel(CHATTERBOX_MODEL_ID);
-      chatterboxVoiceTouchedRef.current = false;
-      setVoice(dynamicVoices[0]?.id || CHATTERBOX_DEFAULT_VOICE);
-    } else if (newProvider === "pocket") {
-      setModel("default");
-      setVoice("alba");
-    } else if (newProvider === "openai") {
-      setModel("gpt-4o-mini-tts");
-      setVoice("alloy");
-    } else if (newProvider === "openrouter") {
-      setModel("openai/tts-1");
-      setVoice("alloy");
-    } else if (newProvider === "elevenlabs") {
-      setModel("eleven_multilingual_v2");
-      setVoice("21m00Tcm4TlvDq8ikWAM");
-    } else if (newProvider === "system") {
-      setModel("system");
-      setVoice("system-default");
-    } else if (newProvider === "groq") {
-      setModel("playai-tts");
-      setVoice("Fiora");
-    } else if (newProvider === "fal") {
-      const falSettings = getProviderSettings(settings.tts, "fal");
-      setModel(falSettings.modelId || "fal-ai/qwen-3-tts/text-to-speech/1.7b");
-      setVoice(falSettings.voiceId || "Vivian");
-    }
+    setModel(config.modelId);
+    setVoice(config.voiceId);
+    setLanguage(config.language);
+    setSpeed(newProvider === "pocket" ? config.pocketSpeed : config.speed);
+    setInstructions(config.instructions);
+    setDynamicVoices([]);
+    setAuditionError(null);
+    chatterboxVoiceTouchedRef.current = false;
   };
 
   // Dynamic voices fetched from adapter if available (declared before the
-  // quality/provider handlers: they read the latest enumeration).
+  // provider handler: they read the latest enumeration).
   const [dynamicVoices, setDynamicVoices] = useState<AvailableVoice[]>([]);
 
-  // Sync provider/model/voice when preset changes
-  // Revoke the audition preview URL on dismiss (task 5.7).
   useEffect(() => {
     return () => {
+      auditionControllerRef.current?.abort();
+      auditionAudioRef.current?.pause();
       revokeOwnedObjectUrl(auditionUrlRef.current ?? "");
       auditionUrlRef.current = null;
     };
   }, []);
 
+  // Snapshot the user's TTS choices when opening; edits belong to this edition.
   useEffect(() => {
-    if (quality === "fast") {
-      setProvider("pocket");
-      setModel("default");
-      setVoice("alba");
-    } else if (quality === "natural") {
-      setProvider("openrouter");
-      setModel("openai/tts-1");
-      setVoice("alloy");
-    } else if (quality === "best") {
-      setProvider("elevenlabs");
-      setModel("eleven_multilingual_v2");
-      setVoice("21m00Tcm4TlvDq8ikWAM"); // Rachel
-    } else if (quality === "expressive") {
-      setProvider(CHATTERBOX_PROVIDER_ID);
-      setModel(CHATTERBOX_MODEL_ID);
-      chatterboxVoiceTouchedRef.current = false;
-      setVoice(dynamicVoices[0]?.id || CHATTERBOX_DEFAULT_VOICE);
-    } else if (quality === "fal") {
-      setProvider("fal");
-      const falSettings = getProviderSettings(settings.tts, "fal");
-      setModel(falSettings.modelId || "fal-ai/qwen-3-tts/text-to-speech/1.7b");
-      setVoice(falSettings.voiceId || "Vivian");
+    if (!isOpen) {
+      stopAudition();
+      return;
     }
-  }, [quality]);
+    const tts = useSettingsStore.getState().settings.tts;
+    const selected = listAdapters().find(
+      (adapter) => adapter.id === tts.provider && adapter.capabilities.audioFormats.length > 0
+    );
+    const id = selected?.id ?? "";
+    const config = getProviderSettings(tts, id);
+    setProvider(id);
+    setModel(id ? config.modelId : "");
+    setVoice(id ? config.voiceId : "");
+    setLanguage(config.language);
+    setSpeed(id === "pocket" ? config.pocketSpeed : config.speed);
+    setInstructions(config.instructions);
+    setShowAdvanced(false);
+    setDynamicVoices([]);
+    setAuditionError(null);
+  }, [isOpen, doc.id]);
 
   // Upgrade the Chatterbox fallback voice once enumeration lands, unless the
   // user already hand-picked a voice on this path.
@@ -381,8 +365,8 @@ export function CreateAudioEditionDialog({
     let cancelled = false;
     const fetchAdapterVoices = async () => {
       try {
+        if (!provider) return;
         const adapter = getAdapter(provider);
-        if (!adapter) return;
         const tts = settings.tts || ({} as any);
         const config = getProviderSettings(tts, provider);
         const resolvedKey = adapter?.auth ? resolveProviderKey(adapter, settings) : { key: "" };
@@ -418,7 +402,9 @@ export function CreateAudioEditionDialog({
 
   const { savedVoiceProfiles, standardVoices, availableVoices } = useMemo(() => {
     const userProfiles = (settings.tts?.voiceProfiles || [])
-      .filter((p) => p.provider === provider && (p.voice || p.speakerEmbeddingUrl) && p.kind !== "builtin")
+      .filter(
+        (p) => p.provider === provider && (p.voice || p.speakerEmbeddingUrl) && p.kind !== "builtin"
+      )
       .map((p) => ({
         id: (p.voice || p.id)!,
         name: p.name,
@@ -430,6 +416,11 @@ export function CreateAudioEditionDialog({
     let baseList: AvailableVoice[] = [];
     if (provider === "pocket") {
       baseList = POCKET_DEFAULT_VOICES;
+    } else if (provider === "lfm3") {
+      baseList = [
+        { id: "female", name: "Female" },
+        { id: "male", name: "Male" },
+      ];
     } else if (provider === "openai") {
       baseList = OPENAI_DEFAULT_VOICES;
     } else if (provider === "elevenlabs") {
@@ -471,11 +462,11 @@ export function CreateAudioEditionDialog({
     };
   }, [provider, model, settings.tts?.voiceProfiles, dynamicVoices]);
 
-  const selectedVoiceDisplay = useMemo(() => {
-    const found = availableVoices.find(
-      (v) => v.id.toLowerCase() === voice.toLowerCase() || v.name.toLowerCase() === voice.toLowerCase()
+  useEffect(() => {
+    const namedVoice = availableVoices.find(
+      (item) => item.name.toLowerCase() === voice.toLowerCase()
     );
-    return found ? found.name : voice;
+    if (!availableVoices.some((item) => item.id === voice) && namedVoice) setVoice(namedVoice.id);
   }, [availableVoices, voice]);
 
   // Derive document sections & sample text
@@ -485,10 +476,17 @@ export function CreateAudioEditionDialog({
 
     if (hydratedDoc.fileType === "epub") {
       const toc = (hydratedDoc.metadata as any)?.toc || [];
-      extracted = extractEpubSemanticSections(toc, undefined, { [hydratedDoc.filePath || ""]: rawContent });
+      extracted = extractEpubSemanticSections(toc, undefined, {
+        [hydratedDoc.filePath || ""]: rawContent,
+      });
     } else if (hydratedDoc.fileType === "pdf") {
-      const outline = (hydratedDoc.metadata as any)?.outline || (pdfOutline.length > 0 ? pdfOutline : []);
-      extracted = extractPdfSemanticSections(outline, pageContents.length > 0 ? pageContents : undefined, rawContent);
+      const outline =
+        (hydratedDoc.metadata as any)?.outline || (pdfOutline.length > 0 ? pdfOutline : []);
+      extracted = extractPdfSemanticSections(
+        outline,
+        pageContents.length > 0 ? pageContents : undefined,
+        rawContent
+      );
     } else {
       extracted = extractArticleSemanticSections(rawContent);
     }
@@ -496,7 +494,8 @@ export function CreateAudioEditionDialog({
     // If structural section extraction produced nothing or only empty sections,
     // fallback to article/paragraph chunking on rawContent
     if (
-      (extracted.length === 0 || extracted.every((s) => !s.content || s.content.trim().length === 0)) &&
+      (extracted.length === 0 ||
+        extracted.every((s) => !s.content || s.content.trim().length === 0)) &&
       rawContent.trim().length > 0
     ) {
       extracted = extractArticleSemanticSections(rawContent);
@@ -506,7 +505,9 @@ export function CreateAudioEditionDialog({
     extracted = extracted.filter((s) => s.content && s.content.trim().length > 0);
 
     const sample = extracted[0]?.content?.slice(0, 300) || "";
-    const count = extracted.reduce((acc, s) => acc + s.characterCount, 0) || stripHtmlTags(rawContent).trim().length;
+    const count =
+      extracted.reduce((acc, s) => acc + s.characterCount, 0) ||
+      stripHtmlTags(rawContent).trim().length;
 
     return {
       sections: extracted,
@@ -525,13 +526,30 @@ export function CreateAudioEditionDialog({
     });
   }, [totalChars, provider, model, speed]);
 
+  const playAuditionBlob = async (audioBlob: Blob) => {
+    revokeOwnedObjectUrl(auditionUrlRef.current);
+    const audioUrl = createOwnedObjectUrl(audioBlob, { owner: "edition-audition" });
+    auditionUrlRef.current = audioUrl;
+    const audio = new Audio(audioUrl);
+    auditionAudioRef.current = audio;
+    audio.onended = () => {
+      setIsAuditioning(false);
+      auditionAudioRef.current = null;
+      revokeOwnedObjectUrl(audioUrl);
+      if (auditionUrlRef.current === audioUrl) auditionUrlRef.current = null;
+    };
+    audio.onerror = () => {
+      setIsAuditioning(false);
+      setAuditionError("Failed to play audition audio.");
+      revokeOwnedObjectUrl(audioUrl);
+      if (auditionUrlRef.current === audioUrl) auditionUrlRef.current = null;
+    };
+    await audio.play();
+  };
+
   const handleAudition = async () => {
     if (isAuditioning) {
-      if (auditionAudioRef.current) {
-        auditionAudioRef.current.pause();
-        auditionAudioRef.current = null;
-      }
-      setIsAuditioning(false);
+      stopAudition();
       return;
     }
 
@@ -549,37 +567,28 @@ export function CreateAudioEditionDialog({
     }
 
     setIsAuditioning(true);
+    const controller = new AbortController();
+    auditionControllerRef.current = controller;
 
     try {
-      const audioBlob = await auditionVoicePreview(sampleText, provider, model, voice, {
-        speed: isChatterboxPath || isFalPath ? undefined : speed,
-        instructions,
-        responseFormat: isChatterboxPath ? "wav" : undefined,
-      });
+      const audioBlob = await auditionVoicePreview(
+        sampleText,
+        provider,
+        model,
+        voice,
+        {
+          speed: supportsSpeed ? speed : undefined,
+          instructions: supportsInstructions ? instructions : undefined,
+          responseFormat: isChatterboxPath || provider === "lfm3" ? "wav" : undefined,
+          language,
+        },
+        controller.signal
+      );
+      if (controller.signal.aborted) return;
 
-      // Owned URL + revoke-on-replace/-end/-dismiss (task 5.7): the preview
-      // URL previously lived for the rest of the session.
-      revokeOwnedObjectUrl(auditionUrlRef.current);
-      const audioUrl = createOwnedObjectUrl(audioBlob, { owner: "edition-audition" });
-      auditionUrlRef.current = audioUrl;
-      const audio = new Audio(audioUrl);
-      auditionAudioRef.current = audio;
-
-      audio.onended = () => {
-        setIsAuditioning(false);
-        auditionAudioRef.current = null;
-        revokeOwnedObjectUrl(audioUrl);
-        if (auditionUrlRef.current === audioUrl) auditionUrlRef.current = null;
-      };
-      audio.onerror = () => {
-        setIsAuditioning(false);
-        setAuditionError("Failed to play audition audio.");
-        revokeOwnedObjectUrl(audioUrl);
-        if (auditionUrlRef.current === audioUrl) auditionUrlRef.current = null;
-      };
-
-      await audio.play();
+      await playAuditionBlob(audioBlob);
     } catch (err: any) {
+      if (controller.signal.aborted) return;
       console.warn("Audition error:", err);
       setAuditionError(err?.message || "Audition failed.");
       setIsAuditioning(false);
@@ -597,7 +606,8 @@ export function CreateAudioEditionDialog({
         return;
       }
 
-      const activeAdapter = getAdapter(provider);
+      if (!provider || !activeAdapter.capabilities.audioFormats.length)
+        throw new Error("Choose a narration provider that can create audio files.");
       // Paid/cloud gate (ai-billing-safety #14): never start a billable
       // audio-edition synthesis without explicit consent. The pre-flight
       // summary already discloses the provider/cost; this enforces the flag.
@@ -624,14 +634,16 @@ export function CreateAudioEditionDialog({
         }
       }
 
-      const editionId = typeof crypto !== "undefined" && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `ed-${Date.now()}`;
+      const editionId =
+        typeof crypto !== "undefined" && crypto.randomUUID
+          ? crypto.randomUUID()
+          : `ed-${Date.now()}`;
 
       const audioSections = sections.map((s, idx) => ({
-        id: typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `sec-${Date.now()}-${idx}`,
+        id:
+          typeof crypto !== "undefined" && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `sec-${Date.now()}-${idx}`,
         editionId,
         sectionIndex: s.sectionIndex,
         title: s.title,
@@ -640,7 +652,7 @@ export function CreateAudioEditionDialog({
         sourceEndAnchor: s.sourceEndAnchor || null,
         characterCount: s.characterCount,
         audioFilePath: null,
-        audioMimeType: isChatterboxPath ? "audio/wav" : "audio/mp3",
+        audioMimeType: isChatterboxPath || provider === "lfm3" ? "audio/wav" : "audio/mp3",
         durationSec: 0,
         generationStatus: "queued" as const,
         failureReason: null,
@@ -657,10 +669,12 @@ export function CreateAudioEditionDialog({
         provider,
         model,
         voice,
-        qualityPreset: quality,
+        qualityPreset: null,
         generationSettings: {
-          speed: isFalPath ? undefined : speed,
-          instructions,
+          language,
+          responseFormat: provider === "lfm3" ? "wav" : undefined,
+          speed: supportsSpeed ? speed : undefined,
+          instructions: supportsInstructions ? instructions : undefined,
         },
         totalDurationSec: estimation.estimatedDurationSec,
         status: "draft",
@@ -746,12 +760,13 @@ export function CreateAudioEditionDialog({
               <SpeakerHigh size={22} weight="bold" />
             </div>
             <div className="min-w-0">
-              <h2 id="create-audio-edition-title" className="text-base sm:text-lg font-semibold leading-tight truncate">
+              <h2
+                id="create-audio-edition-title"
+                className="text-base sm:text-lg font-semibold leading-tight truncate"
+              >
                 Create Audio Edition
               </h2>
-              <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">
-                {doc.title}
-              </p>
+              <p className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{doc.title}</p>
             </div>
           </div>
           <button
@@ -804,368 +819,204 @@ export function CreateAudioEditionDialog({
             </div>
           )}
 
-          {/* Quality Tier Selector */}
-          <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-              Quality & Voice Profile
-            </label>
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5 sm:gap-3">
-              {/* Fast */}
-              <button
-                type="button"
-                onClick={() => handleQualityChange("fast")}
-                className={`flex flex-col items-start p-3.5 rounded-xl border text-left transition-all ${
-                  quality === "fast" && !showAdvanced
-                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm"
-                    : "border-border hover:border-muted-foreground/40 bg-card"
-                }`}
-              >
-                <div className="flex items-center gap-1.5 text-primary font-medium text-xs mb-1">
-                  <Lightning size={14} weight="fill" />
-                  <span>Fast</span>
-                </div>
-                <span className="font-semibold text-sm">Pocket / Local</span>
-                <span className="text-[11px] text-muted-foreground mt-1">
-                  Free, on-device offline synthesis
-                </span>
-              </button>
-
-              {/* Natural */}
-              <button
-                type="button"
-                onClick={() => handleQualityChange("natural")}
-                className={`flex flex-col items-start p-3.5 rounded-xl border text-left transition-all ${
-                  quality === "natural" && !showAdvanced
-                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm"
-                    : "border-border hover:border-muted-foreground/40 bg-card"
-                }`}
-              >
-                <div className="flex items-center gap-1.5 text-emerald-500 font-medium text-xs mb-1">
-                  <Sparkle size={14} weight="fill" />
-                  <span>Natural</span>
-                </div>
-                <span className="font-semibold text-sm">OpenAI / Natural</span>
-                <span className="text-[11px] text-muted-foreground mt-1">
-                  Balanced cadence, realistic speech
-                </span>
-              </button>
-
-              {/* Best */}
-              <button
-                type="button"
-                onClick={() => handleQualityChange("best")}
-                className={`flex flex-col items-start p-3.5 rounded-xl border text-left transition-all ${
-                  quality === "best" && !showAdvanced
-                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm"
-                    : "border-border hover:border-muted-foreground/40 bg-card"
-                }`}
-              >
-                <div className="flex items-center gap-1.5 text-purple-500 font-medium text-xs mb-1">
-                  <CheckCircle size={14} weight="fill" />
-                  <span>Best</span>
-                </div>
-                <span className="font-semibold text-sm">ElevenLabs</span>
-                <span className="text-[11px] text-muted-foreground mt-1">
-                  Expressive audio, studio clarity
-                </span>
-              </button>
-
-              {/* Expressive */}
-              <button
-                type="button"
-                onClick={() => handleQualityChange("expressive")}
-                className={`flex flex-col items-start p-3.5 rounded-xl border text-left transition-all ${
-                  quality === "expressive" && !showAdvanced
-                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm"
-                    : "border-border hover:border-muted-foreground/40 bg-card"
-                }`}
-              >
-                <div className="flex items-center gap-1.5 text-sky-500 font-medium text-xs mb-1">
-                  <SpeakerHigh size={14} weight="fill" />
-                  <span>Expressive</span>
-                </div>
-                <span className="font-semibold text-sm">Chatterbox / Local</span>
-                <span className="text-[11px] text-muted-foreground mt-1">
-                  Free, local GPU narration · voice cloning
-                </span>
-              </button>
-
-              {/* Fal.ai */}
-              <button
-                type="button"
-                onClick={() => handleQualityChange("fal")}
-                className={`flex flex-col items-start p-3.5 rounded-xl border text-left transition-all col-span-2 sm:col-span-1 ${
-                  quality === "fal" && !showAdvanced
-                    ? "border-primary bg-primary/5 ring-2 ring-primary/20 shadow-sm"
-                    : "border-border hover:border-muted-foreground/40 bg-card"
-                }`}
-              >
-                <div className="flex items-center gap-1.5 text-amber-500 font-medium text-xs mb-1">
-                  <Cloud size={14} weight="fill" />
-                  <span>Fal.ai</span>
-                </div>
-                <span className="font-semibold text-sm">Fal.ai / Cloud</span>
-                <span className="text-[11px] text-muted-foreground mt-1">
-                  Cloud neural narration · voice cloning
-                </span>
-              </button>
-            </div>
-          </div>
-
-          {/* Voice Selection */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <label
-                htmlFor="audio-edition-voice-select"
-                className="block text-xs font-semibold uppercase tracking-wider text-muted-foreground"
-              >
-                Voice Selection
+          <section aria-labelledby="audio-edition-narration-title" className="space-y-4">
+            <h3 id="audio-edition-narration-title" className="text-base font-semibold">
+              Narration
+            </h3>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="min-w-0 space-y-1.5 text-sm">
+                <span className="font-medium">Narration provider</span>
+                <select
+                  value={provider}
+                  onChange={(e) => handleProviderChange(e.target.value)}
+                  className="min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                >
+                  <option value="" disabled>
+                    Choose a provider
+                  </option>
+                  <optgroup label="On this device">
+                    {fileAdapters
+                      .filter((adapter) => adapter.kind === "local")
+                      .map((adapter) => (
+                        <option key={adapter.id} value={adapter.id}>
+                          {adapter.label}
+                        </option>
+                      ))}
+                  </optgroup>
+                  <optgroup label="Cloud services">
+                    {fileAdapters
+                      .filter(
+                        (adapter) =>
+                          adapter.kind === "cloud" && adapter.id !== CHATTERBOX_PROVIDER_ID
+                      )
+                      .map((adapter) => (
+                        <option key={adapter.id} value={adapter.id}>
+                          {adapter.label}
+                        </option>
+                      ))}
+                  </optgroup>
+                  <optgroup label="Custom service">
+                    <option value={CHATTERBOX_PROVIDER_ID}>Chatterbox / OpenAI-compatible</option>
+                  </optgroup>
+                </select>
               </label>
-              <span className="text-[11px] text-muted-foreground">
-                {availableVoices.length} {availableVoices.length === 1 ? "voice" : "voices"} available
-              </span>
-            </div>
-            <div className="relative">
-              <select
-                id="audio-edition-voice-select"
-                data-testid="voice-select"
-                value={voice}
-                onChange={(e) => {
-                  stopAudition();
-                  chatterboxVoiceTouchedRef.current = true;
-                  setVoice(e.target.value);
-                }}
-                className="w-full bg-background border border-input rounded-xl px-3 py-2 text-sm font-medium text-foreground focus:ring-2 focus:ring-primary focus:outline-none transition-all cursor-pointer shadow-sm"
-              >
-                {savedVoiceProfiles.length > 0 && (
-                  <optgroup label="Saved Voice Profiles">
-                    {savedVoiceProfiles.map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.name} (Custom Profile)
+              <label className="min-w-0 space-y-1.5 text-sm">
+                <span className="font-medium">Voice</span>
+                <select
+                  id="audio-edition-voice-select"
+                  data-testid="voice-select"
+                  value={voice}
+                  disabled={!provider}
+                  onChange={(e) => {
+                    stopAudition();
+                    chatterboxVoiceTouchedRef.current = true;
+                    setVoice(e.target.value);
+                  }}
+                  className="min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
+                >
+                  {savedVoiceProfiles.length > 0 && (
+                    <optgroup label="Saved voices">
+                      {savedVoiceProfiles.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  <optgroup label="Available voices">
+                    {!provider && (
+                      <option value="" disabled>
+                        Choose a voice
+                      </option>
+                    )}
+                    {voice && !availableVoices.some((item) => item.id === voice) && (
+                      <option value={voice}>Configured voice ({voice})</option>
+                    )}
+                    {standardVoices.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
                       </option>
                     ))}
                   </optgroup>
-                )}
-                <optgroup label="Available Voices">
-                  {standardVoices.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name} ({v.gender || "Voice"}{v.description ? ` · ${v.description}` : ""})
+                </select>
+              </label>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              {!provider
+                ? "Your current voice plays live and cannot create an audio file. Choose a narration provider."
+                : activeAdapter.kind === "local"
+                  ? "Runs on this device. No API key needed."
+                  : provider === CHATTERBOX_PROVIDER_ID
+                    ? "Uses your configured Chatterbox or OpenAI-compatible service."
+                    : "Uses your provider settings. Cloud narration may incur charges."}
+            </p>
+            {provider === "lfm3" && (
+              <label className="block space-y-1.5 text-sm">
+                <span className="font-medium">Language</span>
+                <select
+                  value={language}
+                  onChange={(e) => {
+                    stopAudition();
+                    setLanguage(e.target.value);
+                  }}
+                  className="min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                >
+                  {LFM3_LANGUAGES.map(([id, , label]) => (
+                    <option key={id} value={id}>
+                      {label}
                     </option>
                   ))}
-                </optgroup>
-              </select>
+                </select>
+              </label>
+            )}
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-sm text-muted-foreground">Try a short sample.</p>
+              <button
+                type="button"
+                onClick={handleAudition}
+                disabled={!provider || (!isAuditioning && (isLoadingDoc || totalChars === 0))}
+                data-testid="audition-voice-button"
+                className="inline-flex min-h-10 shrink-0 items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm font-medium hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
+              >
+                {isAuditioning ? (
+                  <Stop size={16} weight="fill" />
+                ) : (
+                  <Play size={16} weight="fill" />
+                )}
+                {isAuditioning ? "Stop" : "Preview voice"}
+              </button>
             </div>
-          </div>
-
-          {/* Voice Audition Preview Button */}
-          <div className="flex items-center justify-between p-3.5 rounded-xl bg-muted/40 border border-border/80">
-            <div className="space-y-0.5 min-w-0 pr-3">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-medium">Audition Document Voice</span>
-                <span className="text-[11px] text-primary font-semibold truncate">
-                  ({selectedVoiceDisplay})
-                </span>
-              </div>
-              <p className="text-[11px] text-muted-foreground line-clamp-1">
-                Preview first paragraph: “{sampleText.slice(0, 50)}...”
+            {auditionError && (
+              <p role="alert" className="flex items-start gap-2 text-sm text-destructive">
+                <WarningCircle size={16} className="shrink-0" />
+                {auditionError}
               </p>
-            </div>
+            )}
             <button
               type="button"
-              onClick={handleAudition}
-              disabled={isAuditioning ? false : isLoadingDoc || totalChars === 0}
-              data-testid="audition-voice-button"
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-secondary text-secondary-foreground hover:bg-secondary/80 transition-colors shadow-sm disabled:opacity-40 shrink-0"
-            >
-              {isAuditioning ? (
-                <>
-                  <Stop size={14} weight="fill" className="text-red-500 animate-pulse" />
-                  <span>Stop</span>
-                </>
-              ) : (
-                <>
-                  <Play size={14} weight="fill" />
-                  <span>Audition</span>
-                </>
-              )}
-            </button>
-          </div>
-          {auditionError && (
-            <p className="text-xs text-destructive flex items-center gap-1">
-              <WarningCircle size={14} />
-              {auditionError}
-            </p>
-          )}
-
-          {/* Advanced Accordion */}
-          <div className="border-t border-border/60 pt-4">
-            <button
-              type="button"
+              aria-expanded={showAdvanced}
+              aria-controls="audio-edition-options"
               onClick={() => setShowAdvanced(!showAdvanced)}
-              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground font-medium transition-colors"
+              className="inline-flex min-h-10 items-center gap-2 rounded-lg px-2 text-sm text-muted-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
             >
-              <Sliders size={14} />
-              <span>{showAdvanced ? "Hide Advanced Settings" : "Show Advanced Settings (Provider, Speed, Voice)"}</span>
+              <Sliders size={16} />
+              {showAdvanced ? "Fewer options" : "More options"}
             </button>
-
             {showAdvanced && (
-              <div className="mt-3 space-y-4 p-4 rounded-xl bg-muted/20 border border-border/60">
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-medium text-muted-foreground mb-1">
-                      Provider
-                    </label>
-                    <select
-                      value={provider}
-                      onChange={(e) => handleProviderChange(e.target.value)}
-                      className="w-full bg-background border border-input rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-primary"
-                    >
-                      <option value="pocket">Pocket TTS (Local)</option>
-                      <option value="openrouter">OpenRouter</option>
-                      <option value="elevenlabs">ElevenLabs</option>
-                      <option value="openai">OpenAI</option>
-                      <option value="fal">Fal.ai (Cloud)</option>
-                      <option value={CHATTERBOX_PROVIDER_ID}>Chatterbox (Local)</option>
-                      <option value="system">System Default</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-medium text-muted-foreground mb-1">
-                      Voice Override
-                    </label>
-                    <select
-                      value={voice}
-                      data-testid="advanced-voice-select"
-                      onChange={(e) => {
-                        stopAudition();
-                        chatterboxVoiceTouchedRef.current = true;
-                        setVoice(e.target.value);
-                      }}
-                      className="w-full bg-background border border-input rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-primary"
-                    >
-                      {availableVoices.map((v) => (
-                        <option key={v.id} value={v.id}>
-                          {v.name} ({v.gender || "Voice"})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-medium text-muted-foreground mb-1">
-                    Speed ({speed}x)
+              <div id="audio-edition-options" className="space-y-4 border-t border-border pt-4">
+                <p className="break-words text-sm text-muted-foreground">
+                  Model: {provider === "lfm3" ? "LFM3 Audio 2B" : model || "Choose a provider"}
+                </p>
+                {supportsSpeed ? (
+                  <label className="block space-y-2 text-sm">
+                    <span className="font-medium">Speed ({speed}x)</span>
+                    <input
+                      type="range"
+                      min="0.75"
+                      max="2.0"
+                      step="0.05"
+                      value={speed}
+                      onChange={(e) => setSpeed(parseFloat(e.target.value))}
+                      className="min-h-10 w-full"
+                    />
                   </label>
-                  <input
-                    type="range"
-                    min="0.75"
-                    max="2.0"
-                    step="0.05"
-                    value={speed}
-                    disabled={isChatterboxPath || isFalPath}
-                    title={
-                      isChatterboxPath
-                        ? "Chatterbox Turbo has no speed parameter"
-                        : isFalPath
-                        ? "Fal.ai models do not support speed parameter"
-                        : undefined
-                    }
-                    onChange={(e) => setSpeed(parseFloat(e.target.value))}
-                    className="w-full mt-1.5 disabled:opacity-40"
-                  />
-                  {isChatterboxPath && (
-                    <p className="text-[11px] text-muted-foreground mt-1">
-                      Speed is not supported by Chatterbox Turbo and is ignored.
-                    </p>
-                  )}
-                  {isFalPath && (
-                    <p className="text-[11px] text-muted-foreground mt-1">
-                      Speed is not supported by Fal.ai models and is ignored.
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-medium text-muted-foreground mb-1">
-                    Custom Prompt / Voice Instructions (Optional)
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    This provider uses its natural speaking pace. You can adjust playback speed in
+                    the player.
+                  </p>
+                )}
+                {supportsInstructions && (
+                  <label className="block space-y-1.5 text-sm">
+                    <span className="font-medium">Voice instructions (optional)</span>
+                    <input
+                      type="text"
+                      value={instructions}
+                      onChange={(e) => setInstructions(e.target.value)}
+                      placeholder="For example, read in a calm, documentary tone."
+                      className="min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+                    />
                   </label>
-                  <input
-                    type="text"
-                    value={instructions}
-                    onChange={(e) => setInstructions(e.target.value)}
-                    placeholder="e.g. Read in a calm, documentary narrator tone."
-                    className="w-full bg-background border border-input rounded-lg px-2.5 py-1.5 text-xs focus:ring-1 focus:ring-primary"
-                  />
-                </div>
+                )}
               </div>
             )}
-          </div>
+          </section>
 
-          {/* Add to Queue Toggle */}
-          <div className="flex items-center justify-between p-3.5 rounded-xl bg-muted/40 border border-border/80">
-            <div className="space-y-0.5">
-              <span className="text-xs font-medium">Add to Queue</span>
-              <p className="text-[11px] text-muted-foreground">
-                Place this document into your study Queue for audio-first review once ready.
-              </p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                data-testid="add-to-queue-toggle"
-                checked={addToQueue}
-                onChange={(e) => setAddToQueue(e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-9 h-5 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-primary"></div>
-            </label>
-          </div>
-
-          {/* Pre-Flight Summary Card */}
-          <div className="rounded-xl border border-border/80 bg-muted/20 p-4 space-y-3">
-            <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-              Pre-Flight Summary
+          <label className="flex min-h-10 cursor-pointer items-start gap-3 border-t border-border py-3">
+            <input
+              type="checkbox"
+              data-testid="add-to-queue-toggle"
+              checked={addToQueue}
+              onChange={(e) => setAddToQueue(e.target.checked)}
+              className="mt-1 h-5 w-5 shrink-0 accent-primary focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
+            />
+            <span className="space-y-1 text-sm">
+              <span className="block font-medium">Add to Queue</span>
+              <span className="block text-xs text-muted-foreground">
+                Include this document in your study queue.
+              </span>
             </span>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3 pt-1">
-              <div className="flex items-center gap-2">
-                <BookOpen size={16} className="text-muted-foreground shrink-0" />
-                <div>
-                  <div className="text-xs font-semibold">{sections.length} Chapters</div>
-                  <div className="text-[11px] text-muted-foreground">{totalChars.toLocaleString()} chars</div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Clock size={16} className="text-muted-foreground shrink-0" />
-                <div>
-                  <div className="text-xs font-semibold">{formatAudioDuration(estimation.estimatedDurationSec)}</div>
-                  <div className="text-[11px] text-muted-foreground">Est. Duration</div>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <Coins size={16} className="text-muted-foreground shrink-0" />
-                <div>
-                  <div className="text-xs font-semibold">
-                    {estimation.isFreeTier ? "Free" : `$${estimation.estimatedCostUsd.toFixed(2)} USD`}
-                  </div>
-                  <div className="text-[11px] text-muted-foreground">
-                    {estimation.isFreeTier ? "Local on-device" : "Estimated Cost"}
-                  </div>
-                </div>
-              </div>
-            </div>
-            {isPaidTtsProvider(provider) && (
-              <p className="flex items-start gap-1.5 pt-2 text-[11px] text-amber-600 dark:text-amber-400">
-                <WarningCircle size={13} className="shrink-0 mt-0.5" />
-                <span>
-                  {settings.tts?.paidTtsEnabled !== true
-                    ? t("paid.audioEditionPaidNotice", { label: getAdapter(provider).label })
-                    : t("paid.audioEditionPaidEnabled", { label: getAdapter(provider).label })}
-                </span>
-              </p>
-            )}
-          </div>
+          </label>
 
           {errorMsg && (
             <div className="p-3 rounded-lg bg-destructive/10 text-destructive text-xs flex items-center gap-2">
@@ -1175,34 +1026,85 @@ export function CreateAudioEditionDialog({
           )}
         </div>
 
-        {/* Footer Actions */}
-        <div className="flex items-center justify-end gap-2.5 sm:gap-3 px-4 py-3 sm:px-6 sm:py-4 border-t border-border bg-muted/30 shrink-0">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isCreating}
-            className="px-4 py-2 text-xs font-medium rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+        {/* Estimate and action stay visible while the document options scroll. */}
+        <div className="shrink-0 space-y-3 border-t border-border bg-muted/30 px-4 py-3 sm:px-6 sm:py-4">
+          <div
+            role="group"
+            aria-label="Edition estimate"
+            className="flex flex-wrap items-start justify-between gap-3 text-sm"
           >
-            Cancel
-          </button>
-          <button
-            type="button"
-            onClick={handleCreate}
-            disabled={isCreating || isLoadingDoc || totalChars === 0}
-            className="flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-50"
-          >
-            {isCreating ? (
-              <>
-                <span className="w-3.5 h-3.5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
-                <span>Creating Edition...</span>
-              </>
-            ) : (
-              <>
-                <SpeakerHigh size={16} weight="bold" />
-                <span>Create Audio Edition</span>
-              </>
-            )}
-          </button>
+            <div className="flex items-center gap-2">
+              <BookOpen size={16} className="shrink-0 text-muted-foreground" />
+              <span>
+                <span className="block font-medium">
+                  {sections.length} {sections.length === 1 ? "chapter" : "chapters"}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  {totalChars.toLocaleString()} characters
+                </span>
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Clock size={16} className="shrink-0 text-muted-foreground" />
+              <span>
+                <span className="block font-medium">
+                  {formatAudioDuration(estimation.estimatedDurationSec)}
+                </span>
+                <span className="block text-xs text-muted-foreground">Estimated duration</span>
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <Coins size={16} className="shrink-0 text-muted-foreground" />
+              <span>
+                <span className="block font-medium">
+                  {estimation.isFreeTier
+                    ? "Free"
+                    : `$${estimation.estimatedCostUsd.toFixed(2)} USD`}
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  {activeAdapter.kind === "local" ? "On this device" : "Estimated cost"}
+                </span>
+              </span>
+            </div>
+          </div>
+          {isPaidTtsProvider(provider) && (
+            <p className="flex items-start gap-2 text-xs text-muted-foreground">
+              <WarningCircle size={14} className="shrink-0" />
+              <span>
+                {settings.tts?.paidTtsEnabled !== true
+                  ? t("paid.audioEditionPaidNotice", { label: activeAdapter.label })
+                  : t("paid.audioEditionPaidEnabled", { label: activeAdapter.label })}
+              </span>
+            </p>
+          )}
+          <div className="flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isCreating}
+              className="min-h-10 px-4 py-2 text-sm font-medium rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleCreate}
+              disabled={!provider || isCreating || isLoadingDoc || totalChars === 0}
+              className="flex min-h-10 items-center gap-2 px-4 py-2 text-sm font-semibold rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors shadow-sm disabled:opacity-50"
+            >
+              {isCreating ? (
+                <>
+                  <span className="w-3.5 h-3.5 border-2 border-primary-foreground border-t-transparent rounded-full animate-spin" />
+                  <span>Creating Edition...</span>
+                </>
+              ) : (
+                <>
+                  <SpeakerHigh size={16} weight="bold" />
+                  <span>Create Audio Edition</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
     </div>,

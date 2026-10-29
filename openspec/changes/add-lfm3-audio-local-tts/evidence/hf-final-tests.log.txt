@@ -1,0 +1,8 @@
+test models::hf::downloader::tests::range_ignored_server_restarts_cleanly_with_monotonic_progress ... ok
+test models::hf::downloader::tests::mid_stream_drop_resumes_via_range_without_redownloading ... ok
+test models::hf::hf_client::tests::download_client_has_no_total_timeout_but_read_idle_timeout ... ok
+test models::hf::downloader::tests::persistent_failure_never_writes_dest ... ok
+test models::hf::downloader::tests::stalled_connection_aborts_with_readable_timeout_error ... ok
+
+test result: ok. 103 passed; 0 failed; 0 ignored; 0 measured; 1664 filtered out; finished in 11.03s
+

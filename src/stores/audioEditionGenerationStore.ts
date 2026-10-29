@@ -1,3 +1,4 @@
+import { chunkTextForTTS } from "../utils/ttsTextExtraction";
 /**
  * Audio Edition Progressive Generation Queue Store
  * 
@@ -59,6 +60,7 @@ interface AudioEditionGenerationState {
 // In-memory control flags for stopping running workers
 const pausedJobIds = new Set<string>();
 const cancelledJobIds = new Set<string>();
+const generationControllers = new Map<string, AbortController>();
 const jobSectionTextMaps = new Map<string, Record<string, string>>();
 
 // ---------------------------------------------------------------------------
@@ -249,6 +251,8 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
         await updateAudioEditionStatus(editionId, "generating");
 
         // Execute sequential section worker
+        const controller = new AbortController();
+        generationControllers.set(editionId, controller);
         (async () => {
           const settings = useSettingsStore.getState().settings;
           const providerId = edition.provider || "pocket";
@@ -325,10 +329,10 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
                 // bounds inference latency and VRAM on small local GPUs.
                 const isChatterbox = edition.provider === CHATTERBOX_PROVIDER_ID;
                 const requestSpeed = isChatterbox || edition.provider === "fal" ? undefined : parsedSettings.speed || 1.0;
-                const requestFormat = isChatterbox ? "wav" : "mp3";
+                const requestFormat = isChatterbox || edition.provider === "lfm3" ? "wav" : "mp3";
                 const texts = isChatterbox
                   ? splitTextForChatterbox(textToSynthesize)
-                  : [textToSynthesize];
+                  : edition.provider === "lfm3" ? chunkTextForTTS(textToSynthesize, adapter.capabilities.maxInputChars) : [textToSynthesize];
 
                 const synthesizeOne = (text: string) =>
                   adapter.synthesize(
@@ -348,6 +352,8 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
                       model: edition.model,
                       voice: edition.voice,
                       responseFormat: requestFormat,
+                      signal: controller.signal,
+                      language: parsedSettings.language,
                       speed: requestSpeed,
                     }
                   );
@@ -361,13 +367,13 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
                   for (const chunk of texts) {
                     if (pausedJobIds.has(editionId) || cancelledJobIds.has(editionId)) break;
                     const chunkRes = await synthesizeOne(chunk);
-                    if (!chunkRes.audioData) throw new Error("Chatterbox chunk returned no audio data");
+                    if (!chunkRes.audioData) throw new Error("Speech segment returned no audio data");
                     buffers.push(chunkRes.audioData);
                     if (chunkRes.durationSec && chunkRes.durationSec > 0) {
                       chunkedDuration += chunkRes.durationSec;
                     }
                   }
-                  if (buffers.length === 0) throw new Error("Chatterbox synthesis produced no audio");
+                  if (buffers.length !== texts.length) throw new Error("Speech generation was interrupted before the section finished");
                   const merged = concatenateWavBlobs(buffers);
                   const mergedUrl = createOwnedObjectUrl(new Blob([merged], { type: "audio/wav" }), {
                     owner: "tts-synthesis",
@@ -381,6 +387,7 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
                   } as typeof res;
                 }
 
+                if (controller.signal.aborted) return;
                 if (res.audioUrl) {
                   audioFilePath = res.audioUrl;
                   // Bounded, revoke-on-replace LRU entry (task 5.2).
@@ -428,6 +435,7 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
                 };
               });
             } catch (err: any) {
+              if (controller.signal.aborted) return;
               console.error(`Section synthesis failed for section ${section.id}:`, err);
               await updateAudioEditionSectionStatus(
                 section.id,
@@ -483,11 +491,12 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
               activeJobs: state.activeJobs.filter((id) => id !== editionId),
             };
           });
-        })();
+        })().finally(() => { if (generationControllers.get(editionId) === controller) generationControllers.delete(editionId); });
       },
 
       pauseJob: (editionId: string) => {
         pausedJobIds.add(editionId);
+        generationControllers.get(editionId)?.abort();
         set((state) => {
           const currentJob = state.jobs[editionId];
           if (!currentJob) return state;
@@ -511,6 +520,7 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
 
       cancelJob: async (editionId: string) => {
         cancelledJobIds.add(editionId);
+        generationControllers.get(editionId)?.abort();
         pausedJobIds.delete(editionId);
         // Revoke the edition's live section URLs (task 5.2): a cancelled job
         // must not leave synthesized blobs pinned for the session.

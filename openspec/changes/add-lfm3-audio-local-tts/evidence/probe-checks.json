@@ -1,0 +1,36 @@
+[
+  {
+    "case": "injection",
+    "exitCode": 0,
+    "elapsedSec": 0.010848773003090173,
+    "publishedFiles": 0
+  },
+  {
+    "case": "load-cancel",
+    "exitCode": 130,
+    "elapsedSec": 0.29545733000850305,
+    "publishedFiles": 0
+  },
+  {
+    "case": "cap",
+    "exitCode": 1,
+    "elapsedSec": 1.6207333279890008,
+    "publishedFiles": 0
+  },
+  {
+    "case": "frame-cancel",
+    "exitCode": 130,
+    "cancelToReapSec": 0.15295324800536036,
+    "publishedFiles": 0
+  },
+  {
+    "case": "forced-kill-reap",
+    "exitCode": -9,
+    "cancelToReapSec": 1.8012221329845488
+  },
+  {
+    "case": "one-load-reset-eos-tail",
+    "clips": 5,
+    "repeatedBytesEqual": true
+  }
+]

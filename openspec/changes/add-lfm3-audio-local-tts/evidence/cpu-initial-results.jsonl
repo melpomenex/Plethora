@@ -1,0 +1,7 @@
+{"loaded":true,"backend":"cpu","loadSec":1.08267}
+{"voice":"female","locale":"en","frames":46,"samples":88320,"sampleRate":24000,"bytes":176684,"elapsedSec":5.01095,"rtf":1.36167,"file":"female-en.wav"}
+{"voice":"female","locale":"en-gb","frames":42,"samples":80640,"sampleRate":24000,"bytes":161324,"elapsedSec":4.86241,"rtf":1.44715,"file":"female-en-gb.wav"}
+{"voice":"male","locale":"en","frames":42,"samples":80640,"sampleRate":24000,"bytes":161324,"elapsedSec":4.5564,"rtf":1.35607,"file":"male-en.wav"}
+{"voice":"male","locale":"en-gb","frames":42,"samples":80640,"sampleRate":24000,"bytes":161324,"elapsedSec":4.24001,"rtf":1.26191,"file":"male-en-gb.wav"}
+{"voice":"female","locale":"en","frames":46,"samples":88320,"sampleRate":24000,"bytes":176684,"elapsedSec":4.63183,"rtf":1.25865,"file":"female-en-repeat.wav"}
+{"complete":true}

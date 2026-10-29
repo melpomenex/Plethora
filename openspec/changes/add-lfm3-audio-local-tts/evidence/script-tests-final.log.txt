@@ -1,0 +1,103 @@
+✔ a platform missing its manifest entry is reported as a failure (1.391817ms)
+✔ parseUpdaterPubkey extracts the 42-byte Ed25519 key structure (3.45148ms)
+✔ parseSignatureBox accepts base64-of-box and raw box text (1.226394ms)
+✔ v2.6.1 release signature parses and carries the production key id (0.221579ms)
+✔ valid signature over a deterministic artifact verifies end-to-end (14.134374ms)
+✔ a single flipped artifact byte fails signature verification (2.33764ms)
+✔ signature signed by a different key is rejected by key id (1.885422ms)
+✔ tampered signature line (still decodable) fails verification (2.283838ms)
+✔ real release signatures reject wrong artifact data without parse errors (4.025638ms)
+✔ parseSignatureBox rejects malformed boxes (0.513593ms)
+✔ checkArtifactDigest accepts the recorded digest and rejects others (2.655962ms)
+ℹ tests 241
+ℹ suites 1
+ℹ pass 238
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 37396.058838
+
+✖ failing tests:
+
+test at scripts/__tests__/applyIosProjectOverrides.test.mjs:222:1
+✖ applyIosProjectOverrides consumes share-extension.target.json when present (9.302979ms)
+  AssertionError [ERR_ASSERTION]: Got unwanted exception.
+  Actual message: "spawnSync plutil ENOENT"
+      at TestContext.<anonymous> (file:///home/ubuntu/Code/Plethora/scripts/__tests__/applyIosProjectOverrides.test.mjs:269:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: Error: spawnSync plutil ENOENT
+        at Object.spawnSync (node:internal/child_process:1144:20)
+        at spawnSync (node:child_process:928:24)
+        at execFileSync (node:child_process:971:15)
+        at file:///home/ubuntu/Code/Plethora/scripts/__tests__/applyIosProjectOverrides.test.mjs:269:29
+        at getActual (node:assert:580:5)
+        at strict.doesNotThrow (node:assert:748:32)
+        at TestContext.<anonymous> (file:///home/ubuntu/Code/Plethora/scripts/__tests__/applyIosProjectOverrides.test.mjs:269:10)
+        at Test.runInAsyncScope (node:async_hooks:226:14)
+        at Test.run (node:internal/test_runner/test:1402:25)
+        at async Test.processPendingSubtests (node:internal/test_runner/test:974:7),
+    expected: undefined,
+    operator: 'doesNotThrow',
+    diff: 'simple'
+  }
+
+test at scripts/__tests__/marketingFreshness.test.mjs:12:1
+✖ freshness passes with default noindex while placeholders exist (61.660285ms)
+  AssertionError [ERR_ASSERTION]: unattributed file: marketing/screenshots/source/showcase-v2/3.0.0+8319b698695a-2026-10-04T19-49-10-309Z/connections.context--desktop.png
+  unattributed file: marketing/screenshots/source/showcase-v2/3.0.0+8319b698695a-2026-10-04T19-49-10-309Z/connections.context--mobile.png
+  unattributed file: marketing/screenshots/source/showcase-v2/3.0.0+8319b698695a-2026-10-04T19-49-10-309Z/library.ready--desktop.png
+  unattributed file: marketing/screenshots/source/showcase-v2/3.0.0+8319b698695a-2026-10-04T19-49-10-309Z/library.ready--mobile.png
+  unattributed file: marketing/screenshots/source/showcase-v2/3.0.0+8319b698695a-2026-10-04T19-49-10-309Z/reader.open--desktop.png
+  unattributed file: marketing/screenshots/source/showcase-v2/3.0.0+8319b698695a-2026-10-04T19-49-10-309Z/reader.open--mobile.png
+  unattributed file: marketing/screenshots/source/showcase-v2/3.0.0+8319b698695a-2026-10-04T19-49-10-309Z/reader.selected--desktop.png
+  unattributed file: marketing/screenshots/source/showcase-v2/3.0.0+8319b698695a-2026-10-04T19-49-10-309Z/reader.selected--mobile.png
+  unattributed file: marketing/screenshots/source/showcase-v2/3.0.0+8319b698695a-2026-10-04T19-49-10-309Z/remember.preview--desktop.png
+  unattributed file: marketing/screenshots/source/showcase-v2/3.0.0+8319b698695a-2026-10-04T19-49-10-309Z/remember.preview--mobile.png
+  unattributed file: marketing/screenshots/source/showcase-v2/3.0.0+8319b698695a-2026-10-04T19-49-10-309Z/review.answer--desktop.png
+  unattributed file: marketing/screenshots/source/showcase-v2/3.0.0+8319b698695a-2026-10-04T19-49-10-309Z/review.answer--mobile.png
+  unattributed file: marketing/screenshots/source/showcase-v2/3.0.0+8319b698695a-2026-10-04T19-49-10-309Z/review.question--desktop.png
+  unattributed file: marketing/screenshots/source/showcase-v2/3.0.0+8319b698695a-2026-10-04T19-49-10-309Z/review.question--mobile.png
+  unattributed file: marketing/screenshots/source/showcase-v2/3.0.0+8319b698695a-2026-10-04T19-49-10-309Z/review.scheduled--desktop.png
+  unattributed file: marketing/screenshots/source/showcase-v2/3.0.0+8319b698695a-2026-10-04T19-49-10-309Z/review.scheduled--mobile.png
+  unattributed file: marketing/screenshots/source/showcase-v2/3.0.0+8319b698695a-2026-10-04T19-49-10-309Z/showcase-capture-v2.json
+  
+  false !== true
+  
+      at TestContext.<anonymous> (file:///home/ubuntu/Code/Plethora/scripts/__tests__/marketingFreshness.test.mjs:14:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at scripts/__tests__/memoryBenchMacOs.test.mjs:149:1
+✖ collectEnvironment(darwin) shape (69.550617ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(env.totalRamBytes > 1_000_000_000)
+  
+      at TestContext.<anonymous> (file:///home/ubuntu/Code/Plethora/scripts/__tests__/memoryBenchMacOs.test.mjs:157:41)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

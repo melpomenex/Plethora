@@ -31,7 +31,6 @@ for CANDIDATE in "${HOME:-}/.local/bin/notebooklm" /usr/local/bin/notebooklm /us
     fi
   fi
 done
-
 RESOLVED_PATH=""
 OLD_IFS="$IFS"
 IFS=":"
@@ -44,7 +43,6 @@ for DIR in $PATH; do
   fi
 done
 IFS="$OLD_IFS"
-
 if [ -n "$RESOLVED_PATH" ]; then
   exec "$RESOLVED_PATH" "$@"
 else

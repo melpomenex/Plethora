@@ -11,6 +11,7 @@ export type QualityPreset = "fast" | "natural" | "best" | "expressive" | "fal" |
 export type MarkerType = "extract" | "bookmark" | "interesting" | "confusing";
 
 export interface AudioEditionSettings {
+  language?: string;
   speed?: number;
   responseFormat?: string;
   instructions?: string;

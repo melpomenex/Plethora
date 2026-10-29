@@ -1,0 +1,4 @@
+{
+  "binarySha256": "a1a779f14ed5af631c142331685c1298d914f586c10f2efb5d6e983b08fd11db",
+  "note": "Five-clip positive run before negative probe modes were added; same synthesis path and fixed seed. Live desktop workload; not G1 benchmark."
+}

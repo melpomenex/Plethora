@@ -3,9 +3,23 @@ import { useLLMProvidersStore } from "../../../stores/llmProvidersStore";
 import { createDefaultTTSSettings } from "../../../utils/ttsSettings";
 import { resolveProviderKey } from "../auth";
 import { openrouterAdapter } from "../providers/openrouter";
+import { listAdapters } from "../registry";
+import { validateTTSConfiguration } from "../../../utils/ttsSettings";
 
 describe("TTS credential borrowing", () => {
   beforeEach(() => useLLMProvidersStore.setState({ providers: [] }));
+
+  it("never requires or uses a placeholder key for a provider without authentication", () => {
+    for (const adapter of listAdapters().filter((item) => item.auth.mode === "none")) {
+      const settings = createDefaultTTSSettings();
+      settings.enabled = true;
+      settings.provider = adapter.id as typeof settings.provider;
+      settings.providers[settings.provider].apiKey = "";
+      expect(validateTTSConfiguration(settings), adapter.id).toEqual({ valid: true });
+      settings.providers[settings.provider].apiKey = "unnecessary placeholder";
+      expect(resolveProviderKey(adapter, { tts: settings }), adapter.id).toEqual({ key: "" });
+    }
+  });
 
   it("borrows the first enabled OpenRouter entry", () => {
     useLLMProvidersStore.setState({ providers: [

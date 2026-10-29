@@ -15,6 +15,7 @@ export interface PricingRule {
 
 export const PROVIDER_PRICING_DEFAULTS: Record<string, Record<string, PricingRule> | PricingRule> = {
   pocket: { isFree: true },
+  lfm3: { isFree: true },
   system: { isFree: true },
   android: { isFree: true },
   plethora: { isFree: true },

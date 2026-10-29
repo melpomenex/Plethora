@@ -5,6 +5,7 @@ import type { WordTiming } from "../../utils/wordTimings";
 export type TTSProviderId =
   | "fal"
   | "groq"
+  | "lfm3"
   | "pocket"
   | "system"
   | "openrouter"
@@ -81,6 +82,8 @@ export interface TTSAdapterContext {
 }
 
 export interface TTSSynthesizeRequest {
+  signal?: AbortSignal;
+  language?: string;
   text: string;
   model: string;
   voice?: string;

@@ -1,0 +1,4 @@
+  "buildId": "3.5.0+694cf983177e",
+  "builtAt": "2026-10-28T19:15:51.791Z"
+}
+OK: frontend build target=tauri profile=development sha=694cf983177e

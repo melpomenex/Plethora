@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "bash scripts/tauri-before-dev.sh",
     "devUrl": "http://127.0.0.1:15173",
-    "beforeBuildCommand": "npm run build:tauri",
+    "beforeBuildCommand": "node scripts/build-lfm3-host.mjs --ensure && npm run build:tauri",
     "frontendDist": "../dist"
   },
   "app": {
@@ -47,14 +47,16 @@
       "bin/sherpa-online",
       "bin/needle",
       "bin/pocket-tts",
-      "bin/notebooklm"
+      "bin/notebooklm",
+      "bin/lfm3-host"
     ],
     "resources": [
       "scripts/anna_download.py",
       "bin/notebooklm-runtime",
       "windows/sparse/out/PlethoraIdentity.msix",
       "daemon/plethora_tts_daemon.py",
-      "bin/plethora-tts-daemon"
+      "bin/plethora-tts-daemon",
+      "bin/lfm3-runtime"
     ],
     "fileAssociations": [
       {
@@ -135,7 +137,7 @@
       "icons/icon.png"
     ],
     "publisher": "Plethora",
-    "copyright": "Copyright © 2025-2026 Plethora",
+    "copyright": "Copyright \u00a9 2025-2026 Plethora",
     "category": "Education",
     "shortDescription": "Plethora - Spaced repetition and incremental reading for effective learning",
     "longDescription": "Plethora is a powerful learning application that combines spaced repetition, incremental reading, and AI-powered flashcard generation to help you learn more effectively.",

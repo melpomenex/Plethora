@@ -1,0 +1,9 @@
+  - benchmark "anchor resolution via textQuote fallback": measured cost 0.06691 is more than 25% below baseline 0.09949 — the baseline is stale, re-record it
+[perf-budget] WARN:
+  - benchmark "article-import-static-small-40p": measured cost 157.5 is more than 25% below baseline 243.5 — the baseline is stale, re-record it
+[perf-budget] WARN:
+  - benchmark "tabs-dom/mount-12-tab-workspace": measured cost 3.54 is more than 25% below baseline 4.866 — the baseline is stale, re-record it
+[perf-budget] WARN:
+  - benchmark "ambient/rain-canvas2d-frame-1080p": measured cost 0.03819 is more than 25% below baseline 0.05252 — the baseline is stale, re-record it
+[perf-budget] OK — 67 benchmark(s) compared.
+[bundle-budget] OK — entry 4 KB, 1 PDF worker, total 26.9 MB

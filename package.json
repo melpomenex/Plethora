@@ -99,7 +99,8 @@
     "marketing:seed": "MARKETING_SEED=1 node scripts/marketing/seed-demo-library.mjs",
     "marketing:capture": "node scripts/marketing/capture-screenshots.mjs",
     "marketing:encode": "node scripts/marketing/encode-product-images.mjs",
-    "marketing:freshness": "node scripts/marketing/check-freshness.mjs"
+    "marketing:freshness": "node scripts/marketing/check-freshness.mjs",
+    "build:lfm3": "node scripts/build-lfm3-host.mjs"
   },
   "dependencies": {
     "@dqbd/tiktoken": "^1.0.18",

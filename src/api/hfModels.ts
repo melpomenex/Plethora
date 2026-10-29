@@ -8,6 +8,7 @@
 import { invokeCommand, isTauri } from "../lib/tauri";
 
 export type HfRuntime =
+  | "llama-cpp-tts"
   | "whisper-cpp"
   | "sherpa-onnx-stt"
   | "sherpa-onnx-tts"
@@ -43,7 +44,9 @@ export interface HfArtifactFile {
 }
 
 export interface RunContract {
-  type: "whisper" | "sherpa-stt" | "sherpa-tts" | "whistle";
+  type: "whisper" | "sherpa-stt" | "sherpa-tts" | "whistle" | "lfm3-audio-tts";
+  projector_file?: string;
+  revision?: string;
   model_file: string;
   decoder_file?: string | null;
   joiner_file?: string | null;
@@ -254,6 +257,7 @@ export function formatBytes(bytes: number | null | undefined): string {
 }
 
 export const RUNTIME_LABELS: Record<HfRuntime, string> = {
+  "llama-cpp-tts": "LFM3 Audio (llama.cpp)",
   "whisper-cpp": "whisper.cpp (ggml)",
   "sherpa-onnx-stt": "sherpa-onnx (ONNX STT)",
   "sherpa-onnx-tts": "sherpa-onnx (ONNX TTS)",

@@ -1,0 +1,60 @@
+{
+  "compiler": "g++ (GCC) 16.2.1 20260810",
+  "kernel": "Linux 7.2.8-9-omarchy",
+  "cpu": "AMD Ryzen 9 5900X",
+  "backend": "CPU only",
+  "flags": {
+    "cmakeBuildType": "Release",
+    "ggmlNative": true,
+    "cuda": false,
+    "openssl": false,
+    "subprocess": false,
+    "video": false
+  },
+  "binarySha256": {
+    "lfm3-spike": "f9bce14c1f28e06668c323762251873903607ade3c8cee73781f30c5ec29a23e",
+    "spike.cpp": "aba6dd83d3663e57ccf0034e1195c4e977bb9c091023c120f44a47de24f922e5",
+    "libggml-base.so": "e0edcdd988af0a6becd8834a776e364b848a80cc39825ed5184c9840ea03a9dd",
+    "libggml-cpu.so": "b57746f601a541604fbdc8a7e008ebaf1e9b1242bcc50a9b62f99128a1c66f48",
+    "libggml.so": "854218500718c417b0fdcaf1f0d391147762a99301887dac7162e96bd78c0347",
+    "libllama.so": "0c8e1177ca67987f65c4828067a0a80c863b8da3f60e4b4c17d41c82bea4a5fc",
+    "libllama-common.so": "2547b09db624b74617ef00dd8b513f8f94c92c7762615c5c0168c3769f7584d5",
+    "libmtmd.so": "26dcc0bcff7a361ce25a9d0913f7d50cf620e33bdbbb3491a8d6e5dce43ce2ba"
+  },
+  "systemLibraries": {
+    "/usr/lib/libstdc++.so.6": {
+      "sha256": "f5fc7380f2ae46fa4053a64be04e7b98109f1066a4bbfff3c37042488aa0be0e"
+    },
+    "/usr/lib/libm.so.6": {
+      "sha256": "965106704753eefe8c31ae7da6daba3ead3d18c52b19b5fcc41178bcc4aa999d"
+    },
+    "/usr/lib/libgcc_s.so.1": {
+      "sha256": "e618cb9c90c2eb3a1dad1cfea5b6c1eebcf2e799ad805976f4ae47bdd61c716a"
+    },
+    "/usr/lib/libc.so.6": {
+      "sha256": "02c8c3d06180beee9c7d0392aa85736c7d19f274a81e7f8f0b3d9e28e0641524"
+    },
+    "/usr/lib64/ld-linux-x86-64.so.2": {
+      "sha256": "f5e11cc62f8f2c24dff532982559f4303dba3b17e7450551372a88c8e7ea8757"
+    },
+    "/usr/lib/libgomp.so.1": {
+      "sha256": "d6c6309ee83dbe9b50bf38342489799a4822ee22451677730ff5542aa74bdefc"
+    }
+  },
+  "runtimeDependencyPaths": [
+    "\tlinux-vdso.so.1 (0x00007f3bd8b93000)",
+    "\tlibllama-common.so.0 => /home/ubuntu/.cache/plethora/lfm3-spike/build-cpu/bin/libllama-common.so.0 (0x00007f3bd8400000)",
+    "\tlibmtmd.so.0 => /home/ubuntu/.cache/plethora/lfm3-spike/build-cpu/bin/libmtmd.so.0 (0x00007f3bd8000000)",
+    "\tlibllama.so.0 => /home/ubuntu/.cache/plethora/lfm3-spike/build-cpu/bin/libllama.so.0 (0x00007f3bd7a00000)",
+    "\tlibggml.so.0 => /home/ubuntu/.cache/plethora/lfm3-spike/build-cpu/bin/libggml.so.0 (0x00007f3bd8b40000)",
+    "\tlibggml-cpu.so.0 => /home/ubuntu/.cache/plethora/lfm3-spike/build-cpu/bin/libggml-cpu.so.0 (0x00007f3bd896d000)",
+    "\tlibggml-base.so.0 => /home/ubuntu/.cache/plethora/lfm3-spike/build-cpu/bin/libggml-base.so.0 (0x00007f3bd8327000)",
+    "\tlibstdc++.so.6 => /usr/lib/libstdc++.so.6 (0x00007f3bd7600000)",
+    "\tlibm.so.6 => /usr/lib/libm.so.6 (0x00007f3bd7ec9000)",
+    "\tlibgcc_s.so.1 => /usr/lib/libgcc_s.so.1 (0x00007f3bd82fa000)",
+    "\tlibc.so.6 => /usr/lib/libc.so.6 (0x00007f3bd7200000)",
+    "\t/lib64/ld-linux-x86-64.so.2 => /usr/lib64/ld-linux-x86-64.so.2 (0x00007f3bd8b95000)",
+    "\tlibgomp.so.1 => /usr/lib/libgomp.so.1 (0x00007f3bd82a0000)"
+  ],
+  "note": "Initial five-clip run preceded negative-probe modes; final binary reruns the same seeded voices case. Not a packaged artifact or portable ISA build."
+}

@@ -1,0 +1,15 @@
+warning: `plethora-tauri` (lib test) generated 2 warnings
+    Finished `test` profile [unoptimized] target(s) in 6m 30s
+     Running unittests src/lib.rs (src-tauri/target/debug/deps/plethora_tauri_lib-2d8e9e28fcf949b5)
+
+running 7 tests
+test models::hf::lfm3::tests::contract_refuses_foreign_and_missing_paths ... ok
+test tts::lfm3::tests::handshake_requires_version_commit_and_a_runnable_backend ... ok
+test models::hf::lfm3::tests::wrong_revision_missing_projector_and_corrupt_pair_are_not_detected ... ok
+test models::hf::lfm3::tests::exact_complete_pair_contains_both_weights_and_license ... ok
+test tts::lfm3::tests::retiring_host_kills_and_reaps_before_slot_is_reused ... ok
+test tts::lfm3::tests::wav_result_checks_real_header_and_sample_count ... ok
+test tts::lfm3::tests::response_frames_are_bounded ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 1760 filtered out; finished in 0.02s
+

@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "verifiedOn": "2026-10-28",
+  "purpose": "isolated feasibility only; no shipped runtime or validated backend",
+  "runtime": {
+    "repository": "https://github.com/ggml-org/llama.cpp",
+    "commit": "ac8e1694d837b11ed0aab944a6a2eee34b9c4d80",
+    "sourceArchiveBytes": 38693475,
+    "sourceArchiveSha256": "ac2df86939de1b4edded47d3aa56bf81179f5ea807d75206763a24501967f7f3",
+    "licenseSources": [
+      {
+        "source_path": "LICENSE",
+        "bytes": 1078,
+        "sha256": "94f29bbed6a22c35b992c5c6ebf0e7c92f13b836b90f36f461c9cf2f0f1d010d"
+      },
+      {
+        "source_path": "vendor/hash/xxhash/LICENSE",
+        "bytes": 1389,
+        "sha256": "6ffedbc0f7878612d2b23589f1ff2ab15633e1df7963a5d9fc750ec5500c7e7a"
+      },
+      {
+        "source_path": "vendor/hash/sha256/LICENSE",
+        "bytes": 41,
+        "sha256": "b81d0022ca6367918c67b57e9647d3513ee58809fd4b0ef0b3492f1356bced25"
+      },
+      {
+        "source_path": "vendor/hash/rotate-bits/LICENSE.md",
+        "bytes": 1088,
+        "sha256": "ca0b44aec101afb6b46f4c39b23369fa06a64fb9c0add37c2689d702156fee55"
+      },
+      {
+        "source_path": "vendor/hash/sha1/sha1.c",
+        "bytes": 7676,
+        "sha256": "6de78afb7c2e54ccbd742c0307015db4dceaa64d85533709f99de05074d639e4"
+      },
+      {
+        "source_path": "vendor/miniaudio/miniaudio.h",
+        "bytes": 4108168,
+        "sha256": "ac7af4de748b7e26b777f37e01cee313a308a7296a3eb080e2906b320cc55c89"
+      },
+      {
+        "source_path": "vendor/stb/stb_image.h",
+        "bytes": 283010,
+        "sha256": "594c2fe35d49488b4382dbfaec8f98366defca819d916ac95becf3e75f4200b3"
+      },
+      {
+        "source_path": "vendor/sheredom/subprocess.h",
+        "bytes": 68500,
+        "sha256": "ddec448cb93c2a5096f914a5b796f707dcf0a9e91591ca13000d210200160cb1"
+      },
+      {
+        "source_path": "licenses/LICENSE-jsonhpp",
+        "bytes": 1075,
+        "sha256": "c0d068392ea65358b798b8c165103560f06e9e3b38c4ab4e2d8810a7b931af86"
+      },
+      {
+        "source_path": "vendor/cpp-httplib/LICENSE",
+        "bytes": 1075,
+        "sha256": "4b45cbe16d7b71b89ae6127e26e0d90a029198ca5e958ad8e3d0b8bbed364d8b"
+      },
+      {
+        "source_path": "common/base64.hpp",
+        "bytes": 12878,
+        "sha256": "57f595aa0a206c4dec9a84b90a3416028a242da4dd8f219afc0859a6ccb7efe7"
+      }
+    ]
+  },
+  "model": {
+    "repository": "LiquidAI/LFM3-Audio-2B-GGUF",
+    "revision": "642697a5597a675cb819ed236ac415c1e60a4f6f",
+    "requiredFiles": [
+      {
+        "path": "LFM3-Audio-2B-Q4_K_M.gguf",
+        "bytes": 1099626016,
+        "sha256": "9a773289bd321ed879cd3a76545f6aca506e403851a45fb315420aee45625be2"
+      },
+      {
+        "path": "mmproj-LFM3-Audio-2B-Q8_0.gguf",
+        "bytes": 337862080,
+        "sha256": "26601e904245a85bd8f3cf320a629e897cfc01c1d09369e8b4fd951f13024d3e"
+      }
+    ],
+    "totalWeightBytes": 1437488096,
+    "license": {
+      "path": "notices/LFM-LICENSE.txt",
+      "bytes": 10574,
+      "sha256": "4d28ca14dedc0b3d0fcc2b3339f0e79931faa33874f3d24f522183a8fc70068c"
+    },
+    "noticeFiles": []
+  },
+  "commercialRelease": "blocked pending eligibility and controlling-term clarification",
+  "backendCertification": []
+}

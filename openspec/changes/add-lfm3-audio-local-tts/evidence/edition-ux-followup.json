@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-29",
+  "credential_bug": "Legacy validator and Settings field excluded only Pocket/System, although LFM3 auth.mode is none",
+  "credential_fix": "Allow all registered auth-free providers without keys; render credential fields from adapter auth",
+  "picker_bug": "LFM3 was hidden in Advanced, and quality shortcuts overrode current TTS selection",
+  "picker_fix": [
+    "Visible grouped provider and voice selects",
+    "Snapshot saved TTS selection on open",
+    "LFM3 language choice",
+    "Only export-capable adapters",
+    "Supported options only",
+    "Persistent footer estimate and Create action"
+  ],
+  "compatibility": "Existing qualityPreset data preserved; new editions use explicit provider/model/voice and null qualityPreset",
+  "tests": {
+    "frontend_files": 21,
+    "frontend_tests": 179,
+    "typecheck": "passed",
+    "lint_errors": 0,
+    "settings_search": "passed",
+    "performance_gate": "67 comparisons passed on isolated rerun; baselines unchanged",
+    "quality_delta_gating": 0,
+    "docs": "76 documents valid"
+  },
+  "browser": "Real dialog with mocked native commands; desktop and 390px narrow layout, provider switching verified",
+  "app_build": "Not run; user compiles the app"
+}

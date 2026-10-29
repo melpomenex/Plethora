@@ -51,7 +51,7 @@ const SUITABILITY_META: Record<SuitabilityLevel, { label: string; className: str
 function runtimeForMode(mode: HfManagerMode): HfRuntime[] {
   return mode === "stt"
     ? ["whisper-cpp", "sherpa-onnx-stt", "nemotron-asr", "whistle-stt"]
-    : ["sherpa-onnx-tts"];
+    : ["sherpa-onnx-tts", "llama-cpp-tts"];
 }
 
 function InstalledModelRow({
@@ -113,7 +113,7 @@ function InstalledModelRow({
   );
 }
 
-export function HuggingFaceModelManager({ mode }: { mode: HfManagerMode }) {
+export function HuggingFaceModelManager({ mode, initialRepo }: { mode: HfManagerMode; initialRepo?: string }) {
   const toast = useToast();
   const [repoInput, setRepoInput] = useState("");
   const [busy, setBusy] = useState(false);
@@ -135,6 +135,12 @@ export function HuggingFaceModelManager({ mode }: { mode: HfManagerMode }) {
   } = useHfModelStore();
 
   const allowedRuntimes = useMemo(() => runtimeForMode(mode), [mode]);
+
+  useEffect(() => {
+    if (!initialRepo) return;
+    setRepoInput(initialRepo);
+    void inspect(initialRepo).catch(() => setError("Could not inspect the LFM3 model. Retry when online."));
+  }, [initialRepo, inspect]);
 
   // Load installed models on mount + when the page becomes visible.
   useEffect(() => {

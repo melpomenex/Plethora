@@ -4,7 +4,8 @@
     "resources": [
       "scripts/anna_download.py",
       "bin/*.dylib",
-      "bin/notebooklm-runtime"
+      "bin/notebooklm-runtime",
+      "bin/lfm3-runtime"
     ]
   }
 }

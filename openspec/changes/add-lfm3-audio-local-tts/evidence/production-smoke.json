@@ -1,0 +1,72 @@
+{
+  "probe": {
+    "backends": [
+      {
+        "gpu": true,
+        "name": "CUDA0"
+      },
+      {
+        "gpu": false,
+        "name": "CPU"
+      }
+    ],
+    "protocol": 1,
+    "runtimeCommit": "ac8e1694d837b11ed0aab944a6a2eee34b9c4d80"
+  },
+  "ready": {
+    "backend": "CUDA0",
+    "backends": [
+      {
+        "gpu": true,
+        "name": "CUDA0"
+      },
+      {
+        "gpu": false,
+        "name": "CPU"
+      }
+    ],
+    "protocol": 1,
+    "ready": true,
+    "runtimeCommit": "ac8e1694d837b11ed0aab944a6a2eee34b9c4d80"
+  },
+  "clips": [
+    {
+      "backend": "CUDA0",
+      "byteLength": 169004,
+      "durationSec": 3.52,
+      "elapsedSec": 0.776090575,
+      "id": "clip-0",
+      "ok": true,
+      "sampleRate": 24000
+    },
+    {
+      "backend": "CUDA0",
+      "byteLength": 153644,
+      "durationSec": 3.2,
+      "elapsedSec": 0.409238982,
+      "id": "clip-1",
+      "ok": true,
+      "sampleRate": 24000
+    },
+    {
+      "backend": "CUDA0",
+      "byteLength": 176684,
+      "durationSec": 3.68,
+      "elapsedSec": 0.433661109,
+      "id": "clip-2",
+      "ok": true,
+      "sampleRate": 24000
+    },
+    {
+      "backend": "CUDA0",
+      "byteLength": 161324,
+      "durationSec": 3.36,
+      "elapsedSec": 0.404222987,
+      "id": "clip-3",
+      "ok": true,
+      "sampleRate": 24000
+    }
+  ],
+  "invalid_inputs_rejected": true,
+  "cancel_reap_seconds": 0.1639224739628844
+}

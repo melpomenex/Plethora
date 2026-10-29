@@ -1,0 +1,22 @@
+[
+  {
+    "file": "female-en-gb.wav",
+    "exitCode": 0,
+    "transcript": "The little boat crossed the quiet lake before sunset."
+  },
+  {
+    "file": "female-en.wav",
+    "exitCode": 0,
+    "transcript": "The little boat crossed the Quiet Lake before sunset."
+  },
+  {
+    "file": "male-en-gb.wav",
+    "exitCode": 0,
+    "transcript": "The little boat crossed the quiet lake before sunset."
+  },
+  {
+    "file": "male-en.wav",
+    "exitCode": 0,
+    "transcript": "The little boat crossed the quiet lake before sunset."
+  }
+]

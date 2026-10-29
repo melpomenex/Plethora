@@ -1,0 +1,6 @@
+[perf-budget] WARN:
+  - benchmark "tabs-dom/mount-12-tab-workspace": measured cost 3.574 is more than 25% below baseline 4.866 — the baseline is stale, re-record it
+[perf-budget] WARN:
+  - benchmark "ambient/rain-canvas2d-frame-1080p": measured cost 0.03824 is more than 25% below baseline 0.05252 — the baseline is stale, re-record it
+[perf-budget] OK — 67 benchmark(s) compared.
+[bundle-budget] OK — entry 4 KB, 1 PDF worker, total 26.9 MB

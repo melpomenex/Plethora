@@ -27,7 +27,8 @@
     "resources": [
       "scripts/anna_download.py",
       "bin/*.so*",
-      "bin/notebooklm-runtime"
+      "bin/notebooklm-runtime",
+      "bin/lfm3-runtime"
     ]
   }
 }

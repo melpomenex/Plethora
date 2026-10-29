@@ -1,0 +1,27 @@
+[
+  {
+    "file": "female-en-gb.wav",
+    "bytes": 161324,
+    "sha256": "cd5ba0d087834368ca99da4385d117665c4f75f3650179d63c282baca16c5da9"
+  },
+  {
+    "file": "female-en-repeat.wav",
+    "bytes": 176684,
+    "sha256": "d0f441db787df0f537063ba7dfd29e073f4356e9abb4375ccb5e7357309057ca"
+  },
+  {
+    "file": "female-en.wav",
+    "bytes": 176684,
+    "sha256": "d0f441db787df0f537063ba7dfd29e073f4356e9abb4375ccb5e7357309057ca"
+  },
+  {
+    "file": "male-en-gb.wav",
+    "bytes": 161324,
+    "sha256": "c96bfe1428327b6498adf97357b9e0f32ca384ba8b75fb8145392209357b13eb"
+  },
+  {
+    "file": "male-en.wav",
+    "bytes": 161324,
+    "sha256": "0704ea94f0173481c82088677239c25e5cfd92d55505e92df1f15f4a7e3f23ce"
+  }
+]

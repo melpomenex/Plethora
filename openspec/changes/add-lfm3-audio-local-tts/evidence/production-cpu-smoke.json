@@ -1,0 +1,64 @@
+{
+  "probe": {
+    "backends": [
+      {
+        "gpu": false,
+        "name": "CPU"
+      }
+    ],
+    "protocol": 1,
+    "runtimeCommit": "ac8e1694d837b11ed0aab944a6a2eee34b9c4d80"
+  },
+  "ready": {
+    "backend": "CPU",
+    "backends": [
+      {
+        "gpu": false,
+        "name": "CPU"
+      }
+    ],
+    "protocol": 1,
+    "ready": true,
+    "runtimeCommit": "ac8e1694d837b11ed0aab944a6a2eee34b9c4d80"
+  },
+  "clips": [
+    {
+      "backend": "CPU",
+      "byteLength": 176684,
+      "durationSec": 3.68,
+      "elapsedSec": 5.566264934,
+      "id": "clip-0",
+      "ok": true,
+      "sampleRate": 24000
+    },
+    {
+      "backend": "CPU",
+      "byteLength": 161324,
+      "durationSec": 3.36,
+      "elapsedSec": 5.450356927,
+      "id": "clip-1",
+      "ok": true,
+      "sampleRate": 24000
+    },
+    {
+      "backend": "CPU",
+      "byteLength": 161324,
+      "durationSec": 3.36,
+      "elapsedSec": 3.969036475,
+      "id": "clip-2",
+      "ok": true,
+      "sampleRate": 24000
+    },
+    {
+      "backend": "CPU",
+      "byteLength": 161324,
+      "durationSec": 3.36,
+      "elapsedSec": 4.107105127,
+      "id": "clip-3",
+      "ok": true,
+      "sampleRate": 24000
+    }
+  ],
+  "invalid_inputs_rejected": true,
+  "cancel_reap_seconds": 0.21431122004287317
+}

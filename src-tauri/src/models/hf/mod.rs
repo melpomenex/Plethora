@@ -37,3 +37,5 @@ pub use manager::{
 };
 pub use suitability::{Suitability, SuitabilityLevel};
 pub use system_info::{GpuInfo, SystemInfo, detect_system_info};
+
+pub mod lfm3;

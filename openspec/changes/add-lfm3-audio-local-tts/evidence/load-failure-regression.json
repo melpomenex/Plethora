@@ -1,0 +1,19 @@
+{
+  "reported": "Settings displays Load failed when using LFM3",
+  "cause": "fetch of the native data:audio/wav;base64 URL is forbidden by desktop connect-src",
+  "native_model_files": "installed backbone and projector match pinned SHA-256",
+  "before": {
+    "unit_regression": "TypeError: Load failed",
+    "browser": "TypeError: Failed to fetch"
+  },
+  "after": {
+    "focused_tests": 9,
+    "full_frontend_tests": 196,
+    "browser_wav_bytes": 4844,
+    "browser_playable_duration_sec": 0.1
+  },
+  "browser_scope": "Real adapter under exact Tauri devCsp, native IPC mocked with valid WAV",
+  "fix": "Decode base64 locally and use existing binaryResult owned Blob URL",
+  "csp": "unchanged",
+  "limits": "Browser check uses mocked native audio, not a full native-app playback test"
+}

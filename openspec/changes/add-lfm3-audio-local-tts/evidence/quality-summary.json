@@ -1,0 +1,70 @@
+{
+  "command": "ripwire . --quality-delta --scope=openspec/changes/add-lfm3-audio-local-tts/** --legend=compact",
+  "summary": {
+    "schema": "ripwire.quality-delta/v1",
+    "baseline": "git-HEAD",
+    "regressions": "5",
+    "minor": "0",
+    "acked": "0",
+    "stale": "0",
+    "preexisting-worse": "0",
+    "new-symbol": "5",
+    "gating": "0",
+    "register-macro-excluded": "0",
+    "api-new-surface": "9422",
+    "at": "694cf9831+dirty",
+    "scope": "openspec/changes/add-lfm3-audio-local-tts/**",
+    "scoped-out": "15604",
+    "scoped-out-gating": "83",
+    "declined-call-excluded": "35",
+    "value-ref-excluded": "1734"
+  },
+  "findings": [
+    {
+      "kind": "complexity",
+      "sym": "main",
+      "was": "0",
+      "now": "25",
+      "bar": "15",
+      "origin": "new-symbol",
+      "p": "openspec/changes/add-lfm3-audio-local-tts/evidence/spike/spike.cpp:102"
+    },
+    {
+      "kind": "params",
+      "sym": "synthesize",
+      "was": "0",
+      "now": "8",
+      "bar": "5",
+      "origin": "new-symbol",
+      "p": "openspec/changes/add-lfm3-audio-local-tts/evidence/spike/spike.cpp:38"
+    },
+    {
+      "kind": "verbosity",
+      "sym": "main",
+      "was": "0",
+      "now": "67",
+      "bar": "60",
+      "origin": "new-symbol",
+      "p": "openspec/changes/add-lfm3-audio-local-tts/evidence/spike/spike.cpp:102"
+    },
+    {
+      "kind": "verbosity",
+      "sym": "runtime",
+      "was": "0",
+      "now": "63",
+      "bar": "60",
+      "origin": "new-symbol",
+      "p": "openspec/changes/add-lfm3-audio-local-tts/evidence/inputs.lock.json:5"
+    },
+    {
+      "kind": "verbosity",
+      "sym": "synthesize",
+      "was": "0",
+      "now": "61",
+      "bar": "60",
+      "origin": "new-symbol",
+      "p": "openspec/changes/add-lfm3-audio-local-tts/evidence/spike/spike.cpp:38"
+    }
+  ],
+  "limitation": "Global scan includes unrelated vendored trees; scope applies only to this change. No quality baseline was rewritten."
+}

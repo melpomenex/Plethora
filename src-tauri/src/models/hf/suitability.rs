@@ -291,6 +291,7 @@ pub fn classify(system: &SystemInfo, artifact: Option<&Artifact>) -> Suitability
 /// and natively on Android. CPU-first on every platform.
 pub fn tts_runtime_note(artifact: &Artifact) -> String {
     match artifact.runtime {
+        HfRuntime::LlamaCppTts => "Runs locally through llama.cpp, using available GPU acceleration or CPU. Model weights are optional; actual runtime availability is checked separately.".into(),
         HfRuntime::SherpaOnnxTts => {
             let family = artifact
                 .run_contract
@@ -405,6 +406,7 @@ mod tests {
 
     fn artifact(runtime: HfRuntime, size_bytes: u64, confidence: DetectionConfidence) -> Artifact {
         let contract = match runtime {
+            HfRuntime::LlamaCppTts => RunContract::Lfm3AudioTts { model_file: super::super::lfm3::BACKBONE.into(), projector_file: super::super::lfm3::PROJECTOR.into(), revision: super::super::lfm3::REVISION.into() },
             HfRuntime::WhisperCpp => RunContract::Whisper {
                 model_file: "ggml-small.bin".into(),
             },

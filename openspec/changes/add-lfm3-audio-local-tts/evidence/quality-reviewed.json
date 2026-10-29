@@ -1,0 +1,72 @@
+{
+  "summary": {
+    "schema": "ripwire.quality-delta/v1",
+    "baseline": "git-HEAD",
+    "regressions": "58",
+    "minor": "23",
+    "acked": "0",
+    "stale": "0",
+    "preexisting-worse": "30",
+    "new-symbol": "28",
+    "gating": "7",
+    "register-macro-excluded": "0",
+    "api-new-surface": "9422",
+    "at": "694cf9831+dirty",
+    "scope": "src/api/tts.ts,src/api/tts/dedup.ts,src/api/lfm3Tts.ts,src/api/tts/providers/lfm3.ts,src/components/audio/CreateAudioEditionDialog.tsx,src/components/common/ReaderTTSControls.tsx,src/components/settings/TTSSettings.tsx,src/components/settings/Lfm3TtsSetup.tsx,src/components/settings/HuggingFaceModelManager.tsx,src/components/settings/search/settingsSearchCatalog.ts,src/components/settings/search/settingsSearchCoverage.ts,src/stores/audioEditionGenerationStore.ts,src-tauri/src/models/hf/adapters.rs,src-tauri/src/models/hf/manager.rs,src-tauri/src/models/hf/hf_client.rs,src-tauri/src/models/hf/lfm3.rs,src-tauri/src/tts/lfm3.rs,native/lfm3-host,scripts/build-lfm3-host.mjs",
+    "scoped-out": "15618",
+    "scoped-out-gating": "83",
+    "declined-call-excluded": "35",
+    "value-ref-excluded": "1734"
+  },
+  "gating": [
+    {
+      "kind": "duplication",
+      "members": "src-tauri/src/algorithms/mod.rs::AlgorithmType::as_str | src-tauri/src/models/hf/adapters.rs::HfRuntime::label | src-tauri/src/models/hf/manager.rs::HfRuntime::tag",
+      "tokens": "62",
+      "p": "src-tauri/src/algorithms/mod.rs:82",
+      "gating": "1"
+    },
+    {
+      "kind": "duplication",
+      "members": "src-tauri/src/models/hf/adapters.rs::HfRuntime::sidecar_name | src-tauri/src/sync/types.rs::EntityType::as_str",
+      "tokens": "78",
+      "p": "src-tauri/src/models/hf/adapters.rs:58",
+      "gating": "1"
+    },
+    {
+      "kind": "duplication",
+      "members": "src-tauri/src/models/hf/adapters.rs::HfRuntime::sidecar_name | file_type_string",
+      "tokens": "78",
+      "p": "src-tauri/src/models/hf/adapters.rs:58",
+      "gating": "1"
+    },
+    {
+      "kind": "duplication",
+      "members": "whisper.cpp/examples/talk-llama/llama-vocab.cpp::comparator::operator() | isPositionEarlier",
+      "tokens": "34",
+      "p": "whisper.cpp/examples/talk-llama/llama-vocab.cpp:98",
+      "gating": "1"
+    },
+    {
+      "kind": "duplication",
+      "members": "abort | finalize",
+      "tokens": "28",
+      "p": "src/api/tts/dedup.ts:52",
+      "gating": "1"
+    },
+    {
+      "kind": "duplication",
+      "members": "cancel | run",
+      "tokens": "23",
+      "p": "src/api/lfm3Tts.ts:31",
+      "gating": "1"
+    },
+    {
+      "kind": "duplication",
+      "members": "clearTTSDeduper | enterAll",
+      "tokens": "27",
+      "p": "src/api/tts/dedup.ts:76",
+      "gating": "1"
+    }
+  ]
+}
