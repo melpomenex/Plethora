@@ -2656,6 +2656,7 @@ export function QueueScrollPage() {
       viewer
         .querySelectorAll<HTMLElement>(".overflow-y-auto, .overflow-auto")
         .forEach((el) => {
+          if (el.closest(".assistant-panel")) return;
           el.scrollTop = 0;
         });
     }
