@@ -170,7 +170,14 @@ export function useSectionPicker({
     if (query) {
       return filterSectionRows(flat, query, selectionEntry);
     }
-    return buildOutlineRows(tree, expandedIds);
+    const outline = buildOutlineRows(tree, expandedIds);
+    if (!selectionEntry) return outline;
+    // The live text selection stays the first choice on a bare `#` too; it is
+    // synthetic and never part of the document tree.
+    return [
+      { node: selectionEntry, depth: 0, hasChildren: false, expanded: false },
+      ...outline.filter((row) => row.node.id !== selectionEntry.id),
+    ];
     // expandedIds is a Set; its identity changes on every toggle, which is the
     // intended invalidation. The tree and flat arrays are memoized upstream.
   }, [expandedIds, flat, query, selectionEntry, tree]);

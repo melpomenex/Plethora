@@ -21,9 +21,23 @@ document.head.appendChild(fontPin);
 
 const passage = "Retrieval practice strengthens long-term retention by requiring learners to reconstruct an idea from memory.";
 const passageTwo = "Spacing learning over time improves retention, particularly when retrieval requires effort.";
+const params = new URLSearchParams(location.search);
+const outlinePassage = [
+  "# Part One",
+  "Part one introduces memory.",
+  "## Chapter 1",
+  "Darwin's peacock argument lives in this chapter body.",
+  "### Section 1.1",
+  "A nested subsection about sexual selection.",
+  "# Part Two",
+  "Part two covers cultural evolution.",
+].join("\n\n");
 const docs = [
   { id: "qa-fixture-memory", title: "How We Learn: Memory and Attention", content: passage },
   { id: "qa-fixture-spacing", title: "Spacing, Retrieval, and the Science of Remembering", content: passageTwo },
+  ...(params.has("sectionPicker")
+    ? [{ id: "qa-fixture-outline", title: "The Moral Animal", content: outlinePassage }]
+    : []),
 ].map((doc) => ({ ...doc, filePath: `/fixture/${doc.id}.md`, fileType: "markdown", tags: [], dateModified: "2026-10-15", collectionId: "qa-fixture" })) as Document[];
 await Promise.all(docs.map((doc) => seedDocument({ id: doc.id, title: doc.title, file_type: doc.fileType, file_path: doc.filePath, content: doc.content })));
 useCollectionStore.setState({ activeCollectionId: "qa-fixture", collections: [] });
@@ -34,7 +48,7 @@ function seed(scenario: string) {
   useDocumentStore.setState({ documents: scenario === "empty-library" ? [] : docs, currentDocument: null, hasCompletedFirstLoad: true });
   const past = createSession({ title: "Memory and attention", selectedDocumentId: docs[0].id, documentName: docs[0].title,
     draft: { text: "How does attention affect recall?", sections: [] }, messages: [] });
-  const active = createSession({ selectedDocumentId: scenario === "missing-source" ? "deleted-document" : "",
+  const active = createSession({ selectedDocumentId: scenario === "missing-source" ? "deleted-document" : scenario === "section-picker" ? "qa-fixture-outline" : "",
     messages: scenario === "conversation" ? [
       { id: "fixture-question", role: "user", content: "How do retrieval practice and spacing work together?", timestamp: 1792022400000 },
       { id: "fixture-answer", role: "assistant", content: "Retrieval practice asks you to reconstruct an idea rather than reread it. Spacing makes that reconstruction more effortful by allowing time to pass. Together, they help make knowledge easier to recall later. [1] [2]\n\nA useful routine is to close the source, explain the idea in your own words, then return to it after a delay.", timestamp: 1792022401000,
@@ -46,7 +60,7 @@ function seed(scenario: string) {
   });
   saveSessions([active, past]); setActiveSessionId(active.id);
 }
-seed("start");
+seed(params.has("sectionPicker") ? "section-picker" : "start");
 
 function Harness() {
   const { themes, setTheme } = useTheme();

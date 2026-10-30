@@ -444,4 +444,83 @@ describe("AssistantPanel # section index", () => {
     expect(screen.queryByRole("separator", { name: "Resize Assistant panel" })).not.toBeInTheDocument();
     expect(container.firstElementChild).toHaveStyle({ width: "100%" });
   });
+
+  it("arms the section index when # is pasted without a prior focus event", async () => {
+    render(<AssistantPanel context={{ type: "document", documentId: "doc-1" }} />);
+
+    const textarea = screen.getByPlaceholderText(/Ask about your document/i);
+    fireEvent.change(textarea, { target: { value: "#" } });
+
+    await waitFor(() => expect(documentsApi.getDocument).toHaveBeenCalledWith("doc-1"));
+    expect(await screen.findByRole("listbox", { name: "Sections" })).toBeInTheDocument();
+  });
+
+  it("browses the document outline and sends only the selected chapter", async () => {
+    const markdown = [
+      "# Part One",
+      "Part one introduction only.",
+      "## Chapter 1",
+      "CHAPTER-ONE-BODY Darwin's peacock argument lives here.",
+      "### Section 1.1",
+      "A nested subsection detail.",
+      "# Part Two",
+      "PART-TWO-BODY must not leak into the request.",
+    ].join("\n\n");
+    vi.mocked(documentsApi.getDocument).mockResolvedValue({
+      id: "doc-1",
+      content: markdown,
+    } as never);
+
+    render(
+      <AssistantPanel
+        context={{
+          type: "document",
+          documentId: "doc-1",
+          content: markdown,
+          metadata: { title: "The Moral Animal" },
+        }}
+      />,
+    );
+
+    const textarea = screen.getByPlaceholderText(/Ask about your document/i) as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: "#" } });
+
+    expect(await screen.findByText("Part One")).toBeInTheDocument();
+    expect(screen.queryByText("Chapter 1")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Expand Part One/i }));
+    fireEvent.click(await screen.findByText("Chapter 1"));
+
+    fireEvent.change(textarea, {
+      target: { value: `${textarea.value} Summarize this chapter` },
+    });
+    fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
+
+    await waitFor(() => expect(llmMocks.chatWithContext).toHaveBeenCalledTimes(1));
+    const llmContext = llmMocks.chatWithContext.mock.calls[0][3] as { content: string };
+    expect(llmContext.content).toContain("CHAPTER-ONE-BODY");
+    expect(llmContext.content).not.toContain("PART-TWO-BODY");
+  });
+
+  it("explains that # needs an open document in a non-document context", () => {
+    render(<AssistantPanel context={{ type: "general" }} />);
+
+    const textarea = screen.getByPlaceholderText(/Ask about your document/i);
+    fireEvent.change(textarea, { target: { value: "#" } });
+
+    expect(screen.getByRole("note")).toHaveTextContent(/references sections of an open document/i);
+  });
+
+  it("explains that extracts cannot offer document sections", () => {
+    render(
+      <AssistantPanel
+        context={{ type: "document", documentId: "doc-1", extractId: "extract-1", content: "Extract body" }}
+      />,
+    );
+
+    const textarea = screen.getByPlaceholderText(/Ask about your document/i);
+    fireEvent.change(textarea, { target: { value: "#" } });
+
+    expect(screen.getByRole("note")).toHaveTextContent(/full document/i);
+  });
 });

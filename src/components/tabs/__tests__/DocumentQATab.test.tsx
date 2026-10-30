@@ -414,7 +414,57 @@ describe("DocumentQATab audiobook section parity", () => {
       expect.stringContaining("008"),
       expect.stringContaining("050"),
     ]);
-    expect(screen.getByText("Sections in this document (3)")).toBeInTheDocument();
+    const picker = sectionList.closest("[data-section-picker]") as HTMLElement;
+    expect(within(picker).getByText("A Thousand Brains")).toBeInTheDocument();
+    expect(within(picker).getByText("3 top-level · 3 sections")).toBeInTheDocument();
+  });
+
+  it("browses a nested outline with keyboard expansion and selects the highlighted row", async () => {
+    const chapter: SectionNode = {
+      id: "chapter-1",
+      title: "Chapter 1",
+      level: 2,
+      breadcrumb: ["Part One"],
+      preview: "Chapter body",
+      content: "Chapter body content",
+      children: [],
+      parentId: "part-1",
+      source: "text",
+      hasAuthoritativeRange: true,
+      documentId: "doc-1",
+    };
+    const part: SectionNode = {
+      id: "part-1",
+      title: "Part One",
+      level: 1,
+      breadcrumb: [],
+      preview: "Part body",
+      content: "Part body content",
+      children: [chapter],
+      parentId: null,
+      source: "text",
+      hasAuthoritativeRange: true,
+      documentId: "doc-1",
+    };
+    sectionHookState.tree = [part];
+    sectionHookState.flat = [part, chapter];
+
+    render(<DocumentQATab />);
+    selectFocusDocument();
+    const composer = screen.getByRole("textbox", { name: "Your question" }) as HTMLTextAreaElement;
+    fireEvent.change(composer, { target: { value: "#", selectionStart: 1 } });
+
+    const sectionList = await screen.findByRole("listbox", { name: "Sections" });
+    expect(within(sectionList).getByText("Part One")).toBeInTheDocument();
+    expect(within(sectionList).queryByText("Chapter 1")).not.toBeInTheDocument();
+
+    fireEvent.keyDown(composer, { key: "ArrowRight" });
+    expect(within(sectionList).getByText("Chapter 1")).toBeInTheDocument();
+
+    fireEvent.keyDown(composer, { key: "ArrowDown" });
+    fireEvent.keyDown(composer, { key: "Enter" });
+
+    expect(composer.value).toContain("#{chapter-1}");
   });
 
   it("sends the selected timed chapter text directly and excludes the foreword", async () => {

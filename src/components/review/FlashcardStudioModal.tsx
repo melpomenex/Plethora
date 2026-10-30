@@ -134,6 +134,7 @@ import {
 import { loadDocumentQaText, createDocumentQaRequestContent } from "../../features/documentQa/sectionContextRequest";
 import { useDocumentSections } from "../../hooks/useDocumentSections";
 import { SectionMentionPopup } from "../common/SectionMentionPopup";
+import { useSectionPicker } from "../common/sectionPickerModel";
 import {
   buildSectionsSnapshot,
   describeSectionDiagnostic,
@@ -1045,7 +1046,6 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   // Section-mention (`#`) popup state for the chat input. Mirrors the Assistant.
   const [showSectionPopup, setShowSectionPopup] = useState(false);
   const [sectionQuery, setSectionQuery] = useState("");
-  const [sectionCursorIndex, setSectionCursorIndex] = useState(0);
   const [allExtracts, setAllExtracts] = useState<Extract[]>([]);
   const [areExtractsLoading, setAreExtractsLoading] = useState(false);
   const [generatingExtractIds, setGeneratingExtractIds] = useState<Set<string>>(new Set());
@@ -1440,6 +1440,9 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
 
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !e.metaKey && !e.ctrlKey) {
+        // The `#` section picker is a transient layer inside the same dialog:
+        // Escape dismisses the picker, not the Studio.
+        if (showSectionPopup) return;
         // A configuration sheet owns Escape while it is open. Both its listener
         // and this one are on `document`, and the sheet's stopPropagation()
         // does not stop sibling listeners on the same node — without this guard
@@ -1483,7 +1486,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, input, isSending, isSaving, draftCards, editingCardId, viewMode, onClose, handleNewSession, activeSheet]);
+  }, [isOpen, input, isSending, isSaving, draftCards, editingCardId, viewMode, showSectionPopup, onClose, handleNewSession, activeSheet]);
 
   // Never leave a sheet key set behind a closed modal — reopening the Studio
   // would otherwise mount straight into that sheet.
@@ -1573,6 +1576,13 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     documentId: selectedDocument?.id,
     content: selectedDocumentText ?? "",
     useStoreOutline: true,
+  });
+
+  const sectionPicker = useSectionPicker({
+    tree: sectionTree,
+    flat: sectionFlat,
+    query: sectionQuery,
+    open: showSectionPopup,
   });
 
   // Resolve the focused section ids back to nodes against the current tree.
@@ -2738,28 +2748,8 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     toast.success(t("flashcardStudio.cardDuplicated"), t("flashcardStudio.cardDuplicatedDesc"));
   };
 
-  // Sections matching the current `#query` — used to drive keyboard navigation
-  // for the popup (the popup itself filters/sorts internally with the same
-  // scoring heuristics). Mirrors AssistantPanel.getFilteredAssistantSections.
-  const filteredSectionOptions = useMemo<SectionNode[]>(() => {
-    if (!showSectionPopup) return [];
-    if (!sectionQuery) return sectionFlat;
-    const q = sectionQuery.toLowerCase();
-    return sectionFlat
-      .map((sec) => {
-        const titleLower = sec.title.toLowerCase();
-        const breadLower = sec.breadcrumb.join(" > ").toLowerCase();
-        let score = 0;
-        if (titleLower.startsWith(q)) score += 100;
-        else if (titleLower.includes(q)) score += 50;
-        if (breadLower.includes(q)) score += 20;
-        return { sec, score };
-      })
-      .filter((s) => s.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 100)
-      .map((s) => s.sec);
-  }, [showSectionPopup, sectionQuery, sectionFlat]);
+  // Sections matching the current `#query` are owned by useSectionPicker; the
+  // same rows drive rendering and keyboard selection.
 
   const handleInputChange = (value: string) => {
     setInput(value);
@@ -2779,7 +2769,6 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     if (hashMatch) {
       setShowSectionPopup(true);
       setSectionQuery(hashMatch[1]);
-      setSectionCursorIndex(0);
     } else {
       setShowSectionPopup(false);
       setSectionQuery("");
@@ -2821,6 +2810,24 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     }, 0);
   };
 
+  const handleClearStudioSectionQuery = () => {
+    const textarea = inputRef.current;
+    const cursorPos = textarea ? textarea.selectionStart : input.length;
+    const beforeCursor = input.slice(0, cursorPos);
+    const hashMatch = beforeCursor.match(/#([^#\s]*)$/);
+    if (hashMatch) {
+      const hashPos = cursorPos - hashMatch[0].length;
+      const nextValue = input.slice(0, hashPos + 1) + input.slice(cursorPos);
+      setInput(nextValue);
+      setTimeout(() => {
+        const nextPos = hashPos + 1;
+        textarea?.setSelectionRange(nextPos, nextPos);
+        textarea?.focus();
+      }, 0);
+    }
+    setSectionQuery("");
+  };
+
   const handleRemoveSectionById = (id: string) => {
     const node = sectionFlat.find((n) => n.id === id);
     if (node) {
@@ -2837,29 +2844,42 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
 
   const handleInputKeyDown = (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
     if (showSectionPopup) {
-      const filtered = filteredSectionOptions;
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSectionCursorIndex((prev) => (prev < filtered.length - 1 ? prev + 1 : prev));
+        sectionPicker.next();
         return;
       }
       if (e.key === "ArrowUp") {
         e.preventDefault();
-        setSectionCursorIndex((prev) => (prev > 0 ? prev - 1 : 0));
+        sectionPicker.previous();
         return;
       }
-      if (e.key === "Enter" && filtered.length > 0) {
+      if (e.key === "ArrowRight") {
         e.preventDefault();
-        handleSelectStudioSection(filtered[sectionCursorIndex] || filtered[0]);
+        sectionPicker.expandActive();
+        return;
+      }
+      if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        sectionPicker.collapseActive();
+        return;
+      }
+      if (e.key === "Enter" && sectionPicker.activeRow) {
+        e.preventDefault();
+        handleSelectStudioSection(sectionPicker.activeRow.node);
         return;
       }
       if (e.key === "Escape") {
         e.preventDefault();
+        e.stopPropagation();
         setShowSectionPopup(false);
         return;
       }
       if (e.key === "Tab") {
         e.preventDefault();
+        if (sectionPicker.activeRow?.hasChildren) {
+          sectionPicker.toggleExpanded(sectionPicker.activeRow.node.id);
+        }
         return;
       }
     }
@@ -3373,13 +3393,19 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                   <div className="relative">
                     {selectedDocument && showSectionPopup && (
                       <SectionMentionPopup
-                        tree={sectionTree}
-                        flat={sectionFlat}
+                        rows={sectionPicker.rows}
                         query={sectionQuery}
-                        selectedIndex={sectionCursorIndex}
-                        open={showSectionPopup}
+                        activeIndex={sectionPicker.activeIndex}
                         onSelect={handleSelectStudioSection}
+                        onToggleExpand={sectionPicker.toggleExpanded}
+                        onClearQuery={handleClearStudioSectionQuery}
                         onClose={() => setShowSectionPopup(false)}
+                        open={showSectionPopup}
+                        anchorRef={inputRef}
+                        documentTitle={selectedDocument.title}
+                        topLevelCount={sectionTree.length}
+                        totalSectionCount={sectionFlat.length}
+                        layerZIndex="9991"
                       />
                     )}
                     <textarea

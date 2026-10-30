@@ -19,10 +19,26 @@ const pickerFixture = params.has("picker");
 const position = params.get("side") === "left" ? "left" : "right";
 const locale: SupportedLocale = ["en","de","es","fr","ja","zh"].includes(params.get("locale") ?? "") ? params.get("locale") as SupportedLocale : "en";
 const theme: ThemeId = params.get("theme") ?? "milky-matcha";
+const structuredSectionContent = [
+  "# Part One",
+  "Part one introduces the evolutionary argument.",
+  "## Chapter 1",
+  "Darwin's peacock argument lives in this chapter body.",
+  "### Section 1.1",
+  "A nested subsection about sexual selection.",
+  "## Chapter 2",
+  "Another chapter inside the first part.",
+  "# Part Two",
+  "Part two covers cultural evolution.",
+  "## Chapter 3",
+  "The third chapter body.",
+].join("\n\n");
 const context = {
   type: "document" as const,
   documentId: "controls-fixture",
-  content: "Music and identity: a conversation about navigating change.",
+  content: params.has("sections")
+    ? structuredSectionContent
+    : "Music and identity: a conversation about navigating change.",
   ...(params.has("actions") ? { selection: "Complex cells convert nutrients into usable energy.", coverage: "window" as const, position: { pageNumber: 42 } } : {}),
   metadata: { title: "What this musician’s identity crisis teaches us about navigating change" },
 };

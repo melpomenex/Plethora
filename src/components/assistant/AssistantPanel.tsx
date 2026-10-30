@@ -103,6 +103,7 @@ import { providerRequiresApiKey, type ConfiguredLLMProvider } from "../../utils/
 import { invokeCommand, isTauri } from "../../lib/tauri";
 import { useDocumentSections } from "../../hooks/useDocumentSections";
 import { SectionMentionPopup } from "../common/SectionMentionPopup";
+import { useSectionPicker } from "../common/sectionPickerModel";
 import { SectionMentionCard } from "../common/SectionMentionCard";
 import {
   buildSelectionFocusedContext,
@@ -512,7 +513,6 @@ export function AssistantPanel({
   // Section # mention support - new tree UX
   const [showSectionPopup, setShowSectionPopup] = useState(false);
   const [sectionQuery, setSectionQuery] = useState("");
-  const [sectionCursorIndex, setSectionCursorIndex] = useState(0);
   const [selectedSectionNodes, setSelectedSectionNodes] = useState<SectionNode[]>([]);
   const [assistantFullContent, setAssistantFullContent] = useState("");
   // The `#` section index costs a full-document text fetch plus a synchronous
@@ -724,6 +724,14 @@ export function AssistantPanel({
     }
     return null;
   }, [context?.type, context?.selection, context?.documentId, pinnedSelection]);
+
+  const sectionPicker = useSectionPicker({
+    tree: assistantSectionTree,
+    flat: assistantSectionFlat,
+    query: sectionQuery,
+    selectionEntry: selectionSection,
+    open: showSectionPopup,
+  });
 
   // Load full document content for section parsing when documentId changes.
   // While the fetch is in flight the section catalog is empty — the popup
@@ -3014,13 +3022,18 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     const beforeCursor = value.slice(0, cursorPos);
     const hashMatch = beforeCursor.match(/#([^#\s]*)$/);
 
+    if (hashMatch) {
+      // Typing, pasting, or dictating `#` must arm the index even when no
+      // focus event preceded it. The load effect keys on this flag.
+      setSectionsArmed(true);
+    }
+
     if (context?.type !== "document") {
       // `#` has no document to draw sections from in this context. Show the
       // popup with an explanation instead of silently doing nothing.
       if (hashMatch) {
         setShowSectionPopup(true);
         setSectionQuery(hashMatch[1]);
-        setSectionCursorIndex(0);
       } else {
         setShowSectionPopup(false);
         setSectionQuery("");
@@ -3031,7 +3044,6 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     if (hashMatch) {
       setShowSectionPopup(true);
       setSectionQuery(hashMatch[1]);
-      setSectionCursorIndex(0);
     } else {
       setShowSectionPopup(false);
       setSectionQuery("");
@@ -3090,48 +3102,45 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     }
   };
 
-  const getFilteredAssistantSections = () => {
-    // The live selection is offered as the first entry (matching the popup),
-    // so keyboard navigation and the rendered list stay consistent.
-    const base = selectionSection
-      ? [selectionSection, ...assistantSectionFlat]
-      : assistantSectionFlat;
-    if (!sectionQuery) return base;
-    const q = sectionQuery.toLowerCase();
-    const selectionMatches = (sec: SectionNode) =>
-      sec.source === "selection" &&
-      ((sec.title.toLowerCase().includes(q)) || (sec.content || "").toLowerCase().includes(q));
-    return base
-      .map((sec) => {
-        const titleLower = sec.title.toLowerCase();
-        const breadLower = sec.breadcrumb.join(" > ").toLowerCase();
-        let score = 0;
-        if (titleLower.startsWith(q)) score += 100;
-        else if (titleLower.includes(q)) score += 50;
-        if (breadLower.includes(q)) score += 20;
-        if (selectionMatches(sec)) score += 5;
-        return { sec, score };
-      })
-      .filter((s) => s.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 100)
-      .map((s) => s.sec);
+  const handleClearAssistantSectionQuery = () => {
+    const textarea = textareaRef.current;
+    const cursorPos = textarea ? textarea.selectionStart : input.length;
+    const beforeCursor = input.slice(0, cursorPos);
+    const hashMatch = beforeCursor.match(/#([^#\s]*)$/);
+    if (hashMatch) {
+      const hashPos = cursorPos - hashMatch[0].length;
+      const nextValue = input.slice(0, hashPos + 1) + input.slice(cursorPos);
+      setInput(nextValue);
+      setTimeout(() => {
+        const nextPos = hashPos + 1;
+        textarea?.setSelectionRange(nextPos, nextPos);
+        textarea?.focus();
+      }, 0);
+    }
+    setSectionQuery("");
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (showSectionPopup) {
-      const filtered = getFilteredAssistantSections();
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSectionCursorIndex((prev) => (prev < filtered.length - 1 ? prev + 1 : prev));
+        sectionPicker.next();
         return;
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setSectionCursorIndex((prev) => (prev > 0 ? prev - 1 : 0));
+        sectionPicker.previous();
         return;
-      } else if (e.key === "Enter" && filtered.length > 0) {
+      } else if (e.key === "ArrowRight") {
         e.preventDefault();
-        handleSelectAssistantSection(filtered[sectionCursorIndex] || filtered[0]);
+        sectionPicker.expandActive();
+        return;
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        sectionPicker.collapseActive();
+        return;
+      } else if (e.key === "Enter" && sectionPicker.activeRow) {
+        e.preventDefault();
+        handleSelectAssistantSection(sectionPicker.activeRow.node);
         return;
       } else if (e.key === "Escape") {
         e.preventDefault();
@@ -3160,6 +3169,9 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     }
     if (e.key === "Tab" && showSectionPopup) {
       e.preventDefault();
+      if (sectionPicker.activeRow?.hasChildren) {
+        sectionPicker.toggleExpanded(sectionPicker.activeRow.node.id);
+      }
       return;
     }
     if (e.key === "Tab") {
@@ -4527,30 +4539,35 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             <span>Type /tools to see available tools • # references sections of an open document</span>
           </div>}
 
-          {/* SectionMentionPopup - positioned above input */}
+          {/* Section picker: portaled above the textarea, outside the scrolling composer */}
           {showSectionPopup && (
-            <div className="absolute bottom-full left-3 right-3 mb-2">
-              <SectionMentionPopup
-                tree={assistantSectionTree}
-                flat={assistantSectionFlat}
-                query={sectionQuery}
-                selectedIndex={sectionCursorIndex}
-                onSelect={handleSelectAssistantSection}
-                open={showSectionPopup}
-                maxHeight={260}
-                selectionEntry={selectionSection}
-                isLoading={
-                  context?.type === "document" &&
-                  sectionTextLoading &&
-                  assistantSectionFlat.length === 0
-                }
-                unavailableReason={
-                  context?.type !== "document"
-                    ? t("sectionMention.noDocumentTargeted")
+            <SectionMentionPopup
+              rows={sectionPicker.rows}
+              query={sectionQuery}
+              activeIndex={sectionPicker.activeIndex}
+              onSelect={handleSelectAssistantSection}
+              onToggleExpand={sectionPicker.toggleExpanded}
+              onClearQuery={handleClearAssistantSectionQuery}
+              open={showSectionPopup}
+              anchorRef={textareaRef}
+              hostRef={panelRef}
+              documentTitle={assistantDocumentTitle}
+              topLevelCount={assistantSectionTree.length}
+              totalSectionCount={assistantSectionFlat.length}
+              maxHeight={260}
+              isLoading={
+                context?.type === "document" &&
+                sectionTextLoading &&
+                assistantSectionFlat.length === 0
+              }
+              unavailableReason={
+                context?.type !== "document"
+                  ? t("sectionMention.noDocumentTargeted")
+                  : context?.extractId
+                    ? t("sectionMention.extractUnavailable")
                     : null
-                }
-              />
-            </div>
+              }
+            />
           )}
 
           {showActionStrip && <div className="relative min-w-0">

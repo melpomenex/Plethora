@@ -56,6 +56,7 @@ import { useI18n } from "../../lib/i18n";
 import { invokeCommand } from "../../lib/tauri";
 import { useDocumentSections } from "../../hooks/useDocumentSections";
 import { SectionMentionPopup } from "../common/SectionMentionPopup";
+import { useSectionPicker } from "../common/sectionPickerModel";
 import { SectionMentionCard } from "../common/SectionMentionCard";
 import {
   buildDocumentSections,
@@ -176,7 +177,6 @@ export function DocumentQATab() {
   // Section autocomplete state - new hierarchical model
   const [showSectionPopup, setShowSectionPopup] = useState(false);
   const [sectionQuery, setSectionQuery] = useState("");
-  const [sectionCursorIndex, setSectionCursorIndex] = useState(0);
   const [selectedSections, setSelectedSections] = useState<SectionNode[]>([]);
   const [fullContent, setFullContent] = useState("");
   const [fullContentLoading, setFullContentLoading] = useState(false);
@@ -271,6 +271,7 @@ export function DocumentQATab() {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const workspaceRef = useRef<HTMLDivElement>(null);
   const researchEditorRef = useRef<HTMLTextAreaElement>(null);
   const mentionPopupRef = useRef<HTMLDivElement>(null);
   const autosaveTimerRef = useRef<number | null>(null);
@@ -342,27 +343,14 @@ export function DocumentQATab() {
     doc.title.toLowerCase().includes(mentionQuery.toLowerCase())
   );
 
-  // Filter sections for autocomplete - fuzzy scoring with breadcrumb
-  const filteredSections = useMemo(() => {
-    if (!sectionQuery) return sections;
-    const q = sectionQuery.toLowerCase();
-    const scored = sections
-      .map((sec) => {
-        const titleLower = sec.title.toLowerCase();
-        const breadLower = sec.breadcrumb.join(" > ").toLowerCase();
-        let score = 0;
-        if (titleLower.startsWith(q)) score += 100;
-        else if (titleLower.includes(q)) score += 50;
-        if (breadLower.includes(q)) score += 20;
-        if (sec.preview.toLowerCase().includes(q)) score += 5;
-        return { sec, score };
-      })
-      .filter((s) => s.score > 0)
-      .sort((a, b) => b.score - a.score || a.sec.level - b.sec.level)
-      .slice(0, 100)
-      .map((s) => s.sec);
-    return scored.length > 0 ? scored : sections.filter((sec) => sec.title.toLowerCase().includes(q) || sec.breadcrumb.join(" ").toLowerCase().includes(q));
-  }, [sections, sectionQuery]);
+  // Filter sections for autocomplete — the shared picker model owns ranking,
+  // outline expansion, and the active row so display and Enter agree.
+  const sectionPicker = useSectionPicker({
+    tree: pickerSectionTree,
+    flat: pickerSectionFlat,
+    query: sectionQuery,
+    open: showSectionPopup,
+  });
   const activeResearchDocumentId = useMemo(() => {
     if (researchDocumentId) return researchDocumentId;
     if (mentions.length > 0) return mentions[0].id;
@@ -551,7 +539,6 @@ export function DocumentQATab() {
     } else if (hashMatch) {
       setShowSectionPopup(true);
       setSectionQuery(hashMatch[1]);
-      setSectionCursorIndex(0);
       setShowMentionPopup(false);
     } else {
       setShowMentionPopup(false);
@@ -618,6 +605,25 @@ export function DocumentQATab() {
         textarea.focus();
       }, 0);
     }
+  };
+
+  const handleClearSectionQuery = () => {
+    const textarea = textareaRef.current;
+    const cursorPosition = textarea ? textarea.selectionStart : rawInput.length;
+    const beforeCursor = rawInput.slice(0, cursorPosition);
+    const hashMatch = beforeCursor.match(/#([^#\s]*)$/);
+    if (hashMatch) {
+      const hashPosition = cursorPosition - hashMatch[0].length;
+      const nextValue = rawInput.slice(0, hashPosition + 1) + rawInput.slice(cursorPosition);
+      setRawInput(nextValue);
+      setInput(formatInputForDisplay(nextValue, mentions, selectedSections));
+      setTimeout(() => {
+        const nextPosition = hashPosition + 1;
+        textarea?.setSelectionRange(nextPosition, nextPosition);
+        textarea?.focus();
+      }, 0);
+    }
+    setSectionQuery("");
   };
 
   const handleSelectSection = (sec: SectionNode) => {
@@ -698,15 +704,19 @@ export function DocumentQATab() {
     } else if (showSectionPopup) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        setSectionCursorIndex((prev) =>
-          prev < filteredSections.length - 1 ? prev + 1 : prev
-        );
+        sectionPicker.next();
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        setSectionCursorIndex((prev) => (prev > 0 ? prev - 1 : 0));
-      } else if (e.key === "Enter" && filteredSections.length > 0) {
+        sectionPicker.previous();
+      } else if (e.key === "ArrowRight") {
         e.preventDefault();
-        handleSelectSection(filteredSections[sectionCursorIndex]);
+        sectionPicker.expandActive();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        sectionPicker.collapseActive();
+      } else if (e.key === "Enter" && sectionPicker.activeRow) {
+        e.preventDefault();
+        handleSelectSection(sectionPicker.activeRow.node);
       } else if (e.key === "Escape") {
         setShowSectionPopup(false);
       }
@@ -1737,7 +1747,7 @@ export function DocumentQATab() {
   };
 
   return (
-    <div className="document-qa-workspace flex h-full min-h-0 bg-surface text-on-surface">
+    <div ref={workspaceRef} className="document-qa-workspace flex h-full min-h-0 bg-surface text-on-surface">
       <DocumentQaHistory sessions={workspace.sessions} activeId={workspace.activeId} busy={isProcessing}
         onNew={handleNewChat} onResume={workspace.resume} onRename={workspace.rename} onDelete={workspace.remove}
         open={historyOpen} onClose={() => setHistoryOpen(false)} />
@@ -2243,20 +2253,26 @@ export function DocumentQATab() {
           </div>
         )}
 
-        {/* Section autocomplete popup - new tree-aware */}
+        {/* Section autocomplete floating layer (portaled above the question input) */}
         {showSectionPopup && (
           <SectionMentionPopup
-            tree={pickerSectionTree}
-            flat={pickerSectionFlat}
+            rows={sectionPicker.rows}
             query={sectionQuery}
-            selectedIndex={sectionCursorIndex}
+            activeIndex={sectionPicker.activeIndex}
             onSelect={handleSelectSection}
+            onToggleExpand={sectionPicker.toggleExpanded}
+            onClearQuery={handleClearSectionQuery}
             open={showSectionPopup}
+            anchorRef={textareaRef}
+            hostRef={workspaceRef}
+            documentTitle={targetDocument?.title}
+            topLevelCount={pickerSectionTree.length}
+            totalSectionCount={pickerSectionFlat.length}
             isLoading={
               isMediaCatalogLoading ||
               (Boolean(targetDocId) && fullContentLoading && pickerSectionFlat.length === 0)
             }
-            loadingLabel="Loading transcript chapters…"
+            loadingLabel={isAudiobookTarget ? "Loading transcript chapters…" : t("sectionMention.indexLoading")}
             unavailableReason={
               !targetDocId ? t("sectionMention.noDocumentTargeted") : null
             }
