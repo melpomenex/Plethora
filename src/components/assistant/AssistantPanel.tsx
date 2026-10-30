@@ -1814,11 +1814,12 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
   }, [context?.selection, context?.documentId, context?.position?.pageNumber, pinnedSelection, assistantDocumentTitle]);
 
   const agentSectionResolvingRef = useRef(false);
-  const buildAgentSection = useCallback(async (): Promise<LearningAgentSectionInput | undefined> => {
-    if (!selectedSectionNodes.length) return undefined;
-    const documentId = selectedSectionNodes[0].documentId ?? context?.documentId;
+  const buildAgentSection = useCallback(async (sectionOverride?: SectionNode): Promise<LearningAgentSectionInput | undefined> => {
+    const sections = sectionOverride ? [sectionOverride] : selectedSectionNodes;
+    if (!sections.length) return undefined;
+    const documentId = sections[0].documentId ?? context?.documentId;
     if (!documentId || context?.extractId) throw new Error("Select sections from one source document before running the agent.");
-    const focused = await resolveScopedSectionContext({ selectedSections: selectedSectionNodes, availableSections: assistantSectionFlat, documentId,
+    const focused = await resolveScopedSectionContext({ selectedSections: sections, availableSections: assistantSectionFlat, documentId,
       maxTokens: Number.MAX_SAFE_INTEGER / 8, loadCanonicalText: () => loadDocumentQaText(documentId, { getDocument, extractDocumentText }),
       rebuildAvailableSections: (text) => buildSectionsSnapshot(documentId, text, useDocumentOutlineStore.getState().getOutline(documentId)).flat });
     if (!focused.ok) throw new Error(`Could not load the selected sections: ${focused.unresolved.map(describeSectionDiagnostic).join("; ")}. Reselect them; no request was made.`);
@@ -2070,7 +2071,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     ]
   );
 
-  const handleSendAgentMessage = useCallback(async () => {
+  const handleSendAgentMessage = useCallback(async (sectionOverride?: SectionNode) => {
     const userInput = input.trim();
     if (!userInput || isLoading) return;
     const documents = collectAgentDocuments();
@@ -2079,7 +2080,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     agentSectionResolvingRef.current = true;
     const owner = `${activeConversationKeyRef.current}:${requestEpochRef.current}`;
     let section: LearningAgentSectionInput | undefined;
-    try { section = await buildAgentSection(); }
+    try { section = await buildAgentSection(sectionOverride); }
     catch (error) { setAgentNotice(error instanceof Error ? error.message : "Reselect the source sections."); return; }
     finally { agentSectionResolvingRef.current = false; }
     if (owner !== `${activeConversationKeyRef.current}:${requestEpochRef.current}`) return;
@@ -3062,12 +3063,11 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
   };
 
   const handleSelectAssistantSection = (node: SectionNode) => {
-    if (!textareaRef.current) return;
     const textarea = textareaRef.current;
-    const cursorPos = textarea.selectionStart;
+    const cursorPos = textarea?.selectionStart ?? input.length;
     const beforeCursor = input.slice(0, cursorPos);
     const hashMatch = beforeCursor.match(/#([^#\s]*)$/);
-    if (hashMatch) {
+    if (hashMatch && textarea) {
       const hashPos = cursorPos - hashMatch[0].length;
       // Insert the node's stable id (rendered as its title chip by
       // renderUserMessageContent); a title token could be dropped by later
@@ -3086,6 +3086,19 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         textarea.setSelectionRange(newPos, newPos);
         textarea.focus();
       }, 0);
+      return;
+    }
+
+    // The Learning Agent's "Cards from this section" shortcut opens this
+    // picker after submit when no section was selected. That path has no `#`
+    // query to replace, so selecting a row must bind it directly and resume
+    // the request that was waiting for a section.
+    if (composerMode === "agent") {
+      setSelectedSectionNodes([node]);
+      setShowSectionPopup(false);
+      setSectionQuery("");
+      setAgentNotice(null);
+      void handleSendAgentMessage(node);
     }
   };
 
