@@ -551,6 +551,8 @@ interface DocumentViewerProps {
   openedFrom?: string;
   onEnded?: () => void;
   onArchive?: () => void;
+  /** Use the owning queue item's priority target instead of this document's. */
+  onPriorityShortcut?: () => void;
   /**
    * Open the document directly in the Audio Edition player (AudiobooksTab
    * "Listen", "Listen from here"). Text documents with a generated edition
@@ -635,6 +637,7 @@ export function DocumentViewer({
   openedFrom,
   onEnded,
   onArchive,
+  onPriorityShortcut,
   listenToEdition,
   captureReader,
   captureCardPreview,
@@ -2398,13 +2401,15 @@ export function DocumentViewer({
   // EPUB iframe (its keydown events never reach the main window listener).
   useEffect(() => {
     const handlePriorityShortcut = () => {
-      if (currentDocument) {
+      if (onPriorityShortcut) {
+        onPriorityShortcut();
+      } else if (currentDocument) {
         void priorityPopup.open([currentDocument.id], [currentDocument]);
       }
     };
     window.addEventListener("doc-priority-shortcut", handlePriorityShortcut);
     return () => window.removeEventListener("doc-priority-shortcut", handlePriorityShortcut);
-  }, [currentDocument, priorityPopup]);
+  }, [currentDocument, onPriorityShortcut, priorityPopup]);
 
   // Toast-based instant extract creation
   const [editExtractFromToast, setEditExtractFromToast] = useState<Extract | null>(null);
@@ -4868,7 +4873,9 @@ export function DocumentViewer({
         const priorityCombo = getShortcutCombo("doc.priority");
         if (priorityCombo && eventMatchesCombo(e, priorityCombo)) {
           e.preventDefault();
-          if (currentDocument) {
+          if (onPriorityShortcut) {
+            onPriorityShortcut();
+          } else if (currentDocument) {
             void priorityPopup.open([currentDocument.id], [currentDocument]);
           }
           return;
@@ -4948,7 +4955,7 @@ export function DocumentViewer({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- keyboard handler captures many stable callbacks; exhaustive deps would cause excessive re-registration
-  }, [activeExtractSelection, closeViewerSearch, isExtractDialogOpen, isFullscreen, showSearch, viewerSearchSupported, viewMode, docType, hasDocumentHistory, queueNav.totalDocuments, scrollHtmlIframe, scrollDocumentContainer, settings.interface.volumeRockerScroll]);
+  }, [activeExtractSelection, closeViewerSearch, isExtractDialogOpen, isFullscreen, showSearch, viewerSearchSupported, viewMode, docType, hasDocumentHistory, queueNav.totalDocuments, scrollHtmlIframe, scrollDocumentContainer, settings.interface.volumeRockerScroll, onPriorityShortcut]);
 
   const handlePrevPage = () => {
     if (currentDocument && currentDocument.totalPages) {

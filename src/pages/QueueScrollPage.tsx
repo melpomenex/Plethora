@@ -52,6 +52,8 @@ import { sanitizeHtml } from "../components/common/RichContentRenderer";
 import { getDueExtracts, submitExtractReview } from "../api/extract-review";
 import { createExtract, deleteExtract, setExtractPriority, getExtract, type Extract } from "../api/extracts";
 import { dispatchPriorityCommit } from "../services/priority/priorityCommit";
+import { usePriorityPopup } from "../components/documents/usePriorityPopup";
+import { eventMatchesCombo, getShortcutCombo } from "../components/common/KeyboardShortcuts";
 import {
   buildNeuralQueue,
   getNeuralQueueResolvedFront,
@@ -408,6 +410,7 @@ export function QueueScrollPage() {
     addDocument: s.addDocument,
     updateDocument: s.updateDocument,
   })));
+  const { open: openPriorityPopup } = usePriorityPopup();
   const { rootPane, closeTab, updateTab, addTab, tabs } = useTabsStore(useShallow(s => ({
     rootPane: s.rootPane,
     closeTab: s.closeTab,
@@ -1910,6 +1913,14 @@ export function QueueScrollPage() {
     }
   }, [currentItem, loadDocuments, loadQueue]);
 
+  const openCurrentItemPriority = useCallback(() => {
+    if (!isActiveTab || !currentItem || typeof currentPrioritySlider !== "number") return;
+    void openPriorityPopup([], [], {
+      initialSlider: currentPrioritySlider,
+      onCommit: handlePriorityChange,
+    });
+  }, [isActiveTab, currentItem, currentPrioritySlider, handlePriorityChange, openPriorityPopup]);
+
   // Rendered item tracks the active item identity (R06)
   const renderedItem = scrollItems[currentIndex];
 
@@ -3185,6 +3196,24 @@ export function QueueScrollPage() {
         return;
       }
 
+      // Keep Alt+P bound to the queue item's priority. The embedded
+      // DocumentViewer has its own document-only shortcut, but the overlay
+      // also reviews extracts whose priority belongs to the extract itself.
+      // Handling the shortcut in the queue keeps both entry points on the
+      // overlay's active-item commit path.
+      const priorityCombo = getShortcutCombo("doc.priority");
+      if (
+        isActiveTab &&
+        priorityCombo &&
+        eventMatchesCombo(e, priorityCombo) &&
+        (currentItem?.type === "document" || currentItem?.type === "extract")
+      ) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        openCurrentItemPriority();
+        return;
+      }
+
       const isReviewItem = currentItem?.type === "flashcard" || currentItem?.type === "extract";
       const isDocItem = currentItem?.type === "document";
 
@@ -3314,7 +3343,7 @@ export function QueueScrollPage() {
 
     window.addEventListener("keydown", handleKeyDown, { capture: true });
     return () => window.removeEventListener("keydown", handleKeyDown, { capture: true });
-  }, [currentItem, currentItem?.type, isRating, goToNext, goToPrevious, isFullscreen, toggleFullscreen, activeTabId, closeTab, settings.interface.volumeRockerScroll, settings.learning.algorithm, editingLearningItem]);
+  }, [currentItem, currentItem?.type, isRating, goToNext, goToPrevious, isFullscreen, toggleFullscreen, activeTabId, closeTab, settings.interface.volumeRockerScroll, settings.learning.algorithm, editingLearningItem, isActiveTab, openCurrentItemPriority]);
 
   // Bridge for TikTok-style vertical paging originating inside the EPUB iframe.
   // Touches inside epub.js's iframe are isolated from the parent document, so the
@@ -4356,6 +4385,7 @@ export function QueueScrollPage() {
                     goToNext();
                   }
                 }}
+                onPriorityShortcut={openCurrentItemPriority}
                 onArchive={() => {
                   goToNext();
                 }}

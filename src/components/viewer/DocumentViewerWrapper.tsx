@@ -69,6 +69,8 @@ interface DocumentViewerWithAssistantProps {
   extractPostCreateBehavior?: "show-extracts" | "stay-in-reader";
   onEnded?: () => void;
   onArchive?: () => void;
+  /** Use the owning queue item's priority target instead of this document's. */
+  onPriorityShortcut?: () => void;
   onVideoContextChange?: (context: VideoViewerContext | null) => void;
   onMediaSectionsChange?: (sections: SectionNode[]) => void;
   /** Deterministic real-reader state used only by the explicit marketing capture host. */
@@ -121,6 +123,7 @@ export function DocumentViewer({
   extractPostCreateBehavior,
   onEnded,
   onArchive,
+  onPriorityShortcut,
   onVideoContextChange: onVideoContextChangeProp,
   onMediaSectionsChange: onMediaSectionsChangeProp,
   captureReader,
@@ -634,6 +637,7 @@ export function DocumentViewer({
         extractPostCreateBehavior={extractPostCreateBehavior}
         onEnded={onEnded}
         onArchive={onArchive}
+        onPriorityShortcut={onPriorityShortcut}
         openedFrom={openedFrom}
         hideRatingOrbs={hideRatingOrbs}
         captureReader={captureReader}

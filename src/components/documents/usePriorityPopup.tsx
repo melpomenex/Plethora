@@ -69,14 +69,20 @@ export function usePriorityPopup(api?: UsePriorityPopupApi) {
         priorityRating?: number;
         priorityExplicitlySet?: boolean;
       }[],
-      options?: { forceBulk?: boolean; learningItemIds?: string[] },
+      options?: {
+        forceBulk?: boolean;
+        learningItemIds?: string[];
+        /** Initial value and commit path for queue-owned targets. */
+        initialSlider?: number;
+        onCommit?: (slider: number) => Promise<void> | void;
+      },
     ): Promise<PriorityPopupResult> => {
       // Cards carry their own priority (they are elements of the same queue),
       // so a selection may be documents, cards, or a mix. Only the document
       // ids drive the bulk/single write path below; cards are written
       // separately with the same committed value.
       const learningItemIds = options?.learningItemIds ?? [];
-      if (ids.length === 0 && learningItemIds.length === 0) {
+      if (ids.length === 0 && learningItemIds.length === 0 && !options?.onCommit) {
         return { committed: false, slider: null };
       }
 
@@ -90,7 +96,11 @@ export function usePriorityPopup(api?: UsePriorityPopupApi) {
       // Seed the slider from the first selected doc (the active one). For a mass
       // set the user is choosing a new shared value, so the seed is just a hint.
       const seedDoc = docs.find((d) => d.id === ids[0]);
-      const seed = seedDoc ? resolveDisplaySlider(seedDoc) : 50;
+      const seed = options?.initialSlider !== undefined
+        ? Math.max(0, Math.min(100, Math.round(options.initialSlider)))
+        : seedDoc
+          ? resolveDisplaySlider(seedDoc)
+          : 50;
 
       let value = seed;
       let errorSetter: ((err: string | null) => void) | null = null;
@@ -118,6 +128,12 @@ export function usePriorityPopup(api?: UsePriorityPopupApi) {
           onConfirm: async () => {
             const slider = Math.max(0, Math.min(100, Math.round(value)));
             try {
+              if (options?.onCommit) {
+                await options.onCommit(slider);
+                committedSlider = slider;
+                return true;
+              }
+
               if (learningItemIds.length > 0) {
                 // Sequential writes for cards; one failure must not lose the rest.
                 for (const cardId of learningItemIds) {
