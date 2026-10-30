@@ -272,6 +272,15 @@ find "$APPDIR" -type l | while read -r link; do
 done
 echo "Absolute symlinks in AppDir cleaned up"
 
+# appimagetool refuses to package an AppDir containing files other users cannot
+# read (or executables they cannot run). Two bundled inputs carry restrictive
+# modes: Playwright unpacks chrome-linux64/*.deps as 0600 and linuxdeploy writes
+# AppRun as 0770. Normalize the finished tree right before packaging so those
+# upstream modes cannot abort the build.
+echo "Normalizing AppDir permissions for appimagetool..."
+chmod -R a+rX "$APPDIR"
+chmod a+rx "$APPDIR/AppRun"
+
 mkdir -p "$WORK_DIR"
 if [[ ! -x "$APPIMAGETOOL_BIN" ]]; then
   curl -fsSL -o "$APPIMAGETOOL_APPIMAGE" \

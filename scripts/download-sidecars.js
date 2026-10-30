@@ -35,6 +35,27 @@ function dereferenceAbsoluteSymlinks(dir) {
   }
 }
 
+// Bundlers copy the runtime with modes preserved (rsync -a in the AppImage
+// repack, Tauri resources for the .deb/.rpm). Playwright's Chromium archive
+// ships chrome-linux64/deb.deps and rpm.deps as 0600, which makes appimagetool
+// reject the AppDir, so grant world read (and execute where already present)
+// recursively after provisioning.
+function grantWorldReadAccess(dir) {
+  if (process.platform === 'win32' || !fs.existsSync(dir)) return;
+  const rootMode = fs.statSync(dir).mode & 0o7777;
+  fs.chmodSync(dir, rootMode | 0o555);
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isSymbolicLink()) continue;
+    if (entry.isDirectory()) {
+      grantWorldReadAccess(fullPath);
+    } else if (entry.isFile()) {
+      const mode = fs.statSync(fullPath).mode & 0o7777;
+      fs.chmodSync(fullPath, mode | 0o444 | (mode & 0o111 ? 0o111 : 0));
+    }
+  }
+}
+
 function getTargetTriple() {
   const envTarget = process.env.TARGET_TRIPLE
     || process.env.TAURI_ENV_TARGET_TRIPLE
@@ -1289,6 +1310,7 @@ function buildPortableNotebookLMRuntime(targetTriple, pythonCmd) {
       PLAYWRIGHT_BROWSERS_PATH: playwrightDir,
     },
   });
+  grantWorldReadAccess(runtimeDir);
 
   fs.writeFileSync(manifestPath, JSON.stringify({
     layout: 'portable-python-home-v1',

@@ -35,3 +35,13 @@ test("AppImage builder reports its local output without writing to /opt", () => 
   assert.match(script, /AppImage path: \$ROOT_DIR\/\$EXPECTED_APPIMAGE/);
   assert.doesNotMatch(script, /\/opt\/plethora\/Plethora\.AppImage/);
 });
+
+test("AppImage permissions are normalized before appimagetool packages the AppDir", () => {
+  const normalize = script.indexOf('chmod -R a+rX "$APPDIR"');
+  const appRun = script.indexOf('chmod a+rx "$APPDIR/AppRun"');
+  const packageAppDir = script.indexOf('"$APPIMAGETOOL_BIN" --runtime-file');
+  assert.ok(normalize >= 0, "AppDir tree is made world-readable");
+  assert.ok(appRun > normalize, "AppRun is made world-readable and executable");
+  assert.ok(packageAppDir > appRun, "normalization happens before appimagetool runs");
+});
+
