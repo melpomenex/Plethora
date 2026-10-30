@@ -1,3 +1,8 @@
+import { resolveRequestPolicy } from "../../api/llm/policy";
+import { scopedBodyTokenBudget } from "../../utils/scopedContextBudget";
+import { enforceAssistantPrivacyAndConsent } from "../../lib/ai/assistant/privacyGate";
+import { safeCardCreationError } from "../../features/assistant/chatFlashcardArtifacts";
+import { resolveAssistantSource } from "../../lib/ai/assistant/sourceEnvelope";
 /**
  * FlashcardStudioModal - AI-Powered Flashcard Creation Studio
  * 
@@ -64,6 +69,7 @@ import {
 } from "@phosphor-icons/react";
 import {
   createLearningItem,
+  getLearningItemsByAcceptanceKey,
   generateLearningItemsFromExtract,
   type CreateLearningItemInput,
 } from "../../api/learning-items";
@@ -2031,6 +2037,60 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     setViewMode("chat");
 
     try {
+      const capturedSource = await resolveAssistantSource({ documentId: selectedDocument?.id ?? seed?.documentId ?? undefined,
+        extractId: seededExtractIdRef.current ?? seed?.linkedExtractId });
+      const gate = await enforceAssistantPrivacyAndConsent({ documents: capturedSource ? [await getDocument(capturedSource.documentId)] : [],
+        providerId: isNotebookProviderSelected ? "notebooklm" : isOnDeviceProviderSelected ? selectedProviderId ?? "ondevice" : currentProvider!.provider,
+        baseUrl: currentProvider?.baseUrl, strictLocalOnly: useSettingsStore.getState().settings.ai.strictLocalOnly,
+        attachingSourceContent: Boolean(capturedSource) });
+      if (!gate.allowed) throw new Error(gate.message || "This source is unavailable for the selected provider.");
+      const generationPolicy = resolveRequestPolicy({ provider: currentProvider?.provider, providerContextTokens: isOnDeviceProviderSelected ? 3072 : currentProvider?.contextWindowTokens ?? maxTokens + (currentProvider?.maxTokens ?? 2048), providerMaxOutput: isOnDeviceProviderSelected ? 512 : currentProvider?.maxTokens });
+      const bodyTokens = scopedBodyTokenBudget({ promptBudgetTokens: Math.min(maxTokens, generationPolicy.promptBudgetTokens), instructions: buildSystemPrompt(extractExplicitCardCount(promptText) ?? effectiveFlashcardTarget.count, isTwentyRulesCommand(promptText)), userPrompt: promptText,
+        history: messages.filter((message) => message.role !== "system").slice(-10) });
+      let effectiveContextContent = contextContent;
+      let sectionSourceContext: SectionSourceReference | undefined;
+      let sectionTruncatedNote = "";
+      const shouldResolveSections = normalizeContextSelection(contextSelection).mode === "sections";
+      if (shouldResolveSections && selectedSectionNodes.length > 0 && selectedDocument) {
+        const documentId = selectedDocument.id;
+
+        // Transcript-backed audiobook chapters carry authoritative attached
+        // content and must not be forced through character-range resolution.
+        // Structural headings retain the fresh-text load and one-time rebuild.
+        const focused = await resolveStudioSectionContext({
+          selectedSections: selectedSectionNodes,
+          availableSections: sectionFlat,
+          documentId,
+          maxTokens: bodyTokens,
+          currentText: selectedDocumentText,
+          loadCanonicalText: () => loadDocumentQaText(documentId, { getDocument, extractDocumentText }),
+          rebuildAvailableSections: (freshText) => {
+            const freshFlat = buildSectionsSnapshot(
+              documentId,
+              freshText,
+              useDocumentOutlineStore.getState().getOutline(documentId),
+            ).flat;
+            const directSections = sectionFlat.filter(
+              (section) => section.source === "selection" || section.source === "media-transcript",
+            );
+            const directIds = new Set(directSections.map((section) => section.id));
+            return [
+              ...directSections,
+              ...freshFlat.filter((section) => !directIds.has(section.id)),
+            ];
+          },
+        });
+
+        if (!focused.ok) {
+          const reasons = focused.unresolved.map(describeSectionDiagnostic).join("; ");
+          throw new Error(t("flashcardStudio.sectionUnresolved", { reasons }));
+        }
+
+        effectiveContextContent = focused.content;
+        sectionSourceContext = focused.source;
+        if (focused.truncated) sectionTruncatedNote = t("flashcardStudio.sectionTruncated");
+
+      }
       if (isOnDeviceProviderSelected) {
         // Gemini Nano's context window is ~3k tokens, far below what the studio
         // normally sends, so this does NOT go through chatWithContext. It hands
@@ -2039,7 +2099,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         // malformed JSON too often for parseCardsFromResponse's JSON path to be
         // reliable (see design.md decision 4).
         const sourceText =
-          contextContent?.trim() || selectedDocumentText?.trim() || promptText.trim();
+          effectiveContextContent?.trim() || promptText.trim();
         const explicit = extractExplicitCardCount(promptText);
         const target = explicit ?? resolveFlashcardTarget(aiControls, sourceText).count;
 
@@ -2083,7 +2143,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         ]);
 
         if (cards.length > 0) {
-          setDraftCards((prev) => [...cards, ...prev]);
+          setDraftCards((prev) => [...cards.map((card) => ({ ...card, sourceEnvelope: capturedSource, sourceContext: sectionSourceContext })), ...prev]);
           toast.success(
             t("flashcardStudio.cardsGenerated", { count: cards.length }),
             t("flashcardStudio.cardsGeneratedDesc"),
@@ -2113,8 +2173,8 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         if (selectedDeck?.name) {
           contextBlocks.push(`Target deck: ${selectedDeck.name}`);
         }
-        if (contextContent?.trim()) {
-          contextBlocks.push(`Reference context:\n${contextContent.trim()}`);
+        if (effectiveContextContent?.trim()) {
+          contextBlocks.push(`Reference context:\n${effectiveContextContent.trim()}`);
         }
 
         const job = await notebooklmGenerateArtifact({
@@ -2165,7 +2225,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         ]);
 
         if (cards.length > 0) {
-          setDraftCards((prev) => [...cards, ...prev]);
+          setDraftCards((prev) => [...cards.map((card) => ({ ...card, sourceEnvelope: capturedSource, sourceContext: sectionSourceContext })), ...prev]);
           toast.success(t("flashcardStudio.cardsGenerated", { count: cards.length }), t("flashcardStudio.cardsGeneratedDesc"));
           const historyItem: GenerationHistoryItem = {
             id: assistantId,
@@ -2242,54 +2302,8 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       // memo deliberately returns undefined for `sections` mode. On success we
       // override the context sent to the LLM, rewrite the last user message to
       // wrap the focused body, and stamp sourceContext for provenance.
-      let effectiveContextContent = contextContent;
-      let sectionSourceContext: SectionSourceReference | undefined;
-      let sectionTruncatedNote = "";
-      const shouldResolveSections = normalizeContextSelection(contextSelection).mode === "sections";
-      if (shouldResolveSections && selectedSectionNodes.length > 0 && selectedDocument) {
-        const documentId = selectedDocument.id;
-
-        // Transcript-backed audiobook chapters carry authoritative attached
-        // content and must not be forced through character-range resolution.
-        // Structural headings retain the fresh-text load and one-time rebuild.
-        const focused = await resolveStudioSectionContext({
-          selectedSections: selectedSectionNodes,
-          availableSections: sectionFlat,
-          documentId,
-          maxTokens,
-          currentText: selectedDocumentText,
-          loadCanonicalText: () => loadDocumentQaText(documentId, { getDocument, extractDocumentText }),
-          rebuildAvailableSections: (freshText) => {
-            const freshFlat = buildSectionsSnapshot(
-              documentId,
-              freshText,
-              useDocumentOutlineStore.getState().getOutline(documentId),
-            ).flat;
-            const directSections = sectionFlat.filter(
-              (section) => section.source === "selection" || section.source === "media-transcript",
-            );
-            const directIds = new Set(directSections.map((section) => section.id));
-            return [
-              ...directSections,
-              ...freshFlat.filter((section) => !directIds.has(section.id)),
-            ];
-          },
-        });
-
-        if (!focused.ok) {
-          const reasons = focused.unresolved.map(describeSectionDiagnostic).join("; ");
-          throw new Error(t("flashcardStudio.sectionUnresolved", { reasons }));
-        }
-
-        effectiveContextContent = focused.content;
-        sectionSourceContext = focused.source;
-        if (focused.truncated) sectionTruncatedNote = t("flashcardStudio.sectionTruncated");
-
-        const request = createDocumentQaRequestContent({
-          documentContext: focused.content,
-          userQuestion: promptText.replace(SECTION_REGEX, "").trim(),
-          focusLabel: focused.labels.join(", "),
-        });
+      if (sectionSourceContext) {
+        const request = createDocumentQaRequestContent({ documentContext: effectiveContextContent!, userQuestion: promptText.replace(SECTION_REGEX, "").trim(), focusLabel: sectionSourceContext.labels.join(", ") });
         SECTION_REGEX.lastIndex = 0;
         const lastUserIdx = llmMessages.map((message) => message.role).lastIndexOf("user");
         if (lastUserIdx >= 0) llmMessages[lastUserIdx] = { role: "user", content: request.userPromptContent };
@@ -2317,7 +2331,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         currentProvider.temperature,
         currentProvider.maxTokens,
         currentProvider.systemPrompt,
-        aiControls.contextFromRelatedCards,
+        sectionSourceContext ? false : aiControls.contextFromRelatedCards,
         aiControls.documentSnippetLength
       );
 
@@ -2344,7 +2358,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         const provenancedCards = sectionSourceContext
           ? cards.map((card) => ({ ...card, sourceContext: sectionSourceContext }))
           : cards;
-        setDraftCards((prev) => [...provenancedCards, ...prev]);
+        setDraftCards((prev) => [...provenancedCards.map((card) => ({ ...card, sourceEnvelope: capturedSource })), ...prev]);
         toast.success(t("flashcardStudio.cardsGenerated", { count: cards.length }), t("flashcardStudio.cardsGeneratedDesc"));
         
         const historyItem: GenerationHistoryItem = {
@@ -2397,9 +2411,15 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     setIsSaving(true);
 
     try {
+      const pendingSources = new Map<string, ReturnType<typeof resolveAssistantSource>>();
       const results = await Promise.all(
         toCreate.map(async (card) => {
           try {
+            const extractId = card.extractId ?? seededExtractIdRef.current ?? seed?.linkedExtractId;
+            const reference = { documentId: extractId ? undefined : card.sourceContext?.documentId ?? selectedDocument?.id ?? seed?.documentId ?? undefined, extractId };
+            const key = JSON.stringify(reference);
+            if (!card.sourceEnvelope && !pendingSources.has(key)) pendingSources.set(key, resolveAssistantSource(reference));
+            const source = card.sourceEnvelope ?? await pendingSources.get(key);
             const baseInput: CreateLearningItemInput = {
               item_type: card.type === "cloze" ? "cloze" : "qa",
               question:
@@ -2413,8 +2433,12 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                   ? ((card.multipleChoiceOptions || []).find((option) => option.id === card.multipleChoiceCorrectOptionId)?.text || "").trim()
                   : (card.answer || "").trim(),
               cloze_text: card.type === "cloze" ? (card.text || "").trim() : undefined,
-              extract_id: card.extractId ?? seededExtractIdRef.current ?? seed?.linkedExtractId,
-              document_id: selectedDocument?.id ?? seed?.documentId ?? undefined,
+              extract_id: source?.extractId,
+              document_id: source?.documentId,
+              source_revision: source?.contentRevision,
+              extract_revision: source?.extractRevision,
+              acceptance_id: `studio:${card.id}`,
+              proposal_id: card.id,
               tags: [...deckTags, ...card.tags],
               image_asset_ids:
                 card.type === "image-occlusion"
@@ -2486,18 +2510,19 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
               throw new Error("Image occlusion cards require an image and at least one hidden region.");
             }
 
-            await createLearningItem(baseInput);
-            return { id: card.id, success: true };
-          } catch (error) {
-            // If the backend rejected it as a semantic duplicate, the card is
-            // already in the DB — treat it as a successful save.
-            const msg = error instanceof Error ? error.message : String(error);
-            if (msg.includes("Potential duplicate detected") || msg.includes("duplicate")) {
-              console.warn("Card already exists (duplicate), treating as saved:", card.id);
-              return { id: card.id, success: true, wasDuplicate: true };
+            const receipts = await getLearningItemsByAcceptanceKey(baseInput.acceptance_id!);
+            const existing = receipts.find((row) => row.proposal_id === card.id);
+            if (existing && (existing.question !== baseInput.question || (existing.answer || "") !== (baseInput.answer || "") || (existing.cloze_text || "") !== (baseInput.cloze_text || ""))) {
+              throw new Error("An earlier version of this draft is already saved. Open the saved card to edit it.");
             }
+            // The canonical creation service verifies the full immutable
+            // candidate and returns its receipt after an uncertain response.
+            const persisted = await createLearningItem(baseInput);
+            if (!persisted?.id) throw new Error("The save could not be confirmed. Retry this draft.");
+            return { id: card.id, success: true, error: undefined };
+          } catch (error) {
             console.error("Failed to create card", error);
-            return { id: card.id, success: false };
+            return { id: card.id, success: false, error: safeCardCreationError(error) };
           }
         })
       );
@@ -2531,7 +2556,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         ...alreadySaved.map((c) => c.id),
         ...toCreate.filter((c) => !failedIds.includes(c.id)).map((c) => c.id),
       ]);
-      setDraftCards((prev) => prev.filter((c) => !idsToRemove.has(c.id)));
+      setDraftCards((prev) => prev.filter((c) => !idsToRemove.has(c.id)).map((card) => ({ ...card, saveError: results.find((result) => result.id === card.id)?.error })));
       
       if (failedIds.length > 0) {
         toast.error(t("flashcardStudio.someCardsFailed"), t("flashcardStudio.someCardsFailedDesc", { saved: savedCount, failed: failedIds.length }));

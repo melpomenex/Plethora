@@ -32,6 +32,7 @@ import { RatingOrb, type RatingOrbAction } from "../review/RatingOrb";
 import { useBottomControlsGeometry } from "../mobile/BottomControlsGeometry";
 import { useRatingDockBounds } from "./useRatingDockBounds";
 import { emitInteractionFeedback, emitUserInteraction } from "../../lib/feedback/orchestrator";
+import { usePriorityCommitState } from "../../services/priority/priorityCommit";
 
 interface ScrollOverlayControlsProps {
   showControls: boolean;
@@ -679,77 +680,21 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
 /** Saved priority and in-flight work belong to one keyed queue item. */
 function useScrollPriorityState(value: number, onChange: (slider: number) => void | Promise<void>) {
   const [isOpen, setIsOpen] = useState(false);
-  const [slider, setSlider] = useState(value);
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveFailed, setSaveFailed] = useState(false);
-  const committed = useRef(value);
-  const pending = useRef(false);
-  const mounted = useRef(false);
-  const gestureStart = useRef(value);
-  const gestureCancelled = useRef(false);
-  useEffect(() => {
-    mounted.current = true;
-    return () => { mounted.current = false; };
-  }, []);
-  useEffect(() => {
-    committed.current = value;
-    if (!pending.current) setSlider(value);
-  }, [value]);
+  const {
+    slider,
+    isSaving,
+    saveFailed,
+    sliderHandlers,
+    commitPriority: commit,
+  } = usePriorityCommitState({
+    initialValue: value,
+    customCommit: onChange,
+  });
+
   const commitPriority = async (nextValue: number, closeAfterSave = false) => {
-    if (pending.current) return;
-    const normalized = Math.max(0, Math.min(100, Math.round(nextValue)));
-    setSlider(normalized);
-    if (normalized === committed.current && !saveFailed) {
-      if (closeAfterSave) setIsOpen(false);
-      return;
-    }
-    pending.current = true;
-    setIsSaving(true);
-    setSaveFailed(false);
-    try {
-      await onChange(normalized);
-      if (!mounted.current) return;
-      committed.current = normalized;
-      if (closeAfterSave) setIsOpen(false);
-    } catch (error) {
-      if (!mounted.current) return;
-      console.error("[ScrollPriorityControl] Failed to update priority:", error);
-      setSaveFailed(true);
-      setSlider(committed.current);
-    } finally {
-      pending.current = false;
-      if (mounted.current) setIsSaving(false);
-    }
+    await commit(nextValue, closeAfterSave ? () => setIsOpen(false) : undefined);
   };
 
-  // Keep the range focusable while a save is pending so keyboard editing can
-  // resume in place. Ignore further edits until that request settles.
-  const sliderHandlers = {
-    onChange: (event: React.ChangeEvent<HTMLInputElement>) => {
-      if (pending.current) { event.currentTarget.value = String(slider); return; }
-      setSaveFailed(false); setSlider(Number(event.target.value));
-    },
-    onPointerDown: (event: React.PointerEvent<HTMLInputElement>) => {
-      if (pending.current) { event.preventDefault(); return; }
-      gestureStart.current = slider;
-      gestureCancelled.current = false;
-    },
-    onPointerCancel: () => { gestureCancelled.current = true; setSlider(gestureStart.current); },
-    onTouchCancel: () => { gestureCancelled.current = true; setSlider(gestureStart.current); },
-    onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => { if (pending.current && event.key !== "Tab") event.preventDefault(); },
-    onPointerUp: (event: React.PointerEvent<HTMLInputElement>) => {
-      if (!gestureCancelled.current) void commitPriority(Number(event.currentTarget.value));
-    },
-    onTouchEnd: (event: React.TouchEvent<HTMLInputElement>) => {
-      if (!gestureCancelled.current) void commitPriority(Number(event.currentTarget.value));
-    },
-    onKeyUp: (event: React.KeyboardEvent<HTMLInputElement>) => {
-      if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"].includes(event.key)) {
-        void commitPriority(Number(event.currentTarget.value));
-      }
-    },
-    onBlur: (event: React.FocusEvent<HTMLInputElement>) => void commitPriority(Number(event.currentTarget.value)),
-  };
   return { isOpen, setIsOpen, slider, isSaving, saveFailed, sliderHandlers, commitPriority };
 }
 

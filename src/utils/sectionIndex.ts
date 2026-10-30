@@ -1,3 +1,4 @@
+import { budgetScopedBodies } from "./scopedContextBudget";
 export interface SectionNode {
   id: string;
   title: string;
@@ -40,6 +41,7 @@ export interface SectionSourceReference {
 }
 
 export interface FocusedSectionContextResult {
+  bodySegments?: readonly { label: string; text: string; selection?: boolean }[];
   ok: boolean;
   content: string;
   labels: string[];
@@ -935,37 +937,18 @@ export function resolveSectionFocusedContext(
   }
 
   const maxChars = Math.max(256, Math.floor(maxTokens * 4 * trimRatio));
-  const headerChars = groups.reduce((sum, group) => sum + group.labels.join(", ").length + 24, 0);
-  const bodyBudget = Math.max(128, maxChars - headerChars);
-  const perGroupBudget = Math.max(96, Math.floor(bodyBudget / Math.max(1, groups.length)));
-  let truncated = false;
-  const blocks = groups.map((group) => {
-    const raw = fullContent.slice(group.start, group.end).trim();
-    const body = stripMarkup(raw);
-    const sliced = truncateAtBoundary(body, perGroupBudget);
-    truncated ||= sliced.truncated;
-    return `Section: ${group.labels.join("; ")}\n[Focused]\n${sliced.text}`;
-  });
-
-  let content = blocks.join("\n\n---\n\n");
+  const budgeted = budgetScopedBodies(groups.map((group) => ({ label: group.labels.join("; "), text: stripMarkup(fullContent.slice(group.start, group.end).trim()) })), maxTokens, trimRatio);
+  let { content, truncated } = budgeted;
   if (includeNeighbors && groups.length === 1 && content.length < maxChars) {
     const group = groups[0];
     const neighbor = sliceWithNeighbors(fullContent, group.start, group.end, radiusChars);
-    const extras: string[] = [];
-    if (neighbor.previous) extras.push(`[Previous context]\n${neighbor.previous}`);
-    if (neighbor.next) extras.push(`[Next context]\n${neighbor.next}`);
-    const extraText = extras.join("\n\n");
-    if (extraText && content.length + extraText.length + 2 <= maxChars) content += `\n\n${extraText}`;
-  }
-
-  if (content.length > maxChars) {
-    const finalSlice = truncateAtBoundary(content, maxChars);
-    content = finalSlice.text;
-    truncated ||= finalSlice.truncated;
+    const extras = [neighbor.previous ? `[Previous context]\n${neighbor.previous}` : "", neighbor.next ? `[Next context]\n${neighbor.next}` : ""].filter(Boolean).join("\n\n");
+    if (extras && content.length + extras.length + 2 <= maxChars) content += `\n\n${extras}`;
   }
 
   return {
     ok: true,
+    bodySegments: groups.map((group) => ({ label: group.labels.join("; "), text: stripMarkup(fullContent.slice(group.start, group.end)) })),
     content,
     labels: resolved.map(sectionLabel),
     estimatedTokens: estimateTokens(content),
@@ -1248,28 +1231,9 @@ export function buildSelectionFocusedContext(
   options: { maxTokens?: number; trimRatio?: number } = {}
 ): { content: string; truncated: boolean; labels: string[] } {
   const { maxTokens = 4000, trimRatio = 0.7 } = options;
-  const maxChars = Math.max(256, Math.floor(maxTokens * 4 * trimRatio));
-  const blocks: string[] = [];
-  const labels: string[] = [];
-  let truncated = false;
-  let used = 0;
-
-  for (const node of selections) {
-    labels.push(node.title);
-    const remaining = maxChars - used - 64;
-    if (remaining <= 0) {
-      truncated = true;
-      break;
-    }
-    const { text, truncated: wasTruncated } = truncateTextToBudget(node.content, remaining);
-    truncated ||= wasTruncated;
-    const block = `Selected text: ${node.title}\n[Selection]\n${text}`;
-    blocks.push(block);
-    used += block.length;
-    if (used >= maxChars) break;
-  }
-
-  return { content: blocks.join("\n\n---\n\n"), truncated, labels };
+  if (!selections.length) return { content: "", truncated: false, labels: [] };
+  const budgeted = budgetScopedBodies(selections.map((node) => ({ label: node.title, text: node.content, selection: true })), maxTokens, trimRatio);
+  return { ...budgeted, labels: selections.map((node) => node.title) };
 }
 
 /**
@@ -1344,27 +1308,29 @@ export function resolveMixedSectionFocusedContext(
   }
 
   const structural = structuralRequested.length > 0
-    ? resolveSectionFocusedContext(structuralRequested, available, fullContent, options)
+    ? resolveSectionFocusedContext(structuralRequested, available, fullContent, { ...options, maxTokens: Number.MAX_SAFE_INTEGER / 8, includeNeighbors: false })
     : null;
   if (structural && !structural.ok) return structural;
 
-  const direct = directResolved.length > 0
-    ? buildSelectionFocusedContext(directResolved, { maxTokens: options.maxTokens, trimRatio: options.trimRatio })
-    : { content: "", truncated: false, labels: [] };
-  const blocks = [structural?.content, direct.content].filter(Boolean) as string[];
   const sections = [...(structural?.sections ?? []), ...directResolved];
   const labels = [...(structural?.labels ?? []), ...directResolved.map(sectionLabel)];
-  const content = blocks.join("\n\n---\n\n");
+  const rangeBodies = (structural?.source.ranges ?? []).map((range) => ({
+    label: (structural?.sections ?? []).filter((node) => node.startChar! < range.end && node.endChar! > range.start).map(sectionLabel).join("; "),
+    text: stripMarkup(fullContent.slice(range.start, range.end)),
+  }));
+  const budgeted = budgetScopedBodies([...rangeBodies, ...directResolved.map((node) => ({ label: sectionLabel(node), text: node.content, selection: node.source === "selection" }))], options.maxTokens ?? 4000, options.trimRatio ?? 0.7);
+  const content = budgeted.content;
   const sourceContentHash = fullContent
     ? fullContentHash
     : hashSectionContent(directResolved.map((section) => section.content).join("\n"));
 
   return {
     ok: sections.length === selected.length && sections.length > 0,
+    bodySegments: [...rangeBodies, ...directResolved.map((node) => ({ label: sectionLabel(node), text: node.content, selection: node.source === "selection" }))],
     content,
     labels,
     estimatedTokens: estimateTokens(content),
-    truncated: Boolean(structural?.truncated || direct.truncated),
+    truncated: budgeted.truncated,
     sections,
     unresolved: [],
     source: {

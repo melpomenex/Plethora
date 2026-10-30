@@ -1,3 +1,4 @@
+import type { FrozenAssistantSource } from "./sourceEnvelope";
 import { CARD_ACTION_TOOLS, isolateCardActionParameters, type ActionEnvelope } from "../../../features/assistant/contextActions/model";
 import { resolveRequestPolicy } from "../../../api/llm/policy";
 import { resolveVideoSourceContext } from "./contextResolver";
@@ -50,6 +51,7 @@ export interface AssistantTurnRequest {
   rollingSummary?: string;
   sourceType?: "document" | "video" | "web" | "general";
   sourceId?: string;
+  sourceEnvelope?: FrozenAssistantSource;
   sourceTitle?: string;
   sourceUrl?: string;
   previousSourceId?: string;
@@ -467,7 +469,7 @@ export async function runAssistantTurn(
   if (!wantsToolExecution) parsedTools.toolCalls = [];
   if (request.executeTool) {
     for (const call of parsedTools.toolCalls) {
-      call.parameters = normalizeAssistantToolParameters(call.name, request.action ? isolateCardActionParameters(call.parameters) : call.parameters, { documentId: request.sourceId, documentTitle: request.sourceTitle });
+      call.parameters = normalizeAssistantToolParameters(call.name, request.action ? isolateCardActionParameters(call.parameters) : call.parameters, { documentId: request.sourceId, documentTitle: request.sourceTitle, sourceEnvelope: request.sourceEnvelope });
       try { call.result = await request.executeTool(call.name, call.parameters); call.status = "success"; }
       catch (error) { call.result = String(error); call.status = "error"; }
     }

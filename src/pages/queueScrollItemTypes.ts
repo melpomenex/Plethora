@@ -1,4 +1,6 @@
 import type { Extract } from "../api/extracts";
+import type { LearningItem } from "../api/learning-items";
+import { normalizeLearningItem } from "../api/normalizeLearningItem";
 import type { QueueItem } from "../types/queue";
 import type { SessionItemTypes } from "../utils/reviewUx";
 
@@ -126,4 +128,32 @@ export async function resolveMissingExtractContent(
     if (extract) resolved.set(extract.id, extract);
   }
   return resolved;
+}
+
+/** Hydrate non-due custom queue cards without presenting partial queue rows. */
+export async function resolveMissingQueueCards(
+  items: Pick<QueueItem, "itemType" | "learningItemId" | "id">[],
+  due: ReadonlyMap<string, LearningItem>,
+  fetchOne: (id: string) => Promise<LearningItem | null>,
+  skipIds: ReadonlySet<string>,
+): Promise<{ cards: Map<string, LearningItem>; failures: string[] }> {
+  const ids = [...new Set(items.filter((item) => item.itemType === "learning-item")
+    .map((item) => item.learningItemId ?? item.id)
+    .filter((id) => !due.has(id) && !skipIds.has(id)))];
+  const cards = new Map<string, LearningItem>();
+  const failures: string[] = [];
+  // Bound IPC concurrency; preserve custom queue order independently of completion order.
+  for (let offset = 0; offset < ids.length; offset += 8) {
+    const batch = ids.slice(offset, offset + 8);
+    const values = await Promise.all(batch.map(async (id) => {
+      try { return { id, value: await fetchOne(id) }; }
+      catch { return { id, failed: true }; }
+    }));
+    for (const entry of values) {
+      if ("failed" in entry) { failures.push(entry.id); continue; }
+      const card = normalizeLearningItem(entry.value);
+      if (card && card.id === entry.id && !card.is_suspended) cards.set(card.id, card);
+    }
+  }
+  return { cards, failures };
 }

@@ -1,3 +1,4 @@
+import type { FrozenAssistantSource } from "../../lib/ai/assistant/sourceEnvelope";
 import { isTwentyRulesCommand } from "../../lib/ai/knowledgeFormulation";
 
 export interface AssistantMessageLike {
@@ -79,6 +80,8 @@ export function isAssistantMessageFlashcardRequest(requestContent: string): bool
 }
 
 export interface CapturedDocumentContext {
+  sourceEnvelope?: FrozenAssistantSource;
+  acceptanceId?: string;
   isolated?: boolean;
   documentId?: string;
   documentTitle?: string;

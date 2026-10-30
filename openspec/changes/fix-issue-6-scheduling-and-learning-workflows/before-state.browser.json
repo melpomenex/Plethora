@@ -1,0 +1,89 @@
+{
+  "revision": "7d87d811f6db8fcd98da148d22e7f10a46bd747d",
+  "fixture_clock": "2026-10-29T12:00:00Z",
+  "origin": "Production IndexedDB adapter; disposable Playwright browser namespace",
+  "capture_note": "Captured after initial application edits using the unchanged IndexedDB data layer and newly seeded issue-6 fixture; revision identifies the starting checkout, not a clean-tree capture.",
+  "state": {
+    "document": {
+      "id": "issue6-document",
+      "priority_slider": 75,
+      "priority_rating": 4,
+      "priority_score": 75,
+      "next_reading_date": "2026-10-22T12:00:00Z",
+      "stability": 8,
+      "difficulty": 4,
+      "reps": 2,
+      "extract_count": 1,
+      "learning_item_count": 4
+    },
+    "extract": {
+      "id": "issue6-extract",
+      "document_id": "issue6-document",
+      "next_review_date": "2026-10-28T12:00:00Z",
+      "review_count": 1,
+      "reps": 1
+    },
+    "cards": [
+      {
+        "id": "issue6-basic",
+        "document_id": "issue6-document",
+        "extract_id": "issue6-extract",
+        "item_type": "basic",
+        "due_date": "2026-10-28T12:00:00Z",
+        "review_count": 2,
+        "memory_state": {
+          "stability": 7,
+          "difficulty": 5
+        }
+      },
+      {
+        "id": "issue6-cloze",
+        "document_id": "issue6-document",
+        "extract_id": "issue6-extract",
+        "item_type": "cloze",
+        "due_date": "2026-10-28T12:00:00Z",
+        "review_count": 2,
+        "memory_state": {
+          "stability": 7,
+          "difficulty": 5
+        }
+      },
+      {
+        "id": "issue6-occlusion",
+        "document_id": "issue6-document",
+        "extract_id": "issue6-extract",
+        "item_type": "qa",
+        "due_date": "2026-10-28T12:00:00Z",
+        "review_count": 2,
+        "memory_state": {
+          "stability": 7,
+          "difficulty": 5
+        }
+      },
+      {
+        "id": "issue6-qa",
+        "document_id": "issue6-document",
+        "extract_id": "issue6-extract",
+        "item_type": "qa",
+        "due_date": "2026-10-28T12:00:00Z",
+        "review_count": 2,
+        "memory_state": {
+          "stability": 7,
+          "difficulty": 5
+        }
+      }
+    ],
+    "counts": {
+      "linked_documents": 1,
+      "extracts": 1,
+      "cards": 4
+    },
+    "unavailable_in_browser_adapter": [
+      "priority_explicitly_set",
+      "video_extracts",
+      "playlist_settings",
+      "review_events",
+      "sync_outbox"
+    ]
+  }
+}

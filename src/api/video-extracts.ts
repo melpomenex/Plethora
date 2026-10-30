@@ -28,6 +28,8 @@ export interface VideoExtract {
   };
   next_review_date?: string;
   last_review_date?: string;
+  first_seen_at?: string | null;
+  last_seen_at?: string | null;
   review_count: number;
   reps: number;
   date_created: string;
@@ -114,132 +116,64 @@ async function fetchAPI(endpoint: string, options?: RequestInit): Promise<Respon
  * Get all video extracts for a document
  */
 export async function getVideoExtracts(documentId: string): Promise<VideoExtract[]> {
-  if (isTauri()) {
-    return await invokeCommand<VideoExtract[]>("get_video_extracts", { documentId });
-  }
-
-  const response = await fetchAPI(`/api/video-extracts/document/${documentId}`);
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to get video extracts');
-  }
-  return await response.json();
+  return invokeCommand<VideoExtract[]>("get_video_extracts", { documentId });
 }
 
-/**
- * Get a single video extract by ID
- */
 export async function getVideoExtract(extractId: string): Promise<VideoExtract | null> {
-  if (isTauri()) {
-    return await invokeCommand<VideoExtract>("get_video_extract", { extractId });
-  }
-
-  const response = await fetchAPI(`/api/video-extracts/${extractId}`);
-  if (!response.ok) {
-    if (response.status === 404) return null;
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to get video extract');
-  }
-  return await response.json();
+  return invokeCommand<VideoExtract | null>("get_video_extract", { extractId });
 }
 
-/**
- * Create a new video extract
- */
 export async function createVideoExtract(input: CreateVideoExtractInput): Promise<VideoExtract> {
-  if (isTauri()) {
-    return await invokeCommand<VideoExtract>("create_video_extract", {
-      documentId: input.document_id,
-      startTime: input.start_time,
-      endTime: input.end_time,
-      title: input.title,
-      transcriptText: input.transcript_text,
-      notes: input.notes,
-      tags: input.tags,
-      addToQueue: input.add_to_queue,
-    });
-  }
-
-  const response = await fetchAPI('/api/video-extracts', {
-    method: 'POST',
-    body: JSON.stringify(input),
+  return invokeCommand<VideoExtract>("create_video_extract", {
+    documentId: input.document_id, startTime: input.start_time, endTime: input.end_time,
+    title: input.title, transcriptText: input.transcript_text, notes: input.notes,
+    tags: input.tags, addToQueue: input.add_to_queue,
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to create video extract');
-  }
-  return await response.json();
 }
 
-/**
- * Update a video extract
- */
 export async function updateVideoExtract(input: UpdateVideoExtractInput): Promise<VideoExtract> {
-  if (isTauri()) {
-    return await invokeCommand<VideoExtract>("update_video_extract", {
-      extractId: input.extract_id,
-      title: input.title,
-      notes: input.notes,
-      tags: input.tags,
-    });
-  }
-
-  const response = await fetchAPI(`/api/video-extracts/${input.extract_id}`, {
-    method: 'PUT',
-    body: JSON.stringify({
-      title: input.title,
-      notes: input.notes,
-      tags: input.tags,
-    }),
+  return invokeCommand<VideoExtract>("update_video_extract", {
+    extractId: input.extract_id, title: input.title, notes: input.notes, tags: input.tags,
   });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to update video extract');
-  }
-  return await response.json();
 }
 
-/**
- * Delete a video extract
- */
 export async function deleteVideoExtract(extractId: string): Promise<void> {
-  if (isTauri()) {
-    await invokeCommand("delete_video_extract", { extractId });
-    return;
-  }
-
-  const response = await fetchAPI(`/api/video-extracts/${extractId}`, {
-    method: 'DELETE',
-  });
-
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to delete video extract');
-  }
+  await invokeCommand("delete_video_extract", { extractId });
 }
 
-/**
- * Rate a video extract (update FSRS scheduling)
- * Rating: 1 = Again, 2 = Hard, 3 = Good, 4 = Easy
- */
-export async function rateVideoExtract(extractId: string, rating: number): Promise<string> {
-  if (isTauri()) {
-    return await invokeCommand<string>("rate_video_extract", { extractId, rating });
-  }
+export interface VideoExtractReviewReceipt {
+  operation_id: string;
+  extract_id: string;
+  document_id: string;
+  rating: number;
+  reviewed_at: string;
+  before: VideoExtract;
+  after: VideoExtract;
+}
 
-  const response = await fetchAPI(`/api/video-extracts/${extractId}/rate`, {
-    method: 'POST',
-    body: JSON.stringify({ rating }),
-  });
+export interface VideoExtractReviewResult {
+  extract: VideoExtract | null;
+  receipt: VideoExtractReviewReceipt;
+}
 
-  if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error || 'Failed to rate video extract');
-  }
-  const result = await response.json();
-  return result.message || `Next review: ${new Date(result.next_review_date).toLocaleDateString()}`;
+/** Keep operationId unchanged when retrying an uncertain result. */
+export async function rateVideoExtract(
+  extractId: string, rating: number, operationId: string,
+): Promise<VideoExtractReviewResult> {
+  return invokeCommand<VideoExtractReviewResult>("rate_video_extract", { extractId, rating, operationId });
+}
+
+export async function markVideoExtractSeen(extractId: string): Promise<VideoExtract> {
+  return invokeCommand<VideoExtract>("mark_video_extract_seen", { extractId });
+}
+
+export interface VideoExtractLifecycleArchive {
+  extracts: VideoExtract[];
+  reviewReceipts: VideoExtractReviewReceipt[];
+}
+
+export async function getVideoExtractLifecycle(documentIds?: string[]): Promise<VideoExtractLifecycleArchive> {
+  return invokeCommand<VideoExtractLifecycleArchive>("get_video_extract_lifecycle", { documentIds });
 }
 
 /**

@@ -43,6 +43,7 @@ import { ZenReviewMode } from "./ZenReviewMode";
 import { FSRSInspector, useFSRSInspector } from "./FSRSInspector";
 import { useToast } from "../common/Toast";
 import { bulkDeleteItems, bulkSuspendItems } from "../../api/queue";
+import { cardMutationCoordinator } from "../../api/learningItemMutationCoordinator";
 import { invokeCommand, openFilePicker } from "../../lib/tauri";
 import { useTabsStore } from "../../stores/tabsStore";
 import { hasReachableCardSource, openCardSource, sourceOutcomeKey } from "../../utils/cardSourceNavigation";
@@ -368,20 +369,26 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
       toast.info(t("queue.delete"), t("reviewSession.deleteOnlyLearning"));
       return;
     }
+    const token = cardMutationCoordinator.acquireMutationToken(target.id, "delete");
+    if (!token) return;
+
     setDeletingCardId(target.id);
     try {
       await bulkDeleteItems([target.id]);
+      token.release();
       removeItemFromSession(target.id);
       toast.success(t("reviewSession.cardDeleted"));
     } catch (error) {
+      token.rollback(error instanceof Error ? error : new Error(String(error)));
       toast.error(t("reviewSession.deleteFailed"), error instanceof Error ? error.message : t("reviewSession.unknownError"));
     } finally {
       setDeletingCardId(null);
+      setDeleteTarget(null);
     }
   };
 
   const requestDeleteCurrent = () => {
-    if (!currentCard || pendingArenaReview || isSubmitting) return;
+    if (!currentCard || pendingArenaReview || isSubmitting || cardMutationCoordinator.isItemBusy(currentCard.id)) return;
     const rawLabel = currentCard.question || currentCard.cloze_text || t("reviewSession.untitledCard");
     const label = rawLabel
       .replace(/<[^>]*>/g, " ")
@@ -395,7 +402,7 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
     });
   };
 
-  const canEditCurrentCard = Boolean(currentCard) && !isSubmitting && !pendingArenaReview;
+  const canEditCurrentCard = Boolean(currentCard) && !isSubmitting && !pendingArenaReview && !cardMutationCoordinator.isItemBusy(currentCard!.id);
 
   // Anki-style edit-during-review: opens the inline editor over the session.
   // Disabled while a rating submission or an arena decision is in flight so an

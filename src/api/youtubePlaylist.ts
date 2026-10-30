@@ -142,7 +142,7 @@ export async function updatePlaylistSubscription(
     priority_rating?: number;
     refresh_interval_hours?: number;
   }
-): Promise<void> {
+): Promise<PlaylistSubscription> {
   return invokeCommand("update_playlist_subscription", {
     subscriptionId,
     ...updates,
@@ -200,7 +200,7 @@ export async function updatePlaylistSettings(
   settings: Partial<
     Omit<PlaylistSettings, "id" | "created_at" | "modified_at">
   >
-): Promise<void> {
+): Promise<PlaylistSettings> {
   return invokeCommand("update_playlist_settings", settings);
 }
 

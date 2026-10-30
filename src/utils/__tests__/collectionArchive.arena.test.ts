@@ -30,6 +30,7 @@ describe("collection archive Arena provenance", () => {
     ];
     invokeCommandMock.mockImplementation(async (command: string) => {
       if (command === "get_documents" || command === "get_extracts" || command === "get_all_learning_items") return [];
+      if (command === "get_video_extract_lifecycle") return { extracts: [], reviewReceipts: [] };
       if (command === "get_review_sessions_by_collection") return [{ id: "session-1" }];
       if (command === "get_all_review_results") return reviewResults;
       if (command === "get_categories_by_collection") return [];

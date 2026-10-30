@@ -16,12 +16,14 @@ pub mod language_lexicon_repository;
 pub mod language_knowledge_repository;
 pub mod language_practice_repository;
 pub mod learning_object_source_repository;
+pub mod learning_item_source;
 pub mod migrations;
 pub mod neural_queue_repository;
 pub mod podcast_transcript_repository;
 pub mod priority_rank;
 pub mod recording_session_repository;
 pub mod repository;
+pub mod video_extract_repository;
 pub mod saved_queue_repository;
 pub mod session_analysis_repository;
 

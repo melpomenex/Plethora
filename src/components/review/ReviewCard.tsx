@@ -16,10 +16,18 @@ import { generateReviewHint, explainCard } from "../../lib/ai/flashcardStudioAI"
 import { useTTS } from "../../hooks/useTTS";
 import { renderAnkiHtmlWithLatex, warmAnkiLatexNormalization } from "../../utils/ankiLatex";
 import { getImageAssetById } from "../../api/image-registry";
-import { normalizeClozeSyntax } from "../../utils/cloze";
+import {
+  getSafeCardPromptSummary,
+  getSafeCardSpeechText,
+  isClozeCardType,
+  hasRawClozeSyntax,
+  normalizeClozeSyntax,
+} from "../../utils/cloze";
+import { isOcclusionCard } from "../../utils/occlusion";
 import { cn } from "../../utils";
 import { CardSourceContext } from "./CardSourceContext";
 import { AssessmentPanel, FreeResponseInput } from "./AssessmentPanel";
+import { ReviewCardContent } from "./ReviewCardContent";
 import type { AnswerAssessment } from "../../lib/ai/schemas/answerAssessment";
 import { useI18n } from "../../lib/i18n";
 import { CompactTagEditor } from "../common/CompactTagEditor";
@@ -69,7 +77,6 @@ export const ReviewCard = React.memo(function ReviewCard({
 }: ReviewCardProps) {
   const { speak, stop, isSpeaking, isPaused, pause, resume, isSupported } = useTTS();
   const { t } = useI18n();
-  const [imageUrls, setImageUrls] = useState<string[]>([]);
   const [selectedChoiceId, setSelectedChoiceId] = useState<string | null>(null);
   const [revealAllSiblings, setRevealAllSiblings] = useState(false);
 
@@ -80,33 +87,6 @@ export const ReviewCard = React.memo(function ReviewCard({
   useEffect(() => {
     setRevealAllSiblings(false);
   }, [card.id]);
-
-  useEffect(() => {
-    let isCancelled = false;
-    // The desktop backend serializes snake_case; the browser backend
-    // camel-cases the same row. Accept either (same as item_type handling).
-    const imageAssetIds: string[] = (card as any).image_asset_ids ?? (card as any).imageAssetIds ?? [];
-
-    if (imageAssetIds.length === 0) {
-      setImageUrls([]);
-      return;
-    }
-
-    const load = async () => {
-      const assets = await Promise.all(imageAssetIds.map((assetId) => getImageAssetById(assetId)));
-      if (isCancelled) return;
-      setImageUrls(
-        assets
-          .filter((asset): asset is NonNullable<typeof asset> => Boolean(asset))
-          .map((asset) => asset.data_url ?? (asset as any).dataUrl)
-      );
-    };
-
-    void load();
-    return () => {
-      isCancelled = true;
-    };
-  }, [card.id, (card as any).image_asset_ids, (card as any).imageAssetIds]);
 
   useEffect(() => {
     setSelectedChoiceId(null);
@@ -168,10 +148,8 @@ export const ReviewCard = React.memo(function ReviewCard({
     stop();
   };
 
-  const questionText = getPlainText(card.question);
-  const answerText = card.answer ? getPlainText(card.answer) : "";
-  const questionHtml = useMemo(() => renderAnkiHtmlWithLatex(card.question || ""), [card.question]);
-  const answerHtml = useMemo(() => renderAnkiHtmlWithLatex(card.answer || ""), [card.answer]);
+  const safeQuestionSpeech = useMemo(() => getSafeCardSpeechText(card, "question"), [card]);
+  const safeAnswerSpeech = useMemo(() => getSafeCardSpeechText(card, "answer"), [card]);
   const interactionMetadata = (
     (card as any)?.interaction_metadata ?? (card as any)?.interactionMetadata ?? {}
   ) as LearningItemInteractionMetadata;
@@ -204,28 +182,14 @@ export const ReviewCard = React.memo(function ReviewCard({
     });
   }, [interactionMetadata]);
 
-  const imageOcclusionRegions = useMemo(() => {
-    if (!Array.isArray(interactionMetadata.imageOcclusionRegions)) return [];
-    return interactionMetadata.imageOcclusionRegions.filter((region): region is ImageOcclusionRegion => {
-      return (
-        typeof region?.x === "number" &&
-        typeof region?.y === "number" &&
-        typeof region?.width === "number" &&
-        typeof region?.height === "number"
-      );
-    });
-  }, [interactionMetadata.imageOcclusionRegions]);
-
   const isMultipleChoiceCard = multipleChoiceOptions.length > 0;
-  const isImageOcclusionCard = imageOcclusionRegions.length > 0 && imageUrls.length > 0;
+  const isImageOcclusionCard = isOcclusionCard(card);
 
   useEffect(() => {
     if (isImageOcclusionCard) {
       onInteractionResultChange?.({ interactionType: "image-occlusion" });
     }
   }, [isImageOcclusionCard, onInteractionResultChange]);
-
-  const normalizeMetric = (value: number) => (value <= 1 ? value * 100 : value);
 
   const handleSelectChoice = (option: Required<Pick<MultipleChoiceOption, "text">> & MultipleChoiceOption) => {
     setSelectedChoiceId(option.id || null);
@@ -238,138 +202,6 @@ export const ReviewCard = React.memo(function ReviewCard({
     if (!showAnswer) {
       onShowAnswer();
     }
-  };
-
-  const renderQuestion = () => {
-    if ((itemType === "cloze" || itemType === "Cloze") && card.cloze_text) {
-      // Range-based cloze rendering (preferred when ranges are available)
-      if (card.cloze_ranges && card.cloze_ranges.length > 0) {
-        const text = card.cloze_text as string;
-        const ranges = card.cloze_ranges as [number, number][];
-        let lastIndex = 0;
-        const parts: React.ReactNode[] = [];
-
-        ranges.forEach(([start, end], index) => {
-          if (start > lastIndex) {
-            parts.push(
-              <span
-                key={`text-${index}`}
-                dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(text.slice(lastIndex, start)) }}
-              />
-            );
-          }
-          const clozeContent = text.slice(start, end);
-          if (showAnswer) {
-            parts.push(
-              <span
-                key={`cloze-${index}`}
-                className="bg-primary/20 px-1 rounded font-semibold"
-                dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(clozeContent) }}
-              />
-            );
-          } else {
-            parts.push(
-              <span key={`cloze-${index}`} className="bg-muted px-2 py-0.5 rounded text-foreground font-bold border border-border/50">
-                [...]
-              </span>
-            );
-          }
-          lastIndex = end;
-        });
-
-        if (lastIndex < text.length) {
-          parts.push(
-            <span
-              key="text-end"
-              dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(text.slice(lastIndex)) }}
-            />
-          );
-        }
-
-        return (
-          <div className="text-lg leading-relaxed text-foreground">
-            {parts}
-          </div>
-        );
-      }
-
-      const normalizedClozeText = normalizeClozeSyntax(card.cloze_text);
-      // Fallback: regex-based cloze rendering for {{cN::content}} or [[cN::content]] markers
-      // (AI-generated cloze cards use {{c1::text}} syntax)
-      const rawClozePattern = /\{\{c(\d+)::(.+?)(?:::(.+?))?\}\}/g;
-      const hasRawCloze = rawClozePattern.test(normalizedClozeText);
-      // Reset regex lastIndex since test() advances it
-      rawClozePattern.lastIndex = 0;
-
-      if (hasRawCloze) {
-        const parts: React.ReactNode[] = [];
-        let lastIndex = 0;
-        let match;
-        while ((match = rawClozePattern.exec(normalizedClozeText)) !== null) {
-          if (match.index > lastIndex) {
-            parts.push(
-              <span key={`t-${parts.length}`} dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(normalizedClozeText.slice(lastIndex, match.index)) }} />
-            );
-          }
-          if (showAnswer) {
-            parts.push(
-              <span key={`c-${parts.length}`} className="bg-primary/20 px-1 rounded font-semibold" dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(match[2]) }} />
-            );
-          } else {
-            const hint = match[3];
-            parts.push(
-              <span key={`c-${parts.length}`} className="bg-muted px-2 py-0.5 rounded text-foreground font-bold border border-border/50">
-                {hint || "[...]"}
-              </span>
-            );
-          }
-          lastIndex = match.index + match[0].length;
-        }
-        if (lastIndex < normalizedClozeText.length) {
-          parts.push(
-            <span key={`t-end`} dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(normalizedClozeText.slice(lastIndex)) }} />
-          );
-        }
-        return (
-          <div className="text-lg leading-relaxed text-foreground">
-            {parts}
-          </div>
-        );
-      }
-
-      const parts = card.cloze_text.split(/\[\[c(\d+)::(.*?)\]\]/g);
-      return (
-        <div className="text-lg leading-relaxed text-foreground">
-          {parts.map((part, idx) => {
-            if (idx % 3 === 1) return null; // Skip the index
-            if (idx % 3 === 2) {
-              // This is the clozed content
-              if (showAnswer) {
-                return (
-                  <span
-                    key={idx}
-                    className="bg-primary/20 px-1 rounded font-semibold"
-                    dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(part) }}
-                  />
-                );
-              }
-              return (
-                <span key={idx} className="bg-muted px-2 py-0.5 rounded text-foreground font-bold border border-border/50">
-                  [...]
-                </span>
-              );
-            }
-            return <span key={idx} dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(part) }} />;
-          })}
-        </div>
-      );
-    }
-
-    return (
-      <div className="text-base md:text-lg leading-relaxed text-foreground">
-        <span dangerouslySetInnerHTML={{ __html: questionHtml }} />
-      </div>
-    );
   };
 
   const renderMultipleChoice = () => {
@@ -421,126 +253,13 @@ export const ReviewCard = React.memo(function ReviewCard({
     );
   };
 
-  const renderImageOcclusion = () => {
-    if (!isImageOcclusionCard) return null;
-
-    const imageIndex = Math.max(
-      0,
-      imageUrls.findIndex((_, index) => {
-        const expectedAssetId = interactionMetadata.imageOcclusionAssetId;
-        const cardAssetIds: string[] =
-          (card as any).image_asset_ids ?? (card as any).imageAssetIds ?? [];
-        return expectedAssetId ? cardAssetIds[index] === expectedAssetId : index === 0;
-      })
-    );
-
-    const occlusionMode = interactionMetadata.occlusionMode ?? "hide-all";
-    const isHideOne = occlusionMode === "hide-one" || occlusionMode === "per-region";
-
-    // Target region identification (defaults to first region for legacy cards)
-    const targetRegionId = interactionMetadata.targetRegionId;
-    const targetRegion = targetRegionId
-      ? imageOcclusionRegions.find((r) => r.id === targetRegionId) ?? imageOcclusionRegions[0]
-      : imageOcclusionRegions[0];
-
-    const hasSiblings = imageOcclusionRegions.length > 1;
-
-    const regionsToRender = (() => {
-      if (!showAnswer) {
-        if (isHideOne) {
-          return targetRegion ? [targetRegion] : [];
-        }
-        return imageOcclusionRegions;
-      }
-      if (revealAllSiblings || isHideOne) {
-        return [];
-      }
-      // Keep sibling blocker masks concealed after revealing answer
-      return imageOcclusionRegions.filter(
-        (r) => (r.id ? r.id !== targetRegion?.id : r !== targetRegion)
-      );
-    })();
-
-    return (
-      <div className="mt-5">
-        {interactionMetadata.imageOcclusionPrompt && (
-          <div className="mb-3 text-sm text-muted-foreground">
-            {interactionMetadata.imageOcclusionPrompt}
-          </div>
-        )}
-        {/* Shrink-wrapped around the image so the element box equals the
-            scaled bitmap: the percentage-positioned region overlays stay in
-            the image's coordinate space at any cap/scale, instead of drifting
-            off a letterboxed full-width box. */}
-        <div className="flex justify-center">
-          <div
-            data-testid="occlusion-image-frame"
-            className="relative w-fit overflow-hidden rounded-2xl border border-border bg-muted/20"
-          >
-            <img
-              src={imageUrls[imageIndex]}
-              alt={t("review.imageOcclusionAlt")}
-              className="block h-auto w-auto max-h-[40dvh] max-w-full md:max-h-[calc(100dvh-32rem)]"
-            />
-            {regionsToRender.map((region) => {
-              const isTarget = region.id
-                ? region.id === targetRegion?.id
-                : region === targetRegion;
-
-              return (
-                <div
-                  key={region.id || `${region.x}-${region.y}-${region.width}-${region.height}`}
-                  data-testid="occlusion-region-overlay"
-                  data-occlusion-target={isTarget ? "true" : "false"}
-                  className={cn(
-                    "absolute flex items-center justify-center rounded-md bg-slate-950 shadow-sm transition-all",
-                    isTarget
-                      ? "border-2 border-primary ring-2 ring-primary/30 z-10"
-                      : "border border-white/20 z-0"
-                  )}
-                  style={{
-                    left: `${normalizeMetric(region.x)}%`,
-                    top: `${normalizeMetric(region.y)}%`,
-                    width: `${normalizeMetric(region.width)}%`,
-                    height: `${normalizeMetric(region.height)}%`,
-                    backgroundColor: region.color || "#0f172a",
-                  }}
-                >
-                  {isTarget && !showAnswer && (
-                    <span
-                      data-testid="occlusion-target-badge"
-                      className="flex h-5 w-5 items-center justify-center rounded-full bg-primary font-bold text-xs text-primary-foreground shadow"
-                      aria-hidden="true"
-                    >
-                      ?
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Reveal all sibling labels toggle button */}
-        {showAnswer && hasSiblings && !isHideOne && (
-          <div className="mt-3 flex justify-center">
-            <button
-              type="button"
-              data-testid="occlusion-reveal-all"
-              onClick={() => setRevealAllSiblings((prev) => !prev)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
-            >
-              <Eye className="w-4 h-4" />
-              {revealAllSiblings ? t("review.hideAllLabels") : t("review.revealAllLabels")}
-            </button>
-          </div>
-        )}
-      </div>
-    );
-  };
-
   const renderAnswer = () => {
-    if (!showAnswer || !card.answer) return null;
+    if (!showAnswer) return null;
+
+    const isCloze = isClozeCardType(card) || Boolean(card.cloze_text) || hasRawClozeSyntax(card.question || "");
+    const isOcclusion = isOcclusionCard(card);
+    const hasAnswer = Boolean(card.answer && (!isCloze || !card.question?.includes(card.answer)));
+    if (!hasAnswer && !isOcclusion && !card.answer) return null;
 
     return (
       <div className="mt-4 md:mt-6 pt-4 md:pt-6 border-t border-border">
@@ -549,9 +268,9 @@ export const ReviewCard = React.memo(function ReviewCard({
             {t("review.answer")}
           </div>
           {/* TTS Button for Answer */}
-          {isSupported && (
+          {isSupported && safeAnswerSpeech.speakable && (
             <button
-              onClick={() => handleSpeak(answerText)}
+              onClick={() => handleSpeak(safeAnswerSpeech.text)}
               className={`p-2 rounded-lg transition-colors ${
                 isSpeaking
                   ? "bg-primary/20 text-primary"
@@ -572,9 +291,7 @@ export const ReviewCard = React.memo(function ReviewCard({
             </button>
           )}
         </div>
-        <div className="text-sm md:text-base leading-relaxed text-foreground">
-          <span dangerouslySetInnerHTML={{ __html: answerHtml }} />
-        </div>
+        <ReviewCardContent card={card} showAnswer={showAnswer} part="answer" variant="review" />
         {isMultipleChoiceCard && interactionMetadata.multipleChoiceExplanation && (
           <div className="mt-3 text-sm text-muted-foreground">
             {interactionMetadata.multipleChoiceExplanation}
@@ -605,10 +322,11 @@ export const ReviewCard = React.memo(function ReviewCard({
     if (isHintLoading || hint) return;
     setIsHintLoading(true);
     try {
+      const promptSummary = getSafeCardPromptSummary(card, { revealed: false });
       const res = await generateReviewHint({
-        question: questionText || card.cloze_text || card.question,
-        answer: answerText,
-        cloze_text: card.cloze_text,
+        question: promptSummary,
+        answer: card.answer ? getSafeCardPromptSummary(card, { revealed: true }) : "",
+        cloze_text: card.cloze_text ?? undefined,
         card_type: itemType,
       });
       setHint(res.hint);
@@ -623,10 +341,11 @@ export const ReviewCard = React.memo(function ReviewCard({
     if (isExplainLoading || explanation) return;
     setIsExplainLoading(true);
     try {
+      const promptSummary = getSafeCardPromptSummary(card, { revealed: false });
       const res = await explainCard({
-        question: questionText || card.cloze_text || card.question,
-        answer: answerText,
-        cloze_text: card.cloze_text,
+        question: promptSummary,
+        answer: card.answer || safeAnswerSpeech.text || "",
+        cloze_text: card.cloze_text ?? undefined,
         card_type: itemType,
       });
       setExplanation(res.explanation || "This answer directly aligns with the core concept of the question.");
@@ -679,7 +398,8 @@ export const ReviewCard = React.memo(function ReviewCard({
                 </button>
               )}
               <button
-                onClick={() => handleSpeak(questionText)}
+                onClick={() => handleSpeak(safeQuestionSpeech.text)}
+                disabled={!safeQuestionSpeech.speakable}
                 className={`p-1.5 rounded-lg transition-colors ${
                   isSpeaking && !isPaused
                     ? "bg-primary/20 text-primary"
@@ -712,8 +432,14 @@ export const ReviewCard = React.memo(function ReviewCard({
               ? t("review.completeSentence")
               : t("review.question")}
           </div>
-          {renderQuestion()}
-          {renderImageOcclusion()}
+          <ReviewCardContent
+            card={card}
+            showAnswer={showAnswer}
+            part="question"
+            revealAllSiblings={revealAllSiblings}
+            onToggleRevealAllSiblings={() => setRevealAllSiblings((prev) => !prev)}
+            variant="review"
+          />
           {renderMultipleChoice()}
           {audioQuestionUrl && (
             <div className="mt-3">

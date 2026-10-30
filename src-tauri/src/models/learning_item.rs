@@ -46,6 +46,24 @@ impl From<i32> for ReviewRating {
     }
 }
 
+/// Historical version snapshot of a card's content, cloze details, and tags.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CardVersionEntry {
+    pub version_id: String,
+    pub item_id: String,
+    pub timestamp: String,
+    pub reason: Option<String>,
+    pub question: String,
+    pub answer: Option<String>,
+    #[serde(default)]
+    pub cloze_text: Option<String>,
+    #[serde(default)]
+    pub cloze_ranges: Option<Vec<(usize, usize)>>,
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+}
+
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LearningItem {
     pub id: String,

@@ -82,4 +82,16 @@ describe("normalizeClozeSyntax", () => {
     expect(normalizeClozeSyntax("make us {{::act}}."))
       .toBe("make us {{c1::act}}.");
   });
+
+  it("assigns simplified markers indexes that do not collide with explicit or legacy markers", () => {
+    expect(normalizeClozeSyntax("{{first}} {{c1::existing}} [[c3::legacy]] {{second}}"))
+      .toBe("{{c2::first}} {{c1::existing}} {{c3::legacy}} {{c4::second}}");
+  });
+
+  it("parses and strips multiline and legacy markers", () => {
+    const text = "Before [[c2::line one\nline two::hint]] after";
+    expect(parseClozeDeletions(text)[0]).toMatchObject({ number: 2, content: "line one\nline two", hint: "hint" });
+    expect(stripClozeMarkers(text)).toBe("Before line one\nline two after");
+    expect(hasRawClozeSyntax(text)).toBe(true);
+  });
 });

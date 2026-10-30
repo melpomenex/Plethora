@@ -53,7 +53,7 @@ pub use language_profile::{
 };
 pub use language_lexicon::*;
 pub use language_knowledge::*;
-pub use learning_item::{ItemState, ItemType, LearningItem, MemoryState, ReviewRating};
+pub use learning_item::{CardVersionEntry, ItemState, ItemType, LearningItem, MemoryState, ReviewRating};
 pub use playlist::{PlaylistSettings, PlaylistSubscription, PlaylistVideo};
 pub use position::{Bookmark, DailyReadingStats, DocumentPosition, ReadingSession};
 pub use queue::QueueItem;

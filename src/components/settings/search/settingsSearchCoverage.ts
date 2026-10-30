@@ -138,12 +138,13 @@ export const SETTINGS_SEARCH_COVERAGE: readonly SettingsSearchCoverageRow[] = [
   },
   {
     section: SettingsTab.Integrations,
-    sources: ["IntegrationSettings.tsx", "NotebookLMWorkspace.tsx"],
+    sources: ["IntegrationSettings.tsx", "NotebookLMWorkspace.tsx", "../media/YouTubePlaylistManager.tsx"],
     catalogPrefixes: ["section.integrations", "integrations."],
     exclusions: [
       "Vault paths, cookies, and tokens are private values and are not indexed.",
       "Sync/test actions are consequential and are reached through their configuration groups.",
       "Public API/Webhooks and NotebookLM are omitted where the product/platform gate is unavailable.",
+      "User-created playlist titles and URLs are personal media data and are not indexed in settings search.",
     ],
   },
   {

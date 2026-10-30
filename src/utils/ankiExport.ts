@@ -1,4 +1,4 @@
-import * as JSZip from "jszip";
+import JSZip from "jszip";
 import initSqlJs from "sql.js";
 import sqlWasmUrl from "sql.js/dist/sql-wasm.wasm?url";
 import type { LearningItem } from "../types/document";

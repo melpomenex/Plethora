@@ -1,4 +1,8 @@
-## ADDED Requirements
+## Purpose
+
+Defines how user priority contributes to queue priority-vector diagnostics and scoring.
+
+## Requirements
 
 ### Requirement: Blend user-set priority rating into userIntent dimension
 The `userIntent` component of the priority vector SHALL incorporate the backend's `priority_rating` field (user-set importance, 1-5 scale) alongside the existing tag count signal. The formula SHALL be `userIntent = 0.6 * ratingScore + 0.4 * tagScore`, where `ratingScore` maps the 1-5 rating to a 0-90 range and `tagScore` uses the existing tag-count formula. Items with no `priority_rating` SHALL default to a neutral `ratingScore` of 50.

@@ -289,84 +289,42 @@ pub fn calculate_document_priority_score(
 ///
 /// # Returns
 /// A priority score (0-10) where higher values indicate higher urgency
+/// Calculate FSRS-based priority for documents in the queue (D2 compatibility adapter).
+///
+/// Maps canonical urgency `M ∈ [0, 1]` to the historical `[0, 10]` scale via `10 * M`.
 pub fn calculate_fsrs_document_priority(
     next_reading_date: Option<chrono::DateTime<Utc>>,
     stability: Option<f64>,
     difficulty: Option<f64>,
     priority_slider: i32,
 ) -> f64 {
-    let now = Utc::now();
+    calculate_fsrs_document_priority_at(
+        next_reading_date,
+        stability,
+        difficulty,
+        priority_slider,
+        Utc::now(),
+    )
+}
 
-    // Calculate user priority multiplier (0.5x to 2.0x based on slider 0-100).
-    // Slider 50 (neutral midpoint) ≈ 1.25x, slider 0 = 0.5x, slider 100 = 2.0x.
-    // The neutral midpoint (50) corresponds to a "no user preference" document
-    // and sits above 1.0x so un-prioritized documents are not buried.
-    let slider = priority_slider.clamp(0, 100) as f64;
-    let priority_multiplier = 0.5 + (slider / 100.0) * 1.5;
-
-    // Base priority from FSRS scheduling
-    let base_priority = match next_reading_date {
-        Some(next_date) => {
-            let is_due = next_date <= now;
-            let days_until_due = (next_date - now).num_days();
-
-            if is_due {
-                // Overdue documents get highest priority
-                // Decay priority based on days overdue (more overdue = slightly lower)
-                let days_overdue = -days_until_due;
-                (10.0 - (days_overdue as f64 * 0.1)).max(5.0)
-            } else {
-                // Future-dated documents get lower priority
-                // Priority decays the further in the future
-                if days_until_due <= 1 {
-                    8.0
-                } else if days_until_due <= 3 {
-                    6.0
-                } else if days_until_due <= 7 {
-                    4.0
-                } else if days_until_due <= 30 {
-                    2.0
-                } else {
-                    0.5 // Very far future, lowest priority
-                }
-            }
-        }
-        None => {
-            // New documents (never read) get high priority for first reading
-            // They're ordered by the user-set priority slider multiplier above
-            9.0
-        }
+/// Calculate FSRS-based priority for documents with an explicit clock instant (D2).
+pub fn calculate_fsrs_document_priority_at(
+    next_reading_date: Option<chrono::DateTime<Utc>>,
+    stability: Option<f64>,
+    difficulty: Option<f64>,
+    priority_slider: i32,
+    now: chrono::DateTime<Utc>,
+) -> f64 {
+    let item = crate::models::queue::QueueItem {
+        item_type: "document".to_string(),
+        due_date: next_reading_date.map(|d| d.to_rfc3339()),
+        priority_slider: Some(priority_slider),
+        stability,
+        difficulty,
+        ..Default::default()
     };
-
-    // Apply user priority multiplier
-    let adjusted_priority = base_priority * priority_multiplier;
-
-    // Apply FSRS metrics as micro-adjustments (secondary sorting factors)
-    let fsrs_adjustment = match (stability, difficulty) {
-        (Some(stab), Some(diff)) => {
-            // Lower stability = higher priority (needs more review)
-            // Higher difficulty = slightly higher priority (harder items need attention)
-            let stability_bonus = if stab < 5.0 {
-                0.5
-            } else if stab < 10.0 {
-                0.2
-            } else {
-                0.0
-            };
-            let difficulty_bonus = if diff > 7.0 {
-                0.3
-            } else if diff > 5.0 {
-                0.1
-            } else {
-                0.0
-            };
-            stability_bonus + difficulty_bonus
-        }
-        _ => 0.0,
-    };
-
-    // Final priority with adjustments, clamped to 0-10 range
-    (adjusted_priority + fsrs_adjustment).clamp(0.0, 10.0)
+    let evidence = crate::algorithms::daqe::terms::calculate_canonical_urgency(&item, now, None);
+    evidence.memory_urgency * 10.0
 }
 
 #[derive(Clone, serde::Serialize)]

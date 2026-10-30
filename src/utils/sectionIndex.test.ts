@@ -551,7 +551,7 @@ describe("sectionIndex", () => {
     expect(result.ok).toBe(true);
     expect(result.truncated).toBe(true);
     expect(result.content).toContain("important body sentence");
-    expect(result.content).toContain("[Selected section truncated due to context limit...]");
+    expect(result.content).toContain("[Selected body truncated to the context budget]");
     expect(result.content).not.toContain("[Next context]");
   });
 
@@ -665,7 +665,8 @@ describe("sectionIndex", () => {
     expect(truncated).toBe(false);
 
     const huge = createSelectionSection("x ".repeat(50000));
-    const big = buildSelectionFocusedContext([huge], { maxTokens: 1 });
+    expect(() => buildSelectionFocusedContext([huge], { maxTokens: 1 })).toThrow("readable body");
+    const big = buildSelectionFocusedContext([huge], { maxTokens: 100 });
     expect(big.truncated).toBe(true);
     expect(big.content.length).toBeLessThan(50000);
   });

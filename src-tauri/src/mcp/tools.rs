@@ -24,6 +24,63 @@ impl MCPToolRegistry {
         registry
     }
 
+    /// Resolve an extract-scoped conversation to its actual persisted parent.
+    /// The `extract:` value is a UI identity and must never be inserted as a
+    /// document foreign key. Explicit extract/document pairs must agree.
+    async fn card_source(
+        &self,
+        args: &serde_json::Value,
+    ) -> Result<(Option<String>, Option<String>), String> {
+        let raw_document = optional_card_source_id(args, "document_id")?;
+        let explicit_extract = optional_card_source_id(args, "extract_id")?;
+        let namespaced_extract = raw_document.and_then(|id| id.strip_prefix("extract:"));
+        if namespaced_extract.is_some_and(str::is_empty) {
+            return Err("Select an available source extract before saving the card.".into());
+        }
+        if let (Some(a), Some(b)) = (explicit_extract, namespaced_extract) {
+            if a != b {
+                return Err("The selected source extracts do not match.".into());
+            }
+        }
+
+        if let Some(extract_id) = explicit_extract.or(namespaced_extract) {
+            let extract = self
+                .repository
+                .get_extract(extract_id)
+                .await
+                .map_err(|e| format!("Could not read the source extract: {e}"))?
+                .ok_or_else(|| {
+                    "The source extract is unavailable. Select it again before saving.".to_string()
+                })?;
+            if let Some(document_id) = raw_document.filter(|_| namespaced_extract.is_none()) {
+                if document_id != extract.document_id {
+                    return Err(
+                        "The selected extract does not belong to the selected document.".into(),
+                    );
+                }
+            }
+            self.repository
+                .get_document(&extract.document_id)
+                .await
+                .map_err(|e| format!("Could not read the source document: {e}"))?
+                .ok_or_else(|| {
+                    "The source document is unavailable. Select it again before saving.".to_string()
+                })?;
+            return Ok((Some(extract.document_id), Some(extract.id)));
+        }
+
+        if let Some(document_id) = raw_document {
+            self.repository
+                .get_document(document_id)
+                .await
+                .map_err(|e| format!("Could not read the source document: {e}"))?
+                .ok_or_else(|| {
+                    "The source document is unavailable. Select it again before saving.".to_string()
+                })?;
+        }
+        Ok((raw_document.map(str::to_string), None))
+    }
+
     fn register_default_tools(&mut self) {
         self.register_tool(ToolDefinition {
             name: "create_document".to_string(),
@@ -100,6 +157,7 @@ impl MCPToolRegistry {
                 "properties": {
                     "text": {"type": "string", "description": "Text with cloze deletions"},
                     "document_id": {"type": "string", "description": "Associated document ID"},
+                    "extract_id": {"type": "string", "description": "Optional source extract ID"},
                     "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional tags"},
                     "source": {
                         "type": "object",
@@ -130,6 +188,7 @@ impl MCPToolRegistry {
                     "question": {"type": "string"},
                     "answer": {"type": "string"},
                     "document_id": {"type": "string"},
+                    "extract_id": {"type": "string", "description": "Optional source extract ID"},
                     "tags": {"type": "array", "items": {"type": "string"}, "description": "Optional tags"},
                     "source": {
                         "type": "object",
@@ -275,6 +334,7 @@ impl MCPToolRegistry {
                 "type": "object",
                 "properties": {
                     "document_id": {"type": "string", "description": "Optional document ID to associate all cards"},
+                    "extract_id": {"type": "string", "description": "Optional source extract ID"},
                     "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags to associate with every created card"},
                     "cards": {
                         "type": "array",
@@ -721,15 +781,24 @@ impl MCPToolRegistry {
         &self,
         args: serde_json::Value,
     ) -> Result<ToolCallResult, String> {
-        let text = args["text"].as_str().ok_or("text is required")?;
-        let document_id = args["document_id"].as_str();
+        let text = args["text"]
+            .as_str()
+            .filter(|text| !text.trim().is_empty())
+            .ok_or("text is required")?;
+        let (document_id, extract_id) = self.card_source(&args).await?;
+        let source_reference = validated_card_source_reference(&args, document_id.as_deref())?;
         let tags = args["tags"].as_array();
         let image_asset_ids = args["image_asset_ids"].as_array();
 
         let mut item = LearningItem::new(ItemType::Cloze, text.to_string());
-        item.document_id = document_id.map(|s| s.to_string());
+        item.document_id = document_id;
+        item.extract_id = extract_id;
+        item.acceptance_id = args["acceptance_id"].as_str().map(str::to_string);
+        item.proposal_id = args["proposal_id"].as_str().map(str::to_string);
         item.cloze_text = Some(text.to_string());
-        item.source_reference = source_reference_from_args(&args);
+        if item.extract_id.is_none() {
+            item.source_reference = source_reference;
+        }
         if let Some(tags) = tags {
             item.tags = tags
                 .iter()
@@ -743,13 +812,27 @@ impl MCPToolRegistry {
                 .collect();
         }
 
-        match self.repository.create_learning_item(&item).await {
+        match self
+            .repository
+            .create_learning_item_with_source(
+                &item,
+                Some(
+                    &crate::database::learning_item_source::ExpectedLearningSource {
+                        document_revision: args["source_revision"].as_str().map(str::to_string),
+                        extract_revision: args["extract_revision"].as_str().map(str::to_string),
+                    },
+                ),
+            )
+            .await
+        {
             Ok(created) => Ok(ToolCallResult {
                 content: vec![ToolContent {
                     r#type: "text".to_string(),
                     text: json!({
                         "success": true,
                         "id": created.id,
+                        "document_id": created.document_id,
+                        "extract_id": created.extract_id,
                         "type": "cloze",
                         "message": "Cloze card created successfully"
                     })
@@ -762,7 +845,7 @@ impl MCPToolRegistry {
                     r#type: "text".to_string(),
                     text: json!({
                         "success": false,
-                        "error": e.to_string()
+                        "error": card_creation_error(&e)
                     })
                     .to_string(),
                 }],
@@ -775,16 +858,28 @@ impl MCPToolRegistry {
         &self,
         args: serde_json::Value,
     ) -> Result<ToolCallResult, String> {
-        let question = args["question"].as_str().ok_or("question is required")?;
-        let answer = args["answer"].as_str().ok_or("answer is required")?;
-        let document_id = args["document_id"].as_str();
+        let question = args["question"]
+            .as_str()
+            .filter(|text| !text.trim().is_empty())
+            .ok_or("question is required")?;
+        let answer = args["answer"]
+            .as_str()
+            .filter(|text| !text.trim().is_empty())
+            .ok_or("answer is required")?;
+        let (document_id, extract_id) = self.card_source(&args).await?;
+        let source_reference = validated_card_source_reference(&args, document_id.as_deref())?;
         let tags = args["tags"].as_array();
         let image_asset_ids = args["image_asset_ids"].as_array();
 
         let mut item = LearningItem::new(ItemType::Qa, question.to_string());
-        item.document_id = document_id.map(|s| s.to_string());
+        item.document_id = document_id;
+        item.extract_id = extract_id;
+        item.acceptance_id = args["acceptance_id"].as_str().map(str::to_string);
+        item.proposal_id = args["proposal_id"].as_str().map(str::to_string);
         item.answer = Some(answer.to_string());
-        item.source_reference = source_reference_from_args(&args);
+        if item.extract_id.is_none() {
+            item.source_reference = source_reference;
+        }
         if let Some(tags) = tags {
             item.tags = tags
                 .iter()
@@ -798,13 +893,27 @@ impl MCPToolRegistry {
                 .collect();
         }
 
-        match self.repository.create_learning_item(&item).await {
+        match self
+            .repository
+            .create_learning_item_with_source(
+                &item,
+                Some(
+                    &crate::database::learning_item_source::ExpectedLearningSource {
+                        document_revision: args["source_revision"].as_str().map(str::to_string),
+                        extract_revision: args["extract_revision"].as_str().map(str::to_string),
+                    },
+                ),
+            )
+            .await
+        {
             Ok(created) => Ok(ToolCallResult {
                 content: vec![ToolContent {
                     r#type: "text".to_string(),
                     text: json!({
                         "success": true,
                         "id": created.id,
+                        "document_id": created.document_id,
+                        "extract_id": created.extract_id,
                         "type": "qa",
                         "message": "Q&A card created successfully"
                     })
@@ -817,7 +926,7 @@ impl MCPToolRegistry {
                     r#type: "text".to_string(),
                     text: json!({
                         "success": false,
-                        "error": e.to_string()
+                        "error": card_creation_error(&e)
                     })
                     .to_string(),
                 }],
@@ -871,7 +980,7 @@ impl MCPToolRegistry {
                     r#type: "text".to_string(),
                     text: json!({
                         "success": false,
-                        "error": e.to_string()
+                        "error": card_creation_error(&e)
                     })
                     .to_string(),
                 }],
@@ -927,7 +1036,7 @@ impl MCPToolRegistry {
                     r#type: "text".to_string(),
                     text: json!({
                         "success": false,
-                        "error": e.to_string()
+                        "error": card_creation_error(&e)
                     })
                     .to_string(),
                 }],
@@ -967,7 +1076,7 @@ impl MCPToolRegistry {
                     r#type: "text".to_string(),
                     text: json!({
                         "success": false,
-                        "error": e.to_string()
+                        "error": card_creation_error(&e)
                     })
                     .to_string(),
                 }],
@@ -1012,7 +1121,7 @@ impl MCPToolRegistry {
                     r#type: "text".to_string(),
                     text: json!({
                         "success": false,
-                        "error": e.to_string()
+                        "error": card_creation_error(&e)
                     })
                     .to_string(),
                 }],
@@ -1060,7 +1169,7 @@ impl MCPToolRegistry {
                     r#type: "text".to_string(),
                     text: json!({
                         "success": false,
-                        "error": e.to_string()
+                        "error": card_creation_error(&e)
                     })
                     .to_string(),
                 }],
@@ -1103,7 +1212,7 @@ impl MCPToolRegistry {
                         r#type: "text".to_string(),
                         text: json!({
                             "success": false,
-                            "error": e.to_string()
+                            "error": card_creation_error(&e)
                         })
                         .to_string(),
                     }],
@@ -1139,7 +1248,7 @@ impl MCPToolRegistry {
                         r#type: "text".to_string(),
                         text: json!({
                             "success": false,
-                            "error": e.to_string()
+                            "error": card_creation_error(&e)
                         })
                         .to_string(),
                     }],
@@ -1183,7 +1292,7 @@ impl MCPToolRegistry {
                     r#type: "text".to_string(),
                     text: json!({
                         "success": false,
-                        "error": e.to_string()
+                        "error": card_creation_error(&e)
                     })
                     .to_string(),
                 }],
@@ -1226,7 +1335,7 @@ impl MCPToolRegistry {
                         r#type: "text".to_string(),
                         text: json!({
                             "success": false,
-                            "error": e.to_string()
+                            "error": card_creation_error(&e)
                         })
                         .to_string(),
                     }],
@@ -1265,7 +1374,7 @@ impl MCPToolRegistry {
                         r#type: "text".to_string(),
                         text: json!({
                             "success": false,
-                            "error": e.to_string()
+                            "error": card_creation_error(&e)
                         })
                         .to_string(),
                     }],
@@ -1311,7 +1420,7 @@ impl MCPToolRegistry {
                     r#type: "text".to_string(),
                     text: json!({
                         "success": false,
-                        "error": e.to_string()
+                        "error": card_creation_error(&e)
                     })
                     .to_string(),
                 }],
@@ -1381,7 +1490,7 @@ impl MCPToolRegistry {
                     r#type: "text".to_string(),
                     text: json!({
                         "success": false,
-                        "error": e.to_string()
+                        "error": card_creation_error(&e)
                     })
                     .to_string(),
                 }],
@@ -1395,7 +1504,8 @@ impl MCPToolRegistry {
         args: serde_json::Value,
     ) -> Result<ToolCallResult, String> {
         let cards = args["cards"].as_array().ok_or("cards array is required")?;
-        let document_id = args["document_id"].as_str();
+        let (document_id, extract_id) = self.card_source(&args).await?;
+        let shared_source = validated_card_source_reference(&args, document_id.as_deref())?;
         let image_asset_ids = args["image_asset_ids"].as_array();
         let shared_tags: Vec<String> = args["tags"]
             .as_array()
@@ -1407,57 +1517,71 @@ impl MCPToolRegistry {
             .unwrap_or_default();
         let mut results = vec![];
 
-        for card in cards {
-            let question = card["question"].as_str();
-            let answer = card["answer"].as_str();
-            let card_type = card["type"].as_str().unwrap_or("flashcard");
-
-            if let Some(question) = question {
-                let item_type = match card_type {
-                    "qa" => ItemType::Qa,
-                    "cloze" => ItemType::Cloze,
-                    _ => ItemType::Flashcard,
-                };
-
-                let mut item = LearningItem::new(item_type, question.to_string());
-                item.answer = answer.map(|a| a.to_string());
-                item.document_id = document_id.map(|id| id.to_string());
-                item.tags = merge_batch_card_tags(&shared_tags, card);
-                item.source_reference = card
-                    .get("source")
-                    .and_then(|source| {
-                        source_reference_from_args(&json!({ "source": source }))
-                    })
-                    .or_else(|| source_reference_from_args(&args));
-                if let Some(image_asset_ids) = image_asset_ids {
-                    item.image_asset_ids = image_asset_ids
-                        .iter()
-                        .filter_map(|value| value.as_str().map(|s| s.to_string()))
-                        .collect();
+        for (index, card) in cards.iter().enumerate() {
+            let proposal_id = card["proposal_id"]
+                .as_str()
+                .map(str::to_string)
+                .or_else(|| {
+                    args["acceptance_id"]
+                        .as_str()
+                        .map(|key| format!("{key}:{index}"))
+                });
+            let mut item = match build_batch_card(
+                card,
+                document_id.as_deref(),
+                extract_id.as_deref(),
+                shared_source.as_deref(),
+                &shared_tags,
+                image_asset_ids,
+            ) {
+                Ok(item) => item,
+                Err(error) => {
+                    results.push(
+                        json!({ "success": false, "proposal_id": proposal_id, "error": error }),
+                    );
+                    continue;
                 }
-
-                match self.repository.create_learning_item(&item).await {
-                    Ok(created) => {
-                        results.push(json!({
-                            "success": true,
-                            "id": created.id
-                        }));
-                    }
-                    Err(e) => {
-                        results.push(json!({
-                            "success": false,
-                            "error": e.to_string()
-                        }));
-                    }
+            };
+            item.acceptance_id = args["acceptance_id"].as_str().map(str::to_string);
+            item.proposal_id = card["proposal_id"]
+                .as_str()
+                .map(str::to_string)
+                .or_else(|| {
+                    item.acceptance_id
+                        .as_ref()
+                        .map(|key| format!("{key}:{index}"))
+                });
+            let result = match self
+                .repository
+                .create_learning_item_with_source(
+                    &item,
+                    Some(
+                        &crate::database::learning_item_source::ExpectedLearningSource {
+                            document_revision: args["source_revision"].as_str().map(str::to_string),
+                            extract_revision: args["extract_revision"].as_str().map(str::to_string),
+                        },
+                    ),
+                )
+                .await
+            {
+                Ok(created) => {
+                    json!({ "success": true, "id": created.id, "proposal_id": proposal_id })
                 }
-            }
+                Err(error) => {
+                    json!({ "success": false, "proposal_id": proposal_id, "error": card_creation_error(&error) })
+                }
+            };
+            results.push(result);
         }
 
         Ok(ToolCallResult {
             content: vec![ToolContent {
                 r#type: "text".to_string(),
                 text: json!({
-                    "created": results.len(),
+                    "created": results.iter().filter(|result| result["success"] == true).count(),
+                    "attempted": cards.len(),
+                    "document_id": document_id,
+                    "extract_id": extract_id,
                     "results": results
                 })
                 .to_string(),
@@ -1502,7 +1626,7 @@ impl MCPToolRegistry {
                     r#type: "text".to_string(),
                     text: json!({
                         "success": false,
-                        "error": e.to_string()
+                        "error": card_creation_error(&e)
                     })
                     .to_string(),
                 }],
@@ -1741,7 +1865,7 @@ impl MCPToolRegistry {
                     r#type: "text".to_string(),
                     text: json!({
                         "success": false,
-                        "error": e.to_string()
+                        "error": card_creation_error(&e)
                     })
                     .to_string(),
                 }],
@@ -1790,7 +1914,7 @@ impl MCPToolRegistry {
                     r#type: "text".to_string(),
                     text: json!({
                         "success": false,
-                        "error": e.to_string()
+                        "error": card_creation_error(&e)
                     })
                     .to_string(),
                 }],
@@ -1829,7 +1953,7 @@ impl MCPToolRegistry {
                         r#type: "text".to_string(),
                         text: json!({
                             "success": false,
-                            "error": e.to_string()
+                            "error": card_creation_error(&e)
                         })
                         .to_string(),
                     }],
@@ -1874,7 +1998,7 @@ impl MCPToolRegistry {
                     r#type: "text".to_string(),
                     text: json!({
                         "success": false,
-                        "error": e.to_string()
+                        "error": card_creation_error(&e)
                     })
                     .to_string(),
                 }],
@@ -1954,6 +2078,89 @@ impl MCPToolRegistry {
     }
 }
 
+fn optional_card_source_id<'a>(
+    args: &'a serde_json::Value,
+    name: &str,
+) -> Result<Option<&'a str>, String> {
+    match args.get(name) {
+        None | Some(serde_json::Value::Null) => Ok(None),
+        Some(serde_json::Value::String(value)) if !value.trim().is_empty() => {
+            Ok(Some(value.trim()))
+        }
+        Some(_) => Err(format!(
+            "The source {name} is invalid. Select the source again before saving."
+        )),
+    }
+}
+
+fn build_batch_card(
+    card: &serde_json::Value,
+    document_id: Option<&str>,
+    extract_id: Option<&str>,
+    shared_source: Option<&str>,
+    shared_tags: &[String],
+    image_asset_ids: Option<&Vec<serde_json::Value>>,
+) -> Result<LearningItem, String> {
+    let question = card["question"]
+        .as_str()
+        .filter(|text| !text.trim().is_empty());
+    let answer = card["answer"].as_str();
+    let card_type = card["type"].as_str().unwrap_or("flashcard");
+    if question.is_none()
+        || !matches!(card_type, "qa" | "cloze" | "flashcard" | "basic")
+        || (card_type != "cloze" && answer.is_none_or(|text| text.trim().is_empty()))
+    {
+        return Err("The card is missing required content or has an unsupported type.".into());
+    }
+    let source = match card.get("source") {
+        Some(source) => validated_card_source_reference(&json!({ "source": source }), document_id)?,
+        None => shared_source.map(str::to_string),
+    };
+    let item_type = match card_type {
+        "qa" => ItemType::Qa,
+        "cloze" => ItemType::Cloze,
+        _ => ItemType::Flashcard,
+    };
+    let question = question.expect("validated question");
+    let mut item = LearningItem::new(item_type, question.to_string());
+    item.answer = answer.map(str::to_string);
+    item.document_id = document_id.map(str::to_string);
+    item.extract_id = extract_id.map(str::to_string);
+    if card_type == "cloze" {
+        item.cloze_text = Some(question.to_string());
+    }
+    item.tags = merge_batch_card_tags(shared_tags, card);
+    if extract_id.is_none() {
+        item.source_reference = source;
+    }
+    if let Some(ids) = image_asset_ids {
+        item.image_asset_ids = ids
+            .iter()
+            .filter_map(|value| value.as_str().map(str::to_string))
+            .collect();
+    }
+    Ok(item)
+}
+
+fn validated_card_source_reference(
+    args: &serde_json::Value,
+    document_id: Option<&str>,
+) -> Result<Option<String>, String> {
+    let Some(source) = args.get("source").filter(|source| !source.is_null()) else {
+        return Ok(None);
+    };
+    let source_document = source
+        .get("document_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim);
+    if source_document != document_id || document_id.is_none() {
+        return Err("The card's source does not match the selected document.".into());
+    }
+    source_reference_from_args(args).map(Some).ok_or_else(|| {
+        "The card's source passage is invalid. Select it again before saving.".into()
+    })
+}
+
 fn merge_batch_card_tags(shared_tags: &[String], card: &serde_json::Value) -> Vec<String> {
     let mut merged = shared_tags.to_vec();
     if let Some(card_tags) = card["tags"].as_array() {
@@ -1987,7 +2194,10 @@ fn source_reference_from_args(args: &serde_json::Value) -> Option<String> {
     let mut locator = serde_json::Map::new();
     locator.insert(
         "kind".into(),
-        json!(source.get("kind").and_then(|v| v.as_str()).unwrap_or("html")),
+        json!(source
+            .get("kind")
+            .and_then(|v| v.as_str())
+            .unwrap_or("html")),
     );
     if let Some(page) = source.get("page_number").and_then(|v| v.as_i64()) {
         locator.insert("pageNumber".into(), json!(page));
@@ -2030,8 +2240,10 @@ fn format_seconds(seconds: f64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::merge_batch_card_tags;
+    use super::{merge_batch_card_tags, MCPToolRegistry};
+    use crate::issue6_test_support::{issue6_repository, CARD_IDS, DOCUMENT_ID, EXTRACT_ID};
     use serde_json::json;
+    use std::sync::Arc;
 
     #[test]
     fn batch_cards_keep_document_deck_and_card_specific_tags() {
@@ -2045,5 +2257,79 @@ mod tests {
                 "chapter:008".to_string(),
             ],
         );
+    }
+
+    #[tokio::test]
+    async fn issue6_extract_source_creates_card_with_real_parent_and_extract() {
+        let repo = issue6_repository().await;
+        let registry = MCPToolRegistry::new(Arc::new(repo.clone()));
+        let result = registry
+            .execute_create_qa_card(json!({
+                "document_id": format!("extract:{EXTRACT_ID}"),
+                "question": "Fixture question?", "answer": "Fixture answer"
+            }))
+            .await
+            .expect("tool result");
+        assert_eq!(result.is_error, Some(false));
+        let payload: serde_json::Value = serde_json::from_str(&result.content[0].text).unwrap();
+        let card = repo
+            .get_learning_item_by_id(payload["id"].as_str().unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(card.document_id.as_deref(), Some(DOCUMENT_ID));
+        assert_eq!(card.extract_id.as_deref(), Some(EXTRACT_ID));
+
+        let invalid = registry
+            .execute_create_qa_card(json!({
+                "document_id": "issue6-html", "extract_id": EXTRACT_ID,
+                "question": "Wrong parent?", "answer": "No"
+            }))
+            .await;
+        assert!(invalid.is_err());
+        let after: i64 = sqlx::query_scalar("SELECT count(*) FROM learning_items")
+            .fetch_one(repo.pool())
+            .await
+            .unwrap();
+        assert_eq!(after, CARD_IDS.len() as i64 + 1);
+    }
+
+    #[tokio::test]
+    async fn issue6_batch_cloze_persists_source_and_reports_partial_failure() {
+        let repo = issue6_repository().await;
+        let registry = MCPToolRegistry::new(Arc::new(repo.clone()));
+        let result = registry
+            .execute_batch_create_cards(json!({
+                "document_id": format!("extract:{EXTRACT_ID}"),
+                "cards": [
+                    {"type": "cloze", "question": "The {{c1::answer}} is hidden."},
+                    {"type": "qa", "question": "Missing answer"}
+                ]
+            }))
+            .await
+            .expect("batch result");
+        let payload: serde_json::Value = serde_json::from_str(&result.content[0].text).unwrap();
+        assert_eq!(payload["attempted"], 2);
+        assert_eq!(payload["created"], 1);
+        assert_eq!(payload["results"][1]["success"], false);
+        let id = payload["results"][0]["id"].as_str().unwrap();
+        let card = repo.get_learning_item_by_id(id).await.unwrap().unwrap();
+        assert_eq!(
+            card.cloze_text.as_deref(),
+            Some("The {{c1::answer}} is hidden.")
+        );
+        assert_eq!(card.extract_id.as_deref(), Some(EXTRACT_ID));
+    }
+}
+
+fn card_creation_error(error: &crate::error::PlethoraError) -> String {
+    tracing::warn!("Card creation failed: {}", error);
+    match error {
+        crate::error::PlethoraError::InvalidInput(message)
+        | crate::error::PlethoraError::NotFound(message) => message.clone(),
+        _ => {
+            "The card could not be saved locally. Keep the draft and retry or reselect its source."
+                .into()
+        }
     }
 }

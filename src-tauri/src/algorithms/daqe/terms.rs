@@ -10,6 +10,7 @@ use crate::algorithms::daqe::{FrictionInputs, RankContext};
 use crate::models::daqe::{TermValue, COMPLEXITY_SCALE_SPAN};
 use crate::models::queue::QueueItem;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 use super::RecentItem;
 
@@ -72,110 +73,182 @@ pub fn default_complexity_for(item_type: &str) -> f64 {
 
 // ---------------------------------------------------------------- R_srs
 
-/// `R_srs(i)` — spaced-repetition urgency in `[0,1]`.
-///
-/// Three components, weighted so that recall risk dominates but neither
-/// overdue-ness nor the user's own priority can be ignored:
-///
-/// - **urgency** — how close the item is to being forgotten. Taken from the
-///   scheduler's own retrievability when available; for documents that is
-///   `calculate_fsrs_document_priority` (which already folds in stability,
-///   difficulty and the priority slider), otherwise the forgetting curve
-///   `0.9^(elapsed / stability)`.
-/// - **overdue** — days past due, saturating at two weeks. This is the part that
-///   differs most from a pure retrievability reading, because a brand-new item
-///   that is due has perfect retrievability but still deserves surfacing.
-/// - **user priority** — the item's existing 0–100 slider (or its resolved 0–10
-///   priority), so an item the user explicitly marked high stays high.
-///
-/// Deliberately *not* a per-item-type constant: that is the thing being
-/// replaced.
-pub fn srs_urgency(item: &QueueItem, signals: Option<&ItemSignals>, ctx: &RankContext<'_>) -> TermValue {
-    let urgency = urgency_component(item, ctx);
-    let overdue = overdue_component(item, ctx);
-    let user_priority = user_priority_component(item);
-
-    let score = 0.5 * urgency + 0.3 * overdue + 0.2 * user_priority;
-    let _ = signals;
-    TermValue::measured(score)
+/// Canonical ranking components computed at a fixed UTC instant (D2).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct CanonicalUrgencyEvidence {
+    pub temporal_urgency: f64,
+    pub temporal_available: bool,
+    pub overdue_urgency: f64,
+    pub memory_urgency: f64,
+    pub canonical_priority: f64,
+    pub priority_available: bool,
 }
 
-/// A document's priority already encodes stability, difficulty and the user's
-/// slider, so it is used directly (normalized from 0–10). Everything else is
-/// derived from the forgetting curve, falling back to the stored 0–10 priority
-/// when there is no memory state to read.
-fn urgency_component(item: &QueueItem, ctx: &RankContext<'_>) -> f64 {
-    if item.item_type == "document" {
-        let slider = crate::algorithms::resolve_priority_slider(
-            item.priority_slider.unwrap_or(0),
-            item.priority_rating.unwrap_or(0),
-        );
-        let due = parse_due(item.due_date.as_deref());
-        return (crate::algorithms::calculate_fsrs_document_priority(
-            due,
-            item.stability,
-            item.difficulty,
-            slider,
-        ) / 10.0)
-            .clamp(0.0, 1.0);
-    }
-
-    if let Some(retrievability) = retrievability(item, ctx) {
-        // Low retrievability means high urgency.
-        return (1.0 - retrievability).clamp(0.0, 1.0);
-    }
-
-    if let (Some(stability), Some(due)) = (item.stability, parse_due(item.due_date.as_deref())) {
-        if stability > 0.0 {
-            let elapsed_days = (ctx.now - due).num_days() as f64;
-            // `R = 0.9^(t/S)`, the same curve the Adaptive scheduler uses.
-            let retrievability = 0.9f64.powf(elapsed_days / stability);
-            return (1.0 - retrievability).clamp(0.0, 1.0);
+/// Calculate pure explicit-clock canonical urgency evidence (D2).
+///
+/// `M = 0.8 * T + 0.2 * P`
+///
+/// Rotational items:
+///   T = 0.0 if valid due_at > now
+///   T = A   if valid due_at <= now
+///   T = 0.5 if new / missing due date
+///
+/// Recall items:
+///   R = 1 - r (when r is valid scheduler retrievability at now)
+///   T = R         if future due and r is valid; else 0.0
+///   T = max(R, A) if due and r is valid; else A
+///   T = 0.5       if new / missing due date
+pub fn calculate_canonical_urgency(
+    item: &QueueItem,
+    now: DateTime<Utc>,
+    priority_override: Option<f64>,
+) -> CanonicalUrgencyEvidence {
+    // 1. Resolve canonical priority P
+    let (p_raw, p_avail) = if let Some(p) = priority_override {
+        if p.is_finite() && (0.0..=1.0).contains(&p) {
+            (p, true)
+        } else {
+            (0.5, false)
         }
-    }
-
-    // No scheduling signal at all: the stored priority is the only evidence.
-    (item.priority / 10.0).clamp(0.0, 1.0)
-}
-
-/// The scheduler's own retrievability when it is present and trustworthy.
-fn retrievability(item: &QueueItem, ctx: &RankContext<'_>) -> Option<f64> {
-    if let Some(value) = item.retrievability {
-        if value.is_finite() {
-            return Some(value.clamp(0.0, 1.0));
+    } else if let Some(p) = item.canonical_priority {
+        if p.is_finite() && (0.0..=1.0).contains(&p) {
+            (p, item.priority_available.unwrap_or(true))
+        } else {
+            (0.5, false)
         }
-    }
-    let stability = item.stability?;
-    if stability <= 0.0 {
-        return None;
-    }
-    let due = parse_due(item.due_date.as_deref())?;
-    let elapsed_days = (ctx.now - due).num_days() as f64;
-    Some(0.9f64.powf(elapsed_days / stability).clamp(0.0, 1.0))
-}
-
-fn overdue_component(item: &QueueItem, ctx: &RankContext<'_>) -> f64 {
-    let Some(due) = parse_due(item.due_date.as_deref()) else {
-        // New items have no due date; treat them as due today rather than
-        // penalising them for an absence.
-        return 1.0;
+    } else if let Some(slider) = item.priority_slider {
+        ((slider.clamp(0, 100) as f64) / 100.0, true)
+    } else if let Some(rating) = item.priority_rating {
+        ((crate::algorithms::resolve_priority_slider(0, rating) as f64) / 100.0, true)
+    } else {
+        (0.5, false)
     };
-    let days_overdue = (ctx.now - due).num_days();
-    if days_overdue <= 0 {
-        return 0.0;
+    let p = p_raw.clamp(0.0, 1.0);
+
+    // 2. Parse due date & compute overdue readiness A and lateness O
+    let due = parse_due(item.due_date.as_deref());
+    let (d, o, a) = match due {
+        Some(due_at) if due_at <= now => {
+            let ms = (now - due_at).num_milliseconds() as f64;
+            let d_frac = if ms.is_finite() && ms >= 0.0 {
+                ms / 86_400_000.0
+            } else {
+                0.0
+            };
+            let o_val: f64 = if d_frac > 0.0 {
+                let raw_o = -(-d_frac / 14.0).exp_m1();
+                if raw_o.is_finite() {
+                    raw_o.clamp(0.0, 1.0)
+                } else {
+                    1.0
+                }
+            } else {
+                0.0
+            };
+            let a_val = (0.5_f64 + 0.5_f64 * o_val).clamp(0.0, 1.0);
+            (d_frac, o_val, a_val)
+        }
+        Some(_) => (0.0, 0.0, 0.5),
+        None => (0.0, 0.0, 0.5),
+    };
+    let _ = d;
+
+    // 3. Evaluate retrievability r for recall items (learning-item)
+    let is_recall = item.item_type == "learning-item";
+    let (t, t_avail) = if is_recall {
+        let r_val = if let Some(ret) = item.retrievability {
+            if ret.is_finite() && (0.0..=1.0).contains(&ret) {
+                Some(ret)
+            } else {
+                None
+            }
+        } else if let (Some(stab), Some(diff)) = (item.stability, item.difficulty) {
+            if stab > 0.0 && diff > 0.0 && stab.is_finite() && diff.is_finite() {
+                let last_rev = parse_due(item.last_review_date.as_deref());
+                let elapsed_days = match last_rev {
+                    Some(lr) if lr <= now => {
+                        let ms = (now - lr).num_milliseconds() as f64;
+                        if ms >= 0.0 && ms.is_finite() {
+                            Some(ms / 86_400_000.0)
+                        } else {
+                            None
+                        }
+                    }
+                    _ => None,
+                };
+                if let Some(elapsed) = elapsed_days {
+                    let ms = crate::models::MemoryState {
+                        stability: stab,
+                        difficulty: diff,
+                        stability_fast: item.stability_fast,
+                    };
+                    crate::algorithms::fsrs7::current_retrievability(&ms, elapsed)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        match (due, r_val) {
+            (Some(due_at), Some(r)) => {
+                let r_risk = (1.0 - r).clamp(0.0, 1.0);
+                if due_at > now {
+                    (r_risk, true)
+                } else {
+                    (r_risk.max(a).clamp(0.0, 1.0), true)
+                }
+            }
+            (Some(due_at), None) => {
+                if due_at > now {
+                    (0.0, false)
+                } else {
+                    (a, true)
+                }
+            }
+            (None, _) => (0.5, false),
+        }
+    } else {
+        // Rotational items
+        match due {
+            Some(due_at) if due_at > now => (0.0, true),
+            Some(_) => (a, true),
+            None => (0.5, false),
+        }
+    };
+
+    let m_raw = 0.8 * t + 0.2 * p;
+    let m = if m_raw.is_finite() {
+        m_raw.clamp(0.0, 1.0)
+    } else {
+        0.5
+    };
+
+    CanonicalUrgencyEvidence {
+        temporal_urgency: t,
+        temporal_available: t_avail,
+        overdue_urgency: o,
+        memory_urgency: m,
+        canonical_priority: p,
+        priority_available: p_avail,
     }
-    (days_overdue as f64 / 14.0).clamp(0.0, 1.0)
 }
 
-fn user_priority_component(item: &QueueItem) -> f64 {
-    if let Some(slider) = item.priority_slider {
-        return (slider.clamp(0, 100) as f64 / 100.0).clamp(0.0, 1.0);
+/// `R_srs(i)` — spaced-repetition urgency in `[0,1]` (D2).
+pub fn srs_urgency(
+    item: &QueueItem,
+    _signals: Option<&ItemSignals>,
+    ctx: &RankContext<'_>,
+) -> TermValue {
+    let evidence = calculate_canonical_urgency(item, ctx.now, None);
+    if evidence.temporal_available || evidence.priority_available {
+        TermValue::measured(evidence.memory_urgency)
+    } else {
+        TermValue::defaulted(evidence.memory_urgency)
     }
-    if let Some(rating) = item.priority_rating {
-        let resolved = crate::algorithms::resolve_priority_slider(0, rating);
-        return (resolved as f64 / 100.0).clamp(0.0, 1.0);
-    }
-    (item.priority / 10.0).clamp(0.0, 1.0)
 }
 
 // ------------------------------------------------------- M_relevance
@@ -415,6 +488,7 @@ mod tests {
             retrievability: None,
             lapses: None,
             reps: None,
+            ..Default::default()
         }
     }
 
@@ -771,5 +845,241 @@ mod tests {
             srs_urgency(&broken, None, &ctx).effective(),
             srs_urgency(&none_at_all, None, &ctx).effective()
         );
+    }
+
+    #[test]
+    fn r01_boundary_matrix_overdue_saturation() {
+        let n = now();
+        let days = [0.0, 1.0, 7.0, 14.0, 30.0, 90.0, 300.0];
+        let expected_o = [
+            0.0,
+            0.06893739,
+            0.39346934,
+            0.63212056,
+            0.88270342,
+            0.99838515,
+            0.9999999995,
+        ];
+
+        for (i, &d) in days.iter().enumerate() {
+            let due = n - chrono::Duration::milliseconds((d * 86_400_000.0) as i64);
+            let mut item = queue_item("doc-test", "document", Some(&due.to_rfc3339()));
+            item.canonical_priority = Some(0.5);
+            let evidence = calculate_canonical_urgency(&item, n, None);
+
+            assert!(
+                (evidence.overdue_urgency - expected_o[i]).abs() < 1e-4,
+                "d={}: expected O ≈ {}, got {}",
+                d,
+                expected_o[i],
+                evidence.overdue_urgency
+            );
+
+            let expected_a = 0.5 + 0.5 * expected_o[i];
+            assert!(
+                (evidence.temporal_urgency - expected_a).abs() < 1e-4,
+                "d={}: expected A/T ≈ {}, got {}",
+                d,
+                expected_a,
+                evidence.temporal_urgency
+            );
+        }
+    }
+
+    #[test]
+    fn r01_independent_m_slope_is_point_two() {
+        let n = now();
+        let mut item = queue_item("card-slope", "learning-item", None);
+        // New item: T = 0.5
+        let p_steps = [0.0, 0.25, 0.50, 0.75, 1.0];
+        let mut prev_m: Option<f64> = None;
+
+        for &p in &p_steps {
+            item.canonical_priority = Some(p);
+            let ev = calculate_canonical_urgency(&item, n, None);
+            assert_eq!(ev.temporal_urgency, 0.5, "T must not contain manual input");
+
+            let expected_m = 0.8 * 0.5 + 0.2 * p;
+            assert!(
+                (ev.memory_urgency - expected_m).abs() < 1e-12,
+                "p={}: expected M={}, got {}",
+                p,
+                expected_m,
+                ev.memory_urgency
+            );
+
+            if let Some(prev) = prev_m {
+                let diff: f64 = ev.memory_urgency - prev;
+                assert!(
+                    (diff - 0.05).abs() < 1e-12,
+                    "each 0.25 step in P must produce exactly 0.05 step in M, got {}",
+                    diff
+                );
+            }
+            prev_m = Some(ev.memory_urgency);
+        }
+    }
+
+    #[test]
+    fn r01_weak_recall_card_and_important_new_acceptance_judgments() {
+        let n = now();
+
+        // 1. Weak recall card: r = 0.2, due now -> R = 0.8, A = 0.5, T = 0.8.
+        // With P = 0.5: M = 0.8 * 0.8 + 0.2 * 0.5 = 0.74.
+        let mut weak_card = queue_item("weak", "learning-item", Some(&n.to_rfc3339()));
+        weak_card.retrievability = Some(0.2);
+        weak_card.canonical_priority = Some(0.5);
+        let weak_ev = calculate_canonical_urgency(&weak_card, n, None);
+        assert!((weak_ev.temporal_urgency - 0.8).abs() < 1e-12);
+        assert!((weak_ev.memory_urgency - 0.74).abs() < 1e-12);
+
+        // 2. Important new item (P = 1.0, T = 0.5 -> M = 0.60)
+        let mut important_new = queue_item("new-top", "document", None);
+        important_new.canonical_priority = Some(1.0);
+        let new_ev = calculate_canonical_urgency(&important_new, n, None);
+        assert!((new_ev.memory_urgency - 0.60).abs() < 1e-12);
+
+        // 3. Modest 7-day overdue item with low priority (P = 0.0)
+        let week_ago = n - chrono::Duration::days(7);
+        let mut overdue_low = queue_item("overdue-low", "document", Some(&week_ago.to_rfc3339()));
+        overdue_low.canonical_priority = Some(0.0);
+        let overdue_ev = calculate_canonical_urgency(&overdue_low, n, None);
+        // A ≈ 0.696735, M = 0.8 * A ≈ 0.55739 < 0.60
+        assert!(
+            new_ev.memory_urgency > overdue_ev.memory_urgency,
+            "Important new item (M={}) must outrank modest 7-day overdue low-priority item (M={})",
+            new_ev.memory_urgency,
+            overdue_ev.memory_urgency
+        );
+    }
+
+    #[test]
+    fn r01_missing_and_extreme_values_safe_fallback() {
+        let n = now();
+        let mut nan_item = queue_item("nan", "document", None);
+        nan_item.canonical_priority = Some(f64::NAN);
+        let ev = calculate_canonical_urgency(&nan_item, n, None);
+        assert_eq!(ev.canonical_priority, 0.5);
+        assert!(!ev.priority_available);
+        assert_eq!(ev.memory_urgency, 0.5);
+
+        let mut future_doc = queue_item("future", "document", Some(&(n + chrono::Duration::days(5)).to_rfc3339()));
+        future_doc.canonical_priority = Some(0.8);
+        let fut_ev = calculate_canonical_urgency(&future_doc, n, None);
+        assert_eq!(fut_ev.temporal_urgency, 0.0, "Future rotational items have T=0");
+        assert!((fut_ev.memory_urgency - 0.16).abs() < 1e-12);
+    }
+
+    #[test]
+    fn r01_fixed_workload_design_table_parity() {
+        let n = now();
+
+        // 1. New important document, slider/rank 75% -> M = 0.550000
+        let mut d1 = queue_item("d1", "document", None);
+        d1.canonical_priority = Some(0.75);
+        let ev1 = calculate_canonical_urgency(&d1, n, None);
+        assert!((ev1.memory_urgency - 0.550000).abs() < 1e-5);
+
+        // 2. 30-day late document, 25% -> M = 0.803072
+        let mut d2 = queue_item("d2", "document", Some(&(n - chrono::Duration::days(30)).to_rfc3339()));
+        d2.canonical_priority = Some(0.25);
+        let ev2 = calculate_canonical_urgency(&d2, n, None);
+        assert!((ev2.memory_urgency - 0.803072).abs() < 1e-4);
+
+        // 3. 14-day late document, 25% -> M = 0.702848
+        let mut d3 = queue_item("d3", "document", Some(&(n - chrono::Duration::days(14)).to_rfc3339()));
+        d3.canonical_priority = Some(0.25);
+        let ev3 = calculate_canonical_urgency(&d3, n, None);
+        assert!((ev3.memory_urgency - 0.702848).abs() < 1e-4);
+
+        // Monotone lateness check: 30-day late MUST beat 14-day late (no day-14 decline!)
+        assert!(ev2.memory_urgency > ev3.memory_urgency, "30-day late must outrank 14-day late (no day-14 decline)");
+
+        // 4. Due now document, 25% -> M = 0.450000
+        let mut d4 = queue_item("d4", "document", Some(&n.to_rfc3339()));
+        d4.canonical_priority = Some(0.25);
+        let ev4 = calculate_canonical_urgency(&d4, n, None);
+        assert!((ev4.memory_urgency - 0.450000).abs() < 1e-5);
+
+        // 5. Due now document, 75% -> M = 0.550000 (ΔM = 0.10 for ΔP = 0.50)
+        let mut d5 = queue_item("d5", "document", Some(&n.to_rfc3339()));
+        d5.canonical_priority = Some(0.75);
+        let ev5 = calculate_canonical_urgency(&d5, n, None);
+        assert!((ev5.memory_urgency - 0.550000).abs() < 1e-5);
+        assert!((ev5.memory_urgency - ev4.memory_urgency - 0.10).abs() < 1e-5);
+
+        // 6. New top-ranked document, 100% -> M = 0.600000
+        let mut d6 = queue_item("d6", "document", None);
+        d6.canonical_priority = Some(1.0);
+        let ev6 = calculate_canonical_urgency(&d6, n, None);
+        assert!((ev6.memory_urgency - 0.600000).abs() < 1e-5);
+
+        // 7. 7-day late bottom-ranked document, explicit 0% -> M = 0.557388
+        let mut d7 = queue_item("d7", "document", Some(&(n - chrono::Duration::days(7)).to_rfc3339()));
+        d7.canonical_priority = Some(0.0);
+        d7.priority_explicitly_set = Some(true);
+        let ev7 = calculate_canonical_urgency(&d7, n, None);
+        assert!((ev7.memory_urgency - 0.557388).abs() < 1e-4);
+
+        // Top-priority new beats 7-day late bottom-ranked
+        assert!(ev6.memory_urgency > ev7.memory_urgency);
+
+        // 8. Future reviewed document +7 days, 100% -> M = 0.200000
+        let mut d8 = queue_item("d8", "document", Some(&(n + chrono::Duration::days(7)).to_rfc3339()));
+        d8.canonical_priority = Some(1.0);
+        let ev8 = calculate_canonical_urgency(&d8, n, None);
+        assert!((ev8.memory_urgency - 0.200000).abs() < 1e-5);
+
+        // 9. Due card with r = 0.20, P = 0.50, O = 0 -> M = 0.740000
+        let mut c9 = queue_item("c9", "learning-item", Some(&n.to_rfc3339()));
+        c9.retrievability = Some(0.20);
+        c9.canonical_priority = Some(0.50);
+        let ev9 = calculate_canonical_urgency(&c9, n, None);
+        assert!((ev9.memory_urgency - 0.740000).abs() < 1e-5);
+    }
+
+    #[test]
+    fn r01_monotonicity_and_saturation_properties() {
+        let n = now();
+        let mut prev_o = -1.0;
+        let mut prev_a = -1.0;
+        for day in 0..=365 {
+            let due = n - chrono::Duration::days(day);
+            let mut item = queue_item("doc", "document", Some(&due.to_rfc3339()));
+            item.canonical_priority = Some(0.5);
+            let ev = calculate_canonical_urgency(&item, n, None);
+            assert!(ev.overdue_urgency >= prev_o);
+            assert!(ev.temporal_urgency >= prev_a);
+            assert!(ev.overdue_urgency <= 1.0);
+            assert!(ev.temporal_urgency <= 1.0);
+            assert!(ev.memory_urgency <= 1.0);
+            assert!(ev.memory_urgency >= 0.0);
+            prev_o = ev.overdue_urgency;
+            prev_a = ev.temporal_urgency;
+        }
+
+        // Extreme overdue (100,000 days)
+        let huge_due = n - chrono::Duration::days(100_000);
+        let mut huge_item = queue_item("doc-huge", "document", Some(&huge_due.to_rfc3339()));
+        huge_item.canonical_priority = Some(0.5);
+        let huge_ev = calculate_canonical_urgency(&huge_item, n, None);
+        assert!((huge_ev.overdue_urgency - 1.0).abs() < 1e-6);
+        assert!((huge_ev.temporal_urgency - 1.0).abs() < 1e-6);
+        assert!((huge_ev.memory_urgency - 0.9).abs() < 1e-6);
+    }
+
+    #[test]
+    fn r01_unicode_identities_and_deterministic_ordering() {
+        let n = now();
+        let mut item_a = queue_item("карточка-1", "learning-item", Some(&n.to_rfc3339()));
+        let mut item_b = queue_item("карточка-2", "learning-item", Some(&n.to_rfc3339()));
+        item_a.canonical_priority = Some(0.5);
+        item_b.canonical_priority = Some(0.5);
+
+        let selector = crate::algorithms::queue_selector::QueueSelector::default();
+        let mut list = vec![item_b.clone(), item_a.clone()];
+        selector.sort_queue_items_at(&mut list, n);
+        assert_eq!(list[0].id, "карточка-1");
+        assert_eq!(list[1].id, "карточка-2");
     }
 }

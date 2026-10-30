@@ -111,32 +111,35 @@ impl QueueSelector {
         dist.sample(&mut rng)
     }
 
-    /// Sort queue items using FSRS-based priority
-    ///
-    /// Sorting order (FSRS-first):
-    /// 1. Due items (next_reading_date <= now) appear before future-dated items
-    /// 2. Items are sorted by FSRS-calculated priority (descending)
-    /// 3. Within same priority, items are sorted by due date (ascending)
-    /// 4. New items (no due_date) are ordered by user-set priority_rating
+    /// Sort queue items using canonical priority evidence at current instant (D4)
     pub fn sort_queue_items(&self, items: &mut [QueueItem]) {
-        let now = chrono::Utc::now();
+        self.sort_queue_items_at(items, chrono::Utc::now());
+    }
 
+    /// Sort queue items using canonical priority evidence at an explicit clock instant (D4).
+    ///
+    /// Sorting order (SRS-only fallback):
+    /// 1. Eligibility buckets: Due items first, then new items, then future-dated items
+    /// 2. Within bucket: Canonical priority score (10M) descending
+    /// 3. Valid due date ascending (earlier due first, missing due date last)
+    /// 4. Deterministic tie-breaking by (item_type, id) ascending
+    pub fn sort_queue_items_at(&self, items: &mut [QueueItem], now: chrono::DateTime<chrono::Utc>) {
         items.sort_by(|a, b| {
-            // Determine if each item is due, new, or future-dated
-            let a_is_due = a
+            let a_parsed = a
                 .due_date
                 .as_ref()
                 .and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok())
-                .map(|d| d.with_timezone(&chrono::Utc) <= now)
-                .unwrap_or(false); // No due_date = new item
-            let a_is_new = a.due_date.is_none();
-            let b_is_due = b
+                .map(|d| d.with_timezone(&chrono::Utc));
+            let b_parsed = b
                 .due_date
                 .as_ref()
                 .and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok())
-                .map(|d| d.with_timezone(&chrono::Utc) <= now)
-                .unwrap_or(false);
-            let b_is_new = b.due_date.is_none();
+                .map(|d| d.with_timezone(&chrono::Utc));
+
+            let a_is_due = a_parsed.map(|d| d <= now).unwrap_or(false);
+            let a_is_new = a_parsed.is_none();
+            let b_is_due = b_parsed.map(|d| d <= now).unwrap_or(false);
+            let b_is_new = b_parsed.is_none();
 
             // Primary sort: Due items first, then new items, then future-dated items
             match (a_is_due, a_is_new, b_is_due, b_is_new) {
@@ -146,25 +149,35 @@ impl QueueSelector {
                 (false, true, true, _) => return std::cmp::Ordering::Greater,  // a is new, b is due
                 (false, true, false, false) => return std::cmp::Ordering::Less, // a is new, b is future
                 (false, false, false, true) => return std::cmp::Ordering::Greater, // a is future, b is new
-                _ => {} // Both are due, both are new, or both are future - continue to secondary sort
+                _ => {} // Both in same eligibility bucket
             }
 
-            // Secondary sort: by FSRS-calculated priority (higher first)
-            match b.priority.partial_cmp(&a.priority) {
-                Some(std::cmp::Ordering::Equal) => {}
-                Some(ord) => return ord,
-                None => {}
+            // Secondary sort: by priority score descending
+            let score_ord = b
+                .priority
+                .partial_cmp(&a.priority)
+                .unwrap_or(std::cmp::Ordering::Equal);
+            if score_ord != std::cmp::Ordering::Equal {
+                return score_ord;
             }
 
-            // Tertiary sort: by due date (earlier first) for items with due dates
-            match (&a.due_date, &b.due_date) {
-                (Some(a_date), Some(b_date)) => a_date
-                    .partial_cmp(b_date)
-                    .unwrap_or(std::cmp::Ordering::Equal),
-                (Some(_), None) => std::cmp::Ordering::Less, // Has due date comes before new items
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
+            // Tertiary sort: by due date ascending (valid due dates earlier, missing last)
+            match (&a_parsed, &b_parsed) {
+                (Some(a_date), Some(b_date)) => {
+                    let date_ord = a_date.cmp(b_date);
+                    if date_ord != std::cmp::Ordering::Equal {
+                        return date_ord;
+                    }
+                }
+                (Some(_), None) => return std::cmp::Ordering::Less,
+                (None, Some(_)) => return std::cmp::Ordering::Greater,
+                (None, None) => {}
             }
+
+            // Deterministic tie-breaking: (entity_kind, entity_id) ascending
+            a.item_type
+                .cmp(&b.item_type)
+                .then_with(|| a.id.cmp(&b.id))
         });
     }
 
@@ -253,6 +266,7 @@ mod tests {
             retrievability: None,
             lapses: None,
             reps: None,
+            ..Default::default()
         }
     }
 
@@ -284,6 +298,7 @@ mod tests {
             retrievability: None,
             lapses: None,
             reps: None,
+            ..Default::default()
         }
     }
 
@@ -415,6 +430,7 @@ mod tests {
                 retrievability: None,
                 lapses: None,
                 reps: None,
+                ..Default::default()
             },
             QueueItem {
                 id: "due_tomorrow".to_string(),
@@ -443,6 +459,7 @@ mod tests {
                 retrievability: None,
                 lapses: None,
                 reps: None,
+                ..Default::default()
             },
         ];
 

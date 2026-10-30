@@ -1,3 +1,4 @@
+import { freezeAssistantSource } from "../lib/ai/assistant/sourceEnvelope";
 import { highestOverlayPriority } from "../lib/overlayStack";
 import { useRegisterMobileAssistant, useMobileAssistantController } from "../components/assistant/mobile/MobileAssistantContext";
 import type { VideoViewerContext } from "../lib/ai/assistant/scopes";
@@ -38,11 +39,19 @@ import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../services/audio/audioPlaybackRo
 import { useAudioPlaybackStore } from "../stores/audioPlaybackStore";
 import { FlashcardScrollItem } from "../components/review/FlashcardScrollItem";
 import { InlineCardEditor } from "../components/review/InlineCardEditor";
+import { cardMutationCoordinator } from "../api/learningItemMutationCoordinator";
+import {
+  reconcileItemRemoval,
+  reconcileItemRating,
+  type SessionState,
+} from "../lib/sessionTransition";
 import { rateDocumentEngaging, getSmartStartPosition } from "../api/algorithm";
-import { getDueItems, type LearningItem } from "../api/learning-items";
+import { getDueItems, getLearningItem, type LearningItem } from "../api/learning-items";
+import { normalizeLearningItem } from "../api/normalizeLearningItem";
 import { sanitizeHtml } from "../components/common/RichContentRenderer";
 import { getDueExtracts, submitExtractReview } from "../api/extract-review";
 import { createExtract, deleteExtract, setExtractPriority, getExtract, type Extract } from "../api/extracts";
+import { dispatchPriorityCommit } from "../services/priority/priorityCommit";
 import {
   buildNeuralQueue,
   getNeuralQueueResolvedFront,
@@ -77,7 +86,7 @@ import {
   type CompositionTargets,
 } from "./queueScrollBudget";
 import { DEFAULT_COMBINED_SORT_CONFIG, orderScrollItemsByCombinedCriterion, selectByQuotaInOrder } from "../utils/queueScrollOrder";
-import { gateScrollItemsByComposition, gateScrollItemsByType, resolveMissingExtractContent } from "./queueScrollItemTypes";
+import { gateScrollItemsByComposition, gateScrollItemsByType, resolveMissingExtractContent, resolveMissingQueueCards } from "./queueScrollItemTypes";
 import {
   FLASHCARD_REVEAL_EVENT,
   resolveScrollRatingKey,
@@ -471,6 +480,9 @@ export function QueueScrollPage() {
   // Use smart start position instead of always starting at 0
   const [currentIndex, setCurrentIndex] = useState(0);
   const [renderedIndex, setRenderedIndex] = useState(0);
+  const removedIdsRef = useRef<Set<string>>(new Set());
+  const sessionGenerationRef = useRef<number>(1);
+  const revealRevisionRef = useRef<number>(0);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [showControls, setShowControls] = useState(true);
   const [showRatingControls, setShowRatingControls] = useState(false);
@@ -488,6 +500,22 @@ export function QueueScrollPage() {
     setIsImageExpanded(settings.rssQueue.showCoverImage ?? false);
   }, [currentIndex, settings.rssQueue.showCoverImage]);
   const [scrollItems, setScrollItems] = useState<ScrollItem[]>([]);
+
+  useEffect(() => {
+    return cardMutationCoordinator.registerReconciler((updated) => {
+      setScrollItems((prev) =>
+        prev.map((item) =>
+          item.type === "flashcard" && item.learningItem?.id === updated.id
+            ? {
+                ...item,
+                learningItem: updated,
+                documentTitle: updated.question.substring(0, 50) + (updated.question.length > 50 ? "..." : ""),
+              }
+            : item
+        )
+      );
+    });
+  }, []);
   // Session-lifetime composition snapshot for the optimal branch (see the
   // build effect): the composed per-type counts are established when the
   // session is built and re-applied (clamped to availability) on every
@@ -937,7 +965,7 @@ export function QueueScrollPage() {
           getDueItems(),
           getDueExtracts()
         ]);
-        setDueFlashcards(dueItems);
+        setDueFlashcards(dueItems.map(normalizeLearningItem).filter((item): item is LearningItem => item !== null && !item.is_suspended));
         setDueExtracts(extracts);
       } catch (error) {
         console.error("Failed to load review items:", error);
@@ -1173,18 +1201,20 @@ export function QueueScrollPage() {
   // case the session advances off it exactly once (the spec's
   // external-removal path; identical to today's wholesale replacement).
   const canPresentItem = useCallback((item: ScrollItem): boolean => {
+    if (!item) return false;
+    if (removedIdsRef.current.has(item.id)) return false;
     switch (item.type) {
       case "document": {
-        if (!item.documentId || ratedDocumentIds.has(item.documentId)) return false;
+        if (!item.documentId || ratedDocumentIds.has(item.documentId) || removedIdsRef.current.has(item.documentId)) return false;
         const doc = documentsMap.get(item.documentId);
         return !!doc && !doc.isArchived && !doc.isDismissed;
       }
       case "flashcard":
-        return !!item.learningItem && !ratedFlashcardIds.has(item.learningItem.id);
+        return !!item.learningItem && !ratedFlashcardIds.has(item.learningItem.id) && !removedIdsRef.current.has(item.learningItem.id);
       case "extract":
-        return !!item.extract && !ratedExtractIds.has(item.extract.id);
+        return !!item.extract && !ratedExtractIds.has(item.extract.id) && !removedIdsRef.current.has(item.extract.id);
       case "rss":
-        return !item.rssItem || !readRssItemIds.has(item.rssItem.id);
+        return (!item.rssItem || !readRssItemIds.has(item.rssItem.id)) && !(item.rssItem && removedIdsRef.current.has(item.rssItem.id));
       default:
         return true;
     }
@@ -1203,18 +1233,26 @@ export function QueueScrollPage() {
     const current = prevItems[prevIndex];
     const currentId = current?.id ?? null;
 
-    let items = nextItems;
+    const barrierFiltered = nextItems.filter((item) => {
+      if (removedIdsRef.current.has(item.id)) return false;
+      if (item.type === "flashcard" && item.learningItem && removedIdsRef.current.has(item.learningItem.id)) return false;
+      if (item.type === "extract" && item.extract && removedIdsRef.current.has(item.extract.id)) return false;
+      if (item.type === "document" && item.documentId && removedIdsRef.current.has(item.documentId)) return false;
+      return true;
+    });
+
+    let items = barrierFiltered;
     let nextIndex: number;
     if (
       currentId === null ||
-      nextItems.some((it) => it.id === currentId) ||
+      barrierFiltered.some((it) => it.id === currentId) ||
       canPresentItem(current)
     ) {
-      const reconciled = reanchorSessionPosition(prevItems, currentId, nextItems);
+      const reconciled = reanchorSessionPosition(prevItems, currentId, barrierFiltered);
       items = reconciled.items;
       nextIndex = reconciled.currentIndex;
     } else {
-      nextIndex = Math.min(prevIndex, Math.max(0, nextItems.length - 1));
+      nextIndex = Math.min(prevIndex, Math.max(0, barrierFiltered.length - 1));
     }
     scrollItemsRef.current = items;
     currentIndexRef.current = nextIndex;
@@ -1258,6 +1296,9 @@ export function QueueScrollPage() {
           ratedExtractIds,
           resolvedExtractCacheRef.current,
         );
+        const resolvedCards = await resolveMissingQueueCards(sourceQueueItems, flashcardsMap, getLearningItem, ratedFlashcardIds);
+        if (cancelled) return;
+        if (resolvedCards.failures.length > 0) toast.error(t("queueScroll.cardsUnavailable"));
 
         const sequentialItems: ScrollItem[] = sourceQueueItems
           .map((item) => {
@@ -1288,22 +1329,14 @@ export function QueueScrollPage() {
               // this, the rebuild re-inserts them (customQueueItems is static).
               if (item.learningItemId && ratedFlashcardIds.has(item.learningItemId)) return null;
               if (!item.learningItemId && ratedFlashcardIds.has(item.id)) return null;
-              const cardObj = item.learningItemId ? flashcardsMap.get(item.learningItemId) : undefined;
+              const cardId = item.learningItemId ?? item.id;
+              const cardObj = flashcardsMap.get(cardId) ?? resolvedCards.cards.get(cardId);
+              if (!cardObj || cardObj.is_suspended) return null;
               return {
                 id: item.id.startsWith("flashcard-") ? item.id : `flashcard-${item.learningItemId ?? item.id}`,
                 type: "flashcard" as const,
                 documentTitle: item.documentTitle || (item.question ? item.question.substring(0, 50) : ""),
-                learningItem: cardObj ?? ({
-                  id: item.learningItemId ?? item.id,
-                  document_id: item.documentId,
-                  question: item.question ?? item.learningHint ?? "",
-                  answer: item.answer ?? "",
-                  card_type: "cloze",
-                  tags: item.tags,
-                  due: item.dueDate,
-                  created_at: new Date().toISOString(),
-                  updated_at: new Date().toISOString(),
-                } as any),
+                learningItem: cardObj,
                 category: item.tags?.[0] ?? "flashcards",
                 estimatedTime: item.estimatedTime ?? 2,
                 engagementScore: item.priority ?? 5,
@@ -1847,7 +1880,7 @@ export function QueueScrollPage() {
     if (!activeItem) return;
 
     if (activeItem.type === "document" && activeItem.documentId) {
-      await updateDocumentPriority(activeItem.documentId, prioritySliderToRating(slider), slider);
+      await dispatchPriorityCommit({ kind: "document", id: activeItem.documentId }, slider);
       const [documentsResult, queueResult] = await Promise.allSettled([
         loadDocuments(),
         loadQueue(),
@@ -1862,7 +1895,7 @@ export function QueueScrollPage() {
     }
 
     if (activeItem.type === "extract" && activeItem.extract) {
-      await setExtractPriority(activeItem.extract.id, slider);
+      await dispatchPriorityCommit({ kind: "extract", id: activeItem.extract.id }, slider);
       setDueExtracts((prev) =>
         prev.map((extract) =>
           extract.id === activeItem.extract?.id
@@ -1877,8 +1910,8 @@ export function QueueScrollPage() {
     }
   }, [currentItem, loadDocuments, loadQueue]);
 
-  // Rendered item (actual document being rendered)
-  const renderedItem = scrollItems[renderedIndex];
+  // Rendered item tracks the active item identity (R06)
+  const renderedItem = scrollItems[currentIndex];
 
   // V2 (overhaul-reader-selection-ux task 6.2): the shared controller owns the
   // mobile RSS selection lifecycle — stability-gated anchored bar, snapshot-
@@ -2506,10 +2539,17 @@ export function QueueScrollPage() {
         const title = assistantItem.documentTitle ? `Title: ${assistantItem.documentTitle}` : null;
         const content = [title, extractContent].filter(Boolean).join("\n\n");
         const trimmed = content ? await trimToTokenWindow(content, maxTokens, aiModel, selection, debouncedScrollPercent) : undefined;
+        try {
+        const parent = documents.find((document) => document.id === assistantItem.extract.document_id)
+          ?? await getDocument(assistantItem.extract.document_id);
+        const sourceEnvelope = freezeAssistantSource(parent, assistantItem.extract, `extract:${assistantItem.extract.id}`);
         if (!cancelled) {
           setAssistantContext({
             type: "document",
-            documentId: `extract:${assistantItem.extract.id}`,
+            documentId: sourceEnvelope.documentId,
+            contextKey: sourceEnvelope.contextKey,
+            extractId: sourceEnvelope.extractId,
+            sourceEnvelope,
             privacyDocumentIds: assistantItem.extract.document_id ? [assistantItem.extract.document_id] : undefined,
             content: trimmed || undefined,
             contextWindowTokens: maxTokens,
@@ -2521,6 +2561,11 @@ export function QueueScrollPage() {
             },
             resolveForPrompt: resolveContextForPrompt,
           });
+        }
+        } catch {
+          if (!cancelled) setAssistantContext({ type: "document", documentId: assistantItem.extract.document_id,
+            extractId: assistantItem.extract.id, contextKey: `extract:${assistantItem.extract.id}`,
+            status: "unavailable", statusMessage: "The source document is unavailable. Reopen the extract before asking about it." });
         }
         return;
       }
@@ -2576,7 +2621,7 @@ export function QueueScrollPage() {
     const item = renderedItem ?? currentItem;
     if (!item || item.type === "flashcard") return undefined;
     if (item.type === "document" && assistantContext?.documentId !== item.documentId) return undefined;
-    if (item.type === "extract" && assistantContext?.documentId !== `extract:${item.extract?.id}`) return undefined;
+    if (item.type === "extract" && assistantContext?.extractId !== item.extract?.id) return undefined;
     if (item.type === "rss" && assistantContext?.url !== (item.rssItem?.link || `rss:${item.rssItem?.id}`)) return undefined;
     return liveVideoContext ? { ...assistantContext, type: "video", documentId: item.documentId,
       position: { currentTime: liveVideoContext.currentTime }, transcriptStatus: liveVideoContext.transcriptStatus,
@@ -2624,9 +2669,8 @@ export function QueueScrollPage() {
       setIsTransitioning(true);
       const nextIndex = currentIndex + 1;
       setCurrentIndex(nextIndex);
-      // Update renderedIndex after transition completes to avoid premature unmount
+      setRenderedIndex(nextIndex);
       setTimeout(() => {
-        setRenderedIndex(nextIndex);
         setIsTransitioning(false);
         resetScrollToTop();
       }, 300);
@@ -2638,9 +2682,8 @@ export function QueueScrollPage() {
       setIsTransitioning(true);
       const prevIndex = currentIndex - 1;
       setCurrentIndex(prevIndex);
-      // Update renderedIndex after transition completes to avoid premature unmount
+      setRenderedIndex(prevIndex);
       setTimeout(() => {
-        setRenderedIndex(prevIndex);
         setIsTransitioning(false);
         resetScrollToTop();
       }, 300);
@@ -2694,46 +2737,76 @@ export function QueueScrollPage() {
       }
     }
 
-    setScrollItems((prev) => {
-      const updated = prev.filter((item) => item.id !== removedItemId);
-      if (updated.length === 0) {
-        setCurrentIndex(0);
-        setRenderedIndex(0);
-        return updated;
-      }
+    const sessionState: SessionState<ScrollItem> = {
+      items: scrollItemsRef.current,
+      currentId: currentItem?.id ?? null,
+      reviewedIds: new Set<string>(),
+      removedIds: removedIdsRef.current,
+      revealRevision: revealRevisionRef.current,
+      generation: sessionGenerationRef.current,
+    };
+    const result = reconcileItemRemoval(sessionState, removedItemId);
+    removedIdsRef.current = result.removedIds;
+    revealRevisionRef.current = result.revealRevision;
 
-      const nextIndex = Math.min(currentIndex, updated.length - 1);
-      setIsTransitioning(true);
-      setCurrentIndex(nextIndex);
-      setTimeout(() => {
-        setRenderedIndex(nextIndex);
-        setIsTransitioning(false);
-        resetScrollToTop();
-      }, 300);
-      return updated;
-    });
-  }, [currentIndex, resetScrollToTop, isNeuralMode, scrollItems, documentsMap, toast, t]);
+    const removedItem = scrollItemsRef.current.find((it) => it.id === removedItemId);
+    if (removedItem) {
+      if (removedItem.learningItem?.id) removedIdsRef.current.add(removedItem.learningItem.id);
+      if (removedItem.extract?.id) removedIdsRef.current.add(removedItem.extract.id);
+      if (removedItem.documentId) removedIdsRef.current.add(removedItem.documentId);
+    }
+
+    scrollItemsRef.current = result.nextItems;
+    currentIndexRef.current = result.nextIndex;
+    setScrollItems(result.nextItems);
+    setCurrentIndex(result.nextIndex);
+    setRenderedIndex(result.nextIndex);
+    setIsTransitioning(false);
+    resetScrollToTop();
+  }, [currentIndex, resetScrollToTop, isNeuralMode, scrollItems, documentsMap, toast, t, currentItem]);
 
   const handleDetailsDelete = useCallback(async () => {
-    if (!currentItem) return;
-    if (currentItem.type === "document" && currentItem.documentId) {
-      await deleteDocumentUndoable(currentItem.documentId);
-    } else if (currentItem.type === "extract" && currentItem.extract) {
-      await deleteExtractUndoable(currentItem.extract.id);
-    } else if (currentItem.type === "flashcard" && currentItem.learningItem) {
-      await deleteLearningItemUndoable(currentItem.learningItem.id);
-    } else {
-      return;
+    if (!currentItem || isRating) return;
+    const flashcardId = currentItem.type === "flashcard" ? currentItem.learningItem?.id : undefined;
+    const token = flashcardId
+      ? cardMutationCoordinator.acquireMutationToken(flashcardId, "delete")
+      : null;
+    if (flashcardId && !token) return;
+
+    try {
+      if (currentItem.type === "document" && currentItem.documentId) {
+        await deleteDocumentUndoable(currentItem.documentId);
+      } else if (currentItem.type === "extract" && currentItem.extract) {
+        await deleteExtractUndoable(currentItem.extract.id);
+      } else if (currentItem.type === "flashcard" && currentItem.learningItem) {
+        await deleteLearningItemUndoable(currentItem.learningItem.id);
+      } else {
+        token?.release();
+        return;
+      }
+      token?.release();
+      advanceAfterRemoval(currentItem.id);
+      void loadQueue();
+    } catch (err) {
+      token?.rollback(err instanceof Error ? err : new Error(String(err)));
+      toast.error(t("reviewSession.deleteFailed") || "Delete failed");
     }
-    advanceAfterRemoval(currentItem.id);
-    void loadQueue();
-  }, [currentItem, deleteDocumentUndoable, deleteExtractUndoable, deleteLearningItemUndoable, advanceAfterRemoval, loadQueue]);
+  }, [currentItem, isRating, deleteDocumentUndoable, deleteExtractUndoable, deleteLearningItemUndoable, advanceAfterRemoval, loadQueue, t]);
 
   const handleFlashcardDelete = useCallback(async (queueItemId: string, learningItemId: string) => {
-    await deleteLearningItemUndoable(learningItemId);
-    advanceAfterRemoval(queueItemId);
-    void loadQueue();
-  }, [deleteLearningItemUndoable, advanceAfterRemoval, loadQueue]);
+    if (isRating) return;
+    const token = cardMutationCoordinator.acquireMutationToken(learningItemId, "delete");
+    if (!token) return;
+    try {
+      await deleteLearningItemUndoable(learningItemId);
+      token.release();
+      advanceAfterRemoval(queueItemId);
+      void loadQueue();
+    } catch (err) {
+      token.rollback(err instanceof Error ? err : new Error(String(err)));
+      toast.error(t("reviewSession.deleteFailed") || "Delete failed");
+    }
+  }, [deleteLearningItemUndoable, advanceAfterRemoval, loadQueue, isRating, t]);
 
   // --- AI Summary (Optimal Queue) ---------------------------------------------------
   // Mirrors the RSS Scroll Mode summary experience but operates on whichever item
@@ -3375,6 +3448,14 @@ export function QueueScrollPage() {
       return;
     }
 
+    const flashcardId = currentItem.type === "flashcard" ? currentItem.learningItem?.id : undefined;
+    const token = flashcardId
+      ? cardMutationCoordinator.acquireMutationToken(flashcardId, "rate")
+      : null;
+    if (flashcardId && !token) {
+      return;
+    }
+
     setIsRating(true);
     const ratedItemId = currentItem.id;
 
@@ -3438,9 +3519,15 @@ export function QueueScrollPage() {
       } else if (currentItem.type === "flashcard" && currentItem.learningItem) {
         // Rate flashcard using the active scheduler (FSRS/Classic four-grade, or
         // Adaptive/Precision natively via `grade`).
-        await submitReview(currentItem.learningItem.id, rating, timeTaken, undefined, {
-          algorithm: settings.learning.algorithm,
-        });
+        try {
+          await submitReview(currentItem.learningItem.id, rating, timeTaken, undefined, {
+            algorithm: settings.learning.algorithm,
+          });
+          token?.release();
+        } catch (err) {
+          token?.rollback(err instanceof Error ? err : new Error(String(err)));
+          throw err;
+        }
         emitInteractionFeedback("review.card-graded", { rating }, { interactionId: createFeedbackInteractionId(), origin: "user" });
 
         // Track items reviewed

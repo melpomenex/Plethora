@@ -4847,6 +4847,25 @@ pub const MIGRATIONS: &[Migration] = &[
         "132_global_audio_checkpoints",
         include_str!("audio_playback.sql"),
     ),
+    Migration::new(
+        "133_video_extract_lifecycle",
+        r#"
+        ALTER TABLE video_extracts ADD COLUMN first_seen_at TEXT;
+        ALTER TABLE video_extracts ADD COLUMN last_seen_at TEXT;
+        -- Source IDs are immutable evidence, deliberately not cascading foreign keys.
+        CREATE TABLE video_extract_review_events (
+            operation_id TEXT PRIMARY KEY NOT NULL,
+            extract_id TEXT NOT NULL,
+            document_id TEXT NOT NULL,
+            rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 4),
+            reviewed_at TEXT NOT NULL,
+            receipt_json TEXT NOT NULL
+        );
+        CREATE INDEX idx_video_extract_review_events_extract
+            ON video_extract_review_events(extract_id, reviewed_at);
+        "#,
+    ),
+
 ];
 
 /// Get the migrations directory path

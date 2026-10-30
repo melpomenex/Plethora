@@ -1,3 +1,5 @@
+import { budgetScopedBodies, scopedBodyTokenBudget } from "../../../utils/scopedContextBudget";
+import type { SectionSourceReference } from "../../../utils/sectionIndex";
 /**
  * Learning Agent adapter for the existing Assistant (change
  * `complete-ai-learning-agent-integration`, tasks 1.1/1.2/1.4 + 2.1).
@@ -67,7 +69,7 @@ import { resolveAiPath } from "../provider";
 import { resolveTaskRoute } from "../tasks/router";
 import { enforceAssistantPrivacyAndConsent } from "./privacyGate";
 import { createAgentDeadline, type AgentRunDeadline } from "../agent/deadline";
-import { AGENT_RUNNER_TASK_ID, agentRunnerTask, runAgentLoop, type AgentRunEvent, type AgentRunGuardViolation, type AgentRunResult } from "../agent/loop";
+import { AGENT_MAX_OUTPUT_TOKENS, AGENT_TRANSCRIPT_CHAR_BUDGET, AGENT_RUNNER_TASK_ID, agentRunnerTask, runAgentLoop, type AgentRunEvent, type AgentRunGuardViolation, type AgentRunResult } from "../agent/loop";
 import { mapLearningItemToAgentCard } from "../agent/sessionContext";
 import type {
   AgentCardQuery,
@@ -103,6 +105,8 @@ export interface LearningAgentDocumentInput {
 }
 
 export interface LearningAgentSectionInput {
+  source?: SectionSourceReference;
+  bodies?: readonly { label: string; text: string; selection?: boolean }[];
   documentId: string;
   title?: string;
   text: string;
@@ -297,8 +301,9 @@ export function resolveLearningAgentScope(
           }
         : undefined);
     if (!raw) return undefined;
-    // Bounded context: never freeze an entire chapter into one prompt/tool.
-    return { ...raw, text: raw.text.slice(0, 12_000) };
+    // Freeze the canonical scope here; allocate against the chosen provider
+    // after preflight, preserving all selected bodies.
+    return { ...raw };
   })();
   if (input.scope === "section" && (!section || !section.text.trim())) {
     return {
@@ -1094,6 +1099,12 @@ export async function runLearningAgent(
     wallClockMs,
     now,
   });
+  if (run.section && options.provider) {
+    const capabilities = await options.provider.getCapabilities();
+    const bodyTokens = scopedBodyTokenBudget({ promptBudgetTokens: Math.min(capabilities.contextTokens - AGENT_MAX_OUTPUT_TOKENS - 256, (AGENT_TRANSCRIPT_CHAR_BUDGET - 2000) / 4), instructions: agentRunnerTask.systemInstruction, userPrompt: run.intent });
+    const scoped = budgetScopedBodies(run.section.bodies ?? [{ label: run.section.title ?? "Selected passage", text: run.section.text, selection: true }], bodyTokens);
+    run = { ...run, section: { ...run.section, text: scoped.content } };
+  }
   const baseEnv = options.env ?? createFrozenAgentEnvironment(run, {}, deadline.signal);
   const capabilityRevision = options.capabilityRevision ?? run.capabilityRevision;
 

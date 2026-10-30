@@ -1,3 +1,5 @@
+import { getVideoExtractLifecycle } from "../api/video-extracts";
+import { browserVideoExtractCommand, validateVideoLifecycleArchive } from "../lib/browserVideoExtracts";
 import JSZip from "jszip";
 import { invokeCommand, isTauri } from "../lib/tauri";
 import { migratedGetItem } from "../lib/brandMigration";
@@ -155,7 +157,11 @@ export async function buildCollectionArchive(options: {
         documentAssignments,
       };
 
+  const videoLifecycle = await getVideoExtractLifecycle(options.scope === "all" ? undefined : [...scopedDocIds]);
+  if (!videoLifecycle) throw new Error("Could not collect video review history for this archive.");
+  const hasVideoLifecycle = videoLifecycle.extracts.length > 0 || videoLifecycle.reviewReceipts.length > 0;
   const payload: CollectionArchivePayload = {
+    videoLifecycle,
     documents: scopedDocuments,
     extracts: scopedExtracts,
     learningItems: scopedLearningItems,
@@ -173,8 +179,8 @@ export async function buildCollectionArchive(options: {
     : null;
 
   const manifest: CollectionArchiveManifest = {
-    archiveType: "plethora-collection-export",
-    version: "1.0",
+    archiveType: hasVideoLifecycle ? "plethora-collection-export-v2" : "plethora-collection-export",
+    version: hasVideoLifecycle ? "2.0" : "1.0",
     exportedAt: new Date().toISOString(),
     scope: options.scope,
     collectionId: options.activeCollectionId,
@@ -202,11 +208,13 @@ export async function parseCollectionArchive(file: File): Promise<ParsedCollecti
   const manifest = JSON.parse(manifestRaw) as CollectionArchiveManifest;
   if (
     manifest.archiveType !== "plethora-collection-export" &&
+    manifest.archiveType !== "plethora-collection-export-v2" &&
     // Legacy archives exported by Incrementum stay importable forever.
     manifest.archiveType !== "incrementum-collection-export"
   ) {
     throw new Error("Unsupported archive type.");
   }
+  if (manifest.version !== "1.0" && manifest.version !== "2.0") throw new Error("Unsupported archive version.");
   const payloadRaw = await zip.file("data/payload.json")?.async("string");
   if (!payloadRaw) {
     throw new Error("Archive payload missing.");
@@ -258,6 +266,8 @@ export async function restoreBrowserArchive(parsed: ParsedCollectionArchive): Pr
   const extracts = parsed.payload.extracts as Extract[];
   const learningItems = parsed.payload.learningItems as LearningItem[];
 
+  validateVideoLifecycleArchive(parsed.payload.videoLifecycle ?? { extracts: [], reviewReceipts: [] },
+    new Set(documents.map((doc) => doc.id)));
   await db.clearStore("documents");
   await db.clearStore("extracts");
   await db.clearStore("learning_items");
@@ -350,6 +360,10 @@ export async function restoreBrowserArchive(parsed: ParsedCollectionArchive): Pr
     tags: item.tags || [],
     memory_state: (item as any).memoryState,
   } as db.LearningItem)));
+
+  await browserVideoExtractCommand('restore_video_extract_lifecycle', {
+    archive: parsed.payload.videoLifecycle ?? { extracts: [], reviewReceipts: [] },
+  });
 
   if (filesToStore.length > 0) {
     await db.bulkPutFiles(filesToStore);

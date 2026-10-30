@@ -22,6 +22,9 @@
 //! The queue display position converts so that position 1 represents the highest
 //! priority element.
 
+use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 use sqlx::{Pool, Row, Sqlite};
 
 use crate::error::Result;
@@ -182,6 +185,349 @@ pub async fn percentile_for_score(pool: &Pool<Sqlite>, score: f64) -> Result<(f6
         position_for_rank(rank, size),
         size,
     ))
+}
+
+/// Canonical normalized `[0.0, 1.0]` signal accompanied by measurement provenance.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CanonicalSignal {
+    pub value: f64,
+    pub available: bool,
+    pub defaulted: bool,
+}
+
+impl CanonicalSignal {
+    pub const fn measured(value: f64) -> Self {
+        Self {
+            value,
+            available: true,
+            defaulted: false,
+        }
+    }
+
+    pub const fn defaulted_value(value: f64) -> Self {
+        Self {
+            value,
+            available: true,
+            defaulted: true,
+        }
+    }
+
+    pub const fn neutral_unavailable() -> Self {
+        Self {
+            value: 0.5,
+            available: false,
+            defaulted: true,
+        }
+    }
+}
+
+/// Concrete presentable entity table participating in global positional priority.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum PriorityEntityKind {
+    Document,
+    Extract,
+    LearningItem,
+}
+
+/// Raw presentable row loaded by [`PriorityPopulationSnapshot::load`].
+#[derive(Debug, Clone)]
+pub struct PopulationRow {
+    pub kind: PriorityEntityKind,
+    pub id: String,
+    pub priority_score: f64,
+    pub priority_slider: i32,
+    pub priority_rating: i32,
+    pub priority_explicitly_set: bool,
+    pub parent_priority_score: Option<f64>,
+    pub parent_priority_slider: Option<i32>,
+    pub parent_priority_rating: Option<i32>,
+    pub parent_explicitly_set: Option<bool>,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum ResolvedOrderKey {
+    Valid { key: f64, defaulted: bool },
+    MissingOrInvalid,
+}
+
+const SNAPSHOT_POPULATION_SQL: &str = "
+    SELECT 'document' AS kind,
+           d.id AS id,
+           d.priority_score AS priority_score,
+           d.priority_slider AS priority_slider,
+           d.priority_rating AS priority_rating,
+           d.priority_explicitly_set AS priority_explicitly_set,
+           NULL AS parent_priority_score,
+           NULL AS parent_priority_slider,
+           NULL AS parent_priority_rating,
+           NULL AS parent_explicitly_set
+    FROM documents d
+    WHERE d.is_archived = 0 AND d.is_dismissed = 0
+    UNION ALL
+    SELECT 'extract' AS kind,
+           e.id AS id,
+           e.priority_score AS priority_score,
+           0 AS priority_slider,
+           0 AS priority_rating,
+           0 AS priority_explicitly_set,
+           d.priority_score AS parent_priority_score,
+           d.priority_slider AS parent_priority_slider,
+           d.priority_rating AS parent_priority_rating,
+           d.priority_explicitly_set AS parent_explicitly_set
+    FROM extracts e
+    LEFT JOIN documents d ON d.id = e.document_id
+    WHERE e.is_dismissed = 0
+    UNION ALL
+    SELECT 'learning-item' AS kind,
+           li.id AS id,
+           li.priority_score AS priority_score,
+           li.priority_slider AS priority_slider,
+           0 AS priority_rating,
+           li.priority_explicitly_set AS priority_explicitly_set,
+           NULL AS parent_priority_score,
+           NULL AS parent_priority_slider,
+           NULL AS parent_priority_rating,
+           NULL AS parent_explicitly_set
+    FROM learning_items li
+    WHERE li.is_suspended = 0
+";
+
+fn legacy_rating_key(rating: i32) -> Option<f64> {
+    if (1..=5).contains(&rating) {
+        Some(crate::algorithms::resolve_priority_slider(0, rating) as f64)
+    } else {
+        None
+    }
+}
+
+fn resolve_direct_key(score: f64, slider: i32, rating: i32, explicit: bool) -> ResolvedOrderKey {
+    if !score.is_finite() || score < 0.0 {
+        return ResolvedOrderKey::MissingOrInvalid;
+    }
+    if score > 0.0 {
+        return ResolvedOrderKey::Valid {
+            key: score,
+            defaulted: false,
+        };
+    }
+    if explicit {
+        if slider <= 0 {
+            return ResolvedOrderKey::Valid {
+                key: 0.0,
+                defaulted: false,
+            };
+        }
+        return ResolvedOrderKey::Valid {
+            key: crate::algorithms::calculate_document_priority_score(Some(rating), slider),
+            defaulted: true,
+        };
+    }
+    if slider > 0 {
+        return ResolvedOrderKey::Valid {
+            key: crate::algorithms::calculate_document_priority_score(Some(rating), slider),
+            defaulted: true,
+        };
+    }
+    if let Some(fallback) = legacy_rating_key(rating) {
+        return ResolvedOrderKey::Valid {
+            key: fallback,
+            defaulted: true,
+        };
+    }
+    ResolvedOrderKey::MissingOrInvalid
+}
+
+fn resolve_extract_key(row: &PopulationRow) -> ResolvedOrderKey {
+    if !row.priority_score.is_finite() || row.priority_score < 0.0 {
+        return ResolvedOrderKey::MissingOrInvalid;
+    }
+    if row.priority_score > 0.0 {
+        return ResolvedOrderKey::Valid {
+            key: row.priority_score,
+            defaulted: false,
+        };
+    }
+    let parent_explicit = row.parent_explicitly_set.unwrap_or(false);
+    let parent_score = row.parent_priority_score.unwrap_or(0.0);
+    if parent_score.is_finite() && parent_score > 0.0 {
+        return ResolvedOrderKey::Valid {
+            key: parent_score,
+            defaulted: false,
+        };
+    }
+    if parent_explicit {
+        return ResolvedOrderKey::Valid {
+            key: 0.0,
+            defaulted: false,
+        };
+    }
+    let parent_slider = row.parent_priority_slider.unwrap_or(0);
+    let parent_rating = row.parent_priority_rating.unwrap_or(0);
+    if parent_slider > 0 {
+        return ResolvedOrderKey::Valid {
+            key: crate::algorithms::calculate_document_priority_score(
+                Some(parent_rating),
+                parent_slider,
+            ),
+            defaulted: true,
+        };
+    }
+    if let Some(fallback) = legacy_rating_key(parent_rating) {
+        return ResolvedOrderKey::Valid {
+            key: fallback,
+            defaulted: true,
+        };
+    }
+    ResolvedOrderKey::MissingOrInvalid
+}
+
+fn resolve_row_key(row: &PopulationRow) -> ResolvedOrderKey {
+    match row.kind {
+        PriorityEntityKind::Extract => resolve_extract_key(row),
+        PriorityEntityKind::Document | PriorityEntityKind::LearningItem => resolve_direct_key(
+            row.priority_score,
+            row.priority_slider,
+            row.priority_rating,
+            row.priority_explicitly_set,
+        ),
+    }
+}
+
+/// Normalize a valid order key `key` against `sorted_keys` (`P = b / (N - 1)` for `N > 1`, `0.5` for `N <= 1`).
+pub fn positional_priority_from_sorted_keys(sorted_keys: &[f64], key: f64) -> f64 {
+    if !key.is_finite() || sorted_keys.len() <= 1 {
+        return 0.5;
+    }
+    let strictly_below = sorted_keys.partition_point(|&candidate| candidate.total_cmp(&key).is_lt());
+    ((strictly_below as f64) / ((sorted_keys.len() - 1) as f64)).clamp(0.0, 1.0)
+}
+
+/// Adapt legacy `1..=10` playlist subscription priority to canonical `[0.0, 1.0]` (`(r - 1) / 9`).
+pub fn playlist_subscription_priority(priority_rating: i32) -> CanonicalSignal {
+    if (1..=10).contains(&priority_rating) {
+        CanonicalSignal::measured(((priority_rating - 1) as f64) / 9.0)
+    } else {
+        CanonicalSignal::neutral_unavailable()
+    }
+}
+
+/// Batch-loaded global priority population snapshot (D1).
+///
+/// Loaded once per ranking pass across all active presentable elements before
+/// session/due/search/type filtering so `P` never drifts when filters change.
+#[derive(Debug, Clone, Default)]
+pub struct PriorityPopulationSnapshot {
+    sorted_keys: Vec<f64>,
+    by_element: HashMap<(PriorityEntityKind, String), CanonicalSignal>,
+    by_document: HashMap<String, CanonicalSignal>,
+}
+
+impl PriorityPopulationSnapshot {
+    /// Load all presentable elements from SQLite in a single query.
+    pub async fn load(pool: &Pool<Sqlite>) -> Result<Self> {
+        let raw_rows = sqlx::query(SNAPSHOT_POPULATION_SQL).fetch_all(pool).await?;
+        let mut rows = Vec::with_capacity(raw_rows.len());
+        for row in raw_rows {
+            let kind_str: String = row.get("kind");
+            let kind = match kind_str.as_str() {
+                "document" => PriorityEntityKind::Document,
+                "extract" => PriorityEntityKind::Extract,
+                _ => PriorityEntityKind::LearningItem,
+            };
+            rows.push(PopulationRow {
+                kind,
+                id: row.get("id"),
+                priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(f64::NAN),
+                priority_slider: row.try_get::<i32, _>("priority_slider").unwrap_or(0),
+                priority_rating: row.try_get::<i32, _>("priority_rating").unwrap_or(0),
+                priority_explicitly_set: row
+                    .try_get::<i64, _>("priority_explicitly_set")
+                    .unwrap_or(0)
+                    != 0,
+                parent_priority_score: row.try_get::<Option<f64>, _>("parent_priority_score").ok().flatten(),
+                parent_priority_slider: row.try_get::<Option<i32>, _>("parent_priority_slider").ok().flatten(),
+                parent_priority_rating: row.try_get::<Option<i32>, _>("parent_priority_rating").ok().flatten(),
+                parent_explicitly_set: row
+                    .try_get::<Option<i64>, _>("parent_explicitly_set")
+                    .ok()
+                    .flatten()
+                    .map(|v| v != 0),
+            });
+        }
+        Ok(Self::from_rows(rows))
+    }
+
+    /// Pure deterministic snapshot builder over preloaded rows.
+    pub fn from_rows(rows: Vec<PopulationRow>) -> Self {
+        let mut resolved = Vec::with_capacity(rows.len());
+        let mut sorted_keys = Vec::with_capacity(rows.len());
+        for row in rows {
+            let outcome = resolve_row_key(&row);
+            if let ResolvedOrderKey::Valid { key, .. } = outcome {
+                sorted_keys.push(key);
+            }
+            resolved.push((row.kind, row.id, outcome));
+        }
+        sorted_keys.sort_by(f64::total_cmp);
+
+        let mut by_element = HashMap::with_capacity(resolved.len());
+        let mut by_document = HashMap::new();
+        for (kind, id, outcome) in resolved {
+            let signal = match outcome {
+                ResolvedOrderKey::Valid { key, defaulted } => {
+                    let value = positional_priority_from_sorted_keys(&sorted_keys, key);
+                    if defaulted {
+                        CanonicalSignal::defaulted_value(value)
+                    } else {
+                        CanonicalSignal::measured(value)
+                    }
+                }
+                ResolvedOrderKey::MissingOrInvalid => CanonicalSignal::neutral_unavailable(),
+            };
+            if kind == PriorityEntityKind::Document {
+                by_document.insert(id.clone(), signal);
+            }
+            by_element.insert((kind, id), signal);
+        }
+
+        Self {
+            sorted_keys,
+            by_element,
+            by_document,
+        }
+    }
+
+    pub fn valid_population_size(&self) -> usize {
+        self.sorted_keys.len()
+    }
+
+    pub fn signal_for(&self, kind: PriorityEntityKind, id: &str) -> CanonicalSignal {
+        self.by_element
+            .get(&(kind, id.to_string()))
+            .copied()
+            .unwrap_or_else(CanonicalSignal::neutral_unavailable)
+    }
+
+    pub fn document_signal(&self, doc_id: &str) -> CanonicalSignal {
+        self.signal_for(PriorityEntityKind::Document, doc_id)
+    }
+
+    pub fn extract_signal(&self, extract_id: &str) -> CanonicalSignal {
+        self.signal_for(PriorityEntityKind::Extract, extract_id)
+    }
+
+    pub fn learning_item_signal(&self, card_id: &str) -> CanonicalSignal {
+        self.signal_for(PriorityEntityKind::LearningItem, card_id)
+    }
+
+    /// Parent-document inheritance for video extracts and audio editions (D1).
+    pub fn inherited_document_signal(&self, parent_doc_id: &str) -> CanonicalSignal {
+        match self.by_document.get(parent_doc_id) {
+            Some(parent) if parent.available => CanonicalSignal::defaulted_value(parent.value),
+            _ => CanonicalSignal::neutral_unavailable(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -371,5 +717,165 @@ mod tests {
     fn single_element_queue_is_neutral_not_zero() {
         assert_eq!(percentile_for_rank(0, 1), 50.0);
         assert_eq!(position_for_rank(0, 1), 1);
+    }
+
+    #[test]
+    fn test_positional_priority_from_sorted_keys_direction_ties_singleton() {
+        // Singleton and empty
+        assert_eq!(positional_priority_from_sorted_keys(&[42.0], 42.0), 0.5);
+        assert_eq!(positional_priority_from_sorted_keys(&[], 42.0), 0.5);
+
+        // 5 items: 0.0, 25.0, 50.0, 75.0, 100.0
+        let sorted = vec![0.0, 25.0, 50.0, 75.0, 100.0];
+        // 0 strictly below: 0/(5-1) = 0.0
+        assert_eq!(positional_priority_from_sorted_keys(&sorted, 0.0), 0.0);
+        // 1 strictly below: 1/4 = 0.25
+        assert_eq!(positional_priority_from_sorted_keys(&sorted, 25.0), 0.25);
+        // 2 strictly below: 2/4 = 0.50
+        assert_eq!(positional_priority_from_sorted_keys(&sorted, 50.0), 0.50);
+        // 3 strictly below: 3/4 = 0.75
+        assert_eq!(positional_priority_from_sorted_keys(&sorted, 75.0), 0.75);
+        // 4 strictly below: 4/4 = 1.00
+        assert_eq!(positional_priority_from_sorted_keys(&sorted, 100.0), 1.00);
+
+        // Ties: equal keys get equal strictly_below count
+        let tied = vec![10.0, 20.0, 20.0, 30.0];
+        // For key 20.0: strictly below is 1 (only 10.0 is < 20.0). N=4 => 1/3
+        assert_eq!(positional_priority_from_sorted_keys(&tied, 20.0), 1.0 / 3.0);
+    }
+
+    #[test]
+    fn test_playlist_subscription_priority_adaptation() {
+        // 1..=10 adapted to (r-1)/9
+        let p1 = playlist_subscription_priority(1);
+        assert!(p1.available);
+        assert!(!p1.defaulted);
+        assert_eq!(p1.value, 0.0);
+
+        let p10 = playlist_subscription_priority(10);
+        assert!(p10.available);
+        assert_eq!(p10.value, 1.0);
+
+        let p5 = playlist_subscription_priority(5);
+        assert!(p5.available);
+        assert_eq!(p5.value, 4.0 / 9.0);
+
+        // Invalid: 0 or >10
+        let p0 = playlist_subscription_priority(0);
+        assert!(!p0.available);
+        assert!(p0.defaulted);
+        assert_eq!(p0.value, 0.5);
+
+        let p11 = playlist_subscription_priority(11);
+        assert!(!p11.available);
+        assert_eq!(p11.value, 0.5);
+    }
+
+    #[test]
+    fn test_population_snapshot_rows_resolution_and_inheritance() {
+        let rows = vec![
+            // Document 1 with score 80
+            PopulationRow {
+                kind: PriorityEntityKind::Document,
+                id: "doc1".to_string(),
+                priority_score: 80.0,
+                priority_slider: 80,
+                priority_rating: 4,
+                priority_explicitly_set: true,
+                parent_priority_score: None,
+                parent_priority_slider: None,
+                parent_priority_rating: None,
+                parent_explicitly_set: None,
+            },
+            // Document 2 explicit zero
+            PopulationRow {
+                kind: PriorityEntityKind::Document,
+                id: "doc2".to_string(),
+                priority_score: 0.0,
+                priority_slider: 0,
+                priority_rating: 0,
+                priority_explicitly_set: true,
+                parent_priority_score: None,
+                parent_priority_slider: None,
+                parent_priority_rating: None,
+                parent_explicitly_set: None,
+            },
+            // Extract following doc1 (inherits 80.0)
+            PopulationRow {
+                kind: PriorityEntityKind::Extract,
+                id: "ext1".to_string(),
+                priority_score: 0.0,
+                priority_slider: 0,
+                priority_rating: 0,
+                priority_explicitly_set: false,
+                parent_priority_score: Some(80.0),
+                parent_priority_slider: Some(80),
+                parent_priority_rating: Some(4),
+                parent_explicitly_set: Some(true),
+            },
+            // Extract reprioritized on its own with score 50.0
+            PopulationRow {
+                kind: PriorityEntityKind::Extract,
+                id: "ext2".to_string(),
+                priority_score: 50.0,
+                priority_slider: 0,
+                priority_rating: 0,
+                priority_explicitly_set: false,
+                parent_priority_score: Some(80.0),
+                parent_priority_slider: Some(80),
+                parent_priority_rating: Some(4),
+                parent_explicitly_set: Some(true),
+            },
+            // Legacy row with invalid NaN score and no slider/rating
+            PopulationRow {
+                kind: PriorityEntityKind::Document,
+                id: "doc_invalid".to_string(),
+                priority_score: f64::NAN,
+                priority_slider: 0,
+                priority_rating: 0,
+                priority_explicitly_set: false,
+                parent_priority_score: None,
+                parent_priority_slider: None,
+                parent_priority_rating: None,
+                parent_explicitly_set: None,
+            },
+        ];
+
+        let snapshot = PriorityPopulationSnapshot::from_rows(rows);
+        // Valid population items: doc1 (80), doc2 (0), ext1 (80), ext2 (50). Total 4 valid.
+        assert_eq!(snapshot.valid_population_size(), 4);
+
+        // doc2 (score 0.0): 0 strictly below out of 4-1=3 => P = 0.0
+        let doc2_sig = snapshot.document_signal("doc2");
+        assert!(doc2_sig.available);
+        assert!(!doc2_sig.defaulted);
+        assert_eq!(doc2_sig.value, 0.0);
+
+        // ext2 (score 50.0): 1 strictly below (doc2) => 1/3
+        let ext2_sig = snapshot.extract_signal("ext2");
+        assert!(ext2_sig.available);
+        assert_eq!(ext2_sig.value, 1.0 / 3.0);
+
+        // doc1 and ext1 (both 80.0): 2 strictly below (doc2 and ext2) => 2/3
+        let doc1_sig = snapshot.document_signal("doc1");
+        let ext1_sig = snapshot.extract_signal("ext1");
+        assert_eq!(doc1_sig.value, 2.0 / 3.0);
+        assert_eq!(ext1_sig.value, 2.0 / 3.0);
+
+        // Invalid row gets neutral unavailable 0.5
+        let invalid_sig = snapshot.document_signal("doc_invalid");
+        assert!(!invalid_sig.available);
+        assert!(invalid_sig.defaulted);
+        assert_eq!(invalid_sig.value, 0.5);
+
+        // Video extract parent inheritance
+        let video_inherited = snapshot.inherited_document_signal("doc1");
+        assert!(video_inherited.available);
+        assert!(video_inherited.defaulted);
+        assert_eq!(video_inherited.value, 2.0 / 3.0);
+
+        let video_missing_parent = snapshot.inherited_document_signal("nonexistent");
+        assert!(!video_missing_parent.available);
+        assert_eq!(video_missing_parent.value, 0.5);
     }
 }

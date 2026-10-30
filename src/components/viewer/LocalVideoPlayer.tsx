@@ -3,6 +3,7 @@
  * Plays local video files with position tracking, playback speed, and keyboard shortcuts
  */
 
+import { useVideoExtractPlayback } from '../../hooks/useVideoExtractPlayback';
 import { useState, useEffect, useCallback, useRef, useMemo, useId } from 'react';
 import { appAudioFocus, type AudioOutputLease } from "../../services/audio/audioFocus";
 import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../../services/audio/audioPlaybackRollout";
@@ -81,6 +82,7 @@ export function LocalVideoPlayer({
   onEnded,
 }: LocalVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const { select: selectExtract, confirm: confirmExtractPlayback, cancel: cancelExtractPlayback } = useVideoExtractPlayback(documentId);
   const outputId = useId();
   const outputLease = useRef<AudioOutputLease | null>(null);
   const outputRequest = useRef(0);
@@ -849,6 +851,7 @@ export function LocalVideoPlayer({
 
     resumePlaybackAfterFallbackRef.current = Boolean(videoRef.current && !videoRef.current.paused);
     setPlayError(null);
+    cancelExtractPlayback();
     setSourceFailure(failure);
     setSourceFailureStrategy(activeSourceStrategy);
     setIsResolvingSource(false);
@@ -970,6 +973,7 @@ export function LocalVideoPlayer({
   const handleTimeUpdate = useCallback(() => {
     if (!videoRef.current) return;
     const time = videoRef.current.currentTime;
+    if (!videoRef.current.paused && videoRef.current.readyState >= 2) confirmExtractPlayback(time);
     // Only update state if time changed significantly (reduces re-renders)
     if (Math.abs(time - currentTimeRef.current) > 0.1) {
       setCurrentTime(time);
@@ -1222,7 +1226,7 @@ export function LocalVideoPlayer({
       onCanPlay={handleCanPlay}
       onWaiting={() => {
       }}
-      onPlay={() => setIsPlaying(true)}
+      onPlay={() => { setIsPlaying(true); handleTimeUpdate(); }}
       onPause={handlePause}
       // Use timeupdate as fallback for browsers without requestVideoFrameCallback
       onTimeUpdate={() => {
@@ -1249,7 +1253,7 @@ export function LocalVideoPlayer({
       onCanPlay={handleCanPlay}
       onWaiting={() => {
       }}
-      onPlay={() => setIsPlaying(true)}
+      onPlay={() => { setIsPlaying(true); handleTimeUpdate(); }}
       onPause={handlePause}
       // Use timeupdate as fallback for browsers without requestVideoFrameCallback
       onTimeUpdate={() => {
@@ -1821,7 +1825,7 @@ export function LocalVideoPlayer({
               </div>
               <VideoExtractsList
                 documentId={documentId}
-                onPlayExtract={(extract) => handleSeek(extract.start_time, extract.end_time)}
+                onPlayExtract={(extract) => { selectExtract(extract); handleSeek(extract.start_time, extract.end_time); }}
               />
             </div>
           </div>

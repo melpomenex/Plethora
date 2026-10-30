@@ -24,57 +24,30 @@ import {
 } from "../../api/documents";
 import { updateLearningItemPriority } from "../../api/learning-items";
 import type { Document } from "../../types/document";
+import {
+  PRIORITY_PRESETS,
+  getPriorityInfo,
+  getPriorityPreset,
+  sliderToRating,
+  resolveDisplaySlider,
+} from "../../services/priority/priorityCommit";
 
-/** Display-only bucket info for a 0-100 slider value. Matches the backend. */
-const PRIORITY_PRESETS = [
-  { value: 10, labelKey: "priority.lowest", color: "#6B7280" },
-  { value: 30, labelKey: "priority.low", color: "#9CA3AF" },
-  { value: 50, labelKey: "priority.normal", color: "#3B82F6" },
-  { value: 70, labelKey: "priority.high", color: "#F59E0B" },
-  { value: 90, labelKey: "priority.highest", color: "#EF4444" },
-] as const;
+export {
+  PRIORITY_PRESETS,
+  getPriorityInfo,
+  getPriorityPreset,
+  sliderToRating,
+  resolveDisplaySlider,
+};
 
-export function getPriorityInfo(slider: number) {
-  if (slider >= 81) return PRIORITY_PRESETS[4];
-  if (slider >= 61) return PRIORITY_PRESETS[3];
-  if (slider >= 41) return PRIORITY_PRESETS[2];
-  if (slider >= 21) return PRIORITY_PRESETS[1];
-  return PRIORITY_PRESETS[0];
-}
-
-/**
- * Resolve a document's slider field for display (mirrors backend resolve).
- *
- * Honors `priorityExplicitlySet`: once the user has committed a priority via
- * the popup, the slider value is the real current priority — including an
- * explicit `0` (the Lowest preset). Only for a never-touched document do we
- * fall back to the rating-bucket mapping, then to the neutral midpoint (50).
- */
-export function resolveDisplaySlider(doc: {
-  prioritySlider?: number;
-  priorityRating?: number;
-  priorityExplicitlySet?: boolean;
-}): number {
-  if (doc.priorityExplicitlySet) {
-    // Real user-set value — use it verbatim, even 0. Clamp defensively.
-    return Math.max(0, Math.min(100, doc.prioritySlider ?? 0));
-  }
-  if ((doc.prioritySlider ?? 0) > 0) return doc.prioritySlider!;
-  const rating = doc.priorityRating ?? 0;
-  if (rating > 0) {
-    return ([0, 10, 30, 50, 70, 90] as const)[Math.min(5, Math.max(0, rating))];
-  }
-  return 50; // neutral midpoint for unset documents
-}
-
-interface PriorityPopupResult {
+export interface PriorityPopupResult {
   /** Whether the user committed a value. */
   committed: boolean;
   /** The committed slider value, or null if cancelled. */
   slider: number | null;
 }
 
-interface UsePriorityPopupApi {
+export interface UsePriorityPopupApi {
   updateDocument: (id: string, updates: Partial<Document>) => void;
 }
 
@@ -119,17 +92,22 @@ export function usePriorityPopup(api?: UsePriorityPopupApi) {
       const seedDoc = docs.find((d) => d.id === ids[0]);
       const seed = seedDoc ? resolveDisplaySlider(seedDoc) : 50;
 
-      // The modal content is rendered once; we hold the live value in a ref-like
-      // closure variable so the confirm handler reads the latest without
-      // re-mounting. useState inside the content would reset on each render.
       let value = seed;
+      let errorSetter: ((err: string | null) => void) | null = null;
+      let committedSlider: number | null = null;
 
       const result = await modal.custom(
         <PriorityPopupBody
           initial={seed}
           isMass={isMass}
           count={ids.length}
-          onChange={(v) => (value = v)}
+          onChange={(v) => {
+            value = v;
+            errorSetter?.(null);
+          }}
+          onErrorRegister={(fn) => {
+            errorSetter = fn;
+          }}
         />,
         {
           title: isMass
@@ -137,55 +115,60 @@ export function usePriorityPopup(api?: UsePriorityPopupApi) {
             : t("priority.popupTitle"),
           confirmText: t("priority.apply"),
           cancelText: t("priority.cancel"),
+          onConfirm: async () => {
+            const slider = Math.max(0, Math.min(100, Math.round(value)));
+            try {
+              if (learningItemIds.length > 0) {
+                // Sequential writes for cards; one failure must not lose the rest.
+                for (const cardId of learningItemIds) {
+                  await updateLearningItemPriority(cardId, slider);
+                }
+              }
+
+              if (ids.length === 0) {
+                committedSlider = slider;
+                return true;
+              }
+
+              if (useBulkPath) {
+                const bulk = await bulkSetDocumentPriority(ids, slider);
+                const failedCount = bulk.failed.length;
+                if (failedCount > 0) {
+                  await modal.alert(
+                    t("priority.bulkPartial", {
+                      succeeded: bulk.succeeded.length,
+                      failed: failedCount,
+                    }),
+                    t("priority.setTitle"),
+                  );
+                }
+              } else {
+                // slider is authoritative; server derives rating; pass 0.
+                const updated = await updateDocumentPriority(ids[0], 0, slider);
+                api?.updateDocument(ids[0], {
+                  priorityRating: updated.priorityRating,
+                  prioritySlider: updated.prioritySlider,
+                  priorityScore: updated.priorityScore,
+                  priorityExplicitlySet: true,
+                });
+              }
+
+              committedSlider = slider;
+              return true;
+            } catch (error) {
+              const msg = error instanceof Error ? error.message : String(error);
+              errorSetter?.(msg);
+              throw error;
+            }
+          },
         },
       );
 
-      if (!result) return { committed: false, slider: null };
-      const slider = Math.max(0, Math.min(100, Math.round(value)));
-
-      if (learningItemIds.length > 0) {
-        // No bulk command for cards yet; a selection is small enough that
-        // sequential writes are fine. One failure must not lose the rest.
-        for (const cardId of learningItemIds) {
-          try {
-            await updateLearningItemPriority(cardId, slider);
-          } catch (error) {
-            console.error("[priority] Failed to set card priority:", cardId, error);
-          }
-        }
+      if (!result || committedSlider === null) {
+        return { committed: false, slider: null };
       }
 
-      if (ids.length === 0) {
-        return { committed: true, slider };
-      }
-
-      if (useBulkPath) {
-        const bulk = await bulkSetDocumentPriority(ids, slider);
-        const failedCount = bulk.failed.length;
-        if (failedCount > 0) {
-          await modal.alert(
-            t("priority.bulkPartial", {
-              succeeded: bulk.succeeded.length,
-              failed: failedCount,
-            }),
-            t("priority.setTitle"),
-          );
-        }
-      } else {
-        // rating arg is derived server-side; pass 0 so the slider is authoritative.
-        const updated = await updateDocumentPriority(ids[0], 0, slider);
-        api?.updateDocument(ids[0], {
-          priorityRating: updated.priorityRating,
-          prioritySlider: updated.prioritySlider,
-          priorityScore: updated.priorityScore,
-          // The backend flips this to true on every commit; mirror it locally so
-          // the next Alt+P open seeds from the just-committed value (incl. 0)
-          // without waiting for a reload.
-          priorityExplicitlySet: true,
-        });
-      }
-
-      return { committed: true, slider };
+      return { committed: true, slider: committedSlider };
     },
     [modal, t, api],
   );
@@ -199,16 +182,23 @@ function PriorityPopupBody({
   isMass,
   count,
   onChange,
+  onErrorRegister,
 }: {
   initial: number;
   isMass: boolean;
   count: number;
   onChange: (value: number) => void;
+  onErrorRegister?: (setter: (err: string | null) => void) => void;
 }) {
   const { t } = useI18n();
   const [slider, setSlider] = useState(initial);
+  const [error, setError] = useState<string | null>(null);
   const info = getPriorityInfo(slider);
   const numberInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    onErrorRegister?.(setError);
+  }, [onErrorRegister]);
 
   // Focus + select the numeric input on open so the user can type a value
   // immediately, without an extra click. Modal's own focus trap defers to
@@ -221,6 +211,7 @@ function PriorityPopupBody({
   const commit = (v: number) => {
     const clamped = Math.max(0, Math.min(100, v));
     setSlider(clamped);
+    setError(null);
     onChange(clamped);
   };
 
@@ -229,6 +220,12 @@ function PriorityPopupBody({
       {isMass && (
         <p className="text-xs text-muted-foreground">
           {t("priority.massHint", { count })}
+        </p>
+      )}
+
+      {error && (
+        <p role="alert" className="text-xs text-error font-medium">
+          {t("priority.saveFailed")} ({error})
         </p>
       )}
 

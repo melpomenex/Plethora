@@ -7,9 +7,9 @@ use crate::database::{
 use crate::error::{PlethoraError, Result};
 use crate::models::collection::{Collection, DEFAULT_COLLECTION_ID};
 use crate::models::{
-    Document, DocumentMetadata, Extract, FileType, ImageAsset, ImageAssetWithUsage, ItemState,
-    ItemType, LearningItem, StartupDocumentSummary, TranscriptionJobStatus,
-    TranscriptionQueueEntry, TranscriptionQueueEntryWithDoc, VideoExtract,
+    CardVersionEntry, Document, DocumentMetadata, Extract, FileType, ImageAsset,
+    ImageAssetWithUsage, ItemState, ItemType, LearningItem, StartupDocumentSummary,
+    TranscriptionJobStatus, TranscriptionQueueEntry, TranscriptionQueueEntryWithDoc, VideoExtract,
 };
 use crate::sync::bootstrap;
 use crate::sync::journal::{journal_entity, notify_after_commit};
@@ -3191,8 +3191,13 @@ impl Repository {
     // Learning item operations
 
     pub async fn create_learning_item(&self, item: &LearningItem) -> Result<LearningItem> {
+        self.create_learning_item_with_source(item, None).await
+    }
+
+    pub async fn create_learning_item_with_source(&self, item: &LearningItem,
+        source: Option<&super::learning_item_source::ExpectedLearningSource>) -> Result<LearningItem> {
         // Retry once on I/O errors (common on SD cards / low-storage devices)
-        match self.create_learning_item_inner(item).await {
+        match self.create_learning_item_inner(item, source).await {
             Ok(created) => Ok(created),
             Err(e) => {
                 let msg = e.to_string();
@@ -3202,7 +3207,7 @@ impl Repository {
                         e
                     );
                     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-                    self.create_learning_item_inner(item).await
+                    self.create_learning_item_inner(item, source).await
                 } else {
                     Err(e)
                 }
@@ -3210,7 +3215,7 @@ impl Repository {
         }
     }
 
-    async fn create_learning_item_inner(&self, item: &LearningItem) -> Result<LearningItem> {
+    async fn create_learning_item_inner(&self, item: &LearningItem, source: Option<&super::learning_item_source::ExpectedLearningSource>) -> Result<LearningItem> {
         let item_type_str = format!("{:?}", item.item_type).to_lowercase();
         let state_str = format!("{:?}", item.state).to_lowercase();
         let tags_json = serde_json::to_string(&item.tags)?;
@@ -3244,6 +3249,25 @@ impl Repository {
         // via the migration 081 AFTER INSERT trigger, inside this same
         // transaction.
         let mut tx = self.pool.begin().await?;
+        // Reserve the SQLite writer before receipt/lineage reads; zero rows,
+        // so no domain trigger or content field changes on a replay.
+        sqlx::query("UPDATE learning_items SET id = id WHERE 0").execute(&mut *tx).await?;
+        // Receipt lookup and lineage reads share the INSERT transaction.
+        if let (Some(acceptance), Some(proposal)) = (&item.acceptance_id, &item.proposal_id) {
+            let existing = sqlx::query("SELECT * FROM learning_items WHERE acceptance_id = ? AND proposal_id = ? LIMIT 1")
+                .bind(acceptance).bind(proposal).fetch_optional(&mut *tx).await?;
+            if let Some(row) = existing {
+                let saved = Self::row_to_learning_item(&row)?;
+                if !super::learning_item_source::same_learning_candidate(&saved, item) {
+                    return Err(PlethoraError::InvalidInput("This candidate identity was already saved with different content".into()));
+                }
+                return Ok(saved);
+            }
+        }
+        let canonical = super::learning_item_source::canonicalize_learning_item_source(&mut tx, item, source).await?;
+        let item = &canonical;
+
+
 
         sqlx::query(
             r#"
@@ -3359,7 +3383,11 @@ impl Repository {
     ) -> Result<Vec<LearningItem>> {
         let mut tx = self.pool.begin().await?;
 
+        let mut canonical_items = Vec::with_capacity(items.len());
         for item in items {
+            let canonical = super::learning_item_source::canonicalize_learning_item_source(&mut tx, item, None).await?;
+            canonical_items.push(canonical);
+            let item = canonical_items.last().unwrap();
             let item_type_str = format!("{:?}", item.item_type).to_lowercase();
             let state_str = format!("{:?}", item.state).to_lowercase();
             let tags_json = serde_json::to_string(&item.tags)?;
@@ -3476,7 +3504,7 @@ impl Repository {
 
         tx.commit().await?;
         notify_after_commit();
-        Ok(items.to_vec())
+        Ok(canonical_items)
     }
 
     pub async fn get_due_learning_items(
@@ -3637,70 +3665,111 @@ impl Repository {
     /// unchanged — the same partial-update semantics the browser backend's
     /// IndexedDB path has always had. Returns the refreshed row, or None when
     /// the id does not exist.
-    pub async fn update_learning_item_content(
+    pub async fn update_learning_item_content_and_tags_with_version(
         &self,
         id: &str,
         question: &str,
         answer: Option<&str>,
         cloze_text: Option<&str>,
+        cloze_ranges: Option<&[(usize, usize)]>,
+        tags: Option<&[String]>,
+        reason: Option<&str>,
     ) -> Result<Option<LearningItem>> {
         let now = Utc::now();
         let mut tx = self.pool.begin().await?;
 
-        let rows_affected = match (answer, cloze_text) {
-            (Some(answer), Some(cloze_text)) => sqlx::query(
-                "UPDATE learning_items SET question = ?1, answer = ?2, cloze_text = ?3, date_modified = ?4 WHERE id = ?5",
-            )
-            .bind(question)
-            .bind(answer)
-            .bind(cloze_text)
-            .bind(now)
+        // 1. Fetch current item state within transaction
+        let row_opt = sqlx::query("SELECT * FROM learning_items WHERE id = ?1")
             .bind(id)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected(),
-            (Some(answer), None) => sqlx::query(
-                "UPDATE learning_items SET question = ?1, answer = ?2, date_modified = ?3 WHERE id = ?4",
-            )
-            .bind(question)
-            .bind(answer)
-            .bind(now)
-            .bind(id)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected(),
-            (None, Some(cloze_text)) => sqlx::query(
-                "UPDATE learning_items SET question = ?1, cloze_text = ?2, date_modified = ?3 WHERE id = ?4",
-            )
-            .bind(question)
-            .bind(cloze_text)
-            .bind(now)
-            .bind(id)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected(),
-            (None, None) => sqlx::query(
-                "UPDATE learning_items SET question = ?1, date_modified = ?2 WHERE id = ?3",
-            )
-            .bind(question)
-            .bind(now)
-            .bind(id)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected(),
+            .fetch_optional(&mut *tx)
+            .await?;
+
+        let existing = match row_opt {
+            Some(row) => Self::row_to_learning_item(&row)?,
+            None => {
+                tx.rollback().await?;
+                return Ok(None);
+            }
         };
+
+        // 2. Snapshot prior version into settings inside transaction
+        let version_id = uuid::Uuid::new_v4().to_string();
+        let timestamp = now.to_rfc3339();
+        let version = CardVersionEntry {
+            version_id: version_id.clone(),
+            item_id: id.to_string(),
+            timestamp,
+            reason: reason.map(|s| s.to_string()),
+            question: existing.question.clone(),
+            answer: existing.answer.clone(),
+            cloze_text: existing.cloze_text.clone(),
+            cloze_ranges: existing.cloze_ranges.clone(),
+            tags: Some(existing.tags.clone()),
+        };
+
+        sqlx::query("INSERT INTO settings (key, value, date_modified) VALUES (?1, ?2, ?3)")
+            .bind(format!("card_version:{}:{}", id, version_id))
+            .bind(serde_json::to_string(&version).unwrap_or_else(|_| "{}".to_string()))
+            .bind(now)
+            .execute(&mut *tx)
+            .await?;
+
+        // 3. Prepare final content & tag fields (omitted fields preserve existing stored values)
+        let final_answer = match answer {
+            Some(a) => Some(a.to_string()),
+            None => existing.answer.clone(),
+        };
+        let final_cloze_text = match cloze_text {
+            Some(ct) => Some(ct.to_string()),
+            None => existing.cloze_text.clone(),
+        };
+        let final_cloze_ranges = match cloze_ranges {
+            Some(cr) => Some(cr.to_vec()),
+            None => existing.cloze_ranges.clone(),
+        };
+        let final_tags = match tags {
+            Some(t) => t.to_vec(),
+            None => existing.tags.clone(),
+        };
+
+        let cloze_ranges_json = final_cloze_ranges
+            .as_ref()
+            .map(|r| serde_json::to_string(r))
+            .transpose()?;
+        let tags_json = serde_json::to_string(&final_tags)?;
+
+        let rows_affected = sqlx::query(
+            "UPDATE learning_items SET question = ?1, answer = ?2, cloze_text = ?3, cloze_ranges = ?4, tags = ?5, date_modified = ?6 WHERE id = ?7",
+        )
+        .bind(question)
+        .bind(final_answer.as_deref())
+        .bind(final_cloze_text.as_deref())
+        .bind(cloze_ranges_json.as_deref())
+        .bind(&tags_json)
+        .bind(now)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
 
         if rows_affected == 0 {
             tx.rollback().await?;
             return Ok(None);
         }
 
+        // 4. Fetch updated row
         let row = sqlx::query("SELECT * FROM learning_items WHERE id = ?1")
             .bind(id)
             .fetch_one(&mut *tx)
             .await?;
         let updated = Self::row_to_learning_item(&row)?;
-        let item_payload = payload::learning_item_payload_with_fields(&updated, &["content"])
+
+        // 5. Write sync journal entry
+        let mut sync_fields = vec!["content"];
+        if tags.is_some() {
+            sync_fields.push("tags");
+        }
+        let item_payload = payload::learning_item_payload_with_fields(&updated, &sync_fields)
             .map_err(|e| PlethoraError::Internal(format!("Sync payload encode failed: {e}")))?;
         journal_entity(
             &mut tx,
@@ -3712,9 +3781,29 @@ impl Repository {
         )
         .await?;
 
+        // 6. Commit transaction
         tx.commit().await?;
         notify_after_commit();
         Ok(Some(updated))
+    }
+
+    pub async fn update_learning_item_content(
+        &self,
+        id: &str,
+        question: &str,
+        answer: Option<&str>,
+        cloze_text: Option<&str>,
+    ) -> Result<Option<LearningItem>> {
+        self.update_learning_item_content_and_tags_with_version(
+            id,
+            question,
+            answer,
+            cloze_text,
+            None,
+            None,
+            None,
+        )
+        .await
     }
 
     pub async fn update_learning_item_tags_and_metadata(
@@ -6393,6 +6482,18 @@ impl Repository {
         total_videos: Option<i32>,
     ) -> Result<()> {
         let now = chrono::Utc::now().to_rfc3339();
+        let settings = self.get_playlist_settings().await.unwrap_or(crate::models::PlaylistSettings {
+            id: "global".to_string(),
+            enabled: true,
+            default_intersperse_interval: 5,
+            default_priority: 5,
+            max_consecutive_playlist_videos: 1,
+            prefer_new_videos: true,
+            created_at: now.clone(),
+            modified_at: now.clone(),
+        });
+        let interval = settings.default_intersperse_interval.clamp(1, 50);
+        let priority = settings.default_priority.clamp(1, 10);
 
         sqlx::query(
             r#"
@@ -6401,7 +6502,7 @@ impl Repository {
                 description, thumbnail_url, total_videos,
                 is_active, auto_import_new, queue_intersperse_interval, priority_rating,
                 last_refreshed_at, refresh_interval_hours, created_at, modified_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, 1, 5, 5, NULL, 24, ?10, ?10)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 1, 1, ?10, ?11, NULL, 24, ?12, ?12)
             "#,
         )
         .bind(id)
@@ -6413,6 +6514,8 @@ impl Repository {
         .bind(description)
         .bind(thumbnail_url)
         .bind(total_videos)
+        .bind(interval)
+        .bind(priority)
         .bind(&now)
         .execute(&self.pool)
         .await?;
@@ -6528,6 +6631,28 @@ impl Repository {
         priority_rating: Option<i32>,
         refresh_interval_hours: Option<i32>,
     ) -> Result<()> {
+        if let Some(interval) = queue_intersperse_interval {
+            if !(1..=50).contains(&interval) {
+                return Err(crate::error::PlethoraError::Internal(
+                    "queue_intersperse_interval must be between 1 and 50".to_string(),
+                ));
+            }
+        }
+        if let Some(priority) = priority_rating {
+            if !(1..=10).contains(&priority) {
+                return Err(crate::error::PlethoraError::Internal(
+                    "priority_rating must be between 1 and 10".to_string(),
+                ));
+            }
+        }
+        if let Some(hours) = refresh_interval_hours {
+            if !(1..=168).contains(&hours) {
+                return Err(crate::error::PlethoraError::Internal(
+                    "refresh_interval_hours must be between 1 and 168".to_string(),
+                ));
+            }
+        }
+
         let now = chrono::Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -6772,6 +6897,28 @@ impl Repository {
         max_consecutive_playlist_videos: Option<i32>,
         prefer_new_videos: Option<bool>,
     ) -> Result<()> {
+        if let Some(interval) = default_intersperse_interval {
+            if !(1..=50).contains(&interval) {
+                return Err(crate::error::PlethoraError::Internal(
+                    "default_intersperse_interval must be between 1 and 50".to_string(),
+                ));
+            }
+        }
+        if let Some(priority) = default_priority {
+            if !(1..=10).contains(&priority) {
+                return Err(crate::error::PlethoraError::Internal(
+                    "default_priority must be between 1 and 10".to_string(),
+                ));
+            }
+        }
+        if let Some(consecutive) = max_consecutive_playlist_videos {
+            if !(1..=5).contains(&consecutive) {
+                return Err(crate::error::PlethoraError::Internal(
+                    "max_consecutive_playlist_videos must be between 1 and 5".to_string(),
+                ));
+            }
+        }
+
         let now = chrono::Utc::now().to_rfc3339();
 
         sqlx::query(
@@ -6803,41 +6950,9 @@ impl Repository {
         &self,
         extract: &crate::models::VideoExtract,
     ) -> Result<crate::models::VideoExtract> {
-        let tags_json = serde_json::to_string(&extract.tags)?;
-        let memory_state_json = extract
-            .memory_state
-            .as_ref()
-            .map(serde_json::to_string)
-            .transpose()?;
-
-        sqlx::query(
-            r#"
-            INSERT INTO video_extracts (
-                id, document_id, start_time, end_time, title,
-                transcript_text, notes, tags, thumbnail_url,
-                memory_state, next_review_date, last_review_date,
-                review_count, reps, date_created, date_modified
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
-            "#,
-        )
-        .bind(&extract.id)
-        .bind(&extract.document_id)
-        .bind(extract.start_time)
-        .bind(extract.end_time)
-        .bind(&extract.title)
-        .bind(&extract.transcript_text)
-        .bind(&extract.notes)
-        .bind(&tags_json)
-        .bind(&extract.thumbnail_url)
-        .bind(&memory_state_json)
-        .bind(extract.next_review_date)
-        .bind(extract.last_review_date)
-        .bind(extract.review_count)
-        .bind(extract.reps)
-        .bind(extract.date_created)
-        .bind(extract.date_modified)
-        .execute(&self.pool)
-        .await?;
+        let mut tx = self.pool.begin().await?;
+        super::video_extract_repository::insert_video_extract(&mut tx, extract).await?;
+        tx.commit().await?;
 
         Ok(extract.clone())
     }
@@ -6874,6 +6989,8 @@ impl Repository {
                     memory_state,
                     next_review_date: row.try_get("next_review_date").ok(),
                     last_review_date: row.try_get("last_review_date").ok(),
+                    first_seen_at: row.try_get("first_seen_at").ok(),
+                    last_seen_at: row.try_get("last_seen_at").ok(),
                     review_count: row.try_get("review_count").unwrap_or(0),
                     reps: row.try_get("reps").unwrap_or(0),
                     date_created: row.try_get("date_created")?,
@@ -6919,6 +7036,8 @@ impl Repository {
                 memory_state,
                 next_review_date: row.try_get("next_review_date").ok(),
                 last_review_date: row.try_get("last_review_date").ok(),
+                first_seen_at: row.try_get("first_seen_at").ok(),
+                last_seen_at: row.try_get("last_seen_at").ok(),
                 review_count: row.try_get("review_count").unwrap_or(0),
                 reps: row.try_get("reps").unwrap_or(0),
                 date_created: row.try_get("date_created")?,
@@ -6963,6 +7082,8 @@ impl Repository {
                 memory_state,
                 next_review_date: row.try_get("next_review_date").ok(),
                 last_review_date: row.try_get("last_review_date").ok(),
+                first_seen_at: row.try_get("first_seen_at").ok(),
+                last_seen_at: row.try_get("last_seen_at").ok(),
                 review_count: row.try_get("review_count").unwrap_or(0),
                 reps: row.try_get("reps").unwrap_or(0),
                 date_created: row.try_get("date_created")?,
@@ -7005,6 +7126,8 @@ impl Repository {
                 memory_state,
                 next_review_date: row.try_get("next_review_date").ok(),
                 last_review_date: row.try_get("last_review_date").ok(),
+                first_seen_at: row.try_get("first_seen_at").ok(),
+                last_seen_at: row.try_get("last_seen_at").ok(),
                 review_count: row.try_get("review_count").unwrap_or(0),
                 reps: row.try_get("reps").unwrap_or(0),
                 date_created: row.try_get("date_created")?,
@@ -7279,6 +7402,8 @@ impl Repository {
                 memory_state,
                 next_review_date: row.try_get("next_review_date").ok(),
                 last_review_date: row.try_get("last_review_date").ok(),
+                first_seen_at: row.try_get("first_seen_at").ok(),
+                last_seen_at: row.try_get("last_seen_at").ok(),
                 review_count: row.try_get("review_count").unwrap_or(0),
                 reps: row.try_get("reps").unwrap_or(0),
                 date_created: row.try_get("date_created")?,
@@ -7289,51 +7414,21 @@ impl Repository {
         Ok(extracts)
     }
 
-    /// Update a video extract
+    /// Edit content without overwriting a concurrent review or viewing update.
     pub async fn update_video_extract(
         &self,
         extract: &crate::models::VideoExtract,
     ) -> Result<crate::models::VideoExtract> {
-        let tags_json = serde_json::to_string(&extract.tags)?;
-        let memory_state_json = extract
-            .memory_state
-            .as_ref()
-            .map(serde_json::to_string)
-            .transpose()?;
-
         sqlx::query(
-            r#"
-            UPDATE video_extracts SET
-                title = ?1,
-                transcript_text = ?2,
-                notes = ?3,
-                tags = ?4,
-                thumbnail_url = ?5,
-                memory_state = ?6,
-                next_review_date = ?7,
-                last_review_date = ?8,
-                review_count = ?9,
-                reps = ?10,
-                date_modified = ?11
-            WHERE id = ?12
-            "#,
+            "UPDATE video_extracts SET title = ?, transcript_text = ?, notes = ?, \
+             tags = ?, thumbnail_url = ?, date_modified = ? WHERE id = ?",
         )
-        .bind(&extract.title)
-        .bind(&extract.transcript_text)
-        .bind(&extract.notes)
-        .bind(&tags_json)
-        .bind(&extract.thumbnail_url)
-        .bind(&memory_state_json)
-        .bind(extract.next_review_date)
-        .bind(extract.last_review_date)
-        .bind(extract.review_count)
-        .bind(extract.reps)
-        .bind(extract.date_modified)
-        .bind(&extract.id)
-        .execute(&self.pool)
-        .await?;
-
-        Ok(extract.clone())
+        .bind(&extract.title).bind(&extract.transcript_text).bind(&extract.notes)
+        .bind(serde_json::to_string(&extract.tags)?).bind(&extract.thumbnail_url)
+        .bind(extract.date_modified).bind(&extract.id)
+        .execute(&self.pool).await?;
+        self.get_video_extract(&extract.id).await?
+            .ok_or_else(|| PlethoraError::NotFound("Video extract not found".into()))
     }
 
     /// Update video extract scheduling (FSRS)
@@ -11207,6 +11302,147 @@ mod tests {
             .expect("no-error on missing id");
         assert!(missing.is_none());
     }
+
+    #[tokio::test]
+    async fn update_learning_item_content_and_tags_with_version_atomicity_and_invariance() {
+        let repo = setup_repo().await;
+        let mut item = LearningItem::new(ItemType::Cloze, "Original {{c1::cloze}} question".to_string());
+        item.answer = Some("Original answer".to_string());
+        item.cloze_text = Some("Original {{c1::cloze}} text".to_string());
+        item.cloze_ranges = Some(vec![(9, 14)]);
+        item.tags = vec!["tag1".to_string(), "tag2".to_string()];
+        item.due_date = Utc::now() + chrono::Duration::days(5);
+        item.interval = 14.5;
+        item.ease_factor = 2.4;
+        item.review_count = 11;
+        item.lapses = 3;
+        item.priority_slider = 85;
+        item.priority_score = 0.85;
+        item.priority_explicitly_set = true;
+        let doc = Document::new(
+            "Doc".to_string(),
+            "/tmp/test_doc.pdf".to_string(),
+            FileType::Pdf,
+        );
+        repo.create_document(&doc).await.expect("create doc");
+        item.document_id = Some(doc.id.clone());
+        item.extract_id = None;
+        item.memory_state = Some(crate::models::MemoryState::new(12.0, 3.5));
+
+        repo.create_learning_item(&item).await.expect("seed item");
+        let initial = repo
+            .get_learning_item_by_id(&item.id)
+            .await
+            .expect("fetch initial")
+            .expect("initial exists");
+
+        let updated = repo
+            .update_learning_item_content_and_tags_with_version(
+                &item.id,
+                "Updated question",
+                Some("Updated answer"),
+                Some("Updated {{c1::text}}"),
+                Some(&[(8, 12)]),
+                Some(&["tag3".to_string(), "tag4".to_string()]),
+                Some("Reason 1"),
+            )
+            .await
+            .expect("update succeeds")
+            .expect("row exists");
+
+        // 1. Content and tags updated
+        assert_eq!(updated.question, "Updated question");
+        assert_eq!(updated.answer.as_deref(), Some("Updated answer"));
+        assert_eq!(updated.cloze_text.as_deref(), Some("Updated {{c1::text}}"));
+        assert_eq!(updated.cloze_ranges, Some(vec![(8, 12)]));
+        assert_eq!(updated.tags, vec!["tag3".to_string(), "tag4".to_string()]);
+
+        // 2. All scheduling, priority, memory, source fields completely preserved
+        assert_eq!(updated.due_date, initial.due_date);
+        assert_eq!(updated.interval, initial.interval);
+        assert_eq!(updated.ease_factor, initial.ease_factor);
+        assert_eq!(updated.review_count, initial.review_count);
+        assert_eq!(updated.lapses, initial.lapses);
+        assert_eq!(updated.priority_slider, initial.priority_slider);
+        assert_eq!(updated.priority_score, initial.priority_score);
+        assert_eq!(updated.priority_explicitly_set, initial.priority_explicitly_set);
+        assert_eq!(updated.source_reference, item.source_reference);
+        assert_eq!(updated.document_id, item.document_id);
+        assert_eq!(updated.extract_id, item.extract_id);
+        assert_eq!(
+            updated.memory_state.as_ref().map(|m| (m.stability, m.difficulty)),
+            item.memory_state.as_ref().map(|m| (m.stability, m.difficulty))
+        );
+
+        // 3. Version snapshot recorded prior state
+        let versions: Vec<String> = sqlx::query_scalar(
+            "SELECT value FROM settings WHERE key LIKE ?1 ORDER BY date_modified DESC",
+        )
+        .bind(format!("card_version:{}:%", item.id))
+        .fetch_all(repo.pool())
+        .await
+        .expect("fetch versions");
+
+        assert_eq!(versions.len(), 1);
+        let parsed_ver: CardVersionEntry = serde_json::from_str(&versions[0]).expect("parse version");
+        assert_eq!(parsed_ver.question, "Original {{c1::cloze}} question");
+        assert_eq!(parsed_ver.answer.as_deref(), Some("Original answer"));
+        assert_eq!(parsed_ver.cloze_text.as_deref(), Some("Original {{c1::cloze}} text"));
+        assert_eq!(parsed_ver.cloze_ranges, Some(vec![(9, 14)]));
+        assert_eq!(parsed_ver.tags, Some(vec!["tag1".to_string(), "tag2".to_string()]));
+        assert_eq!(parsed_ver.reason.as_deref(), Some("Reason 1"));
+    }
+
+    #[tokio::test]
+    async fn restore_learning_item_version_preserves_absent_fields_in_old_snapshots() {
+        let repo = setup_repo().await;
+        let mut item = LearningItem::new(ItemType::Cloze, "Current question".to_string());
+        item.answer = Some("Current answer".to_string());
+        item.cloze_text = Some("Current {{c1::cloze}}".to_string());
+        item.cloze_ranges = Some(vec![(8, 13)]);
+        item.tags = vec!["preserved-tag".to_string()];
+        item.due_date = Utc::now() + chrono::Duration::days(10);
+        item.interval = 20.0;
+        repo.create_learning_item(&item).await.expect("seed item");
+
+        // Old version snapshot without cloze_text, cloze_ranges, or tags fields
+        let old_json = format!(
+            r#"{{"version_id":"old-v1","item_id":"{}","timestamp":"2026-01-01T00:00:00Z","reason":"old edit","question":"Old Q","answer":"Old A"}}"#,
+            item.id
+        );
+        let parsed_old: CardVersionEntry = serde_json::from_str(&old_json).expect("parse old version");
+        assert!(parsed_old.cloze_text.is_none());
+        assert!(parsed_old.cloze_ranges.is_none());
+        assert!(parsed_old.tags.is_none());
+
+        // Restore using update_learning_item_content_and_tags_with_version (simulating revert)
+        let restored = repo
+            .update_learning_item_content_and_tags_with_version(
+                &item.id,
+                &parsed_old.question,
+                parsed_old.answer.as_deref(),
+                parsed_old.cloze_text.as_deref(),
+                parsed_old.cloze_ranges.as_deref(),
+                parsed_old.tags.as_deref(),
+                Some("Revert to old"),
+            )
+            .await
+            .expect("restore succeeds")
+            .expect("row exists");
+
+        // Question and answer restored
+        assert_eq!(restored.question, "Old Q");
+        assert_eq!(restored.answer.as_deref(), Some("Old A"));
+
+        // Absent fields preserved!
+        assert_eq!(restored.cloze_text.as_deref(), Some("Current {{c1::cloze}}"));
+        assert_eq!(restored.cloze_ranges, Some(vec![(8, 13)]));
+        assert_eq!(restored.tags, vec!["preserved-tag".to_string()]);
+
+        // Scheduling unchanged
+        assert_eq!(restored.due_date, item.due_date);
+        assert_eq!(restored.interval, 20.0);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -11313,31 +11549,7 @@ impl Repository {
             .map(|(input_index, (id, breakdown))| crate::models::daqe::RankedItem {
                 item: crate::models::queue::QueueItem {
                     id,
-                    document_id: String::new(),
-                    document_title: String::new(),
-                    extract_id: None,
-                    learning_item_id: None,
-                    question: None,
-                    answer: None,
-                    cloze_text: None,
-                    learning_hint: None,
-                    item_type: String::new(),
-                    priority_rating: None,
-                    priority_slider: None,
-                    priority: 0.0,
-                    due_date: None,
-                    estimated_time: 0,
-                    tags: Vec::new(),
-                    category: None,
-                    progress: 0,
-                    source: None,
-                    position: None,
-                    stability: None,
-                    difficulty: None,
-                    interval: None,
-                    retrievability: None,
-                    lapses: None,
-                    reps: None,
+                    ..Default::default()
                 },
                 score: breakdown.score(),
                 breakdown,
@@ -11358,6 +11570,7 @@ impl Repository {
             ranked,
             top10,
             computed_at,
+            rubric_version: crate::models::daqe::RANKER_RUBRIC_VERSION,
         }))
     }
 

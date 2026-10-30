@@ -46,6 +46,7 @@ export const en: Dict = {
   "assistant.actions.stopped": "Stopped. Your draft is preserved.",
   "assistant.actions.failed": "The action failed. Retry using its captured target.",
   "assistant.actions.startReading": "Start with what you’re reading",
+  "assistant.scroll.latest": "Latest message",
 
   "audio.editQueue": "Edit queue",
   "audio.moveUp": "Move up",
@@ -1459,6 +1460,7 @@ export const en: Dict = {
   "queueScroll.markAsRead": "Mark as Read",
   "queueScroll.previousDocument": "Previous Document (Alt+\u2191 or scroll to top)",
   "queueScroll.nextDocument": "Next Document (Alt+\u2193 or scroll to bottom)",
+  "queueScroll.cardsUnavailable": "Some cards could not be loaded. Refresh the queue to try again.",
   "queueScroll.helpTextDocFile":
     "Rate or use Alt+Arrows to navigate \u2022 H to toggle controls \u2022 Esc to exit",
   "queueScroll.helpTextDocScroll":
@@ -2899,6 +2901,11 @@ export const en: Dict = {
   "videoExtract.dueNow": "Due now",
   "videoExtract.due": "Due {date}",
   "videoExtract.reviewedTimes": "Reviewed {count} time(s)",
+  "videoExtract.statusNew": "New",
+  "videoExtract.statusSeen": "Seen",
+  "videoExtract.statusNotReviewed": "Not reviewed",
+  "videoExtract.statusReviewed": "Reviewed",
+  "videoExtract.rateExtract": "Rate this extract:",
   "videoExtract.rate": "Rate:",
   "rssCustomization.reset": "Reset",
   "rssCustomization.filters": "Filters",

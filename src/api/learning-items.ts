@@ -1,3 +1,4 @@
+import { normalizeLearningItem } from "./normalizeLearningItem";
 import { invokeCommand } from "../lib/tauri";
 import type { LearningItemInteractionMetadata } from "../types/learningItemInteractions";
 import type { CardSourceReference } from "../types/cardSourceReference";
@@ -6,7 +7,8 @@ export interface LearningItem {
   id: string;
   extract_id?: string;
   document_id?: string;
-  item_type: "Flashcard" | "Cloze" | "Qa" | "Basic";
+  // ImageOcclusion is retained for legacy imported records and repair routing.
+  item_type: "Flashcard" | "Cloze" | "Qa" | "Basic" | "ImageOcclusion";
   question: string;
   answer?: string;
   cloze_text?: string;
@@ -39,6 +41,8 @@ export interface LearningItem {
 }
 
 export interface CreateLearningItemInput {
+  source_revision?: string;
+  extract_revision?: string;
   item_type: string;
   question: string;
   answer?: string;
@@ -76,6 +80,9 @@ export interface CardVersionEntry {
   reason?: string;
   question: string;
   answer?: string;
+  cloze_text?: string;
+  cloze_ranges?: [number, number][];
+  tags?: string[];
 }
 
 /**
@@ -186,6 +193,8 @@ export async function createLearningItem(input: CreateLearningItemInput): Promis
     imageAssetIds: input.image_asset_ids,
     interactionMetadata: input.interaction_metadata,
     sourceReference: input.source_reference,
+    sourceRevision: input.source_revision,
+    extractRevision: input.extract_revision,
     allowDuplicate: input.allow_duplicate,
     acceptanceId: input.acceptance_id,
     proposalId: input.proposal_id,
@@ -254,8 +263,12 @@ export async function getDueLearningItemsBounded(limit = 20): Promise<LearningIt
  * already committed under this acceptance id, without creating anything.
  */
 export async function getLearningItemsByAcceptanceKey(acceptanceId: string): Promise<LearningItem[]> {
-  return await invokeCommand<LearningItem[]>("get_learning_items_by_acceptance_key", {
-    acceptanceId,
+  const records = await invokeCommand<unknown[]>("get_learning_items_by_acceptance_key", { acceptanceId });
+  if (!Array.isArray(records)) throw new Error("Saved card receipts are unavailable. Retry after reopening the library.");
+  return records.map((record) => {
+    const normalized = normalizeLearningItem(record);
+    if (!normalized) throw new Error("A saved card receipt could not be read. Reopen the library before retrying.");
+    return normalized;
   });
 }
 
@@ -284,19 +297,46 @@ export async function generateLearningItemsFromExtract(extractId: string): Promi
   return items;
 }
 
+export interface UpdateLearningItemContentInput {
+  itemId: string;
+  question: string;
+  answer?: string;
+  reason?: string;
+  clozeText?: string;
+  clozeRanges?: [number, number][];
+  tags?: string[];
+}
+
 export async function updateLearningItemContentWithVersion(
-  itemId: string,
-  question: string,
+  itemIdOrInput: string | UpdateLearningItemContentInput,
+  question?: string,
   answer?: string,
   reason?: string,
-  clozeText?: string
+  clozeText?: string,
+  clozeRanges?: [number, number][],
+  tags?: string[]
 ): Promise<LearningItem> {
+  const payload: UpdateLearningItemContentInput =
+    typeof itemIdOrInput === "object"
+      ? itemIdOrInput
+      : {
+          itemId: itemIdOrInput,
+          question: question ?? "",
+          answer,
+          reason,
+          clozeText,
+          clozeRanges,
+          tags,
+        };
+
   const item = await invokeCommand<LearningItem>("update_learning_item_content_with_version", {
-    itemId,
-    question,
-    answer,
-    reason,
-    clozeText,
+    itemId: payload.itemId,
+    question: payload.question,
+    answer: payload.answer,
+    reason: payload.reason,
+    clozeText: payload.clozeText,
+    clozeRanges: payload.clozeRanges,
+    tags: payload.tags,
   });
   return item;
 }

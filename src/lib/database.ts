@@ -8,7 +8,7 @@ import type { PdfSelectionContext } from '../types/selection';
 import { isMarketingCaptureNamespace } from './marketingCapture/namespace';
 
 // Database version - increment when schema changes
-const DB_VERSION = 5;
+const DB_VERSION = 7;
 const DEFAULT_DB_NAME = 'plethora';
 // Legacy database name written by Incrementum releases. The one-shot
 // migration below copies its contents into the new database on first run;
@@ -27,6 +27,8 @@ const STORES = {
     podcastFeeds: 'podcast_feeds',
     podcastEpisodes: 'podcast_episodes',
     audioPlayback: 'audio_playback',
+    videoExtracts: 'video_extracts',
+    videoExtractReviewEvents: 'video_extract_review_events',
 } as const;
 
 // Avoid storing extremely large document content in IndexedDB values.
@@ -234,6 +236,15 @@ export async function openDatabase(): Promise<IDBDatabase> {
                 itemStore.createIndex('by_sync_version', 'sync_version', { unique: false });
             }
 
+            if (target.transaction) {
+                const items = target.transaction.objectStore(STORES.learningItems);
+                // Non-unique on upgrade: preserve any historical duplicates;
+                // serialized transactions prevent new duplicate acceptances.
+                if (!items.indexNames.contains('by_acceptance_proposal')) {
+                    items.createIndex('by_acceptance_proposal', ['acceptance_id', 'proposal_id']);
+                }
+            }
+
             // Files store (for document blobs)
             if (!database.objectStoreNames.contains(STORES.files)) {
                 const fileStore = database.createObjectStore(STORES.files, { keyPath: 'id' });
@@ -243,6 +254,14 @@ export async function openDatabase(): Promise<IDBDatabase> {
                 if (!fileStore.indexNames.contains('by_filename')) {
                     fileStore.createIndex('by_filename', 'filename', { unique: false });
                 }
+            }
+
+            if (!database.objectStoreNames.contains(STORES.videoExtracts)) {
+                const videoStore = database.createObjectStore(STORES.videoExtracts, { keyPath: 'id' });
+                videoStore.createIndex('by_document', 'document_id', { unique: false });
+            }
+            if (!database.objectStoreNames.contains(STORES.videoExtractReviewEvents)) {
+                database.createObjectStore(STORES.videoExtractReviewEvents, { keyPath: 'operation_id' });
             }
 
             // Sync state store
@@ -437,6 +456,7 @@ export interface Document {
     priority_rating: number;
     priority_slider: number;
     priority_score: number;
+    priority_explicitly_set?: boolean | number;
     is_archived: boolean;
     is_dismissed?: boolean;
     is_local_only?: boolean;
@@ -654,6 +674,7 @@ export interface Extract {
     review_count: number;
     reps: number;
     sync_version?: number;
+    priority_score?: number;
     _deleted?: boolean;
 }
 
@@ -784,22 +805,123 @@ export interface LearningItem {
     /** Retry-safe acceptance identity for agent proposals (optional). */
     acceptance_id?: string;
     proposal_id?: string;
+    priority_slider?: number;
+    priority_score?: number;
     sync_version?: number;
     collection_id?: string;
     _deleted?: boolean;
 }
 
-export async function createLearningItem(item: Partial<LearningItem>): Promise<LearningItem> {
-    const fullItem = buildLearningItemRecord(item);
+function sameLearningCandidate(a: LearningItem, b: LearningItem): boolean {
+    const sortedTags = (tags: string[]) => [...new Set(tags)].sort();
+    const cloze = (item: LearningItem) => item.cloze_text?.trim() ? item.cloze_text : item.question;
+    const source = (raw?: string) => {
+        if (!raw) return null;
+        try { const value = JSON.parse(raw); if (value && typeof value === 'object') delete value.captured_at; return value; }
+        catch { return raw; }
+    };
+    const json = (value: unknown) => JSON.stringify(value, (_key, node) =>
+        node && typeof node === 'object' && !Array.isArray(node) ? Object.fromEntries(Object.entries(node).sort(([a], [b]) => a.localeCompare(b))) : node);
+    return a.item_type.toLowerCase() === b.item_type.toLowerCase() && a.question === b.question
+        && (a.answer ?? undefined) === (b.answer ?? undefined) && (a.item_type.toLowerCase() !== 'cloze' || cloze(a) === cloze(b))
+        && (a.extract_id ?? undefined) === (b.extract_id ?? undefined) && ((a.document_id ?? undefined) === (b.document_id ?? undefined) || (!b.document_id && Boolean(b.extract_id)))
+        && JSON.stringify(sortedTags(a.tags)) === JSON.stringify(sortedTags(b.tags))
+        && JSON.stringify(a.image_asset_ids ?? []) === JSON.stringify(b.image_asset_ids ?? [])
+        && json(a.interaction_metadata ?? null) === json(b.interaction_metadata ?? null)
+        && (Boolean(b.extract_id) || json(source(a.source_reference)) === json(source(b.source_reference)));
+}
 
-    if (item.document_id) {
-        const doc = await getDocument(item.document_id);
-        if (doc) {
-            await updateDocument(doc.id, { learning_item_count: doc.learning_item_count + 1 });
-        }
-    }
+export interface ExpectedLearningSource {
+    documentRevision?: string;
+    extractRevision?: string;
+}
 
-    return put(STORES.learningItems, fullItem);
+export async function getLearningItemByAcceptanceKey(acceptanceId: string, proposalId: string): Promise<LearningItem | null> {
+    const matches = await getByIndex<LearningItem>(STORES.learningItems, 'by_acceptance_proposal', [acceptanceId, proposalId]);
+    return matches[0] ?? null;
+}
+
+export async function createLearningItem(item: Partial<LearningItem>, source?: ExpectedLearningSource): Promise<LearningItem> {
+    return (await createLearningItemsAtomic([item], [source]))[0];
+}
+
+/** Source validation, candidate receipt, card and parent count commit together. */
+export async function createLearningItemsAtomic(
+    inputs: Partial<LearningItem>[], sources: Array<ExpectedLearningSource | undefined> = [],
+): Promise<LearningItem[]> {
+    const database = await openDatabase();
+    return new Promise((resolve, reject) => {
+        const tx = database.transaction([STORES.learningItems, STORES.documents, STORES.extracts], 'readwrite');
+        const items = tx.objectStore(STORES.learningItems);
+        const documents = tx.objectStore(STORES.documents);
+        const extracts = tx.objectStore(STORES.extracts);
+        const results: LearningItem[] = [];
+        let failure: unknown;
+        const fail = (message: string) => { failure = new Error(message); tx.abort(); };
+        tx.oncomplete = () => resolve(results);
+        tx.onabort = () => reject(failure ?? tx.error ?? new Error('Card creation was not committed'));
+        tx.onerror = () => { failure ??= tx.error; };
+        const next = (index: number) => {
+            if (index >= inputs.length) return;
+            for (const value of [inputs[index].document_id, inputs[index].extract_id]) {
+                if (value != null && (typeof value !== 'string' || !value.trim())) return fail('Select a valid source before saving');
+            }
+            const item = buildLearningItemRecord(inputs[index]);
+            const expected = sources[index];
+            const persist = (parent?: Document) => {
+                if (item.source_reference) {
+                    try {
+                        const source = JSON.parse(item.source_reference);
+                        if (!item.document_id || source.document_id !== item.document_id) return fail('The source passage does not match the document');
+                    } catch { return fail('Invalid source passage reference'); }
+                }
+                if (expected && item.item_type.toLowerCase() === 'cloze' && !item.cloze_text?.trim()) item.cloze_text = item.question;
+                if (parent) {
+                    if (expected?.documentRevision && parent.content_hash !== expected.documentRevision) return fail('The source document changed. Regenerate or reselect it before saving.');
+                    if (item.collection_id && parent.collection_id && item.collection_id !== parent.collection_id) return fail('The card and source must belong to the same collection');
+                    item.collection_id = parent.collection_id;
+                    documents.put({ ...parent, learning_item_count: (parent.learning_item_count ?? 0) + 1,
+                        date_modified: new Date().toISOString(), sync_version: (parent.sync_version ?? 0) + 1 });
+                }
+                const write = items.add(item);
+                write.onsuccess = () => { results.push(item); next(index + 1); };
+            };
+            const readDocument = () => {
+                if (!item.document_id) return persist();
+                if (item.document_id.startsWith('extract:')) return fail('Resolve the extract source before saving');
+                const read = documents.get(item.document_id);
+                read.onsuccess = () => {
+                    const parent = read.result as Document | undefined;
+                    if (!parent || parent._deleted) return fail('The source document is unavailable');
+                    persist(parent);
+                };
+            };
+            const validateSource = () => {
+                if (!item.extract_id) return readDocument();
+                const read = extracts.get(item.extract_id);
+                read.onsuccess = () => {
+                    const extract = read.result as Extract | undefined;
+                    if (!extract || extract._deleted || (item.document_id && item.document_id !== extract.document_id)) return fail('The source extract is unavailable or belongs to another document');
+                    if (expected?.extractRevision && Date.parse(extract.date_modified ?? '') !== Date.parse(expected.extractRevision)) return fail('The source extract changed. Regenerate or reselect it before saving.');
+                    item.document_id = extract.document_id;
+                    item.source_reference = undefined;
+                    readDocument();
+                };
+            };
+            if (item.acceptance_id && item.proposal_id) {
+                const prior = items.index('by_acceptance_proposal').get([item.acceptance_id, item.proposal_id]);
+                prior.onsuccess = () => {
+                    if (prior.result) {
+                        const saved = prior.result as LearningItem;
+                        if (!sameLearningCandidate(saved, item)) return fail('This candidate identity was already saved with different content');
+                        results.push(saved); next(index + 1);
+                    }
+                    else validateSource();
+                };
+            } else validateSource();
+        };
+        next(0);
+    });
 }
 
 /**
@@ -814,8 +936,9 @@ function buildLearningItemRecord(item: Partial<LearningItem>): LearningItem {
     const now = new Date().toISOString();
     return {
         id: item.id || uuidv4(),
-        extract_id: item.extract_id,
-        document_id: item.document_id,
+        collection_id: item.collection_id,
+        extract_id: item.extract_id ?? undefined,
+        document_id: item.document_id ?? undefined,
         item_type: item.item_type || 'flashcard',
         question: item.question || '',
         answer: item.answer,

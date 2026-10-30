@@ -3,7 +3,7 @@
 
 use crate::database::Repository;
 use crate::models::{
-    Document, DocumentMetadata, FileType, MemoryState, ReviewRating, VideoExtract,
+    Document, DocumentMetadata, FileType, VideoExtract,
 };
 use crate::transcription::engine::TranscriptionEngine;
 use crate::transcription::model_manager::ModelManager;
@@ -744,64 +744,27 @@ pub async fn delete_video_extract(
 pub async fn rate_video_extract(
     extract_id: String,
     rating: i32,
+    operation_id: String,
     repo: State<'_, Repository>,
-) -> Result<String, String> {
-    use crate::algorithms::DocumentScheduler;
+) -> Result<crate::models::video_extract::VideoExtractReviewResult, String> {
+    repo.review_video_extract(&extract_id, rating, &operation_id, chrono::Utc::now())
+        .await.map_err(|e| format!("Could not save this extract review: {}", e))
+}
 
-    if !(1..=4).contains(&rating) {
-        return Err("Rating must be between 1 (Again) and 4 (Easy)".to_string());
-    }
+/// Viewing is recorded only after confirmed playback, independently of review.
+#[tauri::command]
+pub async fn mark_video_extract_seen(
+    extract_id: String,
+    repo: State<'_, Repository>,
+) -> Result<VideoExtract, String> {
+    repo.mark_video_extract_seen(&extract_id, chrono::Utc::now())
+        .await.map_err(|e| format!("Could not save viewing progress: {}", e))
+}
 
-    let mut extract = repo
-        .get_video_extract(&extract_id)
-        .await
-        .map_err(|e| format!("Failed to get video extract: {}", e))?
-        .ok_or_else(|| "Video extract not found".to_string())?;
-
-    let scheduler = DocumentScheduler::default_params();
-    let now = chrono::Utc::now();
-
-    // Calculate elapsed days since last review
-    let elapsed_days = extract
-        .last_review_date
-        .map(|lr| (now - lr).num_seconds() as f64 / 86400.0)
-        .unwrap_or_else(|| (now - extract.date_created).num_seconds() as f64 / 86400.0)
-        .max(0.0);
-
-    let review_rating = ReviewRating::from(rating);
-
-    let current_stability = extract.memory_state.as_ref().map(|ms| ms.stability);
-    let current_difficulty = extract.memory_state.as_ref().map(|ms| ms.difficulty);
-
-    // Schedule the extract using FSRS
-    let result = scheduler.schedule_document(
-        review_rating,
-        current_stability,
-        current_difficulty,
-        elapsed_days,
-    );
-    let result = result.map_err(|e| format!("Failed to schedule: {}", e))?;
-
-    let new_review_count = extract.review_count + 1;
-    let new_reps = extract.reps + 1;
-
-    repo.update_video_extract_scheduling(
-        &extract.id,
-        Some(result.next_review),
-        Some(crate::models::MemoryState {
-            stability: result.stability,
-            difficulty: result.difficulty,
-            stability_fast: None,
-        }),
-        Some(new_review_count),
-        Some(new_reps),
-        Some(now),
-    )
-    .await
-    .map_err(|e| format!("Failed to update scheduling: {}", e))?;
-
-    Ok(format!(
-        "Next review: {}",
-        result.next_review.format("%Y-%m-%d %H:%M")
-    ))
+/// Snapshot local metadata and receipts for a collection archive.
+#[tauri::command]
+pub async fn get_video_extract_lifecycle(
+    document_ids: Option<Vec<String>>, repo: State<'_, Repository>,
+) -> Result<crate::models::video_extract::VideoExtractLifecycleArchive, String> {
+    repo.export_video_extract_lifecycle(document_ids.as_deref()).await.map_err(|e| e.to_string())
 }

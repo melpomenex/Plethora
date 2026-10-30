@@ -5,7 +5,7 @@
  * - timestamp-linked segments from videos for spaced repetition
  */
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import {
   BookOpen,
   Calendar,
@@ -21,19 +21,17 @@ import {
 } from "@phosphor-icons/react";
 import {
   createVideoExtract,
-  deleteVideoExtract,
-  rateVideoExtract,
-  getVideoExtracts,
   type VideoExtract,
   type CreateVideoExtractInput,
   formatSeconds,
   formatTimeRange,
   getTranscriptPreview,
   getRatingLabel,
-  getRatingColor,
 } from '../../api/video-extracts';
 import { useToast } from '../common/Toast';
 import { useI18n } from '../../lib/i18n';
+import { useVideoExtractList } from '../../hooks/useVideoExtractList';
+import { useDueVideoReview } from '../../hooks/useDueVideoReview';
 
 interface CreateVideoExtractDialogProps {
   documentId: string;
@@ -404,39 +402,8 @@ export function VideoExtractsList({
   onEditExtract,
   className = '',
 }: VideoExtractsListProps) {
-  const [extracts, setExtracts] = useState<VideoExtract[]>([]);
-  const [loading, setLoading] = useState(true);
-  const toast = useToast();
+  const { extracts, loading, rate, remove, isRating, retryRating } = useVideoExtractList(documentId);
   const { t } = useI18n();
-
-  const loadExtracts = useCallback(async () => {
-    setLoading(true);
-    try {
-      const data = await getVideoExtracts(documentId);
-      setExtracts(data);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('videoExtract.failedLoad'));
-    } finally {
-      setLoading(false);
-    }
-  }, [documentId, toast]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    loadExtracts();
-  }, [loadExtracts]);
-
-  const handleDelete = async (extractId: string) => {
-    if (!confirm(t('delete.deleteExtractConfirm'))) return;
-
-    try {
-      await deleteVideoExtract(extractId);
-      setExtracts((prev) => prev.filter((e) => e.id !== extractId));
-      toast.success(t('videoExtract.deleted'));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('videoExtract.failedDelete'));
-    }
-  };
 
   if (loading) {
     return (
@@ -465,7 +432,11 @@ export function VideoExtractsList({
           extract={extract}
           onPlay={onPlayExtract}
           onEdit={onEditExtract}
-          onDelete={handleDelete}
+          onDelete={remove}
+          showRating
+          onRate={rate}
+          isRating={isRating(extract.id)}
+          retryRating={retryRating(extract.id)}
         />
       ))}
     </div>
@@ -479,6 +450,8 @@ interface VideoExtractCardProps {
   onDelete?: (extractId: string) => void;
   onRate?: (extractId: string, rating: number) => void;
   showRating?: boolean;
+  isRating?: boolean;
+  retryRating?: number;
 }
 
 export function VideoExtractCard({
@@ -488,21 +461,10 @@ export function VideoExtractCard({
   onDelete,
   onRate,
   showRating = false,
+  isRating = false,
+  retryRating,
 }: VideoExtractCardProps) {
   const { t } = useI18n();
-  const [rating, setRating] = useState<number | null>(null);
-  const [ratingResult, setRatingResult] = useState<string | null>(null);
-
-  const handleRate = async (ratingValue: number) => {
-    try {
-      const result = await rateVideoExtract(extract.id, ratingValue);
-      setRating(ratingValue);
-      setRatingResult(result);
-      onRate?.(extract.id, ratingValue);
-    } catch (err) {
-      console.error('Failed to rate extract:', err);
-    }
-  };
 
   const duration = extract.end_time - extract.start_time;
   const isDue = extract.next_review_date
@@ -525,10 +487,11 @@ export function VideoExtractCard({
             {extract.title}
           </h4>
         </button>
-        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1">
           {onEdit && (
             <button
               onClick={() => onEdit(extract)}
+              disabled={isRating}
               className="p-1 hover:bg-muted rounded transition-colors"
               title={t('videoExtract.editExtract')}
             >
@@ -538,6 +501,7 @@ export function VideoExtractCard({
           {onDelete && (
             <button
               onClick={() => onDelete(extract.id)}
+              disabled={isRating}
               className="p-1 hover:bg-red-100 dark:hover:bg-red-900 rounded transition-colors"
               title={t('videoExtract.deleteExtract')}
             >
@@ -595,6 +559,8 @@ export function VideoExtractCard({
         </div>
       )}
 
+      <VideoExtractStatus extract={extract} />
+
       {/* Review Stats */}
       {extract.review_count > 0 && (
         <div className="text-xs text-muted-foreground">
@@ -605,29 +571,29 @@ export function VideoExtractCard({
       {/* Rating Buttons */}
       {showRating && (
         <div className="flex items-center gap-2 mt-3 pt-3 border-t border-border">
-          <span className="text-xs text-muted-foreground">{t('videoExtract.rate')}</span>
+          <span className="text-xs text-muted-foreground">{t('videoExtract.rateExtract')}</span>
           {[1, 2, 3, 4].map((r) => (
             <button
               key={r}
-              onClick={() => handleRate(r)}
-              className={`px-2 py-1 text-xs rounded transition-colors ${
-                rating === r
-                  ? 'text-white'
-                  : 'bg-muted text-muted-foreground hover:bg-muted/80'
-              }`}
-              style={rating === r ? { backgroundColor: getRatingColor(r) } : {}}
+              onClick={() => onRate?.(extract.id, r)}
+              disabled={isRating || !onRate || (retryRating !== undefined && retryRating !== r)}
+              className="px-2 py-1 text-xs rounded transition-colors bg-muted text-muted-foreground hover:bg-muted/80 disabled:opacity-50"
               title={getRatingLabel(r)}
             >
               {getRatingLabel(r)}
             </button>
           ))}
-          {ratingResult && (
-            <span className="text-xs text-green-600">{ratingResult}</span>
-          )}
         </div>
       )}
     </div>
   );
+}
+
+function VideoExtractStatus({ extract }: { extract: VideoExtract }) {
+  const { t } = useI18n();
+  const status = extract.review_count > 0 ? t('videoExtract.statusReviewed')
+    : `${t(extract.first_seen_at ? 'videoExtract.statusSeen' : 'videoExtract.statusNew')} · ${t('videoExtract.statusNotReviewed')}`;
+  return <div className="flex flex-wrap gap-2 text-xs text-muted-foreground" aria-live="polite">{status}</div>;
 }
 
 interface DueVideoExtractsReviewProps {
@@ -641,55 +607,8 @@ export function DueVideoExtractsReview({
   onComplete,
   className = '',
 }: DueVideoExtractsReviewProps) {
-  const [extracts, setExtracts] = useState<VideoExtract[]>([]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const toast = useToast();
+  const { extracts, currentIndex, loading, isRating, rate, retryRating } = useDueVideoReview(documentId, onComplete);
   const { t } = useI18n();
-
-  useEffect(() => {
-    loadDueExtracts();
-  }, [documentId]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-
-  const loadDueExtracts = async () => {
-    setLoading(true);
-    try {
-      // Filter extracts by due date
-      const allExtracts = documentId
-        ? await getVideoExtracts(documentId)
-        : []; // Would need a get_due_video_extracts API call
-
-      const now = new Date();
-      const due = allExtracts.filter(
-        (e) => e.next_review_date && new Date(e.next_review_date) <= now
-      );
-
-      setExtracts(due);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('videoExtract.failedLoadDue'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleRate = async (rating: number) => {
-    const current = extracts[currentIndex];
-    if (!current) return;
-
-    try {
-      await rateVideoExtract(current.id, rating);
-
-      // Move to next or finish
-      if (currentIndex < extracts.length - 1) {
-        setCurrentIndex(currentIndex + 1);
-      } else {
-        onComplete?.();
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : t('videoExtract.failedRate'));
-    }
-  };
 
   if (loading) {
     return (
@@ -699,7 +618,7 @@ export function DueVideoExtractsReview({
     );
   }
 
-  if (extracts.length === 0) {
+  if (currentIndex >= extracts.length) {
     return (
       <div className={`text-center py-8 ${className}`}>
         <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
@@ -734,7 +653,9 @@ export function DueVideoExtractsReview({
           <VideoExtractCard
             extract={current}
             showRating
-            onRate={(_, rating) => handleRate(rating)}
+            isRating={isRating}
+            onRate={rate}
+            retryRating={retryRating(current.id)}
           />
         </div>
       )}

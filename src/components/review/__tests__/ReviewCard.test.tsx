@@ -46,6 +46,16 @@ const baseCard = {
 };
 
 describe("ReviewCard", () => {
+  it("hides multiline cloze markers in the question even when saved ranges are stale", () => {
+    const card = { ...baseCard, item_type: "cloze" as const, question: "The {{c1::secret\nanswer::hint}} remains hidden.", cloze_text: undefined, cloze_ranges: [[0, 3] as [number, number]] };
+    const { container, rerender } = render(<ReviewCard card={card} showAnswer={false} onShowAnswer={vi.fn()} />);
+    expect(container.textContent).not.toContain("secret");
+    expect(container.textContent).toContain("hint");
+    rerender(<ReviewCard card={card} showAnswer onShowAnswer={vi.fn()} />);
+    expect(container.textContent).toContain("secret");
+    expect(container.textContent).not.toContain("{{c1::");
+  });
+
   it("renders and resolves multiple-choice cards", () => {
     useSettingsStore.setState((state) => ({
       settings: {

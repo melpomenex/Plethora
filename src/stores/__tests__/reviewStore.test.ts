@@ -66,6 +66,7 @@ vi.mock("../../lib/sync-client", () => ({
 
 import { getDueItems } from "../../api/review";
 import { useReviewStore } from "../reviewStore";
+import { cardMutationCoordinator } from "../../api/learningItemMutationCoordinator";
 
 beforeAll(() => {
   const data = new Map<string, string>();
@@ -142,6 +143,7 @@ describe("reviewStore Wave 1 behavior", () => {
     settingsState.learning.precisionPureKernel = false;
     settingsState.learning.arenaReviewMode = "choose";
     window.localStorage.clear();
+    cardMutationCoordinator.resetForTesting();
     useReviewStore.getState().resetSession();
   });
 

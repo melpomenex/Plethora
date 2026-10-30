@@ -29,7 +29,7 @@ interface ChatFlashcardCollectionProps {
 }
 
 const stateLabel = (artifact: ChatFlashcardArtifact) =>
-  artifact.status === "saved" ? "Saved" : artifact.status === "failed" ? "Needs attention" : "Saving";
+  artifact.status === "preview" ? "Preview" : artifact.status === "saved" ? "Saved" : artifact.status === "failed" ? "Needs attention" : "Saving";
 
 export function ChatFlashcardCollection({
   artifacts,
@@ -156,7 +156,7 @@ export function ChatFlashcardCollection({
                     <div className="mt-1.5 flex min-w-0 items-center gap-2 text-[10px] text-muted-foreground">
                       <span className="inline-flex shrink-0 items-center gap-1">
                         {artifact.status === "saved" ? <CheckCircle className="h-3 w-3 text-emerald-500" weight="fill" /> :
-                          artifact.status === "failed" ? <WarningCircle className="h-3 w-3 text-destructive" weight="fill" /> :
+                          artifact.status === "preview" ? null : artifact.status === "failed" ? <WarningCircle className="h-3 w-3 text-destructive" weight="fill" /> :
                           <CircleNotch className="h-3 w-3 animate-spin motion-reduce:animate-none" />}
                         {stateLabel(artifact)}
                       </span>

@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct QueueItem {
     pub id: String,
     pub document_id: String,
@@ -18,7 +18,7 @@ pub struct QueueItem {
     /// omitted from the payload; full-content commands leave it None.
     #[serde(default)]
     pub learning_hint: Option<String>,
-    pub item_type: String, // "document", "extract", "learning-item", "playlist-video"
+    pub item_type: String, // "document", "extract", "video-extract", "learning-item", "playlist-video"
     pub priority_rating: Option<i32>,
     pub priority_slider: Option<i32>,
     pub priority: f64,
@@ -41,4 +41,30 @@ pub struct QueueItem {
     pub retrievability: Option<f64>,
     pub lapses: Option<i32>,
     pub reps: Option<i32>,
+
+    // Canonical D1/D2 ranking & scheduling evidence (omitted when absent so older consumers stay compatible)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub canonical_priority: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority_available: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority_explicitly_set: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temporal_urgency: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub temporal_available: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub overdue_urgency: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_urgency: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_review_date: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stability_fast: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub algorithm_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub is_new_item: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entity_id: Option<String>,
 }

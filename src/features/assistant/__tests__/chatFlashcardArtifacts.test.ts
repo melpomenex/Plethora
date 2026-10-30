@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  withCardCandidateIdentities,
+  mergeBatchCandidateResult,
+  safeCardCreationError,
   getFlashcardArtifactDeckName,
   nonFlashcardToolCalls,
+  persistedCardDocumentId,
+  summarizeBatchCardResults,
   toolCallsToFlashcardArtifacts,
 } from "../chatFlashcardArtifacts";
 
@@ -22,7 +27,7 @@ describe("chat flashcard artifact normalization", () => {
 
   it("defensively ignores null legacy fields and malformed card calls", () => {
     expect(toolCallsToFlashcardArtifacts("message-1", null)).toEqual([]);
-    expect(toolCallsToFlashcardArtifacts("message-1", [null, { name: "create_qa_card", parameters: null }])).toEqual([]);
+    expect(toolCallsToFlashcardArtifacts("message-1", [null, { name: "create_qa_card", parameters: null }])).toEqual([expect.objectContaining({ status: "failed", retryable: false })]);
   });
 
   it("attaches lightweight section provenance without source content", () => {
@@ -88,7 +93,7 @@ describe("chat flashcard artifact normalization", () => {
     expect(nonFlashcardToolCalls(calls)).toEqual([]);
   });
 
-  it("surfaces partial batch failures without offering an unsafe whole-batch retry", () => {
+  it("surfaces partial batch failures for retry of only the failed candidate", () => {
     const [artifact] = toolCallsToFlashcardArtifacts("message-1", [{
       name: "batch_create_cards",
       parameters: { cards: [{ type: "qa", question: "Q", answer: "A" }] },
@@ -98,6 +103,44 @@ describe("chat flashcard artifact normalization", () => {
       },
     }]);
 
-    expect(artifact).toMatchObject({ status: "failed", error: "Database busy", retryable: false });
+    expect(artifact).toMatchObject({ status: "failed", error: "Database busy", retryable: true });
+  });
+
+  it("counts only persisted batch receipts and exposes the canonical source document", () => {
+    const result = { content: [{ type: "text", text: JSON.stringify({
+      document_id: "parent-document",
+      created: 2,
+      results: [{ success: true, id: "saved" }, { success: false, error: "Write failed" }],
+    }) }] };
+    expect(summarizeBatchCardResults(result, 2)).toEqual({ saved: 1, failed: 1 });
+    expect(persistedCardDocumentId(result)).toBe("parent-document");
+    expect(summarizeBatchCardResults(result, 3)).toEqual({ saved: 1, failed: 2 });
+  });
+
+  it("never labels a card saved without a durable identity", () => {
+    const artifacts = toolCallsToFlashcardArtifacts("message", [
+      { name: "create_qa_card", parameters: { question: "Q", answer: "A" }, status: "success", result: {} },
+      { name: "batch_create_cards", parameters: { cards: [{ type: "cloze", question: "{{answer}}" }] }, status: "success", result: { results: [{ success: true }] } },
+    ]);
+    expect(artifacts.map((artifact) => artifact.status)).toEqual(["failed", "failed"]);
+    expect(artifacts.every((artifact) => !artifact.persistedCardId)).toBe(true);
+  });
+});
+
+describe("retry-safe candidate receipts", () => {
+  it("keeps saved siblings when the batch reports an error and merges just one retry", () => {
+    const parameters = withCardCandidateIdentities("turn", 0, { name: "batch_create_cards", status: "pending", parameters: { acceptance_id: "model", cards: [{ type: "qa", question: "Q1", answer: "A1" }, { type: "qa", question: "Q2", answer: "A2" }] } });
+    const first = { results: [{ success: true, id: "committed", proposal_id: "chat:turn:0:0" }, { success: false, error: "Busy", proposal_id: "chat:turn:0:1" }] };
+    const call = { name: "batch_create_cards", status: "error", parameters, result: first };
+    expect(toolCallsToFlashcardArtifacts("m", [call]).map((row) => row.status)).toEqual(["saved", "failed"]);
+    const merged = mergeBatchCandidateResult(first, 2, 1, { results: [{ success: true, id: "retried" }] }, "chat:turn:0:1");
+    expect(summarizeBatchCardResults(merged, 2)).toEqual({ saved: 2, failed: 0 });
+    expect(toolCallsToFlashcardArtifacts("m", [{ ...call, result: merged }]).map((row) => row.persistedCardId)).toEqual(["committed", "retried"]);
+    expect(parameters.acceptance_id).toBe("chat:turn:0");
+  });
+  it("hides raw database JSON and leaves uncertain legacy saves non-retryable", () => {
+    expect(safeCardCreationError({ content: [{ text: '{"error":"SQLITE_CONSTRAINT"}' }] })).not.toContain("SQLITE");
+    const [row] = toolCallsToFlashcardArtifacts("m", [{ name: "create_qa_card", parameters: { question: "Q", answer: "A" }, status: "error", result: "timeout" }]);
+    expect(row.retryable).toBe(false);
   });
 });

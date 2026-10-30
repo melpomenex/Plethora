@@ -277,6 +277,17 @@ pub struct RankedItem {
     pub input_index: usize,
 }
 
+/// Rubric version for DAQE snapshots and cached model judgements.
+///
+/// Bumped from `1` to `2` when the SRS/memory urgency term migrated to the
+/// canonical `M = 0.8 * T + 0.2 * P` D2/D3 policy so stale snapshots are
+/// rejected on load rather than displayed under the new rubric.
+pub const RANKER_RUBRIC_VERSION: i32 = 2;
+
+fn default_legacy_rubric_version() -> i32 {
+    1
+}
+
 /// The published result of one ranking pass.
 ///
 /// The snapshot is the unit the queue reads: it carries both the full order and
@@ -291,6 +302,8 @@ pub struct QueueSnapshot {
     pub ranked: Vec<RankedItem>,
     pub top10: Vec<RankedItem>,
     pub computed_at: DateTime<Utc>,
+    #[serde(default = "default_legacy_rubric_version")]
+    pub rubric_version: i32,
 }
 
 impl QueueSnapshot {

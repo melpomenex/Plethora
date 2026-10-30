@@ -199,6 +199,7 @@ pub(crate) async fn build_snapshot(
         ranked,
         top10,
         computed_at: now,
+        rubric_version: crate::models::daqe::RANKER_RUBRIC_VERSION,
     })
 }
 

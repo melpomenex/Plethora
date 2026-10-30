@@ -190,7 +190,28 @@ pub async fn update_playlist_subscription(
     priority_rating: Option<i32>,
     refresh_interval_hours: Option<i32>,
     repo: State<'_, Repository>,
-) -> Result<()> {
+) -> Result<PlaylistSubscription> {
+    if let Some(interval) = queue_intersperse_interval {
+        if !(1..=50).contains(&interval) {
+            return Err(PlethoraError::Internal(
+                "queue_intersperse_interval must be between 1 and 50".to_string(),
+            ));
+        }
+    }
+    if let Some(priority) = priority_rating {
+        if !(1..=10).contains(&priority) {
+            return Err(PlethoraError::Internal(
+                "priority_rating must be between 1 and 10".to_string(),
+            ));
+        }
+    }
+    if let Some(hours) = refresh_interval_hours {
+        if !(1..=168).contains(&hours) {
+            return Err(PlethoraError::Internal(
+                "refresh_interval_hours must be between 1 and 168".to_string(),
+            ));
+        }
+    }
     repo.update_playlist_subscription(
         &subscription_id,
         title.as_deref(),
@@ -200,7 +221,13 @@ pub async fn update_playlist_subscription(
         priority_rating,
         refresh_interval_hours,
     )
-    .await
+    .await?;
+
+    repo.get_playlist_subscription(&subscription_id)
+        .await?
+        .ok_or_else(|| {
+            PlethoraError::Internal("Playlist subscription not found after update".to_string())
+        })
 }
 
 /// Delete a playlist subscription
@@ -274,7 +301,23 @@ pub async fn refresh_playlist(
                                 )
                                 .await
                                 {
-                                    Ok(doc) => {
+                                    Ok(mut doc) => {
+                                        let sub_priority = subscription.priority_rating.clamp(1, 10);
+                                        let slider = (((sub_priority - 1) as f64 / 9.0) * 100.0).round() as i32;
+                                        let rating = if slider > 0 { ((slider - 1) / 20) + 1 } else { 0 };
+                                        let _ = sqlx::query(
+                                            "UPDATE documents SET priority_rating = ?1, priority_slider = ?2, priority_score = ?2, priority_explicitly_set = 0 WHERE id = ?3",
+                                        )
+                                        .bind(rating)
+                                        .bind(slider)
+                                        .bind(&doc.id)
+                                        .execute(repo.pool())
+                                        .await;
+                                        doc.priority_rating = rating;
+                                        doc.priority_slider = slider;
+                                        doc.priority_score = slider as f64;
+                                        doc.priority_explicitly_set = false;
+
                                         let _ =
                                             repo.mark_video_imported(&video_uuid, &doc.id).await;
                                         imported_count += 1;
@@ -308,7 +351,7 @@ pub async fn import_playlist_video(
 ) -> Result<Document> {
     let rows = sqlx::query(
         r#"
-        SELECT pv.*, ps.playlist_id FROM youtube_playlist_videos pv
+        SELECT pv.*, ps.priority_rating as sub_priority FROM youtube_playlist_videos pv
         JOIN youtube_playlist_subscriptions ps ON pv.subscription_id = ps.id
         WHERE pv.id = ?1
         "#,
@@ -328,6 +371,7 @@ pub async fn import_playlist_video(
     let video_id: String = row.get("video_id");
     let is_imported: i32 = row.get("is_imported");
     let existing_doc_id: Option<String> = row.get("document_id");
+    let sub_priority: i32 = row.get("sub_priority");
 
     // If already imported, return existing document
     if is_imported != 0 {
@@ -339,7 +383,26 @@ pub async fn import_playlist_video(
     }
 
     let video_url = format!("https://www.youtube.com/watch?v={}", video_id);
-    let doc = import_youtube_video_as_document(video_url, repo.inner(), None).await?;
+    let mut doc = import_youtube_video_as_document(video_url, repo.inner(), None).await?;
+
+    // Seed document priority once from subscription priority (1..=10)
+    let sub_priority = sub_priority.clamp(1, 10);
+    let slider = (((sub_priority - 1) as f64 / 9.0) * 100.0).round() as i32;
+    let rating = if slider > 0 { ((slider - 1) / 20) + 1 } else { 0 };
+    sqlx::query(
+        "UPDATE documents SET priority_rating = ?1, priority_slider = ?2, priority_score = ?2, priority_explicitly_set = 0 WHERE id = ?3",
+    )
+    .bind(rating)
+    .bind(slider)
+    .bind(&doc.id)
+    .execute(repo.pool())
+    .await
+    .map_err(PlethoraError::Database)?;
+
+    doc.priority_rating = rating;
+    doc.priority_slider = slider;
+    doc.priority_score = slider as f64;
+    doc.priority_explicitly_set = false;
 
     // Mark as imported
     repo.mark_video_imported(&playlist_video_id, &doc.id)
@@ -404,7 +467,28 @@ pub async fn update_playlist_settings(
     max_consecutive_playlist_videos: Option<i32>,
     prefer_new_videos: Option<bool>,
     repo: State<'_, Repository>,
-) -> Result<()> {
+) -> Result<PlaylistSettings> {
+    if let Some(interval) = default_intersperse_interval {
+        if !(1..=50).contains(&interval) {
+            return Err(PlethoraError::Internal(
+                "default_intersperse_interval must be between 1 and 50".to_string(),
+            ));
+        }
+    }
+    if let Some(priority) = default_priority {
+        if !(1..=10).contains(&priority) {
+            return Err(PlethoraError::Internal(
+                "default_priority must be between 1 and 10".to_string(),
+            ));
+        }
+    }
+    if let Some(consecutive) = max_consecutive_playlist_videos {
+        if !(1..=5).contains(&consecutive) {
+            return Err(PlethoraError::Internal(
+                "max_consecutive_playlist_videos must be between 1 and 5".to_string(),
+            ));
+        }
+    }
     repo.update_playlist_settings(
         enabled,
         default_intersperse_interval,
@@ -412,7 +496,9 @@ pub async fn update_playlist_settings(
         max_consecutive_playlist_videos,
         prefer_new_videos,
     )
-    .await
+    .await?;
+
+    repo.get_playlist_settings().await
 }
 
 /// Get queue items from playlist videos that need interspersion

@@ -3,7 +3,7 @@
  */
 
 import { create } from "zustand";
-import { ReactNode, useCallback, useEffect } from "react";
+import { ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { CheckCircle, Info, Warning, X, XCircle } from "@phosphor-icons/react";
 import type { Icon } from "@phosphor-icons/react";
 import { dialogSurface, useDialogFocus } from "../md3/Dialog";
@@ -35,6 +35,7 @@ export interface ModalOptions {
   variant?: "default" | "danger" | "warning";
   closable?: boolean;
   size?: "sm" | "md" | "lg" | "xl" | "full";
+  onConfirm?: () => Promise<boolean | void> | boolean | void;
 }
 
 /**
@@ -51,6 +52,7 @@ interface ModalState {
   variant: "default" | "danger" | "warning";
   closable: boolean;
   size: "sm" | "md" | "lg" | "xl" | "full";
+  onConfirm?: () => Promise<boolean | void> | boolean | void;
   resolve?: (value: boolean) => void;
 }
 
@@ -90,6 +92,7 @@ export const useModalStore = create<ModalStore>((set, get) => ({
           variant: options.variant || "default",
           closable: options.closable !== false,
           size: options.size || "md",
+          onConfirm: options.onConfirm,
           resolve,
         },
       });
@@ -108,23 +111,45 @@ export const useModalStore = create<ModalStore>((set, get) => ({
  */
 export function Modal() {
   const { modal, hideModal } = useModalStore();
+  const isConfirmingRef = useRef(false);
+  const [isConfirming, setIsConfirming] = useState(false);
 
+  const handleConfirm = useCallback(async () => {
+    if (isConfirmingRef.current) return;
+    if (modal.onConfirm) {
+      try {
+        isConfirmingRef.current = true;
+        setIsConfirming(true);
+        const shouldClose = await modal.onConfirm();
+        if (shouldClose === false) return;
+        modal.resolve?.(true);
+        hideModal();
+      } catch {
+        return;
+      } finally {
+        isConfirmingRef.current = false;
+        setIsConfirming(false);
+      }
+    } else {
+      modal.resolve?.(true);
+      hideModal();
+    }
+  }, [modal, hideModal]);
 
-  const handleConfirm = () => {
-    modal.resolve?.(true);
-    hideModal();
-  };
+  const handleConfirmRef = useRef(handleConfirm);
+  handleConfirmRef.current = handleConfirm;
 
-  const handleCancel = () => {
+  const handleCancel = useCallback(() => {
+    if (isConfirmingRef.current) return;
     modal.resolve?.(false);
     hideModal();
-  };
+  }, [modal, hideModal]);
 
-  const handleClose = () => {
+  const handleClose = useCallback(() => {
     if (modal.closable) {
       handleCancel();
     }
-  };
+  }, [modal.closable, handleCancel]);
 
   const modalRef = useDialogFocus(modal.visible, handleClose);
 
@@ -139,7 +164,7 @@ export function Modal() {
         const el = e.target as HTMLElement | null;
         if (el?.closest("button, a, textarea, [contenteditable='true']")) return;
         e.preventDefault();
-        handleConfirm();
+        void handleConfirmRef.current();
       }
     };
 
@@ -234,9 +259,10 @@ export function Modal() {
           <Button
             variant={modal.variant === "danger" ? "destructive" : "filled"}
             onClick={handleConfirm}
+            disabled={isConfirming}
             className={cn("min-h-11", modal.variant === "warning" && "bg-warning text-on-surface-variant")}
           >
-            {modal.confirmText}
+            {isConfirming ? "..." : modal.confirmText}
           </Button>
         </div>
       </div>

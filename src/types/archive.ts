@@ -1,10 +1,12 @@
+import type { VideoExtractLifecycleArchive } from "../api/video-extracts";
+
 export type CollectionExportScope = "current" | "all";
 
 export interface CollectionArchiveManifest {
   /** `plethora-collection-export` is current; `incrementum-collection-export`
  * is the legacy marker and stays importable forever. */
-  archiveType: "plethora-collection-export" | "incrementum-collection-export";
-  version: "1.0";
+  archiveType: "plethora-collection-export" | "incrementum-collection-export" | "plethora-collection-export-v2";
+  version: "1.0" | "2.0";
   exportedAt: string;
   scope: CollectionExportScope;
   collectionId?: string | null;
@@ -20,6 +22,7 @@ export interface ArchiveFileEntry {
 }
 
 export interface CollectionArchivePayload {
+  videoLifecycle?: VideoExtractLifecycleArchive;
   documents: unknown[];
   extracts: unknown[];
   learningItems: unknown[];

@@ -18,15 +18,7 @@ pub struct DuplicateCandidate {
     pub similarity: f64,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct CardVersionEntry {
-    pub version_id: String,
-    pub item_id: String,
-    pub timestamp: String,
-    pub reason: Option<String>,
-    pub question: String,
-    pub answer: Option<String>,
-}
+pub use crate::models::CardVersionEntry;
 
 fn tokenize(text: &str) -> HashSet<String> {
     text.to_lowercase()
@@ -244,6 +236,8 @@ pub async fn create_learning_item(
     // (stored as-is) when the card links to an extract, whose selection
     // context remains the authoritative anchor.
     source_reference: Option<String>,
+    source_revision: Option<String>,
+    extract_revision: Option<String>,
     allow_duplicate: Option<bool>,
     // Narrow retry-safe acceptance identity (agent learning proposals). A
     // retried call with the same pair returns the originally committed row.
@@ -251,18 +245,13 @@ pub async fn create_learning_item(
     proposal_id: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
-    // Idempotent retry: return the committed row before any duplicate check.
-    if let (Some(acceptance), Some(proposal)) = (&acceptance_id, &proposal_id) {
-        if let Some(existing) =
-            find_learning_item_by_acceptance_key(acceptance, proposal, &repo).await?
-        {
-            return Ok(existing);
-        }
-    }
+    let existing_for_acceptance = if let (Some(acceptance), Some(proposal)) = (&acceptance_id, &proposal_id) {
+        find_learning_item_by_acceptance_key(acceptance, proposal, &repo).await?
+    } else { None };
     let acceptance_key = acceptance_id.clone();
     let proposal_key = proposal_id.clone();
 
-    if !allow_duplicate.unwrap_or(false) {
+    if !allow_duplicate.unwrap_or(false) && existing_for_acceptance.is_none() {
         // Agent text proposals use a bounded candidate read; legacy/manual
         // creates keep the existing whole-library check.
         let candidates = if acceptance_id.is_some() {
@@ -279,11 +268,12 @@ pub async fn create_learning_item(
         }
     }
 
-    let item_type = match item_type.as_str() {
+    let item_type = match item_type.to_ascii_lowercase().as_str() {
         "flashcard" => ItemType::Flashcard,
         "cloze" => ItemType::Cloze,
         "qa" => ItemType::Qa,
-        _ => ItemType::Basic,
+        "basic" => ItemType::Basic,
+        _ => return Err(PlethoraError::InvalidInput("Unsupported card type".into())),
     };
 
     let mut item = LearningItem::new(item_type, question);
@@ -314,7 +304,8 @@ pub async fn create_learning_item(
             }
         }
     }
-    let created = match repo.create_learning_item(&item).await {
+    let source = crate::database::learning_item_source::ExpectedLearningSource { document_revision: source_revision, extract_revision };
+    let created = match repo.create_learning_item_with_source(&item, Some(&source)).await {
         Ok(created) => created,
         Err(error) => {
             // Concurrent retry: the unique (acceptance_id, proposal_id) index
@@ -323,7 +314,7 @@ pub async fn create_learning_item(
                 if let Some(existing) =
                     find_learning_item_by_acceptance_key(acceptance, proposal, &repo).await?
                 {
-                    return Ok(existing);
+                    if crate::database::learning_item_source::same_learning_candidate(&existing, &item) { return Ok(existing); }
                 }
             }
             return Err(error);
@@ -424,7 +415,7 @@ pub async fn create_learning_items_batch(
         item.extract_id = entry.extract_id.clone();
         item.document_id = entry.document_id.clone();
         item.answer = entry.answer.clone();
-        item.cloze_text = entry.cloze_text.clone();
+        item.cloze_text = entry.cloze_text.clone().or_else(|| (item.item_type == ItemType::Cloze).then(|| item.question.clone()));
         item.tags = entry.tags.clone().unwrap_or_default();
         item.image_asset_ids = entry.image_asset_ids.clone().unwrap_or_default();
         item.interaction_metadata = entry.interaction_metadata.clone();
@@ -685,41 +676,19 @@ pub async fn update_learning_item_content_with_version(
     question: String,
     answer: Option<String>,
     cloze_text: Option<String>,
+    cloze_ranges: Option<Vec<(usize, usize)>>,
+    tags: Option<Vec<String>>,
     reason: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
-    let item = repo
-        .get_learning_item(&item_id)
-        .await?
-        .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item_id)))?;
-
-    let version_id = uuid::Uuid::new_v4().to_string();
-    let timestamp = chrono::Utc::now().to_rfc3339();
-    let version = CardVersionEntry {
-        version_id: version_id.clone(),
-        item_id: item_id.clone(),
-        timestamp: timestamp.clone(),
-        reason,
-        question: item.question.clone(),
-        answer: item.answer.clone(),
-    };
-
-    sqlx::query("INSERT INTO settings (key, value, date_modified) VALUES (?1, ?2, ?3)")
-        .bind(format!("card_version:{}:{}", item_id, version_id))
-        .bind(serde_json::to_string(&version).unwrap_or_else(|_| "{}".to_string()))
-        .bind(chrono::Utc::now())
-        .execute(repo.pool())
-        .await?;
-
-    // Direct content write: question always, answer/cloze_text only when
-    // supplied (omitted columns keep their stored values — callers like the
-    // Knowledge Sphere rename pass question only). Scheduling columns are
-    // never touched by this path.
-    repo.update_learning_item_content(
+    repo.update_learning_item_content_and_tags_with_version(
         &item_id,
         &question,
         answer.as_deref(),
         cloze_text.as_deref(),
+        cloze_ranges.as_deref(),
+        tags.as_deref(),
+        reason.as_deref(),
     )
     .await?
     .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item_id)))
@@ -782,9 +751,17 @@ pub async fn revert_learning_item_version(
     let version: CardVersionEntry = serde_json::from_str(&value)
         .map_err(|e| PlethoraError::Internal(format!("Invalid version payload: {}", e)))?;
 
-    repo.update_learning_item_content(&item_id, &version.question, version.answer.as_deref(), None)
-        .await?
-        .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item_id)))
+    repo.update_learning_item_content_and_tags_with_version(
+        &item_id,
+        &version.question,
+        version.answer.as_deref(),
+        version.cloze_text.as_deref(),
+        version.cloze_ranges.as_deref(),
+        version.tags.as_deref(),
+        Some(&format!("Revert to version {}", version_id)),
+    )
+    .await?
+    .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item_id)))
 }
 
 #[tauri::command]

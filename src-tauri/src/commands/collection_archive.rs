@@ -34,6 +34,8 @@ struct ArchiveFileEntry {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ArchivePayload {
+    #[serde(default)]
+    video_lifecycle: crate::models::video_extract::VideoExtractLifecycleArchive,
     documents: Vec<Document>,
     extracts: Vec<Extract>,
     learning_items: Vec<LearningItem>,
@@ -88,10 +90,16 @@ pub async fn import_collection_archive(
     let manifest_bytes = read_zip_bytes(&mut archive, "manifest.json")?;
     let manifest: ArchiveManifest = serde_json::from_slice(&manifest_bytes)
         .map_err(|e| AppError::Internal(format!("Invalid manifest: {}", e)))?;
-    if manifest.archive_type != "incrementum-collection-export" {
+    if ![
+        "incrementum-collection-export",
+        "plethora-collection-export",
+        "plethora-collection-export-v2",
+    ]
+    .contains(&manifest.archive_type.as_str())
+    {
         return Err(AppError::Internal("Unsupported archive type".to_string()));
     }
-    if manifest.version != "1.0" {
+    if !["1.0", "2.0"].contains(&manifest.version.as_str()) {
         return Err(AppError::Internal(
             "Unsupported archive version".to_string(),
         ));
@@ -324,6 +332,14 @@ pub async fn import_collection_archive(
         .await?;
     }
 
+    sqlx::query("DELETE FROM video_extract_review_events")
+        .execute(&mut *tx)
+        .await?;
+    crate::database::video_extract_repository::restore_video_lifecycle(
+        &mut tx,
+        &payload.video_lifecycle,
+    )
+    .await?;
     tx.commit().await?;
 
     Ok(format!(
@@ -347,6 +363,8 @@ struct MergeManifest {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct MergePayload {
+    #[serde(default)]
+    video_lifecycle: crate::models::video_extract::VideoExtractLifecycleArchive,
     documents: Vec<Document>,
     extracts: Vec<Extract>,
     learning_items: Vec<LearningItem>,
@@ -412,10 +430,19 @@ pub async fn import_collection_archive_merge(
     let manifest_bytes = read_zip_bytes(&mut archive, "manifest.json")?;
     let manifest: MergeManifest = serde_json::from_slice(&manifest_bytes)
         .map_err(|e| AppError::Internal(format!("Invalid manifest: {}", e)))?;
-    if manifest.archive_type != "incrementum-collection-export" {
+    if ![
+        "incrementum-collection-export",
+        "plethora-collection-export",
+        "plethora-collection-export-v2",
+    ]
+    .contains(&manifest.archive_type.as_str())
+    {
         return Err(AppError::Internal("Unsupported archive type".to_string()));
     }
 
+    if !["1.0", "2.0"].contains(&manifest.version.as_str()) {
+        return Err(AppError::InvalidInput("Unsupported archive version".into()));
+    }
     let payload_bytes = read_zip_bytes(&mut archive, "data/payload.json")?;
     let payload: MergePayload = serde_json::from_slice(&payload_bytes)
         .map_err(|e| AppError::Internal(format!("Invalid archive payload: {}", e)))?;
@@ -771,6 +798,37 @@ pub async fn import_collection_archive_merge(
         .await?;
     }
 
+    let mut lifecycle = payload.video_lifecycle.clone();
+    let mut video_ids: HashMap<String, String> = HashMap::new();
+    for extract in &mut lifecycle.extracts {
+        let new_id = Uuid::new_v4().to_string();
+        video_ids.insert(extract.id.clone(), new_id.clone());
+        extract.id = new_id;
+        extract.document_id = doc_id_map
+            .get(&extract.document_id)
+            .cloned()
+            .ok_or_else(|| AppError::InvalidInput("Archived video source is missing".into()))?;
+        extract.collection_id = new_collection_id.clone();
+    }
+    for receipt in &mut lifecycle.review_receipts {
+        let id = video_ids
+            .entry(receipt.extract_id.clone())
+            .or_insert_with(|| Uuid::new_v4().to_string())
+            .clone();
+        let parent = doc_id_map
+            .get(&receipt.document_id)
+            .cloned()
+            .unwrap_or_else(|| receipt.document_id.clone());
+        receipt.operation_id = Uuid::new_v4().to_string();
+        receipt.extract_id = id.clone();
+        receipt.document_id = parent.clone();
+        for state in [&mut receipt.before, &mut receipt.after] {
+            state.id = id.clone();
+            state.document_id = parent.clone();
+            state.collection_id = new_collection_id.clone();
+        }
+    }
+    crate::database::video_extract_repository::restore_video_lifecycle(&mut tx, &lifecycle).await?;
     tx.commit().await?;
 
     Ok(format!(

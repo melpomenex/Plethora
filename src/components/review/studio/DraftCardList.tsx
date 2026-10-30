@@ -180,6 +180,7 @@ export function DraftCardList({
             )}
           </div>
 
+          {card.saveError && <p role="alert" className="px-3 py-2 text-sm text-destructive">{card.saveError}</p>}
           {/* Card Content */}
           <CardPreview
             card={card}

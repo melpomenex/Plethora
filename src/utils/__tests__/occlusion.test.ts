@@ -3,8 +3,12 @@ import {
   clampPercent,
   clampRegion,
   clampRegions,
+  computeVisibleOcclusionOverlays,
+  evaluateCardOcclusion,
   expandRegionsToCards,
   isDuplicateRegion,
+  isOcclusionCard,
+  normalizeAndValidateOcclusionRegions,
   percentToViewport,
   regionHasUsableArea,
   regionIoU,
@@ -283,5 +287,139 @@ describe("region IoU and duplicate detection", () => {
     // IoU of a and half-overlap is 1/3: duplicate only under a lower threshold.
     expect(isDuplicateRegion({ x: 5, y: 0, width: 10, height: 10 }, [existing], 0.2)).toBe(true);
     expect(isDuplicateRegion({ x: 5, y: 0, width: 10, height: 10 }, [existing], 0.5)).toBe(false);
+  });
+});
+
+describe("evaluateCardOcclusion & metadata-driven occlusion detection", () => {
+  it("detects occlusion via interaction_metadata even when item_type is Qa or Flashcard", () => {
+    const qaOcclusion = {
+      id: "qa-occ-1",
+      item_type: "Qa",
+      question: "Identify the highlighted lobe",
+      answer: "Occipital lobe",
+      image_asset_ids: ["asset-brain"],
+      interaction_metadata: {
+        imageOcclusionRegions: [{ id: "r1", x: 0.2, y: 0.3, width: 0.25, height: 0.15 }],
+      },
+    };
+    expect(isOcclusionCard(qaOcclusion)).toBe(true);
+    const res = evaluateCardOcclusion(qaOcclusion);
+    expect(res.kind).toBe("valid");
+    if (res.kind === "valid") {
+      expect(res.assetId).toBe("asset-brain");
+      expect(res.regions).toEqual([
+        expect.objectContaining({ id: "r1", x: 20, y: 30, width: 25, height: 15 }),
+      ]);
+    }
+  });
+
+  it("treats non-occlusion cards with plain image_asset_ids as not_occlusion", () => {
+    const plainVisualCard = {
+      id: "plain-1",
+      item_type: "Flashcard",
+      question: "What is shown?",
+      answer: "A diagram",
+      image_asset_ids: ["asset-1"],
+    };
+    expect(isOcclusionCard(plainVisualCard)).toBe(false);
+    expect(evaluateCardOcclusion(plainVisualCard)).toEqual({ kind: "not_occlusion" });
+  });
+
+  it("normalizes [0..1] fractional coordinates and preserves [0..100] coordinates", () => {
+    const frac = normalizeAndValidateOcclusionRegions([
+      { id: "r1", x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+      { id: "r2", x: 0.4, y: 0.9, width: 0.3, height: 0.1 },
+    ]);
+    expect(frac.ok).toBe(true);
+    if (frac.ok) {
+      expect(frac.regions[0]).toMatchObject({ x: 10, y: 10, width: 20, height: 20 });
+      expect(frac.regions[1]).toMatchObject({ x: 40, y: 90, width: 30, height: 10 });
+    }
+
+    const pct = normalizeAndValidateOcclusionRegions([
+      { id: "p1", x: 0, y: 0.5, width: 25, height: 10 },
+    ]);
+    expect(pct.ok).toBe(true);
+    if (pct.ok) {
+      // x=0 and y=0.5 stay 0% and 0.5% because width=25 is in [0..100] space
+      expect(pct.regions[0]).toMatchObject({ x: 0, y: 0.5, width: 25, height: 10 });
+    }
+  });
+
+  it("rejects empty, non-finite, zero-extent, or out-of-bounds geometry as invalid_geometry", () => {
+    expect(
+      evaluateCardOcclusion({
+        item_type: "Qa",
+        interaction_metadata: { interactionType: "image-occlusion", imageOcclusionRegions: [] },
+      }),
+    ).toMatchObject({ kind: "invalid_geometry", reason: "empty_regions" });
+
+    expect(
+      evaluateCardOcclusion({
+        item_type: "Qa",
+        interaction_metadata: {
+          imageOcclusionAssetId: "asset-1",
+          imageOcclusionRegions: [{ x: Number.NaN, y: 10, width: 20, height: 20 }],
+        },
+      }),
+    ).toMatchObject({ kind: "invalid_geometry", reason: "non_finite_region" });
+
+    expect(
+      evaluateCardOcclusion({
+        item_type: "Qa",
+        interaction_metadata: {
+          imageOcclusionRegions: [{ x: 10, y: 10, width: 0, height: 20 }],
+        },
+      }),
+    ).toMatchObject({ kind: "invalid_geometry", reason: "non_positive_extent" });
+
+    // Fractional region overflowing right edge: 0.8 + 0.5 = 1.3 > 1.0
+    expect(
+      evaluateCardOcclusion({
+        item_type: "Qa",
+        interaction_metadata: {
+          imageOcclusionRegions: [{ x: 0.8, y: 0.1, width: 0.5, height: 0.2 }],
+        },
+      }),
+    ).toMatchObject({ kind: "invalid_geometry", reason: "out_of_bounds_region" });
+
+    // Percent region overflowing bottom edge: 85 + 25 = 110 > 100
+    expect(
+      evaluateCardOcclusion({
+        item_type: "Qa",
+        interaction_metadata: {
+          imageOcclusionRegions: [{ x: 10, y: 85, width: 20, height: 25 }],
+        },
+      }),
+    ).toMatchObject({ kind: "invalid_geometry", reason: "out_of_bounds_region" });
+  });
+
+  it("computes target-only vs reveal-all overlay visibility in authored order", () => {
+    const evalRes = evaluateCardOcclusion({
+      item_type: "Qa",
+      image_asset_ids: ["asset-1"],
+      interaction_metadata: {
+        occlusionMode: "hide-all",
+        targetRegionId: "r2",
+        imageOcclusionRegions: [
+          { id: "r1", x: 10, y: 10, width: 20, height: 10 },
+          { id: "r2", x: 40, y: 40, width: 20, height: 10 },
+          { id: "r3", x: 70, y: 70, width: 20, height: 10 },
+        ],
+      },
+    });
+    expect(evalRes.kind).toBe("valid");
+    if (evalRes.kind === "valid") {
+      expect(computeVisibleOcclusionOverlays(evalRes, false, false).map((r) => r.id)).toEqual([
+        "r1",
+        "r2",
+        "r3",
+      ]);
+      expect(computeVisibleOcclusionOverlays(evalRes, true, false).map((r) => r.id)).toEqual([
+        "r1",
+        "r3",
+      ]);
+      expect(computeVisibleOcclusionOverlays(evalRes, true, true)).toEqual([]);
+    }
   });
 });

@@ -153,6 +153,7 @@ vi.mock("../../api/algorithm", () => ({
 }));
 vi.mock("../../api/learning-items", () => ({
   getDueItems: api.getDueItems,
+  getLearningItem: vi.fn(async () => null),
 }));
 vi.mock("../../api/extract-review", () => ({
   getDueExtracts: api.getDueExtracts,

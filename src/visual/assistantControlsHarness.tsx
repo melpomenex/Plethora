@@ -28,6 +28,14 @@ const context = {
 };
 document.documentElement.style.fontSize = params.has("zoom") ? "200%" : "100%";
 localStorage.removeItem("assistant-panel-conversations-v1");
+if (params.has("scroll")) {
+  localStorage.setItem("assistant-panel-conversations-v1", JSON.stringify({
+    "controls-fixture": {
+      messages: Array.from({ length: 24 }, (_, index) => ({ id: `fixture-${index}`, role: "assistant", content: `Message ${index}. ${"Reading position matters. ".repeat(8)}`, timestamp: index + 1 })),
+      input: "", updatedAt: 1,
+    },
+  }));
+}
 if (pickerFixture) localStorage.setItem("assistant-llm-provider", params.get("active") ?? "deepseek");
 useSettingsStore.setState(({ settings }) => ({ settings: {
   ...settings,

@@ -1,4 +1,7 @@
-import type { ImageOcclusionRegion } from "../types/learningItemInteractions";
+import type {
+  ImageOcclusionRegion,
+  LearningItemInteractionMetadata,
+} from "../types/learningItemInteractions";
 
 /**
  * Occlusion-region geometry helpers.
@@ -224,4 +227,284 @@ export function isDuplicateRegion(
   threshold = 0.6,
 ): boolean {
   return existing.some((region) => regionIoU(candidate, region) > threshold);
+}
+
+/** Opaque default mask color contract for authored occlusion regions. */
+export const DEFAULT_OCCLUSION_MASK_COLOR = "#0f172a";
+
+export type OcclusionGeometryInvalidReason =
+  | "empty_regions"
+  | "non_array_regions"
+  | "non_finite_region"
+  | "out_of_bounds_region"
+  | "non_positive_extent";
+
+export type CardOcclusionEvaluation =
+  | { kind: "not_occlusion" }
+  | {
+      kind: "invalid_geometry";
+      reason: OcclusionGeometryInvalidReason;
+      message: string;
+      assetId: string | null;
+    }
+  | {
+      kind: "valid";
+      assetId: string | null;
+      regions: ImageOcclusionRegion[];
+      targetRegion: ImageOcclusionRegion;
+      occlusionMode: OcclusionMode;
+      isHideOne: boolean;
+      hasSiblings: boolean;
+      prompt?: string;
+    };
+
+const FRACTIONAL_EPSILON = 1e-6;
+const PERCENT_EPSILON = 1e-4;
+
+function cleanPercentMetric(value: number): number {
+  return Number(value.toFixed(6));
+}
+
+export function extractInteractionMetadata(
+  card: unknown,
+): LearningItemInteractionMetadata | null {
+  if (!card || typeof card !== "object") return null;
+  const record = card as Record<string, unknown>;
+  const raw = record.interaction_metadata ?? record.interactionMetadata;
+  if (!raw) return null;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? (parsed as LearningItemInteractionMetadata)
+        : null;
+    } catch {
+      return null;
+    }
+  }
+  return typeof raw === "object" && !Array.isArray(raw)
+    ? (raw as LearningItemInteractionMetadata)
+    : null;
+}
+
+function resolveCardImageAssetIds(card: unknown): string[] {
+  if (!card || typeof card !== "object") return [];
+  const record = card as Record<string, unknown>;
+  const raw = record.image_asset_ids ?? record.imageAssetIds;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((id): id is string => typeof id === "string")
+    .map((id) => id.trim())
+    .filter(Boolean);
+}
+
+/**
+ * Detect whether a learning item represents an image-occlusion card based on
+ * `interaction_metadata`, regardless of whether `item_type` is `"Qa"` or `"Flashcard"`.
+ */
+export function isOcclusionCard(card: unknown): boolean {
+  const meta = extractInteractionMetadata(card);
+  if (!meta) return false;
+  const metaRecord = meta as Record<string, unknown>;
+  const interactionType = meta.interactionType ?? metaRecord.interaction_type;
+  if (interactionType === "image-occlusion") return true;
+  if (typeof meta.imageOcclusionAssetId === "string" && meta.imageOcclusionAssetId.trim().length > 0) {
+    return true;
+  }
+  if (metaRecord.imageOcclusionRegions !== undefined && metaRecord.imageOcclusionRegions !== null) {
+    if (!Array.isArray(meta.imageOcclusionRegions)) return true;
+    if (meta.imageOcclusionRegions.length > 0) return true;
+    if (
+      meta.occlusionSetId ||
+      meta.imageOcclusionPrompt ||
+      meta.occlusionMode ||
+      meta.targetRegionId
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Normalize `[0..1]` fractional coordinates to `[0..100]` when all 4 components
+ * across the region set lie in `[0, 1]`, then strictly validate finite bounds.
+ */
+export function normalizeAndValidateOcclusionRegions(
+  rawRegions: unknown,
+):
+  | { ok: true; regions: ImageOcclusionRegion[] }
+  | { ok: false; reason: OcclusionGeometryInvalidReason; message: string } {
+  if (!Array.isArray(rawRegions)) {
+    return {
+      ok: false,
+      reason: "non_array_regions",
+      message: "Image occlusion regions are malformed.",
+    };
+  }
+  if (rawRegions.length === 0) {
+    return {
+      ok: false,
+      reason: "empty_regions",
+      message: "Image occlusion card has no authored regions.",
+    };
+  }
+
+  for (const raw of rawRegions) {
+    if (!raw || typeof raw !== "object") {
+      return {
+        ok: false,
+        reason: "non_finite_region",
+        message: "Image occlusion region entry is invalid.",
+      };
+    }
+    const r = raw as Record<string, unknown>;
+    if (
+      typeof r.x !== "number" ||
+      typeof r.y !== "number" ||
+      typeof r.width !== "number" ||
+      typeof r.height !== "number" ||
+      !Number.isFinite(r.x) ||
+      !Number.isFinite(r.y) ||
+      !Number.isFinite(r.width) ||
+      !Number.isFinite(r.height)
+    ) {
+      return {
+        ok: false,
+        reason: "non_finite_region",
+        message: "Image occlusion region has non-finite coordinates.",
+      };
+    }
+    if (r.width <= 0 || r.height <= 0) {
+      return {
+        ok: false,
+        reason: "non_positive_extent",
+        message: "Image occlusion region must have positive width and height.",
+      };
+    }
+  }
+
+  const typed = rawRegions as ImageOcclusionRegion[];
+  const allFractional = typed.every(
+    (r) =>
+      r.x >= -FRACTIONAL_EPSILON &&
+      r.y >= -FRACTIONAL_EPSILON &&
+      r.x <= 1 + FRACTIONAL_EPSILON &&
+      r.y <= 1 + FRACTIONAL_EPSILON &&
+      r.width <= 1 + FRACTIONAL_EPSILON &&
+      r.height <= 1 + FRACTIONAL_EPSILON,
+  );
+  const scaleFactor = allFractional ? 100 : 1;
+
+  const normalized: ImageOcclusionRegion[] = [];
+  for (const r of typed) {
+    const rawX = r.x * scaleFactor;
+    const rawY = r.y * scaleFactor;
+    const rawW = r.width * scaleFactor;
+    const rawH = r.height * scaleFactor;
+
+    if (
+      rawX < -PERCENT_EPSILON ||
+      rawY < -PERCENT_EPSILON ||
+      rawX + rawW > 100 + PERCENT_EPSILON ||
+      rawY + rawH > 100 + PERCENT_EPSILON
+    ) {
+      return {
+        ok: false,
+        reason: "out_of_bounds_region",
+        message: "Image occlusion region extends outside the source image bounds.",
+      };
+    }
+
+    const x = Math.max(0, Math.min(100, cleanPercentMetric(rawX)));
+    const y = Math.max(0, Math.min(100, cleanPercentMetric(rawY)));
+    const width = Math.min(100 - x, cleanPercentMetric(rawW));
+    const height = Math.min(100 - y, cleanPercentMetric(rawH));
+
+    if (width <= 0 || height <= 0) {
+      return {
+        ok: false,
+        reason: "non_positive_extent",
+        message: "Image occlusion region collapsed to zero area.",
+      };
+    }
+
+    normalized.push({
+      ...r,
+      x,
+      y,
+      width,
+      height,
+    });
+  }
+
+  return { ok: true, regions: normalized };
+}
+
+/**
+ * Evaluate a card's occlusion contract from `interaction_metadata` and asset references.
+ */
+export function evaluateCardOcclusion(card: unknown): CardOcclusionEvaluation {
+  if (!isOcclusionCard(card)) {
+    return { kind: "not_occlusion" };
+  }
+
+  const meta = extractInteractionMetadata(card) ?? {};
+  const cardAssetIds = resolveCardImageAssetIds(card);
+  const explicitAssetId =
+    typeof meta.imageOcclusionAssetId === "string" && meta.imageOcclusionAssetId.trim().length > 0
+      ? meta.imageOcclusionAssetId.trim()
+      : null;
+  const assetId = explicitAssetId ?? cardAssetIds[0] ?? null;
+
+  const regionValidation = normalizeAndValidateOcclusionRegions(meta.imageOcclusionRegions);
+  if (regionValidation.ok === false) {
+    return {
+      kind: "invalid_geometry",
+      reason: regionValidation.reason,
+      message: regionValidation.message,
+      assetId,
+    };
+  }
+
+  const regions = regionValidation.regions;
+  const occlusionMode: OcclusionMode = meta.occlusionMode ?? "hide-all";
+  const isHideOne = occlusionMode === "hide-one" || occlusionMode === "per-region";
+  const targetRegion = meta.targetRegionId
+    ? regions.find((r) => r.id === meta.targetRegionId) ?? regions[0]
+    : regions[0];
+  const prompt =
+    typeof meta.imageOcclusionPrompt === "string" && meta.imageOcclusionPrompt.trim().length > 0
+      ? meta.imageOcclusionPrompt.trim()
+      : undefined;
+
+  return {
+    kind: "valid",
+    assetId,
+    regions,
+    targetRegion,
+    occlusionMode,
+    isHideOne,
+    hasSiblings: regions.length > 1,
+    prompt,
+  };
+}
+
+/**
+ * Compute which region masks remain visible for a given reveal/reveal-all state,
+ * preserving authored array order.
+ */
+export function computeVisibleOcclusionOverlays(
+  evaluation: Extract<CardOcclusionEvaluation, { kind: "valid" }>,
+  revealed: boolean,
+  revealAllSiblings: boolean,
+): ImageOcclusionRegion[] {
+  const { regions, targetRegion, isHideOne } = evaluation;
+  if (!revealed) {
+    return isHideOne ? [targetRegion] : regions;
+  }
+  if (revealAllSiblings || isHideOne) {
+    return [];
+  }
+  return regions.filter((r) => (r.id ? r.id !== targetRegion.id : r !== targetRegion));
 }

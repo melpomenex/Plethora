@@ -66,6 +66,20 @@ export interface QueueItem {
   audioEditionId?: string;
   audioDurationSec?: number;
   audioProgressPercent?: number;
+
+  // Canonical D1/D2 ranking & scheduling evidence
+  canonicalPriority?: number;
+  priorityAvailable?: boolean;
+  priorityExplicitlySet?: boolean;
+  temporalUrgency?: number;
+  temporalAvailable?: boolean;
+  overdueUrgency?: number;
+  memoryUrgency?: number;
+  lastReviewDate?: string;
+  stabilityFast?: number;
+  algorithmType?: string;
+  isNewItem?: boolean;
+  entityId?: string;
 }
 
 export interface ReviewSession {

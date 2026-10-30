@@ -1,0 +1,1010 @@
+{
+  "implementation_start_revision": "7d87d811f6db8fcd98da148d22e7f10a46bd747d",
+  "fixture_clock": "2026-10-29T12:00:00Z",
+  "capabilities": [
+    "assistant-scroll-restoration",
+    "assistant-tool-reliability",
+    "document-section-context",
+    "flashcard-studio-section-mentions",
+    "memory-urgency-ranking",
+    "occlusion-review-rendering",
+    "playlist-settings-persistence",
+    "priority-mutation-consistency",
+    "priority-vector-improvements",
+    "queue-flashcard-review-cards",
+    "review-card-editing",
+    "review-session-mutations",
+    "video-extract-review-lifecycle"
+  ],
+  "before_state_files": {
+    "sqlite": {
+      "path": "openspec/changes/fix-issue-6-scheduling-and-learning-workflows/before-state.sqlite.json",
+      "bytes": 9394,
+      "sha256": "03d8c1a6cab6515ad4529c04b9131bb87875c3f4c4dabf00e32165624a35a9d3"
+    },
+    "browser": {
+      "path": "openspec/changes/fix-issue-6-scheduling-and-learning-workflows/before-state.browser.json",
+      "bytes": 2460,
+      "sha256": "e4321bf9f06f79cd211c27e15fff6785af78507688a82e2be966e7650b672558"
+    }
+  },
+  "overlapping_openspec_changes": {
+    "totalUnarchivedChangesScanned": 314,
+    "directCapabilityOverlapCount": 1,
+    "subsystemOverlapCount": 26,
+    "changes": [
+      {
+        "changeId": "add-assistant-context-actions",
+        "status": "complete-unarchived",
+        "completedTasks": 20,
+        "totalTasks": 20,
+        "capabilities": [
+          "assistant-context-actions",
+          "mobile-assistant-composer"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "assistant-context-actions",
+          "AssistantPanel"
+        ],
+        "overlapSummary": "Completed unarchived Assistant context/pinned-selection actions overlapping S12 selection/section scope."
+      },
+      {
+        "changeId": "add-dynamic-adaptive-queue-engine",
+        "status": "in-progress",
+        "completedTasks": 130,
+        "totalTasks": 134,
+        "capabilities": [
+          "adaptive-queue-ranking",
+          "dwell-telemetry",
+          "queue-decision-model",
+          "queue-item-type-routing",
+          "queue-mode-presets",
+          "queue-strategy-persistence"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "daqe-ranking",
+          "queue-selector"
+        ],
+        "overlapSummary": "Owns outer DAQE composite score (`models/daqe.rs`, `daqe/terms.rs`, `daqe/ranker.rs`, `queue_selector.rs`) extended by D2-D4."
+      },
+      {
+        "changeId": "add-extract-priority-inheritance",
+        "status": "not-started",
+        "completedTasks": 0,
+        "totalTasks": 16,
+        "capabilities": [
+          "extract-priority"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "extract-priority",
+          "priority-rank"
+        ],
+        "overlapSummary": "Unstarted extract priority change overlapping D1 positional priority inheritance rules."
+      },
+      {
+        "changeId": "add-queue-composition-sliders",
+        "status": "in-progress",
+        "completedTasks": 26,
+        "totalTasks": 31,
+        "capabilities": [
+          "queue-composition-mix",
+          "queue-item-type-routing"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "queue-item-type-routing",
+          "QueueScrollPage"
+        ],
+        "overlapSummary": "Touches Optimal session composition shares in `QueueScrollPage.tsx`."
+      },
+      {
+        "changeId": "add-video-extracts",
+        "status": "spec-only",
+        "completedTasks": 0,
+        "totalTasks": 0,
+        "capabilities": [
+          "video-chapters",
+          "video-extracts"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "video-extracts",
+          "VideoExtracts"
+        ],
+        "overlapSummary": "Legacy unarchived video-extract spec directory overlapping `VideoExtracts.tsx` and `models/video_extract.rs`."
+      },
+      {
+        "changeId": "adopt-fsrs7-as-production-scheduler",
+        "status": "in-progress",
+        "completedTasks": 24,
+        "totalTasks": 35,
+        "capabilities": [
+          "flashcard-review-session",
+          "fsrs7-browser-parity",
+          "fsrs7-migration",
+          "fsrs7-production-scheduler",
+          "scheduler-lifecycle"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "fsrs-scheduler",
+          "flashcard-review-session"
+        ],
+        "overlapSummary": "Touches recall scheduler retrievability/memory representation consumed read-only by D2 temporal ranking."
+      },
+      {
+        "changeId": "complete-ai-learning-agent-integration",
+        "status": "complete-unarchived",
+        "completedTasks": 19,
+        "totalTasks": 19,
+        "capabilities": [
+          "ai-learning-agent"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "ai-learning-agent",
+          "learningAgent"
+        ],
+        "overlapSummary": "Completed unarchived Learning Agent envelope, `resolveLearningAgentScope`, and proposal acceptance keys extended by D11-D12."
+      },
+      {
+        "changeId": "finish-issue-40-priority-controls",
+        "status": "not-started",
+        "completedTasks": 0,
+        "totalTasks": 33,
+        "capabilities": [
+          "document-library-management"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "document-library-management",
+          "priority-controls"
+        ],
+        "overlapSummary": "Unstarted library priority-control work overlapping D8 shared priority commit contract."
+      },
+      {
+        "changeId": "fix-assistant-agent-readiness-message",
+        "status": "complete-unarchived",
+        "completedTasks": 8,
+        "totalTasks": 8,
+        "capabilities": [
+          "ai-learning-agent"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "ai-learning-agent",
+          "AssistantPanel"
+        ],
+        "overlapSummary": "Completed unarchived Learning Agent preflight/readiness messaging in `AssistantPanel.tsx` and `learningAgent.ts`."
+      },
+      {
+        "changeId": "fix-fsrs-queue-scheduling",
+        "status": "not-started",
+        "completedTasks": 0,
+        "totalTasks": 54,
+        "capabilities": [
+          "book-import",
+          "queue-scheduling"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "queue-scheduling"
+        ],
+        "overlapSummary": "Unstarted queue-scheduling change overlapping document/card due-date and queue ordering boundaries."
+      },
+      {
+        "changeId": "fix-library-signals-priority-sort",
+        "status": "in-progress",
+        "completedTasks": 17,
+        "totalTasks": 19,
+        "capabilities": [
+          "library-extract-signal-accuracy",
+          "library-quick-sort-shortcuts",
+          "priority-popup-current-value"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "priority-popup-current-value",
+          "usePriorityPopup"
+        ],
+        "overlapSummary": "Introduced `priorityExplicitlySet` and `resolveDisplaySlider` in `usePriorityPopup.tsx` preserved and extended by D1/D8."
+      },
+      {
+        "changeId": "fix-mobile-reading-priority-access",
+        "status": "complete-unarchived",
+        "completedTasks": 10,
+        "totalTasks": 10,
+        "capabilities": [
+          "mobile-reading-experience"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "mobile-reading-experience",
+          "priority-commit"
+        ],
+        "overlapSummary": "Completed unarchived mobile priority draft/commit deduplication lifecycle reused as the D8 baseline."
+      },
+      {
+        "changeId": "fix-optimal-session-rebuild-skip",
+        "status": "in-progress",
+        "completedTasks": 21,
+        "totalTasks": 22,
+        "capabilities": [
+          "scroll-session-stability"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "scroll-session-stability",
+          "queueScrollSessionLifecycle"
+        ],
+        "overlapSummary": "Introduced `reanchorSessionPosition` and `applySessionItems` in `QueueScrollPage.tsx`, where missing deleted-ID barriers cause S09/S10 resurrection."
+      },
+      {
+        "changeId": "fix-outstanding-reported-bugs",
+        "status": "in-progress",
+        "completedTasks": 38,
+        "totalTasks": 39,
+        "capabilities": [
+          "assistant-text-mentions",
+          "extract-reading",
+          "imported-article-extracts",
+          "in-app-web-browser",
+          "manual-image-occlusion"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "manual-image-occlusion",
+          "assistant-text-mentions"
+        ],
+        "overlapSummary": "Overlaps manual image occlusion metadata and assistant mention parsing."
+      },
+      {
+        "changeId": "fix-priority-menu-translucent",
+        "status": "in-progress",
+        "completedTasks": 2,
+        "totalTasks": 4,
+        "capabilities": [
+          "popover-theme-colors"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "popover-theme-colors",
+          "PriorityControl"
+        ],
+        "overlapSummary": "Touches priority popover presentation on `PriorityControl.tsx`."
+      },
+      {
+        "changeId": "fix-scroll-mode-replay-reviewed",
+        "status": "in-progress",
+        "completedTasks": 12,
+        "totalTasks": 17,
+        "capabilities": [
+          "scroll-mode-queue"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "scroll-mode-queue",
+          "QueueScrollPage"
+        ],
+        "overlapSummary": "Touches `ratedFlashcardIds` / `ratedExtractIds` session-exclusion sets in `QueueScrollPage.tsx`."
+      },
+      {
+        "changeId": "fix-section-mention-content",
+        "status": "in-progress",
+        "completedTasks": 61,
+        "totalTasks": 62,
+        "capabilities": [
+          "flashcard-studio-section-mentions"
+        ],
+        "overlappingCapabilities": [
+          "flashcard-studio-section-mentions"
+        ],
+        "overlappingSubsystems": [
+          "document-section-context",
+          "flashcard-studio-section-mentions"
+        ],
+        "overlapSummary": "Direct capability delta overlap on `flashcard-studio-section-mentions` and shared `resolveSectionFocusedContext` pipeline; `buildAgentSection` remained separate."
+      },
+      {
+        "changeId": "flashcard-deck-manager",
+        "status": "in-progress",
+        "completedTasks": 36,
+        "totalTasks": 37,
+        "capabilities": [
+          "deck-manager-view",
+          "deck-stats-panel",
+          "inline-card-editor"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "inline-card-editor",
+          "deck-manager-view"
+        ],
+        "overlapSummary": "Owns `InlineCardEditor.tsx` extended for atomic content+tag+cloze editing in D7."
+      },
+      {
+        "changeId": "image-occlusion-hide-all-review",
+        "status": "not-started",
+        "completedTasks": 0,
+        "totalTasks": 15,
+        "capabilities": [
+          "image-occlusion-review",
+          "image-occlusion-sets"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "image-occlusion-review",
+          "ReviewCard"
+        ],
+        "overlapSummary": "Unstarted occlusion review change overlapping D6 shared `ReviewCardContent` occlusion primitive."
+      },
+      {
+        "changeId": "preserve-scroll-position",
+        "status": "in-progress",
+        "completedTasks": 12,
+        "totalTasks": 17,
+        "capabilities": [
+          "html-scroll-persistence"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "html-scroll-persistence",
+          "DocumentViewer"
+        ],
+        "overlapSummary": "Overlaps reader scroll-position preservation invariants in D13."
+      },
+      {
+        "changeId": "queue-item-tag-management",
+        "status": "in-progress",
+        "completedTasks": 20,
+        "totalTasks": 24,
+        "capabilities": [
+          "queue-item-tag-management"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "queue-item-tag-management",
+          "learning-item-tags"
+        ],
+        "overlapSummary": "Overlaps tag mutation paths on queue/review items unified under atomic edits in D7."
+      },
+      {
+        "changeId": "respect-session-composition-settings",
+        "status": "in-progress",
+        "completedTasks": 22,
+        "totalTasks": 25,
+        "capabilities": [
+          "queue-item-type-routing",
+          "session-composition"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "queue-item-type-routing",
+          "QueueScrollPage"
+        ],
+        "overlapSummary": "Touches `QueueScrollPage.tsx` and `queueScrollItemTypes.ts` session composition."
+      },
+      {
+        "changeId": "simplify-assistant-mode-controls",
+        "status": "complete-unarchived",
+        "completedTasks": 11,
+        "totalTasks": 11,
+        "capabilities": [
+          "assistant-conversation-scopes"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "assistant-conversation-scopes",
+          "AssistantPanel"
+        ],
+        "overlapSummary": "Completed unarchived Assistant mode/scope chip controls (`agentScope`) directly involved in S12."
+      },
+      {
+        "changeId": "unify-assistant-experience",
+        "status": "in-progress",
+        "completedTasks": 38,
+        "totalTasks": 56,
+        "capabilities": [
+          "ai-library-rag",
+          "assistant-context-routing",
+          "assistant-conversation-lifecycle",
+          "assistant-conversation-scopes",
+          "document-qa-workspace",
+          "library-qa",
+          "mobile-ask-sheet",
+          "plethora-sync",
+          "selection-aware-assistant"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "assistant-context-routing",
+          "assistant-conversation-lifecycle",
+          "document-qa-workspace"
+        ],
+        "overlapSummary": "In-progress Assistant conversation/context routing overlapping `AssistantPanel.tsx`, `QueueScrollPage` extract context, and scroll state."
+      },
+      {
+        "changeId": "update-review-ux-fsrs",
+        "status": "in-progress",
+        "completedTasks": 18,
+        "totalTasks": 19,
+        "capabilities": [
+          "review-ux"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "review-ux",
+          "priority-vector"
+        ],
+        "overlapSummary": "Touches `src/utils/reviewUx.ts` priority-vector/Smart Queue scoring amended by D4."
+      },
+      {
+        "changeId": "update-scroll-assistant-toggle-pdf-position",
+        "status": "not-started",
+        "completedTasks": 0,
+        "totalTasks": 6,
+        "capabilities": [
+          "pdf-scroll-position",
+          "scroll-mode-assistant-toggle"
+        ],
+        "overlappingCapabilities": [],
+        "overlappingSubsystems": [
+          "pdf-scroll-position",
+          "scroll-mode-assistant-toggle"
+        ],
+        "overlapSummary": "Unstarted reader/Assistant toggle scroll preservation change overlapping D13."
+      }
+    ]
+  },
+  "screenshots": [
+    {
+      "id": "S01",
+      "attachmentSuffix": "8fc8344e",
+      "url": "https://github.com/user-attachments/assets/8fc8344e-32fd-4f3b-a680-20c511ca3381",
+      "localPath": "/tmp/plethora-issue6-evidence/01.png",
+      "byteSize": 830682,
+      "dimensions": {
+        "width": 3024,
+        "height": 1964
+      },
+      "sha256": "b5ae4a68ec6772ae33e83c618249e46dbb1460a8c1581492b2fd157cbfdf5fd2",
+      "surface": "Review / Cloze + AI explanation",
+      "observation": "Review cloze with highlighted answers and rating controls; AI explanation discusses the label \u201cCloze Deletion\u201d instead of the source content. Reveal state cannot be inferred from this still alone.",
+      "classifications": [
+        "R",
+        "C"
+      ]
+    },
+    {
+      "id": "S02",
+      "attachmentSuffix": "4260b3a6",
+      "url": "https://github.com/user-attachments/assets/4260b3a6-db29-4eec-9579-7659dbe44268",
+      "localPath": "/tmp/plethora-issue6-evidence/02.png",
+      "byteSize": 862534,
+      "dimensions": {
+        "width": 3024,
+        "height": 1964
+      },
+      "sha256": "ca6f5f7e6dccd534f17ba53caa1f99ad79666ebd3c78e7fe8bb88503bf7d5ca4",
+      "surface": "Review / InlineCardEditor (legacy range-backed cloze)",
+      "observation": "Cloze editor contains marker-free text and a marker-free preview, consistent with a legacy range-backed card.",
+      "classifications": [
+        "R",
+        "C"
+      ]
+    },
+    {
+      "id": "S03",
+      "attachmentSuffix": "4747c884",
+      "url": "https://github.com/user-attachments/assets/4747c884-f109-481e-9285-93d070344882",
+      "localPath": "/tmp/plethora-issue6-evidence/03.png",
+      "byteSize": 1214093,
+      "dimensions": {
+        "width": 3024,
+        "height": 1964
+      },
+      "sha256": "fe275d6d7ec0255795a0054bd11b0ed360f84f793e3680675fa06820915756ee",
+      "surface": "Queue Scroll / InlineCardEditor over Q&A card",
+      "observation": "Scroll editor open over a Q&A card. A still does not establish persistence.",
+      "classifications": [
+        "R"
+      ]
+    },
+    {
+      "id": "S04",
+      "attachmentSuffix": "752c673c",
+      "url": "https://github.com/user-attachments/assets/752c673c-ce95-476c-850f-0a2bee648794",
+      "localPath": "/tmp/plethora-issue6-evidence/04.png",
+      "byteSize": 1264272,
+      "dimensions": {
+        "width": 3024,
+        "height": 1964
+      },
+      "sha256": "4fe1a5225db4a97808456a6af8494486478478fa551e34254e959257a4b80793",
+      "surface": "Queue Scroll / InlineCardEditor failed save toast",
+      "observation": "Same editing workflow with \u201cFailed to save card\u201d toast.",
+      "classifications": [
+        "R",
+        "C"
+      ]
+    },
+    {
+      "id": "S05",
+      "attachmentSuffix": "1bb9df0c",
+      "url": "https://github.com/user-attachments/assets/1bb9df0c-8dfb-48e7-a669-1465529eaa20",
+      "localPath": "/tmp/plethora-issue6-evidence/05.png",
+      "byteSize": 1151133,
+      "dimensions": {
+        "width": 3024,
+        "height": 1964
+      },
+      "sha256": "409a4098d401edcf784f508b2645083ed8accea1e1e53ad6d330e0d7d99b7961",
+      "surface": "Assistant Chat / extract context flashcard persistence (SQLite 787)",
+      "observation": "Assistant, Apple Intelligence selected, extract active; four generated cards need attention. Visible errors contain SQLite code 787 / FOREIGN KEY constraint. Generation occurred; persistence failed.",
+      "classifications": [
+        "R",
+        "C"
+      ]
+    },
+    {
+      "id": "S06",
+      "attachmentSuffix": "235eb27a",
+      "url": "https://github.com/user-attachments/assets/235eb27a-2dc2-4be7-8eb4-e174f7307cc0",
+      "localPath": "/tmp/plethora-issue6-evidence/06.png",
+      "byteSize": 791280,
+      "dimensions": {
+        "width": 3024,
+        "height": 1964
+      },
+      "sha256": "682ffce66d1f1d0b619f3c1cc182c2740f23defea711eaa59d046da0458a0a93",
+      "surface": "Integrations / YouTubePlaylistManager global defaults",
+      "observation": "Global playlist defaults shown with no subscriptions. This specifically concerns global fields, not only subscription inputs.",
+      "classifications": [
+        "R",
+        "C"
+      ]
+    },
+    {
+      "id": "S07",
+      "attachmentSuffix": "1fc58641",
+      "url": "https://github.com/user-attachments/assets/1fc58641-fab2-45f1-b60c-e178a0a5439a",
+      "localPath": "/tmp/plethora-issue6-evidence/07.png",
+      "byteSize": 3463971,
+      "dimensions": {
+        "width": 3024,
+        "height": 1964
+      },
+      "sha256": "690133c7690d8033aa8b64d757e2902ca597229b7101a76a8b4b6ab48688622d",
+      "surface": "Reader / VideoExtracts panel status & controls",
+      "observation": "Video-extract panel shows a segment and due status without independent rating controls; parent document controls remain visible. \u201cNew\u201d at the panel header is a creation action, not sufficient evidence of the extract's lifecycle label.",
+      "classifications": [
+        "R",
+        "C",
+        "D"
+      ]
+    },
+    {
+      "id": "S08",
+      "attachmentSuffix": "0df440d6",
+      "url": "https://github.com/user-attachments/assets/0df440d6-e7d1-401f-9346-20ae62732b51",
+      "localPath": "/tmp/plethora-issue6-evidence/08.png",
+      "byteSize": 1215866,
+      "dimensions": {
+        "width": 3024,
+        "height": 1964
+      },
+      "sha256": "cd913b9cf22e92ebecf82cdea2257e627f22cf520b1731edf2f1278c1a67caf5",
+      "surface": "Queue Scroll / FlashcardScrollItem QA card with occlusion metadata",
+      "observation": "Image card visible before Show Answer with its unmasked map, while card type is `qa`.",
+      "classifications": [
+        "R",
+        "C"
+      ]
+    },
+    {
+      "id": "S09",
+      "attachmentSuffix": "536471c0",
+      "url": "https://github.com/user-attachments/assets/536471c0-1e10-4d66-a605-e718a51e9648",
+      "localPath": "/tmp/plethora-issue6-evidence/09.png",
+      "byteSize": 1231925,
+      "dimensions": {
+        "width": 3024,
+        "height": 1964
+      },
+      "sha256": "838d1c5209fe4537da8124e5016b8295332a9b590d0b6eca17f719ab9e133eaa",
+      "surface": "Queue Scroll / Deleted cloze 'Learning item not found' + raw marker title leak",
+      "observation": "Revealed cloze still visible with \u201cLearning item not found\u201d error; raw marker text leaks into the top title.",
+      "classifications": [
+        "R",
+        "C"
+      ]
+    },
+    {
+      "id": "S10",
+      "attachmentSuffix": "d9792057",
+      "url": "https://github.com/user-attachments/assets/d9792057-fd1d-4829-988e-e0f28a9d9606",
+      "localPath": "/tmp/plethora-issue6-evidence/10.png",
+      "byteSize": 1124750,
+      "dimensions": {
+        "width": 3024,
+        "height": 1964
+      },
+      "sha256": "374c4eb97f985dfaca4a89134990426c962d853d0d59e8687e48f960788f6fc3",
+      "surface": "Queue Scroll / Undoable delete toast while deleted cloze remains onscreen",
+      "observation": "Success toast for undoable card deletion while the cloze remains on screen.",
+      "classifications": [
+        "R",
+        "C"
+      ]
+    },
+    {
+      "id": "S11",
+      "attachmentSuffix": "c159c1d5",
+      "url": "https://github.com/user-attachments/assets/c159c1d5-5d5d-4bd4-983e-8c70579f9946",
+      "localPath": "/tmp/plethora-issue6-evidence/11.png",
+      "byteSize": 1161497,
+      "dimensions": {
+        "width": 3024,
+        "height": 1964
+      },
+      "sha256": "54f763c22842c704b37af2869021782ffc0757a2f0ed52bde3045eb09291534a",
+      "surface": "Queue Scroll / Cloze literal '[...]' after reveal",
+      "observation": "Cloze after reveal remains a literal `[...]` in context; grading controls are visible.",
+      "classifications": [
+        "R",
+        "C"
+      ]
+    },
+    {
+      "id": "S12",
+      "attachmentSuffix": "b9fcdf66",
+      "url": "https://github.com/user-attachments/assets/b9fcdf66-a8ef-4fa3-a724-0f3d05958034",
+      "localPath": "/tmp/plethora-issue6-evidence/12.png",
+      "byteSize": 1132546,
+      "dimensions": {
+        "width": 3024,
+        "height": 1964
+      },
+      "sha256": "0272c043069f65b068307d9f8d00982ea307cd809ecf7a8dbf1fb42a260b90c0",
+      "surface": "Assistant Learning Agent / 'no section context' despite pinned selection",
+      "observation": "Learning Agent says no section context, despite a visible pinned selection. Response mentions `current_selection`; Apple Intelligence selected. No `#` section chip is visible.",
+      "classifications": [
+        "R",
+        "C",
+        "H"
+      ]
+    }
+  ],
+  "traceability_verification": {
+    "file": "openspec/changes/fix-issue-6-scheduling-and-learning-workflows/traceability.md",
+    "totalRows": 27,
+    "allRowsClassified": true,
+    "classificationCounts": {
+      "C": 27,
+      "R": 9,
+      "H": 2,
+      "D": 0
+    },
+    "rows": [
+      {
+        "row": 1,
+        "concern": "1. Memory Urgency 50/30/20 weighting",
+        "classifications": [
+          "C"
+        ],
+        "implementationTasks": "2.1\u20132.3, 2.6\u20132.7",
+        "regressionPackage": "R01 exact matrix and P slope, R02 producer parity"
+      },
+      {
+        "row": 2,
+        "concern": "2. Opposing overdue calculations",
+        "classifications": [
+          "C"
+        ],
+        "implementationTasks": "2.2\u20132.4, 2.6",
+        "regressionPackage": "R01 monotonic sweep and old day-14/day-30 counterexample"
+      },
+      {
+        "row": 3,
+        "concern": "3. Fourteen-day saturation",
+        "classifications": [
+          "C"
+        ],
+        "implementationTasks": "2.2, 2.6\u20132.7",
+        "regressionPackage": "R01 0/1/7/14/30/90/300/extreme-day boundaries"
+      },
+      {
+        "row": 4,
+        "concern": "4. Manual priority counted twice",
+        "classifications": [
+          "C"
+        ],
+        "implementationTasks": "2.1\u20132.3, 2.5",
+        "regressionPackage": "R01 independence, R02 all producer/preset paths"
+      },
+      {
+        "row": 5,
+        "concern": "5. FSRS document bonuses and purpose",
+        "classifications": [
+          "C"
+        ],
+        "implementationTasks": "2.2\u20132.3, 10.5",
+        "regressionPackage": "R01 fixed-date memory invariance and persisted scheduling snapshots"
+      },
+      {
+        "row": 6,
+        "concern": "6. Cloze editing in Review",
+        "classifications": [
+          "C",
+          "R"
+        ],
+        "implementationTasks": "3.2, 4.1\u20134.5",
+        "regressionPackage": "R04 legacy/raw/marker edit and restart read-back"
+      },
+      {
+        "row": 7,
+        "concern": "7. Clozes missing/not appearing",
+        "classifications": [
+          "C"
+        ],
+        "implementationTasks": "3.1, 3.3, 9.2",
+        "regressionPackage": "R03 creation\u2192storage\u2192queue\u2192all modes including non-due custom cards"
+      },
+      {
+        "row": 8,
+        "concern": "8. Manual `{{c1::answer}}` syntax",
+        "classifications": [
+          "C"
+        ],
+        "implementationTasks": "3.2\u20133.3, 4.3",
+        "regressionPackage": "R03 C01\u2013C12, R04 raw editing"
+      },
+      {
+        "row": 9,
+        "concern": "9. Editing Scroll/Optimal",
+        "classifications": [
+          "C",
+          "R"
+        ],
+        "implementationTasks": "3.1, 4.1\u20134.4",
+        "regressionPackage": "R04 cross-mode click/save/error and authoritative state"
+      },
+      {
+        "row": 10,
+        "concern": "10. Keyboard priority does not persist",
+        "classifications": [
+          "C",
+          "R"
+        ],
+        "implementationTasks": "1.4, 6.1\u20136.3",
+        "regressionPackage": "R08 real keyboard\u2192command\u2192persist/relaunch, native EPUB/Option key"
+      },
+      {
+        "row": 11,
+        "concern": "11. Assistant Chat flashcard failure",
+        "classifications": [
+          "C",
+          "R"
+        ],
+        "implementationTasks": "1.5, 9.1\u20139.4",
+        "regressionPackage": "R13 real SQLite FK/partial batch/retry and UI artifact states"
+      },
+      {
+        "row": 12,
+        "concern": "12. Playlist default queue interval",
+        "classifications": [
+          "C"
+        ],
+        "implementationTasks": "7.1\u20137.3",
+        "regressionPackage": "R09 normal typing/read-back, R10 new-subscription seed"
+      },
+      {
+        "row": 13,
+        "concern": "13. Playlist default priority",
+        "classifications": [
+          "C"
+        ],
+        "implementationTasks": "2.1, 7.1\u20137.3",
+        "regressionPackage": "R09 boundaries and rollback; R10 seeded importance direction"
+      },
+      {
+        "row": 14,
+        "concern": "14. Video extract remains New after open",
+        "classifications": [
+          "C",
+          "R"
+        ],
+        "implementationTasks": "8.1, 8.4\u20138.5",
+        "regressionPackage": "R11 open/restart without review, failed playback, legacy rows"
+      },
+      {
+        "row": 15,
+        "concern": "15. Cannot rate extract independently / parent grade",
+        "classifications": [
+          "C"
+        ],
+        "implementationTasks": "8.3\u20138.4",
+        "regressionPackage": "R11/R12 ordinary and due view parent-child invariance"
+      },
+      {
+        "row": 16,
+        "concern": "16. Delete requires grade to advance",
+        "classifications": [
+          "C",
+          "R"
+        ],
+        "implementationTasks": "5.1\u20135.5",
+        "regressionPackage": "R06 first/middle/last/only/refresh/rating races; R07 undo"
+      },
+      {
+        "row": 17,
+        "concern": "17. Occlusion fails Scroll/Optimal",
+        "classifications": [
+          "C"
+        ],
+        "implementationTasks": "3.1, 3.5\u20133.6",
+        "regressionPackage": "R05 actual pixels/geometry/hidden-revealed across modes"
+      },
+      {
+        "row": 18,
+        "concern": "18. Document-linked pencil nonresponse",
+        "classifications": [
+          "C",
+          "H"
+        ],
+        "implementationTasks": "4.4",
+        "regressionPackage": "R04 document-linked activation in browser and native runtimes"
+      },
+      {
+        "row": 19,
+        "concern": "19. Clozes fail Scroll/Optimal",
+        "classifications": [
+          "C",
+          "R"
+        ],
+        "implementationTasks": "3.1\u20133.4",
+        "regressionPackage": "R03 shared stored fixtures through actual session entry paths"
+      },
+      {
+        "row": 20,
+        "concern": "20. Assistant position repeatedly moves",
+        "classifications": [
+          "C",
+          "H"
+        ],
+        "implementationTasks": "9.8\u20139.9",
+        "regressionPackage": "R15 streaming/upward reading/reopen/conversation switch and reader hydration"
+      },
+      {
+        "row": 21,
+        "concern": "21. Learning Agent ignores this section",
+        "classifications": [
+          "C",
+          "R"
+        ],
+        "implementationTasks": "1.5, 9.5\u20139.7",
+        "regressionPackage": "R14 request body/provider parity and no-call failures; R13 saved source linkage"
+      },
+      {
+        "row": 22,
+        "concern": "Related: priority scale inversion and zero",
+        "classifications": [
+          "C"
+        ],
+        "implementationTasks": "2.1, 2.5\u20132.6, 6.1, 10.5",
+        "regressionPackage": "R02 order snapshots/zero/legacy; R08 restart"
+      },
+      {
+        "row": 23,
+        "concern": "Related: video rating double submit",
+        "classifications": [
+          "C"
+        ],
+        "implementationTasks": "8.2\u20138.3",
+        "regressionPackage": "R12 one click/one event/one advance, timeout retry"
+      },
+      {
+        "row": 24,
+        "concern": "Related: previews/explanations leak or use type label",
+        "classifications": [
+          "C",
+          "R"
+        ],
+        "implementationTasks": "3.4",
+        "regressionPackage": "R03 DOM/title/automatic speech/explanation source assertions"
+      },
+      {
+        "row": 25,
+        "concern": "Related: edit atomicity/version/sync",
+        "classifications": [
+          "C"
+        ],
+        "implementationTasks": "4.1\u20134.2, 4.5",
+        "regressionPackage": "R04 staged failure/restore/offline roundtrip"
+      },
+      {
+        "row": 26,
+        "concern": "Related: future card recall uses due as elapsed origin",
+        "classifications": [
+          "C"
+        ],
+        "implementationTasks": "2.1\u20132.3, 2.6",
+        "regressionPackage": "R01 actual-last-review fixtures and invalid memory"
+      },
+      {
+        "row": 27,
+        "concern": "Related: malformed existing main spec",
+        "classifications": [
+          "C"
+        ],
+        "implementationTasks": "1.2, 10.7",
+        "regressionPackage": "R00 base validation and archive preflight"
+      }
+    ]
+  },
+  "reproduction_outcomes": {
+    "R08_keyboard_priority": {
+      "testFiles": [
+        "src/components/documents/__tests__/issue6PriorityKeyboardRepro.test.tsx"
+      ],
+      "passedCount": 4,
+      "shortcutPopupPersistsOnCurrentBuild": true,
+      "verifiedWorkingPaths": [
+        "Default Alt+P and macOS Option+P (KeyP fallback in eventMatchesCombo) -> usePriorityPopup -> Modal Enter -> update_document_priority -> independent getDocument read-back (including explicit 0)",
+        "Remapped doc.priority shortcut -> usePriorityPopup -> Apply button -> independent getDocument read-back; Escape cancels with zero writes",
+        "EPUB iframe keydown -> doc-priority-shortcut CustomEvent -> DocumentViewer listener -> usePriorityPopup -> independent getDocument read-back"
+      ],
+      "confirmedDivergencesToFixInPhase6": [
+        "PriorityControl.tsx writes per onChange without draft/Apply/Escape, passes rating=1 when slider=0, and logs errors to console only while leaving stale optimistic UI",
+        "usePriorityPopup.tsx closes Modal before awaiting updateDocumentPriority, discarding the user's draft on backend failure",
+        "browser-backend.ts update_document_priority omits priority_explicitly_set, causing explicit slider=0/rating=0 to read back as 50 via resolveDisplaySlider",
+        "DocumentViewer.tsx same-origin HTML import iframe keydown handler forwards Cmd/Ctrl+K, Escape, and j/k, but not doc.priority"
+      ]
+    },
+    "task_1_5_workflows": {
+      "testFiles": [
+        "src-tauri/src/issue6_test_support.rs",
+        "src/test/issue6/reproductions.test.tsx"
+      ],
+      "rustTestsPassed": [
+        "issue6_test_support::tests::issue6_fixture_recreates_with_foreign_keys_and_preserved_state",
+        "issue6_test_support::tests::issue6_repro_s04_partial_identity_and_split_content_tag_writes",
+        "issue6_test_support::tests::issue6_repro_s05_raw_extract_namespace_triggers_sqlite_fk_787_while_mcp_resolves",
+        "issue6_test_support::tests::issue6_repro_s09_deleted_card_lookup_and_content_write_fail_not_found",
+        "mcp::tools::tests::issue6_extract_source_creates_card_with_real_parent_and_extract",
+        "mcp::tools::tests::issue6_batch_cloze_persists_source_and_reports_partial_failure"
+      ],
+      "vitestTestsPassedCount": 4,
+      "S04_card_edit": {
+        "failureCategories": [
+          "identity",
+          "persistence"
+        ],
+        "summary": "Queue-prefixed display ID (`flashcard-<id>`) fails lookup (`None`/`NotFound` -> `Failed to save card` toast) without touching storage (`identity`); separate `updateLearningItemContentWithVersion` + `updateLearningItemTags` calls leave new content durably committed in SQLite when tag write fails while UI rolls back to old content (`persistence`)."
+      },
+      "S05_extract_namespace_card_create": {
+        "failureCategories": [
+          "identity"
+        ],
+        "summary": "`normalizeAssistantToolParameters` copies `documentId = \"extract:<id>\"` into `document_id`; bypassing source resolution into `learning_items.document_id` triggers real SQLite extended code 787 (`FOREIGN KEY constraint failed`), whereas canonical `MCPToolRegistry` / `createBrowserAssistantCard` resolves parent `document_id` + `extract_id` and rejects missing/mismatched extracts cleanly."
+      },
+      "S09_S10_delete_and_title_leak": {
+        "failureCategories": [
+          "refresh",
+          "identity"
+        ],
+        "summary": "`QueueScrollPage` populates `documentTitle` from raw `question.substring(0, 50)` (`{{c1::...}}` leak in S09); `handleFlashcardDelete` deletes in DB (S10 undoable toast) without updating `dueFlashcards` or a deleted-ID barrier, so `canPresentItem` returns true and `reanchorSessionPosition`/`loadQueue` resurrects the deleted card (`refresh`), causing a second Delete/Postpone/Review to fail with `Learning item not found` (`identity`, S09)."
+      },
+      "S12_learning_agent_section_scope": {
+        "failureCategories": [
+          "identity",
+          "provider"
+        ],
+        "summary": "`buildAgentSection` (`AssistantPanel.tsx:1791`) reads only `selectedSectionNodes[0].content` (empty on unhydrated outline nodes -> `needs-section` with zero provider calls); when explicit `agentScope === \"document\"` is active alongside a pinned selection, `resolveLearningAgentScope` populates `run.selection` (`get_current_selection` ok) but leaves `run.section` undefined (`get_section_context` returns `not-available`), matching S12's `current_selection` response; true provider failures occur after bounded section capture and record the exact request."
+      }
+    }
+  }
+}

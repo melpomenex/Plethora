@@ -27,6 +27,13 @@ import { featureFlags } from "../lib/featureFlags";
 import { isMarketingCaptureNamespace } from "../lib/marketingCapture/namespace";
 import { isPrecisionScheduler } from "../lib/schedulerIdentity";
 import { createFeedbackInteractionId, emitInteractionFeedback } from "../lib/feedback/orchestrator";
+import { cardMutationCoordinator } from "../api/learningItemMutationCoordinator";
+import {
+  createSessionState,
+  reconcileItemRemoval,
+  reconcileItemRating,
+  type SessionState,
+} from "../lib/sessionTransition";
 
 interface StoredReviewSession {
   reviewedIds: string[];
@@ -111,6 +118,9 @@ interface ReviewState {
   pendingArenaReview: PendingArenaReview | null;
   arenaPreviewError: string | null;
   lastReviewOutcome: LastReviewOutcome | null;
+  removedIds: Set<string>;
+  revealRevision: number;
+  generation: number;
 
   // UI State
   isLoading: boolean;
@@ -250,6 +260,9 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   pendingArenaReview: null,
   arenaPreviewError: null,
   lastReviewOutcome: null,
+  removedIds: new Set<string>(),
+  revealRevision: 0,
+  generation: 1,
   isLoading: false,
   isAnswerShown: false,
   isSubmitting: false,
@@ -274,7 +287,8 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   setReviewTabMode: (mode) => set({ reviewTabMode: mode }),
   setSelectedDeckId: (deckId) => set({ selectedDeckId: deckId }),
   loadQueue: async () => {
-    set({ isLoading: true, error: null });
+    const nextGen = (get().generation || 0) + 1;
+    set({ isLoading: true, error: null, generation: nextGen });
     try {
       const collectionId = useCollectionStore.getState().activeCollectionId;
       const items = await getDueItems(collectionId);
@@ -293,9 +307,16 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         ? filterByDecks(collectionFilteredItems, activeDecks)
         : collectionFilteredItems;
 
+      if (get().generation !== nextGen) return;
+
       const storedSession = loadStoredSession();
       const reviewedIds = new Set(storedSession?.reviewedIds ?? []);
-      const pendingCards = deckFilteredItems.filter((item) => !reviewedIds.has(item.id));
+      const removedIds = get().removedIds ?? new Set<string>();
+
+      // Apply committed deletion barrier (R06) & reviewed exclusion
+      const pendingCards = deckFilteredItems.filter(
+        (item) => !reviewedIds.has(item.id) && !removedIds.has(item.id)
+      );
 
       const sortByDueDate = (date: string | undefined) => {
         if (!date) return 0;
@@ -307,27 +328,39 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         (a, b) => sortByDueDate(a.due_date) - sortByDueDate(b.due_date)
       );
 
-      const sessionId = queue.length > 0 ? await startReview() : "";
-      const firstItem = queue[0] || null;
+      const currentActiveId = get().currentCard?.id ?? null;
+      let targetCurrentCard: ReviewSessionItem | null = null;
+      let targetIndex = 0;
+
+      if (currentActiveId && queue.some((it) => it.id === currentActiveId)) {
+        targetIndex = queue.findIndex((it) => it.id === currentActiveId);
+        targetCurrentCard = queue[targetIndex];
+      } else {
+        targetCurrentCard = queue[0] || null;
+        targetIndex = 0;
+      }
+
+      const sessionId = get().sessionId || (queue.length > 0 ? await startReview() : "");
+      if (get().generation !== nextGen) return;
 
       set({
         queue,
-        currentIndex: 0,
-        currentCard: firstItem,
+        currentIndex: targetIndex,
+        currentCard: targetCurrentCard,
         sessionStartTime: Date.now(),
-        sessionStartedAt: Date.now(),
+        sessionStartedAt: get().sessionStartedAt || Date.now(),
         isLoading: false,
-        reviewsCompleted: 0,
-        correctCount: 0,
+        reviewsCompleted: get().reviewsCompleted || 0,
+        correctCount: get().correctCount || 0,
         sessionId,
-        averageTimePerCard: 0,
+        averageTimePerCard: get().averageTimePerCard || 0,
         isAnswerShown: false,
         previewIntervals: null,
         reviewPhase: "question",
         pendingArenaReview: null,
         arenaPreviewError: null,
         lastReviewOutcome: null,
-        canUndoLastReview: false,
+        canUndoLastReview: get().canUndoLastReview,
         lastUndoError: null,
       });
       lastUndoSnapshot = null;
@@ -348,10 +381,12 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         get().loadPreviewIntervals();
       }
     } catch (error) {
-      set({
-        error: error instanceof Error ? error.message : "Failed to load review queue",
-        isLoading: false,
-      });
+      if (get().generation === nextGen) {
+        set({
+          error: error instanceof Error ? error.message : "Failed to load review queue",
+          isLoading: false,
+        });
+      }
     }
   },
 
@@ -387,7 +422,10 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   submitRating: async (rating: ReviewRating, grade?: number, arenaSelection?: ArenaSelection) => {
     const state = get();
     const { currentCard, reviewMode } = state;
-    if (!currentCard) return;
+    if (!currentCard || state.isSubmitting) return;
+
+    const token = cardMutationCoordinator.acquireMutationToken(currentCard.id, "rate");
+    if (!token) return;
 
     const settings = useSettingsStore.getState().settings;
     const arenaEligible =
@@ -416,6 +454,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     // Grading is intentionally non-mutating for Arena reviews. The same card,
     // answer, and queue remain on screen until an interval is confirmed.
     if (arenaEligible && arenaReviewMode === "choose" && !arenaSelection) {
+      token.release();
       const hasGradePreview = Boolean(state.previewIntervals?.arena?.grades[effectiveGrade]);
       set({
         pendingArenaReview: {
@@ -530,6 +569,17 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       }
 
       // Only now may visible session state advance.
+      token.release();
+      const sessionState: SessionState<ReviewSessionItem> = {
+        items: state.queue,
+        currentId: currentCard.id,
+        reviewedIds: new Set(reviewedIdsBefore),
+        removedIds: state.removedIds ?? new Set<string>(),
+        revealRevision: state.revealRevision ?? 0,
+        generation: state.generation ?? 1,
+      };
+      const ratingReconciled = reconcileItemRating(sessionState, currentCard.id);
+
       const newReviewsCompleted = state.reviewsCompleted + 1;
       const newCorrectCount = wasCorrect ? state.correctCount + 1 : state.correctCount;
       const newAverageTime =
@@ -542,15 +592,31 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       });
       const reviewedIds = new Set(reviewedIdsBefore);
       reviewedIds.add(currentCard.id);
-      const nextIndex = remainingQueue.length > 0
-        ? Math.min(state.currentIndex, remainingQueue.length - 1)
-        : 0;
+
+      let nextCurrentCard: ReviewSessionItem | null = null;
+      let nextIndex = 0;
+      if (remainingQueue.length > 0) {
+        if (ratingReconciled.nextCurrentId) {
+          const match = remainingQueue.find((it) => it.id === ratingReconciled.nextCurrentId);
+          if (match) {
+            nextCurrentCard = match;
+            nextIndex = remainingQueue.findIndex((it) => it.id === match.id);
+          } else {
+            nextIndex = Math.min(state.currentIndex, remainingQueue.length - 1);
+            nextCurrentCard = remainingQueue[nextIndex] ?? null;
+          }
+        } else {
+          nextIndex = Math.min(state.currentIndex, remainingQueue.length - 1);
+          nextCurrentCard = remainingQueue[nextIndex] ?? null;
+        }
+      }
 
       lastUndoSnapshot = snapshot;
       set((latest) => ({
         queue: remainingQueue,
         currentIndex: nextIndex,
-        currentCard: remainingQueue[nextIndex] ?? null,
+        currentCard: nextCurrentCard,
+        revealRevision: ratingReconciled.revealRevision,
         isAnswerShown: false,
         isSubmitting: false,
         previewIntervals: null,
@@ -615,6 +681,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         setTimeout(() => void get().loadPreviewIntervals(), 100);
       }
     } catch (error) {
+      token.rollback(error instanceof Error ? error : new Error(String(error)));
       emitInteractionFeedback("action.failed", {}, { interactionId: createFeedbackInteractionId(), origin: "user" });
       const message = error instanceof Error ? error.message : "Failed to submit review";
       set({
@@ -833,36 +900,32 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   },
 
   patchCurrentCard: (updated) => {
-    const { queue, currentIndex } = get();
-    if (queue[currentIndex]?.id === updated.id) {
-      const nextQueue = queue.slice();
-      nextQueue[currentIndex] = updated;
-      set({ queue: nextQueue, currentCard: updated });
-      return;
-    }
-    // Defensive fallback: the queue moved on (e.g. a rating landed between
-    // open and save) — still keep the visible card consistent with the edit.
-    set({ currentCard: updated });
+    const { queue, currentCard } = get();
+    const nextQueue = queue.map((item) => (item.id === updated.id ? updated : item));
+    const nextCurrentCard = currentCard?.id === updated.id ? updated : currentCard;
+    set({ queue: nextQueue, currentCard: nextCurrentCard });
   },
 
   removeItemFromSession: (itemId: string) => {
     const state = get();
-    const removedIndex = state.queue.findIndex((item) => item.id === itemId);
-    if (removedIndex === -1) return;
-
-    const remainingQueue = state.queue.filter((item) => item.id !== itemId);
-    let nextIndex = state.currentIndex;
-    if (removedIndex < state.currentIndex) {
-      nextIndex -= 1;
-    }
-    nextIndex = remainingQueue.length > 0
-      ? Math.max(0, Math.min(nextIndex, remainingQueue.length - 1))
-      : 0;
+    const sessionState: SessionState<ReviewSessionItem> = {
+      items: state.queue,
+      currentId: state.currentCard?.id ?? null,
+      reviewedIds: new Set(loadStoredSession()?.reviewedIds ?? []),
+      removedIds: state.removedIds ?? new Set<string>(),
+      revealRevision: state.revealRevision ?? 0,
+      generation: state.generation ?? 1,
+    };
+    const result = reconcileItemRemoval(sessionState, itemId);
 
     set({
-      queue: remainingQueue,
-      currentIndex: nextIndex,
-      currentCard: remainingQueue[nextIndex] ?? null,
+      queue: result.nextItems,
+      currentIndex: result.nextIndex,
+      currentCard: result.nextCurrentId
+        ? result.nextItems.find((item) => item.id === result.nextCurrentId) ?? null
+        : null,
+      removedIds: result.removedIds,
+      revealRevision: result.revealRevision,
       isAnswerShown: false,
       isSubmitting: false,
       previewIntervals: null,
@@ -873,7 +936,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       error: null,
     });
 
-    if (remainingQueue.length === 0) {
+    if (result.nextItems.length === 0) {
       clearStoredSession();
     } else {
       setTimeout(() => void get().loadPreviewIntervals(), 100);
@@ -886,6 +949,9 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       queue: [],
       currentIndex: 0,
       currentCard: null,
+      removedIds: new Set<string>(),
+      revealRevision: 0,
+      generation: (get().generation || 0) + 1,
       previewIntervals: null,
       reviewPhase: "question",
       pendingArenaReview: null,
@@ -1079,10 +1145,17 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         });
       }
 
+      const restoredId = snapshot.learningItemState?.itemId;
+      const nextRemovedIds = new Set(get().removedIds ?? []);
+      if (restoredId) {
+        nextRemovedIds.delete(restoredId);
+      }
+
       set({
         queue: snapshot.queue,
         currentIndex: snapshot.currentIndex,
         currentCard: snapshot.currentCard,
+        removedIds: nextRemovedIds,
         isAnswerShown: snapshot.isAnswerShown,
         reviewsCompleted: snapshot.reviewsCompleted,
         correctCount: snapshot.correctCount,
@@ -1108,3 +1181,14 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     }
   },
 }));
+
+if (typeof window !== "undefined") {
+  cardMutationCoordinator.registerReconciler((committedItem) => {
+    const state = useReviewStore.getState();
+    const matchesQueue = state.queue.some((item) => item.id === committedItem.id);
+    const matchesCurrent = state.currentCard?.id === committedItem.id;
+    if (matchesQueue || matchesCurrent) {
+      state.patchCurrentCard(committedItem as unknown as ReviewSessionItem);
+    }
+  });
+}

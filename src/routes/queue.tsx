@@ -41,6 +41,7 @@ import { InlineCardEditor } from "../components/review/InlineCardEditor";
 import { getLearningItem, type LearningItem } from "../api/learning-items";
 import { formatDuration } from "../api/audiobooks";
 import { shouldYieldRowMenu } from "../lib/contextMenus";
+import { cardMutationCoordinator } from "../api/learningItemMutationCoordinator";
 
 /**
  * The sort button cycles priority → overdue → title rather than toggling two
@@ -153,6 +154,23 @@ export function Queue() {
     loadQueue();
     loadStats();
   }, [loadQueue, loadStats]);
+
+  useEffect(() => {
+    return cardMutationCoordinator.registerReconciler((updated) => {
+      useQueueStore.setState((state) => ({
+        items: state.items.map((it) =>
+          it.id === updated.id || it.learningItemId === updated.id
+            ? {
+                ...it,
+                tags: updated.tags,
+                documentTitle: updated.question.substring(0, 50) + (updated.question.length > 50 ? "..." : ""),
+                ...(it.learningItem ? { learningItem: updated } : {}),
+              }
+            : it
+        ),
+      }));
+    });
+  }, []);
 
   const renderedIds = useMemo(() => orderedItems.map((item) => item.id), [orderedItems]);
 

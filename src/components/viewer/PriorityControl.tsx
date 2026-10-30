@@ -9,17 +9,22 @@
  * - Clean, unobtrusive design
  * - Clear visual feedback
  * - Preset buttons for quick selection
- * - Slider for fine-tuning
- * - Immediate save on interaction
+ * - Slider for fine-tuning with pointer/touch/keyboard parity
+ * - Unified draft/commit lifecycle with retry on failure
  */
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { cn } from "../../utils";
 import { CaretDown, CaretUp, Flag } from "@phosphor-icons/react";
-import { updateDocumentPriority } from "../../api/documents";
-import { updateLearningItemPriority } from "../../api/learning-items";
 import { getPriorityStanding, type PriorityStanding } from "../../api/queue";
 import { useI18n } from "../../lib/i18n";
+import {
+  PRIORITY_PRESETS,
+  getPriorityInfo,
+  sliderToRating,
+  usePriorityCommitState,
+  type PriorityTarget,
+} from "../../services/priority/priorityCommit";
 
 /**
  * Which kind of item this control targets. Documents and learning items both
@@ -53,32 +58,6 @@ interface PriorityControlProps {
   queueSize?: number;
 }
 
-// Priority presets with labels and colors
-const PRIORITY_PRESETS = [
-  { value: 10, labelKey: "priority.lowest", descKey: "priority.lowestDesc", color: "#6B7280" },
-  { value: 30, labelKey: "priority.low", descKey: "priority.lowDesc", color: "#9CA3AF" },
-  { value: 50, labelKey: "priority.normal", descKey: "priority.normalDesc", color: "#3B82F6" },
-  { value: 70, labelKey: "priority.high", descKey: "priority.highDesc", color: "#F59E0B" },
-  { value: 90, labelKey: "priority.highest", descKey: "priority.highestDesc", color: "#EF4444" },
-];
-
-function getPriorityInfo(slider: number) {
-  if (slider >= 81) return PRIORITY_PRESETS[4];
-  if (slider >= 61) return PRIORITY_PRESETS[3];
-  if (slider >= 41) return PRIORITY_PRESETS[2];
-  if (slider >= 21) return PRIORITY_PRESETS[1];
-  return PRIORITY_PRESETS[0];
-}
-
-function sliderToRating(slider: number): number {
-  // Convert 0-100 slider to 1-5 rating
-  if (slider >= 81) return 5;
-  if (slider >= 61) return 4;
-  if (slider >= 41) return 3;
-  if (slider >= 21) return 2;
-  return 1;
-}
-
 export function PriorityControl({
   documentId,
   prioritySlider = 50,
@@ -90,21 +69,36 @@ export function PriorityControl({
   queuePosition,
   queueSize,
 }: PriorityControlProps) {
-  const [slider, setSlider] = useState(prioritySlider);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
   const [standing, setStanding] = useState<PriorityStanding | null>(null);
   const { t } = useI18n();
+
+  const target: PriorityTarget = useMemo(
+    () => ({ kind: targetKind, id: documentId }),
+    [targetKind, documentId],
+  );
+
+  const {
+    slider,
+    isSaving,
+    saveFailed,
+    errorMessage,
+    sliderHandlers,
+    commitPriority,
+    cancelDraft,
+  } = usePriorityCommitState({
+    target,
+    initialValue: prioritySlider,
+    onCommitted: (result) => {
+      onPriorityChange?.(result.slider, result.rating ?? sliderToRating(result.slider));
+    },
+  });
 
   const currentInfo = getPriorityInfo(slider);
 
   // Prop overrides win; otherwise show the standing we looked up.
   const shownPosition = queuePosition ?? standing?.position;
   const shownQueueSize = queueSize ?? standing?.queueSize;
-
-  useEffect(() => {
-    setSlider(prioritySlider);
-  }, [documentId, prioritySlider]);
 
   // Priority is a rank, so the readout is only true at the moment it is read:
   // refresh it whenever the popup opens and after each save. Skipped entirely
@@ -117,7 +111,6 @@ export function PriorityControl({
         if (!cancelled) setStanding(result);
       })
       .catch(() => {
-        // A missing standing just hides the readout; it is not worth a toast.
         if (!cancelled) setStanding(null);
       });
     return () => {
@@ -125,34 +118,20 @@ export function PriorityControl({
     };
   }, [documentId, isExpanded, isSaving, queuePosition, queueSize]);
 
-  const handleSliderChange = useCallback(async (newSlider: number) => {
-    setSlider(newSlider);
-    const newRating = sliderToRating(newSlider);
-
-    setIsSaving(true);
-    try {
-      // Dispatch to the document or learning-item priority command depending
-      // on what this control targets (Phase 3 makes the two uniform).
-      if (targetKind === "learningItem") {
-        await updateLearningItemPriority(documentId, newSlider);
-      } else {
-        await updateDocumentPriority(documentId, newRating, newSlider);
+  const handlePresetClick = useCallback(
+    (presetValue: number) => {
+      void commitPriority(presetValue);
+      if (variant === "compact") {
+        setIsExpanded(false);
       }
-      onPriorityChange?.(newSlider, newRating);
-    } catch (error) {
-      console.error("Failed to update priority:", error);
-      // Could show toast here
-    } finally {
-      setIsSaving(false);
-    }
-  }, [documentId, onPriorityChange, targetKind]);
+    },
+    [commitPriority, variant],
+  );
 
-  const handlePresetClick = useCallback((presetValue: number) => {
-    handleSliderChange(presetValue);
-    if (variant === "compact") {
-      setIsExpanded(false);
-    }
-  }, [handleSliderChange, variant]);
+  const handleCloseCompact = useCallback(() => {
+    setIsExpanded(false);
+    cancelDraft();
+  }, [cancelDraft]);
 
   if (variant === "compact") {
     return (
@@ -185,7 +164,7 @@ export function PriorityControl({
             <div 
               className="fixed inset-0 z-40"
               role="presentation"
-              onClick={() => setIsExpanded(false)}
+              onClick={handleCloseCompact}
             />
             <div className="absolute top-full right-0 mt-2 w-64 bg-popover border border-border rounded-lg shadow-lg z-50 p-3 animate-in fade-in zoom-in-95 duration-100">
               <div className="space-y-3">
@@ -195,12 +174,19 @@ export function PriorityControl({
                     <span className="text-xs text-muted-foreground">{t("priority.saving")}</span>
                   )}
                 </div>
+
+                {saveFailed && (
+                  <p role="alert" className="text-xs text-error font-medium">
+                    {t("priority.saveFailed")}{errorMessage ? ` (${errorMessage})` : ""}
+                  </p>
+                )}
                 
                 {/* Preset buttons */}
                 <div className="grid grid-cols-5 gap-1">
                   {PRIORITY_PRESETS.map((preset) => (
                     <button
                       key={preset.value}
+                      disabled={isSaving}
                       onClick={() => handlePresetClick(preset.value)}
                       className={cn(
                         "flex flex-col items-center gap-1 p-2 rounded-md transition-all",
@@ -235,7 +221,8 @@ export function PriorityControl({
                     min="0"
                     max="100"
                     value={slider}
-                    onChange={(e) => handleSliderChange(parseInt(e.target.value))}
+                    disabled={isSaving}
+                    {...sliderHandlers}
                     aria-label={t("priority.fineTune")}
                     className="w-full h-1.5 bg-muted rounded-lg appearance-none cursor-pointer accent-primary"
                     style={{ accentColor: currentInfo.color }}
@@ -272,11 +259,18 @@ export function PriorityControl({
         )}
       </div>
 
+      {saveFailed && (
+        <p role="alert" className="text-xs text-error font-medium">
+          {t("priority.saveFailed")}{errorMessage ? ` (${errorMessage})` : ""}
+        </p>
+      )}
+
       {/* Preset buttons */}
       <div className="flex gap-2">
         {PRIORITY_PRESETS.map((preset) => (
           <button
             key={preset.value}
+            disabled={isSaving}
             onClick={() => handlePresetClick(preset.value)}
             className={cn(
               "flex-1 flex flex-col items-center gap-1 p-2 rounded-lg border transition-all",
@@ -309,7 +303,8 @@ export function PriorityControl({
           min="0"
           max="100"
           value={slider}
-          onChange={(e) => handleSliderChange(parseInt(e.target.value))}
+          disabled={isSaving}
+          {...sliderHandlers}
           aria-label={t("priority.adjust")}
           className="w-full h-2 bg-muted rounded-lg appearance-none cursor-pointer"
           style={{ accentColor: currentInfo.color }}

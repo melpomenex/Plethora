@@ -1,3 +1,11 @@
+import type { FrozenAssistantSource } from "./sourceEnvelope";
+import { isTwentyRulesCommand } from "../knowledgeFormulation";
+
+/** Writes require the user's create intent; a model tool call is not consent. */
+export function allowsChatCardCreation(prompt: string): boolean {
+  if (/\b(preview|draft|suggest|show examples?)\b|\b(?:do not|don't|without|never)\s+(?:save|create|add|persist)\b/i.test(prompt)) return false;
+  return isTwentyRulesCommand(prompt) || /\b(create|make|generate|save|add|turn)\b[\s\S]*\b(cards?|flashcards?|clozes?|deck)\b/i.test(prompt);
+}
 /**
  * Unified 4-stage resilient MCP tool-call parser and parameter normalizer
  * shared across AssistantPanel, DocumentQATab, and AssistantOrchestrator.
@@ -128,14 +136,34 @@ export function normalizeAssistantToolParameters(
     documentId?: string;
     documentTitle?: string;
     sourceArg?: unknown;
+    sourceEnvelope?: FrozenAssistantSource;
   },
 ): Record<string, unknown> {
   const normalized: Record<string, unknown> = { ...parameters };
-  const documentId = options?.documentId;
+  const documentId = options?.sourceEnvelope?.documentId ?? options?.documentId;
   const deckName = getDocumentDeckName(options?.documentTitle);
 
   if (documentId && ATTACHABLE_TOOL_NAMES.has(toolName)) {
     normalized.document_id = documentId;
+  }
+
+  if (ATTACHABLE_TOOL_NAMES.has(toolName)) {
+    if (documentId?.startsWith("extract:")) throw new Error("Resolve the extract source before creating cards.");
+    if (options?.sourceEnvelope) {
+      if (options.sourceEnvelope.extractId) normalized.extract_id = options.sourceEnvelope.extractId;
+      else delete normalized.extract_id;
+      normalized.source_revision = options.sourceEnvelope.contentRevision;
+      normalized.extract_revision = options.sourceEnvelope.extractRevision;
+      if (toolName === "batch_create_cards" && Array.isArray(normalized.cards)) {
+        normalized.cards = normalized.cards.map((candidate: unknown) => {
+          if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) return candidate;
+          const card: Record<string, unknown> = { ...candidate as Record<string, unknown>, document_id: documentId };
+          if (options.sourceEnvelope.extractId) card.extract_id = options.sourceEnvelope.extractId;
+          else delete card.extract_id;
+          return card;
+        });
+      }
+    }
   }
 
   if (deckName && ATTACHABLE_TOOL_NAMES.has(toolName)) {

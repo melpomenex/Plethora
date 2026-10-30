@@ -125,6 +125,7 @@ const api = vi.hoisted(() => ({
   getSmartStartPosition: vi.fn(),
   rateDocumentEngaging: vi.fn(),
   getDueItems: vi.fn(),
+  getLearningItem: vi.fn(),
   getDueExtracts: vi.fn(),
   submitReview: vi.fn(),
   submitExtractReview: vi.fn(),
@@ -165,6 +166,7 @@ vi.mock("../../api/algorithm", () => ({
 }));
 vi.mock("../../api/learning-items", () => ({
   getDueItems: api.getDueItems,
+  getLearningItem: api.getLearningItem,
 }));
 vi.mock("../../api/extract-review", () => ({
   getDueExtracts: api.getDueExtracts,
@@ -408,6 +410,7 @@ beforeEach(() => {
   api.rateDocumentEngaging.mockResolvedValue({ success: true } as any);
   api.submitReview.mockResolvedValue({ success: true } as any);
   api.getDueItems.mockResolvedValue([card1]);
+  api.getLearningItem.mockResolvedValue(null);
   api.getDueExtracts.mockResolvedValue([]);
   api.getSubscribedFeeds.mockReturnValue([]);
 
@@ -527,6 +530,16 @@ describe("QueueScrollPage session rebuild stability (queue-list path)", () => {
       ],
     };
   });
+
+  it("loads the full persisted non-due card rather than fabricating a cloze", async () => {
+    api.getDueItems.mockResolvedValue([]);
+    api.getLearningItem.mockResolvedValue(card1);
+    render(<QueueScrollPage />);
+    expect(await screen.findByTestId("document-viewer")).toHaveAttribute("data-document-id", "doc-1");
+    await rateCurrentViaKeyboard("3");
+    await awaitFlashcardCurrent();
+    expect(api.getLearningItem).toHaveBeenCalledWith("card-1");
+  }, 20000);
 
   it("6.4: queue-list sessions get the same guarantee across a rating + reload", async () => {
     render(<QueueScrollPage />);

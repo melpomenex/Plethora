@@ -1,6 +1,7 @@
+import type { FrozenAssistantSource } from "../../lib/ai/assistant/sourceEnvelope";
 import type { SectionSourceReference } from "../../utils/sectionIndex";
 
-export type ChatFlashcardStatus = "pending" | "saved" | "failed";
+export type ChatFlashcardStatus = "pending" | "saved" | "failed" | "preview";
 
 export interface ChatToolCall {
   name: string;
@@ -12,6 +13,10 @@ export interface ChatToolCall {
 export interface ChatFlashcardArtifact {
   id: string;
   callIndex: number;
+  candidateIndex?: number;
+  acceptanceId?: string;
+  proposalId?: string;
+  sourceEnvelope?: FrozenAssistantSource;
   type: "qa" | "cloze";
   front: string;
   back?: string;
@@ -123,17 +128,67 @@ function structuredResult(result: unknown): Record<string, unknown> | undefined 
 function batchResults(result: unknown): Record<string, unknown>[] {
   const structured = structuredResult(result);
   if (!structured || !Array.isArray(structured.results)) return [];
-  return structured.results.filter((item): item is Record<string, unknown> =>
-    Boolean(item && typeof item === "object" && !Array.isArray(item)),
+  return structured.results.map((item) =>
+    item && typeof item === "object" && !Array.isArray(item) ? item as Record<string, unknown> : {},
   );
 }
 
-function resultError(result: unknown): string {
-  if (result && typeof result === "object" && !Array.isArray(result)) {
-    const error = stringValue((result as Record<string, unknown>).error);
-    if (error) return error;
+/** Count durable receipts, including missing results as failed candidates. */
+export function summarizeBatchCardResults(result: unknown, attempted: number): { saved: number; failed: number } {
+  const results = batchResults(result);
+  const saved = results.slice(0, attempted).filter((entry) =>
+    entry.success === true && Boolean(extractPersistedCardId(entry)),
+  ).length;
+  return { saved, failed: Math.max(0, attempted - saved) };
+}
+
+export function persistedCardDocumentId(result: unknown): string | undefined {
+  const candidates: unknown[] = [result];
+  const text = resultText(result);
+  if (text) {
+    try { candidates.push(JSON.parse(text)); } catch { /* Not a JSON receipt. */ }
   }
-  return resultText(result);
+  for (const candidate of candidates) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const id = (candidate as Record<string, unknown>).document_id;
+    if (typeof id === "string" && id) return id;
+  }
+  return undefined;
+}
+
+export function safeCardCreationError(result: unknown): string {
+  const structured = structuredResult(result);
+  const nested = structured?.error;
+  const message = typeof nested === "string" ? nested : nested && typeof nested === "object"
+    ? stringValue((nested as Record<string, unknown>).message) : result instanceof Error ? result.message : resultText(result);
+  if (!message || /^\s*[{[]/.test(message) || /SQLITE|FOREIGN KEY|constraint failed|database error|\bat \S+\(/i.test(message)) {
+    return "The card was not saved. Reselect its source or retry.";
+  }
+  return message.slice(0, 300);
+}
+
+function resultError(result: unknown): string { return safeCardCreationError(result); }
+
+/** App-assigned identities override model parameters and survive message reloads. */
+export function withCardCandidateIdentities(namespace: string, callIndex: number, call: ChatToolCall): Record<string, unknown> {
+  if (!isFlashcardToolCall(call)) return call.parameters;
+  const acceptanceId = `chat:${namespace}:${callIndex}`;
+  const parameters: Record<string, unknown> = { ...call.parameters, acceptance_id: acceptanceId, proposal_id: `${acceptanceId}:0` };
+  if (call.name === "batch_create_cards" && Array.isArray(parameters.cards)) {
+    parameters.cards = parameters.cards.map((candidate, index) => candidate && typeof candidate === "object" && !Array.isArray(candidate)
+      ? { ...candidate as Record<string, unknown>, proposal_id: `${acceptanceId}:${index}` } : candidate);
+  }
+  return parameters;
+}
+
+/** Merge a retry of one candidate without resubmitting or clearing its siblings. */
+export function mergeBatchCandidateResult(previous: unknown, count: number, index: number, retried: unknown, proposalId?: string): unknown {
+  const prior = batchResults(previous);
+  const receipt = batchResults(retried)[0] ?? { success: false, error: safeCardCreationError(retried) };
+  const results = Array.from({ length: count }, (_, candidate) => candidate === index
+    ? { ...receipt, proposal_id: proposalId } : prior[candidate] ?? {});
+  const created = results.filter((row) => row.success === true && Boolean(extractPersistedCardId(row))).length;
+  return { attempted: count, created, failed: count - created, results };
 }
 
 export function toolCallsToFlashcardArtifacts(
@@ -157,29 +212,32 @@ export function toolCallsToFlashcardArtifacts(
         const front = stringValue(card.question ?? card.text);
         const back = stringValue(card.answer);
         const isCloze = cardType === "cloze";
-        if (!front || (!isCloze && !back)) return;
+        const invalid = !front || (!isCloze && !back) || !["", "qa", "cloze", "basic", "flashcard"].includes(cardType);
 
-        const persistedResult = persistedResults[cardIndex];
+        const proposalId = stringValue(card.proposal_id);
+        const persistedResult = (proposalId ? persistedResults.find((row) => row.proposal_id === proposalId) : undefined) ?? persistedResults[cardIndex];
         const itemFailed = persistedResult?.success === false;
-        const status: ChatFlashcardStatus = call.status === "error" || itemFailed
-          ? "failed"
-          : call.status === "success"
-            ? "saved"
-            : "pending";
+        const persistedCardId = extractPersistedCardId(persistedResult);
+        const missingReceipt = call.status === "success" && (persistedResult?.success !== true || !persistedCardId);
+        const committed = persistedResult?.success === true && Boolean(persistedCardId);
+        const status: ChatFlashcardStatus = invalid ? "failed" : call.parameters.preview_only === true ? "preview" : call.parameters.retrying_candidate === cardIndex ? "pending" : committed ? "saved" : call.status === "pending" && !itemFailed ? "pending" : "failed";
         artifacts.push({
           id: `${messageId}:card:${callIndex}:${cardIndex}`,
-          callIndex,
+          callIndex, candidateIndex: cardIndex,
+          acceptanceId: stringValue(call.parameters.acceptance_id) || undefined,
+          proposalId: proposalId || undefined,
+          sourceEnvelope: call.parameters.source_envelope as FrozenAssistantSource | undefined,
           type: isCloze ? "cloze" : "qa",
-          front,
+          front: front || "Invalid card candidate",
           back: isCloze ? undefined : back,
           status,
-          persistedCardId: extractPersistedCardId(persistedResult),
+          persistedCardId,
           tags: mergeStringLists(call.parameters.tags, card.tags),
-          // A partial batch failure cannot safely retry only this row with the
-          // parent call: doing so would save successful siblings twice.
-          retryable: call.status === "error",
-          error: status === "failed"
-            ? resultError(persistedResult ?? call.result) || "Card could not be saved."
+          retryable: !invalid && !committed && (Boolean(call.parameters.acceptance_id) || itemFailed),
+          error: invalid ? "The candidate is missing required content or has an unsupported card type." : status === "failed"
+            ? (missingReceipt && !itemFailed
+              ? "The card could not be confirmed as saved."
+              : resultError(persistedResult ?? call.result) || "Card could not be saved.")
             : undefined,
           source: options.source,
           createdAt,
@@ -190,17 +248,24 @@ export function toolCallsToFlashcardArtifacts(
     const isQa = call.name === "create_qa_card";
     const front = stringValue(isQa ? call.parameters.question : call.parameters.text);
     const back = isQa ? stringValue(call.parameters.answer) : undefined;
-    if (!front || (isQa && !back)) return;
+    const invalid = !front || (isQa && !back);
+    const persistedCardId = extractPersistedCardId(call.result);
+    const missingReceipt = call.status === "success" && !persistedCardId;
     artifacts.push({
       id: `${messageId}:card:${callIndex}`,
       callIndex,
+      acceptanceId: stringValue(call.parameters.acceptance_id) || undefined,
+      proposalId: stringValue(call.parameters.proposal_id) || undefined,
+      sourceEnvelope: call.parameters.source_envelope as FrozenAssistantSource | undefined,
+      retryable: !invalid && (Boolean(call.parameters.acceptance_id) || structuredResult(call.result)?.success === false),
       type: isQa ? "qa" : "cloze",
-      front,
+      front: front || "Invalid card candidate",
       back,
-      status: call.status === "success" ? "saved" : call.status === "error" ? "failed" : "pending",
-      persistedCardId: extractPersistedCardId(call.result),
+      status: invalid ? "failed" : call.parameters.preview_only === true ? "preview" : call.parameters.retrying_candidate === 0 ? "pending" : call.status === "success" && !missingReceipt ? "saved" : call.status === "error" || missingReceipt ? "failed" : "pending",
+      persistedCardId,
       tags: stringList(call.parameters.tags),
-      error: call.status === "error" ? resultText(call.result) || "Card could not be saved." : undefined,
+      error: invalid ? "The candidate is missing required content." : missingReceipt ? "The card could not be confirmed as saved."
+        : call.status === "error" ? resultError(call.result) || "Card could not be saved." : undefined,
       source: options.source,
       createdAt,
     });

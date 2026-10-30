@@ -1,3 +1,4 @@
+import type { FrozenAssistantSource } from "../../../lib/ai/assistant/sourceEnvelope";
 import type { SectionSourceReference } from "../../../utils/sectionIndex";
 import type { ImageOcclusionRegion, MultipleChoiceOption } from "../../../types/learningItemInteractions";
 import type { SessionSourceEvidence } from "../../../types/recordingSession";
@@ -5,7 +6,9 @@ import type { SessionSourceEvidence } from "../../../types/recordingSession";
 export type DraftCardType = "qa" | "cloze" | "multiple-choice" | "image-occlusion";
 
 export interface DraftCard {
+  saveError?: string;
   id: string;
+  sourceEnvelope?: FrozenAssistantSource;
   type: DraftCardType;
   question?: string;
   answer?: string;

@@ -50,7 +50,8 @@ vi.mock("../../../features/documentQa/notebooklmResearch", () => ({
   createSelectionRange: vi.fn(),
   upsertArtifactDraft: vi.fn(),
 }));
-vi.mock("../../../features/documentQa/sectionContextRequest", () => ({
+vi.mock("../../../features/documentQa/sectionContextRequest", async (importOriginal) => ({
+  ...await importOriginal<typeof import("../../../features/documentQa/sectionContextRequest")>(),
   createDocumentQaRequestContent: vi.fn().mockImplementation((request: {
     documentContext: string;
     userQuestion: string;
@@ -317,7 +318,7 @@ describe("DocumentQATab generated flashcards", () => {
     ));
   });
 
-  it("adds document ownership and the title deck tag when retrying a failed card", async () => {
+  it("retries a failed candidate using its original ownership and deck tag", async () => {
     vi.mocked(callAppMCPTool).mockResolvedValue({
       isError: false,
       content: [{ type: "text", text: JSON.stringify({ success: true, id: "card-1" }) }],
@@ -336,6 +337,7 @@ describe("DocumentQATab generated flashcards", () => {
             question: "What carries genetic information?",
             answer: "DNA.",
             document_id: "doc-1",
+            acceptance_id: "qa-turn", proposal_id: "candidate-1", tags: ["deck:Biology Textbook"],
           },
           result: "temporary failure",
           status: "error",

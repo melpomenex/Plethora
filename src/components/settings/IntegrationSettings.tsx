@@ -443,6 +443,7 @@ export function IntegrationSettings() {
         <SettingsSearchTarget id="integrations.reveal.obsidian" reveal={() => setActiveTab("obsidian")} />
         <SettingsSearchTarget id="integrations.reveal.anki" reveal={() => setActiveTab("anki")} />
         <SettingsSearchTarget id="integrations.reveal.extension" reveal={() => setActiveTab("extension")} />
+        <SettingsSearchTarget id="integrations.reveal.youtube" reveal={() => setActiveTab("youtube")} />
         <SettingsSearchTarget id="integrations.reveal.youtube-cookies" reveal={() => setActiveTab("youtube-cookies")} />
         <SettingsSearchTarget id="integrations.reveal.youtube-transcript" reveal={() => setActiveTab("youtube-transcript")} />
         <SettingsSearchTarget id="integrations.reveal.notebooklm" reveal={() => setActiveTab("notebooklm")} />
@@ -1022,11 +1023,13 @@ export function IntegrationSettings() {
 
       {/* YouTube Playlist Settings */}
       {activeTab === "youtube" && (
-        <div className="space-y-4">
-          <div className="bg-card border border-border rounded-lg p-6">
-            <YouTubePlaylistManager />
+        <SettingsSearchTarget id="integrations.youtubePlaylist" label={t("integrations.youtubePlaylists")}>
+          <div className="space-y-4">
+            <div className="bg-card border border-border rounded-lg p-6">
+              <YouTubePlaylistManager />
+            </div>
           </div>
-        </div>
+        </SettingsSearchTarget>
       )}
 
       {/* NotebookLM Settings */}

@@ -137,8 +137,25 @@ vi.mock("../../api/algorithm", () => ({
 }));
 vi.mock("../../api/learning-items", () => ({
   getDueItems: api.getDueItems,
-  updateLearningItem: vi.fn(async () => ({ success: true })),
-  updateLearningItemContentWithVersion: vi.fn(async (_id: string, updated: any) => updated),
+  getLearningItem: vi.fn(async () => null),
+  updateLearningItemContentWithVersion: vi.fn(async (input: any) => ({
+    id: input.itemId,
+    question: input.question ?? "Original Card Question",
+    answer: input.answer ?? "Answer 42",
+    tags: input.tags ?? ["books"],
+    item_type: "Basic",
+    state: "New",
+    is_suspended: false,
+    due_date: "2026-01-01T00:00:00Z",
+    date_created: "2026-01-01T00:00:00Z",
+    date_modified: "2026-01-01T00:00:00Z",
+    difficulty: 5,
+    interval: 0,
+    ease_factor: 2.5,
+    review_count: 0,
+    lapses: 0,
+    ...input,
+  })),
   updateLearningItemTags: vi.fn(async (_id: string, tags: string[]) => ({ tags })),
 }));
 vi.mock("../../api/extract-review", () => ({
@@ -243,6 +260,7 @@ vi.mock("../../lib/autoFileSyncDownload", () => ({
 
 import { QueueScrollPage } from "../QueueScrollPage";
 import { useDocumentStore } from "../../stores/documentStore";
+import { cardMutationCoordinator } from "../../api/learningItemMutationCoordinator";
 
 const makeDocument = (id: string, title: string) =>
   ({
@@ -288,6 +306,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  cardMutationCoordinator.resetForTesting();
   sessionStorage.clear();
   localStorage.clear();
 

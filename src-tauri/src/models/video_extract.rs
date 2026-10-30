@@ -37,6 +37,11 @@ pub struct VideoExtract {
     pub next_review_date: Option<DateTime<Utc>>,
     /// Last review date
     pub last_review_date: Option<DateTime<Utc>>,
+    /// Viewing does not imply recall or change scheduling.
+    #[serde(default)]
+    pub first_seen_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub last_seen_at: Option<DateTime<Utc>>,
     /// Number of times this extract has been reviewed
     pub review_count: i32,
     /// Total repetitions/reviews
@@ -65,6 +70,8 @@ impl VideoExtract {
             memory_state: None,
             next_review_date: None,
             last_review_date: None,
+            first_seen_at: None,
+            last_seen_at: None,
             review_count: 0,
             reps: 0,
             date_created: now,
@@ -220,4 +227,32 @@ mod tests {
         assert!(preview.len() <= 203); // 200 + "..."
         assert!(preview.ends_with("..."));
     }
+}
+
+/// Immutable result of one rating intent, retained when the live extract is deleted.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoExtractReviewReceipt {
+    pub operation_id: String,
+    pub extract_id: String,
+    pub document_id: String,
+    pub rating: i32,
+    pub reviewed_at: DateTime<Utc>,
+    pub before: VideoExtract,
+    pub after: VideoExtract,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VideoExtractReviewResult {
+    pub extract: Option<VideoExtract>,
+    pub receipt: VideoExtractReviewReceipt,
+}
+
+/// Local archive payload. Missing arrays in older archives mean no lifecycle data.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VideoExtractLifecycleArchive {
+    #[serde(default)]
+    pub extracts: Vec<VideoExtract>,
+    #[serde(default)]
+    pub review_receipts: Vec<VideoExtractReviewReceipt>,
 }

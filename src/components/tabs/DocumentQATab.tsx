@@ -1,3 +1,7 @@
+import { allowsChatCardCreation } from "../../lib/ai/assistant/toolCallParser";
+import { scopedBodyTokenBudget } from "../../utils/scopedContextBudget";
+import { resolveRequestPolicy } from "../../api/llm/policy";
+import { freezeAssistantSource, type FrozenAssistantSource } from "../../lib/ai/assistant/sourceEnvelope";
 import { AssistantScopeSelector } from "../assistant/AssistantScopeSelector";
 import { runAssistantTurn } from "../../lib/ai/assistant/orchestrator";
 import { runConfiguredAssistantTurn } from "../../lib/ai/assistant/configuredTurn";
@@ -24,7 +28,7 @@ import {
   type NotebookLMResearchError,
   type ResearchArtifactDraft,
 } from "../../features/documentQa/notebooklmResearch";
-import { createDocumentQaRequestContent, loadDocumentQaText } from "../../features/documentQa/sectionContextRequest";
+import { createDocumentQaRequestContent, loadDocumentQaText, resolveScopedSectionContext } from "../../features/documentQa/sectionContextRequest";
 import { isVideoDocumentFileType, truncateLegacyQaContext } from "../../features/documentQa/legacyContextWindow";
 import {
   BookOpen,
@@ -64,6 +68,11 @@ import {
 } from "../../utils/sectionIndex";
 import { ChatFlashcardCollection } from "../assistant/ChatFlashcardCollection";
 import {
+  withCardCandidateIdentities,
+  mergeBatchCandidateResult,
+  summarizeBatchCardResults,
+  extractPersistedCardId,
+  safeCardCreationError,
   getFlashcardArtifactDeckName,
   nonFlashcardToolCalls,
   toolCallsToFlashcardArtifacts,
@@ -140,6 +149,7 @@ export function DocumentQATab() {
   const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
   const [summaryAfterPick, setSummaryAfterPick] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const cardRetriesRef = useRef(new Set<string>());
   const [retryTurnId, setRetryTurnId] = useState<string | null>(null);
   const restoreRetryRef = useRef<(() => void) | null>(null);
   const restoredTargetRef = useRef<string | null>(null);
@@ -278,6 +288,7 @@ export function DocumentQATab() {
   const analyticsEnabled = useSettingsStore((state) => state.settings.privacy.analyticsEnabled);
   const { t } = useI18n();
 
+  const qaTurnSourceRef = useRef<FrozenAssistantSource | undefined>(undefined);
   const targetDocument = useMemo(
     () => documents.find((document) => document.id === targetDocId)
       ?? (currentDocument?.id === targetDocId ? currentDocument : undefined),
@@ -1035,6 +1046,7 @@ export function DocumentQATab() {
   ) => {
     return normalizeAssistantToolParameters(toolName, parameters, {
       documentId: documentIdOverride ?? toolDocumentId(parameters, sourceContext),
+      sourceEnvelope: qaTurnSourceRef.current?.documentId === (documentIdOverride ?? toolDocumentId(parameters, sourceContext)) ? qaTurnSourceRef.current : undefined,
       documentTitle: documentTitleOverride ?? documentTitleFromStore(documentIdOverride ?? toolDocumentId(parameters, sourceContext)),
     });
   };
@@ -1070,6 +1082,10 @@ export function DocumentQATab() {
 
     for (let index = 0; index < calls.length; index += 1) {
       const call = calls[index];
+      if (call.parameters.preview_only === true) {
+        updateToolCall(messageId, index, { status: "success", result: { preview_only: true } });
+        continue;
+      }
       const documentId = toolDocumentId(call.parameters, sourceContext);
       let resolvedDocumentTitle: string | undefined;
       if (documentId && ATTACHABLE_TOOL_NAMES.has(call.name)) {
@@ -1078,7 +1094,8 @@ export function DocumentQATab() {
         }
         resolvedDocumentTitle = resolvedTitles.get(documentId);
       }
-      let parameters = normalizeToolParameters(call.name, call.parameters, sourceContext, resolvedDocumentTitle);
+      let parameters = withCardCandidateIdentities(messageId, index, { ...call, parameters: normalizeToolParameters(call.name, call.parameters, sourceContext, resolvedDocumentTitle) });
+      if (qaTurnSourceRef.current) parameters.source_envelope = qaTurnSourceRef.current;
 
       if (documentId && CARD_CREATION_TOOL_NAMES.has(call.name) && !getDocumentDeckName(resolvedDocumentTitle)) {
         const errorMsg = "Could not save this card because the source document title could not be resolved. Reopen the document and retry.";
@@ -1117,9 +1134,13 @@ export function DocumentQATab() {
       try {
         const result = await callAppMCPTool(call.name, parameters);
         
-        if (result.isError) {
+        if (call.name === "batch_create_cards") {
+          const summary = summarizeBatchCardResults(result, Array.isArray(parameters.cards) ? parameters.cards.length : 0);
+          updateToolCall(messageId, index, { result, status: summary.failed ? "error" : "success" });
+          results.push({ name: call.name, status: summary.failed ? "error" : "success" });
+        } else if (result.isError) {
           updateToolCall(messageId, index, {
-            result: JSON.stringify(result.content),
+            result,
             status: "error",
           });
           results.push({ name: call.name, status: "error", error: "Tool returned error" });
@@ -1251,34 +1272,24 @@ export function DocumentQATab() {
   const retryChatCard = async (messageId: string, artifact: ChatFlashcardArtifact) => {
     const message = messages.find((item) => item.id === messageId);
     const call = message?.toolCalls?.[artifact.callIndex];
-    if (!call) return;
-    updateToolCall(messageId, artifact.callIndex, { status: "pending", result: undefined });
+    const retryKey = `${messageId}:${artifact.callIndex}`;
+    if (!call || artifact.status !== "failed" || artifact.retryable === false || cardRetriesRef.current.has(retryKey)) return;
+    cardRetriesRef.current.add(retryKey);
+    const cards = Array.isArray(call.parameters.cards) ? call.parameters.cards : [];
+    const candidateIndex = artifact.candidateIndex;
+    const parameters = candidateIndex !== undefined ? { ...call.parameters, cards: [cards[candidateIndex]] } : call.parameters;
+    updateToolCall(messageId, artifact.callIndex, { parameters: { ...call.parameters, retrying_candidate: candidateIndex ?? 0 } });
     try {
-      const documentId = messageDocumentId(message) ?? toolDocumentId(call.parameters, message.sourceContext);
-      const documentTitle = await resolveDocumentTitleForCards(documentId);
-      const parameters = normalizeToolParameters(
-        call.name,
-        call.parameters,
-        message.sourceContext,
-        documentTitle,
-        documentId,
-      );
-      if (documentId && CARD_CREATION_TOOL_NAMES.has(call.name) && !getDocumentDeckName(documentTitle)) {
-        throw new Error("Could not save this card because the source document title could not be resolved. Reopen the document and retry.");
-      }
       const result = await callAppMCPTool(call.name, parameters);
-      updateToolCall(messageId, artifact.callIndex, {
-        parameters,
-        status: result.isError ? "error" : "success",
-        result: result.isError ? JSON.stringify(result.content) : result,
-      });
-      if (!result.isError) upsertDocumentDeckForParameters(call.name, parameters, message.sourceContext, documentId);
+      const merged = candidateIndex !== undefined ? mergeBatchCandidateResult(call.result, cards.length, candidateIndex, result, artifact.proposalId) : result;
+      const failed = candidateIndex !== undefined ? summarizeBatchCardResults(merged, cards.length).failed > 0 : result.isError || !extractPersistedCardId(result);
+      updateToolCall(messageId, artifact.callIndex, { parameters: call.parameters, result: merged, status: failed ? "error" : "success" });
+      if (!failed) upsertDocumentDeckForParameters(call.name, parameters, message.sourceContext, parameters.document_id as string | undefined);
     } catch (error) {
-      updateToolCall(messageId, artifact.callIndex, {
-        status: "error",
-        result: error instanceof Error ? error.message : String(error),
-      });
-    }
+      const failure = { results: [{ success: false, error: safeCardCreationError(error) }] };
+      updateToolCall(messageId, artifact.callIndex, { parameters: call.parameters, status: "error", result: candidateIndex !== undefined
+        ? mergeBatchCandidateResult(call.result, cards.length, candidateIndex, failure, artifact.proposalId) : safeCardCreationError(error) });
+    } finally { cardRetriesRef.current.delete(retryKey); }
   };
 
   const trackNotebookEvent = useCallback((event: string, payload: Record<string, unknown> = {}) => {
@@ -1589,11 +1600,10 @@ export function DocumentQATab() {
           ...parsedCurrentSections.filter((parsed) => !sectionFlat.some((section) => section.id === parsed.id)),
         ];
         const maxTokens = contextWindowTokens && contextWindowTokens > 0 ? contextWindowTokens : 4000;
-        focusedSectionContext = resolveMixedSectionFocusedContext(requestedSections, currentSections, currentText, {
-          documentId,
-          maxTokens,
-          includeNeighbors: true,
-        });
+        const policy = resolveRequestPolicy({ provider: provider.provider, providerContextTokens: provider.contextWindowTokens, providerMaxOutput: provider.maxTokens });
+        const bodyTokens = scopedBodyTokenBudget({ promptBudgetTokens: Math.min(maxTokens, policy.promptBudgetTokens), instructions: (isTwentyRules ? buildTwentyRulesSystemPrompt() : "") + (provider.systemPrompt ?? ""), userPrompt: userQuestion, history: messages });
+        focusedSectionContext = await resolveScopedSectionContext({ selectedSections: requestedSections, availableSections: currentSections, documentId, maxTokens: bodyTokens, currentText,
+          loadCanonicalText: () => loadDocumentText(documentId) });
         if (!focusedSectionContext.ok) {
           const failed = focusedSectionContext.unresolved.map(describeSectionDiagnostic).join("; ");
           addMessage({
@@ -1665,11 +1675,15 @@ export function DocumentQATab() {
           content: m.role === "assistant" ? getAssistantAnswer(m.content) : m.content,
         }));
 
+      // Freeze the selected persisted identity before provider contact.
+      const sourceDocument = eligible.find((document) => document.id === mentionedDocumentIds[0]);
+      qaTurnSourceRef.current = sourceDocument ? freezeAssistantSource(sourceDocument) : undefined;
       // Call LLM with conversation history
       const response = await runAssistantTurn({
+        sourceEnvelope: qaTurnSourceRef.current,
         scope: assistantScope, userQuestion: String(userPrompt.content),
         sourceContent: requestContent.contextContent, sourceId: mentionedDocumentIds[0], sourceTitle: sourceLabel,
-        sourceType: isVideoDocumentFileType(targetDocument?.fileType) ? "video" : "document", selectionExcerpt: contextPassage,
+        explicitSourceContent: Boolean(focusedSectionContext?.ok || contextPassage), sourceType: isVideoDocumentFileType(targetDocument?.fileType) ? "video" : "document", selectionExcerpt: contextPassage,
         history: conversationHistory.map((message) => ({ role: message.role, content: String(message.content) })),
         provider: provider.provider, model: provider.model, apiKey: provider.apiKey, baseUrl: provider.baseUrl,
         temperature: provider.temperature, maxOutputTokens: provider.maxTokens, configuredContextTokens: provider.contextWindowTokens,
@@ -1686,6 +1700,7 @@ export function DocumentQATab() {
 
       const parsedResponse = parseAssistantThinking(response.rawContent);
       const { cleanedContent, toolCalls } = parseToolCalls(parsedResponse.answer);
+      if (!allowsChatCardCreation(userQuestion)) for (const call of toolCalls) if (CARD_CREATION_TOOL_NAMES.has(call.name) || call.name === "create_deck") call.parameters = { ...call.parameters, preview_only: true };
 
       const assistantMessage = {
         id: `assistant-${Date.now()}`,

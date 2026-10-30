@@ -24,7 +24,16 @@ function sourceFilesUnder(dir: string): string[] {
 /** Stable target ids produced by the row/section/target primitives. */
 function registeredTargetIds(): Set<string> {
   const ids = new Set<string>();
-  for (const file of sourceFilesUnder(SETTINGS_DIR)) {
+  const files = new Set(sourceFilesUnder(SETTINGS_DIR));
+  for (const row of SETTINGS_SEARCH_COVERAGE) {
+    for (const src of row.sources) {
+      const full = path.resolve(SETTINGS_DIR, src);
+      if (statSync(full, { throwIfNoEntry: false })?.isFile()) {
+        files.add(full);
+      }
+    }
+  }
+  for (const file of files) {
     const source = readFileSync(file, "utf8");
     for (const match of source.matchAll(/\bsearchId="([^"]+)"/g)) ids.add(match[1]);
     for (const match of source.matchAll(/<SettingsSearchTarget\s+id="([^"]+)"/g)) ids.add(match[1]);

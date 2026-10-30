@@ -353,77 +353,36 @@ impl EngagingScheduler {
             .collect()
     }
 
-    /// Calculate base FSRS priority (same logic as DocumentScheduler)
+    /// Calculate base FSRS priority (migrated to canonical ranking evidence D2)
     fn calculate_fsrs_priority(
         &self,
         item: &ItemEngagementMeta,
         now: DateTime<Utc>,
     ) -> (f64, String) {
-        let base_priority = match item.next_review {
-            Some(next_date) => {
-                let is_due = next_date <= now;
-                let days_until_due = (next_date - now).num_days();
-
-                if is_due {
-                    let days_overdue = -days_until_due;
-                    let priority = (10.0 - (days_overdue as f64 * 0.1)).max(5.0);
-                    (priority, format!("Due ({} days overdue)", days_overdue))
-                } else {
-                    let priority = match days_until_due {
-                        0..=1 => 8.0,
-                        2..=3 => 6.0,
-                        4..=7 => 4.0,
-                        8..=30 => 2.0,
-                        _ => 0.5,
-                    };
-                    (priority, format!("Future ({} days)", days_until_due))
-                }
-            }
-            None => {
-                // New items get high priority
-                (9.0, "New item".to_string())
-            }
-        };
-
-        // Apply user priority multiplier
-        let multiplier = if item.priority_rating > 0 {
-            let r = item.priority_rating.clamp(1, 10) as f64;
-            0.5 + (r - 1.0) / 9.0 * 1.5
+        let slider = if item.priority_rating > 0 {
+            crate::algorithms::resolve_priority_slider(0, item.priority_rating.clamp(1, 5))
         } else {
-            1.0
+            50
         };
-
-        let adjusted = base_priority.0 * multiplier;
-
-        // FSRS stability/difficulty micro-adjustments
-        let fsrs_bonus = match (item.stability, item.difficulty) {
-            (Some(stab), Some(diff)) => {
-                let stab_bonus = if stab < 5.0 {
-                    0.5
-                } else if stab < 10.0 {
-                    0.2
-                } else {
-                    0.0
-                };
-                let diff_bonus = if diff > 7.0 {
-                    0.3
-                } else if diff > 5.0 {
-                    0.1
-                } else {
-                    0.0
-                };
-                stab_bonus + diff_bonus
-            }
-            _ => 0.0,
-        };
-
-        let final_priority = (adjusted + fsrs_bonus).min(10.0);
-        let reason = format!(
-            "{} x {:.1} + {:.1}",
-            base_priority.1, multiplier, fsrs_bonus
+        let priority = crate::algorithms::calculate_fsrs_document_priority_at(
+            item.next_review,
+            item.stability,
+            item.difficulty,
+            slider,
+            now,
         );
-
-        (final_priority, reason)
+        let reason = match item.next_review {
+            Some(next_date) if next_date <= now => {
+                let days = (now - next_date).num_days();
+                format!("Due ({} days overdue)", days)
+            }
+            Some(next_date) => {
+                let days = (next_date - now).num_days();
+                format!("Future ({} days)", days)
+            }
+            None => "New item".to_string(),
+        };
+        (priority, reason)
     }
 
     /// Calculate engagement bonus for variety and discovery

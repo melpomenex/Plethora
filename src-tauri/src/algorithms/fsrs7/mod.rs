@@ -6,8 +6,11 @@
 use crate::error::Result;
 use crate::models::MemoryState as PlethoraMemoryState;
 use fsrs::{MemoryState as FsrsMemoryState, NextStates, FSRS, DEFAULT_PARAMETERS};
+use std::sync::{Mutex, OnceLock};
 
 pub const FSRS7_PARAM_LEN: usize = 34;
+
+static DEFAULT_FSRS7: OnceLock<Mutex<FSRS>> = OnceLock::new();
 
 /// Returns true when `params` is a full FSRS-7 weight vector.
 pub fn is_fsrs7_parameters(params: &[f32]) -> bool {
@@ -17,6 +20,37 @@ pub fn is_fsrs7_parameters(params: &[f32]) -> bool {
 /// Construct an FSRS-7 engine with the stock 34-parameter default vector.
 pub fn create_fsrs7() -> Result<FSRS> {
     FSRS::new(&DEFAULT_PARAMETERS).map_err(Into::into)
+}
+
+/// Evaluate current recall probability at `elapsed_days` since the last review.
+///
+/// Validates finite positive stability and difficulty (and finite non-negative
+/// `stability_fast` when present) before invoking the cached FSRS-7 engine.
+pub fn current_retrievability(ms: &PlethoraMemoryState, elapsed_days: f64) -> Option<f64> {
+    if !elapsed_days.is_finite() || elapsed_days < 0.0 {
+        return None;
+    }
+    if let Some(sf) = ms.stability_fast {
+        if !sf.is_finite() || sf < 0.0 {
+            return None;
+        }
+    }
+    let fsrs_state = to_fsrs_memory_state(ms)?;
+    let clamped_days = elapsed_days.min(f32::MAX as f64) as f32;
+    let mutex = DEFAULT_FSRS7.get_or_init(|| {
+        Mutex::new(
+            FSRS::new(&DEFAULT_PARAMETERS).expect("stock FSRS-7 parameters must always initialize"),
+        )
+    });
+    let raw = mutex
+        .lock()
+        .expect("DEFAULT_FSRS7 mutex poisoned")
+        .current_retrievability(fsrs_state, clamped_days) as f64;
+    if raw.is_finite() && (0.0..=1.0).contains(&raw) {
+        Some(raw)
+    } else {
+        None
+    }
 }
 
 /// Construct an FSRS-7 engine from caller weights, falling back to defaults when
@@ -29,7 +63,11 @@ pub fn create_fsrs7_with_weights(weights: Option<&[f32]>) -> Result<FSRS> {
 }
 
 pub fn to_fsrs_memory_state(ms: &PlethoraMemoryState) -> Option<FsrsMemoryState> {
-    if ms.stability <= 0.0 || ms.difficulty <= 0.0 {
+    if !ms.stability.is_finite()
+        || !ms.difficulty.is_finite()
+        || ms.stability <= 0.0
+        || ms.difficulty <= 0.0
+    {
         return None;
     }
     Some(FsrsMemoryState {

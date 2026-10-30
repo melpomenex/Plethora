@@ -224,6 +224,7 @@ pub async fn rank_queue_with_decision(
         ranked,
         top10,
         computed_at: chrono::Utc::now(),
+        rubric_version: crate::models::daqe::RANKER_RUBRIC_VERSION,
     }))
 }
 

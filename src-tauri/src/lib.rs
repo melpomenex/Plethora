@@ -80,6 +80,8 @@ mod media_server;
 mod security;
 #[cfg(test)]
 mod security_tests;
+#[cfg(test)]
+mod issue6_test_support;
 mod sponsorblock;
 mod web_proxy;
 
@@ -2094,6 +2096,8 @@ pub fn run() {
             commands::update_video_extract,
             commands::delete_video_extract,
             commands::rate_video_extract,
+            commands::mark_video_extract_seen,
+            commands::get_video_extract_lifecycle,
             commands::parse_audiobook_metadata,
             commands::import_podcast_audio_file,
             commands::scan_directory_for_audiobooks,

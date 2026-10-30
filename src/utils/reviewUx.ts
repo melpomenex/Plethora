@@ -128,19 +128,63 @@ export function splitPriorityTargets(items: QueueItem[]): {
 export function getPriorityVector(item: QueueItem): PriorityVector {
   const now = Date.now();
   const due = item.dueDate ? new Date(item.dueDate).getTime() : null;
-  const overdueDays = due ? Math.max(0, Math.floor((now - due) / (1000 * 60 * 60 * 24))) : 0;
+  const isDueValid = due !== null && !isNaN(due);
+
+  // 1. Resolve overdue urgency O ∈ [0, 1]
+  const o =
+    item.overdueUrgency != null
+      ? item.overdueUrgency
+      : isDueValid && due <= now
+        ? Math.max(0, Math.min(1, -Math.expm1(-Math.max(0, (now - due) / 86400000) / 14)))
+        : 0;
+
+  // 2. Resolve temporal readiness A ∈ [0.5, 1.0] and temporal urgency T ∈ [0, 1]
+  const a = 0.5 + 0.5 * o;
+  let t: number;
+  if (item.temporalUrgency != null && Number.isFinite(item.temporalUrgency)) {
+    t = item.temporalUrgency;
+  } else if (item.itemType === "learning-item") {
+    const r = item.retrievability;
+    if (isDueValid && r != null && Number.isFinite(r)) {
+      const rRisk = Math.max(0, Math.min(1, 1 - r));
+      t = due > now ? rRisk : Math.max(rRisk, a);
+    } else if (isDueValid) {
+      t = due > now ? 0 : a;
+    } else {
+      t = 0.5;
+    }
+  } else {
+    // Rotational items (document, extract, video-extract, etc.)
+    if (isDueValid) {
+      t = due > now ? 0 : a;
+    } else {
+      t = 0.5;
+    }
+  }
+
+  // 3. Resolve manual priority P ∈ [0, 1] (D1/D4: count P once, no tag count, no rereading rating)
+  let p: number;
+  if (item.canonicalPriority != null && Number.isFinite(item.canonicalPriority)) {
+    p = item.canonicalPriority;
+  } else if (item.prioritySlider != null && Number.isFinite(item.prioritySlider)) {
+    p = clamp(item.prioritySlider, 0, 100) / 100;
+  } else if (item.priorityRating != null && Number.isFinite(item.priorityRating)) {
+    p = clamp(item.priorityRating, 1, 5) / 5;
+  } else if (item.priority != null && Number.isFinite(item.priority)) {
+    p = item.priority <= 1 ? item.priority : clamp(item.priority / 10, 0, 1);
+  } else {
+    p = 0.5;
+  }
+
   const typeLoad = item.itemType === "document" ? 75 : item.itemType === "extract" ? 55 : 35;
   const timeEfficiency = Math.max(20, 100 - Math.min(90, item.estimatedTime * 10));
-  const tagScore = item.tags?.length ? Math.min(90, 40 + item.tags.length * 8) : 35;
-  const ratingScore = item.priorityRating != null ? clamp(item.priorityRating * 18, 10, 90) : 50;
-  const userIntent = 0.6 * ratingScore + 0.4 * tagScore;
 
   return {
-    retentionRisk: clamp(item.priority * 10, 20, 95),
+    retentionRisk: clamp(Math.round(t * 100), 10, 95),
     cognitiveLoad: clamp(typeLoad + (item.progress < 30 ? 10 : 0), 15, 90),
     timeEfficiency,
-    userIntent: clamp(Math.round(userIntent), 15, 90),
-    overduePenalty: clamp(overdueDays * 12, 0, 90),
+    userIntent: clamp(Math.round(p * 100), 10, 95),
+    overduePenalty: clamp(Math.round(o * 100), 0, 90),
   };
 }
 
@@ -150,12 +194,18 @@ export function getPriorityScore(item: QueueItem, preset: PriorityPreset): numbe
   // so a stale one reaches here even though the type says otherwise. Falling back
   // costs the user their chosen ordering; throwing costs them the whole queue.
   const weights = priorityPresets[preset] ?? priorityPresets[DEFAULT_PRIORITY_PRESET];
+  // D4: Collapse previous retention + overdue into a single temporal weight (counting T once),
+  // and retain the previous intent weight for P (counting P once).
+  const temporalWeight = weights.retentionRisk + weights.overduePenalty;
+  const intentWeight = weights.userIntent;
+  const loadWeight = weights.cognitiveLoad;
+  const timeWeight = weights.timeEfficiency;
+
   return Math.round(
-    vector.retentionRisk * weights.retentionRisk +
-      vector.cognitiveLoad * weights.cognitiveLoad +
-      vector.timeEfficiency * weights.timeEfficiency +
-      vector.userIntent * weights.userIntent +
-      vector.overduePenalty * weights.overduePenalty
+    vector.retentionRisk * temporalWeight +
+      vector.userIntent * intentWeight +
+      vector.cognitiveLoad * loadWeight +
+      vector.timeEfficiency * timeWeight
   );
 }
 

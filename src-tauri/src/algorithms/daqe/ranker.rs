@@ -90,7 +90,7 @@ pub fn rank(items: &[QueueItem], knobs: &DaqeKnobs, ctx: &RankContext<'_>) -> Ve
     // to stay populated.
     if knobs.is_srs_only() {
         let mut order = input_order(&ranked);
-        sort_by_legacy_order(&mut order, items);
+        sort_by_legacy_order(&mut order, items, ctx.now);
         return order.into_iter().map(|i| ranked[i].clone()).collect();
     }
 
@@ -106,7 +106,15 @@ pub fn rank(items: &[QueueItem], knobs: &DaqeKnobs, ctx: &RankContext<'_>) -> Ve
             .score
             .partial_cmp(&left.score)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| left.input_index.cmp(&right.input_index))
+            .then_with(|| {
+                match (&left.item.due_date, &right.item.due_date) {
+                    (Some(d_left), Some(d_right)) => d_left.cmp(d_right),
+                    (Some(_), None) => std::cmp::Ordering::Less,
+                    (None, Some(_)) => std::cmp::Ordering::Greater,
+                    (None, None) => std::cmp::Ordering::Equal,
+                }
+            })
+            .then_with(|| left.item.item_type.cmp(&right.item.item_type))
             .then_with(|| left.item.id.cmp(&right.item.id))
     });
     order.into_iter().map(|i| ranked[i].clone()).collect()
@@ -120,27 +128,23 @@ fn input_order(ranked: &[RankedItem]) -> Vec<usize> {
     order
 }
 
-/// Order `order` (indices into `ranked`) to match `queue_selector::sort_queue_items`
+/// Order `order` (indices into `ranked`) to match `queue_selector::sort_queue_items_at`
 /// on the original pool, by asking that comparator rather than restating it.
-fn sort_by_legacy_order(order: &mut [usize], items: &[QueueItem]) {
+fn sort_by_legacy_order(order: &mut [usize], items: &[QueueItem], now: chrono::DateTime<Utc>) {
     let mut legacy: Vec<QueueItem> = items.to_vec();
-    srs_only_order(&mut legacy);
+    srs_only_order_at(&mut legacy, now);
 
-    let mut position_of_id: std::collections::HashMap<&str, usize> =
+    let mut position_of_key: std::collections::HashMap<(&str, &str), usize> =
         std::collections::HashMap::with_capacity(legacy.len());
     for (index, item) in legacy.iter().enumerate() {
-        position_of_id.insert(item.id.as_str(), index);
+        position_of_key.insert((item.item_type.as_str(), item.id.as_str()), index);
     }
 
     order.sort_by(|&a, &b| {
-        let pa = position_of_id
-            .get(items[a].id.as_str())
-            .copied()
-            .unwrap_or(a);
-        let pb = position_of_id
-            .get(items[b].id.as_str())
-            .copied()
-            .unwrap_or(b);
+        let key_a = (items[a].item_type.as_str(), items[a].id.as_str());
+        let key_b = (items[b].item_type.as_str(), items[b].id.as_str());
+        let pa = position_of_key.get(&key_a).copied().unwrap_or(a);
+        let pb = position_of_key.get(&key_b).copied().unwrap_or(b);
         pa.cmp(&pb).then_with(|| a.cmp(&b))
     });
 }
@@ -232,7 +236,11 @@ pub const DEFAULT_ENERGY_TERM_WEIGHT: f64 = 0.40;
 /// Reimplementing that as arithmetic would be both lossy and a second thing to
 /// keep in sync.
 pub fn srs_only_order(items: &mut [QueueItem]) {
-    crate::algorithms::queue_selector::QueueSelector::new(0.0).sort_queue_items(items);
+    srs_only_order_at(items, Utc::now());
+}
+
+pub fn srs_only_order_at(items: &mut [QueueItem], now: chrono::DateTime<chrono::Utc>) {
+    crate::algorithms::queue_selector::QueueSelector::new(0.0).sort_queue_items_at(items, now);
 }
 
 /// A context with a fixed clock, for callers that only need the neutral path.
@@ -284,6 +292,7 @@ mod tests {
             retrievability: None,
             lapses: None,
             reps: Some(4),
+            ..Default::default()
         }
     }
 
@@ -919,6 +928,7 @@ mod latency {
                     retrievability: None,
                     lapses: Some((n % 4) as i32),
                     reps: Some((n % 20) as i32),
+                    ..Default::default()
                 }
             })
             .collect();
@@ -1081,5 +1091,215 @@ mod latency {
             "ranking 4x the pool cost {large}us against {small}us — that is more \
              than quadratic behaviour"
         );
+    }
+}
+
+#[cfg(test)]
+mod ranking_reports {
+    use super::*;
+    use chrono::{TimeZone, Utc};
+    use std::collections::{HashMap, HashSet};
+
+    struct PoolReport {
+        size: usize,
+        top_20_overlap: f64,
+        avg_displacement: f64,
+        due_exposure_top100: usize,
+        new_exposure_top100: usize,
+        future_exposure_top100: usize,
+        quintile_counts_top100: [usize; 5],
+        drained_count: usize,
+    }
+
+    fn generate_pool(size: usize, now: chrono::DateTime<Utc>) -> Vec<QueueItem> {
+        let types = ["document", "extract", "learning-item", "playlist-video"];
+        (0..size)
+            .map(|n| {
+                let item_type = types[n % types.len()];
+                let canonical_p = ((n % 100) as f64) / 99.0;
+                let due = match n % 10 {
+                    0 => None, // 10% new
+                    1 | 2 => Some(now + chrono::Duration::days(((n % 30) + 1) as i64)), // 20% future
+                    _ => {
+                        let days_overdue = ((n % 60) + 1) as i64;
+                        Some(now - chrono::Duration::days(days_overdue))
+                    }
+                };
+                let retrievability = if item_type == "learning-item" {
+                    Some((((n % 80) + 10) as f64) / 100.0)
+                } else {
+                    None
+                };
+
+                QueueItem {
+                    id: format!("item-{size}-{n:06}"),
+                    document_id: format!("doc-{}", n / 4),
+                    document_title: format!("Document {}", n / 4),
+                    item_type: item_type.to_string(),
+                    canonical_priority: Some(canonical_p),
+                    priority: canonical_p * 10.0,
+                    due_date: due.map(|d| d.to_rfc3339()),
+                    retrievability,
+                    estimated_time: 2,
+                    tags: vec![format!("topic-{}", n % 20)],
+                    ..Default::default()
+                }
+            })
+            .collect()
+    }
+
+    fn old_policy_urgency(item: &QueueItem, now: chrono::DateTime<Utc>) -> f64 {
+        let p = item.canonical_priority.unwrap_or(0.5);
+        if let Some(due_str) = &item.due_date {
+            if let Ok(due) = chrono::DateTime::parse_from_rfc3339(due_str) {
+                let due_utc = due.with_timezone(&Utc);
+                if due_utc <= now {
+                    let d = (now - due_utc).num_milliseconds() as f64 / 86_400_000.0;
+                    let o = (d / 14.0).min(1.0);
+                    let u = 0.5;
+                    let decay = if d > 14.0 { (10.0 - 0.1 * d).max(5.0) / 10.0 } else { 1.0 };
+                    return (0.5 * u + 0.3 * o + 0.2 * p) * decay;
+                } else {
+                    return 0.35 + 0.25 * p;
+                }
+            }
+        }
+        0.5 * 0.5 + 0.2 * p
+    }
+
+    fn run_ranking_report(size: usize) -> PoolReport {
+        let now = Utc.with_ymd_and_hms(2026, 6, 1, 12, 0, 0).unwrap();
+        let items = generate_pool(size, now);
+        let ctx = RankContext::bare(now);
+        let knobs = DaqeKnobs::default();
+
+        let new_ranked = rank(&items, &knobs, &ctx);
+        let new_order_map: HashMap<&str, usize> = new_ranked
+            .iter()
+            .enumerate()
+            .map(|(rank_idx, entry)| (entry.item.id.as_str(), rank_idx))
+            .collect();
+
+        let mut old_items: Vec<(&QueueItem, f64)> = items
+            .iter()
+            .map(|item| (item, old_policy_urgency(item, now)))
+            .collect();
+        old_items.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.0.id.cmp(&b.0.id))
+        });
+        let old_order_map: HashMap<&str, usize> = old_items
+            .iter()
+            .enumerate()
+            .map(|(rank_idx, (item, _))| (item.id.as_str(), rank_idx))
+            .collect();
+
+        let top20_new: HashSet<&str> = new_ranked.iter().take(20).map(|e| e.item.id.as_str()).collect();
+        let top20_old: HashSet<&str> = old_items.iter().take(20).map(|(item, _)| item.id.as_str()).collect();
+        let overlap = top20_new.intersection(&top20_old).count() as f64 / 20.0;
+
+        let total_displacement: usize = items
+            .iter()
+            .map(|item| {
+                let r_new = new_order_map[item.id.as_str()];
+                let r_old = old_order_map[item.id.as_str()];
+                if r_new > r_old { r_new - r_old } else { r_old - r_new }
+            })
+            .sum();
+        let avg_displacement = total_displacement as f64 / size as f64;
+
+        let top100 = &new_ranked[..100.min(new_ranked.len())];
+        let mut due_count = 0;
+        let mut new_count = 0;
+        let mut future_count = 0;
+        let mut quintile_counts = [0usize; 5];
+
+        for entry in top100 {
+            if let Some(due_str) = &entry.item.due_date {
+                if let Ok(due) = chrono::DateTime::parse_from_rfc3339(due_str) {
+                    if due.with_timezone(&Utc) <= now {
+                        due_count += 1;
+                    } else {
+                        future_count += 1;
+                    }
+                } else {
+                    new_count += 1;
+                }
+            } else {
+                new_count += 1;
+            }
+
+            let p = entry.item.canonical_priority.unwrap_or(0.5);
+            let q = ((p * 5.0).floor() as usize).min(4);
+            quintile_counts[q] += 1;
+        }
+
+        let mut draining_pool = items.clone();
+        let mut drained_count = 0;
+        while !draining_pool.is_empty() {
+            let chunk = draining_pool.len().min(100);
+            let ranked = rank(&draining_pool, &knobs, &ctx);
+            let to_remove: HashSet<String> = ranked.iter().take(chunk).map(|e| e.item.id.clone()).collect();
+            drained_count += to_remove.len();
+            draining_pool.retain(|item| !to_remove.contains(&item.id));
+        }
+
+        PoolReport {
+            size,
+            top_20_overlap: overlap,
+            avg_displacement,
+            due_exposure_top100: due_count,
+            new_exposure_top100: new_count,
+            future_exposure_top100: future_count,
+            quintile_counts_top100: quintile_counts,
+            drained_count,
+        }
+    }
+
+    #[test]
+    fn r01_1k_and_10k_ranking_reports_and_acceptance_judgments() {
+        let report_1k = run_ranking_report(1_000);
+        let report_10k = run_ranking_report(10_000);
+
+        println!("\n=======================================================");
+        println!("               1K RANKING REPORT (N=1000)              ");
+        println!("=======================================================");
+        println!("Top-20 Overlap: {:.2}%", report_1k.top_20_overlap * 100.0);
+        println!("Average Order Displacement: {:.2} positions ({:.2}%)",
+            report_1k.avg_displacement, (report_1k.avg_displacement / 1000.0) * 100.0);
+        println!("Top 100 Composition: Due={}, New={}, Future={}",
+            report_1k.due_exposure_top100, report_1k.new_exposure_top100, report_1k.future_exposure_top100);
+        println!("Top 100 Priority Quintiles: Q1(0-.2)={}, Q2(.2-.4)={}, Q3(.4-.6)={}, Q4(.6-.8)={}, Q5(.8-1.0)={}",
+            report_1k.quintile_counts_top100[0], report_1k.quintile_counts_top100[1],
+            report_1k.quintile_counts_top100[2], report_1k.quintile_counts_top100[3],
+            report_1k.quintile_counts_top100[4]);
+        println!("Finite Pool Drain: {}/{} items drained without replacement",
+            report_1k.drained_count, report_1k.size);
+
+        println!("\n=======================================================");
+        println!("              10K RANKING REPORT (N=10000)             ");
+        println!("=======================================================");
+        println!("Top-20 Overlap: {:.2}%", report_10k.top_20_overlap * 100.0);
+        println!("Average Order Displacement: {:.2} positions ({:.2}%)",
+            report_10k.avg_displacement, (report_10k.avg_displacement / 10000.0) * 100.0);
+        println!("Top 100 Composition: Due={}, New={}, Future={}",
+            report_10k.due_exposure_top100, report_10k.new_exposure_top100, report_10k.future_exposure_top100);
+        println!("Top 100 Priority Quintiles: Q1(0-.2)={}, Q2(.2-.4)={}, Q3(.4-.6)={}, Q4(.6-.8)={}, Q5(.8-1.0)={}",
+            report_10k.quintile_counts_top100[0], report_10k.quintile_counts_top100[1],
+            report_10k.quintile_counts_top100[2], report_10k.quintile_counts_top100[3],
+            report_10k.quintile_counts_top100[4]);
+        println!("Finite Pool Drain: {}/{} items drained without replacement",
+            report_10k.drained_count, report_10k.size);
+        println!("=======================================================\n");
+
+        assert_eq!(report_1k.drained_count, 1000);
+        assert_eq!(report_10k.drained_count, 10000);
+        assert!(report_1k.due_exposure_top100 > 0);
+        assert!(report_10k.due_exposure_top100 > 0);
+        assert!(report_1k.quintile_counts_top100[4] > 0);
+        assert!(report_10k.quintile_counts_top100[4] > 0);
+        assert!(report_1k.avg_displacement > 0.0);
+        assert!(report_10k.avg_displacement > 0.0);
     }
 }

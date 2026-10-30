@@ -1,13 +1,25 @@
 //! Queue commands
 
+use crate::algorithms::daqe::terms::calculate_canonical_urgency;
 use crate::algorithms::{calculate_fsrs_document_priority, resolve_priority_slider, QueueSelector};
+use crate::database::priority_rank::{playlist_subscription_priority, PriorityPopulationSnapshot};
 use crate::database::Repository;
 use crate::error::Result;
+use crate::models::collection::DEFAULT_COLLECTION_ID;
 use crate::models::QueueItem;
 use chrono::{DateTime, Utc};
-use std::collections::{HashMap, HashSet};
+use std::collections::{HashMap, HashSet, VecDeque};
 use tauri::State;
-use crate::models::collection::DEFAULT_COLLECTION_ID;
+
+fn attach_canonical_evidence(mut item: QueueItem, now: DateTime<Utc>) -> QueueItem {
+    let urgency = calculate_canonical_urgency(&item, now, None);
+    item.temporal_urgency = Some(urgency.temporal_urgency);
+    item.temporal_available = Some(urgency.temporal_available);
+    item.overdue_urgency = Some(urgency.overdue_urgency);
+    item.memory_urgency = Some(urgency.memory_urgency);
+    item.priority = urgency.memory_urgency * 10.0;
+    item
+}
 
 /// Uniform "default collection" scoping for every queue item type: the
 /// default collection (the real UUID sentinel, the legacy "default" literal,
@@ -139,6 +151,9 @@ async fn get_queue_items_from_repo(
 ) -> Result<Vec<QueueItem>> {
     let mut queue_items = Vec::new();
     let now = Utc::now();
+    let priority_snapshot = PriorityPopulationSnapshot::load(repo.pool())
+        .await
+        .unwrap_or_default();
 
     let learning_items = repo.get_all_learning_items().await?;
 
@@ -185,15 +200,6 @@ async fn get_queue_items_from_repo(
             continue;
         }
 
-        let is_due = item.due_date <= now;
-        let days_until_due = (item.due_date - now).num_days();
-
-        let priority = neutral_queue_priority(
-            item.interval,
-            item.review_count,
-            f64::from(item.difficulty),
-        );
-
         let estimated_time = match item.item_type {
             crate::models::ItemType::Cloze => 2,
             crate::models::ItemType::Qa => 3,
@@ -215,7 +221,8 @@ async fn get_queue_items_from_repo(
             .cloned()
             .unwrap_or_else(|| "Unknown Document".to_string());
 
-        queue_items.push(QueueItem {
+        let signal = priority_snapshot.learning_item_signal(&item.id);
+        let q_item = QueueItem {
             id: item.id.clone(),
             document_id: item.document_id.unwrap_or_default(),
             document_title,
@@ -227,8 +234,8 @@ async fn get_queue_items_from_repo(
             learning_hint: None,
             item_type: "learning-item".to_string(),
             priority_rating: None,
-            priority_slider: None,
-            priority,
+            priority_slider: Some(item.priority_slider),
+            priority: 0.0,
             due_date: Some(item.due_date.to_rfc3339()),
             estimated_time,
             tags: item.tags.clone(),
@@ -242,7 +249,17 @@ async fn get_queue_items_from_repo(
             retrievability: None,
             lapses: Some(item.lapses),
             reps: Some(item.review_count),
-        });
+            canonical_priority: Some(signal.value),
+            priority_available: Some(signal.available),
+            priority_explicitly_set: Some(item.priority_explicitly_set),
+            last_review_date: item.last_review_date.map(|d| d.to_rfc3339()),
+            stability_fast: item.memory_state.as_ref().and_then(|m| m.stability_fast),
+            algorithm_type: Some("fsrs".to_string()),
+            is_new_item: Some(item.review_count == 0),
+            entity_id: Some(item.id.clone()),
+            ..Default::default()
+        };
+        queue_items.push(attach_canonical_evidence(q_item, now));
     }
 
     for extract in extracts {
@@ -256,18 +273,8 @@ async fn get_queue_items_from_repo(
             .cloned()
             .unwrap_or_else(|| "Unknown Document".to_string());
 
-        // Blend inherited priority with review state. New extracts still get
-        // a small boost over reviewed ones, but higher-priority documents
-        // surface their extracts earlier (incremental reading priority chain).
-        // The user's own slider is the whole signal here: an extract carries no
-        // FSRS memory state at this point, so there is nothing to derive urgency
-        // from beyond what the user has said about it.
-        let priority = neutral_queue_priority(0.0, extract.review_count, 0.0)
-            + (extract.priority_score / 100.0) * EXTRACT_PRIORITY_SPAN;
-
-        let _content_preview = preview_text(&extract.content, 100);
-
-        queue_items.push(QueueItem {
+        let signal = priority_snapshot.extract_signal(&extract.id);
+        let q_item = QueueItem {
             id: extract.id.clone(),
             document_id: extract.document_id.clone(),
             document_title: format!("{} - Extract", document_title),
@@ -280,7 +287,7 @@ async fn get_queue_items_from_repo(
             item_type: "extract".to_string(),
             priority_rating: None,
             priority_slider: None,
-            priority,
+            priority: 0.0,
             due_date: extract.next_review_date.map(|d| d.to_rfc3339()),
             estimated_time: 3,
             tags: extract.tags.clone(),
@@ -290,11 +297,19 @@ async fn get_queue_items_from_repo(
             position: None,
             stability: None,
             difficulty: None,
-            interval: None, // Extracts don't have interval
+            interval: None,
             retrievability: None,
             lapses: None,
             reps: Some(extract.review_count),
-        });
+            canonical_priority: Some(signal.value),
+            priority_available: Some(signal.available),
+            priority_explicitly_set: Some(extract.priority_score > 0.0),
+            algorithm_type: Some("rotation".to_string()),
+            is_new_item: Some(extract.review_count == 0),
+            entity_id: Some(extract.id.clone()),
+            ..Default::default()
+        };
+        queue_items.push(attach_canonical_evidence(q_item, now));
     }
 
     for extract in video_extracts {
@@ -308,11 +323,6 @@ async fn get_queue_items_from_repo(
             .cloned()
             .unwrap_or_else(|| "Unknown Video".to_string());
 
-        // A clip's cost scales with its length, so its seed accounts for duration
-        // rather than repeating the flat card constant.
-        let clip_minutes = ((extract.end_time - extract.start_time) / 60.0).ceil().clamp(1.0, 10.0);
-        let priority = neutral_queue_priority(clip_minutes, extract.review_count, 0.0);
-
         let duration_minutes = ((extract.end_time - extract.start_time) / 60.0).ceil() as i32;
         let estimated_time = duration_minutes.clamp(1, 10);
 
@@ -321,7 +331,9 @@ async fn get_queue_items_from_repo(
             .as_ref()
             .map(|t| preview_text(t, 100));
 
-        queue_items.push(QueueItem {
+        // Video extracts inherit parent document's priority, or 0.5 if no parent rank exists (D1)
+        let signal = priority_snapshot.document_signal(&extract.document_id);
+        let q_item = QueueItem {
             id: extract.id.clone(),
             document_id: extract.document_id.clone(),
             document_title: format!("{} - {}", document_title, extract.title),
@@ -337,7 +349,7 @@ async fn get_queue_items_from_repo(
             item_type: "video-extract".to_string(),
             priority_rating: None,
             priority_slider: None,
-            priority,
+            priority: 0.0,
             due_date: extract.next_review_date.map(|d| d.to_rfc3339()),
             estimated_time,
             tags: extract.tags.clone(),
@@ -351,7 +363,15 @@ async fn get_queue_items_from_repo(
             retrievability: None,
             lapses: None,
             reps: Some(extract.review_count),
-        });
+            canonical_priority: Some(signal.value),
+            priority_available: Some(signal.available),
+            priority_explicitly_set: Some(false),
+            algorithm_type: Some("rotation".to_string()),
+            is_new_item: Some(extract.review_count == 0),
+            entity_id: Some(extract.id.clone()),
+            ..Default::default()
+        };
+        queue_items.push(attach_canonical_evidence(q_item, now));
     }
 
     // Get documents for incremental reading (without content column)
@@ -373,17 +393,8 @@ async fn get_queue_items_from_repo(
             _ => 0,
         };
 
-        // Calculate FSRS-based priority for documents
-        // This uses next_reading_date as the primary factor, with stability and
-        // difficulty as secondary factors. The user's priority_rating acts as a multiplier.
-        let priority = calculate_fsrs_document_priority(
-            document.next_reading_date,
-            document.stability,
-            document.difficulty,
-            resolve_priority_slider(document.priority_slider, document.priority_rating),
-        );
-
-        queue_items.push(QueueItem {
+        let signal = priority_snapshot.document_signal(&document.id);
+        let q_item = QueueItem {
             id: document.id.clone(),
             document_id: document.id.clone(),
             document_title: document.title.clone(),
@@ -396,7 +407,7 @@ async fn get_queue_items_from_repo(
             item_type: "document".to_string(),
             priority_rating: Some(document.priority_rating),
             priority_slider: Some(document.priority_slider),
-            priority,
+            priority: 0.0,
             due_date: document.next_reading_date.map(|d| d.to_rfc3339()),
             estimated_time: 5,
             tags: document.tags.clone(),
@@ -410,26 +421,19 @@ async fn get_queue_items_from_repo(
             retrievability: None,
             lapses: None,
             reps: document.reps,
-        });
+            canonical_priority: Some(signal.value),
+            priority_available: Some(signal.available),
+            priority_explicitly_set: Some(document.priority_explicitly_set),
+            algorithm_type: Some("rotation".to_string()),
+            is_new_item: Some(document.reps.unwrap_or(0) == 0),
+            entity_id: Some(document.id.clone()),
+            ..Default::default()
+        };
+        queue_items.push(attach_canonical_evidence(q_item, now));
     }
 
-    // Sort by priority (descending) then by due date (ascending)
-    queue_items.sort_by(|a, b| {
-        match b.priority.partial_cmp(&a.priority) {
-            Some(std::cmp::Ordering::Equal) => {}
-            Some(ord) => return ord,
-            None => {}
-        }
-
-        match (&a.due_date, &b.due_date) {
-            (Some(a_date), Some(b_date)) => a_date
-                .partial_cmp(b_date)
-                .unwrap_or(std::cmp::Ordering::Equal),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => std::cmp::Ordering::Equal,
-        }
-    });
+    // Sort using deterministic D4 comparator
+    QueueSelector::new(0.0).sort_queue_items_at(&mut queue_items, now);
 
     tracing::info!(
         "[queue] get_queue_items_from_repo collection_id={:?} returned {} items",
@@ -626,6 +630,9 @@ async fn get_due_queue_items_from_repo_at(
     now: DateTime<Utc>,
 ) -> Result<Vec<QueueItem>> {
     let mut queue_items = Vec::new();
+    let priority_snapshot = PriorityPopulationSnapshot::load(repo.pool())
+        .await
+        .unwrap_or_default();
     // Schedule groups items by UTC calendar date. Include the whole current
     // day so its "Today" bucket and Reading Queue → Due All show the same
     // scheduled items, including entries whose exact timestamp is later today.
@@ -671,11 +678,6 @@ async fn get_due_queue_items_from_repo_at(
     let doc_titles = repo.get_document_titles(&doc_ids).await?;
 
     for item in learning_items {
-        let priority = neutral_queue_priority(
-            item.interval,
-            item.review_count,
-            f64::from(item.difficulty),
-        );
         let estimated_time = match item.item_type {
             crate::models::ItemType::Cloze => 2,
             crate::models::ItemType::Qa => 3,
@@ -695,7 +697,8 @@ async fn get_due_queue_items_from_repo_at(
             .cloned()
             .unwrap_or_else(|| "Unknown Document".to_string());
 
-        queue_items.push(QueueItem {
+        let signal = priority_snapshot.learning_item_signal(&item.id);
+        let q_item = QueueItem {
             id: item.id.clone(),
             document_id: item.document_id.unwrap_or_default(),
             document_title,
@@ -707,8 +710,8 @@ async fn get_due_queue_items_from_repo_at(
             learning_hint: None,
             item_type: "learning-item".to_string(),
             priority_rating: None,
-            priority_slider: None,
-            priority,
+            priority_slider: Some(item.priority_slider),
+            priority: 0.0,
             due_date: Some(item.due_date.to_rfc3339()),
             estimated_time,
             tags: item.tags.clone(),
@@ -722,7 +725,17 @@ async fn get_due_queue_items_from_repo_at(
             retrievability: None,
             lapses: Some(item.lapses),
             reps: Some(item.review_count),
-        });
+            canonical_priority: Some(signal.value),
+            priority_available: Some(signal.available),
+            priority_explicitly_set: Some(item.priority_explicitly_set),
+            last_review_date: item.last_review_date.map(|d| d.to_rfc3339()),
+            stability_fast: item.memory_state.as_ref().and_then(|m| m.stability_fast),
+            algorithm_type: Some("fsrs".to_string()),
+            is_new_item: Some(item.review_count == 0),
+            entity_id: Some(item.id.clone()),
+            ..Default::default()
+        };
+        queue_items.push(attach_canonical_evidence(q_item, now));
     }
 
     for extract in extracts {
@@ -734,13 +747,9 @@ async fn get_due_queue_items_from_repo_at(
             .get(&extract.document_id)
             .cloned()
             .unwrap_or_else(|| "Unknown Document".to_string());
-        // The user's own slider is the whole signal here: an extract carries no
-        // FSRS memory state at this point, so there is nothing to derive urgency
-        // from beyond what the user has said about it.
-        let priority = neutral_queue_priority(0.0, extract.review_count, 0.0)
-            + (extract.priority_score / 100.0) * EXTRACT_PRIORITY_SPAN;
 
-        queue_items.push(QueueItem {
+        let signal = priority_snapshot.extract_signal(&extract.id);
+        let q_item = QueueItem {
             id: extract.id.clone(),
             document_id: extract.document_id.clone(),
             document_title: format!("{} - Extract", document_title),
@@ -753,7 +762,7 @@ async fn get_due_queue_items_from_repo_at(
             item_type: "extract".to_string(),
             priority_rating: None,
             priority_slider: None,
-            priority,
+            priority: 0.0,
             due_date: extract.next_review_date.map(|d| d.to_rfc3339()),
             estimated_time: 3,
             tags: extract.tags.clone(),
@@ -767,7 +776,15 @@ async fn get_due_queue_items_from_repo_at(
             retrievability: None,
             lapses: None,
             reps: Some(extract.review_count),
-        });
+            canonical_priority: Some(signal.value),
+            priority_available: Some(signal.available),
+            priority_explicitly_set: Some(extract.priority_score > 0.0),
+            algorithm_type: Some("rotation".to_string()),
+            is_new_item: Some(extract.review_count == 0),
+            entity_id: Some(extract.id.clone()),
+            ..Default::default()
+        };
+        queue_items.push(attach_canonical_evidence(q_item, now));
     }
 
     for extract in video_extracts {
@@ -779,10 +796,6 @@ async fn get_due_queue_items_from_repo_at(
             .get(&extract.document_id)
             .cloned()
             .unwrap_or_else(|| "Unknown Video".to_string());
-        // A clip's cost scales with its length, so its seed accounts for duration
-        // rather than repeating the flat card constant.
-        let clip_minutes = ((extract.end_time - extract.start_time) / 60.0).ceil().clamp(1.0, 10.0);
-        let priority = neutral_queue_priority(clip_minutes, extract.review_count, 0.0);
         let duration_minutes = ((extract.end_time - extract.start_time) / 60.0).ceil() as i32;
         let estimated_time = duration_minutes.clamp(1, 10);
         let transcript_preview = extract
@@ -790,7 +803,8 @@ async fn get_due_queue_items_from_repo_at(
             .as_ref()
             .map(|t| preview_text(t, 100));
 
-        queue_items.push(QueueItem {
+        let signal = priority_snapshot.document_signal(&extract.document_id);
+        let q_item = QueueItem {
             id: extract.id.clone(),
             document_id: extract.document_id.clone(),
             document_title: format!("{} - {}", document_title, extract.title),
@@ -806,7 +820,7 @@ async fn get_due_queue_items_from_repo_at(
             item_type: "video-extract".to_string(),
             priority_rating: None,
             priority_slider: None,
-            priority,
+            priority: 0.0,
             due_date: extract.next_review_date.map(|d| d.to_rfc3339()),
             estimated_time,
             tags: extract.tags.clone(),
@@ -820,7 +834,15 @@ async fn get_due_queue_items_from_repo_at(
             retrievability: None,
             lapses: None,
             reps: Some(extract.review_count),
-        });
+            canonical_priority: Some(signal.value),
+            priority_available: Some(signal.available),
+            priority_explicitly_set: Some(false),
+            algorithm_type: Some("rotation".to_string()),
+            is_new_item: Some(extract.review_count == 0),
+            entity_id: Some(extract.id.clone()),
+            ..Default::default()
+        };
+        queue_items.push(attach_canonical_evidence(q_item, now));
     }
 
     for document in documents {
@@ -830,14 +852,9 @@ async fn get_due_queue_items_from_repo_at(
             }
             _ => 0,
         };
-        let priority = calculate_fsrs_document_priority(
-            document.next_reading_date,
-            document.stability,
-            document.difficulty,
-            resolve_priority_slider(document.priority_slider, document.priority_rating),
-        );
 
-        queue_items.push(QueueItem {
+        let signal = priority_snapshot.document_signal(&document.id);
+        let q_item = QueueItem {
             id: document.id.clone(),
             document_id: document.id.clone(),
             document_title: document.title.clone(),
@@ -850,7 +867,7 @@ async fn get_due_queue_items_from_repo_at(
             item_type: "document".to_string(),
             priority_rating: Some(document.priority_rating),
             priority_slider: Some(document.priority_slider),
-            priority,
+            priority: 0.0,
             due_date: document.next_reading_date.map(|d| d.to_rfc3339()),
             estimated_time: 5,
             tags: document.tags.clone(),
@@ -864,11 +881,19 @@ async fn get_due_queue_items_from_repo_at(
             retrievability: None,
             lapses: None,
             reps: document.reps,
-        });
+            canonical_priority: Some(signal.value),
+            priority_available: Some(signal.available),
+            priority_explicitly_set: Some(document.priority_explicitly_set),
+            algorithm_type: Some("rotation".to_string()),
+            is_new_item: Some(document.reps.unwrap_or(0) == 0),
+            entity_id: Some(document.id.clone()),
+            ..Default::default()
+        };
+        queue_items.push(attach_canonical_evidence(q_item, now));
     }
 
     let selector = QueueSelector::new(randomness.unwrap_or(0.3));
-    selector.sort_queue_items(&mut queue_items);
+    selector.sort_queue_items_at(&mut queue_items, now);
     tracing::debug!(
         "[queue] get_due_queue_items_from_repo collection_id={:?} returned {} items",
         collection_id,
@@ -923,6 +948,9 @@ async fn get_due_documents_only_from_repo(
 ) -> Result<Vec<QueueItem>> {
     let mut due_documents = Vec::new();
     let now = Utc::now();
+    let priority_snapshot = PriorityPopulationSnapshot::load(repo.pool())
+        .await
+        .unwrap_or_default();
 
     let documents = repo
         .list_due_documents_for_queue(&now, collection_id)
@@ -936,15 +964,8 @@ async fn get_due_documents_only_from_repo(
             _ => 0,
         };
 
-        // Calculate FSRS-based priority
-        let priority = calculate_fsrs_document_priority(
-            document.next_reading_date,
-            document.stability,
-            document.difficulty,
-            resolve_priority_slider(document.priority_slider, document.priority_rating),
-        );
-
-        due_documents.push(QueueItem {
+        let signal = priority_snapshot.document_signal(&document.id);
+        let q_item = QueueItem {
             id: document.id.clone(),
             document_id: document.id.clone(),
             document_title: document.title.clone(),
@@ -957,7 +978,7 @@ async fn get_due_documents_only_from_repo(
             item_type: "document".to_string(),
             priority_rating: Some(document.priority_rating),
             priority_slider: Some(document.priority_slider),
-            priority,
+            priority: 0.0,
             due_date: document.next_reading_date.map(|d| d.to_rfc3339()),
             estimated_time: 5,
             tags: document.tags.clone(),
@@ -971,12 +992,20 @@ async fn get_due_documents_only_from_repo(
             retrievability: None,
             lapses: None,
             reps: document.reps,
-        });
+            canonical_priority: Some(signal.value),
+            priority_available: Some(signal.available),
+            priority_explicitly_set: Some(document.priority_explicitly_set),
+            algorithm_type: Some("rotation".to_string()),
+            is_new_item: Some(document.reps.unwrap_or(0) == 0),
+            entity_id: Some(document.id.clone()),
+            ..Default::default()
+        };
+        due_documents.push(attach_canonical_evidence(q_item, now));
     }
 
-    // Sort using FSRS-based priority
+    // Sort using deterministic D4 comparator
     let selector = QueueSelector::new(0.0); // No randomness for due documents
-    selector.sort_queue_items(&mut due_documents);
+    selector.sort_queue_items_at(&mut due_documents, now);
 
     Ok(due_documents)
 }
@@ -995,11 +1024,18 @@ pub async fn get_due_documents_only(
 /// based on each subscription's queue_intersperse_interval setting.
 #[tauri::command]
 pub async fn get_queue_with_playlist_intersperse(
-    randomness: Option<f32>,
+    _randomness: Option<f32>,
     collection_id: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<QueueItem>> {
-    let mut queue = get_queue_items_from_repo(repo.inner(), collection_id.as_deref()).await?;
+    get_queue_with_playlist_intersperse_from_repo(repo.inner(), collection_id.as_deref()).await
+}
+
+pub async fn get_queue_with_playlist_intersperse_from_repo(
+    repo: &Repository,
+    collection_id: Option<&str>,
+) -> Result<Vec<QueueItem>> {
+    let mut queue = get_queue_items_from_repo(repo, collection_id).await?;
 
     let settings = match repo.get_playlist_settings().await {
         Ok(s) => s,
@@ -1020,126 +1056,191 @@ pub async fn get_queue_with_playlist_intersperse(
         return Ok(queue);
     }
 
-    // Get subscription info for each video to determine intersperse interval
-    let mut playlist_queue_items: Vec<QueueItem> = Vec::new();
+    let subscriptions = match repo.get_playlist_subscriptions().await {
+        Ok(s) => s,
+        Err(_) => return Ok(queue),
+    };
+    let subs_map: HashMap<String, crate::models::PlaylistSubscription> = subscriptions
+        .into_iter()
+        .map(|s| (s.id.clone(), s))
+        .collect();
 
-    // Batch collect all document IDs and subscription IDs
     let doc_ids: Vec<String> = playlist_videos
         .iter()
         .filter_map(|v| v.document_id.clone())
         .collect();
-    let sub_ids: Vec<String> = playlist_videos
-        .iter()
-        .map(|v| v.subscription_id.clone())
-        .collect();
+    let docs_map = match repo.get_documents_by_ids(&doc_ids).await {
+        Ok(d) => d,
+        Err(_) => return Ok(queue),
+    };
 
-    // Batch fetch documents and subscriptions
-    let docs_map = repo
-        .get_documents_by_ids(&doc_ids)
-        .await
-        .unwrap_or_default();
-    let subs_map = repo
-        .get_playlist_subscriptions_by_ids(&sub_ids)
-        .await
-        .unwrap_or_default();
-
+    // Group unqueued playlist videos by subscription
+    let mut videos_by_sub: HashMap<String, Vec<crate::models::PlaylistVideo>> = HashMap::new();
     for video in playlist_videos {
-        if let Some(doc_id) = &video.document_id {
-            if let Some(doc) = docs_map.get(doc_id) {
-                if let Some(sub) = subs_map.get(&video.subscription_id) {
-                    if sub.is_active {
-                        let progress = match (doc.current_page, doc.total_pages) {
-                            (Some(current), Some(total)) if total > 0 => {
-                                ((current as f64 / total as f64) * 100.0).round() as i32
-                            }
-                            _ => 0,
-                        };
+        videos_by_sub
+            .entry(video.subscription_id.clone())
+            .or_default()
+            .push(video);
+    }
 
-                        let priority = calculate_fsrs_document_priority(
-                            doc.next_reading_date,
-                            doc.stability,
-                            doc.difficulty,
-                            // Playlist videos inherit the subscription's priority.
-                            // The subscription has only a rating, so resolve it to
-                            // a slider value the same way document fields are.
-                            resolve_priority_slider(0, sub.priority_rating),
-                        );
+    struct ActiveSubQueue {
+        sub_id: String,
+        priority: i32,
+        interval: i32,
+        items_since_last_insert: i32,
+        videos: VecDeque<QueueItem>,
+    }
 
-                        playlist_queue_items.push(QueueItem {
-                            id: video.id.clone(),
-                            document_id: doc.id.clone(),
-                            document_title: doc.title.clone(),
-                            extract_id: None,
-                            learning_item_id: None,
-                            question: None,
-                            answer: None,
-                            cloze_text: None,
-                            learning_hint: None,
-                            item_type: "playlist-video".to_string(),
-                            priority_rating: Some(sub.priority_rating),
-                            priority_slider: None,
-                            priority,
-                            due_date: doc.next_reading_date.map(|d| d.to_rfc3339()),
-                            estimated_time: doc.total_pages.map(|p| p / 60).unwrap_or(10),
-                            tags: vec!["playlist".to_string()],
-                            category: Some("YouTube Playlist".to_string()),
-                            progress,
-                            source: Some(format!("playlist:{}", sub.id)),
-                            position: Some(sub.queue_intersperse_interval),
-                            stability: doc.stability,
-                            difficulty: doc.difficulty,
-                            interval: None,
-                            retrievability: None,
-                            lapses: None,
-                            reps: doc.reps,
-                        });
-                    }
+    let mut active_subs: Vec<ActiveSubQueue> = Vec::new();
+
+    for (sub_id, mut vids) in videos_by_sub {
+        let Some(sub) = subs_map.get(&sub_id) else {
+            continue;
+        };
+        if !sub.is_active {
+            continue;
+        }
+
+        if settings.prefer_new_videos {
+            vids.sort_by(|a, b| b.discovered_at.cmp(&a.discovered_at));
+        } else {
+            vids.sort_by(|a, b| a.position.unwrap_or(0).cmp(&b.position.unwrap_or(0)));
+        }
+
+        let mut queue_items = VecDeque::new();
+        for video in vids {
+            let Some(doc_id) = &video.document_id else {
+                continue;
+            };
+            let Some(doc) = docs_map.get(doc_id) else {
+                continue;
+            };
+
+            let progress = match (doc.current_page, doc.total_pages) {
+                (Some(current), Some(total)) if total > 0 => {
+                    ((current as f64 / total as f64) * 100.0).round() as i32
                 }
-            }
+                _ => 0,
+            };
+
+            let signal = playlist_subscription_priority(sub.priority_rating);
+            let q_item = QueueItem {
+                id: video.id.clone(),
+                document_id: doc.id.clone(),
+                document_title: doc.title.clone(),
+                extract_id: None,
+                learning_item_id: None,
+                question: None,
+                answer: None,
+                cloze_text: None,
+                learning_hint: None,
+                item_type: "playlist-video".to_string(),
+                priority_rating: Some(sub.priority_rating),
+                priority_slider: None,
+                priority: 0.0,
+                due_date: doc.next_reading_date.map(|d| d.to_rfc3339()),
+                estimated_time: doc.total_pages.map(|p| p / 60).unwrap_or(10),
+                tags: vec!["playlist".to_string()],
+                category: Some("YouTube Playlist".to_string()),
+                progress,
+                source: Some(format!("playlist:{}", sub.id)),
+                position: Some(sub.queue_intersperse_interval),
+                stability: doc.stability,
+                difficulty: doc.difficulty,
+                interval: None,
+                retrievability: None,
+                lapses: None,
+                reps: doc.reps,
+                canonical_priority: Some(signal.value),
+                priority_available: Some(signal.available),
+                priority_explicitly_set: Some(false),
+                algorithm_type: Some("rotation".to_string()),
+                is_new_item: Some(doc.reps.unwrap_or(0) == 0),
+                entity_id: Some(video.id.clone()),
+                ..Default::default()
+            };
+            queue_items.push_back(attach_canonical_evidence(q_item, Utc::now()));
+        }
+
+        if !queue_items.is_empty() {
+            active_subs.push(ActiveSubQueue {
+                sub_id: sub.id.clone(),
+                priority: sub.priority_rating.clamp(1, 10),
+                interval: sub.queue_intersperse_interval.clamp(1, 50),
+                items_since_last_insert: 0,
+                videos: queue_items,
+            });
         }
     }
 
-    // Now intersperse playlist videos into the base queue
-    // Group playlist videos by their intersperse interval
+    if active_subs.is_empty() {
+        return Ok(queue);
+    }
+
+    let max_consecutive = settings.max_consecutive_playlist_videos.clamp(1, 5);
     let mut result: Vec<QueueItem> = Vec::new();
-    let mut playlist_idx = 0;
-    let mut position_counters: std::collections::HashMap<i32, i32> =
-        std::collections::HashMap::new();
 
-    for (idx, item) in queue.iter().enumerate() {
-        // Add the regular queue item
-        result.push(item.clone());
+    for item in queue {
+        let is_playlist_item = item.item_type == "playlist-video";
+        result.push(item);
 
-        // We try to insert at positions that are multiples of the interval
-        if playlist_idx < playlist_queue_items.len() {
-            let playlist_video = &playlist_queue_items[playlist_idx];
+        if !is_playlist_item {
+            for sub_q in active_subs.iter_mut() {
+                sub_q.items_since_last_insert += 1;
+            }
 
-            if let Some(interval) = playlist_video.position {
-                let counter = position_counters.entry(interval).or_insert(0);
-                *counter += 1;
+            let mut inserted_at_slot = 0;
+            while inserted_at_slot < max_consecutive {
+                let mut eligible_indices: Vec<usize> = active_subs
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(idx, sub_q)| {
+                        if sub_q.items_since_last_insert >= sub_q.interval && !sub_q.videos.is_empty() {
+                            Some(idx)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
 
-                // Insert a playlist video every 'interval' items
-                if *counter >= interval {
-                    result.push(playlist_queue_items[playlist_idx].clone());
-                    playlist_idx += 1;
-                    *counter = 0;
+                if eligible_indices.is_empty() {
+                    break;
+                }
 
-                    // Mark this video as added to queue
+                // Deterministic priority and identity tie-breaking:
+                // 1. Subscription priority rating DESC
+                // 2. Subscription ID ASC
+                // 3. Video ID ASC
+                eligible_indices.sort_by(|&a, &b| {
+                    let sub_a = &active_subs[a];
+                    let sub_b = &active_subs[b];
+                    sub_b
+                        .priority
+                        .cmp(&sub_a.priority)
+                        .then_with(|| sub_a.sub_id.cmp(&sub_b.sub_id))
+                        .then_with(|| {
+                            let vid_a = sub_a.videos.front().map(|v| v.id.as_str()).unwrap_or("");
+                            let vid_b = sub_b.videos.front().map(|v| v.id.as_str()).unwrap_or("");
+                            vid_a.cmp(vid_b)
+                        })
+                });
+
+                let chosen_idx = eligible_indices[0];
+                let chosen_sub = &mut active_subs[chosen_idx];
+                if let Some(video_item) = chosen_sub.videos.pop_front() {
+                    let video_id = video_item.id.clone();
+                    result.push(video_item);
+                    chosen_sub.items_since_last_insert = 0;
+                    inserted_at_slot += 1;
+
                     let _ = repo
-                        .mark_video_added_to_queue(&playlist_video.id, idx as i32)
+                        .mark_video_added_to_queue(&video_id, result.len() as i32)
                         .await;
-
-                    if playlist_idx >= playlist_queue_items.len() {
-                        break;
-                    }
+                } else {
+                    break;
                 }
             }
         }
-    }
-
-    // Add any remaining regular queue items
-    if result.len() < queue.len() {
-        result.extend(queue[result.len() - playlist_idx..].iter().cloned());
     }
 
     Ok(result)
@@ -1225,6 +1326,7 @@ mod tests {
             retrievability: None,
             lapses: None,
             reps: None,
+            ..Default::default()
         }];
 
         strip_content_for_listing(&mut items);
@@ -1266,6 +1368,7 @@ mod tests {
             retrievability: None,
             lapses: None,
             reps: None,
+            ..Default::default()
         }
     }
 

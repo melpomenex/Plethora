@@ -3,6 +3,7 @@
  * Displays YouTube videos with synchronized transcript and SponsorBlock integration
  */
 
+import { useVideoExtractPlayback } from '../../hooks/useVideoExtractPlayback';
 import { useState, useEffect, useCallback, useRef, useMemo, useId } from "react";
 import { appAudioFocus, type AudioOutputLease } from "../../services/audio/audioFocus";
 import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../../services/audio/audioPlaybackRollout";
@@ -209,6 +210,7 @@ export function YouTubeViewer({
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const playerRef = useRef<YouTubePlayer | null>(null);
+  const { select: selectExtract, confirm: confirmExtractPlayback, cancel: cancelExtractPlayback } = useVideoExtractPlayback(documentId);
   const outputId = useId();
   const outputLease = useRef<AudioOutputLease | null>(null);
   const outputRequest = useRef(0);
@@ -989,6 +991,7 @@ export function YouTubeViewer({
         if (isPlaying || currentState === 1 || currentState === 3) {
           const time = await player.getCurrentTime();
           if (typeof time === "number" && Number.isFinite(time)) {
+            if (currentState === 1) confirmExtractPlayback(time);
             setCurrentTime(time);
             onTimeUpdateRef.current?.(time);
           }
@@ -1236,6 +1239,7 @@ export function YouTubeViewer({
   };
 
   const onPlayerError = (event: any) => {
+    cancelExtractPlayback();
     const code = typeof event?.data === "number" ? event.data : -1;
 
     if ((code === 101 || code === 150 || code === 153) && embedHost === "https://www.youtube-nocookie.com") {
@@ -1847,7 +1851,7 @@ export function YouTubeViewer({
               </div>
               <VideoExtractsList
                 documentId={documentId}
-                onPlayExtract={(extract) => handleSeek(extract.start_time, extract.end_time)}
+                onPlayExtract={(extract) => { selectExtract(extract); handleSeek(extract.start_time, extract.end_time); }}
               />
             </div>
           </div>

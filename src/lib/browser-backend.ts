@@ -4,6 +4,8 @@
  */
 
 import * as db from './database.js';
+import { browserVideoExtractCommand } from './browserVideoExtracts';
+import { createBrowserAssistantCard } from './browserAssistantCards';
 import { claimBrowserAudioOwner, commitBrowserAudioCheckpoint, getBrowserAudioCheckpoint, getBrowserAudioSession, saveBrowserAudioSession } from '../services/audio/browserAudioCheckpoints';
 import type { AudioCheckpoint, AudioSourceKey, SavedAudioSession } from '../types/audioEdition';
 import { browserCaptureSourceUrl, hasShareCaptureEvidence, shareCaptureSourceUrl } from '../utils/captureSource';
@@ -693,6 +695,9 @@ type BrowserCardVersionEntry = {
     reason?: string;
     question: string;
     answer?: string;
+    cloze_text?: string;
+    cloze_ranges?: [number, number][];
+    tags?: string[];
 };
 
 const CARD_VERSION_STORAGE_KEY = "plethora_browser_card_versions";
@@ -914,7 +919,28 @@ function toUnixSeconds(value: unknown): number | null {
     return Number.isFinite(timestampMs) ? Math.floor(timestampMs / 1000) : null;
 }
 
+const browserPlaylistSettings = {
+    id: 'default',
+    enabled: true,
+    default_intersperse_interval: 5,
+    default_priority: 5,
+    max_consecutive_playlist_videos: 1,
+    prefer_new_videos: false,
+    created_at: new Date().toISOString(),
+    modified_at: new Date().toISOString(),
+};
+
+const browserPlaylistSubscriptions = new Map<string, any>();
+
 const commandHandlers: Record<string, CommandHandler> = {
+    get_video_extract_lifecycle: async (args) => browserVideoExtractCommand('get_video_extract_lifecycle', args),
+    get_video_extracts: async (args) => browserVideoExtractCommand('get_video_extracts', args),
+    get_video_extract: async (args) => browserVideoExtractCommand('get_video_extract', args),
+    create_video_extract: async (args) => browserVideoExtractCommand('create_video_extract', args),
+    update_video_extract: async (args) => browserVideoExtractCommand('update_video_extract', args),
+    delete_video_extract: async (args) => browserVideoExtractCommand('delete_video_extract', args),
+    mark_video_extract_seen: async (args) => browserVideoExtractCommand('mark_video_extract_seen', args),
+    rate_video_extract: async (args) => browserVideoExtractCommand('rate_video_extract', args),
     claim_audio_owner: async (args) => claimBrowserAudioOwner(args.profileKey as string, args.ownerEpoch as string, args.previousOwnerEpoch as string | undefined),
     commit_audio_checkpoint: async (args) => commitBrowserAudioCheckpoint(args.checkpoint as AudioCheckpoint),
     get_audio_checkpoint: async (args) => getBrowserAudioCheckpoint(args.sourceKey as AudioSourceKey),
@@ -1534,6 +1560,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             priorityRating: doc.priority_rating ?? 0,
             prioritySlider: doc.priority_slider ?? 0,
             priorityScore: doc.priority_score ?? 0,
+            priorityExplicitlySet: Boolean(doc.priority_explicitly_set),
             isArchived: Boolean(doc.is_archived),
             isFavorite: Boolean(doc.is_favorite),
             isDismissed: Boolean(doc.is_dismissed),
@@ -1958,16 +1985,48 @@ const commandHandlers: Record<string, CommandHandler> = {
 
     update_document_priority: async (args) => {
         const id = args.id as string;
-        const rating = args.rating as number;
-        const slider = args.slider as number;
-        // Calculate priority score based on rating and slider
-        const priorityScore = (rating / 5) * 50 + (slider / 100) * 50;
+        const rating = Number(args.rating ?? 0);
+        const slider = Math.max(0, Math.min(100, Math.round(Number(args.slider ?? 0))));
+        const derivedRating = slider > 0
+            ? (slider >= 81 ? 5 : slider >= 61 ? 4 : slider >= 41 ? 3 : slider >= 21 ? 2 : 1)
+            : (rating >= 1 && rating <= 5 ? rating : 0);
+        const priorityScore = slider;
         const doc = await db.updateDocument(id, {
-            priority_rating: rating,
+            priority_rating: derivedRating,
             priority_slider: slider,
             priority_score: priorityScore,
+            priority_explicitly_set: 1,
+            date_modified: new Date().toISOString(),
         });
         return toCamelCase(doc);
+    },
+
+    bulk_set_document_priority: async (args) => {
+        const ids = (args.documentIds ?? args.document_ids ?? []) as string[];
+        const rawSlider = Number(args.slider ?? 0);
+        const slider = Math.max(0, Math.min(100, Math.round(rawSlider)));
+        const rating = slider > 0
+            ? (slider >= 81 ? 5 : slider >= 61 ? 4 : slider >= 41 ? 3 : slider >= 21 ? 2 : 1)
+            : 0;
+        const succeeded: string[] = [];
+        const failed: string[] = [];
+        const errors: string[] = [];
+        for (const id of ids) {
+            try {
+                await db.updateDocument(id, {
+                    priority_rating: rating,
+                    priority_slider: slider,
+                    priority_score: slider,
+                    priority_explicitly_set: 1,
+                    date_modified: new Date().toISOString(),
+                });
+                succeeded.push(id);
+            } catch (err) {
+                failed.push(id);
+                errors.push(err instanceof Error ? err.message : String(err));
+            }
+        }
+        return { succeeded, failed, errors };
     },
 
     archive_document: async (args) => {
@@ -2341,6 +2400,16 @@ const commandHandlers: Record<string, CommandHandler> = {
         return toCamelCase(extract);
     },
 
+    set_extract_priority: async (args) => {
+        const id = args.id as string;
+        const rawSlider = Number(args.priorityScore ?? args.priority_score ?? 0);
+        const slider = Math.max(0, Math.min(100, Math.round(rawSlider)));
+        await db.updateExtract(id, {
+            priority_score: slider,
+        });
+        return null;
+    },
+
     delete_extract: async (args) => {
         const id = args.id as string;
         await db.deleteExtract(id);
@@ -2417,15 +2486,8 @@ const commandHandlers: Record<string, CommandHandler> = {
         const question = args.question as string;
         const acceptanceId = (args.acceptanceId ?? args.acceptance_id) as string | undefined;
         const proposalId = (args.proposalId ?? args.proposal_id) as string | undefined;
-        // Retry-safe agent acceptance: the same (acceptance, proposal) pair
-        // returns the committed row instead of creating a duplicate.
-        if (acceptanceId && proposalId) {
-            const existing = (await db.getAllLearningItems()).find(
-                (item) => item.acceptance_id === acceptanceId && item.proposal_id === proposalId
-            );
-            if (existing) return toCamelCase(existing);
-        }
-        const allowDuplicate = Boolean(args.allowDuplicate ?? args.allow_duplicate);
+        const savedCandidate = acceptanceId && proposalId ? await db.getLearningItemByAcceptanceKey(acceptanceId, proposalId) : null;
+        const allowDuplicate = Boolean(args.allowDuplicate ?? args.allow_duplicate) || Boolean(savedCandidate);
         if (!allowDuplicate) {
             const allItems = await db.getAllLearningItems();
             const topMatch = allItems
@@ -2438,10 +2500,12 @@ const commandHandlers: Record<string, CommandHandler> = {
             }
         }
 
+        const itemType = String(args.itemType ?? args.item_type).toLowerCase();
+        if (!["basic", "qa", "cloze", "flashcard"].includes(itemType)) throw new Error("Unsupported card type");
         const item = await db.createLearningItem({
             extract_id: (args.extractId ?? args.extract_id) as string | undefined,
             document_id: (args.documentId ?? args.document_id) as string | undefined,
-            item_type: (args.itemType ?? args.item_type) as string,
+            item_type: itemType,
             question,
             answer: args.answer as string | undefined,
             cloze_text: (args.clozeText ?? args.cloze_text) as string | undefined,
@@ -2455,7 +2519,8 @@ const commandHandlers: Record<string, CommandHandler> = {
                 : ((args.sourceReference ?? args.source_reference) as string | undefined),
             acceptance_id: acceptanceId,
             proposal_id: proposalId,
-        });
+        }, { documentRevision: (args.sourceRevision ?? args.source_revision) as string | undefined,
+            extractRevision: (args.extractRevision ?? args.extract_revision) as string | undefined });
         const prerequisiteIds = (args.prerequisiteItemIds || args.prerequisite_item_ids) as string[] | undefined;
         if (Array.isArray(prerequisiteIds) && prerequisiteIds.length > 0) {
             const prereqMap = readPrerequisites();
@@ -2467,58 +2532,29 @@ const commandHandlers: Record<string, CommandHandler> = {
     },
 
     create_learning_items_batch: async (args) => {
-        const rawItems = (args.items ?? args.inputs) as Array<Record<string, unknown>>;
-        const existing = await db.getAllLearningItems();
-        const byAcceptanceKey = new Map<string, (typeof existing)[number]>();
-        for (const item of existing) {
-            if (item.acceptance_id && item.proposal_id) {
-                byAcceptanceKey.set(`${item.acceptance_id}\u0000${item.proposal_id}`, item);
-            }
-        }
-        const records: ReturnType<typeof db.createLearningItemRaw>[] = [];
-        const results: Array<(typeof existing)[number]> = [];
-        for (const input of rawItems) {
-            const acceptanceId = (input.acceptanceId ?? input.acceptance_id) as string | undefined;
-            const proposalId = (input.proposalId ?? input.proposal_id) as string | undefined;
-            const key = acceptanceId && proposalId ? `${acceptanceId}\u0000${proposalId}` : null;
-            const alreadySaved = key ? byAcceptanceKey.get(key) : undefined;
-            if (alreadySaved) {
-                results.push(alreadySaved);
-                continue;
-            }
-            const record = db.createLearningItemRaw({
+        const inputs = (args.items ?? args.inputs) as Array<Record<string, unknown>>;
+        if (!Array.isArray(inputs)) throw new Error("Cards must be an array");
+        const records = inputs.map((input) => {
+            const itemType = String(input.itemType ?? input.item_type).toLowerCase();
+            if (!["basic", "qa", "cloze", "flashcard"].includes(itemType)) throw new Error("Unsupported card type");
+            return {
                 extract_id: (input.extractId ?? input.extract_id) as string | undefined,
                 document_id: (input.documentId ?? input.document_id) as string | undefined,
-                item_type: (input.itemType ?? input.item_type) as string,
-                question: String(input.question ?? ""),
-                answer: input.answer as string | undefined,
+                item_type: itemType, question: String(input.question ?? ""), answer: input.answer as string | undefined,
                 cloze_text: (input.clozeText ?? input.cloze_text) as string | undefined,
                 tags: (input.tags ?? input.tag_list) as string[] | undefined,
                 image_asset_ids: (input.imageAssetIds ?? input.image_asset_ids) as string[] | undefined,
                 interaction_metadata: (input.interactionMetadata ?? input.interaction_metadata) as Record<string, unknown> | undefined,
-                source_reference: (input.extractId ?? input.extract_id)
-                    ? undefined
-                    : ((input.sourceReference ?? input.source_reference) as string | undefined),
-                acceptance_id: acceptanceId,
-                proposal_id: proposalId,
-            });
-            records.push(record);
-            results.push(record);
-            if (key) byAcceptanceKey.set(key, record);
-        }
-        // The card writes are one IndexedDB transaction (all or nothing); the
-        // derived document counts and daily-note links are applied afterwards
-        // and may partially fail without affecting the persisted cards.
-        await db.bulkPutLearningItems(records);
-        for (const item of records) {
-            if (item.document_id) {
-                const doc = await db.getDocument(item.document_id);
-                if (doc) {
-                    await db.updateDocument(doc.id, { learning_item_count: doc.learning_item_count + 1 });
-                }
-            }
-            appendDailyNoteLink({ type: "learning_item", id: item.id, title: item.question });
-        }
+                source_reference: (input.sourceReference ?? input.source_reference) as string | undefined,
+                acceptance_id: (input.acceptanceId ?? input.acceptance_id) as string | undefined,
+                proposal_id: (input.proposalId ?? input.proposal_id) as string | undefined,
+            };
+        });
+        const results = await db.createLearningItemsAtomic(records, inputs.map((input) => ({
+            documentRevision: (input.sourceRevision ?? input.source_revision) as string | undefined,
+            extractRevision: (input.extractRevision ?? input.extract_revision) as string | undefined,
+        })));
+        for (const item of results) appendDailyNoteLink({ type: "learning_item", id: item.id, title: item.question });
         return results.map(toCamelCase);
     },
 
@@ -2544,8 +2580,18 @@ const commandHandlers: Record<string, CommandHandler> = {
         return toCamelCase(item);
     },
 
+    update_learning_item_priority: async (args) => {
+        const id = args.id as string;
+        const slider = Math.max(0, Math.min(100, Math.round(Number(args.slider ?? 0))));
+        const item = await db.updateLearningItem(id, {
+            priority_slider: slider,
+            priority_score: slider,
+        });
+        return toCamelCase(item);
+    },
+
     update_learning_item_content_with_version: async (args) => {
-        const itemId = args.itemId as string;
+        const itemId = (args.itemId ?? args.item_id) as string;
         const existing = await db.getLearningItem(itemId);
         if (!existing) {
             throw new Error(`Learning item ${itemId} not found`);
@@ -2559,16 +2605,26 @@ const commandHandlers: Record<string, CommandHandler> = {
             reason: (args.reason as string | undefined) ?? undefined,
             question: existing.question,
             answer: existing.answer,
+            cloze_text: existing.cloze_text,
+            cloze_ranges: existing.cloze_ranges,
+            tags: existing.tags ? [...existing.tags] : undefined,
         };
         allVersions[itemId] = [entry, ...(allVersions[itemId] ?? [])];
         writeBrowserCardVersions(allVersions);
+
+        const clozeRanges = args.clozeRanges ?? args.cloze_ranges;
+        const tags = args.tags;
 
         const updated = await db.updateLearningItem(itemId, {
             question: args.question as string,
             // Omitted values keep their stored columns (same semantics as the
             // Rust direct-write path).
             ...(args.answer !== undefined ? { answer: args.answer as string } : {}),
-            ...(args.clozeText !== undefined ? { cloze_text: args.clozeText as string } : {}),
+            ...(args.clozeText !== undefined || args.cloze_text !== undefined
+                ? { cloze_text: (args.clozeText ?? args.cloze_text) as string }
+                : {}),
+            ...(clozeRanges !== undefined ? { cloze_ranges: clozeRanges as [number, number][] } : {}),
+            ...(tags !== undefined ? { tags: tags as string[] } : {}),
             date_modified: new Date().toISOString(),
         });
         return toCamelCase(updated);
@@ -2623,18 +2679,30 @@ const commandHandlers: Record<string, CommandHandler> = {
     },
 
     revert_learning_item_version: async (args) => {
-        const itemId = args.itemId as string;
-        const versionId = args.versionId as string;
+        const itemId = (args.itemId ?? args.item_id) as string;
+        const versionId = (args.versionId ?? args.version_id) as string;
         const versions = readBrowserCardVersions()[itemId] ?? [];
         const selected = versions.find((version) => version.version_id === versionId);
         if (!selected) {
             throw new Error(`Version ${versionId} not found`);
         }
-        const updated = await db.updateLearningItem(itemId, {
+        const patch: Partial<db.LearningItem> = {
             question: selected.question,
-            answer: selected.answer,
             date_modified: new Date().toISOString(),
-        });
+        };
+        if (selected.answer !== undefined) {
+            patch.answer = selected.answer;
+        }
+        if (selected.cloze_text !== undefined) {
+            patch.cloze_text = selected.cloze_text;
+        }
+        if (selected.cloze_ranges !== undefined) {
+            patch.cloze_ranges = selected.cloze_ranges;
+        }
+        if (selected.tags !== undefined) {
+            patch.tags = selected.tags;
+        }
+        const updated = await db.updateLearningItem(itemId, patch);
         return toCamelCase(updated);
     },
 
@@ -4075,33 +4143,32 @@ const commandHandlers: Record<string, CommandHandler> = {
 
     // YouTube Playlist commands (browser implementation using YouTube Data API)
     get_playlist_subscriptions: async () => {
-        // In browser mode, we don't persist subscriptions - one-time imports only
-        return [];
+        return Array.from(browserPlaylistSubscriptions.values());
     },
 
     get_playlist_subscription: async (args) => {
         const subscriptionId = args.subscriptionId as string;
-        // Return a mock subscription since we don't persist them in browser mode
+        const sub = browserPlaylistSubscriptions.get(subscriptionId) ?? {
+            id: subscriptionId,
+            playlist_id: subscriptionId,
+            playlist_url: `https://www.youtube.com/playlist?list=${subscriptionId}`,
+            title: null,
+            channel_name: null,
+            channel_id: null,
+            description: null,
+            thumbnail_url: null,
+            total_videos: null,
+            is_active: true,
+            auto_import_new: false,
+            queue_intersperse_interval: browserPlaylistSettings.default_intersperse_interval,
+            priority_rating: browserPlaylistSettings.default_priority,
+            last_refreshed_at: null,
+            refresh_interval_hours: 24,
+            created_at: new Date().toISOString(),
+            modified_at: new Date().toISOString(),
+        };
         return {
-            subscription: {
-                id: subscriptionId,
-                playlist_id: subscriptionId,
-                playlist_url: `https://www.youtube.com/playlist?list=${subscriptionId}`,
-                title: null,
-                channel_name: null,
-                channel_id: null,
-                description: null,
-                thumbnail_url: null,
-                total_videos: null,
-                is_active: false,
-                auto_import_new: false,
-                queue_intersperse_interval: 5,
-                priority_rating: 5,
-                last_refreshed_at: null,
-                refresh_interval_hours: 24,
-                created_at: new Date().toISOString(),
-                modified_at: new Date().toISOString(),
-            },
+            subscription: structuredClone(sub),
             videos: [],
         };
     },
@@ -4123,12 +4190,20 @@ const commandHandlers: Record<string, CommandHandler> = {
         const videosToImport = await importPlaylistVideos(playlistInfo, true);
         
         const importedDocs = [];
+        const subPriority = browserPlaylistSettings.default_priority;
+        const seededSlider = Math.round(((Math.max(1, Math.min(10, subPriority)) - 1) / 9.0) * 100);
+        const seededRating = seededSlider > 0 ? Math.floor((seededSlider - 1) / 20) + 1 : 0;
+
         for (const video of videosToImport) {
             try {
                 const doc = await db.createDocument({
                     title: video.title,
                     file_path: video.url,
                     file_type: 'youtube',
+                    priority_slider: seededSlider,
+                    priority_rating: seededRating,
+                    priority_score: seededSlider,
+                    priority_explicitly_set: 0,
                 });
                 importedDocs.push(doc);
             } catch (error) {
@@ -4136,7 +4211,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             }
         }
 
-        return {
+        const newSub = {
             id: playlistId,
             playlist_id: playlistId,
             playlist_url: playlistUrl,
@@ -4148,22 +4223,79 @@ const commandHandlers: Record<string, CommandHandler> = {
             total_videos: importedDocs.length,
             is_active: true,
             auto_import_new: false,
-            queue_intersperse_interval: 5,
-            priority_rating: 5,
+            queue_intersperse_interval: browserPlaylistSettings.default_intersperse_interval,
+            priority_rating: browserPlaylistSettings.default_priority,
             last_refreshed_at: new Date().toISOString(),
             refresh_interval_hours: 24,
             created_at: new Date().toISOString(),
             modified_at: new Date().toISOString(),
         };
+        browserPlaylistSubscriptions.set(playlistId, newSub);
+
+        return structuredClone(newSub);
     },
 
-    update_playlist_subscription: async () => {
-        // No-op in browser mode - subscriptions are not persisted
-        return;
+    update_playlist_subscription: async (args) => {
+        const id = args.subscriptionId as string;
+        let sub = browserPlaylistSubscriptions.get(id);
+        if (!sub) {
+            sub = {
+                id,
+                playlist_id: id,
+                playlist_url: `https://www.youtube.com/playlist?list=${id}`,
+                title: "Untitled Playlist",
+                channel_name: "",
+                channel_id: "",
+                description: "",
+                thumbnail_url: "",
+                total_videos: 0,
+                is_active: true,
+                auto_import_new: false,
+                queue_intersperse_interval: browserPlaylistSettings.default_intersperse_interval,
+                priority_rating: browserPlaylistSettings.default_priority,
+                last_refreshed_at: new Date().toISOString(),
+                refresh_interval_hours: 24,
+                created_at: new Date().toISOString(),
+                modified_at: new Date().toISOString(),
+            };
+            browserPlaylistSubscriptions.set(id, sub);
+        }
+        if (args.queue_intersperse_interval !== undefined) {
+            const val = Number(args.queue_intersperse_interval);
+            if (!Number.isInteger(val) || val < 1 || val > 50) {
+                throw new Error("queue_intersperse_interval must be between 1 and 50");
+            }
+            sub.queue_intersperse_interval = val;
+        }
+        if (args.priority_rating !== undefined) {
+            const val = Number(args.priority_rating);
+            if (!Number.isInteger(val) || val < 1 || val > 10) {
+                throw new Error("priority_rating must be between 1 and 10");
+            }
+            sub.priority_rating = val;
+        }
+        if (args.refresh_interval_hours !== undefined) {
+            const val = Number(args.refresh_interval_hours);
+            if (!Number.isInteger(val) || val < 1 || val > 168) {
+                throw new Error("refresh_interval_hours must be between 1 and 168");
+            }
+            sub.refresh_interval_hours = val;
+        }
+        if (args.title !== undefined) {
+            sub.title = String(args.title);
+        }
+        if (args.is_active !== undefined) {
+            sub.is_active = Boolean(args.is_active);
+        }
+        if (args.auto_import_new !== undefined) {
+            sub.auto_import_new = Boolean(args.auto_import_new);
+        }
+        sub.modified_at = new Date().toISOString();
+        return structuredClone(sub);
     },
 
-    delete_playlist_subscription: async () => {
-        // No-op in browser mode - subscriptions are not persisted
+    delete_playlist_subscription: async (args) => {
+        browserPlaylistSubscriptions.delete(args.subscriptionId as string);
         return;
     },
 
@@ -4193,21 +4325,39 @@ const commandHandlers: Record<string, CommandHandler> = {
     },
 
     get_playlist_settings: async () => {
-        return {
-            id: 'global',
-            enabled: isYouTubeApiEnabled(),
-            default_intersperse_interval: 5,
-            default_priority: 5,
-            max_consecutive_playlist_videos: 1,
-            prefer_new_videos: true,
-            created_at: new Date().toISOString(),
-            modified_at: new Date().toISOString(),
-        };
+        return structuredClone(browserPlaylistSettings);
     },
 
-    update_playlist_settings: async () => {
-        // No-op in browser mode - settings are managed via useSettingsStore
-        return;
+    update_playlist_settings: async (args) => {
+        if (args.default_intersperse_interval !== undefined) {
+            const val = Number(args.default_intersperse_interval);
+            if (!Number.isInteger(val) || val < 1 || val > 50) {
+                throw new Error("default_intersperse_interval must be between 1 and 50");
+            }
+            browserPlaylistSettings.default_intersperse_interval = val;
+        }
+        if (args.default_priority !== undefined) {
+            const val = Number(args.default_priority);
+            if (!Number.isInteger(val) || val < 1 || val > 10) {
+                throw new Error("default_priority must be between 1 and 10");
+            }
+            browserPlaylistSettings.default_priority = val;
+        }
+        if (args.max_consecutive_playlist_videos !== undefined) {
+            const val = Number(args.max_consecutive_playlist_videos);
+            if (!Number.isInteger(val) || val < 1 || val > 5) {
+                throw new Error("max_consecutive_playlist_videos must be between 1 and 5");
+            }
+            browserPlaylistSettings.max_consecutive_playlist_videos = val;
+        }
+        if (args.enabled !== undefined) {
+            browserPlaylistSettings.enabled = Boolean(args.enabled);
+        }
+        if (args.prefer_new_videos !== undefined) {
+            browserPlaylistSettings.prefer_new_videos = Boolean(args.prefer_new_videos);
+        }
+        browserPlaylistSettings.modified_at = new Date().toISOString();
+        return structuredClone(browserPlaylistSettings);
     },
 
     get_playlist_queue_items: async () => {
@@ -4933,10 +5083,21 @@ const commandHandlers: Record<string, CommandHandler> = {
                     properties: {
                         text: { type: 'string', description: 'Text with cloze deletions' },
                         document_id: { type: 'string', description: 'Associated document ID' },
+                        extract_id: { type: 'string', description: 'Associated extract ID' },
                         tags: { type: 'array', items: { type: 'string' }, description: 'Optional tags' },
                     },
                     required: ['text'],
                 },
+            },
+            {
+                name: 'batch_create_cards', description: 'Save validated cards and return per-candidate receipts',
+                inputSchema: { type: 'object', properties: {
+                    document_id: { type: 'string' }, extract_id: { type: 'string' },
+                    cards: { type: 'array', items: { type: 'object', properties: {
+                        type: { type: 'string', enum: ['qa', 'cloze', 'flashcard', 'basic'] },
+                        question: { type: 'string' }, answer: { type: 'string' }, tags: { type: 'array', items: { type: 'string' } },
+                    }, required: ['question'] } },
+                }, required: ['cards'] },
             },
             {
                 name: 'create_qa_card',
@@ -4947,6 +5108,7 @@ const commandHandlers: Record<string, CommandHandler> = {
                         question: { type: 'string' },
                         answer: { type: 'string' },
                         document_id: { type: 'string' },
+                        extract_id: { type: 'string' },
                         tags: { type: 'array', items: { type: 'string' }, description: 'Optional tags' },
                     },
                     required: ['question', 'answer'],
@@ -5082,33 +5244,38 @@ const commandHandlers: Record<string, CommandHandler> = {
                     isError: false,
                 };
             }
+            case 'batch_create_cards': {
+                const cards = toolArgs.cards;
+                if (!Array.isArray(cards)) throw new Error("Cards must be an array");
+                const results = [];
+                for (const [index, card] of cards.entries()) {
+                    const proposalId = card?.proposal_id ?? (toolArgs.acceptance_id ? `${toolArgs.acceptance_id}:${index}` : undefined);
+                    try {
+                        if (!card || typeof card !== 'object' || !['qa', 'cloze', 'flashcard', 'basic'].includes(card.type ?? 'flashcard')) throw new Error('Unsupported or malformed card candidate');
+                        const kind = card.type === 'cloze' ? 'cloze' : card.type === 'qa' ? 'qa' : 'flashcard';
+                        const receipt = await createBrowserAssistantCard(kind, { ...toolArgs, ...card,
+                            document_id: toolArgs.document_id, extract_id: toolArgs.extract_id,
+                            text: card.question, source: card.source ?? toolArgs.source,
+                            acceptance_id: toolArgs.acceptance_id, proposal_id: proposalId,
+                            tags: [...new Set([...(Array.isArray(toolArgs.tags) ? toolArgs.tags : []), ...(Array.isArray(card.tags) ? card.tags : [])])],
+                        });
+                        results.push({ ...receipt, proposal_id: proposalId });
+                    } catch (error) { results.push({ success: false, proposal_id: proposalId, error: error instanceof Error ? error.message : 'Card was not saved' }); }
+                }
+                const created = results.filter((result) => result.success).length;
+                return { content: [{ type: 'text', text: JSON.stringify({ attempted: cards.length, created, failed: cards.length - created, results }) }], isError: created !== cards.length };
+            }
             case 'create_qa_card': {
-                const item = await db.createLearningItem({
-                    document_id: toolArgs.document_id as string,
-                    item_type: 'qa',
-                    question: toolArgs.question as string,
-                    answer: toolArgs.answer as string,
-                    tags: Array.isArray(toolArgs.tags)
-                        ? toolArgs.tags.filter((tag) => typeof tag === 'string')
-                        : undefined,
-                });
+                const receipt = await createBrowserAssistantCard('qa', toolArgs);
                 return {
-                    content: [{ type: 'text', text: `Created Q&A card: ${item.id}` }],
+                    content: [{ type: 'text', text: JSON.stringify(receipt) }],
                     isError: false,
                 };
             }
             case 'create_cloze_card': {
-                const item = await db.createLearningItem({
-                    document_id: toolArgs.document_id as string,
-                    item_type: 'cloze',
-                    question: toolArgs.text as string,
-                    answer: toolArgs.text as string,
-                    tags: Array.isArray(toolArgs.tags)
-                        ? toolArgs.tags.filter((tag) => typeof tag === 'string')
-                        : undefined,
-                });
+                const receipt = await createBrowserAssistantCard('cloze', toolArgs);
                 return {
-                    content: [{ type: 'text', text: `Created cloze card: ${item.id}` }],
+                    content: [{ type: 'text', text: JSON.stringify(receipt) }],
                     isError: false,
                 };
             }

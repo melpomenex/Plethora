@@ -38,9 +38,13 @@ import { useToast } from "../common/Toast";
 import { useI18n } from "../../lib/i18n";
 import { getDocument } from "../../api/documents";
 import { useUndoableOperations } from "../../api/undoable";
+import { ReviewCardContent } from "../review/ReviewCardContent";
 import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
 import { useSurfaceMenu } from "../../hooks/useSurfaceMenu";
 import { flashcardMenuItemIds } from "../../lib/contextMenus";
+import { InlineCardEditor } from "../review/InlineCardEditor";
+import { FlashcardStudioModal, type FlashcardStudioSeed } from "../review/FlashcardStudioModal";
+import { cardMutationCoordinator } from "../../api/learningItemMutationCoordinator";
 
 interface LearningCardsListProps {
   documentId: string;
@@ -57,6 +61,15 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
   const [qualityByCard, setQualityByCard] = useState<Record<string, ReturnType<typeof analyzeCardQuality>>>({});
   const [prereqByCard, setPrereqByCard] = useState<Record<string, string[]>>({});
   const [deletingCardIds, setDeletingCardIds] = useState<Set<string>>(new Set());
+  const [editingCard, setEditingCard] = useState<LearningItem | null>(null);
+  const [isStudioOpen, setIsStudioOpen] = useState(false);
+  const [studioSeed, setStudioSeed] = useState<FlashcardStudioSeed | null>(null);
+
+  useEffect(() => {
+    return cardMutationCoordinator.registerReconciler((committed) => {
+      setCards((current) => current.map((c) => (c.id === committed.id ? committed : c)));
+    });
+  }, []);
 
   // Custom Save as Smart Deck Modal States
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -205,19 +218,33 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
     setCards((current) => current.map((card) => (card.id === next.id ? next : card)));
   };
 
-  const handleEditCard = async (card: LearningItem) => {
-    const nextQuestion = prompt("Edit question", card.question);
-    if (nextQuestion === null || !nextQuestion.trim()) return;
-    const nextAnswer = prompt("Edit answer", card.answer || "") ?? "";
-    const reason = prompt("Reason for edit (optional)") || undefined;
-    const updated = await updateLearningItemContentWithVersion(
-      card.id,
-      nextQuestion.trim(),
-      nextAnswer.trim(),
-      reason
-    );
-    updateCardInState(updated);
-    toast.success("Card updated");
+  const handleEditCard = (card: LearningItem) => {
+    setEditingCard(card);
+  };
+
+  const handleEditInStudio = (card: LearningItem) => {
+    const interactionMetadata =
+      (card as any).interaction_metadata ?? (card as any).interactionMetadata;
+    const occlusionAssetId = interactionMetadata?.imageOcclusionAssetId;
+    setEditingCard(null);
+    if (occlusionAssetId) {
+      window.dispatchEvent(
+        new CustomEvent("plethora:create-image-occlusion", {
+          detail: { assetId: occlusionAssetId, documentId: card.document_id ?? undefined },
+        })
+      );
+      return;
+    }
+    setStudioSeed({
+      key: `edit-${card.id}`,
+      documentId: card.document_id,
+      linkedExtractId: card.extract_id,
+      initialQuestion: card.question,
+      initialAnswer: card.answer ?? "",
+      initialTags: card.tags,
+      draftCardType: card.item_type.toLowerCase() === "cloze" ? "cloze" : "qa",
+    });
+    setIsStudioOpen(true);
   };
 
   const handleDeleteCard = async (card: LearningItem) => {
@@ -472,10 +499,7 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
               <div className="text-xs font-medium text-muted-foreground mb-1">
                 {t("learningCards.question")}
               </div>
-              <div 
-                className="text-foreground" 
-                dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(card.question) }} 
-              />
+              <ReviewCardContent card={card} showAnswer={Boolean(showAnswers[card.id])} part="question" />
             </div>
 
             {/* Answer */}
@@ -501,10 +525,9 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
                   </button>
                 </div>
                 {showAnswers[card.id] ? (
-                  <div 
-                    className="text-foreground p-3 bg-muted rounded-md" 
-                    dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(card.answer) }} 
-                  />
+                  <div className="text-foreground p-3 bg-muted rounded-md">
+                    <ReviewCardContent card={card} showAnswer={true} part="answer" />
+                  </div>
                 ) : (
                   <p className="text-muted-foreground italic text-sm">
                     {t("learningCards.answerHidden")}
@@ -776,6 +799,50 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
         visible={cardMenu.visible}
         position={cardMenu.position}
         onClose={cardMenu.closeToTrigger}
+      />
+
+      {editingCard && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="learning-cards-inline-editor-title"
+        >
+          <div className="w-full max-w-2xl rounded-xl border border-border bg-card p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-border">
+              <h2 id="learning-cards-inline-editor-title" className="text-lg font-semibold text-foreground">
+                {t("review.inlineEditor.title", "Edit Card")}
+              </h2>
+              <button
+                type="button"
+                onClick={() => setEditingCard(null)}
+                className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                aria-label={t("common.close")}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="max-h-[75dvh] overflow-y-auto">
+              <InlineCardEditor
+                card={editingCard}
+                surface="deck-manager"
+                onClose={() => setEditingCard(null)}
+                onSave={updateCardInState}
+                onSaved={() => setEditingCard(null)}
+                onEditInStudio={handleEditInStudio}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <FlashcardStudioModal
+        isOpen={isStudioOpen}
+        onClose={() => {
+          setIsStudioOpen(false);
+          setStudioSeed(null);
+        }}
+        seed={studioSeed}
       />
     </div>
   );
