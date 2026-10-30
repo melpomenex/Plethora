@@ -11,7 +11,7 @@ export function TTSSetupSheet({ onClose, onStart }: { onClose: () => void; onSta
   const updateSettings = useSettingsStore((s) => s.updateSettings);
   const { available } = useSystemVoices();
   const adapters = listAdapters().filter((a) => {
-    if (a.id === "pocket" || a.id === "lfm3") return isTauri() && !isNativeMobile();
+    if (a.id === "pocket") return isTauri() && !isNativeMobile();
     if (a.id === "android") return isNativeMobile();
     return true;
   });

@@ -116,7 +116,7 @@ describe("ttsSettings", () => {
 describe("ttsSettings v4 spoken-word preferences", () => {
   it("defaults highlightSpokenWord/followSpokenWord to true for v3 payloads", () => {
     const settings = sanitizeTTSSettings({ schemaVersion: 3, providers: {} });
-    expect(settings.schemaVersion).toBe(4);
+    expect(settings.schemaVersion).toBe(5);
     expect(settings.highlightSpokenWord).toBe(true);
     expect(settings.followSpokenWord).toBe(true);
   });

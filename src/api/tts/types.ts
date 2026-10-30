@@ -5,7 +5,6 @@ import type { WordTiming } from "../../utils/wordTimings";
 export type TTSProviderId =
   | "fal"
   | "groq"
-  | "lfm3"
   | "pocket"
   | "system"
   | "openrouter"

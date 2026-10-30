@@ -3,14 +3,13 @@ import { getAdapter, listAdapters } from "../registry";
 import { normalizeOpenAICompatibleBaseUrl } from "../providers/openai-compatible";
 
 describe("TTS adapter registry", () => {
-  it("registers all eleven providers", () => {
-    expect(listAdapters()).toHaveLength(11);
+  it("registers all ten providers", () => {
+    expect(listAdapters()).toHaveLength(10);
     expect(listAdapters().map((adapter) => adapter.id)).toEqual(
       expect.arrayContaining([
         "fal",
         "groq",
         "pocket",
-        "lfm3",
         "system",
         "openrouter",
         "elevenlabs",

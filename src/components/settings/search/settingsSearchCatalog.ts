@@ -49,7 +49,6 @@ export type SettingsSearchAvailabilityId =
   | "companion-enabled"
   | "fsrs-enabled"
   | "daqe-enabled"
-  | "tts-lfm3"
   | "tts-system"
   | "tts-language"
   | "tts-speed"
@@ -166,8 +165,6 @@ export function isSettingsSearchEntryAvailable(
       return snapshot.fsrsEnabled;
     case "daqe-enabled":
       return snapshot.daqeEnabled;
-    case "tts-lfm3":
-      return snapshot.ttsProvider === "lfm3";
     case "tts-system":
       return snapshot.ttsProvider === "system";
     case "tts-language":
@@ -175,7 +172,7 @@ export function isSettingsSearchEntryAvailable(
     case "tts-speed":
       return snapshot.ttsProvider === "pocket";
     case "tts-presets":
-      return !["groq", "system", "lfm3"].includes(snapshot.ttsProvider);
+      return !["groq", "system"].includes(snapshot.ttsProvider);
     default:
       return false;
   }
@@ -1540,21 +1537,11 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     targetId: "tts.enabled",
   },
   {
-    id: "tts.lfm3.model",
-    kind: "group",
-    section: SettingsTab.TTS,
-    label: lit("Local LFM3 model"),
-    aliases: [lit("LFM3"), lit("offline speech"), lit("local narrator")],
-    keywords: ["lfm3", "download", "model", "local", "tts"],
-    targetId: "tts.lfm3.model",
-    availability: "tts-lfm3",
-  },
-  {
     id: "tts.localModels",
     kind: "group",
     section: SettingsTab.TTS,
     label: lit("Local TTS models (Hugging Face)"),
-    aliases: [lit("download speech model"), lit("Hugging Face"), lit("LFM3 installation")],
+    aliases: [lit("download speech model"), lit("Hugging Face")],
     keywords: ["local", "tts", "model", "download", "offline"],
     targetId: "tts.localModels",
     availability: "desktop",
@@ -1564,7 +1551,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     kind: "setting",
     section: SettingsTab.TTS,
     label: k("settings.ttsProvider"),
-    aliases: [lit("voice provider"), lit("fal"), lit("groq"), lit("elevenlabs"), lit("openai"), lit("LFM3")],
+    aliases: [lit("voice provider"), lit("fal"), lit("groq"), lit("elevenlabs"), lit("openai")],
     keywords: ["provider", "voice", "fal", "groq", "elevenlabs", "openai"],
     targetId: "tts.provider",
   },

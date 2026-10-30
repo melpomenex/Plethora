@@ -1,5 +1,4 @@
-import { LFM3_MODEL_ID } from "./lfm3Tts";
-export const TTS_SETTINGS_SCHEMA_VERSION = 4;
+export const TTS_SETTINGS_SCHEMA_VERSION = 5;
 
 export const FAL_BUILTIN_VOICES = [
   "Vivian",
@@ -65,7 +64,6 @@ export type FalLanguage = (typeof FAL_LANGUAGES)[number];
 export type TTSProvider =
   | "fal"
   | "groq"
-  | "lfm3"
   | "pocket"
   | "system"
   | "openrouter"
@@ -82,7 +80,6 @@ export const TTS_PROVIDER_IDS: readonly TTSProvider[] = [
   "fal",
   "groq",
   "pocket",
-  "lfm3",
   "system",
   "openrouter",
   "elevenlabs",
@@ -243,7 +240,6 @@ function makeProviderSettings(): TTSProviderSettingsMap {
       voiceId: "Vivian",
     }),
     groq: defaultProviderSettings({ modelId: "playai-tts", voiceId: "Fiora" }),
-    lfm3: defaultProviderSettings({ modelId: LFM3_MODEL_ID, voiceId: "female", language: "en-US", responseFormat: "wav" }),
     pocket: defaultProviderSettings({ modelId: "pocket-tts", voiceId: "alba" }),
     system: defaultProviderSettings({ modelId: "system", voiceId: "system-default" }),
     openrouter: defaultProviderSettings({ modelId: "hexgrad/kokoro-82m", voiceId: "af_bella" }),
@@ -296,8 +292,6 @@ export function defaultVoiceIdForProvider(provider: string): string {
   switch (provider) {
     case "groq":
       return "groq-builtin-fiora";
-    case "lfm3":
-      return "female";
     case "pocket":
       return "pocket-builtin-alba";
     case "system":
@@ -407,7 +401,9 @@ function normalizeVoiceProfiles(
     const id = asNonEmptyString(item.id, "");
     const name = asNonEmptyString(item.name, "");
     if (!id || !name) continue;
-    const provider = providerId(item.provider, "fal") as TTSProvider;
+    const rawProvider = providerId(item.provider, "fal");
+    if (rawProvider === "lfm3") continue;
+    const provider = rawProvider as TTSProvider;
     const kind = item.kind === "cloned" ? "cloned" : item.kind === "custom" ? "custom" : "builtin";
     const profile: TTSVoiceProfile = {
       id,
@@ -469,13 +465,12 @@ function normalizePresets(persisted: unknown, defaults: TTSPreset[]): TTSPreset[
 }
 
 function normalizeProviderSettings(
-  provider: TTSProvider,
   persisted: unknown,
   defaults: TTSProviderSettings
 ): TTSProviderSettings {
   const item = isObject(persisted) ? persisted : {};
   const responseFormat = asString(item.responseFormat, defaults.responseFormat);
-  const language = provider === "lfm3" ? asString(item.language, defaults.language) : (FAL_LANGUAGES as readonly string[]).includes(asString(item.language))
+  const language = (FAL_LANGUAGES as readonly string[]).includes(asString(item.language))
     ? (asString(item.language) as FalLanguage)
     : defaults.language;
   return {
@@ -555,7 +550,7 @@ export function getProviderSettings(
     createDefaultTTSSettings().providers[provider as TTSProvider] ||
     createDefaultTTSSettings().providers.fal;
   const persisted = settings.providers?.[provider as TTSProvider];
-  const normalized = normalizeProviderSettings(provider as TTSProvider, persisted, defaults);
+  const normalized = normalizeProviderSettings(persisted, defaults);
   // Compatibility with v2-shaped objects constructed by integrations/tests.
   if (provider === "fal") {
     normalized.apiKey = normalized.apiKey || settings.apiKey || "";
@@ -578,17 +573,21 @@ export function sanitizeTTSSettings(input: unknown): TTSSettings {
   const defaults = createDefaultTTSSettings();
   const migrated = migrateTTSSettings(input);
   if (!isObject(migrated)) return defaults;
-  const provider = providerId(migrated.provider, defaults.provider);
+  const persistedProvider = providerId(migrated.provider, defaults.provider);
+  // Existing installations may still have LFM3 selected. Continue with the
+  // bundled local provider after removing LFM3 support.
+  const isRemovedLocalProvider = persistedProvider === "lfm3";
+  const provider = isRemovedLocalProvider ? "pocket" : persistedProvider;
   const rawProviders = isObject(migrated.providers) ? migrated.providers : {};
   const providers = {} as TTSProviderSettingsMap;
   for (const id of TTS_PROVIDER_IDS) {
-    providers[id] = normalizeProviderSettings(id, rawProviders[id], defaults.providers[id]);
+    providers[id] = normalizeProviderSettings(rawProviders[id], defaults.providers[id]);
   }
 
   const voiceProfiles = normalizeVoiceProfiles(migrated.voiceProfiles, defaults.voiceProfiles);
   const presets = normalizePresets(migrated.presets, defaults.presets);
   const defaultVoiceCandidate =
-    asString(migrated.defaultVoiceId, "") ||
+    (isRemovedLocalProvider ? "" : asString(migrated.defaultVoiceId, "")) ||
     getProviderSettings({ ...defaults, providers, provider } as TTSSettings, provider).voiceId ||
     defaultVoiceIdForProvider(provider);
   const selectedProviderProfiles = voiceProfiles.filter((profile) => profile.provider === provider);
@@ -645,7 +644,7 @@ export function validateTTSConfiguration(settings: TTSSettings): {
 } {
   if (!settings.enabled) return { valid: true };
   const provider = String(settings.provider);
-  if (["pocket", "system", "lfm3", "android", "plethora"].includes(provider)) return { valid: true };
+  if (["pocket", "system", "android", "plethora"].includes(provider)) return { valid: true };
   const config = getProviderSettings(settings, provider);
   if (provider === "fal" && config.requestMode === "proxy" && !config.proxyUrl.trim()) {
     return { valid: false, error: "Proxy URL is required for proxy mode." };

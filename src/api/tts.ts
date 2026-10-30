@@ -1,4 +1,3 @@
-import { LFM3_PROFILE } from "../utils/lfm3Tts";
 import type { Settings } from "../stores/settingsStore";
 import { getProviderSettings, type TTSPreset, type TTSSettings, type TTSVoiceProfile } from "../utils/ttsSettings";
 import { getCachedAudio, makeCacheKey, makeTTSCacheKeyV2, digestJson128, digestText128, setCachedAudioDurable } from "../utils/ttsCache";
@@ -99,12 +98,12 @@ function buildV2Key(tts: TTSSettings, providerId: string, model: string, actualV
   const adapter = getAdapter(providerId, () => {});
   const config = getProviderSettings(tts, providerId);
   const supportsInstructions = Boolean(adapter.capabilities.supportsInstructions);
-  const supportsLanguage = providerId === "fal" || providerId === "lfm3";
+  const supportsLanguage = providerId === "fal";
   const presetDigest = preset.id !== tts.presets[0]?.id ? digestJson128({ prompt: foldForMatch(preset.prompt), temperature: Number(preset.temperature.toFixed(2)), topP: Number(preset.topP.toFixed(2)), topK: preset.topK, repetitionPenalty: Number(preset.repetitionPenalty.toFixed(2)) }) : "";
   const pronDict = tts.pronunciationDictionary && Object.keys(tts.pronunciationDictionary).length ? digestJson128(Object.fromEntries(Object.entries(tts.pronunciationDictionary).sort().map(([k,v])=>[foldForMatch(k), foldForMatch(v)]))) : "";
   const clonedDigest = voice.speakerEmbeddingUrl ? digestText128(voice.speakerEmbeddingUrl) : voice.kind==="cloned" ? digestText128(voice.id) : "";
   const baseUrl = config.baseUrl ?? "";
-  return makeTTSCacheKeyV2({ provider: providerId, model: providerId === "lfm3" ? `${model}#${LFM3_PROFILE}` : model, voice: actualVoice, speed: providerId === "lfm3" ? 1 : speed, format, text, language: config.language, instructions: config.instructions, presetDigest: providerId === "lfm3" ? "" : presetDigest, pronunciationDigest: pronDict, clonedVoiceDigest: clonedDigest, baseUrl, supportsInstructions, supportsLanguage });
+  return makeTTSCacheKeyV2({ provider: providerId, model, voice: actualVoice, speed, format, text, language: config.language, instructions: config.instructions, presetDigest, pronunciationDigest: pronDict, clonedVoiceDigest: clonedDigest, baseUrl, supportsInstructions, supportsLanguage });
 }
 
 /**
@@ -217,7 +216,7 @@ export async function generateSpeech(settings: Settings, request: GenerateSpeech
     if (import.meta.env.DEV) console.debug("[TTS cache]", { key: v2Key, legacyKey, source: "persistent", hasWordTimings: Boolean(cached.wordTimings), durationSec: cached.durationSec });
     return { audioUrl, durationSec: cached.durationSec, wordTimings: cached.wordTimings, rawOutput: { provider: providerId, model, fromCache: true }, cacheSource: "persistent" };
   }
-  cached = providerId === "lfm3" ? null : await getCachedAudio(legacyKey);
+  cached = await getCachedAudio(legacyKey);
   if (cached) {
     const audioUrl = createOwnedObjectUrl(new Blob([cached.audioData], { type: audioMime(format) }), {
       owner: "tts-cache-hit",
@@ -254,7 +253,6 @@ export async function generateSpeech(settings: Settings, request: GenerateSpeech
       voiceProfile: voice,
       includeTimings: request.includeTimings ?? true,
     });
-    if (providerId === "lfm3" && signal.aborted) throw new DOMException("Aborted", "AbortError");
     await cacheAudioResultDurable(v2Key, result.audioUrl, result.audioData, result.durationSec, result.wordTimings, awaitCache);
     if (import.meta.env.DEV) console.debug("[TTS cache]", { key: v2Key, legacyKey, source: "synthesized", hasWordTimings: Boolean(result.wordTimings), durationSec: result.durationSec });
     return { audioUrl: result.audioUrl, durationSec: result.durationSec, rawOutput: result.rawOutput, wordTimings: result.wordTimings, cacheSource: "synthesized" };

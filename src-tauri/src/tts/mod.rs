@@ -29,6 +29,3 @@ pub use chatterbox::{
     chatterbox_list_voice_profiles, chatterbox_start, chatterbox_status, chatterbox_stop,
     ChatterboxSupervisor,
 };
-
-
-pub mod lfm3;

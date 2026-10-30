@@ -11,8 +11,7 @@
       "bin/whisper-vulkan-manifest.json": "bin/whisper-vulkan-manifest.json",
       "bin/notebooklm-runtime": "bin/notebooklm-runtime",
       "windows/sparse/out/PlethoraIdentity.msix": "PlethoraIdentity.msix",
-      "windows/register-sparse-identity.ps1": "register-sparse-identity.ps1",
-      "bin/lfm3-runtime": "bin/lfm3-runtime"
+      "windows/register-sparse-identity.ps1": "register-sparse-identity.ps1"
     }
   }
 }

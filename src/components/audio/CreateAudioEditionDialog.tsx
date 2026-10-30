@@ -1,4 +1,3 @@
-import { LFM3_LANGUAGES } from "../../utils/lfm3Tts";
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { createOwnedObjectUrl, revokeOwnedObjectUrl } from "../../diagnostics/ownedObjectUrl";
@@ -416,11 +415,6 @@ export function CreateAudioEditionDialog({
     let baseList: AvailableVoice[] = [];
     if (provider === "pocket") {
       baseList = POCKET_DEFAULT_VOICES;
-    } else if (provider === "lfm3") {
-      baseList = [
-        { id: "female", name: "Female" },
-        { id: "male", name: "Male" },
-      ];
     } else if (provider === "openai") {
       baseList = OPENAI_DEFAULT_VOICES;
     } else if (provider === "elevenlabs") {
@@ -579,7 +573,7 @@ export function CreateAudioEditionDialog({
         {
           speed: supportsSpeed ? speed : undefined,
           instructions: supportsInstructions ? instructions : undefined,
-          responseFormat: isChatterboxPath || provider === "lfm3" ? "wav" : undefined,
+          responseFormat: isChatterboxPath ? "wav" : undefined,
           language,
         },
         controller.signal
@@ -652,7 +646,7 @@ export function CreateAudioEditionDialog({
         sourceEndAnchor: s.sourceEndAnchor || null,
         characterCount: s.characterCount,
         audioFilePath: null,
-        audioMimeType: isChatterboxPath || provider === "lfm3" ? "audio/wav" : "audio/mp3",
+        audioMimeType: isChatterboxPath ? "audio/wav" : "audio/mp3",
         durationSec: 0,
         generationStatus: "queued" as const,
         failureReason: null,
@@ -672,7 +666,7 @@ export function CreateAudioEditionDialog({
         qualityPreset: null,
         generationSettings: {
           language,
-          responseFormat: provider === "lfm3" ? "wav" : undefined,
+          responseFormat: isChatterboxPath ? "wav" : undefined,
           speed: supportsSpeed ? speed : undefined,
           instructions: supportsInstructions ? instructions : undefined,
         },
@@ -910,25 +904,6 @@ export function CreateAudioEditionDialog({
                     ? "Uses your configured Chatterbox or OpenAI-compatible service."
                     : "Uses your provider settings. Cloud narration may incur charges."}
             </p>
-            {provider === "lfm3" && (
-              <label className="block space-y-1.5 text-sm">
-                <span className="font-medium">Language</span>
-                <select
-                  value={language}
-                  onChange={(e) => {
-                    stopAudition();
-                    setLanguage(e.target.value);
-                  }}
-                  className="min-h-10 w-full rounded-lg border border-input bg-background px-3 py-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
-                >
-                  {LFM3_LANGUAGES.map(([id, , label]) => (
-                    <option key={id} value={id}>
-                      {label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm text-muted-foreground">Try a short sample.</p>
               <button
@@ -965,7 +940,7 @@ export function CreateAudioEditionDialog({
             {showAdvanced && (
               <div id="audio-edition-options" className="space-y-4 border-t border-border pt-4">
                 <p className="break-words text-sm text-muted-foreground">
-                  Model: {provider === "lfm3" ? "LFM3 Audio 2B" : model || "Choose a provider"}
+                  Model: {model || "Choose a provider"}
                 </p>
                 {supportsSpeed ? (
                   <label className="block space-y-2 text-sm">

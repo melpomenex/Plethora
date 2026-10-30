@@ -195,7 +195,7 @@ fn main() {
             // clear "sidecar not available" error instead of trying to execute it.
             // Only externalBin entries without a committed launcher need this —
             // pocket-tts-* launchers are tracked in git, so they always resolve.
-            for base in ["whisper", "sherpa-onnx", "sherpa-online", "needle", "lfm3-host"] {
+            for base in ["whisper", "sherpa-onnx", "sherpa-online", "needle"] {
                 let sidecar_name = if target.contains("windows") {
                     format!("{}-{}.exe", base, target)
                 } else {
@@ -234,13 +234,6 @@ fn main() {
                 }
             }
         }
-    }
-
-    // Keep check/test builds valid before the optional native runtime is provisioned.
-    let lfm3_resources = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bin/lfm3-runtime");
-    if !lfm3_resources.exists() {
-        std::fs::create_dir_all(&lfm3_resources).ok();
-        std::fs::write(lfm3_resources.join(".placeholder"), []).ok();
     }
 
     // On macOS, fix the whisper/sherpa sidecar binaries' dylib references.

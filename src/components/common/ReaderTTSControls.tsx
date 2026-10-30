@@ -250,7 +250,6 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   }, [settings]);
 
   // Audio buffer: Map of chunk index -> audio URL
-  const generationControllersRef = useRef(new Set<AbortController>());
   const audioBufferRef = useRef<Map<number, BufferedAudio>>(new Map());
   const [bufferStatus, setBufferStatus] = useState<
     Map<number, "pending" | "loading" | "ready" | "error">
@@ -629,8 +628,6 @@ ref: React.ForwardedRef<ReaderTTSHandle>
   });
 
   const cancelPendingGenerationRef = useRef(() => {
-    for (const controller of generationControllersRef.current) controller.abort();
-    generationControllersRef.current.clear();
     bufferMgrRef.current.reset();
   });
 
@@ -1039,18 +1036,14 @@ ref: React.ForwardedRef<ReaderTTSHandle>
         return buffered;
       }
 
-      const controller = new AbortController();
-      generationControllersRef.current.add(controller);
+      const epoch = playbackIdRef.current;
       try {
         setBufferStatus((prev) => new Map(prev).set(index, "loading"));
         // Session epoch: a retarget/stop/voice change while this request is in
         // flight invalidates its result — stale audio must never play. The
         // IndexedDB cache write (inside generateSpeech) stays valid.
-        const epoch = playbackIdRef.current;
-
         const result = await generateSpeech(settings, {
           text: chunkText,
-          signal: settings.tts.provider === "lfm3" ? controller.signal : undefined,
           voiceId,
           includeTimings: true,
         });
@@ -1084,14 +1077,12 @@ ref: React.ForwardedRef<ReaderTTSHandle>
 
         return buffered;
       } catch (error) {
-        if (controller.signal.aborted) return null;
+        if (!mountedRef.current || playbackIdRef.current !== epoch) return null;
         console.error(`Failed to generate audio for chunk ${index}:`, error);
         setBufferStatus((prev) => new Map(prev).set(index, "error"));
         bufferMgrRef.current.activeGenCount = Math.max(0, bufferMgrRef.current.activeGenCount - 1);
         bufferMgrRef.current.queuedIndices.delete(index);
         return null;
-      } finally {
-        generationControllersRef.current.delete(controller);
       }
     },
     [playlist, settings, voiceId]

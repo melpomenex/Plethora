@@ -1,4 +1,3 @@
-import { lfm3Adapter } from "./providers/lfm3";
 import { elevenlabsAdapter } from "./providers/elevenlabs";
 import { falAdapter } from "./providers/fal";
 import { groqAdapter } from "./providers/groq";
@@ -17,7 +16,6 @@ export const TTS_ADAPTERS: Readonly<Partial<Record<TTSProviderId, TTSProviderAda
   fal: falAdapter,
   groq: groqAdapter,
   pocket: pocketAdapter,
-  lfm3: lfm3Adapter,
   system: systemAdapter,
   openrouter: openrouterAdapter,
   elevenlabs: elevenlabsAdapter,

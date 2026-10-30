@@ -9,7 +9,6 @@ import { useToastStore } from "../../common/Toast";
 import * as pdfExtractor from "../../../utils/pdfTextExtractor";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { createDefaultTTSSettings } from "../../../utils/ttsSettings";
-import { LFM3_MODEL_ID } from "../../../utils/lfm3Tts";
 import type { Document } from "../../../types/document";
 
 vi.mock("../../../api/documents", () => ({
@@ -72,30 +71,6 @@ describe("CreateAudioEditionDialog", () => {
     }));
   });
 
-  it("starts an HTML edition with saved LFM3 settings without opening options", async () => {
-    const doc = { ...dummyDocSummary, fileType: "html" as const, content: "<h1>River notes</h1><p>The river flows past the old bridge.</p>" };
-    vi.mocked(documentsApi.getDocument).mockResolvedValue(doc);
-    vi.spyOn(useAudioEditionGenerationStore.getState(), "startJob").mockResolvedValue();
-    useSettingsStore.setState((state) => ({ settings: { ...state.settings, tts: {
-      ...state.settings.tts, provider: "lfm3", providers: { ...state.settings.tts.providers,
-        lfm3: { ...state.settings.tts.providers.lfm3, apiKey: "", voiceId: "male", language: "en-GB" },
-      },
-    } } }));
-    render(<CreateAudioEditionDialog isOpen onClose={vi.fn()} document={doc} />);
-    await waitFor(() => expect(screen.getByRole("button", { name: "Create Audio Edition" })).toBeEnabled());
-    expect(screen.getByRole("combobox", { name: "Narration provider" })).toHaveValue("lfm3");
-    expect(screen.getByRole("combobox", { name: "Voice" })).toHaveValue("male");
-    expect(screen.getByRole("combobox", { name: "Language" })).toHaveValue("en-GB");
-    expect(screen.queryByText("Quality & Voice Profile")).toBeNull();
-    expect(screen.queryByTestId("advanced-voice-select")).toBeNull();
-    expect(screen.queryByRole("slider")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Create Audio Edition" }));
-    await waitFor(() => expect(audioEditionsApi.createAudioEdition).toHaveBeenCalledWith(
-      expect.objectContaining({ provider: "lfm3", model: LFM3_MODEL_ID, voice: "male", generationSettings: expect.objectContaining({ language: "en-GB", responseFormat: "wav", speed: undefined }) }),
-      expect.arrayContaining([expect.objectContaining({ audioMimeType: "audio/wav" })]),
-    ));
-  });
-
   it("asks for a file-generating provider when the saved choice is live System speech", async () => {
     const doc = { ...dummyDocSummary, content: "A short passage." };
     vi.mocked(documentsApi.getDocument).mockResolvedValue(doc);
@@ -105,7 +80,7 @@ describe("CreateAudioEditionDialog", () => {
     expect(screen.getByRole("combobox", { name: "Narration provider" })).toHaveValue("");
     expect(screen.getByRole("button", { name: "Create Audio Edition" })).toBeDisabled();
     expect(screen.queryByRole("option", { name: "System TTS" })).toBeNull();
-    selectProvider("lfm3");
+    selectProvider("pocket");
     expect(screen.getByRole("button", { name: "Create Audio Edition" })).toBeEnabled();
     expect(useSettingsStore.getState().settings.tts.provider).toBe("system");
   });
@@ -459,26 +434,6 @@ describe("CreateAudioEditionDialog", () => {
         expect.any(AbortSignal)
       );
     });
-  });
-
-  it("offers LFM3 in the existing provider selector and cancels its WAV audition", async () => {
-    vi.mocked(documentsApi.getDocument).mockResolvedValue({ ...dummyDocSummary, content: "A short passage for local speech." });
-    const play = vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
-    const pause = vi.spyOn(HTMLMediaElement.prototype, "pause").mockImplementation(() => {});
-    try {
-      render(<CreateAudioEditionDialog isOpen={true} onClose={vi.fn()} document={dummyDocSummary} />);
-      await waitFor(() => expect(screen.queryByText(/Reading document content/i)).toBeNull());
-      const selector = screen.getByRole("combobox", { name: "Narration provider" });
-      fireEvent.change(selector, { target: { value: "lfm3" } });
-      fireEvent.click(screen.getByTestId("audition-voice-button"));
-      await waitFor(() => expect(audioEditionsApi.auditionVoicePreview).toHaveBeenCalledWith(
-        expect.any(String), "lfm3", expect.stringContaining("hf:llama-cpp-tts:"), "female",
-        expect.objectContaining({ responseFormat: "wav", language: "en-US" }), expect.any(AbortSignal)
-      ));
-      const signal = vi.mocked(audioEditionsApi.auditionVoicePreview).mock.calls[0][5]!;
-      fireEvent.click(screen.getByTestId("audition-voice-button"));
-      expect(signal.aborted).toBe(true);
-    } finally { play.mockRestore(); pause.mockRestore(); }
   });
 
   it("updates voice options when switching providers and persists selected voice", async () => {

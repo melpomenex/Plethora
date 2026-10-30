@@ -57,14 +57,6 @@ function idsFor(query: string, locale: keyof typeof DICTIONARIES = "en", availab
 }
 
 describe("Settings search matcher", () => {
-  it("reveals LFM3 model setup only for the selected provider and hides unsupported presets", () => {
-    expect(idsFor("lfm3", "en", desktop({ ttsProvider: "lfm3" }))).toContain("tts.lfm3.model");
-    expect(idsFor("lfm3", "en", desktop({ ttsProvider: "pocket" }))).not.toContain("tts.lfm3.model");
-    const entry = findSettingsSearchEntry("tts.lfm3.model")!;
-    expect(entry.targetId).toBe("tts.lfm3.model");
-    const presets = SETTINGS_SEARCH_ENTRIES.filter((item) => item.availability === "tts-presets");
-    for (const preset of presets) expect(isSettingsSearchEntryAvailable(preset, desktop({ ttsProvider: "lfm3" }))).toBe(false);
-  });
   it("normalizes case, whitespace, hyphens, and punctuation identically", () => {
     const variants = [
       "font size",

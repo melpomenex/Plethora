@@ -255,7 +255,3 @@ src-tauri/permissions/default.toml
 /openspec/changes/implement-plethora-pro-observability-cost-controls-and-cloud-performance-gates/
 /openspec/changes/productionize-plethora-cloud-deployment/
 DESIGN.md
-
-# Generated LFM3 native provider artifacts
-src-tauri/bin/lfm3-host-*
-src-tauri/bin/lfm3-runtime/

@@ -1,4 +1,3 @@
-import { chunkTextForTTS } from "../utils/ttsTextExtraction";
 /**
  * Audio Edition Progressive Generation Queue Store
  * 
@@ -329,10 +328,10 @@ export const useAudioEditionGenerationStore = create<AudioEditionGenerationState
                 // bounds inference latency and VRAM on small local GPUs.
                 const isChatterbox = edition.provider === CHATTERBOX_PROVIDER_ID;
                 const requestSpeed = isChatterbox || edition.provider === "fal" ? undefined : parsedSettings.speed || 1.0;
-                const requestFormat = isChatterbox || edition.provider === "lfm3" ? "wav" : "mp3";
+                const requestFormat = isChatterbox ? "wav" : "mp3";
                 const texts = isChatterbox
                   ? splitTextForChatterbox(textToSynthesize)
-                  : edition.provider === "lfm3" ? chunkTextForTTS(textToSynthesize, adapter.capabilities.maxInputChars) : [textToSynthesize];
+                  : [textToSynthesize];
 
                 const synthesizeOne = (text: string) =>
                   adapter.synthesize(

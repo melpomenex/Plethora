@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
 set -euo pipefail
-script_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-node "$script_root/scripts/build-lfm3-host.mjs" --ensure
-
 # tauri.conf.json beforeDevCommand. scripts/tauri-wrapper.sh may have already
 # started the Vite dev server on this port; in that case starting another one
 # would fail with "Port 15173 is already in use".

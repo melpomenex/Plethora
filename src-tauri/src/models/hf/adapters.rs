@@ -25,8 +25,6 @@ use std::path::{Path, PathBuf};
 pub enum HfRuntime {
     /// whisper.cpp sidecar, ggml `.bin` models.
     WhisperCpp,
-    /// Native LFM3 audio through the portable llama.cpp/libmtmd host.
-    LlamaCppTts,
     /// sherpa-onnx sidecar (STT: `sherpa-onnx-offline`).
     SherpaOnnxStt,
     /// sherpa-onnx TTS (ONNX vits-family models).
@@ -46,7 +44,6 @@ impl HfRuntime {
     pub fn label(self) -> &'static str {
         match self {
             HfRuntime::WhisperCpp => "whisper.cpp (ggml)",
-            HfRuntime::LlamaCppTts => "llama.cpp (LFM3 TTS)",
             HfRuntime::SherpaOnnxStt => "sherpa-onnx (ONNX STT)",
             HfRuntime::SherpaOnnxTts => "sherpa-onnx (ONNX TTS)",
             HfRuntime::NemotronAsr => "Nemotron ASR (streaming ONNX)",
@@ -58,7 +55,6 @@ impl HfRuntime {
     pub fn sidecar_name(self) -> &'static str {
         match self {
             HfRuntime::WhisperCpp => "whisper",
-            HfRuntime::LlamaCppTts => "lfm3-host",
             HfRuntime::SherpaOnnxStt | HfRuntime::SherpaOnnxTts => "sherpa-onnx",
             HfRuntime::NemotronAsr => "sherpa-online",
             // Decision checkpoints run in a separate process, reached over HTTP.
@@ -132,7 +128,6 @@ pub struct ArtifactFile {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "kebab-case")]
 pub enum RunContract {
-    Lfm3AudioTts { model_file: String, projector_file: String, revision: String },
     /// Weights served by an out-of-process endpoint rather than a bundled engine.
     ///
     /// Added for Laya: the checkpoint is fetched and verified by Plethora, then
@@ -226,7 +221,6 @@ impl RunContract {
         match self {
             // No engine-relative paths: the endpoint loads the weights itself.
             RunContract::ExternalEndpoint { .. } => Vec::new(),
-            RunContract::Lfm3AudioTts { model_file, projector_file, .. } => vec![model_file.as_str(), projector_file.as_str()],
             RunContract::Whisper { model_file } => vec![model_file.as_str()],
             RunContract::SherpaStt {
                 model_file,
@@ -303,12 +297,6 @@ impl RunContract {
     /// detection time and again before engine use.
     pub fn validate(&self) -> Result<(), String> {
         match self {
-            RunContract::Lfm3AudioTts { model_file, projector_file, revision } => {
-                if model_file != super::lfm3::BACKBONE || projector_file != super::lfm3::PROJECTOR || revision != super::lfm3::REVISION {
-                    return Err("Unsupported or incomplete LFM3 audio pair".into());
-                }
-                Ok(())
-            }
             RunContract::ExternalEndpoint { endpoint_kind } => {
                 if endpoint_kind.is_empty() {
                     return Err(
@@ -1241,7 +1229,6 @@ impl RuntimeAdapter for WhistleSttAdapter {
 pub fn all_adapters() -> Vec<Box<dyn RuntimeAdapter>> {
     vec![
         Box::new(WhisperCppAdapter),
-        Box::new(super::lfm3::Lfm3AudioAdapter),
         Box::new(SherpaOnnxSttAdapter),
         Box::new(SherpaOnnxTtsAdapter),
         Box::new(NemotronAsrAdapter),

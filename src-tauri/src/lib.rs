@@ -1432,7 +1432,6 @@ pub fn run() {
                 app.manage(ai_key_store.clone());
                 app.manage(pocket_tts::PocketTTSInstallState::default());
                 app.manage(tts::SherpaTtsState::default());
-                app.manage(tts::lfm3::Lfm3TtsState::default());
                 app.manage(Arc::new(tts::chatterbox::ChatterboxSupervisor::new()));
                 app.manage(models::hf::commands::ActiveHfDownloads::default());
                 app.manage(transcription::TranscriptionState {
@@ -2441,10 +2440,6 @@ pub fn run() {
             models::hf::commands::get_installed_hf_models,
             models::hf::commands::get_nemotron_asr_catalog_entry,
             models::hf::commands::get_system_info,
-            tts::lfm3::lfm3_tts_status,
-            tts::lfm3::lfm3_tts_synthesize,
-            tts::lfm3::lfm3_tts_cancel,
-            tts::lfm3::lfm3_tts_unload,
             tts::commands::sherpa_tts_status,
             tts::commands::sherpa_tts_load,
             tts::commands::sherpa_tts_synthesize,
@@ -2640,11 +2635,6 @@ pub fn run() {
         })
         .expect("error while running tauri application")
         .run(|app_handle, event| {
-            if matches!(&event, tauri::RunEvent::Exit) {
-                if let Some(state) = app_handle.try_state::<tts::lfm3::Lfm3TtsState>() {
-                    let _ = tauri::async_runtime::block_on(state.shutdown());
-                }
-            }
             external_open::on_run_event(&app_handle, &event);
             sync::scheduler::on_run_event(&event);
             audio_lifecycle::on_run_event(&app_handle, &event);
