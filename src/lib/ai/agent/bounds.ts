@@ -2,7 +2,11 @@
  * Agent execution bounds (design D25 / ai-learning-agent spec, task 8.2).
  *
  * PURE module (injectable clock) so every bound is exhaustively testable:
- *   ≤ 8 tool calls total        (tool budget)
+ *   ≤ 12 tool calls total       (tool budget — raised 8 → 12 in change
+ *                                 fix-learning-agent-model-routing-and-tool-
+ *                                 orchestration §7.1: deterministic seat + up
+ *                                 to 2 batch calls + single-card fallback +
+ *                                 minor propose tools)
  *   ≤ 20 proposals total        (proposal budget — also enforced in the
  *                                 session regardless of model output)
  *   ≤ 60 s wall clock           (checked every turn and before every tool)
@@ -16,7 +20,7 @@
  * run's partial-result ending — never a crash, never an unbounded wait.
  */
 
-export const MAX_AGENT_TOOL_CALLS = 8;
+export const MAX_AGENT_TOOL_CALLS = 12;
 export const MAX_AGENT_PROPOSALS = 20;
 export const MAX_AGENT_WALL_CLOCK_MS = 60_000;
 export const MAX_AGENT_RETRIEVAL_HOPS = 2;

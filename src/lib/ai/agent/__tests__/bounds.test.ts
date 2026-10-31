@@ -41,7 +41,7 @@ describe("tool-call budget", () => {
     expect(check.ok).toBe(false);
     if (isAgentBoundsExceeded(check)) {
       expect(check.reason).toBe("tool-budget");
-      expect(check.explanation).toContain("8 tool calls");
+      expect(check.explanation).toContain("12 tool calls");
     }
     // The rejected call is not counted.
     expect(bounds.toolCallsUsed).toBe(MAX_AGENT_TOOL_CALLS);
@@ -152,7 +152,7 @@ describe("proposal budget", () => {
 
 describe("defaults", () => {
   it("matches the design D25 bound table", () => {
-    expect(MAX_AGENT_TOOL_CALLS).toBe(8);
+    expect(MAX_AGENT_TOOL_CALLS).toBe(12);
     expect(MAX_AGENT_RETRIEVAL_HOPS).toBe(2);
   });
 });

@@ -105,6 +105,8 @@ pub struct OllamaNativeResponse {
     pub eval_count: Option<usize>,
     #[serde(default)]
     pub done: Option<bool>,
+    #[serde(default)]
+    pub done_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -135,6 +137,8 @@ pub struct OllamaNativeStreamChunk {
     pub prompt_eval_count: Option<usize>,
     #[serde(default)]
     pub eval_count: Option<usize>,
+    #[serde(default)]
+    pub done_reason: Option<String>,
 }
 
 impl OllamaNativeStreamChunk {

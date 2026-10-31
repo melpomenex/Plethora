@@ -6,6 +6,11 @@
 import "@testing-library/jest-dom";
 import { cleanup } from "@testing-library/react";
 import { vi } from "vitest";
+import { installFakeIndexedDb } from "./fakeIndexedDb";
+
+// Provide a working indexedDB for browser-backend tests (jsdom does not ship
+// one); the fake is process-local and seeded per test as needed.
+installFakeIndexedDb();
 
 // Node.js v25+ ships a native `localStorage`/`sessionStorage` global whose
 // backing object lacks the Storage prototype — `.setItem`/`.getItem`/`.clear`

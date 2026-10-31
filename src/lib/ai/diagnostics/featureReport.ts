@@ -269,6 +269,8 @@ const VALIDATION_OUTCOMES = new Set([
   "native-structured",
   "strict-json",
   "truncated-json-salvaged",
+  "truncated-json",
+  "empty-response",
   "repaired",
   "invalid-structured-output",
 ]);
@@ -282,7 +284,9 @@ const AGENT_END_REASONS = new Set([
   "loop-detected",
   "turn-budget",
   "cancelled",
-  "invalid-turn",
+  "agent-protocol",
+  "no-progress",
+  "blocked",
   "error",
 ]);
 

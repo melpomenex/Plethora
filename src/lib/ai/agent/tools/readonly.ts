@@ -104,6 +104,23 @@ export const searchLibraryTool: AgentToolDefinition<SearchLibraryInput> = {
   description:
     "Search the run's authorized sources (documents, extracts, cards) semantically with a lexical fallback. Returns snippets with chunk ids, document titles, heading paths and a sourceHandle you MUST cite when proposing an item from them. Use focused keyword queries.",
   category: "retrieval",
+  parameters: [
+    {
+      name: "query",
+      type: "string",
+      required: true,
+      maxLength: 400,
+      description: "Focused keyword or phrase query.",
+      example: "entropy",
+    },
+    {
+      name: "scope",
+      type: "enum",
+      required: false,
+      enum: SEARCH_SCOPES,
+      description: "Restrict search to one source kind.",
+    },
+  ],
   validate: (input): ValidationOutcome<SearchLibraryInput> => {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["search_library: expected object"] };
@@ -178,6 +195,7 @@ export const listAttachedSourcesTool: AgentToolDefinition<Record<string, never>>
   description:
     "List the documents explicitly attached to this run, with sourceHandles. Use it to plan a multi-paper request and to name the actual paper behind each proposal. Never assume a document outside this list.",
   category: "read",
+  parameters: [],
   validate: (input): ValidationOutcome<Record<string, never>> => {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["list_attached_sources: expected object"] };
@@ -227,6 +245,7 @@ export const getCurrentDocumentTool: AgentToolDefinition<Record<string, never>> 
   description:
     "Get the primary document frozen for this run (id, title, file type, reading position), plus a sourceHandle. Returns not-available when the run has no document source.",
   category: "read",
+  parameters: [],
   validate: (input): ValidationOutcome<Record<string, never>> => {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["get_current_document: expected object"] };
@@ -273,6 +292,7 @@ export const getCurrentSelectionTool: AgentToolDefinition<Record<string, never>>
   description:
     "Get the text frozen as the selection for this run (plus a sourceHandle). Returns not-available when the run has no selection.",
   category: "read",
+  parameters: [],
   validate: (input): ValidationOutcome<Record<string, never>> => {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["get_current_selection: expected object"] };
@@ -313,6 +333,7 @@ export const getSectionContextTool: AgentToolDefinition<Record<string, never>> =
   description:
     "Get the bounded section/chapter text frozen for this run, with its document id, locator and sourceHandle. Returns not-available when the run did not resolve a section (ask the user to select one instead of guessing).",
   category: "read",
+  parameters: [],
   validate: (input): ValidationOutcome<Record<string, never>> => {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["get_section_context: expected object"] };
@@ -367,6 +388,17 @@ export const getRecentReadingContextTool: AgentToolDefinition<RecentContextInput
   description:
     "Get what the user read recently: the most recently touched extracts (saved passages), newest first. Use this before making cards 'from what I just read'. Every entry has a sourceHandle.",
   category: "read",
+  parameters: [
+    {
+      name: "limit",
+      type: "number",
+      required: false,
+      min: 1,
+      max: 20,
+      description: "How many passages to return (default 5).",
+      clamped: true,
+    }
+  ],
   validate: (input): ValidationOutcome<RecentContextInput> => {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["get_recent_reading_context: expected object"] };
@@ -429,6 +461,16 @@ export const getRelatedMaterialTool: AgentToolDefinition<RelatedMaterialInput> =
   description:
     "Find authorized library material related to a topic (semantic neighbors across documents, extracts and cards). Returns snippets with sourceHandles you can cite when answering 'where did the author discuss X'.",
   category: "retrieval",
+  parameters: [
+    {
+      name: "topic",
+      type: "string",
+      required: true,
+      maxLength: 400,
+      description: "The topic to find related material for.",
+      example: "thermodynamics",
+    },
+  ],
   validate: (input): ValidationOutcome<RelatedMaterialInput> => {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["get_related_material: expected object"] };
@@ -497,6 +539,24 @@ export const getExistingCardsTool: AgentToolDefinition<ExistingCardsInput> = {
   description:
     "List the user's existing flashcards, optionally filtered by a search term over question/answer/cloze text and tags. Reads are bounded and restricted to this run's authorized sources. Use it to check for existing cards before proposing new ones.",
   category: "read",
+  parameters: [
+    {
+      name: "query",
+      type: "string",
+      required: false,
+      maxLength: 400,
+      description: "Optional filter over question/answer/cloze/tags.",
+    },
+    {
+      name: "limit",
+      type: "number",
+      required: false,
+      min: 1,
+      max: 20,
+      description: "Maximum cards to return (default 10).",
+      clamped: true,
+    }
+  ],
   validate: (input): ValidationOutcome<ExistingCardsInput> => {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["get_existing_cards: expected object"] };
@@ -572,6 +632,24 @@ export const getReviewHistoryTool: AgentToolDefinition<ReviewHistoryInput> = {
   description:
     "Get aggregate review statistics (total reviews, lapses, retention estimate, due counts) plus, optionally, per-card review summaries for authorized cards matching a search term.",
   category: "read",
+  parameters: [
+    {
+      name: "query",
+      type: "string",
+      required: false,
+      maxLength: 400,
+      description: "Optional filter for per-card summaries.",
+    },
+    {
+      name: "limit",
+      type: "number",
+      required: false,
+      min: 1,
+      max: 20,
+      description: "Maximum per-card summaries (default 5).",
+      clamped: true,
+    }
+  ],
   validate: (input): ValidationOutcome<ReviewHistoryInput> => {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["get_review_history: expected object"] };
@@ -650,6 +728,17 @@ export const getDueCardsTool: AgentToolDefinition<DueCardsInput> = {
   description:
     "List authorized learning items currently due for review (question side and due date), up to a limit. Use it for 'what should I review today' questions.",
   category: "read",
+  parameters: [
+    {
+      name: "limit",
+      type: "number",
+      required: false,
+      min: 1,
+      max: 20,
+      description: "Maximum cards to return (default 10).",
+      clamped: true,
+    }
+  ],
   validate: (input): ValidationOutcome<DueCardsInput> => {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["get_due_cards: expected object"] };

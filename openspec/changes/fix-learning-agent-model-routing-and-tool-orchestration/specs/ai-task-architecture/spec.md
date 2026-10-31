@@ -1,16 +1,14 @@
 # Task architecture: repair payload, finish-reason fidelity, and pinned selection
 
 ## ADDED Requirements
-
 ### Requirement: Explicit model selection pins the serving provider
 
-When a caller supplies an explicit, user-authorized provider/model selection to an AI feature
-that supports pinning, the task layer SHALL serve every generation request of that logical run
-from a provider instance resolved from exactly that frozen configuration. Pinned runs SHALL NOT
-resolve providers through the general router, SHALL NOT fall back to another provider or model,
-and SHALL record the selected and actually serving provider/model in diagnostics. The shared
+A pinned run MUST serve every generation request of that logical run from a
+provider instance resolved from exactly the user-authorized, frozen
+configuration. Pinned runs SHALL NOT resolve providers through the general
+router, SHALL NOT fall back to another provider or model, and SHALL record the
+selected and actually serving provider/model in diagnostics. The shared
 provider registry SHALL remain unchanged for callers that do not opt in.
-
 #### Scenario: Pinned run ignores registry drift
 
 - **GIVEN** a pinned Learning Agent run with the user's selected configuration

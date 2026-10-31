@@ -32,6 +32,7 @@ const slowTool: AgentToolDefinition<Record<string, never>> = {
   name: "test_slow_tool",
   description: "test-only slow tool",
   category: "read",
+  parameters: [],
   validate: () => ({ ok: true, value: {} }),
   execute: () => new Promise(() => {}),
 };
@@ -45,6 +46,7 @@ describe("one hard run deadline", () => {
     registerAgentTool(slowTool);
     const provider = new FakeAIProvider({
       kind: "ondevice",
+      capabilities: { contextTokens: 32000 },
       responses: [
         {
           requestId: "t1",
@@ -68,7 +70,7 @@ describe("one hard run deadline", () => {
   it("does not call the provider when the signal is already aborted", async () => {
     const controller = new AbortController();
     controller.abort();
-    const provider = new FakeAIProvider({ kind: "ondevice" });
+    const provider = new FakeAIProvider({ kind: "ondevice", capabilities: { contextTokens: 32000 } });
     const outcome = await runAgentLoop({
       intent: "cancelled",
       runId: "run-cancelled",
@@ -83,6 +85,7 @@ describe("one hard run deadline", () => {
   it("keeps concurrent runs with the same intent independent (unique target ids)", async () => {
     const provider = new FakeAIProvider({
       kind: "ondevice",
+      capabilities: { contextTokens: 32000 },
       responses: [{ requestId: "r", text: JSON.stringify({ finalAnswer: "done" }) }],
     });
     const [first, second] = await Promise.all([

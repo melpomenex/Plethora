@@ -73,6 +73,12 @@ export interface LearningAgentRunView {
   endReason?: string;
   explanation?: string;
   partial?: boolean;
+  /** Model that actually served the run (AIResponse.baseModelName). */
+  servedModel?: string;
+  /** Provider id that actually served the run. */
+  servedProviderId?: string;
+  /** Provider id the user selected in the picker. */
+  selectedProviderId?: string;
   /** True when this artifact came from conversation hydration. */
   restored?: boolean;
   /** Saved ids recovered from the persisted artifact (plain map). */
@@ -502,12 +508,47 @@ export function LearningAgentProposals({ run, onArtifactChange }: LearningAgentP
   const occlusionRows = groups.flatMap((group) => group.occlusions);
   const totalRows = cardRows.length + extractRows.length + tagRows.length + occlusionRows.length;
 
+  // End-reason copy resolves through i18n (assistant.agent.end.*); fallback
+  // to the raw loop explanation for reasons without a key yet.
+  const endReasonCopy = (): string | undefined => {
+    if (!run.endReason) return run.explanation;
+    const key = `assistant.agent.end.${run.endReason}`;
+    const translated = t(key);
+    return translated !== key ? translated : run.explanation;
+  };
+
+  const routeDisclosure = (): string | undefined => {
+    if (!run.servedModel) return undefined;
+    const servedProvider = run.servedProviderId ?? run.provider;
+    const selectedModel = run.model;
+    if (run.selectedProviderId && run.selectedProviderId !== run.servedProviderId && selectedModel) {
+      return t("assistant.agent.routeMismatch", {
+        selectedProvider: run.selectedProviderId,
+        selectedModel,
+        servedProvider,
+        servedModel: run.servedModel,
+      });
+    }
+    return t("assistant.agent.routeDisclosure", {
+      provider: servedProvider,
+      model: run.servedModel,
+    });
+  };
+
   if (totalRows === 0) {
     return (
       <div data-learning-agent-proposals className="space-y-1 rounded-lg border border-border bg-background p-3 text-sm">
         <p className="font-medium text-foreground">{t("assistant.agent.noProposals")}</p>
-        {run.explanation && (
-          <p className="text-xs text-muted-foreground">{run.explanation}</p>
+        {routeDisclosure() && (
+          <p className="text-[11px] text-muted-foreground">{routeDisclosure()}</p>
+        )}
+        {run.scope === "section" && run.endReason && run.endReason !== "final-answer" && (
+          <p className="text-xs text-muted-foreground">
+            {t("assistant.agent.noCardsFromSection")}
+          </p>
+        )}
+        {endReasonCopy() && (
+          <p className="text-xs text-muted-foreground">{endReasonCopy()}</p>
         )}
       </div>
     );
@@ -526,6 +567,9 @@ export function LearningAgentProposals({ run, onArtifactChange }: LearningAgentP
             {t("assistant.agent.sources", { count: sourceCount(run) })} ·{" "}
             {t("assistant.agent.scope", { scope: run.scope })}
           </p>
+          {routeDisclosure() && (
+            <p className="mt-0.5 text-[11px] text-muted-foreground">{routeDisclosure()}</p>
+          )}
         </div>
         {run.partial && (
           <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-300">
@@ -534,12 +578,12 @@ export function LearningAgentProposals({ run, onArtifactChange }: LearningAgentP
         )}
       </div>
 
-      {(run.explanation || staleSources.length > 0) && (
+      {(endReasonCopy() || staleSources.length > 0) && (
         <div className="rounded-md border border-border bg-muted/40 p-2 text-xs text-muted-foreground">
           {staleSources.length > 0 ? (
             <p>{t("assistant.agent.staleSources")}</p>
           ) : (
-            <p>{run.explanation}</p>
+            <p>{endReasonCopy()}</p>
           )}
           {staleSources.length > 0 && (
             <p className="mt-1 font-medium text-amber-700 dark:text-amber-300">

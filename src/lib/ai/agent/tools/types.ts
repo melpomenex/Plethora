@@ -303,10 +303,39 @@ export interface AgentToolContext {
   signal?: AbortSignal;
 }
 
+/**
+ * Model-facing argument contract for one tool parameter. This is the single
+ * source of truth for the catalog text (and future native tool schemas); the
+ * runtime validator remains the only enforcement. Every registered tool must
+ * declare its parameters (empty array when it takes none).
+ */
+export interface AgentToolArgDescriptor {
+  name: string;
+  type: "string" | "number" | "boolean" | "enum" | "string[]" | "object";
+  required: boolean;
+  /** Model-facing one-liner; ≤ 90 chars. */
+  description: string;
+  /** Enum values (type "enum"). */
+  enum?: readonly string[];
+  /** String length cap (type "string"/"string[]" entries). */
+  maxLength?: number;
+  /** Array/object count cap. */
+  maxItems?: number;
+  /** Numeric bounds (type "number"). */
+  min?: number;
+  max?: number;
+  /** True when the runtime validator clamps (soft limit) rather than rejects. */
+  clamped?: boolean;
+  /** Simple literal example; never user source content. */
+  example?: string;
+}
+
 export interface AgentToolDefinition<I = Record<string, unknown>> {
   name: string;
   description: string;
   category: AgentToolCategory;
+  /** Argument contract the model sees (also feeds tool schemas). */
+  parameters: readonly AgentToolArgDescriptor[];
   /** Hand-written shape validation; unknown params are rejected here. */
   validate(input: unknown): ValidationOutcome<I>;
   execute(input: I, ctx: AgentToolContext): Promise<AgentToolResult>;

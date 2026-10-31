@@ -275,6 +275,8 @@ struct AnthropicImageSource {
 struct AnthropicResponse {
     content: Vec<AnthropicContent>,
     usage: Option<AnthropicUsage>,
+    #[serde(default)]
+    stop_reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -304,6 +306,8 @@ struct AnthropicStreamDelta {
     #[serde(rename = "type")]
     delta_type: String,
     text: Option<String>,
+    #[serde(default)]
+    stop_reason: Option<String>,
 }
 
 fn policy_or_default(
@@ -384,6 +388,12 @@ fn read_memory_file(app: &AppHandle) -> Option<String> {
         return None;
     }
     std::fs::read_to_string(&memory_file).ok()
+}
+
+/// Normalize a provider stop reason to the task-layer vocabulary: Anthropic's
+/// "max_tokens" means truncation at the output cap, reported as "length".
+fn normalize_finish_reason(reason: Option<String>) -> Option<String> {
+    reason.map(|r| if r == "max_tokens" { "length".to_string() } else { r })
 }
 
 // Non-streaming commands
@@ -791,6 +801,7 @@ async fn stream_openai(
     // Coalesce token deltas before emitting to avoid one IPC event per token.
     let mut chunk_buf = String::new();
     let mut last_flush = std::time::Instant::now();
+    let mut finish_reason: Option<String> = None;
 
     while let Some(item) = stream.next().await {
         let chunk = item.map_err(|e| {
@@ -816,6 +827,9 @@ async fn stream_openai(
             if let Some(json_str) = line.strip_prefix("data: ") {
                 if let Ok(chunk_data) = serde_json::from_str::<OpenAIStreamChunk>(json_str) {
                     if let Some(choice) = chunk_data.choices.first() {
+                        if let Some(reason) = &choice.finish_reason {
+                            finish_reason = Some(reason.clone());
+                        }
                         if let Some(content) = &choice.delta.content {
                             chunk_buf.push_str(content);
 
@@ -828,7 +842,11 @@ async fn stream_openai(
                             }
 
                             if finished {
-                                emit_stream_event(app, LLM_STREAM_DONE, serde_json::json!({}));
+                                emit_stream_event(
+                                    app,
+                                    LLM_STREAM_DONE,
+                                    serde_json::json!({ "finishReason": finish_reason }),
+                                );
                                 return Ok(());
                             }
                         }
@@ -842,7 +860,11 @@ async fn stream_openai(
 
     // Final flush for any remaining buffered text.
     flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
-    emit_stream_event(app, LLM_STREAM_DONE, serde_json::json!({}));
+    emit_stream_event(
+        app,
+        LLM_STREAM_DONE,
+        serde_json::json!({ "finishReason": finish_reason }),
+    );
     Ok(())
 }
 
@@ -911,6 +933,7 @@ async fn stream_anthropic(
     // Coalesce token deltas before emitting to avoid one IPC event per token.
     let mut chunk_buf = String::new();
     let mut last_flush = std::time::Instant::now();
+    let mut finish_reason: Option<String> = None;
 
     while let Some(item) = stream.next().await {
         let chunk = item.map_err(|e| {
@@ -949,10 +972,25 @@ async fn stream_anthropic(
                             }
                         }
                     }
+                    "message_delta" => {
+                        if let Some(delta) = chunk_data.delta {
+                            if let Some(reason) = delta.stop_reason {
+                                finish_reason = Some(if reason == "max_tokens" {
+                                    "length".to_string()
+                                } else {
+                                    reason
+                                });
+                            }
+                        }
+                    }
                     "message_stop" => {
                         // Stream ended: flush any remaining buffered text.
                         flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
-                        emit_stream_event(app, LLM_STREAM_DONE, serde_json::json!({}));
+                        emit_stream_event(
+                            app,
+                            LLM_STREAM_DONE,
+                            serde_json::json!({ "finishReason": finish_reason }),
+                        );
                         return Ok(());
                     }
                     "error" => {
@@ -977,7 +1015,11 @@ async fn stream_anthropic(
 
     // Final flush for any remaining buffered text.
     flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
-    emit_stream_event(app, LLM_STREAM_DONE, serde_json::json!({}));
+    emit_stream_event(
+        app,
+        LLM_STREAM_DONE,
+        serde_json::json!({ "finishReason": finish_reason }),
+    );
     Ok(())
 }
 
@@ -1055,8 +1097,13 @@ async fn stream_ollama(
                     }
                 }
                 if chunk_data.done {
+                    let finish_reason = chunk_data.done_reason.clone().unwrap_or_else(|| "stop".to_string());
                     flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, true);
-                    emit_stream_event(app, LLM_STREAM_DONE, serde_json::json!({}));
+                    emit_stream_event(
+                        app,
+                        LLM_STREAM_DONE,
+                        serde_json::json!({ "finishReason": finish_reason }),
+                    );
                     return Ok(());
                 }
             }
@@ -1627,6 +1674,10 @@ async fn call_openai_with_key(
                     prompt_cache_hit_tokens: u.prompt_cache_hit_tokens,
                     prompt_cache_miss_tokens: u.prompt_cache_miss_tokens,
                 }),
+                finish_reason: openai_response
+                    .choices
+                    .first()
+                    .and_then(|c| c.finish_reason.clone()),
             });
         }
 
@@ -1730,6 +1781,7 @@ async fn call_anthropic_with_key(
             prompt_cache_hit_tokens: None,
             prompt_cache_miss_tokens: None,
         }),
+        finish_reason: normalize_finish_reason(anthropic_response.stop_reason),
     })
 }
 
@@ -1781,6 +1833,11 @@ async fn call_ollama_with_url(
         } else {
             None
         },
+        finish_reason: native.done_reason.clone().or_else(|| {
+            native
+                .done
+                .map(|done| if done { "stop".to_string() } else { "unknown".to_string() })
+        }),
     })
 }
 
@@ -1861,6 +1918,7 @@ async fn call_openrouter_with_key(
             prompt_cache_hit_tokens: None,
             prompt_cache_miss_tokens: None,
         }),
+        finish_reason: choice.finish_reason.clone(),
     })
 }
 
@@ -2650,6 +2708,9 @@ pub enum LLMMessageContentPart {
 pub struct LLMResponse {
     pub content: String,
     pub usage: Option<LLMUsage>,
+    /// Provider-reported stop reason (e.g. "length" for truncation).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finish_reason: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -2690,6 +2751,26 @@ pub struct LLMContextRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finish_reason_normalization_maps_max_tokens_to_length() {
+        assert_eq!(normalize_finish_reason(Some("max_tokens".into())), Some("length".into()));
+        assert_eq!(normalize_finish_reason(Some("stop".into())), Some("stop".into()));
+        assert_eq!(normalize_finish_reason(Some("end_turn".into())), Some("end_turn".into()));
+        assert_eq!(normalize_finish_reason(None), None);
+    }
+
+    #[test]
+    fn llm_response_serializes_finish_reason() {
+        let response = LLMResponse {
+            content: "hello".into(),
+            usage: None,
+            finish_reason: Some("length".into()),
+        };
+        let json = serde_json::to_value(response).unwrap();
+        assert_eq!(json["content"], "hello");
+        assert_eq!(json["finish_reason"], "length");
+    }
 
     #[test]
     fn anthropic_request_serializes_all_system_layers() {

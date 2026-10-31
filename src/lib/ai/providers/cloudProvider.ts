@@ -114,11 +114,14 @@ export interface CloudProviderTransport {
 }
 
 export class CloudProvider implements AIProvider {
-  readonly id = CLOUD_PROVIDER_ID;
+  readonly id: string = CLOUD_PROVIDER_ID;
   readonly kind = "cloud" as const;
-  private readonly transport: CloudProviderTransport;
+  protected readonly transport: CloudProviderTransport;
+  /** Frozen config when constructed pinned (PinnedCloudProvider). */
+  protected readonly pinnedConfig?: LLMProviderConfig;
 
-  constructor(transport: CloudProviderTransport = {}) {
+  constructor(transport: CloudProviderTransport = {}, pinnedConfig?: LLMProviderConfig) {
+    this.pinnedConfig = pinnedConfig;
     this.transport = {
       chat: transport.chat ?? ((request) => chatWithLLM(request)),
       streamChat: transport.streamChat ?? streamChatWithLLM,
@@ -126,9 +129,13 @@ export class CloudProvider implements AIProvider {
     };
   }
 
-  /** Resolved lazily so capability changes (provider added/removed) are live. */
-  private activeConfig(): LLMProviderConfig | null {
-    return getActiveCloudConfig();
+  /**
+   * For the shared singleton, resolve lazily so capability changes (provider
+   * added/removed) are live. Pinned instances return the frozen snapshot and
+   * never re-read the store.
+   */
+  protected activeConfig(): LLMProviderConfig | null {
+    return this.pinnedConfig ?? getActiveCloudConfig();
   }
 
   async getCapabilities(): Promise<AIModelCapabilities> {
@@ -182,6 +189,7 @@ export class CloudProvider implements AIProvider {
         return {
           requestId: req.requestId,
           text: res.content,
+          finishReason: res.finishReason,
           baseModelName: config.model,
           usage: res.usage
             ? {
@@ -198,6 +206,7 @@ export class CloudProvider implements AIProvider {
 
     // Streaming path.
     let text = "";
+    let finishReason: string | undefined;
     let aborted = false;
     let streamError: string | null = null;
     const signal = opts.signal;
@@ -218,6 +227,9 @@ export class CloudProvider implements AIProvider {
           if (aborted || signal?.aborted) return;
           text += chunk;
           opts.onChunk?.(chunk);
+        },
+        onDone: (info) => {
+          if (info?.finishReason) finishReason = info.finishReason;
         },
         onError: (error) => {
           streamError = error;
@@ -242,6 +254,7 @@ export class CloudProvider implements AIProvider {
     return {
       requestId: req.requestId,
       text,
+      finishReason,
       baseModelName: config.model,
     };
   }
@@ -314,6 +327,26 @@ async function defaultCancelStream(requestId: string): Promise<void> {
     await invokeCommand<void>("llm_cancel_stream", { requestId });
   } catch {
     // Command may not exist yet — cancellation then relies on the signal.
+  }
+}
+
+/**
+ * A cloud provider pinned to an explicit, frozen `LLMProviderConfig` snapshot
+ * (change fix-learning-agent-model-routing-and-tool-orchestration §3.2).
+ *
+ * Wire behavior is byte-identical to `CloudProvider`; the only difference is
+ * the config source: the snapshot captured at submit, never the live store.
+ * Mid-run store edits cannot alter served requests — drift immunity. The id
+ * exposes the pinned config (`cloud-llm:<configId>`) for diagnostics.
+ */
+export class PinnedCloudProvider extends CloudProvider {
+  override readonly id: string = `${CLOUD_PROVIDER_ID}:unset`;
+
+  constructor(config: LLMProviderConfig, transport: CloudProviderTransport = {}) {
+    // Snapshot the config at construction: later store edits (or mutations of
+    // the caller's object) never alter what this instance serves.
+    super(transport, { ...config, apiKey: config.apiKey });
+    this.id = `${CLOUD_PROVIDER_ID}:${config.id}`;
   }
 }
 

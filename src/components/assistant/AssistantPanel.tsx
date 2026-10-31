@@ -164,6 +164,7 @@ import {
   resolveLearningAgentScope,
   runLearningAgent,
   type LearningAgentDocumentInput,
+  type LearningAgentRouteSelection,
   type LearningAgentScopeKind,
   type LearningAgentSectionInput,
 } from "../../lib/ai/assistant/learningAgent";
@@ -1882,6 +1883,18 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         hasSection: Boolean(request.section),
         hasSelection: Boolean(request.selection),
       });
+      // Explicit route selection (change §2): the Assistant hands its picker
+      // choice + the matching store config to the Learning Agent so every
+      // generation request is served by exactly that provider/model.
+      const providerRows = useLLMProvidersStore.getState().providers;
+      const configRow =
+        request.forceKind !== "ondevice"
+          ? providerRows.find((p) => p.provider === effectiveProvider && p.enabled) ??
+            providerRows.find((p) => p.provider === effectiveProvider)
+          : undefined;
+      const selection: LearningAgentRouteSelection | undefined = configRow
+        ? { providerId: effectiveProvider, config: { ...configRow }, kind: "cloud" }
+        : undefined;
       const prepared = resolveLearningAgentScope({
         conversationId: activeConversationKeyRef.current,
         ownerRevision,
@@ -1908,6 +1921,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         documents: request.documents,
         forceKind: request.forceKind,
         explicitDestinationRetry: request.explicitRetry,
+        selection,
       });
       if (
         conversationKeyAtStart !==
@@ -1951,6 +1965,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           provider: preflight.provider,
           signal: controller.signal,
           capabilityRevision: preflight.capabilityRevision,
+          selection,
           onEvent: (event) => {
             if (!isCurrentRun()) return;
             if (event.type === "turn-start") {
@@ -1985,6 +2000,10 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           sectionTitle: run.section?.title,
           proposals,
           provider: run.generation.providerId,
+          model: selection?.config.model,
+          servedModel: result.servedModel,
+          servedProviderId: result.providerId,
+          selectedProviderId: selection?.providerId,
           modelClass: "full",
           capabilityRevision: preflight.capabilityRevision,
           endReason: result.endReason,

@@ -30,7 +30,7 @@
 
 import { extractClozeDeletion } from "../../cardValidator";
 import { LEARNING_CARD_TYPES } from "../../schemas/learningMaterial";
-import { valid, type ValidationOutcome } from "../../schemas/common";
+import { isFailedOutcome, valid, type ValidationOutcome } from "../../schemas/common";
 import {
   entryContainsText,
   type AgentEvidenceEntry,
@@ -259,6 +259,44 @@ export const proposeExtractTool: AgentToolDefinition<ProposeExtractInput> = {
   description:
     "Propose saving a passage as an extract for the user to approve. `text` must be verbatim from a source in this run; cite its sourceHandle. Nothing is saved until the user confirms in the extract editor.",
   category: "propose",
+  parameters: [
+    {
+      name: "text",
+      type: "string",
+      required: true,
+      maxLength: MAX_PROPOSAL_TEXT_CHARS,
+      description: "Verbatim passage text from a cited source.",
+    },
+    {
+      name: "note",
+      type: "string",
+      required: false,
+      maxLength: MAX_NOTE_CHARS,
+      description: "Optional note for the extract.",
+    },
+    {
+      name: "sourceHandle",
+      type: "string",
+      required: false,
+      maxLength: MAX_HANDLE_CHARS,
+      description: "Application-issued handle from a read tool.",
+    },
+    {
+      name: "supportingSourceHandles",
+      type: "string[]",
+      required: false,
+      maxItems: 3,
+      maxLength: MAX_HANDLE_CHARS,
+      description: "Additional read-tool handles (≤3).",
+    },
+    {
+      name: "evidenceQuote",
+      type: "string",
+      required: false,
+      maxLength: 2_000,
+      description: "Exact quote supporting the proposal.",
+    },
+  ],
   validate: (input): ValidationOutcome<ProposeExtractInput> => {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["propose_extract: expected object"] };
@@ -346,6 +384,67 @@ export const proposeFlashcardTool: AgentToolDefinition<ProposeFlashcardInput> = 
   description:
     `Propose ONE flashcard for the user to approve in the standard preview UI. cardType is one of [${PROPOSABLE_CARD_TYPES.join("|")}]. Cite the sourceHandle of the passage the card is based on (required in a scoped run). Propose at most a few high-value cards per run.`,
   category: "propose",
+  parameters: [
+    {
+      name: "question",
+      type: "string",
+      required: true,
+      maxLength: MAX_QUESTION_CHARS,
+      description: "Flashcard prompt (≤600 chars).",
+    },
+    {
+      name: "answer",
+      type: "string",
+      required: true,
+      maxLength: MAX_ANSWER_CHARS,
+      description: "Flashcard answer (≤2000 chars).",
+    },
+    {
+      name: "cardType",
+      type: "enum",
+      required: false,
+      enum: PROPOSABLE_CARD_TYPES,
+      description: "Card type (default qa).",
+      example: "qa",
+    },
+    {
+      name: "concept",
+      type: "string",
+      required: false,
+      maxLength: 120,
+      description: "Optional concept label (≤120 chars).",
+    },
+    {
+      name: "tags",
+      type: "string[]",
+      required: false,
+      maxItems: 10,
+      maxLength: MAX_TAG_CHARS,
+      description: "Optional tags (≤10, each ≤64 chars).",
+    },
+    {
+      name: "sourceHandle",
+      type: "string",
+      required: false,
+      maxLength: MAX_HANDLE_CHARS,
+      description: "Application-issued handle from a read tool.",
+    },
+    {
+      name: "supportingSourceHandles",
+      type: "string[]",
+      required: false,
+      maxItems: 3,
+      maxLength: MAX_HANDLE_CHARS,
+      description: "Additional read-tool handles (≤3).",
+    },
+    {
+      name: "evidenceQuote",
+      type: "string",
+      required: false,
+      maxLength: 2_000,
+      description: "Exact quote supporting the card.",
+    },
+  ],
   validate: (input): ValidationOutcome<ProposeFlashcardInput> => {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["propose_flashcard: expected object"] };
@@ -460,6 +559,37 @@ export const proposeClozeTool: AgentToolDefinition<ProposeClozeInput> = {
   description:
     'Propose ONE cloze card: `text` must be a sentence containing exactly one deletion in the form {{c1::answer}}. The deletion must be verbatim from the cited source passage (sourceHandle required in a scoped run).',
   category: "propose",
+  parameters: [
+    {
+      name: "text",
+      type: "string",
+      required: true,
+      maxLength: MAX_PROPOSAL_TEXT_CHARS,
+      description: "Sentence with one {{c1::answer}} deletion.",
+    },
+    {
+      name: "sourceHandle",
+      type: "string",
+      required: false,
+      maxLength: MAX_HANDLE_CHARS,
+      description: "Application-issued handle from a read tool.",
+    },
+    {
+      name: "supportingSourceHandles",
+      type: "string[]",
+      required: false,
+      maxItems: 3,
+      maxLength: MAX_HANDLE_CHARS,
+      description: "Additional read-tool handles (≤3).",
+    },
+    {
+      name: "evidenceQuote",
+      type: "string",
+      required: false,
+      maxLength: 2_000,
+      description: "Exact quote supporting the cloze.",
+    },
+  ],
   validate: (input): ValidationOutcome<ProposeClozeInput> => {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["propose_cloze: expected object"] };
@@ -542,6 +672,15 @@ export const proposeOcclusionTool: AgentToolDefinition<ProposeOcclusionInput> = 
   description:
     "Propose turning an image the user has in their image registry into occlusion cards. imageRef must be an image asset id returned by another tool; the proposal opens the existing occlusion composer for the user — labels are selected there.",
   category: "propose",
+  parameters: [
+    {
+      name: "imageRef",
+      type: "string",
+      required: true,
+      maxLength: 128,
+      description: "Image asset id from the image registry.",
+    },
+  ],
   validate: (input): ValidationOutcome<ProposeOcclusionInput> => {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["propose_occlusion: expected object"] };
@@ -607,6 +746,22 @@ export const proposeTagTool: AgentToolDefinition<ProposeTagInput> = {
   description:
     "Propose adding a tag to an existing card. cardQuery is a search term identifying the card (never a raw id); the closest authorized match is chosen. The user approves before anything changes.",
   category: "propose",
+  parameters: [
+    {
+      name: "cardQuery",
+      type: "string",
+      required: true,
+      maxLength: MAX_QUESTION_CHARS,
+      description: "Search term identifying the card (never an id).",
+    },
+    {
+      name: "tag",
+      type: "string",
+      required: true,
+      maxLength: MAX_TAG_CHARS,
+      description: "Tag to propose (≤64 chars).",
+    },
+  ],
   validate: (input): ValidationOutcome<ProposeTagInput> => {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["propose_tag: expected object"] };
@@ -698,6 +853,45 @@ export const proposeLinkTool: AgentToolDefinition<ProposeLinkInput> = {
   description:
     "Propose a typed relationship between two validated concept handles. Requires a validated concept handle source; in this build it returns a typed unavailable result and creates nothing.",
   category: "propose",
+  parameters: [
+    {
+      name: "sourceHandle",
+      type: "string",
+      required: false,
+      maxLength: MAX_HANDLE_CHARS,
+      description: "Application-issued concept handle.",
+    },
+    {
+      name: "targetHandle",
+      type: "string",
+      required: false,
+      maxLength: MAX_HANDLE_CHARS,
+      description: "Application-issued concept handle.",
+    },
+    {
+      name: "relationType",
+      type: "string",
+      required: false,
+      maxLength: 64,
+      description: "Typed relationship label (≤64 chars).",
+    },
+    {
+      name: "confidence",
+      type: "number",
+      required: false,
+      min: 0,
+      max: 1,
+      clamped: true,
+      description: "Confidence in [0,1].",
+    },
+    {
+      name: "rationale",
+      type: "string",
+      required: false,
+      maxLength: 600,
+      description: "Why the relationship holds (≤600 chars).",
+    },
+  ],
   validate: (input): ValidationOutcome<ProposeLinkInput> => {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["propose_link: expected object"] };
@@ -796,9 +990,127 @@ export const proposeLinkTool: AgentToolDefinition<ProposeLinkInput> = {
   },
 };
 
+/* ------------------------------------------------------------------------- */
+/* propose_flashcard_batch                                                   */
+/* ------------------------------------------------------------------------- */
+
+interface ProposeFlashcardBatchInput {
+  cards: ProposeFlashcardInput[];
+}
+
+export const MAX_FLASHCARD_BATCH_SIZE = 6;
+
+/**
+ * Propose 1–6 flashcards in one call (change §7.1): fewer round trips with
+ * identical grounding. Each draft uses the exact `propose_flashcard` schema;
+ * per-item results carry either the assigned proposalId or a typed error, so
+ * partial batches surface exactly which items landed. The proposal cap stays
+ * authoritative (session.addProposal).
+ */
+export const proposeFlashcardBatchTool: AgentToolDefinition<ProposeFlashcardBatchInput> = {
+  name: "propose_flashcard_batch",
+  description: `Propose ${1}–${MAX_FLASHCARD_BATCH_SIZE} flashcards in one call; each draft uses the same schema as propose_flashcard (question, answer, cardType, optional concept/tags/sourceHandle/evidenceQuote). Every draft must cite a sourceHandle from a read tool in a scoped run.`,
+  category: "propose",
+  parameters: [
+    {
+      name: "cards",
+      type: "object",
+      required: true,
+      maxItems: MAX_FLASHCARD_BATCH_SIZE,
+      description: `Array of 1–${MAX_FLASHCARD_BATCH_SIZE} flashcard drafts (per-draft schema identical to propose_flashcard).`,
+    },
+  ],
+  validate: (input): ValidationOutcome<ProposeFlashcardBatchInput> => {
+    if (typeof input !== "object" || input === null || Array.isArray(input)) {
+      return { ok: false, errors: ["propose_flashcard_batch: expected object"] };
+    }
+    const raw = input as Record<string, unknown>;
+    const errors = [
+      ...rejectUnknownParams(raw, ["cards"], "propose_flashcard_batch"),
+    ];
+    const rawCards = raw.cards;
+    if (
+      !Array.isArray(rawCards) ||
+      rawCards.length < 1 ||
+      rawCards.length > MAX_FLASHCARD_BATCH_SIZE
+    ) {
+      errors.push(
+        `propose_flashcard_batch.cards: expected an array of 1 to ${MAX_FLASHCARD_BATCH_SIZE} card drafts`
+      );
+      return { ok: false, errors };
+    }
+    const cards: ProposeFlashcardInput[] = [];
+    for (let i = 0; i < rawCards.length; i++) {
+      if (typeof rawCards[i] !== "object" || rawCards[i] === null || Array.isArray(rawCards[i])) {
+        errors.push(`propose_flashcard_batch.cards[${i}]: expected object`);
+        continue;
+      }
+      const item = proposeFlashcardTool.validate(rawCards[i]);
+      if (isFailedOutcome(item)) {
+        errors.push(`cards[${i}]: ${item.errors.join("; ")}`);
+        continue;
+      }
+      cards.push(item.value);
+    }
+    if (errors.length > 0) return { ok: false, errors };
+    return valid({ cards });
+  },
+  execute: async (input, ctx: AgentToolContext) => {
+    const results: Array<{ ok: boolean; proposalId?: string; error?: string }> = [];
+    for (const draft of input.cards) {
+      if (aborted(ctx)) {
+        results.push({ ok: false, error: "The run was cancelled; remaining drafts were not proposed." });
+        break;
+      }
+      const resolved = resolveProposalSources(
+        {
+          sourceHandle: draft.sourceHandle,
+          supportingSourceHandles: draft.supportingSourceHandles,
+          evidenceQuote: draft.evidenceQuote,
+        },
+        ctx
+      );
+      if (!resolved.ok || resolved.sources.length === 0) {
+        results.push({ ok: false, error: resolved.problem ?? "no valid source" });
+        continue;
+      }
+      const primary = resolved.sources[0];
+      const added = ctx.session.addProposal({
+        kind: "flashcard",
+        question: draft.question,
+        answer: draft.answer,
+        cardType: draft.cardType,
+        concept: draft.concept,
+        conceptKeys: draft.concept ? [draft.concept] : undefined,
+        tags: draft.tags,
+        documentId: primary.documentId,
+        sourceText: primary.text || draft.answer,
+        sourceRefs: resolved.sources,
+        sourceRevision: ctx.session.sourceRevision,
+        evidenceQuote: draft.evidenceQuote,
+      });
+      if (!added) {
+        results.push({ ok: false, error: PROPOSAL_CAP_MESSAGE });
+        continue;
+      }
+      results.push({ ok: true, proposalId: added.proposalId });
+    }
+    const okCount = results.filter((r) => r.ok).length;
+    return toolOk(
+      {
+        proposed: results.map((r) =>
+          r.ok ? { proposalId: r.proposalId } : { error: r.error }
+        ),
+      },
+      `proposed ${okCount} of ${results.length} card(s) in batch`
+    );
+  },
+};
+
 export const PROPOSAL_TOOLS = [
   proposeExtractTool,
   proposeFlashcardTool,
+  proposeFlashcardBatchTool,
   proposeClozeTool,
   proposeOcclusionTool,
   proposeTagTool,

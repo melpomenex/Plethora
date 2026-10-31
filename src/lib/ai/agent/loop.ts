@@ -22,6 +22,7 @@
 import { UNTRUSTED_CONTAINMENT_CLAUSE, wrapUntrustedBlock } from "../tasks/containment";
 import { runTask } from "../tasks/runTask";
 import { registerTasks } from "../tasks/registry";
+import { estimateTokens } from "../chunkTextByTokens";
 import { isAIError } from "../errors";
 import type { AIProvider } from "../providers/types";
 import type { AITaskDefinition } from "../tasks/types";
@@ -52,9 +53,14 @@ import {
   type AgentRunEndReason,
   type AgentTraceEntry,
 } from "./trace";
+import {
+  createDiagnosticsLedger,
+  recordToolOutcome,
+  type AgentRunDiagnostics,
+} from "./diagnostics";
 import { recordTaskDiagnostic } from "../diagnostics";
 import type { AgentRunDeadline } from "./deadline";
-import { createAgentEvidenceMap } from "./evidence";
+import { createAgentEvidenceMap, type RegisterEvidenceInput } from "./evidence";
 import type {
   AgentEnvironment,
   AgentProposal,
@@ -68,7 +74,15 @@ import { getAgentTool } from "./registry";
 
 export const AGENT_RUNNER_TASK_ID = "agent-runner";
 export const AGENT_TURN_TIMEOUT_MS = 30_000;
-export const AGENT_MAX_OUTPUT_TOKENS = 1400;
+/**
+ * Response budget for one agent turn. Raised 1400 → 2048 (change §14):
+ * per-item proposal costs (question ≤600 + answer ≤2000 + handle/evidence)
+ * plus the batch envelope (up to 6 drafts per call) no longer fit in 1400
+ * tokens without frequent truncation; the truncation signal (finishReason
+ * "length") now feeds repair guidance instead of blind re-emission. Measured
+ * truncation share must inform the next adjustment.
+ */
+export const AGENT_MAX_OUTPUT_TOKENS = 2048;
 
 /**
  * Transcript budget: keep the wrapped tool-result history under this many
@@ -82,7 +96,7 @@ const AGENT_CORE_INSTRUCTION = [
   "Each turn you may EITHER make tool calls OR give a finalAnswer. Rules:",
   `- At most ${MAX_TOOL_CALLS_PER_TURN} tool calls per turn; use the fewest that answer the intent.`,
   "- Tool input must match the documented parameters exactly; unknown parameters are rejected.",
-  "- Propose at most a few (typically ≤ 3) high-value items per run — never mass-create; everything you propose is only a suggestion the user reviews.",
+  "- Propose about 5 high-value cards per run by default (3–6); honor an explicit user count up to the run's proposal limit; never mass-create. Everything you propose is only a suggestion the user reviews.",
   "- Never invent record ids: resolve items by query (tools verify and report not-found).",
   "- Cite the sources you used by naming their document titles / headings in the finalAnswer.",
   "- When the intent is a quiz ('quiz me on this section'), gather the section with tools and ask the questions yourself in the finalAnswer (a separate tutor feature exists for guided tutoring).",
@@ -108,6 +122,8 @@ export interface AgentRunnerInput {
   remainingProposals: number;
   /** Appended on the forced final turn after a bound was hit. */
   forcedFinalNote?: string;
+  /** Corrective protocol note injected after an off-contract turn. */
+  recoveryNote?: string;
 }
 
 export const agentRunnerTask: AITaskDefinition<AgentRunnerInput, AgentTurn> = {
@@ -115,10 +131,11 @@ export const agentRunnerTask: AITaskDefinition<AgentRunnerInput, AgentTurn> = {
   taskType: "prompt",
   modelClass: "full",
   systemInstruction: `${UNTRUSTED_CONTAINMENT_CLAUSE}\n${AGENT_CORE_INSTRUCTION}`,
-  buildInput: ({ intent, transcript, remainingToolCalls, remainingProposals, forcedFinalNote }) => ({
+  buildInput: ({ intent, transcript, remainingToolCalls, remainingProposals, forcedFinalNote, recoveryNote }) => ({
     text: [
       `Turn context — remaining tool calls: ${remainingToolCalls}, remaining proposals: ${remainingProposals}.`,
       ...(transcript.length > 0 ? ["Tool results so far (untrusted data):", ...transcript] : []),
+      ...(recoveryNote ? [recoveryNote] : []),
       ...(forcedFinalNote ? [forcedFinalNote] : []),
       "",
       "User intent:",
@@ -178,6 +195,17 @@ export interface AgentRunOptions {
   onEvent?: (event: AgentRunEvent) => void;
   /** Bounds overrides (tests). */
   bounds?: AgentBoundsConfig;
+  /**
+   * Initial transcript blocks (deterministic seat): already untrusted-wrapped
+   * source text seeded before the first model turn.
+   */
+  initialTranscript?: string[];
+  /** Evidence records to register at session creation (e.g. the seat). */
+  evidenceSeeds?: RegisterEvidenceInput[];
+  /** Seat facts for diagnostics (lengths only, never content). */
+  seed?: { sectionChars: number; truncated: boolean };
+  /** Selection facts (selected provider/model) for route disclosure. */
+  selection?: { providerId?: string; model?: string };
 }
 
 export interface AgentRunResult {
@@ -193,6 +221,13 @@ export interface AgentRunResult {
   toolCalls: number;
   providerId?: string;
   providerKind?: "ondevice" | "cloud";
+  /** Model that actually served the turns (AIResponse.baseModelName). */
+  servedModel?: string;
+  /** Selection facts (the provider/model the user picked at submit). */
+  selectedProviderId?: string;
+  selectedModel?: string;
+  /** Counter-only run ledger (route facts + outcomes). */
+  diagnostics?: AgentRunDiagnostics;
   /** Present when the run failed with a typed AIError (endReason "error"). */
   error?: { category: string; message: string };
 }
@@ -217,19 +252,26 @@ function createSession(
   bounds: AgentBoundsTracker,
   proposals: AgentProposal[],
   onEvent?: (event: AgentRunEvent) => void,
-  sourceRevision?: string
+  sourceRevision?: string,
+  evidenceSeeds: RegisterEvidenceInput[] = [],
+  ledger?: AgentRunDiagnostics
 ): AgentSessionRuntime {
+  const evidence = createAgentEvidenceMap(sourceRevision);
+  for (const seed of evidenceSeeds) {
+    evidence.register(seed);
+  }
   const session: AgentSessionRuntime = {
     runId,
     proposals,
     proposalCapHit: false,
-    evidence: createAgentEvidenceMap(sourceRevision),
+    evidence,
     sourceRevision,
     closed: false,
     addProposal(input: AgentProposalInput) {
       if (session.closed) return null;
       if (!bounds.canAddProposal()) {
         session.proposalCapHit = true;
+        if (ledger) ledger.proposals.capRejected += 1;
         return null;
       }
       const proposal = {
@@ -238,6 +280,7 @@ function createSession(
         createdAt: Date.now(),
       } as AgentProposal;
       proposals.push(proposal);
+      if (ledger) ledger.proposals.added += 1;
       onEvent?.({ type: "proposal-added", kind: proposal.kind, total: proposals.length });
       return proposal;
     },
@@ -296,6 +339,11 @@ const MAX_TURNS_FACTOR = 2;
  * Run the constrained agent loop. NEVER throws for bounds/cancellation —
  * those end the run gracefully. Model/provider failures surface as
  * `endReason: "error"` with a typed `error` payload (the sheet renders it).
+ *
+ * Recovery (design §8.2): one corrective recovery turn per run after an
+ * off-contract turn (empty/malformed/truncated), then `agent-protocol` on a
+ * second failure; unregistered-tool-only turns get one note; the no-progress
+ * counter may reset at most twice run-wide.
  */
 export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunResult> {
   const startedAt = Date.now();
@@ -314,18 +362,33 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
       : {}),
   });
   const trace = createTraceRecorder();
+  const ledger = createDiagnosticsLedger();
   const proposals: AgentProposal[] = [];
-  const session = createSession(runId, bounds, proposals, options.onEvent, env.sourceRevision);
+  const session = createSession(
+    runId,
+    bounds,
+    proposals,
+    options.onEvent,
+    env.sourceRevision,
+    options.evidenceSeeds,
+    ledger
+  );
   const sources: AgentSourceRef[] = [];
-  const transcript: string[] = [];
+  const transcript: string[] = [...(options.initialTranscript ?? [])];
 
   let turns = 0;
   let toolCalls = 0;
   let providerId: string | undefined;
   let providerKind: "ondevice" | "cloud" | undefined;
+  let servedModel: string | undefined;
   let lastAnswer: string | undefined;
   const maxTurns = (options.bounds?.maxToolCalls ?? MAX_AGENT_TOOL_CALLS) + MAX_TURNS_FACTOR;
   let terminal = false;
+
+  let protocolRecoveryUsed = false;
+  let pendingRecoveryNote: string | undefined;
+  let unregisteredNoteUsed = false;
+  let noProgressResets = 0;
 
   const finish = (
     endReason: AgentRunEndReason,
@@ -340,6 +403,17 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
     }
     const runTrace: AgentTraceEntry[] = [...trace.entries()];
     const durationMs = Date.now() - startedAt;
+    ledger.bounds.endReason = endReason;
+    ledger.bounds.explanationKey = endReason;
+    ledger.route.servedProviderId = providerId;
+    ledger.route.servedModel = servedModel;
+    ledger.route.selectedProviderId = options.selection?.providerId;
+    ledger.route.selectedModel = options.selection?.model;
+    ledger.evidence.handleCount = session.evidence.size();
+    if (options.seed) {
+      ledger.evidence.seededSectionChars = options.seed.sectionChars;
+      ledger.evidence.seededTruncated = options.seed.truncated;
+    }
     keepAgentTrace({
       startedAt,
       durationMs,
@@ -348,6 +422,7 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
       proposals: proposals.length,
       endReason,
       providerId,
+      diagnostics: ledger,
     });
     recordTaskDiagnostic({
       taskId: AGENT_RUNNER_TASK_ID,
@@ -359,6 +434,16 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
       agentToolCalls: toolCalls,
       agentProposals: proposals.length,
       agentEndReason: endReason,
+      agentSelectedProviderId: options.selection?.providerId,
+      agentSelectedModel: options.selection?.model,
+      agentServedProviderId: providerId,
+      agentServedModel: servedModel,
+      agentEmptyTurns: ledger.turns.empty,
+      agentOffContractTurns: ledger.turns.offContract,
+      agentRecoveryNotes: ledger.turns.recoveryNotes,
+      agentRepairAttempted: ledger.repair.attempted,
+      agentRepairSucceeded: ledger.repair.succeeded,
+      agentToolOutcomeCounts: { ...ledger.tools },
       totalLatencyMs: durationMs,
       errorCategory: error?.category,
     });
@@ -373,6 +458,10 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
       toolCalls,
       providerId,
       providerKind,
+      servedModel,
+      selectedProviderId: options.selection?.providerId,
+      selectedModel: options.selection?.model,
+      diagnostics: ledger,
       error,
     };
   };
@@ -444,6 +533,42 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
     }
   };
 
+  /**
+   * Loop-level token fit check (design §14): estimate the prompt (system +
+   * contract + seat + transcript + intent) plus the output reserve against
+   * the provider's declared context. Over-budget ends typed before any
+   * generateStream — silent provider-side overflow becomes diagnosable.
+   */
+  const fitCheck = async (): Promise<AgentRunResult | null> => {
+    if (!options.provider) return null;
+    const caps = await options.provider.getCapabilities().catch(() => undefined);
+    if (!caps || !caps.contextTokens || caps.contextTokens <= 0) return null;
+    const promptText =
+      agentRunnerTask.systemInstruction +
+      "\n" +
+      AGENT_TURN_SCHEMA.json +
+      "\n" +
+      options.intent +
+      "\n" +
+      transcript.join("\n");
+    const estimate = estimateTokens(promptText) + AGENT_MAX_OUTPUT_TOKENS;
+    if (estimate <= caps.contextTokens) return null;
+    return finish(
+      "error",
+      lastAnswer ?? "",
+      options.seed
+        ? "The selected model's context is too small for the chosen section; shorten the scope or select a smaller section."
+        : "The selected model's context is too small for this run.",
+      {
+        category: "InputTooLarge",
+        message: `Estimated ${estimate} tokens exceeds the provider context of ${caps.contextTokens}.`,
+      }
+    );
+  };
+
+  const initialFit = await fitCheck();
+  if (initialFit) return initialFit;
+
   let noProgressTurns = 0;
 
   for (let turn = 1; turn <= maxTurns; turn++) {
@@ -451,6 +576,7 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
     if (preTurn) return preTurn;
 
     turns = turn;
+    ledger.turns.requested += 1;
     options.onEvent?.({ type: "turn-start", turn });
 
     let model: AgentTurn;
@@ -465,6 +591,7 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
             0,
             (options.bounds?.maxProposals ?? MAX_AGENT_PROPOSALS) - bounds.proposalsUsed
           ),
+          ...(pendingRecoveryNote !== undefined ? { recoveryNote: pendingRecoveryNote } : {}),
         },
         {
           provider: options.provider,
@@ -475,8 +602,10 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
           observation,
         }
       );
+      pendingRecoveryNote = undefined;
       providerId = run.providerId;
       providerKind = run.providerKind;
+      servedModel = run.baseModelName ?? servedModel;
       model = run.output;
     } catch (error) {
       if (deadline?.expired()) return timeoutResult();
@@ -490,10 +619,24 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
         );
       }
       if (isAIError(error) && error.category === "InvalidStructuredOutput") {
+        const detailErrors = ((error as { details?: unknown }).details ?? []) as string[];
+        const empty = detailErrors.some(
+          (d) => typeof d === "string" && d.includes("empty protocol turn")
+        );
+        if (empty) ledger.turns.empty += 1;
+        else ledger.turns.offContract += 1;
+        ledger.repair.attempted += 1;
+        if (!protocolRecoveryUsed) {
+          protocolRecoveryUsed = true;
+          ledger.turns.recoveryNotes += 1;
+          pendingRecoveryNote =
+            "That turn was off-contract (malformed, truncated, or empty). Respond again per the contract with tool calls, or finish with a short finalAnswer.";
+          continue;
+        }
         return finish(
-          "invalid-turn",
+          "agent-protocol",
           lastAnswer ?? "",
-          "The model could not produce a valid turn after repair; stopping safely."
+          "The model could not produce a valid turn after bounded recovery; stopping safely."
         );
       }
       return finish("error", lastAnswer ?? "", "The model request failed.", {
@@ -507,6 +650,7 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
     let boundHit: AgentBoundsExceeded | undefined;
     let deadlineDuringTool = false;
     let guardDuringTool: AgentRunGuardViolation | null = null;
+    let sawRegisteredTool = false;
 
     for (let i = 0; i < model.toolCalls.length; i++) {
       if (deadline?.expired()) {
@@ -528,6 +672,7 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
       const check = bounds.consume(call.tool, call.input, isRetrievalTool(call.tool));
       if (isAgentBoundsExceeded(check)) {
         trace.end("rejected");
+        recordToolOutcome(ledger.tools, "rejected");
         boundHit = check;
         break;
       }
@@ -546,6 +691,7 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
         };
         transcript.push(toolResultBlock(call.tool, toolCalls, rejection));
         trace.end("rejected");
+        recordToolOutcome(ledger.tools, "rejected");
         options.onEvent?.({
           type: "tool-result",
           tool: call.tool,
@@ -555,6 +701,7 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
         toolCalls += 1;
         continue;
       }
+      sawRegisteredTool = true;
 
       const validated = tool.validate(call.input);
       let result: AgentToolResult;
@@ -566,6 +713,8 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
           result: { error: "invalid-input", problems: validated.errors },
           displayDigest: `${call.tool}: invalid arguments (${validated.errors[0]})`,
         };
+        recordToolOutcome(ledger.tools, "invalid-input");
+        if (tool.category === "propose") ledger.proposals.groundingRejected += 1;
       } else {
         try {
           const executed = deadline
@@ -587,6 +736,7 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
               };
           if (executed.kind === "timeout") {
             trace.end("error");
+            recordToolOutcome(ledger.tools, "error");
             // Close immediately so a late tool callback cannot register a
             // proposal after the deadline, and discard anything it added.
             proposals.length = proposalCountBefore;
@@ -598,6 +748,10 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
             throw executed.error;
           }
           result = executed.value;
+          recordToolOutcome(ledger.tools, result.outcome);
+          if (result.outcome === "invalid-input" && tool.category === "propose") {
+            ledger.proposals.groundingRejected += 1;
+          }
         } catch (error) {
           result = {
             ok: false,
@@ -605,6 +759,7 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
             result: { error: "error", problem: (error as Error).message },
             displayDigest: `${call.tool} failed`,
           };
+          recordToolOutcome(ledger.tools, "error");
         }
       }
 
@@ -653,18 +808,37 @@ export async function runAgentLoop(options: AgentRunOptions): Promise<AgentRunRe
       return finish("final-answer", model.finalAnswer);
     }
 
+    // Progress semantics (design §7): executed progress = ≥1 registered +
+    // bounds-accepted tool call executed to a typed outcome this turn.
     if (executedThisTurn === 0) {
-      noProgressTurns += 1;
-      if (noProgressTurns >= 2) {
-        return finish(
-          "turn-budget",
-          lastAnswer ?? "",
-          "Stopped: repeated turns made no usable tool calls."
-        );
+      const unregisteredOnly = !sawRegisteredTool;
+      if (unregisteredOnly && !unregisteredNoteUsed && noProgressResets < 2) {
+        // One deterministic corrective note for hallucinated tool names.
+        unregisteredNoteUsed = true;
+        noProgressResets += 1;
+        ledger.turns.recoveryNotes += 1;
+        pendingRecoveryNote =
+          "Those tool names are not registered; use only the names in the tool list. No calls were executed.";
+        ledger.turns.offContract += 1;
+        noProgressTurns = 0;
+      } else {
+        noProgressTurns += 1;
+        if (noProgressTurns >= 2) {
+          return finish(
+            "no-progress",
+            lastAnswer ?? "",
+            "Stopped: repeated turns made no usable tool calls."
+          );
+        }
       }
     } else {
       noProgressTurns = 0;
+      ledger.turns.executed += 1;
     }
+
+    // Re-check token fit after tool results accumulated into the transcript.
+    const postFit = await fitCheck();
+    if (postFit) return postFit;
   }
 
   return finish(

@@ -70,6 +70,8 @@ export interface LLMRequest {
 
 export interface LLMResponse {
   content: string;
+  /** Provider-reported stop reason ("length" = truncated at the output cap). */
+  finishReason?: string;
   usage?: {
     promptTokens: number;
     completionTokens: number;
@@ -102,7 +104,7 @@ export interface LLMContext {
 
 export interface StreamOptions {
   onChunk: (chunk: string) => void;
-  onDone?: () => void;
+  onDone?: (info?: { finishReason?: string }) => void;
   onError?: (error: string) => void;
 }
 
@@ -254,6 +256,7 @@ export async function streamChatWithLLM(
   };
 
   try {
+    let finishReason: string | undefined;
     const chunkUnlisten = await listen<{ content: string; done: boolean }>(
       "llm:stream:chunk",
       (event) => {
@@ -263,10 +266,14 @@ export async function streamChatWithLLM(
     );
     unlisteners.push(chunkUnlisten);
 
-    const doneUnlisten = await listen("llm:stream:done", () => {
-      flushPending();
-      options.onDone?.();
-    });
+    const doneUnlisten = await listen<{ finishReason?: string }>(
+      "llm:stream:done",
+      (event) => {
+        flushPending();
+        if (event.payload?.finishReason) finishReason = event.payload.finishReason;
+        options.onDone?.({ finishReason });
+      }
+    );
     unlisteners.push(doneUnlisten);
 
     const errorUnlisten = await listen<{ error: string }>(

@@ -8,7 +8,7 @@ import type { SectionSourceReference } from "../../../utils/sectionIndex";
  * the constrained `runAgentLoop`. It owns:
  *
  *  1. the FROZEN RUN ENVELOPE built at submit (conversation + immutable
- *     source set + selection + section/chapter context + owner revision);
+ *      source set + selection + section/chapter context + owner revision);
  *  2. scope resolution (section/document/library/papers) with honest
  *     "select a section" failures instead of pretending a whole chapter was
  *     read;
@@ -33,8 +33,9 @@ import {
 import { getReviewStatistics } from "../../../api/algorithm";
 import { retrieveFromLibrary, type EmbeddingConfig } from "../../../api/ai-learning";
 import { useDocumentStore } from "../../../stores/documentStore";
-import { useLLMProvidersStore } from "../../../stores/llmProvidersStore";
+import { useLLMProvidersStore, type LLMProviderConfig } from "../../../stores/llmProvidersStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
+import { providerAllowsKeylessAccess } from "../../../utils/llmProviderUtils";
 import { recordFeatureObservation } from "../diagnostics";
 import {
   classifyCloudDestination,
@@ -54,7 +55,10 @@ import type {
   ProviderClass,
   RecoveryTargetId,
 } from "../features/types";
-import { getActiveCloudConfig } from "../providers/cloudProvider";
+import {
+  getActiveCloudConfig,
+  PinnedCloudProvider,
+} from "../providers/cloudProvider";
 import { resolveEmbeddingConfigForRag } from "../../../components/assistant/ragConfig";
 import { ensureCloudAiDisclosure } from "../../privacy/cloudAiDisclosure";
 import {
@@ -70,6 +74,14 @@ import { resolveTaskRoute } from "../tasks/router";
 import { enforceAssistantPrivacyAndConsent } from "./privacyGate";
 import { createAgentDeadline, type AgentRunDeadline } from "../agent/deadline";
 import { AGENT_MAX_OUTPUT_TOKENS, AGENT_TRANSCRIPT_CHAR_BUDGET, AGENT_RUNNER_TASK_ID, agentRunnerTask, runAgentLoop, type AgentRunEvent, type AgentRunGuardViolation, type AgentRunResult } from "../agent/loop";
+import { createDiagnosticsLedger } from "../agent/diagnostics";
+import { wrapUntrustedBlock } from "../tasks/containment";
+import type { RegisterEvidenceInput } from "../agent/evidence";
+import {
+  getProtocolProbe,
+  runProtocolProbe,
+} from "../agent/protocolProbe";
+import { estimateTokens } from "../chunkTextByTokens";
 import { mapLearningItemToAgentCard } from "../agent/sessionContext";
 import type {
   AgentCardQuery,
@@ -87,6 +99,19 @@ import { CONVERSATION_RECORD_VERSION } from "./conversations/types";
 
 export const LEARNING_AGENT_FEATURE_ID = "learning-agent" as const;
 export const LEARNING_AGENT_MAX_RUN_MS = 60_000;
+
+/**
+ * Explicit route selection handed by the Assistant at submit (change §3.1).
+ * The config is frozen (deep-copied) at submit: the run must be served by
+ * exactly this provider/model and never silently substituted.
+ */
+export interface LearningAgentRouteSelection {
+  /** Assistant model/picker id (e.g. "gemini" | "ollama" | "openrouter"). */
+  providerId: string;
+  /** Resolved live config for that provider type, frozen at submit. */
+  config: LLMProviderConfig;
+  kind: "ondevice" | "cloud";
+}
 
 /* ------------------------------------------------------------------------- */
 /* Scope input + frozen envelope                                             */
@@ -441,6 +466,13 @@ export interface LearningAgentPreflightOptions {
   forceKind?: "ondevice" | "cloud";
   /** Prompt the existing paid-consent surface for a billable run (default true). */
   requestBillingConsent?: boolean;
+  /**
+   * Explicit user-authorized provider/model selection (change §3.1). When
+   * present (cloud kind), generation is served by a pinned provider built
+   * from exactly this frozen config; the router and `getActiveCloudConfig`
+   * are NOT consulted for generation.
+   */
+  selection?: LearningAgentRouteSelection;
 }
 
 function nativeProviderClass(providerId: string): ProviderClass {
@@ -534,69 +566,131 @@ export async function preflightLearningAgent(
     });
   }
 
-  const path = await resolveAiPath("prompt");
-  if (path === "none") {
-    blockers.push({
-      code: "no-provider",
-      message:
-        "No AI provider is configured. Add a provider (or enable on-device AI) before running the Learning Agent.",
-      recovery: "ai.providers",
-    });
-    return {
-      ok: false,
-      status: readiness?.status ?? "setup-required",
-      capabilityRevision: revision,
-      readiness,
-      blockers,
-      limitations,
-      destinationChangeRequiresConsent: false,
-    };
-  }
+  const selection = options.selection;
 
-  const kind: "ondevice" | "cloud" = options.forceKind ?? (path === "ondevice" ? "ondevice" : "cloud");
-  const route = await resolveTaskRoute(agentRunnerTask, { kind }).catch(() => null);
-  if (!route) {
-    blockers.push({
-      code: "no-model",
-      message:
-        kind === "ondevice"
-          ? "On-device AI is selected but no model is ready. Open Settings → AI to finish setup."
-          : "The configured provider cannot run a structured agent turn. Choose a capable model in Settings → AI.",
-      recovery: kind === "ondevice" ? "ai.onDevice" : "ai.providers",
-    });
-  }
-
-  const provider = route?.provider;
+  let provider: AIProvider | undefined;
+  let kind: "ondevice" | "cloud" | undefined;
   let generation: DestinationClassification | undefined;
   let providerId: string | undefined;
-  if (provider) {
-    providerId = provider.id;
-    if (kind === "cloud") {
-      const config = getActiveCloudConfig();
-      if (!config) {
+  let selectedModel: string | undefined;
+
+  if (selection && selection.kind === "cloud") {
+    // Explicit selection path: never consult the router or the first-enabled
+    // cloud config. The selection's own configuration is the only source.
+    kind = "cloud";
+    const rows = useLLMProvidersStore.getState().providers;
+    const row = rows.find((p) => p.id === selection.config.id);
+    const usable =
+      row !== undefined &&
+      row.enabled &&
+      (row.apiKey.trim().length > 0 ||
+        providerAllowsKeylessAccess(row.provider, row.baseUrl));
+    if (!usable) {
+      blockers.push({
+        code: row ? "no-model" : "no-provider",
+        message: `The selected ${selection.config.provider} model is not configured for this run. ${
+          row ? "Enable it or add its API key" : "Add it"
+        } in Settings → AI; nothing was sent.`,
+        recovery: "ai.providers",
+      });
+    } else {
+      const frozen = { ...selection.config };
+      provider = new PinnedCloudProvider(frozen);
+      providerId = provider.id;
+      selectedModel = frozen.model;
+      generation = classifyCloudDestination({
+        provider: frozen.provider,
+        baseUrl: frozen.baseUrl,
+        hasApiKey: (frozen.apiKey ?? "").trim().length > 0,
+      });
+    }
+  } else {
+    const path = await resolveAiPath("prompt");
+    if (path === "none") {
+      blockers.push({
+        code: "no-provider",
+        message:
+          "No AI provider is configured. Add a provider (or enable on-device AI) before running the Learning Agent.",
+        recovery: "ai.providers",
+      });
+      return {
+        ok: false,
+        status: readiness?.status ?? "setup-required",
+        capabilityRevision: revision,
+        readiness,
+        blockers,
+        limitations,
+        destinationChangeRequiresConsent: false,
+      };
+    }
+
+    kind = options.forceKind ?? (path === "ondevice" ? "ondevice" : "cloud");
+    const route = await resolveTaskRoute(agentRunnerTask, { kind }).catch(() => null);
+    if (!route) {
+      blockers.push({
+        code: "no-model",
+        message:
+          kind === "ondevice"
+            ? "On-device AI is selected but no model is ready. Open Settings → AI to finish setup."
+            : "The configured provider cannot run a structured agent turn. Choose a capable model in Settings → AI.",
+        recovery: kind === "ondevice" ? "ai.onDevice" : "ai.providers",
+      });
+    }
+
+    provider = route?.provider;
+    if (provider) {
+      providerId = provider.id;
+      if (kind === "cloud") {
+        const config = getActiveCloudConfig();
+        if (!config) {
+          blockers.push({
+            code: "no-provider",
+            message: "The configured cloud provider is disabled or missing credentials.",
+            recovery: "ai.providers",
+          });
+        } else {
+          generation = classifyCloudDestination({
+            provider: config.provider,
+            baseUrl: config.baseUrl,
+            hasApiKey: (config.apiKey ?? "").trim().length > 0,
+          });
+          selectedModel = config.model;
+        }
+      } else {
+        generation = classifyNativeDestination(nativeProviderClass(provider.id));
+      }
+    }
+  }
+
+  // Declared capability negotiation (change §13): the agent contract's
+  // prompt + output reserve must fit the selected model's context. A too
+  // small context blocks before transmission with an explicit recovery.
+  if (provider && generation && kind === "cloud") {
+    const caps = await provider.getCapabilities().catch(() => undefined);
+    if (caps && caps.contextTokens > 0) {
+      const estimated =
+        estimateTokens(agentRunnerTask.systemInstruction) + estimateTokens("user intent (≤600 chars)");
+      const reserve = AGENT_MAX_OUTPUT_TOKENS + 256;
+      if (estimated + reserve > caps.contextTokens) {
         blockers.push({
-          code: "no-provider",
-          message: "The configured cloud provider is disabled or missing credentials.",
+          code: "no-model",
+          message:
+            "The selected model's context window is too small for this run. Choose a stronger model or reduce the scope (select a smaller section).",
           recovery: "ai.providers",
         });
-      } else {
-        generation = classifyCloudDestination({
-          provider: config.provider,
-          baseUrl: config.baseUrl,
-          hasApiKey: (config.apiKey ?? "").trim().length > 0,
-        });
       }
-    } else {
-      generation = classifyNativeDestination(nativeProviderClass(provider.id));
     }
   }
 
   if (provider && generation) {
+    const privacyModel = selectedModel ?? getActiveCloudConfig()?.model;
+    const privacyBaseUrl =
+      selection?.config.baseUrl ?? getActiveCloudConfig()?.baseUrl ?? undefined;
     const privacy = await enforceAssistantPrivacyAndConsent({
       documents: options.documents,
       providerId: provider.id,
-      model: getActiveCloudConfig()?.model,
-      baseUrl: getActiveCloudConfig()?.baseUrl ?? undefined,
+      model: privacyModel,
+      baseUrl: privacyBaseUrl,
       destination: {
         locality: generation.sendsOffDevice ? "remote" : "on-device",
         localityReason: generation.reasonKey,
@@ -629,7 +723,7 @@ export async function preflightLearningAgent(
       const granted = await requestPaidConsent({
         kind: "ai-fallback",
         provider: provider.id,
-        model: getActiveCloudConfig()?.model,
+        model: privacyModel,
         label: "Use paid cloud AI for this Learning Agent run",
       });
       if (!granted) {
@@ -956,6 +1050,13 @@ export interface LearningAgentGuardOptions {
   getProviderSnapshot?: () => { providerId: string; kind: string; baseUrl?: string; model?: string };
   /** Feature flag (defaults to settings). */
   isFeatureEnabled?: () => boolean;
+  /**
+   * The pinned route selection (change §2.3): when present, the cloud guard
+   * compares against THIS frozen snapshot (and the selected store row), so
+   * unrelated provider rows enabled/disabled mid-run never raise a false
+   * `destination-changed` stop.
+   */
+  selection?: LearningAgentRouteSelection;
 }
 
 /**
@@ -979,6 +1080,17 @@ export function createLearningAgentGuard(
   const providerSnapshot =
     options.getProviderSnapshot ??
     (() => {
+      if (options.selection && options.selection.kind === "cloud") {
+        const row = useLLMProvidersStore
+          .getState()
+          .providers.find((p) => p.id === options.selection!.config.id);
+        return {
+          providerId: row?.provider ?? "",
+          kind: row?.provider ?? "",
+          baseUrl: row?.baseUrl,
+          model: row?.model,
+        };
+      }
       const config = getActiveCloudConfig();
       return {
         providerId: config?.provider ?? "",
@@ -991,7 +1103,14 @@ export function createLearningAgentGuard(
     options.isFeatureEnabled ??
     (() => useSettingsStore.getState().settings.features?.aiAgent !== false);
 
-  const frozenProvider = providerSnapshot();
+  const frozenProvider = options.selection
+    ? {
+        providerId: options.selection.config.provider,
+        kind: options.selection.config.provider,
+        baseUrl: options.selection.config.baseUrl,
+        model: options.selection.config.model,
+      }
+    : providerSnapshot();
 
   return () => {
     if (!featureEnabled()) {
@@ -1065,6 +1184,12 @@ export interface LearningAgentRunOptions {
   guard?: () => AgentRunGuardViolation | null;
   /** Injectable clock (tests). */
   now?: () => number;
+  /** Bounds overrides (tests); forwarded to the loop. */
+  bounds?: import("../agent/bounds").AgentBoundsConfig;
+  /** Explicit route selection (change §2): frozen provider/model facts. */
+  selection?: LearningAgentRouteSelection;
+  /** Opt-in first-run protocol probe (change §13); disabled when absent. */
+  protocolProbe?: boolean;
 }
 
 export interface LearningAgentRunOutcome {
@@ -1099,14 +1224,94 @@ export async function runLearningAgent(
     wallClockMs,
     now,
   });
+  const sourceUnavailableResult = (): AgentRunResult => ({
+    answer: "",
+    endReason: "error",
+    explanation:
+      "selected scope too large for this model's context; select fewer/smaller sections",
+    sources: [],
+    proposals: [],
+    trace: [],
+    turns: 0,
+    toolCalls: 0,
+    diagnostics: createDiagnosticsLedger(),
+    error: {
+      category: "SourceUnavailable",
+      message: "The selected scope is too large for this model's context window.",
+    },
+  });
+
+  // Source-context preparation runs INSIDE the guarded region (change §6.2):
+  // a small-context provider must yield a typed source-specific ending, not
+  // an unhandled throw.
+  let seedFacts: { sectionChars: number; truncated: boolean } | undefined;
   if (run.section && options.provider) {
-    const capabilities = await options.provider.getCapabilities();
-    const bodyTokens = scopedBodyTokenBudget({ promptBudgetTokens: Math.min(capabilities.contextTokens - AGENT_MAX_OUTPUT_TOKENS - 256, (AGENT_TRANSCRIPT_CHAR_BUDGET - 2000) / 4), instructions: agentRunnerTask.systemInstruction, userPrompt: run.intent });
-    const scoped = budgetScopedBodies(run.section.bodies ?? [{ label: run.section.title ?? "Selected passage", text: run.section.text, selection: true }], bodyTokens);
-    run = { ...run, section: { ...run.section, text: scoped.content } };
+    try {
+      const capabilities = await options.provider.getCapabilities();
+      const bodyTokens = scopedBodyTokenBudget({
+        promptBudgetTokens: Math.min(
+          capabilities.contextTokens - AGENT_MAX_OUTPUT_TOKENS - 256,
+          (AGENT_TRANSCRIPT_CHAR_BUDGET - 2000) / 4
+        ),
+        instructions: agentRunnerTask.systemInstruction,
+        userPrompt: run.intent,
+      });
+      const scoped = budgetScopedBodies(
+        run.section.bodies ?? [
+          { label: run.section.title ?? "Selected passage", text: run.section.text, selection: true },
+        ],
+        bodyTokens
+      );
+      run = { ...run, section: { ...run.section, text: scoped.content } };
+      seedFacts = {
+        sectionChars: scoped.content.length,
+        truncated: scoped.content.includes("[Selected body truncated"),
+      };
+    } catch (error) {
+      const durationMs = Date.now() - startedAt;
+      const result = sourceUnavailableResult();
+      recordFeatureObservation({
+        featureId: LEARNING_AGENT_FEATURE_ID,
+        runId: run.runId,
+        stage: "generation",
+        level: "operational",
+        outcome: "failed",
+        durationMs,
+        capabilityRevision: options.capabilityRevision ?? run.capabilityRevision,
+        providerClass: run.generation.destination.providerClass,
+        modelClass: "full",
+        errorCategory: "SourceUnavailable",
+        recoveryCode: result.endReason,
+      });
+      return { run, result, deadline, durationMs };
+    }
   }
   const baseEnv = options.env ?? createFrozenAgentEnvironment(run, {}, deadline.signal);
   const capabilityRevision = options.capabilityRevision ?? run.capabilityRevision;
+
+  // Deterministic grounding seat (change §6.1): for section/selection-bearing
+  // scoped runs, read the frozen section through the environment, register its
+  // evidence handle, and seed the initial untrusted transcript with the
+  // budgeted text. Library/free-form scopes seed nothing.
+  let initialTranscript: string[] = [];
+  let evidenceSeeds: RegisterEvidenceInput[] = [];
+  if (run.scope === "section" && run.section && seedFacts) {
+    const sectionCtx = await baseEnv.getSectionContext?.().catch(() => null);
+    if (sectionCtx) {
+      evidenceSeeds = [
+        {
+          kind: "selection",
+          recordId: `section:${sectionCtx.locator ?? sectionCtx.documentId}`,
+          documentId: sectionCtx.documentId,
+          title: sectionCtx.title,
+          locator: sectionCtx.locator,
+          text: sectionCtx.text,
+          sourceRevision: sectionCtx.sourceRevision ?? run.sourceRevision,
+        },
+      ];
+      initialTranscript = [wrapUntrustedBlock("frozen-section-s1", sectionCtx.text)];
+    }
+  }
 
   // Instrument the injected environment's retrieval boundary for D0 without
   // changing any tool or provider behavior.
@@ -1156,20 +1361,68 @@ export async function runLearningAgent(
     modelClass: "full",
   });
 
-  let result: AgentRunResult;
+  let result: AgentRunResult | undefined;
   try {
-    result = await runAgentLoop({
-      intent: run.intent,
-      runId: run.runId,
-      env,
-      provider: options.provider,
-      kind: providerKindFor(run),
-      deadline,
-      guard: options.guard ?? createLearningAgentGuard(run),
-      observation: { capabilityRevision, smoke: options.smoke },
-      onEvent: options.onEvent,
-      bounds: { wallClockMs },
-    });
+    // Optional first-run protocol probe (change §13): opt-in only, triggered
+    // by this explicit run submission, bounded in size and never blocking the
+    // run; repeated failures surface as a typed compatibility note.
+    if (
+      options.protocolProbe === true &&
+      options.provider &&
+      options.selection?.kind === "cloud"
+    ) {
+      const existing = getProtocolProbe(
+        options.provider.id,
+        options.selection.config.model
+      );
+      if (!existing || !existing.ok) {
+        const probe = await runProtocolProbe(options.provider, {
+          signal: deadline.signal,
+          timeoutMs: 10_000,
+        });
+        if (!probe.ok && existing?.ok === false) {
+          result = {
+            answer: "",
+            endReason: "error",
+            explanation:
+              "This model may not reliably support the learning-agent turn format. Retry, or choose a different model in Settings → AI.",
+            sources: [],
+            proposals: [],
+            trace: [],
+            turns: 0,
+            toolCalls: 0,
+            diagnostics: createDiagnosticsLedger(),
+            error: {
+              category: "CapabilityUnavailable",
+              message: "The protocol probe failed for the selected model.",
+            },
+          };
+        }
+      }
+    }
+
+    if (!result) {
+      result = await runAgentLoop({
+        intent: run.intent,
+        runId: run.runId,
+        env,
+        provider: options.provider,
+        kind: providerKindFor(run),
+        deadline,
+        guard:
+          options.guard ??
+          createLearningAgentGuard(run, { selection: options.selection }),
+        observation: { capabilityRevision, smoke: options.smoke },
+        onEvent: options.onEvent,
+        bounds: { ...options.bounds, wallClockMs },
+        initialTranscript,
+        evidenceSeeds,
+        seed: seedFacts,
+        selection: options.selection
+          ? { providerId: options.selection.providerId, model: options.selection.config.model }
+          : undefined,
+      });
+    }
   } finally {
     // The deadline itself is released here; a late native response is already
     // discarded by the loop's terminal session and the caller's run token.
@@ -1177,12 +1430,19 @@ export async function runLearningAgent(
   }
 
   const durationMs = Date.now() - startedAt;
-  const outcome =
-    result.endReason === "cancelled" || result.endReason === "blocked"
-      ? "cancelled"
-      : result.endReason === "error" || result.endReason === "invalid-turn"
-        ? "failed"
-        : "success";
+  // Truthful completion classification (change §9.1): only final-answer
+  // records success; every bounded ending is incomplete (or partial when
+  // proposals exist); cancelled/blocked/error keep their precedence.
+  let outcome: "success" | "failed" | "cancelled" | "incomplete" = "incomplete";
+  if (result.endReason === "cancelled" || result.endReason === "blocked") {
+    outcome = "cancelled";
+  } else if (result.endReason === "error") {
+    outcome = "failed";
+  } else if (result.endReason === "final-answer") {
+    outcome = "success";
+  } else {
+    outcome = "incomplete";
+  }
   recordFeatureObservation({
     featureId: LEARNING_AGENT_FEATURE_ID,
     runId: run.runId,

@@ -16,12 +16,14 @@ import { fnv1aHash } from "../providers/types";
 import { normalizeToolCallKey } from "./bounds";
 import type { AgentToolOutcome } from "./tools/types";
 import type { AgentBoundReason } from "./bounds";
+import type { AgentRunDiagnostics } from "./diagnostics";
 
 export type AgentRunEndReason =
   | "final-answer"
   | AgentBoundReason
   | "cancelled"
-  | "invalid-turn"
+  | "agent-protocol"
+  | "no-progress"
   | "blocked"
   | "error";
 
@@ -44,6 +46,8 @@ export interface AgentRunTrace {
   endReason: AgentRunEndReason;
   /** Provider id that served the turns (diagnostics provenance). */
   providerId?: string;
+  /** Counter-only run ledger (route facts + outcomes; never content). */
+  diagnostics?: AgentRunDiagnostics;
 }
 
 export interface AgentTraceRecorder {
@@ -99,8 +103,8 @@ export function clearAgentTraces(): void {
 
 /**
  * Developer debug export (settings → AI → diagnostics): JSON-ready, sorted
- * oldest→newest. Contains tools, digests, durations, outcomes, bounds —
- * never argument or result content.
+ * oldest→newest. Contains tools, digests, durations, outcomes, bounds, route
+ * facts and counters — never argument or result content.
  */
 export function exportAgentTrace(): string {
   return JSON.stringify(
@@ -113,6 +117,7 @@ export function exportAgentTrace(): string {
         proposals: trace.proposals,
         endReason: trace.endReason,
         providerId: trace.providerId,
+        diagnostics: trace.diagnostics,
         toolCalls: trace.entries.map((e) => ({
           tool: e.tool,
           argsDigest: e.argsDigest,

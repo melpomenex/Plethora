@@ -59,11 +59,61 @@ export interface OnDeviceTaskDiagnostic {
   agentProposals?: number;
   /** End-reason category: final-answer | tool-budget | timeout | … */
   agentEndReason?: string;
+  /** Route facts (change fix-learning-agent-model-routing-and-tool-orchestration). */
+  agentSelectedProviderId?: string;
+  agentSelectedModel?: string;
+  agentServedProviderId?: string;
+  agentServedModel?: string;
+  agentEmptyTurns?: number;
+  agentOffContractTurns?: number;
+  agentRecoveryNotes?: number;
+  agentRepairAttempted?: number;
+  agentRepairSucceeded?: number;
+  agentToolOutcomeCounts?: {
+    attempted?: number;
+    validated?: number;
+    executed?: number;
+    ok?: number;
+    notFound?: number;
+    notAvailable?: number;
+    invalidInput?: number;
+    rejected?: number;
+    errored?: number;
+  };
   timestamp: number;
 }
 
 const diagnosticLog: OnDeviceTaskDiagnostic[] = [];
 const MAX_DIAGNOSTIC_ENTRIES = 50;
+
+/**
+ * Counter-only whitelist for the agent tool outcome ledger: only the known
+ * numeric keys survive; anything else (content, credentials, arbitrary keys)
+ * is dropped by construction.
+ */
+function sanitizeToolCounts(
+  counts: OnDeviceTaskDiagnostic["agentToolOutcomeCounts"]
+): OnDeviceTaskDiagnostic["agentToolOutcomeCounts"] | undefined {
+  if (!counts) return undefined;
+  const safe: NonNullable<OnDeviceTaskDiagnostic["agentToolOutcomeCounts"]> = {};
+  for (const key of [
+    "attempted",
+    "validated",
+    "executed",
+    "ok",
+    "notFound",
+    "notAvailable",
+    "invalidInput",
+    "rejected",
+    "errored",
+  ] as const) {
+    const value = counts[key];
+    if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+      safe[key] = Math.round(value);
+    }
+  }
+  return safe;
+}
 
 /**
  * Record a privacy-sanitized task diagnostic. Only the fields declared on
@@ -100,6 +150,16 @@ export function recordTaskDiagnostic(
     agentToolCalls: entry.agentToolCalls,
     agentProposals: entry.agentProposals,
     agentEndReason: entry.agentEndReason,
+    agentSelectedProviderId: entry.agentSelectedProviderId,
+    agentSelectedModel: entry.agentSelectedModel,
+    agentServedProviderId: entry.agentServedProviderId,
+    agentServedModel: entry.agentServedModel,
+    agentEmptyTurns: entry.agentEmptyTurns,
+    agentOffContractTurns: entry.agentOffContractTurns,
+    agentRecoveryNotes: entry.agentRecoveryNotes,
+    agentRepairAttempted: entry.agentRepairAttempted,
+    agentRepairSucceeded: entry.agentRepairSucceeded,
+    agentToolOutcomeCounts: sanitizeToolCounts(entry.agentToolOutcomeCounts),
     timestamp: Date.now(),
   };
 
@@ -143,7 +203,12 @@ export type FeatureStage = (typeof FEATURE_STAGES)[number];
 
 export type FeatureObservationLevel = "static" | "dependency" | "operational";
 
-export type FeatureObservationOutcome = "success" | "failed" | "cancelled" | "skipped";
+export type FeatureObservationOutcome =
+  | "success"
+  | "failed"
+  | "cancelled"
+  | "skipped"
+  | "incomplete";
 
 export interface FeatureObservation {
   readonly featureId: FeatureId;

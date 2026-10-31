@@ -131,6 +131,7 @@ describe("Learning Agent production integration", () => {
 
     const provider = new FakeAIProvider({
       kind: "ondevice",
+      capabilities: { contextTokens: 32000 },
       responses: [
         { requestId: "t1", text: JSON.stringify({ toolCalls: [{ tool: "search_library", input: { query: "entropy free energy" } }] }) },
         {
@@ -245,6 +246,7 @@ describe("Learning Agent production integration", () => {
     if (!prepared.ok) return;
     const provider = new FakeAIProvider({
       kind: "ondevice",
+      capabilities: { contextTokens: 32000 },
       responses: [new Error("native model unavailable")],
     });
     const env = createFrozenAgentEnvironment(prepared.run);
@@ -274,6 +276,7 @@ describe("Learning Agent production integration", () => {
     let calls = 0;
     const provider = new FakeAIProvider({
       kind: "ondevice",
+      capabilities: { contextTokens: 32000 },
       responses: [
         async () => {
           calls += 1;

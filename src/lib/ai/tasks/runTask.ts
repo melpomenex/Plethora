@@ -464,7 +464,7 @@ async function validateOutput<I, O>(
     }
     if (outcome !== undefined && isFailedOutcome(outcome)) {
       // 2. One repair retry through strict-JSON text mode.
-      const repaired = await repairOnce(task, input, ctx, outcome.errors);
+      const repaired = await repairOnce(task, input, ctx, outcome.errors, response);
       if (repaired) return repaired;
       throw invalidStructuredOutput(task.id, outcome.errors);
     }
@@ -473,30 +473,36 @@ async function validateOutput<I, O>(
   // 3. Strict-JSON parse of the text response.
   const parsed = parseStrictJson(response.text);
   if (isParseFailure(parsed)) {
-    // Truncation salvage (device reports: "Unterminated string … at position
-    // N"): output clipped at the token cap. Close strings/brackets and drop
-    // the incomplete tail programmatically — a proposal missing its last,
-    // half-written entry beats no proposal, and the repair retry would
-    // truncate again at the same cap. The task validator still gates this.
-    const salvaged = repairTruncatedJson(response.text);
-    if (salvaged !== null) {
-      const outcome = attempt(salvaged);
-      if (outcome !== undefined && isValidOutcome(outcome)) {
-        return { value: outcome.value, validationOutcome: "truncated-json-salvaged" };
+    const empty = parsed.error === "empty response";
+    const emptyErrors = empty
+      ? ["empty response (provider body had no content)"]
+      : [parsed.error];
+    if (!empty) {
+      // Truncation salvage (device reports: "Unterminated string … at position
+      // N"): output clipped at the token cap. Close strings/brackets and drop
+      // the incomplete tail programmatically — a proposal missing its last,
+      // half-written entry beats no proposal, and the repair retry would
+      // truncate again at the same cap. The task validator still gates this.
+      const salvaged = repairTruncatedJson(response.text);
+      if (salvaged !== null) {
+        const outcome = attempt(salvaged);
+        if (outcome !== undefined && isValidOutcome(outcome)) {
+          return { value: outcome.value, validationOutcome: "truncated-json-salvaged" };
+        }
+        // Salvage parsed but failed validation: repair against the real
+        // validation errors rather than the parse error.
+        const errors =
+          outcome !== undefined && isFailedOutcome(outcome)
+            ? outcome.errors
+            : [parsed.error];
+        const repaired = await repairOnce(task, input, ctx, errors, response);
+        if (repaired) return repaired;
+        throw invalidStructuredOutput(task.id, errors);
       }
-      // Salvage parsed but failed validation: repair against the real
-      // validation errors rather than the parse error.
-      const errors =
-        outcome !== undefined && isFailedOutcome(outcome)
-          ? outcome.errors
-          : [parsed.error];
-      const repaired = await repairOnce(task, input, ctx, errors);
-      if (repaired) return repaired;
-      throw invalidStructuredOutput(task.id, errors);
     }
-    const repaired = await repairOnce(task, input, ctx, [parsed.error]);
+    const repaired = await repairOnce(task, input, ctx, emptyErrors, response);
     if (repaired) return repaired;
-    throw invalidStructuredOutput(task.id, [parsed.error]);
+    throw invalidStructuredOutput(task.id, emptyErrors);
   }
   const outcome = attempt(parsed.value);
   if (outcome !== undefined && isValidOutcome(outcome)) {
@@ -506,25 +512,37 @@ async function validateOutput<I, O>(
     outcome !== undefined && isFailedOutcome(outcome)
       ? outcome.errors
       : ["structured output failed validation"];
-  const repaired = await repairOnce(task, input, ctx, errors);
+  const repaired = await repairOnce(task, input, ctx, errors, response);
   if (repaired) return repaired;
   throw invalidStructuredOutput(task.id, errors);
 }
+
+/** Bound for the rejected-response excerpt embedded in a repair request. */
+const REPAIR_REJECTED_BOUND = 2_000;
 
 async function repairOnce<I, O>(
   task: AITaskDefinition<I, O>,
   input: I,
   ctx: GenerationContext,
-  errors: string[]
+  errors: string[],
+  rejected?: AIResponse
 ): Promise<{ value: O; validationOutcome: AITaskValidationOutcome } | undefined> {
-  // A truncation-shaped parse error means the previous output was cut off
-  // at the token cap — tell the model to compact and shorten instead of
-  // re-emitting the same length (which would truncate identically).
-  const truncationHint = errors.some((e) =>
-    /Unterminated string|Unexpected end|truncat/i.test(e)
-  )
-    ? "\nYour previous output was CUT OFF at the output-token limit. Shorten the content (fewer or terser entries) so the JSON document completes within the limit."
-    : "";
+  // A truncation-shaped parse error or a provider-reported "length" finish
+  // reason means the previous output was cut off at the token cap — tell the
+  // model to compact and shorten instead of re-emitting the same length
+  // (which would truncate identically).
+  const truncationHint =
+    errors.some((e) => /Unterminated string|Unexpected end|truncat/i.test(e)) ||
+    rejected?.finishReason === "length"
+      ? "\nYour previous output was CUT OFF at the output-token limit. Shorten the content (fewer or terser entries) so the JSON document completes within the limit."
+      : "";
+  const raw = rejected?.text ?? "";
+  const rawExcerpt =
+    raw.length === 0
+      ? "(empty response)"
+      : raw.length <= REPAIR_REJECTED_BOUND
+        ? raw
+        : `${raw.slice(0, REPAIR_REJECTED_BOUND)}\n…[truncated; ${raw.length} chars total]`;
   const repairRequest: AIRequest = {
     requestId: makeRequestId(`${task.id}-repair`),
     systemInstruction: `${task.systemInstruction}\n\n${STRICT_JSON_PREAMBLE} ${
@@ -533,7 +551,7 @@ async function repairOnce<I, O>(
     text: `${ctx.built.text}\n\n${REPAIR_PREAMBLE}\n${errors
       .slice(0, 8)
       .map((e) => `- ${e}`)
-      .join("\n")}${truncationHint}\n${REPAIR_INSTRUCTION}`,
+      .join("\n")}${truncationHint}\n\nYour rejected response (bounded):\n${rawExcerpt}\n${REPAIR_INSTRUCTION}`,
     image: ctx.built.image,
     maxOutputTokens: ctx.maxOutputTokens,
     structured: false,
@@ -611,6 +629,21 @@ function makeRequestId(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+/** Derive the validation-outcome class from a thrown AIError's details. */
+function validationOutcomeForError(error: AIError): AITaskValidationOutcome | undefined {
+  if (error.category !== "InvalidStructuredOutput") return undefined;
+  const details = (error.details ?? []) as string[];
+  if (details.some((d) => typeof d === "string" && d.includes("empty response"))) {
+    return "empty-response";
+  }
+  if (
+    details.some((d) => typeof d === "string" && /Unterminated string|Unexpected end|truncat/i.test(d))
+  ) {
+    return "truncated-json";
+  }
+  return "invalid-structured-output";
+}
+
 function recordFailure<I, O>(
   task: AITaskDefinition<I, O>,
   options: AITaskRunOptions,
@@ -648,7 +681,7 @@ function recordFailure<I, O>(
     capabilityHash,
     retrievalCount: options.retrieval?.count ?? 0,
     chunkIds: options.retrieval?.chunkIds ?? [],
-    validationOutcome: error.category === "InvalidStructuredOutput" ? "invalid-structured-output" : undefined,
+    validationOutcome: validationOutcomeForError(error),
     fallbackPath: route?.fallbackPath,
     errorCategory: error.category,
     errorCode: error.code,
