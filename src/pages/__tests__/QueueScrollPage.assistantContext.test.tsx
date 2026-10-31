@@ -8,7 +8,7 @@
  * internals — only stores, API modules, and the leaf viewer components.
  */
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
-import { render, screen, act, waitFor } from "@testing-library/react";
+import { render, screen, act, waitFor, fireEvent } from "@testing-library/react";
 
 const mocks = vi.hoisted(() => {
   const queueState: Record<string, any> = {
@@ -224,7 +224,17 @@ const panelProbe = vi.hoisted(() => ({ context: null as any }));
 vi.mock("../../components/assistant/AssistantPanel", () => ({
   AssistantPanel: (props: any) => {
     panelProbe.context = props.context;
-    return <div data-testid="assistant-panel-probe" />;
+    return (
+      <div data-testid="assistant-panel-probe" className={props.className}>
+        <div data-testid="assistant-messages-probe" data-assistant-messages className="overflow-y-auto">
+          {Array.from({ length: 12 }, (_, index) => (
+            <div key={index} data-assistant-message-id={`assistant-${index}`} style={{ height: 80 }}>
+              Assistant message {index}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   },
   ASSISTANT_MIN_WIDTH: 300,
   ASSISTANT_MAX_WIDTH: 800,
@@ -332,6 +342,8 @@ const youtubeDoc = makeDocument(
   "https://www.youtube.com/watch?v=vid-1",
 );
 const pdfDoc = makeDocument("doc-pdf", "Cells Paper", "pdf", "/tmp/cells.pdf");
+const firstEpubDoc = makeDocument("doc-epub-1", "First EPUB", "epub", "/tmp/first.epub");
+const secondEpubDoc = makeDocument("doc-epub-2", "Second EPUB", "epub", "/tmp/second.epub");
 
 beforeAll(() => {
   Element.prototype.scrollTo = () => {};
@@ -455,5 +467,79 @@ describe("Queue Scroll assistant context parity", () => {
       expect(panelProbe.context?.selection).toBe("the selected membrane passage");
     });
     expect(screen.getByTestId("assistant-panel-probe")).toBeInTheDocument();
+  });
+
+  it("keeps the Assistant transcript in place while viewing an EPUB in Scroll Mode", async () => {
+    const items = [
+      makeDocRow(firstEpubDoc.id, firstEpubDoc.title, 11),
+      makeDocRow(secondEpubDoc.id, secondEpubDoc.title, 10),
+    ];
+    mocks.queueState.filteredItems = items;
+    mocks.queueState.items = items;
+    mocks.tabsState.tabs[0].data = {
+      queueScrollMode: "queue-list",
+      customQueueItems: items,
+    };
+    useDocumentStore.setState({ documents: [firstEpubDoc, secondEpubDoc] });
+
+    render(<QueueScrollPage />);
+    const viewer = await screen.findByTestId("document-viewer");
+    expect(viewer).toHaveAttribute("data-document-id", firstEpubDoc.id);
+
+    const assistant = screen.getByTestId("assistant-panel-probe");
+    expect(assistant).toHaveClass("assistant-panel");
+    const transcript = screen.getByTestId("assistant-messages-probe");
+    Object.defineProperties(transcript, {
+      scrollHeight: { configurable: true, value: 1200 },
+      clientHeight: { configurable: true, value: 300 },
+    });
+    transcript.scrollTop = 240;
+
+    fireEvent.wheel(transcript, { deltaY: 120 });
+    expect(screen.getByTestId("document-viewer")).toHaveAttribute("data-document-id", firstEpubDoc.id);
+    expect(transcript.scrollTop).toBe(240);
+
+    act(() => viewerProbe.props.onScrollPositionChange({ scrollPercent: 100 }));
+    fireEvent.touchStart(transcript, { touches: [{ clientX: 100, clientY: 450 }] });
+    fireEvent.touchMove(transcript, { touches: [{ clientX: 100, clientY: 100 }] });
+    fireEvent.touchEnd(transcript, { changedTouches: [{ clientX: 100, clientY: 100 }] });
+
+    expect(screen.getByTestId("document-viewer")).toHaveAttribute("data-document-id", firstEpubDoc.id);
+    expect(transcript.scrollTop).toBe(240);
+  });
+
+  it("does not reset the Assistant transcript when the delayed EPUB item reset runs", async () => {
+    const items = [
+      makeDocRow(firstEpubDoc.id, firstEpubDoc.title, 11),
+      makeDocRow(secondEpubDoc.id, secondEpubDoc.title, 10),
+    ];
+    mocks.queueState.filteredItems = items;
+    mocks.queueState.items = items;
+    mocks.tabsState.tabs[0].data = {
+      queueScrollMode: "queue-list",
+      customQueueItems: items,
+    };
+    useDocumentStore.setState({ documents: [firstEpubDoc, secondEpubDoc] });
+
+    render(<QueueScrollPage />);
+    expect(await screen.findByTestId("document-viewer")).toHaveAttribute("data-document-id", firstEpubDoc.id);
+
+    const transcript = screen.getByTestId("assistant-messages-probe");
+    Object.defineProperties(transcript, {
+      scrollHeight: { configurable: true, value: 1200 },
+      clientHeight: { configurable: true, value: 300 },
+    });
+    transcript.scrollTop = 900;
+
+    fireEvent.keyDown(window, { key: "ArrowDown" });
+    expect(await screen.findByTestId("document-viewer")).toHaveAttribute("data-document-id", secondEpubDoc.id);
+
+    // Queue Scroll Mode resets its reader surface 300 ms after navigation.
+    // That delayed reset must not reach the independently scrolling Assistant.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 350));
+    });
+
+    expect(transcript.scrollTop).toBe(900);
   });
 });
