@@ -94,6 +94,92 @@ describe("parseAssistantToolCalls (4-stage resilient parser)", () => {
     ]);
   });
 
+  it("normalizes Apple-style front/back card aliases", () => {
+    const input = [
+      "```tool_calls",
+      JSON.stringify([
+        { name: "create_qa_card", arguments: { front: "What is Q?", back: "A" } },
+        { name: "create_cloze_card", arguments: { front: "The {{heart}} pumps blood." } },
+      ]),
+      "```",
+    ].join("\n");
+
+    const { toolCalls } = parseAssistantToolCalls(input, TOOLS);
+    expect(toolCalls).toEqual([
+      { name: "create_qa_card", parameters: { front: "What is Q?", back: "A", question: "What is Q?", answer: "A" }, status: "pending" },
+      { name: "create_cloze_card", parameters: { front: "The {{heart}} pumps blood.", text: "The {{heart}} pumps blood." }, status: "pending" },
+    ]);
+  });
+
+  it("unwraps stringified arguments and batch card arrays", () => {
+    const stringified = [
+      "```tool_calls",
+      JSON.stringify([{
+        name: "batch_create_cards",
+        arguments: JSON.stringify({
+          cards: JSON.stringify([
+            { front: "First question?", back: "First answer." },
+            { card_type: "cloze", front: "The {{second}} answer is hidden." },
+          ]),
+        }),
+      }]),
+      "```",
+    ].join("\n");
+
+    const { toolCalls } = parseAssistantToolCalls(stringified, TOOLS);
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0].parameters.cards).toEqual([
+      expect.objectContaining({ type: "qa", question: "First question?", answer: "First answer." }),
+      expect.objectContaining({ type: "cloze", question: "The {{second}} answer is hidden.", text: "The {{second}} answer is hidden." }),
+    ]);
+  });
+
+  it("turns a bare cards object into batch_create_cards", () => {
+    const input = [
+      "```json",
+      JSON.stringify({ cards: [{ front: "Q1", back: "A1" }, { type: "cloze", question: "The {{heart}} pumps blood." }] }),
+      "```",
+    ].join("\n");
+
+    const { toolCalls } = parseAssistantToolCalls(input, TOOLS);
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0].name).toBe("batch_create_cards");
+    expect(toolCalls[0].parameters.cards).toHaveLength(2);
+  });
+
+  it("drops empty batch candidates instead of emitting invalid cards", () => {
+    const input = [
+      "```tool_calls",
+      JSON.stringify([{
+        name: "batch_create_cards",
+        arguments: { cards: [{ type: "qa", question: "", answer: "" }, { type: "qa", front: "Q", back: "A" }] },
+      }]),
+      "```",
+    ].join("\n");
+
+    const { toolCalls } = parseAssistantToolCalls(input, TOOLS);
+    expect(toolCalls[0].parameters.cards).toEqual([
+      expect.objectContaining({ type: "qa", question: "Q", answer: "A" }),
+    ]);
+  });
+
+  it("turns bare card arrays into card tool calls", () => {
+    const input = [
+      "```json",
+      JSON.stringify([
+        { front: "What is Q?", back: "A" },
+        { card_type: "cloze", question: "The {{heart}} pumps blood." },
+      ]),
+      "```",
+    ].join("\n");
+
+    const { toolCalls } = parseAssistantToolCalls(input, TOOLS);
+    expect(toolCalls).toEqual([
+      { name: "create_qa_card", parameters: { question: "What is Q?", answer: "A", tags: undefined }, status: "pending" },
+      { name: "create_cloze_card", parameters: { text: "The {{heart}} pumps blood.", tags: undefined }, status: "pending" },
+    ]);
+  });
+
   it("normalizes document_id, deck tag, and source provenance", () => {
     const params = normalizeAssistantToolParameters(
       "create_qa_card",

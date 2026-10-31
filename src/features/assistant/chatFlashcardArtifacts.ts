@@ -1,4 +1,8 @@
 import type { FrozenAssistantSource } from "../../lib/ai/assistant/sourceEnvelope";
+import {
+  normalizeCardCandidate,
+  normalizeCardToolParameters,
+} from "../../lib/ai/assistant/cardToolParameters";
 import type { SectionSourceReference } from "../../utils/sectionIndex";
 
 export type ChatFlashcardStatus = "pending" | "saved" | "failed" | "preview";
@@ -42,11 +46,12 @@ export function normalizeParsedToolCall(value: unknown): ChatToolCall | null {
   const raw = value as Record<string, unknown>;
   if (typeof raw.name !== "string") return null;
   const args = raw.arguments ?? raw.parameters;
+  const parameters = args && typeof args === "object" && !Array.isArray(args)
+    ? args as Record<string, unknown>
+    : {};
   return {
     name: raw.name,
-    parameters: args && typeof args === "object" && !Array.isArray(args)
-      ? args as Record<string, unknown>
-      : {},
+    parameters: normalizeCardToolParameters(raw.name, parameters),
     status: raw.status === "success" || raw.status === "error" ? raw.status : "pending",
     result: raw.result,
   };
@@ -203,7 +208,9 @@ export function toolCallsToFlashcardArtifacts(
     const call = normalizeParsedToolCall(raw);
     if (!call || !isFlashcardToolCall(call)) return;
     if (call.name === "batch_create_cards") {
-      const cards = Array.isArray(call.parameters.cards) ? call.parameters.cards : [];
+      const cards = Array.isArray(call.parameters.cards)
+        ? call.parameters.cards.map((card) => normalizeCardCandidate(card))
+        : [];
       const persistedResults = batchResults(call.result);
       cards.forEach((rawCard, cardIndex) => {
         if (!rawCard || typeof rawCard !== "object" || Array.isArray(rawCard)) return;

@@ -25,6 +25,16 @@ describe("chat flashcard artifact normalization", () => {
     expect(nonFlashcardToolCalls(calls).map((call) => call.name)).toEqual(["create_extract"]);
   });
 
+  it("accepts legacy front/back card aliases from Apple-style models", () => {
+    const artifacts = toolCallsToFlashcardArtifacts("message-1", [
+      { name: "create_qa_card", parameters: { front: "Why front?", back: "Because back." }, status: "success", result: { id: "card-front" } },
+      { name: "create_cloze_card", parameters: { front: "The {{heart}} pumps blood." }, status: "success", result: { id: "card-cloze" } },
+    ]);
+    expect(artifacts).toHaveLength(2);
+    expect(artifacts[0]).toMatchObject({ type: "qa", front: "Why front?", back: "Because back.", persistedCardId: "card-front" });
+    expect(artifacts[1]).toMatchObject({ type: "cloze", front: "The {{heart}} pumps blood.", persistedCardId: "card-cloze" });
+  });
+
   it("defensively ignores null legacy fields and malformed card calls", () => {
     expect(toolCallsToFlashcardArtifacts("message-1", null)).toEqual([]);
     expect(toolCallsToFlashcardArtifacts("message-1", [null, { name: "create_qa_card", parameters: null }])).toEqual([expect.objectContaining({ status: "failed", retryable: false })]);

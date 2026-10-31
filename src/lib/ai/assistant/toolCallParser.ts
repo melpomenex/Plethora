@@ -1,5 +1,10 @@
 import type { FrozenAssistantSource } from "./sourceEnvelope";
 import { isTwentyRulesCommand } from "../knowledgeFormulation";
+import {
+  isUsableCardCandidate,
+  normalizeCardCandidate,
+  normalizeCardToolParameters,
+} from "./cardToolParameters";
 
 /** Writes require the user's create intent; a model tool call is not consent. */
 export function allowsChatCardCreation(prompt: string): boolean {
@@ -51,6 +56,27 @@ function extractCalls(
   if (Array.isArray(parsed)) return parsed;
   if (parsed && typeof parsed === "object") {
     const record = parsed as Record<string, unknown>;
+    if (typeof record.tool_calls === "string") {
+      try {
+        const toolCalls: unknown = JSON.parse(record.tool_calls);
+        if (Array.isArray(toolCalls)) {
+          return toolCalls as Array<{
+            name?: string;
+            arguments?: Record<string, unknown>;
+            parameters?: Record<string, unknown>;
+          }>;
+        }
+        if (toolCalls && typeof toolCalls === "object" && Array.isArray((toolCalls as Record<string, unknown>).tool_calls)) {
+          return (toolCalls as Record<string, unknown>).tool_calls as Array<{
+            name?: string;
+            arguments?: Record<string, unknown>;
+            parameters?: Record<string, unknown>;
+          }>;
+        }
+      } catch {
+        return [];
+      }
+    }
     if (Array.isArray(record.tool_calls)) {
       return record.tool_calls as Array<{
         name?: string;
@@ -69,6 +95,50 @@ function extractCalls(
     }
   }
   return [];
+}
+
+function objectValue(value: unknown): Record<string, unknown> | undefined {
+  if (typeof value === "string") {
+    try {
+      const parsed: unknown = JSON.parse(value);
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : undefined;
+}
+
+function withUsableBatchCards(call: ParsedToolCall): ParsedToolCall {
+  if (call.name !== "batch_create_cards" || !Array.isArray(call.parameters.cards)) return call;
+  return {
+    ...call,
+    parameters: {
+      ...call.parameters,
+      cards: call.parameters.cards.filter((card) => isUsableCardCandidate(card)),
+    },
+  };
+}
+
+function bareCardCall(record: Record<string, unknown>): ParsedToolCall | undefined {
+  const card = normalizeCardCandidate(record);
+  if (!isUsableCardCandidate(card)) return undefined;
+  const tags = Array.isArray(record.tags) ? record.tags : undefined;
+  if (card.type === "cloze") {
+    const text = typeof card.text === "string" ? card.text : card.question;
+    return typeof text === "string"
+      ? { name: "create_cloze_card", parameters: { text, tags }, status: "pending" }
+      : undefined;
+  }
+  const question = typeof card.question === "string" ? card.question : undefined;
+  const answer = typeof card.answer === "string" ? card.answer : undefined;
+  return question && answer
+    ? { name: "create_qa_card", parameters: { question, answer, tags }, status: "pending" }
+    : undefined;
 }
 
 function balancedJsonFragments(text: string): string[] {
@@ -101,18 +171,22 @@ export function parseAssistantToolCalls(content: string, availableTools: Readonl
   const decode = (raw: string): ParsedToolCall[] => {
     try {
       const parsed: unknown = JSON.parse(raw);
-      return extractCalls(parsed).flatMap((call) => {
+      const record = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed as Record<string, unknown>
+        : undefined;
+      const bareBatch = record && typeof record.name !== "string" && known.has("batch_create_cards")
+        && (Array.isArray(record.cards) || Array.isArray(record.items) || Array.isArray(record.flashcards))
+        ? [withUsableBatchCards({ name: "batch_create_cards", parameters: normalizeCardToolParameters("batch_create_cards", record), status: "pending" as const })]
+        : [];
+      return [...bareBatch, ...extractCalls(parsed).flatMap((call) => {
         if (!call || typeof call !== "object") return [];
         if (call.name && known.has(call.name)) {
-          const args = call.arguments ?? call.parameters;
-          return [{ name: call.name, parameters: args && typeof args === "object" && !Array.isArray(args) ? args : {}, status: "pending" as const }];
+          const args = objectValue(call.arguments ?? call.parameters) ?? {};
+          return [withUsableBatchCards({ name: call.name, parameters: normalizeCardToolParameters(call.name, args), status: "pending" as const })];
         }
-        const record = call as Record<string, unknown>;
-        const question = record.question ?? record.Q ?? record.q;
-        const answer = record.answer ?? record.A ?? record.a;
-        return known.has("create_qa_card") && typeof question === "string" && typeof answer === "string"
-          ? [{ name: "create_qa_card", parameters: { question, answer }, status: "pending" as const }] : [];
-      });
+        const bare = bareCardCall(call as Record<string, unknown>);
+        return bare && known.has(bare.name) ? [bare] : [];
+      })];
     } catch { return []; }
   };
   for (const pattern of [/```tool_calls\s*([\s\S]*?)```/g, /```(?:json)?\s*([\s\S]*?)```/g]) {
@@ -139,7 +213,7 @@ export function normalizeAssistantToolParameters(
     sourceEnvelope?: FrozenAssistantSource;
   },
 ): Record<string, unknown> {
-  const normalized: Record<string, unknown> = { ...parameters };
+  const normalized: Record<string, unknown> = normalizeCardToolParameters(toolName, parameters);
   const documentId = options?.sourceEnvelope?.documentId ?? options?.documentId;
   const deckName = getDocumentDeckName(options?.documentTitle);
 
