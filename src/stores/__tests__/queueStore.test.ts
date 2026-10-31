@@ -18,6 +18,7 @@ vi.mock("../collectionStore", () => ({
 }));
 
 import { useQueueStore } from "../queueStore";
+import * as queueApi from "../../api/queue";
 
 const baseItem = {
   documentTitle: "Title",
@@ -379,6 +380,30 @@ describe("queueStore optimistic bulk patching (queue-bulk-actions)", () => {
   ];
   const priorityOf = (id: string) =>
     useQueueStore.getState().items.find((i) => i.id === id)?.priority;
+
+  it("sends mixed typed targets once and maps failures back to selected rows", async () => {
+    const originalReload = useQueueStore.getState().reloadForCurrentMode;
+    const items = [
+      { ...baseItem, id: "document-row", documentId: "parent" },
+      { ...baseItem, id: "extract-row", documentId: "parent", itemType: "extract" as const, extractId: "extract-1" },
+      { ...baseItem, id: "card-row", documentId: "parent", itemType: "learning-item" as const, learningItemId: "card-1" },
+    ];
+    const dispatch = vi.spyOn(queueApi, "bulkUpdateTypedItemPriorities").mockResolvedValue({
+      succeeded: ["document:parent", "learning-item:card-1"], failed: ["extract:extract-1"], errors: ["missing"],
+    });
+    const reload = vi.fn(async () => {});
+    useQueueStore.setState({ items, filteredItems: items, selectedIds: new Set(items.map((item) => item.id)), loadStats: async () => {}, reloadForCurrentMode: reload });
+    const result = await useQueueStore.getState().bulkSetPriority(73);
+    expect(dispatch).toHaveBeenCalledOnce();
+    expect(dispatch).toHaveBeenCalledWith([
+      { kind: "document", id: "parent" }, { kind: "extract", id: "extract-1" }, { kind: "learning-item", id: "card-1" },
+    ], 73);
+    expect(result.failed).toEqual(["extract-row"]);
+    expect(result.succeeded).toEqual(["document-row", "card-row"]);
+    expect(reload).toHaveBeenCalledOnce();
+    dispatch.mockRestore();
+    useQueueStore.setState({ reloadForCurrentMode: originalReload });
+  });
 
   beforeEach(() => {
     const items = rows();

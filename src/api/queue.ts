@@ -45,6 +45,11 @@ export interface RustQueueItem {
   item_type: string;
   priority_rating?: number;
   priority_slider?: number;
+  /** Authoritative 0-100 slider readback; never a rank key. */
+  priority_display_slider?: number;
+  priority_explicitly_set?: boolean;
+  priority_score?: number;
+  entity_id?: string;
   priority: number;
   due_date?: string;
   estimated_time: number;
@@ -76,9 +81,13 @@ export function convertQueueItem(item: RustQueueItem): QueueItem {
     answer: item.answer,
     clozeText: item.cloze_text,
     learningHint: item.learning_hint,
-    itemType: item.item_type as "document" | "extract" | "learning-item" | "playlist-video",
+    itemType: item.item_type as QueueItem["itemType"],
     priorityRating: item.priority_rating,
     prioritySlider: item.priority_slider,
+    priorityDisplaySlider: item.priority_display_slider,
+    priorityExplicitlySet: item.priority_explicitly_set,
+    priorityScore: item.priority_score,
+    entityId: item.entity_id,
     priority: item.priority,
     dueDate: item.due_date,
     estimatedTime: item.estimated_time,
@@ -311,8 +320,7 @@ export type LifecycleTransition = "done" | "dismiss" | "forget";
 /**
  * Set one priority slider value (0-100) across a mixed selection.
  *
- * Flashcards have no priority column, so any learning-item ids come back in
- * `failed` rather than being silently skipped.
+ * Documents, extracts, and learning items are updated by the same batch.
  */
 export async function bulkUpdateItemPriorities(
   itemIds: string[],
@@ -322,6 +330,20 @@ export async function bulkUpdateItemPriorities(
     itemIds,
     slider,
   });
+}
+
+export type QueuePriorityTarget = { id: string; kind: "document" | "extract" | "learning-item" | "rss-article" | "podcast-episode" | "video-extract" };
+
+export interface ExternalQueuePriority { kind: QueuePriorityTarget["kind"]; itemId: string; slider: number }
+export async function getQueueExternalPriorities(): Promise<ExternalQueuePriority[]> {
+  return invokeCommand<ExternalQueuePriority[]>("get_queue_external_priorities");
+}
+
+export async function bulkUpdateTypedItemPriorities(
+  targets: QueuePriorityTarget[],
+  slider: number,
+): Promise<BulkOperationResult> {
+  return invokeCommand<BulkOperationResult>("bulk_update_typed_item_priorities", { targets, slider });
 }
 
 /** Push a mixed selection out by a fixed number of days. */

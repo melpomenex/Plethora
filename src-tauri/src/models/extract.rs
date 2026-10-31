@@ -57,6 +57,9 @@ pub struct Extract {
     /// May be overridden per-extract via `set_extract_priority`.
     #[serde(default)]
     pub priority_score: f64,
+    /// Explicit user priority; None means inherited or a legacy unknown value.
+    #[serde(default)]
+    pub priority_slider: Option<i32>,
     /// Dismissed extracts leave the review queue but remain in the library
     /// (Dismiss lifecycle action).
     #[serde(default)]
@@ -99,6 +102,7 @@ impl Extract {
             reps: 0,
             source_hash: None,
             priority_score: 0.0,
+            priority_slider: None,
             is_dismissed: false,
             total_time_spent: None,
         }

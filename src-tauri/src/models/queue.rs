@@ -21,6 +21,11 @@ pub struct QueueItem {
     pub item_type: String, // "document", "extract", "video-extract", "learning-item", "playlist-video"
     pub priority_rating: Option<i32>,
     pub priority_slider: Option<i32>,
+    /// Authoritative 0-100 slider readback for display. Unlike
+    /// `priority_slider` this includes inherited values and legacy rating
+    /// fallbacks, so it is never a rank key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority_display_slider: Option<i32>,
     pub priority: f64,
     pub due_date: Option<String>,
     pub estimated_time: i32, // in minutes

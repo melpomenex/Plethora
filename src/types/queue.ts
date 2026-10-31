@@ -28,9 +28,14 @@ export interface QueueItem {
   clozeText?: string;
   /** Bounded (~80 char) pre-stripped content preview, populated in slim listings. */
   learningHint?: string;
-  itemType: "document" | "extract" | "learning-item" | "playlist-video" | "rss-article";
+  itemType: "document" | "extract" | "learning-item" | "playlist-video" | "rss-article" | "video-extract";
   priorityRating?: number;
   prioritySlider?: number;
+  /**
+   * Authoritative 0–100 slider readback for display, including inherited
+   * extract values and legacy rating fallbacks. Never the queue rank key.
+   */
+  priorityDisplaySlider?: number;
   /** Inherited priority score (0–100) from the parent document; present on extract items. */
   priorityScore?: number;
   priority: number;

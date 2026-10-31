@@ -34,8 +34,10 @@ export interface Extract {
     stability: number;
     difficulty: number;
   };
-  /** Inherited priority score (0–100) from the parent document. */
+  /** Internal queue order key, not the user-facing slider. */
   priority_score?: number;
+  /** Explicit user slider, or null for inherited/legacy priority. */
+  priority_slider?: number | null;
   /** Dismissed extracts leave the review queue but remain in the library. */
   is_dismissed?: boolean;
   /**
@@ -82,7 +84,7 @@ const EXTRACT_FIELD_ALIASES = {
   max_disclosure_level: "maxDisclosureLevel", progressive_summaries: "progressiveSummaries",
   date_created: "dateCreated", date_modified: "dateModified", next_review_date: "nextReviewDate",
   last_review_date: "lastReviewDate", review_count: "reviewCount", memory_state: "memoryState",
-  priority_score: "priorityScore", is_dismissed: "isDismissed", total_time_spent: "totalTimeSpent",
+  priority_score: "priorityScore", priority_slider: "prioritySlider", is_dismissed: "isDismissed", total_time_spent: "totalTimeSpent",
 } as const;
 
 function normalizeExtract(input: Extract): Extract {

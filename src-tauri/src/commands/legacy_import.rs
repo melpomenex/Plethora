@@ -648,6 +648,7 @@ fn parse_extract_row(row: &sqlx::sqlite::SqliteRow) -> Result<Extract> {
         progressive_summaries: None,
         source_hash: None,
         priority_score: 0.0,
+        priority_slider: None,
         is_dismissed: false,
         total_time_spent: None,
     })

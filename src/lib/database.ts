@@ -8,7 +8,7 @@ import type { PdfSelectionContext } from '../types/selection';
 import { isMarketingCaptureNamespace } from './marketingCapture/namespace';
 
 // Database version - increment when schema changes
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 const DEFAULT_DB_NAME = 'plethora';
 // Legacy database name written by Incrementum releases. The one-shot
 // migration below copies its contents into the new database on first run;
@@ -29,6 +29,7 @@ const STORES = {
     audioPlayback: 'audio_playback',
     videoExtracts: 'video_extracts',
     videoExtractReviewEvents: 'video_extract_review_events',
+    queueExternalPriorities: 'queue_external_priorities',
 } as const;
 
 // Avoid storing extremely large document content in IndexedDB values.
@@ -262,6 +263,9 @@ export async function openDatabase(): Promise<IDBDatabase> {
             }
             if (!database.objectStoreNames.contains(STORES.videoExtractReviewEvents)) {
                 database.createObjectStore(STORES.videoExtractReviewEvents, { keyPath: 'operation_id' });
+            }
+            if (!database.objectStoreNames.contains(STORES.queueExternalPriorities)) {
+                database.createObjectStore(STORES.queueExternalPriorities, { keyPath: 'key' });
             }
 
             // Sync state store
@@ -675,6 +679,7 @@ export interface Extract {
     reps: number;
     sync_version?: number;
     priority_score?: number;
+    priority_slider?: number | null;
     _deleted?: boolean;
 }
 
@@ -704,11 +709,14 @@ export async function createExtract(ext: Partial<Extract>): Promise<Extract> {
         last_review_date: ext.last_review_date,
         review_count: ext.review_count || 0,
         reps: ext.reps || 0,
+        priority_score: ext.priority_score,
+        priority_slider: ext.priority_slider,
         sync_version: 0,
     };
 
     const doc = await getDocument(ext.document_id!);
     if (doc) {
+        if (extract.priority_score == null) extract.priority_score = doc.priority_score;
         await updateDocument(doc.id, { extract_count: doc.extract_count + 1 });
     }
 
@@ -727,6 +735,70 @@ export async function getExtractsByDocument(documentId: string): Promise<Extract
 export async function getAllExtracts(): Promise<Extract[]> {
     const extracts = await getAll<Extract>(STORES.extracts);
     return extracts.filter(e => !e._deleted);
+}
+
+/** Apply mixed priorities in one IndexedDB transaction. */
+export async function setQueuePrioritiesAtomic(
+    targets: Array<{ kind: 'document' | 'extract' | 'learning-item' | 'rss-article' | 'podcast-episode' | 'video-extract'; id: string }>,
+    value: number,
+): Promise<{ succeeded: string[]; failed: string[]; errors: string[] }> {
+    if (!Number.isFinite(value)) throw new Error('Invalid priority');
+    if (targets.some((target) => !['document', 'extract', 'learning-item', 'rss-article', 'podcast-episode', 'video-extract'].includes(target.kind))) {
+        throw new Error('Invalid priority target');
+    }
+    const slider = Math.max(0, Math.min(100, Math.round(value)));
+    const rating = slider >= 81 ? 5 : slider >= 61 ? 4 : slider >= 41 ? 3 : slider >= 21 ? 2 : slider > 0 ? 1 : 0;
+    return withRetry((database) => new Promise((resolve, reject) => {
+        const tx = database.transaction([STORES.documents, STORES.extracts, STORES.learningItems, STORES.queueExternalPriorities, STORES.podcastEpisodes, STORES.videoExtracts], 'readwrite');
+        const result = { succeeded: [] as string[], failed: [] as string[], errors: [] as string[] };
+        for (const target of targets) {
+            const key = `${target.kind}:${target.id}`;
+            if (target.kind === 'rss-article') {
+                tx.objectStore(STORES.queueExternalPriorities).put({ key, kind: target.kind, itemId: target.id, slider });
+                result.succeeded.push(key);
+                continue;
+            }
+            if (target.kind === 'podcast-episode' || target.kind === 'video-extract') {
+                const source = tx.objectStore(target.kind === 'podcast-episode' ? STORES.podcastEpisodes : STORES.videoExtracts);
+                const request = source.get(target.id);
+                request.onsuccess = () => {
+                    if (!request.result || request.result._deleted) {
+                        result.failed.push(key);
+                        result.errors.push(`${key}: item not found`);
+                    } else {
+                        tx.objectStore(STORES.queueExternalPriorities).put({ key, kind: target.kind, itemId: target.id, slider });
+                        result.succeeded.push(key);
+                    }
+                };
+                continue;
+            }
+            const storeName = target.kind === 'document' ? STORES.documents : target.kind === 'extract' ? STORES.extracts : STORES.learningItems;
+            const store = tx.objectStore(storeName);
+            const request = store.get(target.id);
+            request.onsuccess = () => {
+                const record = request.result;
+                if (!record || record._deleted) {
+                    result.failed.push(key);
+                    result.errors.push(`${key}: item not found`);
+                    return;
+                }
+                record.priority_slider = slider;
+                record.priority_score = slider;
+                record.date_modified = new Date().toISOString();
+                if (target.kind === 'document') record.priority_rating = rating;
+                if (target.kind !== 'extract') record.priority_explicitly_set = true;
+                store.put(record);
+                result.succeeded.push(key);
+            };
+        }
+        tx.oncomplete = () => resolve(result);
+        tx.onerror = () => reject(tx.error ?? new Error('Priority batch failed'));
+        tx.onabort = () => reject(tx.error ?? new Error('Priority batch aborted'));
+    }));
+}
+
+export async function getQueueExternalPriorities(): Promise<Array<{ kind: string; itemId: string; slider: number }>> {
+    return getAll(STORES.queueExternalPriorities);
 }
 
 export async function updateExtract(id: string, updates: Partial<Extract>): Promise<Extract> {
@@ -807,6 +879,7 @@ export interface LearningItem {
     proposal_id?: string;
     priority_slider?: number;
     priority_score?: number;
+    priority_explicitly_set?: boolean;
     sync_version?: number;
     collection_id?: string;
     _deleted?: boolean;

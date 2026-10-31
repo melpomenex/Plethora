@@ -688,6 +688,41 @@ function getPriorityLabel(prioritySlider?: number): string {
     return 'Very Low';
 }
 
+/**
+ * Authoritative 0-100 slider readback for a queue row. Explicit zero survives;
+ * a legacy rating fills in only when no slider was ever committed.
+ */
+function priorityReadback(
+    slider?: number | null,
+    rating?: number | null,
+    explicitlySet?: boolean | number | null,
+): number {
+    if (explicitlySet === true || explicitlySet === 1) {
+        return Math.max(0, Math.min(100, Math.round(slider ?? 0)));
+    }
+    if (slider != null && slider > 0) {
+        return Math.max(0, Math.min(100, Math.round(slider)));
+    }
+    if (rating != null && rating > 0) {
+        return [0, 10, 30, 50, 70, 90][Math.min(5, Math.max(0, Math.round(rating)))];
+    }
+    return 50;
+}
+
+/** Extract readback: own slider, or the parent's while the rank key matches. */
+function extractPriorityReadback(
+    extract: { priority_slider?: number | null; priority_score?: number },
+    parent?: { priority_slider?: number; priority_rating?: number; priority_score?: number; priority_explicitly_set?: boolean | number } | null,
+): number {
+    if (extract.priority_slider != null) {
+        return Math.max(0, Math.min(100, Math.round(extract.priority_slider)));
+    }
+    if (parent && Math.abs((extract.priority_score ?? 0) - (parent.priority_score ?? 0)) < 0.001) {
+        return priorityReadback(parent.priority_slider, parent.priority_rating, parent.priority_explicitly_set);
+    }
+    return 50;
+}
+
 type BrowserCardVersionEntry = {
     version_id: string;
     item_id: string;
@@ -2029,6 +2064,24 @@ const commandHandlers: Record<string, CommandHandler> = {
         return { succeeded, failed, errors };
     },
 
+    bulk_update_typed_item_priorities: async (args) => {
+        const targets = args.targets as Array<{ kind: 'document' | 'extract' | 'learning-item' | 'rss-article' | 'podcast-episode' | 'video-extract'; id: string }>;
+        const rssTargets = targets.filter((target) => target.kind === 'rss-article');
+        let rssIds = new Set<string>();
+        if (rssTargets.length) {
+            const { getSubscribedFeedsAuto } = await import('../api/rss');
+            rssIds = new Set((await getSubscribedFeedsAuto()).flatMap((feed) => feed.items.map((item) => item.id)));
+        }
+        const missing = rssTargets.filter((target) => !rssIds.has(target.id));
+        const valid = targets.filter((target) => target.kind !== 'rss-article' || rssIds.has(target.id));
+        const result = await db.setQueuePrioritiesAtomic(valid, Number(args.slider ?? 0));
+        result.failed.push(...missing.map((target) => `${target.kind}:${target.id}`));
+        result.errors.push(...missing.map((target) => `${target.kind}:${target.id}: item not found`));
+        return result;
+    },
+
+    get_queue_external_priorities: async () => db.getQueueExternalPriorities(),
+
     archive_document: async (args) => {
         const id = args.id as string;
         const archived = args.archived as boolean;
@@ -2406,6 +2459,7 @@ const commandHandlers: Record<string, CommandHandler> = {
         const slider = Math.max(0, Math.min(100, Math.round(rawSlider)));
         await db.updateExtract(id, {
             priority_score: slider,
+            priority_slider: slider,
         });
         return null;
     },
@@ -2586,6 +2640,7 @@ const commandHandlers: Record<string, CommandHandler> = {
         const item = await db.updateLearningItem(id, {
             priority_slider: slider,
             priority_score: slider,
+            priority_explicitly_set: true,
         });
         return toCamelCase(item);
     },
@@ -2746,6 +2801,10 @@ const commandHandlers: Record<string, CommandHandler> = {
                 item_type: 'document',
                 priority_rating: doc.priority_rating,
                 priority_slider: doc.priority_slider,
+                priority_display_slider: priorityReadback(doc.priority_slider, doc.priority_rating, doc.priority_explicitly_set),
+                priority_explicitly_set: doc.priority_explicitly_set === true || doc.priority_explicitly_set === 1,
+                priority_score: doc.priority_score,
+                entity_id: doc.id,
                 priority: doc.priority_score ?? 50,
                 due_date: doc.next_reading_date,
                 estimated_time: 10,
@@ -2767,6 +2826,11 @@ const commandHandlers: Record<string, CommandHandler> = {
                 document_file_type: doc?.file_type,
                 extract_id: ext.id,
                 item_type: 'extract',
+                priority_slider: ext.priority_slider ?? null,
+                priority_display_slider: extractPriorityReadback(ext, doc),
+                priority_explicitly_set: ext.priority_slider != null,
+                priority_score: ext.priority_score,
+                entity_id: ext.id,
                 priority: 50,
                 due_date: ext.next_review_date,
                 estimated_time: 5,
@@ -2792,6 +2856,11 @@ const commandHandlers: Record<string, CommandHandler> = {
                 answer: item.answer,
                 cloze_text: item.cloze_text,
                 item_type: 'learning-item',
+                priority_slider: item.priority_slider ?? 50,
+                priority_display_slider: priorityReadback(item.priority_slider, undefined, item.priority_explicitly_set),
+                priority_explicitly_set: item.priority_explicitly_set ?? false,
+                priority_score: item.priority_score,
+                entity_id: item.id,
                 priority: 50,
                 due_date: item.due_date,
                 estimated_time: 2,
@@ -2864,6 +2933,10 @@ const commandHandlers: Record<string, CommandHandler> = {
             item_type: 'document',
             priority_rating: doc.priority_rating,
             priority_slider: doc.priority_slider,
+            priority_display_slider: priorityReadback(doc.priority_slider, doc.priority_rating, doc.priority_explicitly_set),
+            priority_explicitly_set: doc.priority_explicitly_set === true || doc.priority_explicitly_set === 1,
+            priority_score: doc.priority_score,
+            entity_id: doc.id,
             priority: doc.priority_score ?? 50,
             due_date: doc.next_reading_date,
             estimated_time: 10,
@@ -2892,6 +2965,10 @@ const commandHandlers: Record<string, CommandHandler> = {
                 item_type: 'document',
                 priority_rating: doc.priority_rating,
                 priority_slider: doc.priority_slider,
+                priority_display_slider: priorityReadback(doc.priority_slider, doc.priority_rating, doc.priority_explicitly_set),
+                priority_explicitly_set: doc.priority_explicitly_set === true || doc.priority_explicitly_set === 1,
+                priority_score: doc.priority_score,
+                entity_id: doc.id,
                 priority: doc.priority_score ?? 50,
                 due_date: doc.next_reading_date,
                 estimated_time: 10,
@@ -2913,6 +2990,11 @@ const commandHandlers: Record<string, CommandHandler> = {
                 document_file_type: doc?.file_type,
                 extract_id: ext.id,
                 item_type: 'extract',
+                priority_slider: ext.priority_slider ?? null,
+                priority_display_slider: extractPriorityReadback(ext, doc),
+                priority_explicitly_set: ext.priority_slider != null,
+                priority_score: ext.priority_score,
+                entity_id: ext.id,
                 priority: 50,
                 due_date: ext.next_review_date,
                 estimated_time: 5,
@@ -2938,6 +3020,11 @@ const commandHandlers: Record<string, CommandHandler> = {
                 answer: item.answer,
                 cloze_text: item.cloze_text,
                 item_type: 'learning-item',
+                priority_slider: item.priority_slider ?? 50,
+                priority_display_slider: priorityReadback(item.priority_slider, undefined, item.priority_explicitly_set),
+                priority_explicitly_set: item.priority_explicitly_set ?? false,
+                priority_score: item.priority_score,
+                entity_id: item.id,
                 priority: 50,
                 due_date: item.due_date,
                 estimated_time: 2,

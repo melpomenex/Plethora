@@ -228,6 +228,7 @@ mod tests {
             reps: 0,
             source_hash: None,
             priority_score: 0.0,
+            priority_slider: None,
             is_dismissed: false,
             total_time_spent: None,
         }

@@ -93,38 +93,6 @@ const priorityPresets: Record<PriorityPreset, PriorityVector> = {
   },
 };
 
-/**
- * Split a queue selection into the two priority write paths.
- *
- * Priority is one queue across documents, extracts, and cards, but each is
- * written by its own command. A queue item only has a document when it came
- * from one: Anki and browser-extension cards have `documentId === ""`, and
- * passing that to the document command asks the backend for document "" — a
- * not-found. Those items carry their own priority, so they belong on the
- * learning-item path instead of being dropped.
- *
- * Both lists are de-duplicated: several cards can share one source document,
- * and setting that document's priority once is enough.
- */
-export function splitPriorityTargets(items: QueueItem[]): {
-  documentIds: string[];
-  learningItemIds: string[];
-} {
-  const documentIds = new Set<string>();
-  const learningItemIds = new Set<string>();
-  for (const item of items) {
-    if (item.documentId) {
-      documentIds.add(item.documentId);
-    } else if (item.learningItemId) {
-      learningItemIds.add(item.learningItemId);
-    }
-  }
-  return {
-    documentIds: Array.from(documentIds),
-    learningItemIds: Array.from(learningItemIds),
-  };
-}
-
 export function getPriorityVector(item: QueueItem): PriorityVector {
   const now = Date.now();
   const due = item.dueDate ? new Date(item.dueDate).getTime() : null;

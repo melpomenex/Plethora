@@ -38,9 +38,11 @@ describe("selectionCapabilities", () => {
     expect(selectionCapabilities([item("a", "extract")]).canPrioritize).toBe(true);
   });
 
-  it("denies priority for a flashcard-only selection", () => {
-    // learning_items has no priority column at all.
-    expect(selectionCapabilities([item("a", "learning-item")]).canPrioritize).toBe(false);
+  it("allows priority for a flashcard-only selection", () => {
+    expect(selectionCapabilities([item("a", "learning-item")]).canPrioritize).toBe(true);
+    expect(selectionCapabilities([item("r", "rss-article")]).canPrioritize).toBe(true);
+    expect(selectionCapabilities([item("v", "video-extract")]).canPrioritize).toBe(true);
+    expect(selectionCapabilities([]).canPrioritize).toBe(false);
   });
 
   it("allows the AI studio only for an all-extract selection", () => {
@@ -72,10 +74,12 @@ describe("BulkActionBar (queue-bulk-actions)", () => {
     expect(screen.getByTitle("AI Studio")).not.toBeDisabled();
   });
 
-  it("warns that flashcards will be skipped by a priority change", () => {
-    render(<BulkActionBar {...props} selectedItems={[item("a", "learning-item")]} />);
+  it("applies priority to a flashcard-only selection", () => {
+    const onSetPriority = vi.fn();
+    render(<BulkActionBar {...props} onSetPriority={onSetPriority} selectedItems={[item("a", "learning-item")]} />);
     fireEvent.click(screen.getByTitle("Priority"));
-    expect(screen.getByText(/no priority/i)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Apply"));
+    expect(onSetPriority).toHaveBeenCalledWith(50);
   });
 
   it("applies the chosen priority value", () => {

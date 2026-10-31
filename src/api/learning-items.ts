@@ -24,6 +24,9 @@ export interface LearningItem {
   lapses: number;
   state: "New" | "Learning" | "Review" | "Relearning";
   is_suspended: boolean;
+  priority_slider?: number;
+  priority_score?: number;
+  priority_explicitly_set?: boolean;
   tags: string[];
   image_asset_ids?: string[];
   interaction_metadata?: LearningItemInteractionMetadata;

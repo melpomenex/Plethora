@@ -268,9 +268,9 @@ const SNAPSHOT_POPULATION_SQL: &str = "
     SELECT 'extract' AS kind,
            e.id AS id,
            e.priority_score AS priority_score,
-           0 AS priority_slider,
+           COALESCE(e.priority_slider, 0) AS priority_slider,
            0 AS priority_rating,
-           0 AS priority_explicitly_set,
+           (e.priority_slider IS NOT NULL) AS priority_explicitly_set,
            d.priority_score AS parent_priority_score,
            d.priority_slider AS parent_priority_slider,
            d.priority_rating AS parent_priority_rating,
@@ -299,6 +299,43 @@ fn legacy_rating_key(rating: i32) -> Option<f64> {
     } else {
         None
     }
+}
+
+/// The 0-100 slider a user should see for a stored row.
+///
+/// This is deliberately *not* the order key. An explicit zero is a committed
+/// user value and must read back as 0 rather than falling through to the
+/// legacy rating/default resolution.
+pub fn resolve_display_slider(
+    priority_slider: i32,
+    priority_rating: i32,
+    explicitly_set: bool,
+) -> i32 {
+    if explicitly_set {
+        return priority_slider.clamp(0, 100);
+    }
+    crate::algorithms::resolve_priority_slider(priority_slider, priority_rating)
+}
+
+/// Resolve what an extract should display: its own saved slider, the parent's
+/// display slider while the rank key still matches the parent (inheritance),
+/// or the neutral default for a legacy override with no slider recorded.
+fn resolve_extract_display_slider(row: &PopulationRow) -> i32 {
+    if row.priority_explicitly_set {
+        return row.priority_slider.clamp(0, 100);
+    }
+    let parent_score = row.parent_priority_score.unwrap_or(0.0);
+    if row.priority_score.is_finite()
+        && parent_score.is_finite()
+        && (row.priority_score - parent_score).abs() < 0.001
+    {
+        return resolve_display_slider(
+            row.parent_priority_slider.unwrap_or(0),
+            row.parent_priority_rating.unwrap_or(0),
+            row.parent_explicitly_set.unwrap_or(false),
+        );
+    }
+    50
 }
 
 fn resolve_direct_key(score: f64, slider: i32, rating: i32, explicit: bool) -> ResolvedOrderKey {
@@ -347,6 +384,9 @@ fn resolve_extract_key(row: &PopulationRow) -> ResolvedOrderKey {
             key: row.priority_score,
             defaulted: false,
         };
+    }
+    if row.priority_explicitly_set {
+        return ResolvedOrderKey::Valid { key: 0.0, defaulted: false };
     }
     let parent_explicit = row.parent_explicitly_set.unwrap_or(false);
     let parent_score = row.parent_priority_score.unwrap_or(0.0);
@@ -421,6 +461,9 @@ pub struct PriorityPopulationSnapshot {
     sorted_keys: Vec<f64>,
     by_element: HashMap<(PriorityEntityKind, String), CanonicalSignal>,
     by_document: HashMap<String, CanonicalSignal>,
+    /// Authoritative 0-100 slider readback per element, independent of the
+    /// rank key stored in `priority_score`.
+    by_element_slider: HashMap<(PriorityEntityKind, String), i32>,
 }
 
 impl PriorityPopulationSnapshot {
@@ -462,18 +505,33 @@ impl PriorityPopulationSnapshot {
     pub fn from_rows(rows: Vec<PopulationRow>) -> Self {
         let mut resolved = Vec::with_capacity(rows.len());
         let mut sorted_keys = Vec::with_capacity(rows.len());
+        let mut display_sliders = Vec::with_capacity(rows.len());
         for row in rows {
             let outcome = resolve_row_key(&row);
             if let ResolvedOrderKey::Valid { key, .. } = outcome {
                 sorted_keys.push(key);
             }
+            let display_slider = match row.kind {
+                PriorityEntityKind::Extract => resolve_extract_display_slider(&row),
+                PriorityEntityKind::Document | PriorityEntityKind::LearningItem => {
+                    resolve_display_slider(
+                        row.priority_slider,
+                        row.priority_rating,
+                        row.priority_explicitly_set,
+                    )
+                }
+            };
             resolved.push((row.kind, row.id, outcome));
+            display_sliders.push(display_slider);
         }
         sorted_keys.sort_by(f64::total_cmp);
 
         let mut by_element = HashMap::with_capacity(resolved.len());
         let mut by_document = HashMap::new();
-        for (kind, id, outcome) in resolved {
+        let mut by_element_slider = HashMap::with_capacity(resolved.len());
+        for ((kind, id, outcome), display_slider) in
+            resolved.into_iter().zip(display_sliders)
+        {
             let signal = match outcome {
                 ResolvedOrderKey::Valid { key, defaulted } => {
                     let value = positional_priority_from_sorted_keys(&sorted_keys, key);
@@ -488,6 +546,7 @@ impl PriorityPopulationSnapshot {
             if kind == PriorityEntityKind::Document {
                 by_document.insert(id.clone(), signal);
             }
+            by_element_slider.insert((kind, id.clone()), display_slider);
             by_element.insert((kind, id), signal);
         }
 
@@ -495,6 +554,7 @@ impl PriorityPopulationSnapshot {
             sorted_keys,
             by_element,
             by_document,
+            by_element_slider,
         }
     }
 
@@ -519,6 +579,25 @@ impl PriorityPopulationSnapshot {
 
     pub fn learning_item_signal(&self, card_id: &str) -> CanonicalSignal {
         self.signal_for(PriorityEntityKind::LearningItem, card_id)
+    }
+
+    /// Authoritative 0-100 slider readback for a presentable element.
+    pub fn display_slider_for(&self, kind: PriorityEntityKind, id: &str) -> Option<i32> {
+        self.by_element_slider
+            .get(&(kind, id.to_string()))
+            .copied()
+    }
+
+    pub fn document_display_slider(&self, doc_id: &str) -> Option<i32> {
+        self.display_slider_for(PriorityEntityKind::Document, doc_id)
+    }
+
+    pub fn extract_display_slider(&self, extract_id: &str) -> Option<i32> {
+        self.display_slider_for(PriorityEntityKind::Extract, extract_id)
+    }
+
+    pub fn learning_item_display_slider(&self, card_id: &str) -> Option<i32> {
+        self.display_slider_for(PriorityEntityKind::LearningItem, card_id)
     }
 
     /// Parent-document inheritance for video extracts and audio editions (D1).
@@ -583,6 +662,15 @@ mod tests {
             (30.0..40.0).contains(&middle),
             "slider 50 must land mid-queue, got {middle}"
         );
+    }
+
+    #[tokio::test]
+    async fn a_rank_key_does_not_preserve_the_exact_slider_value() {
+        let pool = seeded_pool(&[10.0, 20.0, 30.0, 40.0, 50.0]).await;
+        let first = key_for_slider(&pool, 72).await.unwrap();
+        let second = key_for_slider(&pool, 73).await.unwrap();
+        assert_eq!(first, second, "different slider values can select the same gap");
+        assert_ne!(first, 72.0, "the stored key is not the slider value");
     }
 
     #[tokio::test]
@@ -742,6 +830,79 @@ mod tests {
         let tied = vec![10.0, 20.0, 20.0, 30.0];
         // For key 20.0: strictly below is 1 (only 10.0 is < 20.0). N=4 => 1/3
         assert_eq!(positional_priority_from_sorted_keys(&tied, 20.0), 1.0 / 3.0);
+    }
+
+    #[test]
+    fn explicit_zero_extract_does_not_inherit_parent_key() {
+        let row = PopulationRow {
+            kind: PriorityEntityKind::Extract,
+            id: "child".into(),
+            priority_score: 0.0,
+            priority_slider: 0,
+            priority_rating: 0,
+            priority_explicitly_set: true,
+            parent_priority_score: Some(80.0),
+            parent_priority_slider: Some(80),
+            parent_priority_rating: Some(4),
+            parent_explicitly_set: Some(true),
+        };
+        assert!(matches!(resolve_extract_key(&row), ResolvedOrderKey::Valid { key, defaulted: false } if key == 0.0));
+    }
+
+    #[test]
+    fn display_slider_separates_explicit_zero_from_legacy_defaults() {
+        // Legacy rating without a slider keeps the 1..5 → slider mapping.
+        assert_eq!(resolve_display_slider(0, 4, false), 70);
+        // Neither field set resolves to the neutral midpoint.
+        assert_eq!(resolve_display_slider(0, 0, false), 50);
+        // A committed zero is never replaced by the default.
+        assert_eq!(resolve_display_slider(0, 4, true), 0);
+        assert_eq!(resolve_display_slider(73, 0, true), 73);
+    }
+
+    fn display_row(
+        kind: PriorityEntityKind,
+        id: &str,
+        score: f64,
+        slider: i32,
+        rating: i32,
+        explicit: bool,
+        parent: Option<(f64, i32, i32, bool)>,
+    ) -> PopulationRow {
+        PopulationRow {
+            kind,
+            id: id.into(),
+            priority_score: score,
+            priority_slider: slider,
+            priority_rating: rating,
+            priority_explicitly_set: explicit,
+            parent_priority_score: parent.map(|p| p.0),
+            parent_priority_slider: parent.map(|p| p.1),
+            parent_priority_rating: parent.map(|p| p.2),
+            parent_explicitly_set: parent.map(|p| p.3),
+        }
+    }
+
+    #[test]
+    fn snapshot_readback_uses_the_slider_not_the_rank_key() {
+        let snapshot = PriorityPopulationSnapshot::from_rows(vec![
+            display_row(PriorityEntityKind::Document, "doc", 87.125, 73, 4, true, None),
+            // Inherits the parent's display slider while its rank key matches.
+            display_row(PriorityEntityKind::Extract, "inherited", 87.125, 0, 0, false, Some((87.125, 73, 4, true))),
+            // Explicit zero stops inheritance even with a matching parent key.
+            display_row(PriorityEntityKind::Extract, "own-zero", 87.125, 0, 0, true, Some((87.125, 73, 4, true))),
+            // A pre-slider legacy override has no recorded slider and is neutral.
+            display_row(PriorityEntityKind::Extract, "legacy", 12.375, 0, 0, false, Some((87.125, 73, 4, true))),
+            display_row(PriorityEntityKind::LearningItem, "card", 0.0, 0, 0, true, None),
+        ]);
+
+        assert_eq!(snapshot.document_display_slider("doc"), Some(73));
+        assert_eq!(snapshot.extract_display_slider("inherited"), Some(73));
+        assert_eq!(snapshot.extract_display_slider("own-zero"), Some(0));
+        assert_eq!(snapshot.extract_display_slider("legacy"), Some(50));
+        assert_eq!(snapshot.learning_item_display_slider("card"), Some(0));
+        // The rank key remains a separate number.
+        assert_ne!(snapshot.document_signal("doc").value, 0.73);
     }
 
     #[test]

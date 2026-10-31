@@ -23,6 +23,8 @@ import { setExtractPriority } from "../../api/extracts";
 import type { Document } from "../../types/document";
 import type { LearningItem } from "../../api/learning-items";
 import type { BulkOperationResult } from "../../api/extract-bulk";
+import type { QueuePriorityTarget } from "../../api/queue";
+import type { QueueItem } from "../../types/queue";
 
 export type PriorityTarget =
   | { kind: "document"; id: string }
@@ -37,6 +39,19 @@ export interface PriorityCommitResult {
   document?: Document;
   learningItem?: LearningItem;
   bulkResult?: BulkOperationResult;
+}
+
+/** Resolve the displayed queue row to its own persistent entity. */
+export function resolveQueuePriorityTarget(item: QueueItem): QueuePriorityTarget | null {
+  switch (item.itemType) {
+    case "document": return { kind: "document", id: item.documentId || item.id };
+    case "playlist-video": return item.documentId ? { kind: "document", id: item.documentId } : null;
+    case "extract": return { kind: "extract", id: item.extractId || item.id };
+    case "learning-item": return { kind: "learning-item", id: item.learningItemId || item.id };
+    case "rss-article": return { kind: "rss-article", id: item.entityId || (item.id.startsWith("rss-") ? item.id.slice(4) : item.id) };
+    case "video-extract": return { kind: "video-extract", id: item.entityId || item.id };
+    default: return null;
+  }
 }
 
 // Priority presets with labels, description keys, and standard colors
@@ -89,6 +104,48 @@ export function resolveDisplaySlider(doc: {
     return ([0, 10, 30, 50, 70, 90] as const)[Math.min(5, Math.max(0, rating))];
   }
   return 50;
+}
+
+/** Legacy extract keys only identify inheritance when they match the parent. */
+export function resolveExtractDisplaySlider(
+  extract: { priority_slider?: number | null; priority_score?: number },
+  parent?: { priorityScore?: number; prioritySlider?: number; priorityRating?: number; priorityExplicitlySet?: boolean },
+): number {
+  if (extract.priority_slider != null) return Math.max(0, Math.min(100, extract.priority_slider));
+  if (parent && Math.abs((extract.priority_score ?? 0) - (parent.priorityScore ?? 0)) < 0.001) {
+    return resolveDisplaySlider(parent);
+  }
+  return 50;
+}
+
+/**
+ * Authoritative 0–100 readback for a queue row.
+ *
+ * Prefers the backend's resolved display slider (which includes inherited
+ * extract values), then falls back to the row's own explicit fields so older
+ * rows and browser-backed queues still render a committed zero or slider.
+ */
+export function resolveQueueItemDisplaySlider(item: {
+  itemType: string;
+  priorityDisplaySlider?: number;
+  prioritySlider?: number;
+  priorityRating?: number;
+  priorityExplicitlySet?: boolean;
+}): number {
+  if (typeof item.priorityDisplaySlider === "number" && Number.isFinite(item.priorityDisplaySlider)) {
+    return Math.max(0, Math.min(100, Math.round(item.priorityDisplaySlider)));
+  }
+  if (item.itemType === "extract") {
+    return item.prioritySlider != null
+      ? Math.max(0, Math.min(100, Math.round(item.prioritySlider)))
+      : 50;
+  }
+  return resolveDisplaySlider({
+    prioritySlider: item.prioritySlider,
+    priorityRating: item.priorityRating,
+    priorityExplicitlySet:
+      item.priorityExplicitlySet ?? (item.itemType === "learning-item" && item.prioritySlider != null),
+  });
 }
 
 /**

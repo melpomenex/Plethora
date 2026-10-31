@@ -12,6 +12,7 @@ import {
   DeviceMobile,
   DotsThree,
   EyeSlash,
+  Flag,
   Funnel,
   Graph,
   Headphones,
@@ -62,7 +63,6 @@ import {
   getStatusLabel,
   getTimeEstimateRange,
   orderQueueItems,
-  splitPriorityTargets,
   type SessionCustomizationOptions,
   type SessionItemTypes,
 } from "../../utils/reviewUx";
@@ -76,7 +76,11 @@ import { tourAnchor } from "../onboarding/tour/anchors";
 import type { EmbeddingConfig } from "../../utils/semanticEngine";
 import { TASQueueBadge } from "../tas";
 import { TASQueueIndicator } from "../tas";
-import { postponeItem } from "../../api/queue";
+import { bulkUpdateTypedItemPriorities, postponeItem } from "../../api/queue";
+import {
+  resolveQueueItemDisplaySlider,
+  resolveQueuePriorityTarget,
+} from "../../services/priority/priorityCommit";
 import { dismissDocument } from "../../api/documents";
 import { useToast } from "../common/Toast";
 import { EmptyState } from "../common/EmptyState";
@@ -694,6 +698,41 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     await loadStats();
   };
 
+  /**
+   * Single priority entry point for the keyboard shortcut, the per-row
+   * indicator, and the inspector control. Mixed selections dispatch one typed
+   * batch, so documents, extracts, and cards write their own entities.
+   */
+  const openPriorityEditor = (targetItems: QueueItem[]) => {
+    const resolved = targetItems.map(resolveQueuePriorityTarget);
+    const targets = resolved.filter(
+      (target): target is NonNullable<typeof target> => target !== null
+    );
+    if (targets.length === 0) return;
+    const initialSlider = resolveQueueItemDisplaySlider(targetItems[0]);
+    void priorityPopup.open(
+      targets.map((target) => target.id),
+      [],
+      {
+        initialSlider,
+        onCommit: async (slider) => {
+          if (targets.length !== targetItems.length) {
+            throw new Error("Priority is unavailable for an item in this selection");
+          }
+          const result = await bulkUpdateTypedItemPriorities(targets, slider);
+          if (result.succeeded.length) {
+            try {
+              await refreshQueue();
+            } catch (error) {
+              console.warn("Failed to refresh queue after priority update:", error);
+            }
+          }
+          if (result.failed.length) throw new Error(result.errors.join("; "));
+        },
+      },
+    );
+  };
+
   const applyScheduleShift = async (label: string, deltaDays: number) => {
     if (!selectedItem) return;
     if (selectedItem.itemType !== "learning-item") {
@@ -1022,20 +1061,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
               ? [selectedItem]
               : [];
         if (targetItems.length === 0) return;
-        const { documentIds, learningItemIds } = splitPriorityTargets(targetItems);
-        const docs = documentIds.map((id) => {
-          const item = targetItems.find((candidate) => candidate.documentId === id);
-          return {
-            id,
-            prioritySlider: item?.prioritySlider,
-            priorityRating: item?.priorityRating,
-          };
-        });
-        void priorityPopup
-          .open(documentIds, docs, { learningItemIds })
-          .then(({ committed }) => {
-            if (committed) void refreshQueue();
-          });
+        openPriorityEditor(targetItems);
         return;
       }
       if (event.key.toLowerCase() === "i") {
@@ -1054,7 +1080,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     bulkDelete,
     visibleItems,
     selectedItem,
-    priorityPopup,
+    openPriorityEditor,
     refreshQueue,
   ]);
 
@@ -1799,6 +1825,20 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                                 type="button"
                                 onClick={(event) => {
                                   event.stopPropagation();
+                                  setSelectedId(item.id);
+                                  openPriorityEditor([item]);
+                                }}
+                                aria-label={`${t("priority.setTitle")}: ${resolveQueueItemDisplaySlider(item)}`}
+                                title={`${t("priority.setTitle")}: ${resolveQueueItemDisplaySlider(item)}`}
+                                className="min-h-9 rounded-md border border-border bg-background px-2 py-1 text-xs font-semibold text-foreground hover:bg-muted flex items-center gap-1"
+                              >
+                                <Flag className="w-3.5 h-3.5" />
+                                {resolveQueueItemDisplaySlider(item)}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
                                   handleCtxStudyNow(item);
                                 }}
                                 className="min-h-9 rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary flex items-center gap-1.5"
@@ -2031,6 +2071,20 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                           <div className="flex items-center gap-3">
                             <PriorityGlyph vector={priorityVector} />
 
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                setSelectedId(item.id);
+                                openPriorityEditor([item]);
+                              }}
+                              aria-label={`${t("priority.setTitle")}: ${resolveQueueItemDisplaySlider(item)}`}
+                              title={`${t("priority.setTitle")}: ${resolveQueueItemDisplaySlider(item)}`}
+                              className="min-h-9 rounded-md border border-border bg-background px-2 py-1 text-xs font-semibold text-foreground hover:bg-muted flex items-center gap-1"
+                            >
+                              <Flag className="w-3.5 h-3.5" />
+                              {resolveQueueItemDisplaySlider(item)}
+                            </button>
                             <button
                               type="button"
                               onClick={(event) => {

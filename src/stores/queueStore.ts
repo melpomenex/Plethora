@@ -8,7 +8,7 @@ import {
   bulkSuspendItems,
   bulkUnsuspendItems,
   bulkDeleteItems,
-  bulkUpdateItemPriorities,
+  bulkUpdateTypedItemPriorities,
   bulkPostponeItems,
   bulkMoveItemsToCollection,
   bulkUpdateItemTags,
@@ -22,6 +22,7 @@ import { useCollectionStore } from "./collectionStore";
 import type { QueueItem, SortOptions, SearchFilters } from "../types";
 import { useDocumentStore } from "./documentStore";
 import { useSettingsStore } from "./settingsStore";
+import { resolveQueuePriorityTarget } from "../services/priority/priorityCommit";
 import { storeDueCountForSW } from "../utils/pushSubscription";
 import { updateDueBadgeCount } from "../lib/feedback";
 import {
@@ -1230,10 +1231,29 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     }
   },
 
-  bulkSetPriority: async (slider) =>
-    get().runBulkPatch(["priority"], { priority: Math.max(0, Math.min(100, slider)) }, (ids) =>
-      bulkUpdateItemPriorities(ids, slider),
-    ),
+  bulkSetPriority: async (slider) => {
+    const result = await get().runBulkPatch([], {}, async (ids) => {
+      const items = get().items;
+      const entries = ids.map((id) => {
+        const item = items.find((candidate) => candidate.id === id);
+        return { id, target: item ? resolveQueuePriorityTarget(item) : null };
+      });
+      const supported = entries.filter((entry) => entry.target !== null);
+      const unsupported = entries.filter((entry) => entry.target === null);
+      const response = supported.length
+        ? await bulkUpdateTypedItemPriorities(supported.map((entry) => entry.target!), slider)
+        : { succeeded: [], failed: [], errors: [] };
+      const idsFor = (entityIds: string[]) => supported.filter((entry) => entityIds.includes(`${entry.target!.kind}:${entry.target!.id}`)).map((entry) => entry.id);
+      return {
+        succeeded: idsFor(response.succeeded),
+        failed: [...idsFor(response.failed), ...unsupported.map((entry) => entry.id)],
+        errors: [...response.errors, ...unsupported.map((entry) => `${entry.id}: priority is unavailable`)],
+      };
+    });
+    try { await get().reloadForCurrentMode(); }
+    catch (error) { console.warn("Failed to refresh queue after priority update:", error); }
+    return result;
+  },
 
   bulkPostpone: async (days) => {
     // The new due date is the backend's to decide (it scales documents by their

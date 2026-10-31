@@ -731,7 +731,7 @@ pub async fn upsert_extract(tx: &mut Transaction<'_, Sqlite>, extract: &Extract)
             date_created, date_modified, tags, category,
             memory_state_stability, memory_state_difficulty,
             next_review_date, last_review_date, review_count, reps,
-            source_hash, priority_score, is_dismissed, total_time_spent
+            source_hash, priority_score, is_dismissed, total_time_spent, priority_slider
         ) VALUES (
             ?1, ?2, ?3, ?4, ?5, ?6,
             ?7, ?8, ?9, ?10, ?11,
@@ -739,7 +739,7 @@ pub async fn upsert_extract(tx: &mut Transaction<'_, Sqlite>, extract: &Extract)
             ?15, ?16, ?17, ?18,
             ?19, ?20,
             ?21, ?22, ?23, ?24,
-            ?25, ?26, ?27, ?28
+            ?25, ?26, ?27, ?28, ?29
         )
         ON CONFLICT(id) DO UPDATE SET
             collection_id = excluded.collection_id,
@@ -766,6 +766,7 @@ pub async fn upsert_extract(tx: &mut Transaction<'_, Sqlite>, extract: &Extract)
             reps = excluded.reps,
             source_hash = excluded.source_hash,
             priority_score = excluded.priority_score,
+            priority_slider = excluded.priority_slider,
             is_dismissed = excluded.is_dismissed,
             total_time_spent = excluded.total_time_spent
         "#,
@@ -798,6 +799,7 @@ pub async fn upsert_extract(tx: &mut Transaction<'_, Sqlite>, extract: &Extract)
     .bind(extract.priority_score)
     .bind(extract.is_dismissed)
     .bind(extract.total_time_spent)
+    .bind(extract.priority_slider)
     .execute(&mut **tx)
     .await?;
 
@@ -1227,9 +1229,10 @@ pub async fn apply_extract_groups(
         .await?;
     }
     if groups.iter().any(|group| group == "priority") {
-        sqlx::query("UPDATE extracts SET priority_score = ?1, is_dismissed = ?2 WHERE id = ?3")
+        sqlx::query("UPDATE extracts SET priority_score = ?1, is_dismissed = ?2, priority_slider = ?3 WHERE id = ?4")
             .bind(extract.priority_score)
             .bind(extract.is_dismissed)
+            .bind(extract.priority_slider)
             .bind(&extract.id)
             .execute(&mut **tx)
             .await?;

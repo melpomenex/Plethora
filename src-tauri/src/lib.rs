@@ -1968,6 +1968,8 @@ pub fn run() {
             commands::bulk_unsuspend_items,
             commands::bulk_delete_items,
             commands::bulk_update_item_priorities,
+            commands::bulk_update_typed_item_priorities,
+            commands::get_queue_external_priorities,
             commands::bulk_postpone_items,
             commands::bulk_move_items_to_collection,
             commands::bulk_update_item_tags,

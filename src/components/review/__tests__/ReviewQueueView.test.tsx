@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, within } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { ReviewQueueView } from "../ReviewQueueView";
 import { TabContent } from "../../common/Tabs/TabContent";
 import type { Tab } from "../../../stores/tabsStore";
@@ -7,6 +7,17 @@ import type { QueueItem } from "../../../types/queue";
 import { defaultSettings, useSettingsStore } from "../../../stores/settingsStore";
 import { useSavedQueueStore } from "../../../stores/savedQueueStore";
 import type { SavedQueue } from "../../../types/savedQueue";
+import { ModalProvider, useModalStore } from "../../common/Modal";
+import { useShortcutStore } from "../../common/KeyboardShortcuts";
+
+const queueApi = vi.hoisted(() => ({
+  bulkUpdateTypedItemPriorities: vi.fn(),
+}));
+
+vi.mock("../../../api/queue", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  bulkUpdateTypedItemPriorities: queueApi.bulkUpdateTypedItemPriorities,
+}));
 
 const mockStore = vi.hoisted(() => {
   const store: Record<string, any> = {
@@ -140,6 +151,12 @@ beforeEach(() => {
   mockStore.loadStats.mockClear();
   mockStore.searchQuery = "";
   mockStore.queueFilterMode = undefined;
+  mockStore.selectedIds = new Set<string>();
+  useModalStore.getState().hideModal();
+  queueApi.bulkUpdateTypedItemPriorities.mockReset();
+  queueApi.bulkUpdateTypedItemPriorities.mockResolvedValue({
+    succeeded: [], failed: [], errors: [],
+  });
 });
 
 describe("ReviewQueueView", () => {
@@ -168,6 +185,63 @@ describe("ReviewQueueView", () => {
     fireEvent.click(screen.getAllByText("Reading Item")[0]);
     expect(screen.getByText("Inspector")).toBeInTheDocument();
     expect(screen.getAllByText("Reading Item").length).toBeGreaterThan(0);
+  });
+
+  it("opens the editor from a row indicator and saves that card's own priority", async () => {
+    queueApi.bulkUpdateTypedItemPriorities.mockResolvedValue({
+      succeeded: ["learning-item:card-2"], failed: [], errors: [],
+    });
+    render(<ModalProvider><ReviewQueueView /></ModalProvider>);
+    const row = document.querySelector('[data-queue-item-id="item-2"]') as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: /Set Priority/ }));
+    const input = await screen.findByRole("textbox", { name: "Adjust" });
+    fireEvent.change(input, { target: { value: "73" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(queueApi.bulkUpdateTypedItemPriorities).toHaveBeenCalledTimes(1));
+    expect(queueApi.bulkUpdateTypedItemPriorities).toHaveBeenCalledWith(
+      [{ kind: "learning-item", id: "card-2" }],
+      73,
+    );
+  });
+
+  it("seeds the editor from authoritative display readback, not stored rank fields", async () => {
+    const original = mockStore.items[2];
+    mockStore.items[2] = { ...original, prioritySlider: 12, priorityDisplaySlider: 73 };
+    try {
+      render(<ModalProvider><ReviewQueueView /></ModalProvider>);
+      const row = document.querySelector('[data-queue-item-id="item-2"]') as HTMLElement;
+      fireEvent.click(within(row).getByRole("button", { name: "Set Priority: 73" }));
+      expect(await screen.findByRole("slider", { name: "Adjust" })).toHaveValue("73");
+    } finally {
+      mockStore.items[2] = original;
+    }
+  });
+
+  it("honors a remapped priority shortcut and dispatches a mixed selection once", async () => {
+    useShortcutStore.getState().updateShortcut("doc.priority", { key: "y", ctrl: true });
+    mockStore.selectedIds = new Set(["item-1", "item-2"]);
+    queueApi.bulkUpdateTypedItemPriorities.mockResolvedValue({
+      succeeded: ["document:doc-1", "learning-item:card-2"], failed: [], errors: [],
+    });
+    try {
+      render(<ModalProvider><ReviewQueueView /></ModalProvider>);
+      fireEvent.keyDown(window, { key: "p", altKey: true });
+      expect(screen.queryByRole("textbox", { name: "Adjust" })).not.toBeInTheDocument();
+      fireEvent.keyDown(window, { key: "y", ctrlKey: true });
+      const input = await screen.findByRole("textbox", { name: "Adjust" });
+      fireEvent.change(input, { target: { value: "75" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+      await waitFor(() => expect(queueApi.bulkUpdateTypedItemPriorities).toHaveBeenCalledTimes(1));
+      expect(queueApi.bulkUpdateTypedItemPriorities).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          { kind: "document", id: "doc-1" },
+          { kind: "learning-item", id: "card-2" },
+        ]),
+        75,
+      );
+    } finally {
+      useShortcutStore.getState().resetShortcut("doc.priority");
+    }
   });
 
   it("routes optimal session to scroll mode with optimal mode option", () => {
@@ -590,8 +664,10 @@ describe("ReviewQueueView - Saved Queues", () => {
     fireEvent.click(mathOption);
 
     // Now only Math item (item-3: "Second Reading Item") should be visible
-    expect(screen.getAllByText("Second Reading Item").length).toBeGreaterThan(0);
-    expect(screen.queryByText("Reading Item")).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getAllByText("Second Reading Item").length).toBeGreaterThan(0);
+      expect(screen.queryAllByText("Reading Item")).toHaveLength(0);
+    });
   });
 });
 

@@ -2,7 +2,10 @@
 
 use crate::algorithms::daqe::terms::calculate_canonical_urgency;
 use crate::algorithms::{calculate_fsrs_document_priority, resolve_priority_slider, QueueSelector};
-use crate::database::priority_rank::{playlist_subscription_priority, PriorityPopulationSnapshot};
+use crate::database::priority_rank::{
+    playlist_subscription_priority, resolve_display_slider, CanonicalSignal,
+    PriorityPopulationSnapshot,
+};
 use crate::database::Repository;
 use crate::error::Result;
 use crate::models::collection::DEFAULT_COLLECTION_ID;
@@ -10,6 +13,12 @@ use crate::models::QueueItem;
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, HashSet, VecDeque};
 use tauri::State;
+
+async fn video_priorities(repo: &Repository) -> Result<HashMap<String, i32>> {
+    let rows: Vec<(String, i32)> = sqlx::query_as("SELECT item_id, slider FROM queue_external_priorities WHERE kind = 'video-extract'")
+        .fetch_all(repo.pool()).await?;
+    Ok(rows.into_iter().collect())
+}
 
 fn attach_canonical_evidence(mut item: QueueItem, now: DateTime<Utc>) -> QueueItem {
     let urgency = calculate_canonical_urgency(&item, now, None);
@@ -154,6 +163,7 @@ async fn get_queue_items_from_repo(
     let priority_snapshot = PriorityPopulationSnapshot::load(repo.pool())
         .await
         .unwrap_or_default();
+    let video_priorities = video_priorities(repo).await?;
 
     let learning_items = repo.get_all_learning_items().await?;
 
@@ -235,6 +245,11 @@ async fn get_queue_items_from_repo(
             item_type: "learning-item".to_string(),
             priority_rating: None,
             priority_slider: Some(item.priority_slider),
+            priority_display_slider: Some(resolve_display_slider(
+                item.priority_slider,
+                0,
+                item.priority_explicitly_set,
+            )),
             priority: 0.0,
             due_date: Some(item.due_date.to_rfc3339()),
             estimated_time,
@@ -286,7 +301,13 @@ async fn get_queue_items_from_repo(
             learning_hint: None,
             item_type: "extract".to_string(),
             priority_rating: None,
-            priority_slider: None,
+            priority_slider: extract.priority_slider,
+            priority_display_slider: Some(
+                priority_snapshot
+                    .extract_display_slider(&extract.id)
+                    .or(extract.priority_slider)
+                    .unwrap_or(50),
+            ),
             priority: 0.0,
             due_date: extract.next_review_date.map(|d| d.to_rfc3339()),
             estimated_time: 3,
@@ -303,7 +324,7 @@ async fn get_queue_items_from_repo(
             reps: Some(extract.review_count),
             canonical_priority: Some(signal.value),
             priority_available: Some(signal.available),
-            priority_explicitly_set: Some(extract.priority_score > 0.0),
+            priority_explicitly_set: Some(extract.priority_slider.is_some()),
             algorithm_type: Some("rotation".to_string()),
             is_new_item: Some(extract.review_count == 0),
             entity_id: Some(extract.id.clone()),
@@ -332,7 +353,9 @@ async fn get_queue_items_from_repo(
             .map(|t| preview_text(t, 100));
 
         // Video extracts inherit parent document's priority, or 0.5 if no parent rank exists (D1)
-        let signal = priority_snapshot.document_signal(&extract.document_id);
+        let explicit = video_priorities.get(&extract.id).copied();
+        let signal = explicit.map(|value| CanonicalSignal::measured(value as f64 / 100.0))
+            .unwrap_or_else(|| priority_snapshot.document_signal(&extract.document_id));
         let q_item = QueueItem {
             id: extract.id.clone(),
             document_id: extract.document_id.clone(),
@@ -348,7 +371,12 @@ async fn get_queue_items_from_repo(
             learning_hint: None,
             item_type: "video-extract".to_string(),
             priority_rating: None,
-            priority_slider: None,
+            priority_slider: explicit,
+            priority_display_slider: Some(
+                explicit
+                    .or_else(|| priority_snapshot.document_display_slider(&extract.document_id))
+                    .unwrap_or(50),
+            ),
             priority: 0.0,
             due_date: extract.next_review_date.map(|d| d.to_rfc3339()),
             estimated_time,
@@ -365,7 +393,7 @@ async fn get_queue_items_from_repo(
             reps: Some(extract.review_count),
             canonical_priority: Some(signal.value),
             priority_available: Some(signal.available),
-            priority_explicitly_set: Some(false),
+            priority_explicitly_set: Some(explicit.is_some()),
             algorithm_type: Some("rotation".to_string()),
             is_new_item: Some(extract.review_count == 0),
             entity_id: Some(extract.id.clone()),
@@ -407,6 +435,11 @@ async fn get_queue_items_from_repo(
             item_type: "document".to_string(),
             priority_rating: Some(document.priority_rating),
             priority_slider: Some(document.priority_slider),
+            priority_display_slider: Some(resolve_display_slider(
+                document.priority_slider,
+                document.priority_rating,
+                document.priority_explicitly_set,
+            )),
             priority: 0.0,
             due_date: document.next_reading_date.map(|d| d.to_rfc3339()),
             estimated_time: 5,
@@ -633,6 +666,7 @@ async fn get_due_queue_items_from_repo_at(
     let priority_snapshot = PriorityPopulationSnapshot::load(repo.pool())
         .await
         .unwrap_or_default();
+    let video_priorities = video_priorities(repo).await?;
     // Schedule groups items by UTC calendar date. Include the whole current
     // day so its "Today" bucket and Reading Queue → Due All show the same
     // scheduled items, including entries whose exact timestamp is later today.
@@ -711,6 +745,11 @@ async fn get_due_queue_items_from_repo_at(
             item_type: "learning-item".to_string(),
             priority_rating: None,
             priority_slider: Some(item.priority_slider),
+            priority_display_slider: Some(resolve_display_slider(
+                item.priority_slider,
+                0,
+                item.priority_explicitly_set,
+            )),
             priority: 0.0,
             due_date: Some(item.due_date.to_rfc3339()),
             estimated_time,
@@ -761,7 +800,13 @@ async fn get_due_queue_items_from_repo_at(
             learning_hint: None,
             item_type: "extract".to_string(),
             priority_rating: None,
-            priority_slider: None,
+            priority_slider: extract.priority_slider,
+            priority_display_slider: Some(
+                priority_snapshot
+                    .extract_display_slider(&extract.id)
+                    .or(extract.priority_slider)
+                    .unwrap_or(50),
+            ),
             priority: 0.0,
             due_date: extract.next_review_date.map(|d| d.to_rfc3339()),
             estimated_time: 3,
@@ -778,7 +823,7 @@ async fn get_due_queue_items_from_repo_at(
             reps: Some(extract.review_count),
             canonical_priority: Some(signal.value),
             priority_available: Some(signal.available),
-            priority_explicitly_set: Some(extract.priority_score > 0.0),
+            priority_explicitly_set: Some(extract.priority_slider.is_some()),
             algorithm_type: Some("rotation".to_string()),
             is_new_item: Some(extract.review_count == 0),
             entity_id: Some(extract.id.clone()),
@@ -803,7 +848,9 @@ async fn get_due_queue_items_from_repo_at(
             .as_ref()
             .map(|t| preview_text(t, 100));
 
-        let signal = priority_snapshot.document_signal(&extract.document_id);
+        let explicit = video_priorities.get(&extract.id).copied();
+        let signal = explicit.map(|value| CanonicalSignal::measured(value as f64 / 100.0))
+            .unwrap_or_else(|| priority_snapshot.document_signal(&extract.document_id));
         let q_item = QueueItem {
             id: extract.id.clone(),
             document_id: extract.document_id.clone(),
@@ -819,7 +866,12 @@ async fn get_due_queue_items_from_repo_at(
             learning_hint: None,
             item_type: "video-extract".to_string(),
             priority_rating: None,
-            priority_slider: None,
+            priority_slider: explicit,
+            priority_display_slider: Some(
+                explicit
+                    .or_else(|| priority_snapshot.document_display_slider(&extract.document_id))
+                    .unwrap_or(50),
+            ),
             priority: 0.0,
             due_date: extract.next_review_date.map(|d| d.to_rfc3339()),
             estimated_time,
@@ -836,7 +888,7 @@ async fn get_due_queue_items_from_repo_at(
             reps: Some(extract.review_count),
             canonical_priority: Some(signal.value),
             priority_available: Some(signal.available),
-            priority_explicitly_set: Some(false),
+            priority_explicitly_set: Some(explicit.is_some()),
             algorithm_type: Some("rotation".to_string()),
             is_new_item: Some(extract.review_count == 0),
             entity_id: Some(extract.id.clone()),
@@ -867,6 +919,11 @@ async fn get_due_queue_items_from_repo_at(
             item_type: "document".to_string(),
             priority_rating: Some(document.priority_rating),
             priority_slider: Some(document.priority_slider),
+            priority_display_slider: Some(resolve_display_slider(
+                document.priority_slider,
+                document.priority_rating,
+                document.priority_explicitly_set,
+            )),
             priority: 0.0,
             due_date: document.next_reading_date.map(|d| d.to_rfc3339()),
             estimated_time: 5,
@@ -978,6 +1035,11 @@ async fn get_due_documents_only_from_repo(
             item_type: "document".to_string(),
             priority_rating: Some(document.priority_rating),
             priority_slider: Some(document.priority_slider),
+            priority_display_slider: Some(resolve_display_slider(
+                document.priority_slider,
+                document.priority_rating,
+                document.priority_explicitly_set,
+            )),
             priority: 0.0,
             due_date: document.next_reading_date.map(|d| d.to_rfc3339()),
             estimated_time: 5,
@@ -1137,6 +1199,11 @@ pub async fn get_queue_with_playlist_intersperse_from_repo(
                 item_type: "playlist-video".to_string(),
                 priority_rating: Some(sub.priority_rating),
                 priority_slider: None,
+                priority_display_slider: Some(resolve_display_slider(
+                    doc.priority_slider,
+                    doc.priority_rating,
+                    doc.priority_explicitly_set,
+                )),
                 priority: 0.0,
                 due_date: doc.next_reading_date.map(|d| d.to_rfc3339()),
                 estimated_time: doc.total_pages.map(|p| p / 60).unwrap_or(10),

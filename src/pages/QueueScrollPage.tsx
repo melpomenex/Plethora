@@ -50,8 +50,8 @@ import { getDueItems, getLearningItem, type LearningItem } from "../api/learning
 import { normalizeLearningItem } from "../api/normalizeLearningItem";
 import { sanitizeHtml } from "../components/common/RichContentRenderer";
 import { getDueExtracts, submitExtractReview } from "../api/extract-review";
-import { createExtract, deleteExtract, setExtractPriority, getExtract, type Extract } from "../api/extracts";
-import { dispatchPriorityCommit } from "../services/priority/priorityCommit";
+import { createExtract, deleteExtract, getExtract, type Extract } from "../api/extracts";
+import { dispatchPriorityCommit, resolveDisplaySlider, resolveExtractDisplaySlider } from "../services/priority/priorityCommit";
 import { usePriorityPopup } from "../components/documents/usePriorityPopup";
 import { eventMatchesCombo, getShortcutCombo } from "../components/common/KeyboardShortcuts";
 import {
@@ -89,6 +89,7 @@ import {
 } from "./queueScrollBudget";
 import { DEFAULT_COMBINED_SORT_CONFIG, orderScrollItemsByCombinedCriterion, selectByQuotaInOrder } from "../utils/queueScrollOrder";
 import { gateScrollItemsByComposition, gateScrollItemsByType, resolveMissingExtractContent, resolveMissingQueueCards } from "./queueScrollItemTypes";
+import { orderFeedPriorities } from "./queueScrollExternalPriority";
 import {
   FLASHCARD_REVEAL_EVENT,
   resolveScrollRatingKey,
@@ -136,7 +137,7 @@ import { DocumentViewer as DocumentViewerTab } from "../components/tabs/TabRegis
 import { ScrollQueueSettings } from "../components/queue/ScrollQueueSettings";
 import { ScrollOverlayControls } from "../components/queue/ScrollOverlayControls";
 import type { ExtractSourceContext } from "../types/extractNavigation";
-import { bulkSuspendItems } from "../api/queue";
+import { bulkSuspendItems, bulkUpdateTypedItemPriorities, getQueueExternalPriorities } from "../api/queue";
 import { ModernSummaryPanel } from "../components/media/summary";
 import { useSummaryCache } from "../utils/rssSummary";
 import {
@@ -231,6 +232,7 @@ interface ScrollItem {
   id: string;
   type: "document" | "rss" | "flashcard" | "extract" | "podcast";
   documentId?: string;
+  videoExtractId?: string;
   documentTitle: string;
   rssItem?: RSSFeedItem;
   rssFeed?: RSSFeed;
@@ -503,6 +505,19 @@ export function QueueScrollPage() {
     setIsImageExpanded(settings.rssQueue.showCoverImage ?? false);
   }, [currentIndex, settings.rssQueue.showCoverImage]);
   const [scrollItems, setScrollItems] = useState<ScrollItem[]>([]);
+  const [externalPriorities, setExternalPriorities] = useState<Record<string, number>>({});
+  const externalPriorityRevision = useRef(0);
+  useEffect(() => {
+    if (!settings.rssQueue?.includeInQueue && !settings.podcastQueue?.includeInQueue &&
+      !activeTabQueueData.customQueueItems?.some((item) => item.itemType === "rss-article" || item.itemType === "video-extract") &&
+      !allQueueItems.some((item) => item.itemType === "video-extract")) return;
+    let cancelled = false;
+    const revision = externalPriorityRevision.current;
+    void getQueueExternalPriorities().then((rows) => {
+      if (!cancelled && revision === externalPriorityRevision.current) setExternalPriorities(Object.fromEntries(rows.map((row) => [`${row.kind}:${row.itemId}`, row.slider])));
+    }).catch((error) => console.warn("Failed to load feed priorities:", error));
+    return () => { cancelled = true; };
+  }, [settings.rssQueue?.includeInQueue, settings.podcastQueue?.includeInQueue, activeTabQueueData.customQueueItems, allQueueItems]);
 
   useEffect(() => {
     return cardMutationCoordinator.registerReconciler((updated) => {
@@ -1359,6 +1374,19 @@ export function QueueScrollPage() {
               } as ScrollItem;
             }
 
+            if (item.itemType === "video-extract") {
+              return {
+                id: `video-extract-${item.id}`,
+                type: "document" as const,
+                documentId: item.documentId,
+                videoExtractId: item.entityId || item.id,
+                documentTitle: item.documentTitle,
+                category: item.category ?? "video",
+                estimatedTime: item.estimatedTime ?? 5,
+                engagementScore: item.priority ?? 5,
+              } as ScrollItem;
+            }
+
             // Default: document
             // Skip documents already rated/dismissed this session — without
             // this, the rebuild re-inserts them (customQueueItems is static),
@@ -1600,6 +1628,7 @@ export function QueueScrollPage() {
         }
 
         // Limit items per session
+        filteredRssItems.sort((a, b) => (externalPriorities[`rss-article:${b.item.id}`] ?? 50) - (externalPriorities[`rss-article:${a.item.id}`] ?? 50));
         const limitedRssItems = rssSettings.maxItemsPerSession > 0
           ? filteredRssItems.slice(0, rssSettings.maxItemsPerSession)
           : filteredRssItems;
@@ -1678,6 +1707,7 @@ export function QueueScrollPage() {
             return (b.relevanceScore ?? 0.5) - (a.relevanceScore ?? 0.5);
           });
         }
+        rssItems.sort((a, b) => (externalPriorities[`rss-article:${b.rssItem?.id}`] ?? 50) - (externalPriorities[`rss-article:${a.rssItem?.id}`] ?? 50));
       }
 
       let podcastItems: ScrollItem[] = [];
@@ -1688,7 +1718,8 @@ export function QueueScrollPage() {
           // Filter to unplayed if unreadOnly is enabled
           const filteredEpisodes = podcastSettings.unreadOnly
             ? episodes.filter((ep) => !ep.played)
-            : episodes;
+            : [...episodes];
+          filteredEpisodes.sort((a, b) => (externalPriorities[`podcast-episode:${b.id}`] ?? 50) - (externalPriorities[`podcast-episode:${a.id}`] ?? 50));
 
           // Limit to maxItemsPerSession
           const limitedEpisodes = podcastSettings.maxItemsPerSession > 0
@@ -1809,7 +1840,7 @@ export function QueueScrollPage() {
           },
           shortfall: composed.shortfall,
         });
-        applySessionItems(mixedItems);
+        applySessionItems(orderFeedPriorities(mixedItems, externalPriorities));
       }
     };
 
@@ -1817,7 +1848,7 @@ export function QueueScrollPage() {
     return () => {
       cancelled = true;
     };
-  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, isRating, isNeuralMode, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, activeTabQueueData.itemTypes, ratedFlashcardIds, ratedExtractIds, ratedDocumentIds, customSubset]);
+  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, externalPriorities, isRating, isNeuralMode, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, activeTabQueueData.itemTypes, ratedFlashcardIds, ratedExtractIds, ratedDocumentIds, customSubset]);
 
   // Current item (for display during transition)
   const currentItem = scrollItems[currentIndex];
@@ -1869,20 +1900,30 @@ export function QueueScrollPage() {
   const currentPrioritySlider = useMemo(() => {
     if (!currentItem) return undefined;
     if (currentItem.type === "document") {
-      return currentDocument?.prioritySlider ?? 50;
+      if (currentItem.videoExtractId) {
+        return externalPriorities[`video-extract:${currentItem.videoExtractId}`] ?? (currentDocument ? resolveDisplaySlider(currentDocument) : 50);
+      }
+      return currentDocument ? resolveDisplaySlider(currentDocument) : 50;
     }
     if (currentItem.type === "extract" && currentItem.extract) {
-      const parentDoc = documents.find((doc) => doc.id === currentItem.extract?.document_id);
-      return Math.round(currentItem.extract.priority_score ?? parentDoc?.priorityScore ?? 50);
+      const extract = currentItem.extract;
+      const parentDoc = documents.find((doc) => doc.id === extract.document_id);
+      return resolveExtractDisplaySlider(extract, parentDoc);
     }
+    if (currentItem.type === "flashcard" && currentItem.learningItem) {
+      const card = currentItem.learningItem;
+      return card.priority_explicitly_set ? card.priority_slider ?? 0 : card.priority_slider ?? 50;
+    }
+    if (currentItem.type === "rss" && currentItem.rssItem) return externalPriorities[`rss-article:${currentItem.rssItem.id}`] ?? 50;
+    if (currentItem.type === "podcast" && currentItem.podcastEpisode) return externalPriorities[`podcast-episode:${currentItem.podcastEpisode.id}`] ?? 50;
     return undefined;
-  }, [currentItem, currentDocument, documents]);
+  }, [currentItem, currentDocument, documents, externalPriorities]);
 
   const handlePriorityChange = useCallback(async (slider: number) => {
     const activeItem = currentItem;
     if (!activeItem) return;
 
-    if (activeItem.type === "document" && activeItem.documentId) {
+    if (activeItem.type === "document" && activeItem.documentId && !activeItem.videoExtractId) {
       await dispatchPriorityCommit({ kind: "document", id: activeItem.documentId }, slider);
       const [documentsResult, queueResult] = await Promise.allSettled([
         loadDocuments(),
@@ -1898,18 +1939,53 @@ export function QueueScrollPage() {
     }
 
     if (activeItem.type === "extract" && activeItem.extract) {
-      await dispatchPriorityCommit({ kind: "extract", id: activeItem.extract.id }, slider);
+      const extractId = activeItem.extract.id;
+      await dispatchPriorityCommit({ kind: "extract", id: extractId }, slider);
+      const updated = await getExtract(extractId);
+      if (!updated) throw new Error("Could not read the updated extract priority");
       setDueExtracts((prev) =>
-        prev.map((extract) =>
-          extract.id === activeItem.extract?.id
-            ? { ...extract, priority_score: slider }
-            : extract
-        )
+        prev.map((extract) => extract.id === extractId ? updated : extract)
       );
+      setScrollItems((prev) => prev.map((item) =>
+        item.type === "extract" && item.extract?.id === extractId ? { ...item, extract: updated } : item
+      ));
       const queueResult = await Promise.allSettled([loadQueue()]);
       if (queueResult[0].status === "rejected") {
         console.warn("[QueueScroll] Failed to refresh queue after extract priority update:", queueResult[0].reason);
       }
+      return;
+    }
+
+    if (activeItem.type === "flashcard" && activeItem.learningItem) {
+      const cardId = activeItem.learningItem.id;
+      const result = await dispatchPriorityCommit({ kind: "learningItem", id: cardId }, slider);
+      const updated = normalizeLearningItem(result.learningItem);
+      if (!updated) throw new Error("Could not read the updated flashcard priority");
+      setDueFlashcards((prev) => prev.map((card) => card.id === cardId ? updated : card));
+      setScrollItems((prev) => prev.map((item) =>
+        item.type === "flashcard" && item.learningItem?.id === cardId
+          ? { ...item, learningItem: updated }
+          : item
+      ));
+      const queueResult = await Promise.allSettled([loadQueue()]);
+      if (queueResult[0].status === "rejected") {
+        console.warn("[QueueScroll] Failed to refresh queue after flashcard priority update:", queueResult[0].reason);
+      }
+      return;
+    }
+
+    const target = activeItem.videoExtractId
+      ? { kind: "video-extract" as const, id: activeItem.videoExtractId }
+      : activeItem.type === "rss" && activeItem.rssItem
+      ? { kind: "rss-article" as const, id: activeItem.rssItem.id }
+      : activeItem.type === "podcast" && activeItem.podcastEpisode
+        ? { kind: "podcast-episode" as const, id: activeItem.podcastEpisode.id }
+        : null;
+    if (target) {
+      const result = await bulkUpdateTypedItemPriorities([target], slider);
+      if (result.failed.length) throw new Error(result.errors.join("; "));
+      externalPriorityRevision.current += 1;
+      setExternalPriorities((previous) => ({ ...previous, [`${target.kind}:${target.id}`]: Math.max(0, Math.min(100, Math.round(slider))) }));
     }
   }, [currentItem, loadDocuments, loadQueue]);
 
@@ -3206,7 +3282,7 @@ export function QueueScrollPage() {
         isActiveTab &&
         priorityCombo &&
         eventMatchesCombo(e, priorityCombo) &&
-        (currentItem?.type === "document" || currentItem?.type === "extract")
+        typeof currentPrioritySlider === "number"
       ) {
         e.preventDefault();
         e.stopImmediatePropagation();

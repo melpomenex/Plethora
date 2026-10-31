@@ -18,16 +18,12 @@ import type { LifecycleTransition } from "../../api/queue";
 /**
  * Which bulk actions a selection can actually accept.
  *
- * Priority is document/extract only — `learning_items` has no priority column,
- * so a flashcard-only selection cannot be reprioritized at all. A *mixed*
- * selection still offers it: the backend applies it where it exists and reports
- * the flashcards as failures, which is more useful than greying the button out.
+ * Every queue entity with a persistent identity supports priority changes.
  */
 export function selectionCapabilities(items: QueueItem[]) {
   const types = new Set(items.map((item) => item.itemType));
   return {
-    /** At least one item that has a priority column. */
-    canPrioritize: types.has("document") || types.has("extract"),
+    canPrioritize: items.length > 0,
     /** The AI studio needs extract bodies, so the selection must be all extracts. */
     canOpenStudio: items.length > 0 && types.size === 1 && types.has("extract"),
     types,
@@ -99,7 +95,7 @@ export function BulkActionBar({
   const selectedCount = selectedItems.length;
   if (selectedCount === 0) return null;
 
-  const { canPrioritize, canOpenStudio } = selectionCapabilities(selectedItems);
+  const { canOpenStudio } = selectionCapabilities(selectedItems);
   const togglePanel = (next: OpenPanel) => setPanel((prev) => (prev === next ? null : next));
 
   const parseTags = (raw: string) =>
@@ -156,11 +152,6 @@ export function BulkActionBar({
               {t("common.apply")}
             </button>
           </div>
-          {!canPrioritize && (
-            <p className="mt-2 text-xs text-muted-foreground">
-              {t("bulkAction.priorityFlashcardsSkipped")}
-            </p>
-          )}
         </div>
       )}
 

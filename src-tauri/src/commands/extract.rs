@@ -80,7 +80,7 @@ pub async fn set_extract_priority(
 ) -> Result<()> {
     let slider = priority_score.clamp(0.0, 100.0).round() as i32;
     let key = crate::database::priority_rank::key_for_slider(repo.db_pool(), slider).await?;
-    repo.update_extract_priority(&id, key).await
+    repo.update_extract_priority(&id, key, slider).await
 }
 
 #[tauri::command]

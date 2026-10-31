@@ -23,6 +23,10 @@ interface CallLog {
   key?: unknown;
 }
 
+class FakeIndexNames extends Set<string> {
+  contains(name: string) { return this.has(name); }
+}
+
 class FakeRequest<T = unknown> implements FakeIDBRequest<T> {
   result: T = undefined as unknown as T;
   error: Error | null = null;
@@ -84,7 +88,7 @@ class FakeIndex {
 export class FakeObjectStore {
   records = new Map<IDBValidKey, Record<string, unknown>>();
   calls: CallLog[] = [];
-  indexNames = new Set<string>();
+  indexNames = new FakeIndexNames();
   private indexes = new Map<string, FakeIndex>();
 
   constructor(public name: string, public keyPath: string | null) {}
@@ -331,7 +335,7 @@ export class FakeIndexedDB {
       // onupgradeneeded; set it before the handler runs.
       req.result = database;
       if (upgraded && req.onupgradeneeded) {
-        const upgradeTx = new FakeTransaction(new Map(database.stores), () => {});
+        const upgradeTx = new FakeTransaction(database.stores, () => {});
         (req as unknown as { transaction: unknown }).transaction = upgradeTx;
         req.onupgradeneeded({ oldVersion, target: req });
       }

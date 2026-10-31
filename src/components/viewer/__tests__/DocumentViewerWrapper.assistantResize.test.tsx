@@ -119,7 +119,7 @@ describe("DocumentViewerWrapper assistant resize wiring", () => {
     capturedProps.props.length = 0;
     capturedViewerProps.props.length = 0;
     const onScrollSpy = vi.fn();
-    const jump = { target: { kind: "page" as const, pageNumber: 5 } };
+    const jump = { kind: "pdf" as const, pageNumber: 5 };
 
     render(
       <DocumentViewer

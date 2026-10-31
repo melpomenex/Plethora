@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, act, within } from "@testing-library/react";
 import React from "react";
 import { requestOverlayBack } from "../../../lib/overlayStack";
 import { ScrollOverlayControls } from "../ScrollOverlayControls";
@@ -296,13 +296,17 @@ describe("ScrollOverlayControls priority editing", () => {
     expect(screen.getByRole("button", { name: "Reading Priority: High" })).toBeVisible();
   });
 
-  it("restores saved value and announces a localized error before retry", async () => {
+  it("retains the failed draft and announces a localized error before retry", async () => {
     const onChange = vi.fn().mockRejectedValueOnce(new Error("offline")).mockResolvedValue(undefined);
     render(<ScrollOverlayControls {...priorityProps} labels={{ prioritySaveFailed: "Bitte erneut versuchen" }} onPriorityChange={onChange} />);
     open();
     fireEvent.click(screen.getByRole("button", { name: "High" }));
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("Bitte erneut versuchen"));
-    expect(screen.getByRole("slider")).toHaveValue("50");
+    expect(screen.getByRole("slider")).toHaveValue("70");
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Close" }));
+    expect(screen.getByRole("button", { name: "Reading Priority: Normal" })).toBeVisible();
+    open();
+    expect(screen.getByRole("slider")).toHaveValue("70");
     fireEvent.click(screen.getByRole("button", { name: "High" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     expect(onChange.mock.calls).toEqual([[70], [70]]);

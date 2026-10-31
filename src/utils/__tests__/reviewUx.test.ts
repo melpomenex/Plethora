@@ -8,7 +8,6 @@ import {
   getTimeEstimateRange,
   isScheduledItem,
   orderQueueItems,
-  splitPriorityTargets,
   type PriorityPreset,
 } from "../reviewUx";
 
@@ -22,36 +21,6 @@ const baseItem = (overrides: Partial<QueueItem>): QueueItem => ({
   tags: ["History"],
   progress: 20,
   ...overrides,
-});
-
-describe("splitPriorityTargets", () => {
-  it("routes document-less cards to the learning-item path", () => {
-    // The regression: an Anki/extension card has documentId "", and sending
-    // that to update_document_priority failed with `Document ` not found.
-    const { documentIds, learningItemIds } = splitPriorityTargets([
-      baseItem({ id: "a", documentId: "", learningItemId: "card-1" }),
-      baseItem({ id: "b", documentId: "doc-1" }),
-    ]);
-    expect(documentIds).toEqual(["doc-1"]);
-    expect(learningItemIds).toEqual(["card-1"]);
-  });
-
-  it("never emits an empty id on either path", () => {
-    const { documentIds, learningItemIds } = splitPriorityTargets([
-      baseItem({ id: "a", documentId: "", learningItemId: undefined }),
-      baseItem({ id: "b", documentId: "" }),
-    ]);
-    expect(documentIds).toEqual([]);
-    expect(learningItemIds).toEqual([]);
-  });
-
-  it("de-duplicates cards sharing one source document", () => {
-    const { documentIds } = splitPriorityTargets([
-      baseItem({ id: "a", documentId: "doc-1", learningItemId: "card-1" }),
-      baseItem({ id: "b", documentId: "doc-1", learningItemId: "card-2" }),
-    ]);
-    expect(documentIds).toEqual(["doc-1"]);
-  });
 });
 
 describe("reviewUx helpers", () => {

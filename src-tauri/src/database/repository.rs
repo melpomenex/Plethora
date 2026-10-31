@@ -516,6 +516,7 @@ impl Repository {
             reps: row.try_get("reps").unwrap_or(0),
             source_hash: row.try_get("source_hash").ok().flatten(),
             priority_score: row.try_get("priority_score").unwrap_or(0.0),
+            priority_slider: row.try_get("priority_slider").ok().flatten(),
             is_dismissed: row.try_get("is_dismissed").unwrap_or(false),
             total_time_spent: row.try_get("total_time_spent").ok().flatten(),
         })
@@ -2492,8 +2493,8 @@ impl Repository {
                 selection_context, highlight_color, notes, progressive_disclosure_level,
                 max_disclosure_level, progressive_summaries, date_created, date_modified,
                 tags, category, memory_state_stability, memory_state_difficulty,
-                next_review_date, last_review_date, review_count, reps, source_hash, priority_score, is_dismissed
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)
+                next_review_date, last_review_date, review_count, reps, source_hash, priority_score, is_dismissed, priority_slider
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28)
             "#,
         )
         .bind(&extract.id)
@@ -2523,6 +2524,7 @@ impl Repository {
         .bind(&extract.source_hash)
         .bind(extract.priority_score)
         .bind(extract.is_dismissed)
+        .bind(extract.priority_slider)
         .execute(&mut *tx)
         .await?;
 
@@ -2650,6 +2652,7 @@ impl Repository {
                     .and_then(|s| serde_json::from_str(&s).ok()),
                 source_hash: row.try_get("source_hash").ok(),
                 priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
+                priority_slider: row.try_get("priority_slider").ok().flatten(),
                 is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
                 total_time_spent: row
                     .try_get::<Option<i64>, _>("total_time_spent")
@@ -2710,6 +2713,7 @@ impl Repository {
                     .and_then(|s| serde_json::from_str(&s).ok()),
                 source_hash: row.try_get("source_hash").ok(),
                 priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
+                priority_slider: row.try_get("priority_slider").ok().flatten(),
                 is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
                 total_time_spent: row
                     .try_get::<Option<i64>, _>("total_time_spent")
@@ -2910,6 +2914,7 @@ impl Repository {
                     .and_then(|s| serde_json::from_str(&s).ok()),
                 source_hash: row.try_get("source_hash").ok(),
                 priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
+                priority_slider: row.try_get("priority_slider").ok().flatten(),
                 is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
                 total_time_spent: row
                     .try_get::<Option<i64>, _>("total_time_spent")
@@ -2971,6 +2976,7 @@ impl Repository {
                     .and_then(|s| serde_json::from_str(&s).ok()),
                 source_hash: row.try_get("source_hash").ok(),
                 priority_score: row.try_get::<f64, _>("priority_score").unwrap_or(0.0),
+                priority_slider: row.try_get("priority_slider").ok().flatten(),
                 is_dismissed: row.try_get::<bool, _>("is_dismissed").unwrap_or(false),
                 total_time_spent: row
                     .try_get::<Option<i64>, _>("total_time_spent")
@@ -3028,16 +3034,17 @@ impl Repository {
         Ok(())
     }
 
-    pub async fn update_extract_priority(&self, id: &str, priority_score: f64) -> Result<()> {
+    pub async fn update_extract_priority(&self, id: &str, priority_score: f64, priority_slider: i32) -> Result<()> {
         let mut tx = self.pool.begin().await?;
         let rows = sqlx::query(
             r#"
             UPDATE extracts
-            SET priority_score = ?1, date_modified = ?2
-            WHERE id = ?3
+            SET priority_score = ?1, priority_slider = ?2, date_modified = ?3
+            WHERE id = ?4
             "#,
         )
         .bind(priority_score)
+        .bind(priority_slider)
         .bind(Utc::now())
         .bind(id)
         .execute(&mut *tx)
@@ -3153,7 +3160,7 @@ impl Repository {
     ) -> Result<u64> {
         let mut tx = self.pool.begin().await?;
         let ids: Vec<String> = sqlx::query_scalar(
-            "SELECT id FROM extracts WHERE document_id = ?1 AND ABS(priority_score - ?2) < 0.001",
+            "SELECT id FROM extracts WHERE document_id = ?1 AND priority_slider IS NULL AND ABS(priority_score - ?2) < 0.001",
         )
         .bind(document_id)
         .bind(previous_score)
@@ -3170,7 +3177,7 @@ impl Repository {
             UPDATE extracts SET
                 priority_score = ?1,
                 date_modified = ?2
-            WHERE document_id = ?3 AND ABS(priority_score - ?4) < 0.001
+            WHERE document_id = ?3 AND priority_slider IS NULL AND ABS(priority_score - ?4) < 0.001
             "#,
         )
         .bind(new_score.clamp(0.0, 100.0))

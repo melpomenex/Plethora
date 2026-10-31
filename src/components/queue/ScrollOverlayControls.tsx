@@ -682,6 +682,7 @@ function useScrollPriorityState(value: number, onChange: (slider: number) => voi
   const [isOpen, setIsOpen] = useState(false);
   const {
     slider,
+    committedValue,
     isSaving,
     saveFailed,
     sliderHandlers,
@@ -695,7 +696,7 @@ function useScrollPriorityState(value: number, onChange: (slider: number) => voi
     await commit(nextValue, closeAfterSave ? () => setIsOpen(false) : undefined);
   };
 
-  return { isOpen, setIsOpen, slider, isSaving, saveFailed, sliderHandlers, commitPriority };
+  return { isOpen, setIsOpen, slider, committedValue, isSaving, saveFailed, sliderHandlers, commitPriority };
 }
 
 function ScrollPriorityControl({ value, onChange, labels, isMobile }: {
@@ -704,7 +705,7 @@ function ScrollPriorityControl({ value, onChange, labels, isMobile }: {
   labels?: ScrollOverlayControlsProps["labels"];
   isMobile: boolean;
 }) {
-  const { isOpen, setIsOpen, slider, isSaving, saveFailed, sliderHandlers, commitPriority } = useScrollPriorityState(value, onChange);
+  const { isOpen, setIsOpen, slider, committedValue, isSaving, saveFailed, sliderHandlers, commitPriority } = useScrollPriorityState(value, onChange);
   const trigger = useRef<HTMLButtonElement>(null);
   const editorId = useId();
   const sliderId = useId();
@@ -734,7 +735,8 @@ function ScrollPriorityControl({ value, onChange, labels, isMobile }: {
   const currentPreset = getPriorityPreset(slider);
   const presetLabels = [labels?.priorityLowest ?? "Lowest", labels?.priorityLow ?? "Low",
     labels?.priorityNormal ?? "Normal", labels?.priorityHigh ?? "High", labels?.priorityHighest ?? "Highest"];
-  const currentLabel = presetLabels[PRIORITY_PRESETS.indexOf(currentPreset)];
+  const savedPreset = getPriorityPreset(committedValue);
+  const savedLabel = presetLabels[PRIORITY_PRESETS.indexOf(savedPreset)];
   const title = labels?.priority ?? "Reading Priority";
   const closeLabel = labels?.close ?? "Close";
 
@@ -771,10 +773,10 @@ function ScrollPriorityControl({ value, onChange, labels, isMobile }: {
   return <div className="relative min-w-0 max-w-full">
     <button ref={trigger} type="button" onClick={() => setIsOpen(open => !open)}
       className={cn("flex items-center gap-2 px-3 py-2 rounded-lg bg-black/40 backdrop-blur-sm text-white text-sm transition-colors hover:bg-black/60", isMobile && "min-h-11 min-w-11 max-w-full", isOpen && "bg-black/60")}
-      title={`${title}: ${currentLabel}`} aria-label={`${title}: ${currentLabel}`}
+      title={`${title}: ${savedLabel}`} aria-label={`${title}: ${savedLabel}`}
       aria-expanded={isOpen} aria-controls={isOpen ? editorId : undefined} aria-haspopup="dialog">
-      <Flag aria-hidden="true" className="w-4 h-4 shrink-0" style={{ color: currentPreset.color }} weight="fill" />
-      <span className="break-words min-w-0">{currentLabel}</span>
+      <Flag aria-hidden="true" className="w-4 h-4 shrink-0" style={{ color: savedPreset.color }} weight="fill" />
+      <span className="break-words min-w-0">{savedLabel}</span>
       <CaretDown aria-hidden="true" className="w-3 h-3 shrink-0 text-white/70" />
     </button>
     {isMobile ? <ResponsiveDialogSheet open={isOpen} onClose={() => setIsOpen(false)}

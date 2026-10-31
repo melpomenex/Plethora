@@ -69,7 +69,7 @@ vi.mock("../../lib/database", () => ({
         id: (entry.id as string) || `card-${Date.now()}-${Math.random()}`,
         document_id: docId,
         extract_id: entry.extract_id as string | undefined,
-        item_type: (entry.item_type as string) || "Qa",
+        item_type: (entry.item_type as LearningItem["item_type"]) || "Qa",
         question: (entry.question as string) || "",
         answer: (entry.answer as string) || "",
         cloze_text: (entry.cloze_text as string) || undefined,
@@ -100,7 +100,9 @@ vi.mock("../../lib/database", () => ({
 
 vi.mock("../../api/learning-items", () => ({
   createLearningItemsBatch: vi.fn(async (entries: Array<Record<string, unknown>>) => {
-    const db = await import("../../lib/database");
+    const db = await import("../../lib/database") as unknown as {
+      createLearningItemsBatch: (entries: Array<Record<string, unknown>>) => Promise<LearningItem[]>;
+    };
     return db.createLearningItemsBatch(entries);
   }),
   createLearningItem: vi.fn(async (item: Record<string, unknown>) => {
@@ -268,6 +270,7 @@ describe("issue #6 task 9.7 generation-to-acceptance integration test (R13/R14)"
 
     expect(outcome.result.proposals).toHaveLength(1);
     const proposed = outcome.result.proposals[0];
+    if (proposed.kind !== "flashcard") throw new Error("Expected a flashcard proposal");
     expect(proposed.question).toBe("What is in the second section?");
 
     // 6. CRITICAL INVARIANT (R13/R14): No card exists in local storage BEFORE user approval!
@@ -292,6 +295,7 @@ describe("issue #6 task 9.7 generation-to-acceptance integration test (R13/R14)"
           proposalId: proposed.proposalId,
           candidate: {
             cardType: "qa",
+            conceptKeys: [],
             question: proposed.kind === "flashcard" ? proposed.question : "",
             answer: proposed.kind === "flashcard" ? proposed.answer : "",
           },

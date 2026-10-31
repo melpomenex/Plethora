@@ -17,6 +17,8 @@
 import { registerOverlayDismissal } from "../../lib/overlayStack";
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { ModalProvider, useModalStore } from "../../components/common/Modal";
+import { getShortcutCombo, useShortcutStore } from "../../components/common/KeyboardShortcuts";
 
 const mocks = vi.hoisted(() => {
   const queueState: Record<string, any> = {
@@ -28,10 +30,12 @@ const mocks = vi.hoisted(() => {
   };
   const tabsState: Record<string, any> = {
     rootPane: { type: "tabs", id: "pane-1", activeTabId: "tab-1" },
+    navigationPaneId: "pane-1",
     tabs: [],
     closeTab: vi.fn(),
     updateTab: vi.fn(),
     addTab: vi.fn(),
+    findPaneContainingTab: vi.fn(() => ({ id: "pane-1", activeTabId: "tab-1" })),
   };
   const settingsState: Record<string, any> = {
     settings: null, // filled in the module factory from real defaultSettings
@@ -126,6 +130,7 @@ const api = vi.hoisted(() => ({
   rateDocumentEngaging: vi.fn(),
   getDueItems: vi.fn(),
   getLearningItem: vi.fn(),
+  updateLearningItemPriority: vi.fn(),
   getDueExtracts: vi.fn(),
   submitReview: vi.fn(),
   submitExtractReview: vi.fn(),
@@ -147,6 +152,8 @@ const api = vi.hoisted(() => ({
   getDocument: vi.fn(),
   extractDocumentText: vi.fn(),
   bulkSuspendItems: vi.fn(),
+  bulkUpdateTypedItemPriorities: vi.fn(),
+  getQueueExternalPriorities: vi.fn(),
   chatWithLLM: vi.fn(),
   getAIConfig: vi.fn(),
   fetchYouTubeTranscript: vi.fn(),
@@ -167,6 +174,7 @@ vi.mock("../../api/algorithm", () => ({
 vi.mock("../../api/learning-items", () => ({
   getDueItems: api.getDueItems,
   getLearningItem: api.getLearningItem,
+  updateLearningItemPriority: api.updateLearningItemPriority,
 }));
 vi.mock("../../api/extract-review", () => ({
   getDueExtracts: api.getDueExtracts,
@@ -202,7 +210,11 @@ vi.mock("../../api/documents", () => ({
   getDocument: api.getDocument,
   extractDocumentText: api.extractDocumentText,
 }));
-vi.mock("../../api/queue", () => ({ bulkSuspendItems: api.bulkSuspendItems }));
+vi.mock("../../api/queue", () => ({
+  bulkSuspendItems: api.bulkSuspendItems,
+  bulkUpdateTypedItemPriorities: api.bulkUpdateTypedItemPriorities,
+  getQueueExternalPriorities: api.getQueueExternalPriorities,
+}));
 vi.mock("../../api/llm", () => ({ chatWithLLM: api.chatWithLLM }));
 vi.mock("../../api/ai", () => ({ getAIConfig: api.getAIConfig }));
 vi.mock("../../api/youtube", () => ({ fetchYouTubeTranscript: api.fetchYouTubeTranscript }));
@@ -411,7 +423,12 @@ beforeEach(() => {
   api.submitReview.mockResolvedValue({ success: true } as any);
   api.getDueItems.mockResolvedValue([card1]);
   api.getLearningItem.mockResolvedValue(null);
+  api.updateLearningItemPriority.mockImplementation(async (_id: string, slider: number) => ({
+    ...card1, priority_slider: slider, priority_explicitly_set: true,
+  }));
   api.getDueExtracts.mockResolvedValue([]);
+  api.getQueueExternalPriorities.mockResolvedValue([]);
+  api.bulkUpdateTypedItemPriorities.mockResolvedValue({ succeeded: ["rss-article:r1"], failed: [], errors: [] });
   api.getSubscribedFeeds.mockReturnValue([]);
 
   mocks.queueState.filteredItems = [makeDocRow("doc-1", "First Epub", 11), makeDocRow("doc-2", "Second Epub", 10)];
@@ -530,6 +547,103 @@ describe("QueueScrollPage session rebuild stability (queue-list path)", () => {
       ],
     };
   });
+
+  it("saves and reopens the current flashcard priority", async () => {
+    render(<QueueScrollPage />);
+    expect(await screen.findByTestId("document-viewer")).toHaveAttribute("data-document-id", "doc-1");
+    await rateCurrentViaKeyboard("3");
+    await awaitFlashcardCurrent();
+
+    act(() => window.dispatchEvent(new Event("plethora-queue-long-press")));
+    fireEvent.click(screen.getByRole("button", { name: "priority.readingPriority: priority.normal" }));
+    fireEvent.click(screen.getByRole("button", { name: "priority.high" }));
+    await waitFor(() => expect(api.updateLearningItemPriority).toHaveBeenCalledWith("card-1", 70));
+    const indicator = await screen.findByRole("button", { name: "priority.readingPriority: priority.high" });
+    fireEvent.click(indicator);
+    expect(screen.getByRole("slider", { name: "priority.fineTune" })).toHaveValue("70");
+  }, 20000);
+
+  it("honors a remapped priority shortcut and Enter for the active card", async () => {
+    useShortcutStore.getState().updateShortcut("doc.priority", { key: "y", ctrl: true });
+    try {
+      render(<ModalProvider><QueueScrollPage /></ModalProvider>);
+      await screen.findByTestId("document-viewer");
+      await rateCurrentViaKeyboard("3");
+      await awaitFlashcardCurrent();
+      fireEvent.keyDown(window, { key: "p", altKey: true });
+      expect(screen.queryByRole("textbox", { name: "priority.adjust" })).not.toBeInTheDocument();
+      expect(getShortcutCombo("doc.priority")).toEqual({ key: "y", ctrl: true });
+      fireEvent.keyDown(window, { key: "y", ctrlKey: true });
+      expect(useModalStore.getState().modal.visible).toBe(true);
+      const number = await screen.findByRole("textbox", { name: "priority.adjust" });
+      fireEvent.change(number, { target: { value: "73" } });
+      fireEvent.keyDown(number, { key: "Enter" });
+      await waitFor(() => expect(api.updateLearningItemPriority).toHaveBeenCalledWith("card-1", 73));
+      await waitFor(() => expect(screen.queryByRole("textbox", { name: "priority.adjust" })).not.toBeInTheDocument());
+      act(() => window.dispatchEvent(new Event("plethora-queue-long-press")));
+      fireEvent.click(await screen.findByRole("button", { name: "priority.readingPriority: priority.high" }));
+      expect(screen.getByRole("slider", { name: "priority.fineTune" })).toHaveValue("73");
+    } finally {
+      useShortcutStore.getState().resetShortcut("doc.priority");
+    }
+  }, 20000);
+
+  it("reopens an extract using the saved slider instead of its rank key", async () => {
+    const extract = {
+      id: "extract-1", document_id: "doc-1", content: "A distinctive excerpt",
+      tags: [], category: "books", priority_score: 12.5, priority_slider: 73,
+      review_count: 0, reps: 0,
+    };
+    api.getDueExtracts.mockResolvedValue([extract]);
+    api.setExtractPriority.mockResolvedValue(undefined);
+    api.getExtract.mockResolvedValue({ ...extract, priority_score: 98.125, priority_slider: 90 });
+    mocks.tabsState.tabs[0].data.customQueueItems = [{
+      id: "extract-1", itemType: "extract", extractId: "extract-1", documentId: "doc-1",
+      documentTitle: "Extract", priority: 5, estimatedTime: 2, tags: [], progress: 0,
+    }];
+    render(<QueueScrollPage />);
+    await screen.findByText("A distinctive excerpt");
+    act(() => window.dispatchEvent(new Event("plethora-queue-long-press")));
+    fireEvent.click(screen.getByRole("button", { name: "priority.readingPriority: priority.high" }));
+    expect(screen.getByRole("slider", { name: "priority.fineTune" })).toHaveValue("73");
+    fireEvent.click(screen.getByRole("button", { name: "priority.highest" }));
+    await waitFor(() => expect(api.setExtractPriority).toHaveBeenCalledWith("extract-1", 90));
+    const indicator = await screen.findByRole("button", { name: "priority.readingPriority: priority.highest" });
+    fireEvent.click(indicator);
+    expect(screen.getByRole("slider", { name: "priority.fineTune" })).toHaveValue("90");
+  }, 20000);
+
+  it("saves and reopens an RSS item's own priority", async () => {
+    const rssItem = { id: "r1", title: "Feed story", content: "Feed body", description: "", link: "https://example.com", pubDate: "2026-01-01", categories: [], read: false, favorite: false, feedId: "feed-1" };
+    const rssFeed = { id: "feed-1", title: "Feed", items: [rssItem] };
+    mocks.tabsState.tabs[0].data.customQueueItems = [{ id: "rss-r1", itemType: "rss-article", documentId: "", documentTitle: "Feed story", priority: 5, estimatedTime: 2, tags: [], progress: 0, rssItem, rssFeed }];
+    api.getQueueExternalPriorities.mockResolvedValue([{ kind: "rss-article", itemId: "r1", slider: 73 }]);
+    render(<QueueScrollPage />);
+    await screen.findByRole("heading", { name: "Feed story" });
+    await waitFor(() => expect(api.getQueueExternalPriorities).toHaveBeenCalled());
+    act(() => window.dispatchEvent(new Event("plethora-queue-long-press")));
+    fireEvent.click(await screen.findByRole("button", { name: "priority.readingPriority: priority.high" }));
+    expect(screen.getByRole("slider", { name: "priority.fineTune" })).toHaveValue("73");
+    fireEvent.click(screen.getByRole("button", { name: "priority.highest" }));
+    await waitFor(() => expect(api.bulkUpdateTypedItemPriorities).toHaveBeenCalledWith([{ kind: "rss-article", id: "r1" }], 90));
+    const indicator = await screen.findByRole("button", { name: "priority.readingPriority: priority.highest" });
+    fireEvent.click(indicator);
+    expect(screen.getByRole("slider", { name: "priority.fineTune" })).toHaveValue("90");
+  }, 20000);
+
+  it("edits a video extract without changing its parent document", async () => {
+    mocks.tabsState.tabs[0].data.customQueueItems = [{ id: "segment-1", itemType: "video-extract", entityId: "segment-1", documentId: "doc-1", documentTitle: "Segment", priority: 5, estimatedTime: 2, tags: [], progress: 0 }];
+    api.getQueueExternalPriorities.mockResolvedValue([{ kind: "video-extract", itemId: "segment-1", slider: 73 }]);
+    api.bulkUpdateTypedItemPriorities.mockResolvedValue({ succeeded: ["video-extract:segment-1"], failed: [], errors: [] });
+    render(<QueueScrollPage />);
+    await screen.findByTestId("document-viewer");
+    act(() => window.dispatchEvent(new Event("plethora-queue-long-press")));
+    fireEvent.click(await screen.findByRole("button", { name: "priority.readingPriority: priority.high" }));
+    expect(screen.getByRole("slider", { name: "priority.fineTune" })).toHaveValue("73");
+    fireEvent.click(screen.getByRole("button", { name: "priority.highest" }));
+    await waitFor(() => expect(api.bulkUpdateTypedItemPriorities).toHaveBeenCalledWith([{ kind: "video-extract", id: "segment-1" }], 90));
+    expect(api.updateDocumentPriority).not.toHaveBeenCalled();
+  }, 20000);
 
   it("loads the full persisted non-due card rather than fabricating a cloze", async () => {
     api.getDueItems.mockResolvedValue([]);

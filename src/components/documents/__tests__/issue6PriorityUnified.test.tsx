@@ -11,9 +11,13 @@ import {
 import {
   dispatchPriorityCommit,
   resolveDisplaySlider,
+  resolveExtractDisplaySlider,
+  resolveQueueItemDisplaySlider,
+  resolveQueuePriorityTarget,
   sliderToRating,
   usePriorityCommitState,
 } from "../../../services/priority/priorityCommit";
+import { convertQueueItem } from "../../../api/queue";
 import { usePriorityPopup } from "../usePriorityPopup";
 import { PriorityControl } from "../../viewer/PriorityControl";
 import { getDocument } from "../../../api/documents";
@@ -156,6 +160,43 @@ function PriorityTestHarness({
 }
 
 describe("R08: Unified Priority Persistence and Multi-Input Parity", () => {
+  it("resolves cards and extracts to their own typed IDs even when the parent shares an ID", () => {
+    const base = { id: "shared", documentId: "shared", documentTitle: "Parent", priority: 5, estimatedTime: 2, tags: [], progress: 0 };
+    expect(resolveQueuePriorityTarget({ ...base, itemType: "extract", extractId: "shared" })).toEqual({ kind: "extract", id: "shared" });
+    expect(resolveQueuePriorityTarget({ ...base, itemType: "learning-item", learningItemId: "shared" })).toEqual({ kind: "learning-item", id: "shared" });
+    expect(resolveQueuePriorityTarget({ ...base, id: "card-only", documentId: "", itemType: "learning-item" })).toEqual({ kind: "learning-item", id: "card-only" });
+    expect(resolveQueuePriorityTarget({ ...base, itemType: "playlist-video", documentId: "doc-1" })).toEqual({ kind: "document", id: "doc-1" });
+  });
+  it("prefers the authoritative readback over the row's stored rank fields", () => {
+    // The backend resolves extracts/facts into priority_display_slider; a rank
+    // key or stale slider must never win over it.
+    expect(resolveQueueItemDisplaySlider({
+      itemType: "extract", priorityDisplaySlider: 73, prioritySlider: 0, priorityRating: 0,
+    })).toBe(73);
+    expect(resolveQueueItemDisplaySlider({ itemType: "document", prioritySlider: 0, priorityRating: 4, priorityExplicitlySet: false })).toBe(70);
+    expect(resolveQueueItemDisplaySlider({ itemType: "document", prioritySlider: 0, priorityRating: 4, priorityExplicitlySet: true })).toBe(0);
+    expect(resolveQueueItemDisplaySlider({ itemType: "learning-item", prioritySlider: 0, priorityExplicitlySet: true })).toBe(0);
+    expect(resolveQueueItemDisplaySlider({ itemType: "extract", prioritySlider: 73 })).toBe(73);
+    expect(resolveQueueItemDisplaySlider({ itemType: "extract" })).toBe(50);
+
+    const converted = convertQueueItem({
+      id: "e1", document_id: "d1", document_title: "Doc", item_type: "extract",
+      priority_rating: 0, priority_slider: 73, priority_display_slider: 73,
+      priority_explicitly_set: true, priority_score: 88.25, entity_id: "e1",
+      priority: 0, estimated_time: 3, tags: [], progress: 0,
+    });
+    expect(converted).toMatchObject({
+      prioritySlider: 73, priorityDisplaySlider: 73, priorityExplicitlySet: true,
+      priorityScore: 88.25, entityId: "e1",
+    });
+  });
+  it("reads extract sliders independently of rank keys and preserves inherited zero", () => {
+    const parent = { priorityScore: 12.5, prioritySlider: 0, priorityExplicitlySet: true };
+    expect(resolveExtractDisplaySlider({ priority_score: 82.7, priority_slider: 73 }, parent)).toBe(73);
+    expect(resolveExtractDisplaySlider({ priority_score: 12.5, priority_slider: 0 }, parent)).toBe(0);
+    expect(resolveExtractDisplaySlider({ priority_score: 12.5 }, parent)).toBe(0);
+    expect(resolveExtractDisplaySlider({ priority_score: 44.2 }, parent)).toBe(50);
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     testBackend.documents.clear();

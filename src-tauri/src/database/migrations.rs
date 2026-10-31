@@ -4865,6 +4865,25 @@ pub const MIGRATIONS: &[Migration] = &[
             ON video_extract_review_events(extract_id, reviewed_at);
         "#,
     ),
+    Migration::new(
+        "134_extract_priority_slider",
+        "ALTER TABLE extracts ADD COLUMN priority_slider INTEGER CHECK (priority_slider BETWEEN 0 AND 100);",
+    ),
+    Migration::new(
+        "135_queue_external_priorities",
+        r#"
+        CREATE TABLE queue_external_priorities (kind TEXT NOT NULL, item_id TEXT NOT NULL, slider INTEGER NOT NULL CHECK (slider BETWEEN 0 AND 100), PRIMARY KEY (kind, item_id));
+        CREATE TRIGGER queue_priority_rss_deleted AFTER DELETE ON rss_articles BEGIN
+            DELETE FROM queue_external_priorities WHERE kind = 'rss-article' AND item_id = OLD.id;
+        END;
+        CREATE TRIGGER queue_priority_podcast_deleted AFTER DELETE ON podcast_episodes BEGIN
+            DELETE FROM queue_external_priorities WHERE kind = 'podcast-episode' AND item_id = OLD.id;
+        END;
+        CREATE TRIGGER queue_priority_video_deleted AFTER DELETE ON video_extracts BEGIN
+            DELETE FROM queue_external_priorities WHERE kind = 'video-extract' AND item_id = OLD.id;
+        END;
+        "#,
+    ),
 
 ];
 
@@ -5575,6 +5594,20 @@ mod tests {
                     .expect("count seeded row");
             assert_eq!(count, 1, "{table} row {id} should survive the migration");
         }
+    }
+
+    #[tokio::test]
+    async fn extract_priority_migration_preserves_legacy_rank_keys() {
+        let pool = pool_migrated_up_to("134_extract_priority_slider").await;
+        sqlx::query("INSERT INTO documents (id, title, file_path, file_type, date_added, date_modified) VALUES ('parent', 'Parent', '/tmp/a.pdf', 'pdf', '2026-01-01', '2026-01-01')")
+            .execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO extracts (id, document_id, content, date_created, date_modified, priority_score) VALUES ('child', 'parent', 'text', '2026-01-01', '2026-01-01', 12.375)")
+            .execute(&pool).await.unwrap();
+        run_migrations(&pool).await.unwrap();
+        run_migrations(&pool).await.unwrap();
+        let saved: (f64, Option<i32>) = sqlx::query_as("SELECT priority_score, priority_slider FROM extracts WHERE id = 'child'")
+            .fetch_one(&pool).await.unwrap();
+        assert_eq!(saved, (12.375, None));
     }
 
     #[tokio::test]
