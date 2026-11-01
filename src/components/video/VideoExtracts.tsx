@@ -5,7 +5,7 @@
  * - timestamp-linked segments from videos for spaced repetition
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   BookOpen,
   Calendar,
@@ -20,7 +20,6 @@ import {
   X,
 } from "@phosphor-icons/react";
 import {
-  createVideoExtract,
   type VideoExtract,
   type CreateVideoExtractInput,
   formatSeconds,
@@ -28,10 +27,19 @@ import {
   getTranscriptPreview,
   getRatingLabel,
 } from '../../api/video-extracts';
+import { useAllVideoExtracts, useCreateVideoExtract, useDeleteVideoExtract, useSetVideoExtractQueueMembership, useVideoExtractReviewCandidates } from '../../hooks/useVideoExtracts';
+import { useVideoExtractReview } from '../../hooks/useVideoExtractReview';
+import { useDocumentStore } from '../../stores/documentStore';
+import {
+  isVideoExtractFutureScheduled,
+  videoExtractLifecycleKind,
+  videoExtractQueueKind,
+} from '../../lib/videoExtractLifecycle';
 import { useToast } from '../common/Toast';
 import { useI18n } from '../../lib/i18n';
 import { useVideoExtractList } from '../../hooks/useVideoExtractList';
 import { useDueVideoReview } from '../../hooks/useDueVideoReview';
+import { useSettingsStore } from '../../stores/settingsStore';
 
 interface CreateVideoExtractDialogProps {
   documentId: string;
@@ -62,7 +70,9 @@ export function CreateVideoExtractDialog({
   const [tagInput, setTagInput] = useState('');
   const [transcriptText, setTranscriptText] = useState(initialTranscriptText);
   const [addToQueue, setAddToQueue] = useState(true);
+  const [initialReviewDate, setInitialReviewDate] = useState('');
   const [isCreating, setIsCreating] = useState(false);
+  const createExtract = useCreateVideoExtract();
   const [error, setError] = useState<string | null>(null);
   const toast = useToast();
   const { t } = useI18n();
@@ -78,6 +88,7 @@ export function CreateVideoExtractDialog({
       setTagInput('');
       setTranscriptText(initialTranscriptText);
       setAddToQueue(true);
+      setInitialReviewDate(new Date().toISOString().slice(0, 10));
       setError(null);
     }
   }, [isOpen, initialStartTime, initialEndTime, initialTranscriptText]);
@@ -124,6 +135,11 @@ export function CreateVideoExtractDialog({
     setError(null);
 
     try {
+      const today = new Date().toISOString().slice(0, 10);
+      if (addToQueue && initialReviewDate && initialReviewDate < today) {
+        setError(t('videoExtract.reviewDatePast'));
+        return;
+      }
       const input: CreateVideoExtractInput = {
         document_id: documentId,
         start_time: startTime,
@@ -133,9 +149,13 @@ export function CreateVideoExtractDialog({
         notes: notes.trim() || undefined,
         tags: tags.length > 0 ? tags : undefined,
         add_to_queue: addToQueue,
+        initial_review_date:
+          addToQueue && initialReviewDate && initialReviewDate !== today
+            ? `${initialReviewDate}T00:00:00.000Z`
+            : undefined,
       };
 
-      const extract = await createVideoExtract(input);
+      const extract = await createExtract.mutateAsync(input);
       toast.success(t('videoExtract.created'));
       onCreate?.(extract);
       onClose();
@@ -349,6 +369,25 @@ export function CreateVideoExtractDialog({
             </label>
           </div>
 
+          {addToQueue && (
+            <div>
+              <label htmlFor="extract-review-date" className="block text-sm font-medium text-foreground mb-2">
+                {t('videoExtract.startReviewingOn')}
+              </label>
+              <input
+                id="extract-review-date"
+                type="date"
+                value={initialReviewDate}
+                min={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => setInitialReviewDate(e.target.value)}
+                className="w-full px-3 py-2 bg-background border border-border rounded-md text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                {t('videoExtract.startReviewingOnDesc')}
+              </p>
+            </div>
+          )}
+
           {/* Error */}
           {error && (
             <div className="p-3 bg-destructive/10 border border-destructive text-destructive rounded-md text-sm">
@@ -402,13 +441,42 @@ export function VideoExtractsList({
   onEditExtract,
   className = '',
 }: VideoExtractsListProps) {
-  const { extracts, loading, rate, remove, isRating, retryRating } = useVideoExtractList(documentId);
+  const {
+    extracts, loading, error, refresh, rate, remove, setQueued, reviewNow,
+    isRating, isQueueUpdating, retryRating,
+  } = useVideoExtractList(documentId);
+  const candidatesQuery = useVideoExtractReviewCandidates(documentId);
+  const learning = useSettingsStore((state) => state.settings.learning);
+  const [reviewOpen, setReviewOpen] = useState(false);
   const { t } = useI18n();
+
+  const reviewCandidates = useMemo(() => {
+    const now = new Date();
+    const candidates = candidatesQuery.data ?? [];
+    const dueReviewed = candidates
+      .filter((extract) => extract.review_count > 0 && extract.next_review_date && new Date(extract.next_review_date) <= now)
+      .slice(0, Math.max(0, learning.reviewsPerDay));
+    const newQueued = candidates
+      .filter((extract) => extract.review_count === 0)
+      .slice(0, Math.max(0, learning.newCardsPerDay));
+    return [...dueReviewed, ...newQueued];
+  }, [candidatesQuery.data, learning.newCardsPerDay, learning.reviewsPerDay]);
 
   if (loading) {
     return (
       <div className={`flex items-center justify-center py-8 ${className}`}>
         <div className="text-sm text-muted-foreground">{t('videoExtract.loadingExtracts')}</div>
+      </div>
+    );
+  }
+
+  if (error && extracts.length === 0) {
+    return (
+      <div className={`text-center py-8 ${className}`}>
+        <p className="text-sm text-destructive">{error}</p>
+        <button type="button" onClick={refresh} className="mt-3 rounded border border-border px-3 py-1.5 text-sm">
+          {t('common.retry')}
+        </button>
       </div>
     );
   }
@@ -426,13 +494,43 @@ export function VideoExtractsList({
 
   return (
     <div className={`space-y-3 ${className}`}>
+      {reviewCandidates.length > 0 && (
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2">
+          <span className="text-sm text-foreground">
+            {t('videoExtract.reviewReady', { count: reviewCandidates.length })}
+          </span>
+          <button
+            type="button"
+            onClick={() => setReviewOpen((open) => !open)}
+            className="rounded-md bg-primary px-3 py-1.5 text-sm text-primary-foreground"
+          >
+            {reviewOpen ? t('common.close') : t('videoExtract.reviewNow')}
+          </button>
+        </div>
+      )}
+
+      {reviewOpen && reviewCandidates.length > 0 && (
+        <DueVideoExtractsReview
+          extracts={reviewCandidates}
+          onPlayExtract={onPlayExtract}
+          onComplete={() => {
+            setReviewOpen(false);
+            void candidatesQuery.refetch();
+          }}
+        />
+      )}
+
       {extracts.map((extract) => (
         <VideoExtractCard
           key={extract.id}
           extract={extract}
+          sourceTitle={extract.document_title}
           onPlay={onPlayExtract}
           onEdit={onEditExtract}
           onDelete={remove}
+          onToggleQueue={(id, queued) => void setQueued(id, queued)}
+          onReviewNow={(id) => void reviewNow(id)}
+          isQueueUpdating={isQueueUpdating}
           showRating
           onRate={rate}
           isRating={isRating(extract.id)}
@@ -443,33 +541,149 @@ export function VideoExtractsList({
   );
 }
 
+interface VideoExtractLibraryListProps {
+  collectionId?: string;
+  onPlayExtract?: (extract: VideoExtract) => void;
+  className?: string;
+}
+
+/** Library-wide video extracts grouped by their source video. */
+export function VideoExtractLibraryList({
+  collectionId,
+  onPlayExtract,
+  className = '',
+}: VideoExtractLibraryListProps) {
+  const query = useAllVideoExtracts(collectionId);
+  const deleteMutation = useDeleteVideoExtract();
+  const membership = useSetVideoExtractQueueMembership();
+  const review = useVideoExtractReview();
+  const documents = useDocumentStore((state) => state.documents);
+  const { t } = useI18n();
+  const toast = useToast();
+
+  const groups = useMemo(() => {
+    const byDocument = new Map<string, VideoExtract[]>();
+    for (const extract of query.data ?? []) {
+      const list = byDocument.get(extract.document_id) ?? [];
+      list.push(extract);
+      byDocument.set(extract.document_id, list);
+    }
+    return [...byDocument.entries()].map(([documentId, extracts]) => {
+      const doc = documents.find((candidate) => candidate.id === documentId);
+      return {
+        documentId,
+        title: doc?.title ?? t('videoExtract.unknownSource'),
+        archived: Boolean(doc?.isArchived || doc?.isDismissed),
+        extracts,
+      };
+    });
+  }, [documents, query.data, t]);
+
+  if (query.isLoading) {
+    return <div className={`py-6 text-sm text-muted-foreground ${className}`}>{t('videoExtract.loadingExtracts')}</div>;
+  }
+  if (query.error) {
+    return (
+      <div className={`py-6 text-sm text-destructive ${className}`}>
+        {query.error instanceof Error ? query.error.message : t('videoExtract.failedLoad')}
+        <button type="button" className="ml-3 underline" onClick={() => void query.refetch()}>{t('common.retry')}</button>
+      </div>
+    );
+  }
+  if (groups.length === 0) {
+    return (
+      <div className={`py-6 text-center text-sm text-muted-foreground ${className}`}>
+        {t('videoExtract.noLibraryExtracts')}
+      </div>
+    );
+  }
+
+  return (
+    <div className={`space-y-5 ${className}`}>
+      {groups.map((group) => (
+        <section key={group.documentId} className="space-y-2">
+          <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <BookOpen className="h-4 w-4 text-muted-foreground" />
+            <span className="truncate">{group.title}</span>
+            {group.archived && <span className="text-xs font-normal text-muted-foreground">({t('videoExtract.archivedSource')})</span>}
+          </h3>
+          {group.extracts.map((extract) => (
+            <VideoExtractCard
+              key={extract.id}
+              extract={extract}
+              sourceTitle={group.title}
+              onPlay={group.archived ? undefined : onPlayExtract}
+              onDelete={async (id) => {
+                if (!confirm(t('delete.deleteExtractConfirm'))) return;
+                try {
+                  await deleteMutation.mutateAsync(id);
+                  toast.success(t('videoExtract.deleted'));
+                } catch (error) {
+                  toast.error(error instanceof Error ? error.message : t('videoExtract.failedDelete'));
+                }
+              }}
+              onToggleQueue={group.archived ? undefined : (id, queued) => {
+                void membership.mutateAsync({ extractId: id, queued }).catch((error) => {
+                  toast.error(error instanceof Error ? error.message : t('videoExtract.failedQueueUpdate'));
+                });
+              }}
+              onReviewNow={group.archived ? undefined : (id) => {
+                void membership.mutateAsync({ extractId: id, queued: true, initialReviewDate: new Date().toISOString() }).catch((error) => {
+                  toast.error(error instanceof Error ? error.message : t('videoExtract.failedQueueUpdate'));
+                });
+              }}
+              isQueueUpdating={membership.isPending}
+              showRating={!group.archived}
+              onRate={async (id, rating) => {
+                try { await review.rate(id, rating); }
+                catch (error) { toast.error(error instanceof Error ? error.message : t('videoExtract.failedRate')); }
+              }}
+              isRating={review.isRating(extract.id)}
+              retryRating={review.retryRating(extract.id)}
+            />
+          ))}
+        </section>
+      ))}
+    </div>
+  );
+}
+
 interface VideoExtractCardProps {
   extract: VideoExtract;
+  sourceTitle?: string;
   onPlay?: (extract: VideoExtract) => void;
   onEdit?: (extract: VideoExtract) => void;
   onDelete?: (extractId: string) => void;
   onRate?: (extractId: string, rating: number) => void;
+  onToggleQueue?: (extractId: string, queued: boolean) => void;
+  onReviewNow?: (extractId: string) => void;
   showRating?: boolean;
   isRating?: boolean;
+  isQueueUpdating?: boolean;
   retryRating?: number;
 }
 
 export function VideoExtractCard({
   extract,
+  sourceTitle,
   onPlay,
   onEdit,
   onDelete,
   onRate,
+  onToggleQueue,
+  onReviewNow,
   showRating = false,
   isRating = false,
+  isQueueUpdating = false,
   retryRating,
 }: VideoExtractCardProps) {
   const { t } = useI18n();
 
   const duration = extract.end_time - extract.start_time;
-  const isDue = extract.next_review_date
+  const isDue = extract.queue_status === "queued" && extract.next_review_date
     ? new Date(extract.next_review_date) <= new Date()
     : false;
+  const futureScheduled = isVideoExtractFutureScheduled(extract);
 
   return (
     <div
@@ -521,7 +735,7 @@ export function VideoExtractCard({
           <span className="font-mono">{formatTimeRange(extract)}</span>
           <span>({formatSeconds(duration)})</span>
         </button>
-        {extract.next_review_date && (
+        {extract.queue_status === "queued" && extract.next_review_date && (
           <div className={`flex items-center gap-1 text-xs ${
             isDue ? 'text-primary' : 'text-muted-foreground'
           }`}>
@@ -536,6 +750,12 @@ export function VideoExtractCard({
           </div>
         )}
       </div>
+
+      {sourceTitle && (
+        <div className="mb-2 text-xs text-muted-foreground">
+          {t('videoExtract.source')}: {sourceTitle}
+        </div>
+      )}
 
       {/* Transcript Preview */}
       {extract.transcript_text && (
@@ -560,6 +780,29 @@ export function VideoExtractCard({
       )}
 
       <VideoExtractStatus extract={extract} />
+
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+        {onToggleQueue && (
+          <button
+            type="button"
+            disabled={isQueueUpdating || isRating}
+            onClick={() => onToggleQueue(extract.id, extract.queue_status !== "queued")}
+            className="rounded border border-border px-2 py-0.5 text-xs text-foreground hover:bg-muted disabled:opacity-50"
+          >
+            {extract.queue_status === "queued" ? t('videoExtract.removeFromQueue') : t('videoExtract.addToQueueShort')}
+          </button>
+        )}
+        {futureScheduled && onReviewNow && (
+          <button
+            type="button"
+            disabled={isQueueUpdating || isRating}
+            onClick={() => onReviewNow(extract.id)}
+            className="rounded border border-border px-2 py-0.5 text-xs text-foreground hover:bg-muted disabled:opacity-50"
+          >
+            {t('videoExtract.reviewNow')}
+          </button>
+        )}
+      </div>
 
       {/* Review Stats */}
       {extract.review_count > 0 && (
@@ -591,32 +834,40 @@ export function VideoExtractCard({
 
 function VideoExtractStatus({ extract }: { extract: VideoExtract }) {
   const { t } = useI18n();
-  const status = extract.review_count > 0 ? t('videoExtract.statusReviewed')
-    : `${t(extract.first_seen_at ? 'videoExtract.statusSeen' : 'videoExtract.statusNew')} · ${t('videoExtract.statusNotReviewed')}`;
-  return <div className="flex flex-wrap gap-2 text-xs text-muted-foreground" aria-live="polite">{status}</div>;
+  const lifecycle = videoExtractLifecycleKind(extract);
+  const queue = videoExtractQueueKind(extract);
+  const lifecycleLabel = lifecycle === 'reviewed'
+    ? t('videoExtract.statusReviewed')
+    : lifecycle === 'seen_unreviewed'
+      ? `${t('videoExtract.statusSeen')} · ${t('videoExtract.statusNotReviewed')}`
+      : `${t('videoExtract.statusNew')} · ${t('videoExtract.statusNotReviewed')}`;
+  const queueLabel = queue === 'not_queued'
+    ? t('videoExtract.notInQueue')
+    : queue === 'queued_scheduled'
+      ? t('videoExtract.inQueueScheduled')
+      : queue === 'needs_schedule'
+        ? t('videoExtract.needsSchedule')
+        : queue === 'queued_due'
+          ? t('videoExtract.inQueueDue')
+          : t('videoExtract.inQueueNew');
+  return <div className="flex flex-wrap gap-2 text-xs text-muted-foreground" aria-live="polite"><span>{lifecycleLabel}</span><span>·</span><span>{queueLabel}</span></div>;
 }
 
 interface DueVideoExtractsReviewProps {
-  documentId?: string;
+  extracts: VideoExtract[];
   onComplete?: () => void;
+  onPlayExtract?: (extract: VideoExtract) => void;
   className?: string;
 }
 
 export function DueVideoExtractsReview({
-  documentId,
+  extracts,
   onComplete,
+  onPlayExtract,
   className = '',
 }: DueVideoExtractsReviewProps) {
-  const { extracts, currentIndex, loading, isRating, rate, retryRating } = useDueVideoReview(documentId, onComplete);
+  const { currentIndex, isRating, rate, retryRating } = useDueVideoReview(extracts, onComplete);
   const { t } = useI18n();
-
-  if (loading) {
-    return (
-      <div className={`flex items-center justify-center py-8 ${className}`}>
-        <div className="text-sm text-muted-foreground">{t('videoExtract.loadingDueExtracts')}</div>
-      </div>
-    );
-  }
 
   if (currentIndex >= extracts.length) {
     return (
@@ -652,6 +903,7 @@ export function DueVideoExtractsReview({
         <div className="p-4 bg-card border border-border rounded-lg">
           <VideoExtractCard
             extract={current}
+            onPlay={onPlayExtract}
             showRating
             isRating={isRating}
             onRate={rate}

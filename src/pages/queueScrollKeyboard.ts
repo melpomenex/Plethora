@@ -12,7 +12,7 @@
 
 import { getRatingSchema } from "../lib/rating-grades";
 
-export type ScrollItemType = "document" | "rss" | "flashcard" | "extract" | "podcast";
+export type ScrollItemType = "document" | "rss" | "flashcard" | "extract" | "video-extract" | "podcast";
 
 /** Window event the scroll page dispatches to reveal the current flashcard's
  *  answer when focus is outside the card (the card listens and reveals). */

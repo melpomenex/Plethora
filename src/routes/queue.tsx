@@ -16,7 +16,8 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { useShallow } from "zustand/react/shallow";
-import { useQueueStore } from "../stores";
+import { useQueueStore, useTabsStore } from "../stores";
+import { DocumentViewer as TabDocumentViewer } from "../components/tabs/TabRegistry";
 import { QueueStatsDisplay } from "../components/queue/QueueStats";
 import { BulkActionBar } from "../components/queue/BulkActionBar";
 import { QueueContextMenu } from "../components/queue/QueueContextMenu";
@@ -369,6 +370,21 @@ export function Queue() {
   const handleStartReview = (item: QueueItem) => {
     if (item.itemType === "learning-item") {
       navigate("/review");
+    } else if (item.itemType === "video-extract") {
+      useTabsStore.getState().addTab({
+        title: item.entityTitle ?? item.documentTitle,
+        icon: <Play className="w-4 h-4 text-muted-foreground" />,
+        type: "document-viewer",
+        content: TabDocumentViewer,
+        closable: true,
+        data: {
+          documentId: item.documentId,
+          focusedVideoExtractId: item.entityId ?? item.id,
+          openedFrom: "queue",
+          hideRatingOrbs: true,
+        },
+      });
+      navigate("/");
     } else if (item.hasAudioEdition) {
       navigate(`/documents/${item.documentId}?listen=true`);
     } else {
@@ -423,8 +439,14 @@ export function Queue() {
   };
 
   const handleDeleteItem = async (id: string) => {
-    // For single item delete, we'll need to implement this
-    // For now, select the item and use bulk delete
+    const item = useQueueStore.getState().items.find((candidate) => candidate.id === id);
+    if (item?.itemType === "video-extract") {
+      const { deleteVideoExtract } = await import("../api/video-extracts");
+      await deleteVideoExtract(item.entityId ?? item.id);
+      await loadQueue();
+      return;
+    }
+    // For other single-item deletes, select the item and use the bulk path.
     setSelected(id, true);
     await bulkDelete();
   };

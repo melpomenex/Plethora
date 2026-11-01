@@ -1,10 +1,13 @@
 import { useEffect, useMemo } from "react";
 import { ArrowRight, Scissors, WarningCircle } from "@phosphor-icons/react";
 import { useDocumentStore, useTabsStore } from "../../stores";
+import { useCollectionStore } from "../../stores/collectionStore";
 import { useExtractStore } from "../../stores/extractStore";
 import { usePaneId } from "../common/Tabs";
 import { useI18n } from "../../lib/i18n";
 import { ExtractsList } from "../extracts/ExtractsList";
+import { VideoExtractLibraryList } from "../video/VideoExtracts";
+import { useAllVideoExtracts } from "../../hooks/useVideoExtracts";
 import { DocumentViewer } from "./TabRegistry";
 import type { Extract } from "../../api/extracts";
 
@@ -29,6 +32,9 @@ export function ExtractsTab() {
   const loadError = useExtractStore((state) => state.error);
   const loadExtracts = useExtractStore((state) => state.loadExtracts);
   const documents = useDocumentStore((state) => state.documents);
+  const activeCollectionId = useCollectionStore((state) => state.activeCollectionId);
+  const videoQuery = useAllVideoExtracts(activeCollectionId);
+  const videoCount = videoQuery.data?.length ?? 0;
 
   useEffect(() => {
     // The store swallows load errors (legacy callers fire-and-forget); the
@@ -71,6 +77,20 @@ export function ExtractsTab() {
     }));
     return { groups: grouped, visibleCount: sorted.length };
   }, [extracts, titleByDocumentId, t]);
+
+  const openVideoExtract = (documentId: string, title: string, extractId: string) => {
+    addTab(
+      {
+        title,
+        icon: <Scissors className="w-4 h-4 text-muted-foreground" />,
+        type: "document-viewer",
+        content: DocumentViewer,
+        closable: true,
+        data: { documentId, focusedVideoExtractId: extractId, hideRatingOrbs: true },
+      },
+      paneId,
+    );
+  };
 
   const openSourceDocument = (documentId: string, title: string, focusedExtractId?: string) => {
     addTab(
@@ -117,7 +137,7 @@ export function ExtractsTab() {
     );
   }
 
-  if (extracts.length === 0 || groups.length === 0) {
+  if (groups.length === 0 && videoCount === 0 && !videoQuery.isLoading && !videoQuery.error) {
     return (
       <div className="flex h-full w-full items-center justify-center bg-background p-6">
         <div className="max-w-md text-center">
@@ -135,11 +155,15 @@ export function ExtractsTab() {
         <div className="mb-6 flex items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-semibold text-foreground">{t("extractsTab.title")}</h2>
-            <p className="text-sm text-muted-foreground">{t("extractsTab.subtitle", { count: visibleCount })}</p>
+            <p className="text-sm text-muted-foreground">{t("extractsTab.subtitle", { count: visibleCount + videoCount })}</p>
           </div>
         </div>
 
         <div className="space-y-8">
+          {groups.length === 0 && !videoQuery.isLoading && videoCount > 0 && (
+            <p className="text-sm text-muted-foreground">{t("extractsTab.noTextExtracts")}</p>
+          )}
+
           {groups.map((group) => (
             <section key={group.documentId} className="space-y-3">
               <div className="flex items-center justify-between gap-3 border-b border-border pb-2">
@@ -168,6 +192,15 @@ export function ExtractsTab() {
               <ExtractsList documentId={group.documentId} focusedExtractId={undefined} />
             </section>
           ))}
+          <section className="space-y-3">
+            <div className="flex items-center justify-between gap-3 border-b border-border pb-2">
+              <h3 className="text-sm font-medium text-foreground">{t("videoExtract.libraryTitle")}</h3>
+            </div>
+            <VideoExtractLibraryList
+              collectionId={activeCollectionId}
+              onPlayExtract={(extract) => openVideoExtract(extract.document_id, extract.title, extract.id)}
+            />
+          </section>
         </div>
       </div>
     </div>

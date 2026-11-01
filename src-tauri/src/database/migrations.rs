@@ -4884,6 +4884,28 @@ pub const MIGRATIONS: &[Migration] = &[
         END;
         "#,
     ),
+    // Explicit membership and collection ownership for video extracts. The
+    // date-presence inference preserves the old adapters' de-facto intent:
+    // dated rows were added to the queue; NULL-date rows were not. Existing
+    // dates are never rewritten.
+    Migration::new(
+        "136_video_extract_queue_membership",
+        r#"
+        ALTER TABLE video_extracts ADD COLUMN queue_status TEXT NOT NULL
+            DEFAULT 'not_queued'
+            CHECK (queue_status IN ('not_queued', 'queued'));
+        ALTER TABLE video_extracts ADD COLUMN collection_id TEXT NOT NULL
+            DEFAULT '00000000-0000-0000-0000-000000000001';
+        UPDATE video_extracts
+        SET collection_id = COALESCE(
+            (SELECT documents.collection_id FROM documents WHERE documents.id = video_extracts.document_id),
+            '00000000-0000-0000-0000-000000000001'
+        );
+        UPDATE video_extracts SET queue_status = 'queued' WHERE next_review_date IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_video_extracts_queue_eligibility
+            ON video_extracts(queue_status, next_review_date);
+        "#,
+    ),
 
 ];
 
@@ -6376,5 +6398,50 @@ mod tests {
         .await
         .expect("tracking row");
         assert_eq!(tracked, 0);
+    }
+
+    #[tokio::test]
+    async fn video_extract_queue_membership_migration_preserves_dates_and_history() {
+        let pool = pool_migrated_up_to("136_video_extract_queue_membership").await;
+        sqlx::query(
+            "INSERT INTO documents (id, collection_id, title, file_path, file_type, date_added, date_modified, is_archived, is_dismissed)
+             VALUES ('video-parent', 'collection-b', 'Video', '/tmp/video.mp4', 'video', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 0, 0)",
+        )
+        .execute(&pool).await.expect("seed parent");
+        for (id, date, reviews, seen) in [
+            ("dated-new", Some("2026-10-30T00:00:00Z"), 0, None),
+            ("dated-reviewed", Some("2026-09-01T00:00:00Z"), 3, Some("2026-08-01T00:00:00Z")),
+            ("undated-new", None, 0, None),
+            ("undated-reviewed", None, 2, None),
+        ] {
+            sqlx::query(
+                "INSERT INTO video_extracts (id, document_id, start_time, end_time, title, tags, transcript_text, memory_state, next_review_date, last_review_date, first_seen_at, last_seen_at, review_count, reps, date_created, date_modified)
+                 VALUES (?1, 'video-parent', 1.0, 10.0, ?1, '[]', 'transcript', '{\"stability\":3.0,\"difficulty\":5.0}', ?2, ?2, ?3, ?3, ?4, ?4, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')",
+            )
+            .bind(id)
+            .bind(date)
+            .bind(seen)
+            .bind(reviews)
+            .execute(&pool).await.expect("seed extract");
+        }
+        run_migrations(&pool).await.expect("apply 136");
+        let rows: Vec<(String, Option<String>, String, String, i64, String)> = sqlx::query_as(
+            "SELECT id, next_review_date, queue_status, collection_id, review_count, COALESCE(first_seen_at, '') FROM video_extracts ORDER BY id",
+        ).fetch_all(&pool).await.expect("read upgraded rows");
+        let by_id: std::collections::HashMap<_, _> = rows.into_iter().map(|row| (row.0.clone(), row)).collect();
+        assert_eq!(by_id["dated-new"].2, "queued");
+        assert_eq!(by_id["dated-new"].1.as_deref(), Some("2026-10-30T00:00:00Z"));
+        assert_eq!(by_id["dated-reviewed"].2, "queued");
+        assert_eq!(by_id["dated-reviewed"].4, 3);
+        assert_eq!(by_id["dated-reviewed"].5, "2026-08-01T00:00:00Z");
+        assert_eq!(by_id["undated-new"].2, "not_queued");
+        assert_eq!(by_id["undated-reviewed"].2, "not_queued");
+        assert_eq!(by_id["undated-reviewed"].4, 2);
+        for row in by_id.values() {
+            assert_eq!(row.3, "collection-b");
+        }
+        let rejected = sqlx::query("UPDATE video_extracts SET queue_status = 'paused' WHERE id = 'dated-new'")
+            .execute(&pool).await;
+        assert!(rejected.is_err(), "the status CHECK must reject unknown values");
     }
 }

@@ -16,6 +16,7 @@ import { schedulerLabel } from "../../lib/schedulerCatalog";
 import { normalizeSchedulerId } from "../../lib/schedulerIdentity";
 import { useToast } from "../common/Toast";
 import { getExtract } from "../../api/extracts";
+import { getVideoExtract } from "../../api/video-extracts";
 import { getLearningItem } from "../../api/learning-items";
 import { getAlgorithmParams } from "../../api/algorithm";
 import { previewReviewIntervals, formatInterval, type PreviewIntervals } from "../../api/review";
@@ -67,6 +68,15 @@ export type ItemDetailsTarget =
       title: string;
       source?: string;
       link?: string;
+      category?: string;
+    }
+  | {
+      type: "video-extract";
+      id: string;
+      title: string;
+      tags?: string[];
+      sourceTitle?: string;
+      documentId?: string;
       category?: string;
     };
 
@@ -188,6 +198,21 @@ async function loadItemDetails(target: ItemDetailsTarget): Promise<ItemDetailsDa
     };
   }
 
+  if (target.type === "video-extract") {
+    const extract = await getVideoExtract(target.id);
+    return {
+      stability: extract?.memory_state?.stability ?? null,
+      difficulty: extract?.memory_state?.difficulty ?? null,
+      retrievability: null,
+      nextIntervalDays: getIntervalFromDueDate(extract?.next_review_date ?? null),
+      dueDate: extract?.next_review_date ?? null,
+      reps: extract?.reps ?? null,
+      lapses: null,
+      previewIntervals: null,
+      raw: extract ? { ...extract } : null,
+    };
+  }
+
   if (target.type === "document") {
     const document = await getDocument(target.id);
     return {
@@ -240,7 +265,7 @@ export function ItemDetailsPopover({
   const toast = useToast();
   const modal = useModal();
   const { settings } = useSettingsStore();
-  const canEditTags = target.type !== "rss";
+  const canEditTags = target.type !== "rss" && target.type !== "video-extract";
 
   const targetKey = useMemo(() => {
     if (target.type === "rss") return `rss:${target.title}`;
@@ -249,13 +274,14 @@ export function ItemDetailsPopover({
 
   // RSS articles have no persisted per-item record to look up, so the stats
   // request is skipped for them entirely rather than issued and discarded.
-  const statsItemId = target.type === "rss" ? null : target.id;
+  const statsItemId = target.type === "rss" || target.type === "video-extract" ? null : target.id;
+  const statsItemType = target.type === "video-extract" ? null : target.type;
   const {
     summary: statsSummary,
     isSummaryLoading,
     summaryError,
   } = useItemStats({
-    itemType: target.type,
+    itemType: statsItemType,
     itemId: statsItemId,
     isSummaryOpen: isOpen,
     leechThreshold: settings.learning.leechThreshold,
@@ -482,6 +508,9 @@ export function ItemDetailsPopover({
         <div className="text-xs text-muted-foreground capitalize">{t(`itemDetails.type.${target.type.replace("-", "")}`)}</div>
         {target.type === "rss" && target.source && (
           <div className="text-xs text-muted-foreground">{t("itemDetails.source")}: {target.source}</div>
+        )}
+        {target.type === "video-extract" && target.sourceTitle && (
+          <div className="text-xs text-muted-foreground">{t("itemDetails.source")}: {target.sourceTitle}</div>
         )}
       </div>
 
@@ -903,7 +932,7 @@ export function ItemDetailsPopover({
           {canPortal ? (
             createPortal(
               <ItemStatsModal
-                itemType={target.type}
+                itemType={statsItemType ?? "document"}
                 itemId={statsItemId}
                 title={target.title}
                 onClose={() => {
@@ -915,7 +944,7 @@ export function ItemDetailsPopover({
             )
           ) : (
             <ItemStatsModal
-              itemType={target.type}
+              itemType={statsItemType ?? "document"}
               itemId={statsItemId}
               title={target.title}
               onClose={() => {

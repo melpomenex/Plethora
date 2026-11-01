@@ -183,6 +183,7 @@ pub(crate) async fn issue6_repository_at(path: PathBuf) -> Repository {
     video.date_created = clock;
     video.date_modified = clock;
     video.next_review_date = Some(clock - Duration::days(1));
+    video.queue_status = crate::models::video_extract::VideoExtractQueueStatus::Queued;
     repo.create_video_extract(&video)
         .await
         .expect("seed video extract");
@@ -190,6 +191,7 @@ pub(crate) async fn issue6_repository_at(path: PathBuf) -> Repository {
     new_video.id = NEW_VIDEO_EXTRACT_ID.into();
     new_video.date_created = clock;
     new_video.date_modified = clock;
+    new_video.queue_status = crate::models::video_extract::VideoExtractQueueStatus::Queued;
     repo.create_video_extract(&new_video)
         .await
         .expect("seed new video extract");

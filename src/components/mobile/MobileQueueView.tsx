@@ -244,7 +244,7 @@ export function MobileQueueView({
   // Undo toast state
   const [undoState, setUndoState] = useState<{
     visible: boolean;
-    action: "suspend" | "postpone" | "dismiss";
+    action: "suspend" | "postpone" | "dismiss" | "remove-video-extract";
     itemId: string;
     documentId?: string;
     itemTitle: string;
@@ -414,6 +414,21 @@ export function MobileQueueView({
   const handleSuspend = useCallback(async (item: QueueItem) => {
     captureScrollAnchor();
     try {
+      if (item.itemType === "video-extract") {
+        const { setVideoExtractQueueMembership } = await import("../../api/video-extracts");
+        await setVideoExtractQueueMembership(item.entityId ?? item.id, false);
+        emitUserInteraction("action.committed");
+        toast.success(t("mobileQueue.itemSuspended"), t("videoExtract.removedFromQueueDesc"));
+        useQueueStore.getState().removeItemsLocally([item.id]);
+        setUndoState({
+          visible: true,
+          action: "remove-video-extract",
+          itemId: item.id,
+          itemTitle: item.documentTitle,
+          progress: 100,
+        });
+        return;
+      }
       const result = await bulkSuspendItems([item.id]);
       if (result.failed.length) throw new Error(result.errors.join(", "));
       emitUserInteraction("action.committed");
@@ -529,6 +544,18 @@ export function MobileQueueView({
           itemTitle: item.documentTitle,
           progress: 100,
         });
+      } else if (item.itemType === "video-extract") {
+        const { setVideoExtractQueueMembership } = await import("../../api/video-extracts");
+        await setVideoExtractQueueMembership(item.entityId ?? item.id, false);
+        emitUserInteraction("action.committed");
+        toast.success(t("videoExtract.removedFromQueue"), t("videoExtract.removedFromQueueDesc"));
+        setUndoState({
+          visible: true,
+          action: "remove-video-extract",
+          itemId: item.id,
+          itemTitle: item.documentTitle,
+          progress: 100,
+        });
       }
       await loadQueue();
     } catch (error) {
@@ -560,6 +587,12 @@ export function MobileQueueView({
         if (result.failed.length) throw new Error(result.errors.join(", "));
         emitUserInteraction("action.committed");
         toast.success(t("mobileQueue.itemRestored"), t("mobileQueue.backInQueue"));
+      } else if (undoState.action === "remove-video-extract") {
+        const item = useQueueStore.getState().items.find((candidate) => candidate.id === undoState.itemId);
+        const { setVideoExtractQueueMembership } = await import("../../api/video-extracts");
+        await setVideoExtractQueueMembership(item?.entityId ?? undoState.itemId, true);
+        emitUserInteraction("action.committed");
+        toast.success(t("mobileQueue.itemRestored"), t("mobileQueue.backInQueue"));
       } else if (undoState.action === "dismiss" && undoState.documentId) {
         await dismissDocument(undoState.documentId, false);
         emitUserInteraction("action.committed");
@@ -583,6 +616,8 @@ export function MobileQueueView({
   }, [setSelected, selectionMode]);
 
   const toggleSelect = useCallback((itemId: string) => {
+    const candidate = useQueueStore.getState().items.find((item) => item.id === itemId);
+    if (candidate?.itemType === "video-extract") return;
     // Reuse the store's current selection to decide toggle direction so we
     // don't depend on stale closure state.
     const isSelected = useQueueStore.getState().selectedIds.has(itemId);

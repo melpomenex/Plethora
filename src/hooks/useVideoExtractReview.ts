@@ -1,5 +1,8 @@
-import { useSyncExternalStore } from 'react';
+import { useContext, useSyncExternalStore } from 'react';
+import { QueryClientContext } from '@tanstack/react-query';
 import { rateVideoExtract } from '../api/video-extracts';
+import { patchVideoExtractCaches, videoExtractKeys } from '../lib/videoExtractQueryCache';
+import { useQueueStore } from '../stores/queueStore';
 
 type Intent = { operationId: string; rating: number; pending: boolean };
 const intents = new Map<string, Intent>();
@@ -12,6 +15,7 @@ function notify() { revision += 1; listeners.forEach((listener) => listener()); 
 /** Shared across ordinary lists and sessions, including uncertain-response retry. */
 export function useVideoExtractReview() {
   useSyncExternalStore(subscribe, snapshot, snapshot);
+  const queryClient = useContext(QueryClientContext);
   const rate = async (id: string, rating: number) => {
     const prior = intents.get(id);
     if (prior?.pending) return null;
@@ -23,7 +27,17 @@ export function useVideoExtractReview() {
     try {
       const result = await rateVideoExtract(id, rating, intent.operationId);
       intents.delete(id);
-      window.dispatchEvent(new CustomEvent('video-extract-reviewed', { detail: result }));
+      if (queryClient) {
+        if (result.extract) patchVideoExtractCaches(queryClient, result.extract);
+        void queryClient.invalidateQueries({ queryKey: videoExtractKeys.all });
+      }
+      const queue = useQueueStore.getState();
+      if (typeof queue.invalidateQueueGeneration === "function") {
+        queue.invalidateQueueGeneration();
+      }
+      if (queue.hasCompletedFirstLoad && typeof queue.reloadForCurrentMode === "function") {
+        void queue.reloadForCurrentMode();
+      }
       return result;
     } finally {
       // Failed requests keep their identity so a lost response cannot double rate.

@@ -26,6 +26,9 @@ const mocks = vi.hoisted(() => {
     items: [],
     loadQueue: vi.fn(async () => {}),
     customSubset: null,
+    hasCompletedFirstLoad: true,
+    reloadForCurrentMode: vi.fn(async () => {}),
+    invalidateQueueGeneration: vi.fn(),
     postponeItemSmart: vi.fn(async () => {}),
   };
   const tabsState: Record<string, any> = {
@@ -165,6 +168,10 @@ const api = vi.hoisted(() => ({
   consumeNeuralQueueElement: vi.fn(),
   refillNeuralQueueIfDepleted: vi.fn(),
   getNeuralQueueRemaining: vi.fn(),
+  rateVideoExtract: vi.fn(),
+  deleteVideoExtract: vi.fn(),
+  getVideoExtract: vi.fn(),
+  setVideoExtractQueueMembership: vi.fn(),
 }));
 
 vi.mock("../../api/algorithm", () => ({
@@ -218,6 +225,12 @@ vi.mock("../../api/queue", () => ({
 vi.mock("../../api/llm", () => ({ chatWithLLM: api.chatWithLLM }));
 vi.mock("../../api/ai", () => ({ getAIConfig: api.getAIConfig }));
 vi.mock("../../api/youtube", () => ({ fetchYouTubeTranscript: api.fetchYouTubeTranscript }));
+vi.mock("../../api/video-extracts", () => ({
+  rateVideoExtract: api.rateVideoExtract,
+  deleteVideoExtract: api.deleteVideoExtract,
+  getVideoExtract: api.getVideoExtract,
+  setVideoExtractQueueMembership: api.setVideoExtractQueueMembership,
+}));
 vi.mock("../../api/neural-queue", () => ({
   buildNeuralQueue: api.buildNeuralQueue,
   getNeuralQueueResolvedFront: api.getNeuralQueueResolvedFront,
@@ -632,7 +645,7 @@ describe("QueueScrollPage session rebuild stability (queue-list path)", () => {
   }, 20000);
 
   it("edits a video extract without changing its parent document", async () => {
-    mocks.tabsState.tabs[0].data.customQueueItems = [{ id: "segment-1", itemType: "video-extract", entityId: "segment-1", documentId: "doc-1", documentTitle: "Segment", priority: 5, estimatedTime: 2, tags: [], progress: 0 }];
+    mocks.tabsState.tabs[0].data.customQueueItems = [{ id: "segment-1", itemType: "video-extract", entityId: "segment-1", documentId: "doc-1", documentTitle: "Segment", entityTitle: "Segment", startTime: 10, endTime: 20, priority: 5, estimatedTime: 2, tags: [], progress: 0 }];
     api.getQueueExternalPriorities.mockResolvedValue([{ kind: "video-extract", itemId: "segment-1", slider: 73 }]);
     api.bulkUpdateTypedItemPriorities.mockResolvedValue({ succeeded: ["video-extract:segment-1"], failed: [], errors: [] });
     render(<QueueScrollPage />);
@@ -643,6 +656,36 @@ describe("QueueScrollPage session rebuild stability (queue-list path)", () => {
     fireEvent.click(screen.getByRole("button", { name: "priority.highest" }));
     await waitFor(() => expect(api.bulkUpdateTypedItemPriorities).toHaveBeenCalledWith([{ kind: "video-extract", id: "segment-1" }], 90));
     expect(api.updateDocumentPriority).not.toHaveBeenCalled();
+  }, 20000);
+
+  it("rates a video extract through Scroll Mode without rating its parent document", async () => {
+    mocks.tabsState.tabs[0].data.customQueueItems = [{
+      id: "segment-1",
+      itemType: "video-extract",
+      entityId: "segment-1",
+      entityTitle: "Segment",
+      documentId: "doc-1",
+      documentTitle: "Doc One - Segment",
+      startTime: 10,
+      endTime: 20,
+      priority: 5,
+      estimatedTime: 2,
+      tags: [],
+      progress: 0,
+      reps: 0,
+      dueDate: "2020-01-01T00:00:00Z",
+    }];
+    api.getQueueExternalPriorities.mockResolvedValue([]);
+    api.rateVideoExtract.mockResolvedValue({
+      extract: null,
+      receipt: { operation_id: "op", extract_id: "segment-1", document_id: "doc-1", rating: 3, reviewed_at: "2026-01-01T00:00:00Z", before: {}, after: {} },
+    });
+    render(<QueueScrollPage />);
+    await screen.findByTestId("document-viewer");
+    await rateCurrentViaKeyboard("3");
+    await waitFor(() => expect(api.rateVideoExtract).toHaveBeenCalledWith("segment-1", 3, expect.any(String)));
+    expect(api.rateDocumentEngaging).not.toHaveBeenCalled();
+    expect(api.rateVideoExtract).toHaveBeenCalledTimes(1);
   }, 20000);
 
   it("loads the full persisted non-due card rather than fabricating a cloze", async () => {

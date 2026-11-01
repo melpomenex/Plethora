@@ -343,7 +343,9 @@ export function applyFilters(items: QueueItem[], options?: SessionCustomizationO
   if (options?.itemTypes) {
     filtered = filtered.filter((item) => {
       if (item.itemType === "document") return options.itemTypes!.documents;
-      if (item.itemType === "extract") return options.itemTypes!.extracts;
+      if (item.itemType === "extract" || item.itemType === "video-extract") {
+        return options.itemTypes!.extracts;
+      }
       if (item.itemType === "learning-item") return options.itemTypes!.learningItems;
       return true;
     });

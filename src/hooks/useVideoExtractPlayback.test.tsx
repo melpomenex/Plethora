@@ -1,4 +1,6 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import type { ReactNode } from 'react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { useVideoExtractPlayback } from './useVideoExtractPlayback';
 import type { VideoExtract } from '../api/video-extracts';
@@ -7,10 +9,14 @@ const mocks = vi.hoisted(() => ({ mark: vi.fn(), toast: { error: vi.fn() } }));
 vi.mock('../api/video-extracts', () => ({ markVideoExtractSeen: mocks.mark }));
 vi.mock('../components/common/Toast', () => ({ useToast: () => mocks.toast }));
 const extract = { id: 'segment', document_id: 'video', start_time: 10, end_time: 20 } as VideoExtract;
+const wrapper = ({ children }: { children: ReactNode }) => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+};
 beforeEach(() => { vi.clearAllMocks(); mocks.mark.mockResolvedValue(extract); });
 
 it('records seen once only after a playing sample inside the selected segment', async () => {
-  const { result } = renderHook(() => useVideoExtractPlayback('video'));
+  const { result } = renderHook(() => useVideoExtractPlayback('video'), { wrapper });
   act(() => result.current.select(extract));
   expect(mocks.mark).not.toHaveBeenCalled();
   act(() => { result.current.confirm(0); result.current.confirm(NaN); });
@@ -21,7 +27,7 @@ it('records seen once only after a playing sample inside the selected segment', 
 });
 
 it('does not mark failed playback or stale selections after changing documents', () => {
-  const { result, rerender } = renderHook(({ id }) => useVideoExtractPlayback(id), { initialProps: { id: 'video' } });
+  const { result, rerender } = renderHook(({ id }) => useVideoExtractPlayback(id), { initialProps: { id: 'video' }, wrapper });
   act(() => { result.current.select(extract); result.current.cancel(); result.current.confirm(10); });
   expect(mocks.mark).not.toHaveBeenCalled();
   act(() => result.current.select(extract));
@@ -30,9 +36,30 @@ it('does not mark failed playback or stale selections after changing documents',
   expect(mocks.mark).not.toHaveBeenCalled();
 });
 
+it('arms from a queue-focused extract without requiring a source-panel selection', async () => {
+  const { result, rerender } = renderHook(
+    ({ armed }: { armed: VideoExtract | null }) => useVideoExtractPlayback('video', armed),
+    { initialProps: { armed: extract }, wrapper },
+  );
+  rerender({ armed: extract });
+  await act(async () => {});
+  act(() => result.current.confirm(10.1));
+  await waitFor(() => expect(mocks.mark).toHaveBeenCalledWith('segment'));
+});
+
+it('cancels arming when the focused extract is cleared', () => {
+  const { result, rerender } = renderHook(
+    ({ armed }: { armed: VideoExtract | null }) => useVideoExtractPlayback('video', armed),
+    { initialProps: { armed: extract }, wrapper },
+  );
+  rerender({ armed: null });
+  act(() => result.current.confirm(10));
+  expect(mocks.mark).not.toHaveBeenCalled();
+});
+
 it('keeps a persistence failure visible and permits reopening to retry', async () => {
   mocks.mark.mockRejectedValueOnce(new Error('Local disk unavailable'));
-  const { result } = renderHook(() => useVideoExtractPlayback('video'));
+  const { result } = renderHook(() => useVideoExtractPlayback('video'), { wrapper });
   act(() => { result.current.select(extract); result.current.confirm(10); });
   await waitFor(() => expect(mocks.toast.error).toHaveBeenCalledWith('Local disk unavailable'));
   act(() => { result.current.select(extract); result.current.confirm(10); });

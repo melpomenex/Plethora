@@ -18,6 +18,7 @@ import {
   type QueueStats
 } from "../api/queue";
 import { getLearningItem, getLearningItemsForPostpone } from "../api/learning-items";
+import { postponeVideoExtract } from "../api/video-extracts";
 import { useCollectionStore } from "./collectionStore";
 import type { QueueItem, SortOptions, SearchFilters } from "../types";
 import { useDocumentStore } from "./documentStore";
@@ -231,12 +232,16 @@ interface QueueState {
    * they regain focus while this is set — see reconcileIfDirty.
    */
   hasLocalDeltas: boolean;
+  /** Bumped by cross-store mutations so deduped loads cannot reuse a stale request. */
+  queryRevision: number;
 
   /**
    * Apply a single-item mutation result to local queue state (no IPC): patch
    * the item, re-run filters/sort, and mark the store for focus reconcile.
    */
   applyItemDelta: (id: string, updates: Partial<QueueItem>) => void;
+  /** Invalidate any in-flight queue load and make the next load start fresh. */
+  invalidateQueueGeneration: () => void;
   /**
    * Batched `applyItemDelta`: one array pass and one `applyFilters()` for the
    * whole set, instead of one of each per item.
@@ -350,6 +355,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
   queueFilterMode: "due-all", // Default to due-only to avoid resurfacing reviewed items
   loadedQueryKey: null,
   hasCompletedFirstLoad: false,
+  queryRevision: 0,
   rankBreakdowns: new Map(),
   rankBreakdownKnobs: null,
   decisionRerankTimer: null,
@@ -362,7 +368,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
   loadQueue: async (forceAllItems?: boolean) => {
     const mode = forceAllItems ? "all-items" : get().queueFilterMode;
     const collectionId = useCollectionStore.getState().activeCollectionId;
-    return dedupeLoad(`loadQueue:${mode}:${collectionId ?? "default"}`, async () => {
+    return dedupeLoad(`loadQueue:${mode}:${collectionId ?? "default"}:${get().queryRevision}`, async () => {
       set({ isLoading: true, error: null });
       try {
         let items: QueueItem[] = [];
@@ -424,7 +430,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
   // Load only due documents (FSRS-scheduled with next_reading_date <= now or never read)
   loadDueDocumentsOnly: async () => {
     const collectionId = useCollectionStore.getState().activeCollectionId;
-    return dedupeLoad(`loadDueDocumentsOnly:${collectionId ?? "default"}`, async () => {
+    return dedupeLoad(`loadDueDocumentsOnly:${collectionId ?? "default"}:${get().queryRevision}`, async () => {
       set({ isLoading: true, error: null });
       try {
         let items = await getDueDocumentsOnly(collectionId);
@@ -455,7 +461,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
   // Load due queue items (includes documents, extracts, and learning items)
   loadDueQueueItems: async () => {
     const collectionId = useCollectionStore.getState().activeCollectionId;
-    return dedupeLoad(`loadDueQueueItems:${collectionId ?? "default"}`, async () => {
+    return dedupeLoad(`loadDueQueueItems:${collectionId ?? "default"}:${get().queryRevision}`, async () => {
       set({ isLoading: true, error: null });
       try {
         let items = await getDueQueueItems(undefined, collectionId);
@@ -586,6 +592,10 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     set({ decisionRerankTimer: timer });
   },
 
+  invalidateQueueGeneration: () => {
+    set((state) => ({ queryRevision: state.queryRevision + 1, hasLocalDeltas: true }));
+  },
+
   reloadForCurrentMode: async () => {
     switch (get().queueFilterMode) {
       case "due-today":
@@ -670,7 +680,11 @@ export const useQueueStore = create<QueueState>((set, get) => ({
   // through select-all for no reason. Callers wanting one type filter their own.
   selectAll: () =>
     set((state) => {
-      const newSelected = new Set(state.filteredItems.map((item) => item.id));
+      const newSelected = new Set(
+        state.filteredItems
+          .filter((item) => item.itemType !== "video-extract")
+          .map((item) => item.id),
+      );
       return { selectedIds: newSelected, lastSelectedId: null, selectionBase: new Set(newSelected) };
     }),
 
@@ -867,6 +881,30 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     };
 
     const now = new Date();
+
+    if (queueItem.itemType === "video-extract") {
+      const id = queueItem.entityId ?? queueItem.id;
+      const interval = queueItem.dueDate
+        ? Math.max(0, Math.floor((new Date(queueItem.dueDate).getTime() - now.getTime()) / 86400000))
+        : 0;
+      const input: PostponeInput = {
+        id,
+        type: "item",
+        interval,
+        priority: queueItem.priority,
+        stability: queueItem.stability ?? 1,
+        difficulty: queueItem.difficulty ?? 3,
+        reviewCount: queueItem.reps ?? 0,
+        lapses: 0,
+        daysSinceReview: 0,
+      };
+      const result = postponeElement(input, config);
+      if (result.postponed) {
+        const updated = await postponeVideoExtract(id, result.increase);
+        get().applyItemDelta(queueItem.id, { dueDate: updated.next_review_date });
+      }
+      return { increase: result.increase, newInterval: result.newInterval };
+    }
 
     if (queueItem.itemType === "document") {
       const docs = useDocumentStore.getState().documents;

@@ -1806,8 +1806,18 @@ Most newsletter platforms publish RSS feeds:
 **Video Extracts:**
 1. Open **Panels** → **Video Extracts**
 2. Click **New**
-3. Set start/end and optional transcript text
-4. Save to create a reusable clip
+3. Set start/end, a title, and optional transcript text
+4. Choose **Add to Review Queue** to make the clip immediately eligible, or pick
+   **Start reviewing on** a future date to keep it out of the queue until then
+5. Save to create a reusable clip
+
+A saved extract appears immediately in the source video's Extracts panel and in
+the toolbar's **Extracts** tab. Its status shows **New**, **Seen · Not reviewed**,
+or **Reviewed**, plus whether it is in the queue. Opening a queue item seeks to
+the segment and marks it Seen only after playback is confirmed; rating the
+extract changes only that extract's schedule. **Remove from queue** keeps the
+saved clip and its review history, and **Review now** makes a future-scheduled
+clip eligible immediately.
 
 **SponsorBlock Integration:**
 - Auto-skips sponsored segments in YouTube videos, local videos and audiobooks,

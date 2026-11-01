@@ -26,7 +26,7 @@ export function QueueContextMenu({ item, onDelete, onStartReview, onEditCard }: 
   const [postponeLoading, setPostponeLoading] = useState(false);
   const postponeItemSmart = useQueueStore((s) => s.postponeItemSmart);
 
-  const canPostpone = item.itemType === "learning-item" || item.itemType === "document";
+  const canPostpone = item.itemType === "learning-item" || item.itemType === "document" || item.itemType === "video-extract";
 
   const handleSmartPostpone = async () => {
     setPostponeLoading(true);
@@ -87,7 +87,7 @@ export function QueueContextMenu({ item, onDelete, onStartReview, onEditCard }: 
                 className="w-full px-4 py-2 text-left text-sm text-foreground hover:bg-muted transition-colors flex items-center gap-2"
               >
                 <Play className="w-4 h-4" />
-                {t("delete.startReview")}
+                {item.itemType === "video-extract" ? t("queue.openSegment") : t("delete.startReview")}
               </button>
 
               {item.itemType === "learning-item" && onEditCard && (

@@ -4,7 +4,7 @@
  */
 
 import * as db from './database.js';
-import { browserVideoExtractCommand } from './browserVideoExtracts';
+import { browserVideoExtractCommand, listBrowserVideoExtractCandidates } from './browserVideoExtracts';
 import { createBrowserAssistantCard } from './browserAssistantCards';
 import { claimBrowserAudioOwner, commitBrowserAudioCheckpoint, getBrowserAudioCheckpoint, getBrowserAudioSession, saveBrowserAudioSession } from '../services/audio/browserAudioCheckpoints';
 import type { AudioCheckpoint, AudioSourceKey, SavedAudioSession } from '../types/audioEdition';
@@ -723,6 +723,52 @@ function extractPriorityReadback(
     return 50;
 }
 
+/** Build browser video-extract queue rows with the canonical candidate policy. */
+async function browserVideoQueueItems(collectionId?: string): Promise<unknown[]> {
+    const candidates = await listBrowserVideoExtractCandidates(undefined, new Date(), collectionId);
+    if (candidates.length === 0) return [];
+    const priorities = new Map(
+        (await db.getQueueExternalPriorities())
+            .filter((entry) => entry.kind === 'video-extract')
+            .map((entry) => [entry.itemId, entry.slider]),
+    );
+    const rows: unknown[] = [];
+    for (const extract of candidates) {
+        const doc = await db.getDocument(extract.document_id);
+        if (!doc) continue;
+        const explicit = priorities.get(extract.id);
+        const display = explicit ?? priorityReadback(doc.priority_slider, doc.priority_rating, doc.priority_explicitly_set);
+        rows.push({
+            id: extract.id,
+            document_id: extract.document_id,
+            document_title: `${doc.title || 'Unknown Video'} - ${extract.title}`,
+            document_file_type: doc.file_type,
+            extract_id: null,
+            learning_item_id: null,
+            item_type: 'video-extract',
+            entity_id: extract.id,
+            entity_title: extract.title,
+            start_time: extract.start_time,
+            end_time: extract.end_time,
+            priority_slider: explicit ?? null,
+            priority_display_slider: display,
+            priority_explicitly_set: explicit != null,
+            priority_score: undefined,
+            priority: 50,
+            due_date: extract.next_review_date,
+            estimated_time: Math.max(1, Math.min(10, Math.ceil((extract.end_time - extract.start_time) / 60))),
+            tags: extract.tags || [],
+            category: doc.category,
+            progress: 0,
+            reps: extract.review_count,
+            stability: extract.memory_state?.stability,
+            difficulty: extract.memory_state?.difficulty,
+            is_new_item: extract.review_count === 0,
+        });
+    }
+    return rows;
+}
+
 type BrowserCardVersionEntry = {
     version_id: string;
     item_id: string;
@@ -970,8 +1016,12 @@ const browserPlaylistSubscriptions = new Map<string, any>();
 const commandHandlers: Record<string, CommandHandler> = {
     get_video_extract_lifecycle: async (args) => browserVideoExtractCommand('get_video_extract_lifecycle', args),
     get_video_extracts: async (args) => browserVideoExtractCommand('get_video_extracts', args),
+    get_all_video_extracts: async (args) => browserVideoExtractCommand('get_all_video_extracts', args),
+    get_video_extract_review_candidates: async (args) => browserVideoExtractCommand('get_video_extract_review_candidates', args),
     get_video_extract: async (args) => browserVideoExtractCommand('get_video_extract', args),
     create_video_extract: async (args) => browserVideoExtractCommand('create_video_extract', args),
+    set_video_extract_queue_membership: async (args) => browserVideoExtractCommand('set_video_extract_queue_membership', args),
+    postpone_video_extract: async (args) => browserVideoExtractCommand('postpone_video_extract', args),
     update_video_extract: async (args) => browserVideoExtractCommand('update_video_extract', args),
     delete_video_extract: async (args) => browserVideoExtractCommand('delete_video_extract', args),
     mark_video_extract_seen: async (args) => browserVideoExtractCommand('mark_video_extract_seen', args),
@@ -2783,7 +2833,8 @@ const commandHandlers: Record<string, CommandHandler> = {
         return null;
     },
 
-    get_queue: async () => {
+    get_queue: async (args) => {
+        const collectionId = args?.collectionId as string | undefined;
         const docs = (await db.getDocuments()).filter((doc) => !doc.is_archived);
         const activeDocIds = new Set(docs.map((doc) => doc.id));
         const dueExtracts = await db.getDueExtracts();
@@ -2839,6 +2890,8 @@ const commandHandlers: Record<string, CommandHandler> = {
                 progress: 0,
             });
         }
+
+        items.push(...await browserVideoQueueItems(collectionId));
 
         for (const item of dueLearningItems) {
             if (item.document_id && !activeDocIds.has(item.document_id)) {
@@ -2946,7 +2999,8 @@ const commandHandlers: Record<string, CommandHandler> = {
         }));
     },
 
-    get_due_queue_items: async () => {
+    get_due_queue_items: async (args) => {
+        const collectionId = args?.collectionId as string | undefined;
         const docs = (await db.getDocuments()).filter((doc) => !doc.is_archived);
         const activeDocIds = new Set(docs.map((doc) => doc.id));
         const now = new Date().toISOString();
@@ -3003,6 +3057,8 @@ const commandHandlers: Record<string, CommandHandler> = {
                 progress: 0,
             });
         }
+
+        items.push(...await browserVideoQueueItems(collectionId));
 
         for (const item of dueLearningItems) {
             if (item.document_id && !activeDocIds.has(item.document_id)) {

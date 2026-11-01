@@ -50,6 +50,7 @@ interface DocumentViewerWithAssistantProps {
   initialJump?: DocumentInitialJump;
   autoPlay?: boolean;
   focusedExtractId?: string;
+  focusedVideoExtractId?: string;
   extractSourceContext?: ExtractSourceContext;
   // Origin the document was opened from. Only "queue" keeps the rating orbs
   // (active review). Forwarded to the underlying viewer so the tab-data signal
@@ -109,6 +110,7 @@ export function DocumentViewer({
   initialJump,
   autoPlay,
   focusedExtractId,
+  focusedVideoExtractId,
   extractSourceContext,
   openedFrom,
   hideRatingOrbs,
@@ -618,6 +620,7 @@ export function DocumentViewer({
         autoPlay={autoPlay}
         listenToEdition={listenToEdition}
         focusedExtractId={focusedExtractId}
+        focusedVideoExtractId={focusedVideoExtractId}
         extractSourceContext={extractSourceContext}
         onPdfContextTextChange={(text) => {
           setPdfContextText(text);

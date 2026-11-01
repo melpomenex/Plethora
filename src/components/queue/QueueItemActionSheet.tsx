@@ -97,6 +97,7 @@ export function QueueItemActionSheet({
           onOpenDocument?.(item);
           break;
         case "open-extract":
+        case "open-video-extract":
           closeAndRestoreFocus();
           onOpenDocument?.(item);
           break;
@@ -106,6 +107,7 @@ export function QueueItemActionSheet({
           break;
         case "suspend":
         case "dismiss":
+        case "remove-from-queue":
           closeAndRestoreFocus();
           await onRemove?.(item);
           break;
@@ -129,9 +131,11 @@ export function QueueItemActionSheet({
     "edit-card": { label: t("queue.editFlashcard"), icon: <Pencil className="w-5 h-5 text-blue-500" /> },
     "open-document": { label: t("queue.openDocument"), icon: <BookOpen className="w-5 h-5 text-blue-500" /> },
     "open-extract": { label: t("queue.openExtract"), icon: <BookOpen className="w-5 h-5 text-violet-500" /> },
+    "open-video-extract": { label: t("queue.openSegment"), icon: <Play className="w-5 h-5 text-violet-500" /> },
     postpone: { label: t("queue.postpone"), icon: <CalendarHeart className="w-5 h-5 text-amber-500" /> },
     suspend: { label: t("queue.suspend"), icon: <Pause className="w-5 h-5 text-amber-500" /> },
     dismiss: { label: t("queue.dismiss"), icon: <EyeSlash className="w-5 h-5 text-slate-500" /> },
+    "remove-from-queue": { label: t("queue.removeFromQueue"), icon: <EyeSlash className="w-5 h-5 text-slate-500" /> },
     select: { label: t("queue.selectForBulkActions"), icon: <CheckSquare className="w-5 h-5 text-primary" /> },
   };
 

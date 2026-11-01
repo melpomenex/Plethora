@@ -102,11 +102,11 @@ export function deckMenuItemIds(_opts: DeckMenuOptions): string[] {
   ];
 }
 
-export type PostponableItemType = "learning-item" | "document";
+export type PostponableItemType = "learning-item" | "document" | "video-extract";
 
 /** Mirrors QueueContextMenu's `canPostpone` rule — keep in sync. */
 export function canPostponeQueueItemType(itemType: string): boolean {
-  return itemType === "learning-item" || itemType === "document";
+  return itemType === "learning-item" || itemType === "document" || itemType === "video-extract";
 }
 
 /** Queue rows — identical set to the ⋯ button (single-sourced in queue.tsx). */

@@ -6,9 +6,10 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { PdfSelectionContext } from '../types/selection';
 import { isMarketingCaptureNamespace } from './marketingCapture/namespace';
+import { DEFAULT_COLLECTION_ID } from '../types/collection';
 
 // Database version - increment when schema changes
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 const DEFAULT_DB_NAME = 'plethora';
 // Legacy database name written by Incrementum releases. The one-shot
 // migration below copies its contents into the new database on first run;
@@ -169,6 +170,43 @@ async function migrateLegacyLibraryDatabase(targetDatabaseName: string): Promise
 }
 
 /**
+ * One-time normalization for video extracts added in DB v9: infer explicit
+ * queue membership from the legacy date signal and copy collection ownership
+ * from the parent document. Existing values are never overwritten.
+ */
+function normalizeVideoExtractRowsForUpgrade(transaction: IDBTransaction | null): void {
+    if (!transaction) return;
+    const storeNames = transaction.objectStoreNames as unknown as { contains?: (name: string) => boolean };
+    if (typeof storeNames.contains !== "function") return;
+    if (!storeNames.contains(STORES.videoExtracts)) return;
+    if (!storeNames.contains(STORES.documents)) return;
+    const videos = transaction.objectStore(STORES.videoExtracts);
+    const documents = transaction.objectStore(STORES.documents);
+    const cursorRequest = videos.openCursor();
+    cursorRequest.onsuccess = () => {
+        const cursor = cursorRequest.result;
+        if (!cursor) return;
+        const value = cursor.value as Record<string, unknown>;
+        const parentRequest = documents.get(String(value.document_id));
+        parentRequest.onsuccess = () => {
+            const parent = parentRequest.result as { collection_id?: string } | undefined;
+            let changed = false;
+            if (value.queue_status == null) {
+                value.queue_status = value.next_review_date ? 'queued' : 'not_queued';
+                changed = true;
+            }
+            if (!value.collection_id) {
+                value.collection_id = parent?.collection_id || DEFAULT_COLLECTION_ID;
+                changed = true;
+            }
+            if (changed) cursor.update(value);
+            cursor.continue();
+        };
+        parentRequest.onerror = () => cursor.continue();
+    };
+}
+
+/**
  * Open the IndexedDB database.
  * If the cached connection was closed by the browser (tab backgrounding,
  * memory pressure, versionchange), it transparently reconnects.
@@ -296,6 +334,8 @@ export async function openDatabase(): Promise<IDBDatabase> {
                 epStore.createIndex('by_guid', 'guid', { unique: false });
                 epStore.createIndex('by_played', 'played', { unique: false });
             }
+
+            normalizeVideoExtractRowsForUpgrade(target.transaction);
         };
     });
 

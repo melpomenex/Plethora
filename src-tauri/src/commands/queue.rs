@@ -185,12 +185,7 @@ async fn get_queue_items_from_repo(
         all_doc_ids.insert(extract.document_id.clone());
     }
 
-    let due_video_extracts = repo.get_due_video_extracts(&now).await?;
-    let new_video_extracts = repo.get_new_video_extracts().await.unwrap_or_default();
-    let video_extracts: Vec<_> = due_video_extracts
-        .into_iter()
-        .chain(new_video_extracts.into_iter())
-        .collect();
+    let video_extracts = repo.get_video_extract_queue_candidates(&now).await?;
     for extract in &video_extracts {
         all_doc_ids.insert(extract.document_id.clone());
     }
@@ -362,6 +357,9 @@ async fn get_queue_items_from_repo(
             document_title: format!("{} - {}", document_title, extract.title),
             extract_id: None,
             learning_item_id: None,
+            entity_title: Some(extract.title.clone()),
+            start_time: Some(extract.start_time),
+            end_time: Some(extract.end_time),
             question: Some(format!(
                 "Watch segment: {}",
                 format_time_range(extract.start_time, extract.end_time)
@@ -385,8 +383,8 @@ async fn get_queue_items_from_repo(
             progress: 0,
             source: None,
             position: None,
-            stability: None,
-            difficulty: None,
+            stability: extract.memory_state.as_ref().map(|m| m.stability),
+            difficulty: extract.memory_state.as_ref().map(|m| m.difficulty),
             interval: None,
             retrievability: None,
             lapses: None,
@@ -681,12 +679,9 @@ async fn get_due_queue_items_from_repo_at(
         .into_iter()
         .chain(new_extracts.into_iter())
         .collect();
-    let due_video_extracts = repo.get_due_video_extracts(&due_before).await?;
-    let new_video_extracts = repo.get_new_video_extracts().await.unwrap_or_default();
-    let video_extracts: Vec<_> = due_video_extracts
-        .into_iter()
-        .chain(new_video_extracts.into_iter())
-        .collect();
+    let video_extracts = repo
+        .get_video_extract_queue_candidates(&due_before)
+        .await?;
     let documents = repo
         .list_due_documents_for_queue(&due_before, collection_id)
         .await?;
@@ -698,12 +693,12 @@ async fn get_due_queue_items_from_repo_at(
         }
     }
     for extract in &extracts {
-        if collection_id.is_none_or(|cid| extract.collection_id == cid) {
+        if collection_allows(collection_id, &extract.collection_id) {
             all_doc_ids.insert(extract.document_id.clone());
         }
     }
     for extract in &video_extracts {
-        if collection_id.is_none_or(|cid| extract.collection_id == cid) {
+        if collection_allows(collection_id, &extract.collection_id) {
             all_doc_ids.insert(extract.document_id.clone());
         }
     }
@@ -857,6 +852,9 @@ async fn get_due_queue_items_from_repo_at(
             document_title: format!("{} - {}", document_title, extract.title),
             extract_id: None,
             learning_item_id: None,
+            entity_title: Some(extract.title.clone()),
+            start_time: Some(extract.start_time),
+            end_time: Some(extract.end_time),
             question: Some(format!(
                 "Watch segment: {}",
                 format_time_range(extract.start_time, extract.end_time)
@@ -880,8 +878,8 @@ async fn get_due_queue_items_from_repo_at(
             progress: 0,
             source: None,
             position: None,
-            stability: None,
-            difficulty: None,
+            stability: extract.memory_state.as_ref().map(|m| m.stability),
+            difficulty: extract.memory_state.as_ref().map(|m| m.difficulty),
             interval: None,
             retrievability: None,
             lapses: None,
@@ -1340,6 +1338,97 @@ mod tests {
     use crate::models::{Document, FileType, ItemType, LearningItem};
     use chrono::TimeZone;
     use std::path::PathBuf;
+
+    #[tokio::test]
+    async fn video_extracts_are_first_class_queue_rows() {
+        use crate::issue6_test_support::{issue6_repository, now, NEW_VIDEO_EXTRACT_ID, VIDEO_EXTRACT_ID};
+
+        let repo = issue6_repository().await;
+        let items = get_queue_items_from_repo(&repo, None).await.unwrap();
+        let video_rows: Vec<_> = items
+            .iter()
+            .filter(|item| item.item_type == "video-extract")
+            .collect();
+        assert_eq!(video_rows.len(), 2, "one due and one new queued extract");
+        let due = video_rows
+            .iter()
+            .find(|item| item.id == VIDEO_EXTRACT_ID)
+            .expect("due video row");
+        assert_eq!(due.entity_id.as_deref(), Some(VIDEO_EXTRACT_ID));
+        assert_eq!(due.entity_title.as_deref(), Some("Video segment"));
+        assert_eq!(due.start_time, Some(10.0));
+        assert_eq!(due.end_time, Some(40.0));
+        assert_eq!(due.extract_id, None);
+        assert_eq!(due.document_id, crate::issue6_test_support::VIDEO_ID);
+        assert_eq!(due.reps, Some(0));
+        assert!(video_rows.iter().any(|item| item.id == NEW_VIDEO_EXTRACT_ID));
+
+        let reviewed = repo
+            .review_video_extract(VIDEO_EXTRACT_ID, 3, &uuid::Uuid::new_v4().to_string(), now())
+            .await
+            .unwrap();
+        assert!(reviewed.extract.is_some());
+        let after = repo
+            .get_video_extract_queue_candidates(&now())
+            .await
+            .unwrap();
+        assert!(!after.iter().any(|extract| extract.id == VIDEO_EXTRACT_ID));
+        assert!(after.iter().any(|extract| extract.id == NEW_VIDEO_EXTRACT_ID));
+    }
+
+    #[tokio::test]
+    async fn video_queue_respects_collection_scope_and_presentation_limits() {
+        use crate::issue6_test_support::{issue6_repository, now};
+
+        let repo = issue6_repository().await;
+        let mut other_doc = Document::new(
+            "Other collection video".into(),
+            "/tmp/other-video.mp4".into(),
+            FileType::Video,
+        );
+        other_doc.collection_id = "other-collection".into();
+        let other_doc = repo.create_document(&other_doc).await.unwrap();
+        let mut other_extract = crate::models::VideoExtract::new(
+            other_doc.id.clone(),
+            1.0,
+            11.0,
+            "Other collection segment".into(),
+        );
+        other_extract.queue_status =
+            crate::models::video_extract::VideoExtractQueueStatus::Queued;
+        other_extract.collection_id = other_doc.collection_id.clone();
+        other_extract.date_created = now();
+        other_extract.date_modified = now();
+        repo.create_video_extract(&other_extract).await.unwrap();
+
+        let default_items = get_queue_items_from_repo(&repo, Some(DEFAULT_COLLECTION_ID))
+            .await
+            .unwrap();
+        assert!(!default_items.iter().any(|item| item.id == other_extract.id));
+        let other_items = get_queue_items_from_repo(&repo, Some("other-collection"))
+            .await
+            .unwrap();
+        assert!(other_items.iter().any(|item| item.id == other_extract.id));
+
+        let full_pool = get_queue_items_from_repo(&repo, None).await.unwrap();
+        let selector = QueueSelector::new(0.0);
+        let mut first_sort = full_pool.clone();
+        let mut second_sort = full_pool.clone();
+        selector.sort_queue_items_at(&mut first_sort, now());
+        selector.sort_queue_items_at(&mut second_sort, now());
+        assert_eq!(
+            first_sort.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
+            second_sort.iter().map(|item| item.id.clone()).collect::<Vec<_>>()
+        );
+        let selected = selector.get_next_items(&full_pool, 1);
+        assert_eq!(selected.len(), 1);
+        assert!(repo
+            .get_video_extract_queue_candidates(&now())
+            .await
+            .unwrap()
+            .iter()
+            .any(|extract| extract.id == other_extract.id));
+    }
 
     #[test]
     fn derive_learning_hint_strips_cloze_html_and_truncates() {

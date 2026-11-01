@@ -1,0 +1,96 @@
+{
+  "implementation_start_revision": "acdac8cd16a2282dee1ca04d8b4ae6172c792edf",
+  "captured_at": "2026-11-01T00:00:00Z",
+  "schema_before_migration": "135_queue_external_priorities",
+  "notes": "Representative pre-change video_extracts rows. This fixture documents the date-presence membership signal; the Rust migration test seeds the same matrix against a real SQLite database.",
+  "rows": [
+    {
+      "id": "dated-unreviewed",
+      "document_id": "video-parent",
+      "collection_id_from_parent": "collection-b",
+      "start_time": 10.0,
+      "end_time": 40.0,
+      "title": "Dated unreviewed",
+      "next_review_date": "2026-10-30T00:00:00Z",
+      "last_review_date": null,
+      "first_seen_at": null,
+      "last_seen_at": null,
+      "memory_state": null,
+      "review_count": 0,
+      "reps": 0,
+      "expected_after": {
+        "queue_status": "queued",
+        "next_review_date_preserved": true,
+        "collection_id": "collection-b"
+      }
+    },
+    {
+      "id": "dated-reviewed",
+      "document_id": "video-parent",
+      "start_time": 50.0,
+      "end_time": 80.0,
+      "title": "Dated reviewed",
+      "next_review_date": "2026-09-01T00:00:00Z",
+      "last_review_date": "2026-08-01T00:00:00Z",
+      "first_seen_at": "2026-07-01T00:00:00Z",
+      "last_seen_at": "2026-08-01T00:00:00Z",
+      "memory_state": { "stability": 3.0, "difficulty": 5.0 },
+      "review_count": 3,
+      "reps": 3,
+      "expected_after": {
+        "queue_status": "queued",
+        "next_review_date_preserved": true,
+        "review_count_preserved": 3,
+        "seen_preserved": true,
+        "collection_id": "collection-b"
+      }
+    },
+    {
+      "id": "undated-unreviewed",
+      "document_id": "video-parent",
+      "collection_id_from_parent": "collection-b",
+      "start_time": 90.0,
+      "end_time": 120.0,
+      "title": "Saved only",
+      "next_review_date": null,
+      "last_review_date": null,
+      "first_seen_at": null,
+      "last_seen_at": null,
+      "memory_state": null,
+      "review_count": 0,
+      "reps": 0,
+      "expected_after": {
+        "queue_status": "not_queued",
+        "next_review_date": null,
+        "collection_id": "collection-b"
+      }
+    },
+    {
+      "id": "undated-reviewed",
+      "document_id": "video-parent",
+      "start_time": 130.0,
+      "end_time": 160.0,
+      "title": "Legacy reviewed without schedule",
+      "next_review_date": null,
+      "last_review_date": "2026-06-01T00:00:00Z",
+      "first_seen_at": null,
+      "last_seen_at": null,
+      "memory_state": { "stability": 2.0, "difficulty": 6.0 },
+      "review_count": 2,
+      "reps": 2,
+      "expected_after": {
+        "queue_status": "not_queued",
+        "review_count_preserved": 2,
+        "needs_schedule": true
+      }
+    }
+  ],
+  "receipt_fixture": {
+    "operation_id": "11111111-1111-4111-8111-111111111111",
+    "extract_id": "dated-reviewed",
+    "document_id": "video-parent",
+    "rating": 3,
+    "reviewed_at": "2026-08-01T00:00:00Z",
+    "receipt_survives_deletion": true
+  }
+}

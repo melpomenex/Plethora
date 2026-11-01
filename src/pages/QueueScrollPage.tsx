@@ -4,7 +4,8 @@ import { useRegisterMobileAssistant, useMobileAssistantController } from "../com
 import type { VideoViewerContext } from "../lib/ai/assistant/scopes";
 import { SELECTION_ASK_EVENT, type SelectionAskEventDetail } from "../utils/selectionAskHandoff";
 import { emitInteractionFeedback, createFeedbackInteractionId } from "../lib/feedback/orchestrator";
-import { useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { useContext, useEffect, useState, useRef, useCallback, useMemo } from "react";
+import { QueryClientContext } from "@tanstack/react-query";
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../lib/i18n";
 import { useTabsStore, type TabPane } from "../stores/tabsStore";
@@ -50,6 +51,8 @@ import { getDueItems, getLearningItem, type LearningItem } from "../api/learning
 import { normalizeLearningItem } from "../api/normalizeLearningItem";
 import { sanitizeHtml } from "../components/common/RichContentRenderer";
 import { getDueExtracts, submitExtractReview } from "../api/extract-review";
+import { useVideoExtractReview } from "../hooks/useVideoExtractReview";
+import { deleteVideoExtract, setVideoExtractQueueMembership } from "../api/video-extracts";
 import { createExtract, deleteExtract, getExtract, type Extract } from "../api/extracts";
 import { dispatchPriorityCommit, resolveDisplaySlider, resolveExtractDisplaySlider } from "../services/priority/priorityCommit";
 import { usePriorityPopup } from "../components/documents/usePriorityPopup";
@@ -225,15 +228,27 @@ const prioritySliderToRating = (slider: number): number => {
   return 1;
 };
 
+interface VideoExtractQueueRef {
+  id: string;
+  title: string;
+  documentId: string;
+  sourceTitle: string;
+  startTime: number;
+  endTime: number;
+  reviewCount: number;
+  nextReviewDate?: string;
+  firstSeenAt?: string | null;
+}
+
 /**
  * Unified scroll item type for documents, RSS articles, and flashcards
  */
 interface ScrollItem {
   id: string;
-  type: "document" | "rss" | "flashcard" | "extract" | "podcast";
+  type: "document" | "rss" | "flashcard" | "extract" | "podcast" | "video-extract";
   documentId?: string;
-  videoExtractId?: string;
   documentTitle: string;
+  videoExtract?: VideoExtractQueueRef;
   rssItem?: RSSFeedItem;
   rssFeed?: RSSFeed;
   podcastEpisode?: PodcastEpisode;
@@ -294,6 +309,7 @@ function toDocumentScrollItems(
 ): ScrollItem[] {
   return items
     .map((item): ScrollItem | null => {
+      if (item.itemType !== "document") return null;
       const doc = documentsMap.get(item.documentId);
       if (doc?.isArchived) {
         return null;
@@ -314,6 +330,48 @@ function toDocumentScrollItems(
         engagementScore: baseScore + serendipityBonus,
         hasAudioEdition: item.hasAudioEdition,
         audioEditionId: item.audioEditionId,
+      };
+    })
+    .filter((item): item is ScrollItem => item !== null);
+}
+
+/**
+ * Map video-extract queue rows to their own scroll identity. The source video
+ * remains available for playback/context, but the reviewable entity is the
+ * extract.
+ */
+function toVideoExtractScrollItems(
+  items: QueueItem[],
+  documentsMap: ReadonlyMap<string, Document>,
+  stableRandom: (str: string, offset?: number) => number,
+): ScrollItem[] {
+  return items
+    .filter((item) => item.itemType === "video-extract")
+    .map((item): ScrollItem | null => {
+      const doc = documentsMap.get(item.documentId);
+      const extractId = item.entityId ?? item.id;
+      const startTime = item.startTime;
+      const endTime = item.endTime;
+      if (typeof startTime !== "number" || typeof endTime !== "number") return null;
+      return {
+        id: `video-extract-${extractId}`,
+        type: "video-extract",
+        documentId: item.documentId,
+        documentTitle: item.entityTitle ?? item.documentTitle,
+        videoExtract: {
+          id: extractId,
+          title: item.entityTitle ?? item.documentTitle,
+          documentId: item.documentId,
+          sourceTitle: doc?.title ?? item.documentTitle,
+          startTime,
+          endTime,
+          reviewCount: item.reps ?? 0,
+          nextReviewDate: item.dueDate,
+          firstSeenAt: null,
+        },
+        category: item.category ?? doc?.category ?? "video",
+        estimatedTime: item.estimatedTime ?? 5,
+        engagementScore: (item.priority ?? 5) + stableRandom(extractId, 3) * 1.5,
       };
     })
     .filter((item): item is ScrollItem => item !== null);
@@ -599,6 +657,9 @@ export function QueueScrollPage() {
   // these sets in the rebuild closes that loop — mirrors ratedDocumentIds.
   const [ratedFlashcardIds, setRatedFlashcardIds] = useState<Set<string>>(new Set());
   const [ratedExtractIds, setRatedExtractIds] = useState<Set<string>>(new Set());
+  const [ratedVideoExtractIds, setRatedVideoExtractIds] = useState<Set<string>>(new Set());
+  const videoReview = useVideoExtractReview();
+  const queryClient = useContext(QueryClientContext);
   const [readRssItemIds, setReadRssItemIds] = useState<Set<string>>(new Set());
   const [itemsReviewedThisSession, setItemsReviewedThisSession] = useState(0);
   const [, setAssistantInputActive] = useState(false);
@@ -939,6 +1000,19 @@ export function QueueScrollPage() {
     });
   }, [allQueueItems, customSubset, documentsMap, ratedDocumentIds]);
 
+  const videoExtractQueueItems = useMemo(() => {
+    const baseItems = customSubset ?? allQueueItems;
+    return baseItems.filter((item) => {
+      if (item.itemType !== "video-extract") return false;
+      const id = item.entityId ?? item.id;
+      if (ratedVideoExtractIds.has(id)) return false;
+      if (removedIdsRef.current.has(id)) return false;
+      const doc = documentsMap.get(item.documentId);
+      if (!doc || doc.isDismissed || doc.isArchived) return false;
+      return true;
+    });
+  }, [allQueueItems, customSubset, documentsMap, ratedVideoExtractIds]);
+
   // Smart start position calculation
   const calculateSmartStart = useCallback(async (totalItems: number) => {
     if (totalItems === 0) return { position: 0, shouldShowToast: false, lastPosition: 0 };
@@ -1231,12 +1305,16 @@ export function QueueScrollPage() {
         return !!item.learningItem && !ratedFlashcardIds.has(item.learningItem.id) && !removedIdsRef.current.has(item.learningItem.id);
       case "extract":
         return !!item.extract && !ratedExtractIds.has(item.extract.id) && !removedIdsRef.current.has(item.extract.id);
+      case "video-extract":
+        return !!item.videoExtract
+          && !ratedVideoExtractIds.has(item.videoExtract.id)
+          && !removedIdsRef.current.has(item.videoExtract.id);
       case "rss":
         return (!item.rssItem || !readRssItemIds.has(item.rssItem.id)) && !(item.rssItem && removedIdsRef.current.has(item.rssItem.id));
       default:
         return true;
     }
-  }, [documentsMap, ratedDocumentIds, ratedFlashcardIds, ratedExtractIds, readRssItemIds]);
+  }, [documentsMap, ratedDocumentIds, ratedFlashcardIds, ratedExtractIds, ratedVideoExtractIds, readRssItemIds]);
 
   // The single write point for session rebuilds: re-anchor the item in view
   // by id before replacing the list, so a rebuild — whatever triggered it —
@@ -1255,6 +1333,7 @@ export function QueueScrollPage() {
       if (removedIdsRef.current.has(item.id)) return false;
       if (item.type === "flashcard" && item.learningItem && removedIdsRef.current.has(item.learningItem.id)) return false;
       if (item.type === "extract" && item.extract && removedIdsRef.current.has(item.extract.id)) return false;
+      if (item.type === "video-extract" && item.videoExtract && removedIdsRef.current.has(item.videoExtract.id)) return false;
       if (item.type === "document" && item.documentId && removedIdsRef.current.has(item.documentId)) return false;
       return true;
     });
@@ -1375,13 +1454,27 @@ export function QueueScrollPage() {
             }
 
             if (item.itemType === "video-extract") {
+              const extractId = item.entityId || item.id;
+              if (ratedVideoExtractIds.has(extractId)) return null;
+              if (typeof item.startTime !== "number" || typeof item.endTime !== "number") return null;
+              const doc = documentsMap.get(item.documentId);
               return {
-                id: `video-extract-${item.id}`,
-                type: "document" as const,
+                id: `video-extract-${extractId}`,
+                type: "video-extract" as const,
                 documentId: item.documentId,
-                videoExtractId: item.entityId || item.id,
-                documentTitle: item.documentTitle,
-                category: item.category ?? "video",
+                documentTitle: item.entityTitle ?? item.documentTitle,
+                videoExtract: {
+                  id: extractId,
+                  title: item.entityTitle ?? item.documentTitle,
+                  documentId: item.documentId,
+                  sourceTitle: doc?.title ?? item.documentTitle,
+                  startTime: item.startTime,
+                  endTime: item.endTime,
+                  reviewCount: item.reps ?? 0,
+                  nextReviewDate: item.dueDate,
+                  firstSeenAt: null,
+                },
+                category: item.category ?? doc?.category ?? "video",
                 estimatedTime: item.estimatedTime ?? 5,
                 engagementScore: item.priority ?? 5,
               } as ScrollItem;
@@ -1421,7 +1514,9 @@ export function QueueScrollPage() {
         const documentPool = gatedSequentialItems.filter(
           (item) => item.type === "document" || item.type === "rss"
         );
-        const extractPool = gatedSequentialItems.filter((item) => item.type === "extract");
+        const extractPool = gatedSequentialItems.filter(
+          (item) => item.type === "extract" || item.type === "video-extract"
+        );
         const flashcardPool = gatedSequentialItems.filter((item) => item.type === "flashcard");
 
         // The composition targets apply here too, with the Queue item-type
@@ -1480,6 +1575,11 @@ export function QueueScrollPage() {
                 dueExtracts,
                 documentsMap,
                 t("queueScroll.unknownDocument"),
+                getStableRandom,
+              ),
+              ...toVideoExtractScrollItems(
+                videoExtractQueueItems,
+                documentsMap,
                 getStableRandom,
               ),
             ]);
@@ -1741,12 +1841,19 @@ export function QueueScrollPage() {
       }
 
       const extractItems: ScrollItem[] = gateScrollItemsByComposition(
-        toExtractScrollItems(
-          activeExtracts,
-          documentsMap,
-          t("queueScroll.unknownDocument"),
-          getStableRandom,
-        ),
+        [
+          ...toExtractScrollItems(
+            activeExtracts,
+            documentsMap,
+            t("queueScroll.unknownDocument"),
+            getStableRandom,
+          ),
+          ...toVideoExtractScrollItems(
+            videoExtractQueueItems,
+            documentsMap,
+            getStableRandom,
+          ),
+        ],
         compositionTargets,
       );
 
@@ -1848,7 +1955,7 @@ export function QueueScrollPage() {
     return () => {
       cancelled = true;
     };
-  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, externalPriorities, isRating, isNeuralMode, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, activeTabQueueData.itemTypes, ratedFlashcardIds, ratedExtractIds, ratedDocumentIds, customSubset]);
+  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, externalPriorities, isRating, isNeuralMode, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, activeTabQueueData.itemTypes, ratedFlashcardIds, ratedExtractIds, ratedVideoExtractIds, ratedDocumentIds, customSubset, videoExtractQueueItems]);
 
   // Current item (for display during transition)
   const currentItem = scrollItems[currentIndex];
@@ -1893,16 +2000,20 @@ export function QueueScrollPage() {
   );
 
   const isNewDocument =
-    currentDocument
-      ? (currentDocument.reps ?? currentDocument.readingCount ?? 0) <= 0
-      && !currentDocument.dateLastReviewed
-      : false;
+    currentItem?.type === "video-extract" && currentItem.videoExtract
+      ? currentItem.videoExtract.reviewCount === 0
+      : currentDocument
+        ? (currentDocument.reps ?? currentDocument.readingCount ?? 0) <= 0
+          && !currentDocument.dateLastReviewed
+        : false;
   const currentPrioritySlider = useMemo(() => {
     if (!currentItem) return undefined;
+    if (currentItem.type === "video-extract" && currentItem.videoExtract) {
+      const parentDoc = documentsMap.get(currentItem.videoExtract.documentId);
+      return externalPriorities[`video-extract:${currentItem.videoExtract.id}`]
+        ?? (parentDoc ? resolveDisplaySlider(parentDoc) : 50);
+    }
     if (currentItem.type === "document") {
-      if (currentItem.videoExtractId) {
-        return externalPriorities[`video-extract:${currentItem.videoExtractId}`] ?? (currentDocument ? resolveDisplaySlider(currentDocument) : 50);
-      }
       return currentDocument ? resolveDisplaySlider(currentDocument) : 50;
     }
     if (currentItem.type === "extract" && currentItem.extract) {
@@ -1917,13 +2028,13 @@ export function QueueScrollPage() {
     if (currentItem.type === "rss" && currentItem.rssItem) return externalPriorities[`rss-article:${currentItem.rssItem.id}`] ?? 50;
     if (currentItem.type === "podcast" && currentItem.podcastEpisode) return externalPriorities[`podcast-episode:${currentItem.podcastEpisode.id}`] ?? 50;
     return undefined;
-  }, [currentItem, currentDocument, documents, externalPriorities]);
+  }, [currentItem, currentDocument, documents, documentsMap, externalPriorities]);
 
   const handlePriorityChange = useCallback(async (slider: number) => {
     const activeItem = currentItem;
     if (!activeItem) return;
 
-    if (activeItem.type === "document" && activeItem.documentId && !activeItem.videoExtractId) {
+    if (activeItem.type === "document" && activeItem.documentId) {
       await dispatchPriorityCommit({ kind: "document", id: activeItem.documentId }, slider);
       const [documentsResult, queueResult] = await Promise.allSettled([
         loadDocuments(),
@@ -1974,8 +2085,8 @@ export function QueueScrollPage() {
       return;
     }
 
-    const target = activeItem.videoExtractId
-      ? { kind: "video-extract" as const, id: activeItem.videoExtractId }
+    const target = activeItem.type === "video-extract" && activeItem.videoExtract
+      ? { kind: "video-extract" as const, id: activeItem.videoExtract.id }
       : activeItem.type === "rss" && activeItem.rssItem
       ? { kind: "rss-article" as const, id: activeItem.rssItem.id }
       : activeItem.type === "podcast" && activeItem.podcastEpisode
@@ -2208,6 +2319,20 @@ export function QueueScrollPage() {
   const detailsTarget = useMemo<ItemDetailsTarget | null>(() => {
     if (!currentItem) return null;
 
+    if (currentItem.type === "video-extract" && currentItem.videoExtract) {
+      const queueItem = allQueueItems.find(
+        (item) => item.itemType === "video-extract" && (item.entityId ?? item.id) === currentItem.videoExtract!.id
+      );
+      return {
+        type: "video-extract",
+        id: currentItem.videoExtract.id,
+        title: currentItem.videoExtract.title,
+        tags: queueItem?.tags,
+        sourceTitle: currentItem.videoExtract.sourceTitle,
+        documentId: currentItem.videoExtract.documentId,
+      };
+    }
+
     if (currentItem.type === "document" && currentItem.documentId) {
       const doc = documents.find(d => d.id === currentItem.documentId);
       return {
@@ -2248,7 +2373,7 @@ export function QueueScrollPage() {
     }
 
     return null;
-  }, [currentItem, documents]);
+  }, [currentItem, documents, allQueueItems]);
 
   // Matching QueueItem for the Details popover's postpone action — postponeItemSmart
   // needs the full queue-store shape (priority, etc.), not the lighter ScrollItem.
@@ -2265,13 +2390,23 @@ export function QueueScrollPage() {
         (qi) => qi.itemType === "learning-item" && qi.learningItemId === currentItem.learningItem?.id
       ) ?? null;
     }
+    if (currentItem.type === "video-extract" && currentItem.videoExtract) {
+      return allQueueItems.find(
+        (qi) => qi.itemType === "video-extract"
+          && (qi.entityId ?? qi.id) === currentItem.videoExtract?.id
+      ) ?? null;
+    }
     return null;
   }, [currentItem, allQueueItems]);
 
   const handleDetailsPostpone = useCallback(async () => {
     if (!detailsQueueItem) throw new Error("Item not found in queue");
-    return postponeItemSmart(detailsQueueItem);
-  }, [detailsQueueItem, postponeItemSmart]);
+    const result = await postponeItemSmart(detailsQueueItem);
+    if (detailsQueueItem.itemType === "video-extract") {
+      void queryClient?.invalidateQueries({ queryKey: ["video-extracts"] });
+    }
+    return result;
+  }, [detailsQueueItem, postponeItemSmart, queryClient]);
 
   const handleNavigateToTaggedItem = useCallback((item: TaggedItemSummary) => {
     if (item.itemType === "document") {
@@ -2441,6 +2576,12 @@ export function QueueScrollPage() {
         return resolveGenericAssistantContext(undefined, "none");
       }
 
+      if (assistantItem.type === "video-extract" && assistantItem.videoExtract) {
+        const parentId = assistantItem.videoExtract.documentId;
+        const transcript = liveVideoRef.current?.transcript ?? transcriptCacheRef.current.get(parentId);
+        return resolveGenericAssistantContext(transcript, "video-transcript", activeSelection);
+      }
+
       if (assistantItem.type === "document" && assistantItem.documentId) {
         const doc = documentsRef.current.find((d) => d.id === assistantItem.documentId);
         if (doc?.fileType === "youtube") {
@@ -2508,6 +2649,30 @@ export function QueueScrollPage() {
 
     const buildContext = async () => {
       const maxTokens = contextWindowTokens && contextWindowTokens > 0 ? contextWindowTokens : 2000;
+
+      if (assistantItem.type === "video-extract" && assistantItem.videoExtract) {
+        const parentId = assistantItem.videoExtract.documentId;
+        const doc = documents.find((d) => d.id === parentId);
+        const transcript = liveVideoContext?.transcript
+          ?? transcriptCacheRef.current.get(parentId);
+        if (!cancelled) {
+          setAssistantContext({
+            type: "video",
+            documentId: parentId,
+            content: transcript || undefined,
+            contextWindowTokens: maxTokens,
+            selection: selection || undefined,
+            status: transcript ? "ready" : "unavailable",
+            source: "video-transcript",
+            metadata: {
+              title: doc?.title || assistantItem.videoExtract.sourceTitle || undefined,
+              videoId: doc ? extractYouTubeId(doc.filePath) : undefined,
+            },
+            resolveForPrompt: resolveContextForPrompt,
+          });
+        }
+        return;
+      }
 
       if (assistantItem.type === "document" && assistantItem.documentId) {
         const doc = documents.find(d => d.id === assistantItem.documentId);
@@ -2699,6 +2864,7 @@ export function QueueScrollPage() {
     pdfContextText,
     pdfOcrContextText,
     documentContent,
+    liveVideoContext,
     resolveContextForPrompt,
     settings.documents.ocr.autoOCR,
     settings.documents.ocr.autoExtractOnLoad,
@@ -2839,9 +3005,15 @@ export function QueueScrollPage() {
 
     const removedItem = scrollItemsRef.current.find((it) => it.id === removedItemId);
     if (removedItem) {
-      if (removedItem.learningItem?.id) removedIdsRef.current.add(removedItem.learningItem.id);
-      if (removedItem.extract?.id) removedIdsRef.current.add(removedItem.extract.id);
-      if (removedItem.documentId) removedIdsRef.current.add(removedItem.documentId);
+      if (removedItem.type === "video-extract" && removedItem.videoExtract?.id) {
+        // A video segment is its own session entity. Adding the parent document
+        // ID here would hide the source video and every sibling segment.
+        removedIdsRef.current.add(removedItem.videoExtract.id);
+      } else {
+        if (removedItem.learningItem?.id) removedIdsRef.current.add(removedItem.learningItem.id);
+        if (removedItem.extract?.id) removedIdsRef.current.add(removedItem.extract.id);
+        if (removedItem.documentId) removedIdsRef.current.add(removedItem.documentId);
+      }
     }
 
     scrollItemsRef.current = result.nextItems;
@@ -2862,7 +3034,12 @@ export function QueueScrollPage() {
     if (flashcardId && !token) return;
 
     try {
-      if (currentItem.type === "document" && currentItem.documentId) {
+      if (currentItem.type === "video-extract" && currentItem.videoExtract) {
+        await deleteVideoExtract(currentItem.videoExtract.id);
+        void queryClient?.invalidateQueries({ queryKey: ["video-extracts"] });
+        useQueueStore.getState().invalidateQueueGeneration();
+        void useQueueStore.getState().reloadForCurrentMode();
+      } else if (currentItem.type === "document" && currentItem.documentId) {
         await deleteDocumentUndoable(currentItem.documentId);
       } else if (currentItem.type === "extract" && currentItem.extract) {
         await deleteExtractUndoable(currentItem.extract.id);
@@ -2879,7 +3056,7 @@ export function QueueScrollPage() {
       token?.rollback(err instanceof Error ? err : new Error(String(err)));
       toast.error(t("reviewSession.deleteFailed") || "Delete failed");
     }
-  }, [currentItem, isRating, deleteDocumentUndoable, deleteExtractUndoable, deleteLearningItemUndoable, advanceAfterRemoval, loadQueue, t]);
+  }, [currentItem, isRating, deleteDocumentUndoable, deleteExtractUndoable, deleteLearningItemUndoable, advanceAfterRemoval, loadQueue, queryClient, t]);
 
   const handleFlashcardDelete = useCallback(async (queueItemId: string, learningItemId: string) => {
     if (isRating) return;
@@ -3572,6 +3749,41 @@ export function QueueScrollPage() {
       notifyEngagement();
       const timeTaken = Math.max(1, consumeActiveSeconds());
 
+      if (currentItem.type === "video-extract" && currentItem.videoExtract) {
+        const extractId = currentItem.videoExtract.id;
+        const result = await videoReview.rate(extractId, rating);
+        if (!result) return;
+        emitInteractionFeedback("review.card-graded", { rating }, {
+          interactionId: createFeedbackInteractionId(),
+          origin: "user",
+        });
+        setRatedVideoExtractIds(prev => {
+          const next = new Set(prev);
+          next.add(extractId);
+          return next;
+        });
+        const nextSessionCount = itemsReviewedThisSession + 1;
+        setItemsReviewedThisSession(nextSessionCount);
+        if (nextSessionCount > 0 && nextSessionCount % 5 === 0) {
+          emitInteractionFeedback("review.progress-milestone", { completedCount: nextSessionCount }, {
+            interactionId: createFeedbackInteractionId(),
+            origin: "user",
+          });
+        }
+        if (scrollItems.length <= 1) {
+          emitInteractionFeedback("review.session-completed", {
+            reviewsCompleted: nextSessionCount,
+            correctCount: nextSessionCount,
+            durationMs: 0,
+          }, {
+            interactionId: createFeedbackInteractionId(),
+            origin: "user",
+          });
+        }
+        advanceAfterRemoval(ratedItemId);
+        return;
+      }
+
       if (currentItem.type === "document") {
         if (!currentItem.documentId) {
           console.error("[QueueScroll] Document item has no documentId!");
@@ -3723,11 +3935,12 @@ export function QueueScrollPage() {
       return;
     }
 
-    // Supported types for dismissal: document, flashcard, extract
+    // Supported types for dismissal/removal: document, flashcard, extract, video extract
     if (
       currentItem.type !== "document" &&
       currentItem.type !== "flashcard" &&
-      currentItem.type !== "extract"
+      currentItem.type !== "extract" &&
+      currentItem.type !== "video-extract"
     ) {
       toast.info(t("queueScroll.dismissNotAvailable"), t("queueScroll.onlyDismissableItems") !== "queueScroll.onlyDismissableItems" ? t("queueScroll.onlyDismissableItems") : "Only documents, flashcards, and extracts can be dismissed");
       return;
@@ -3742,7 +3955,41 @@ export function QueueScrollPage() {
         origin: "user",
       });
 
-      if (currentItem.type === "document" && currentItem.documentId) {
+      if (currentItem.type === "video-extract" && currentItem.videoExtract) {
+        const extractId = currentItem.videoExtract.id;
+        await setVideoExtractQueueMembership(extractId, false);
+        void queryClient?.invalidateQueries({ queryKey: ["video-extracts"] });
+        useQueueStore.getState().invalidateQueueGeneration();
+        void useQueueStore.getState().reloadForCurrentMode();
+        setRatedVideoExtractIds((prev) => {
+          const next = new Set(prev);
+          next.add(extractId);
+          return next;
+        });
+        setItemsReviewedThisSession((prev) => prev + 1);
+        toast.success(
+          t("videoExtract.removedFromQueue") !== "videoExtract.removedFromQueue"
+            ? t("videoExtract.removedFromQueue")
+            : "Removed from queue",
+          t("videoExtract.removedFromQueueDesc") !== "videoExtract.removedFromQueueDesc"
+            ? t("videoExtract.removedFromQueueDesc")
+            : "The saved extract remains available in the video's Extracts view.",
+          {
+            action: {
+              label: t("queue.undo"),
+              onClick: async () => {
+                try {
+                  await setVideoExtractQueueMembership(extractId, true);
+                  await loadQueue();
+                  toast.success(t("queue.restored"), t("queue.scheduleUpdated"));
+                } catch (error) {
+                  toast.error(t("queue.couldNotRestoreItem"), error instanceof Error ? error.message : t("queue.pleaseRefresh"));
+                }
+              },
+            },
+          },
+        );
+      } else if (currentItem.type === "document" && currentItem.documentId) {
 
         // Call API to dismiss document
         await dismissDocument(currentItem.documentId, true);
@@ -4411,7 +4658,25 @@ export function QueueScrollPage() {
           )}
           style={{ minWidth: READER_MIN_WIDTH }}
         >
-          {renderedItem?.type === "document" && scrollViewMode !== "document" ? (
+          {renderedItem?.type === "video-extract" && renderedItem.videoExtract ? (
+            <DocumentViewer
+              key={`video-extract-${renderedItem.videoExtract.id}`}
+              documentId={renderedItem.videoExtract.documentId}
+              focusedVideoExtractId={renderedItem.videoExtract.id}
+              openedFrom="queue"
+              embedded={true}
+              hideRatingOrbs={true}
+              onVideoContextChange={setLiveVideoContext}
+              onSelectionChange={setSelection}
+              onScrollPositionChange={setScrollState}
+              contextPageWindow={2}
+              onEnded={() => {
+                if (settings.scrollQueue.autoProceed) goToNext();
+              }}
+              onPriorityShortcut={openCurrentItemPriority}
+              onArchive={() => goToNext()}
+            />
+          ) : renderedItem?.type === "document" && scrollViewMode !== "document" ? (
             scrollViewMode === "extracts" ? (
               <QueueExtractsView documentId={renderedItem.documentId!} />
             ) : (
@@ -5133,7 +5398,12 @@ export function QueueScrollPage() {
         itemDocumentId={currentItem?.documentId}
         itemId={currentItem?.id}
         isNewDocument={isNewDocument}
-        isRating={isRating}
+        isRating={
+          isRating ||
+          (currentItem?.type === "video-extract" && currentItem.videoExtract
+            ? videoReview.isRating(currentItem.videoExtract.id)
+            : false)
+        }
         scrollViewMode={scrollViewMode}
         helpText={currentItem?.type === "document" ? (() => {
           const doc = documents.find(d => d.id === currentItem?.documentId);
@@ -5224,8 +5494,10 @@ export function QueueScrollPage() {
           goodTitle: t("queueScroll.goodTitle"),
           easy: t("queueScroll.easy"),
           easyTitle: t("queueScroll.easyTitle"),
-          dismissLabel: t("queueScroll.dismissLabel"),
-          dismissTitle: t("queueScroll.dismissTitle"),
+          dismissLabel: currentItem?.type === "video-extract" ? t("queue.removeFromQueue") : t("queueScroll.dismissLabel"),
+          dismissTitle: currentItem?.type === "video-extract"
+            ? t("videoExtract.removedFromQueueDesc")
+            : t("queueScroll.dismissTitle"),
           markAsRead: t("queueScroll.markAsRead"),
           markAsReadGood: t("queueScroll.markAsReadGood"),
           previousDocument: t("queueScroll.previousDocument"),

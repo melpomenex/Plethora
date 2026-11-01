@@ -12,9 +12,13 @@ import { invokeCommand, isTauri } from "../lib/tauri";
 /**
  * Video extract with FSRS scheduling support
  */
+export type VideoExtractQueueStatus = "not_queued" | "queued";
+
 export interface VideoExtract {
   id: string;
   document_id: string;
+  collection_id?: string;
+  queue_status: VideoExtractQueueStatus;
   start_time: number;
   end_time: number;
   title: string;
@@ -50,6 +54,7 @@ export interface CreateVideoExtractInput {
   notes?: string;
   tags?: string[];
   add_to_queue?: boolean;
+  initial_review_date?: string;
 }
 
 /**
@@ -128,6 +133,7 @@ export async function createVideoExtract(input: CreateVideoExtractInput): Promis
     documentId: input.document_id, startTime: input.start_time, endTime: input.end_time,
     title: input.title, transcriptText: input.transcript_text, notes: input.notes,
     tags: input.tags, addToQueue: input.add_to_queue,
+    initialReviewDate: input.initial_review_date,
   });
 }
 
@@ -167,7 +173,43 @@ export async function markVideoExtractSeen(extractId: string): Promise<VideoExtr
   return invokeCommand<VideoExtract>("mark_video_extract_seen", { extractId });
 }
 
+/** All saved extracts in a collection, independent of queue eligibility. */
+export async function getAllVideoExtracts(collectionId?: string): Promise<VideoExtract[]> {
+  return invokeCommand<VideoExtract[]>("get_all_video_extracts", { collectionId });
+}
+
+/** Canonical eligible candidates for the source-panel review session. */
+export async function getVideoExtractReviewCandidates(
+  documentId?: string,
+  now?: string,
+): Promise<VideoExtract[]> {
+  return invokeCommand<VideoExtract[]>("get_video_extract_review_candidates", {
+    documentId,
+    now,
+  });
+}
+
+export async function setVideoExtractQueueMembership(
+  extractId: string,
+  queued: boolean,
+  initialReviewDate?: string,
+): Promise<VideoExtract> {
+  return invokeCommand<VideoExtract>("set_video_extract_queue_membership", {
+    extractId,
+    queued,
+    initialReviewDate,
+  });
+}
+
+export async function postponeVideoExtract(
+  extractId: string,
+  days: number,
+): Promise<VideoExtract> {
+  return invokeCommand<VideoExtract>("postpone_video_extract", { extractId, days });
+}
+
 export interface VideoExtractLifecycleArchive {
+  formatVersion?: number;
   extracts: VideoExtract[];
   reviewReceipts: VideoExtractReviewReceipt[];
 }

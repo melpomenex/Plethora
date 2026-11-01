@@ -2,16 +2,18 @@ import type { QueueItem } from "../../types/queue";
 import { createFeedbackInteractionId, emitUserInteraction, emitFeedback, type FeedbackEmitOptions } from "../../lib/feedback";
 import type { FeedbackEventPayloads } from "../../lib/feedback/events";
 
-export type QueueItemActionKind = "study-now" | "open-document" | "open-extract" | "listen-edition";
+export type QueueItemActionKind = "study-now" | "open-document" | "open-extract" | "open-video-extract" | "listen-edition";
 export type QueueItemSheetAction =
   | "study-now"
   | "open-document"
   | "open-extract"
+  | "open-video-extract"
   | "listen-edition"
   | "edit-card"
   | "postpone"
   | "suspend"
   | "dismiss"
+  | "remove-from-queue"
   | "select";
 
 export function getQueuePrimaryAction(
@@ -21,6 +23,7 @@ export function getQueuePrimaryAction(
   if (hasAudioEdition) return "listen-edition";
   if (itemType === "learning-item") return "study-now";
   if (itemType === "extract") return "open-extract";
+  if (itemType === "video-extract") return "open-video-extract";
   return "open-document";
 }
 
@@ -36,15 +39,21 @@ export function getQueuePrimaryActionLabelKey(action: QueueItemActionKind): stri
       return "queue.studyNow";
     case "open-extract":
       return "queue.openExtract";
+    case "open-video-extract":
+      return "queue.openSegment";
     default:
       return "queue.openDocument";
   }
 }
 
 export function getQueueSecondaryActions(itemType: string): string[] {
-  return itemType === "learning-item"
-    ? ["suspend", "postpone", "compress", "reschedule", "delete"]
-    : ["dismiss", "delete"];
+  if (itemType === "learning-item") {
+    return ["suspend", "postpone", "compress", "reschedule", "delete"];
+  }
+  if (itemType === "video-extract") {
+    return ["postpone", "remove-from-queue", "delete"];
+  }
+  return ["dismiss", "delete"];
 }
 
 export function getQueueItemSheetActions(item: QueueItem): QueueItemSheetAction[] {
@@ -63,6 +72,11 @@ export function getQueueItemSheetActions(item: QueueItem): QueueItemSheetAction[
     // Primary action opens the extract reader; the reader itself offers
     // "Open source document", so the sheet doesn't duplicate that path.
     return ["open-extract", "select"];
+  }
+
+  if (item.itemType === "video-extract") {
+    // Bulk commands do not understand video-extract yet; omit select.
+    return ["open-video-extract", "postpone", "remove-from-queue"];
   }
 
   return ["open-document", "select"];

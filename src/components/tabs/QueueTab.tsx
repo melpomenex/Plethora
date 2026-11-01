@@ -31,6 +31,23 @@ export function QueueTab() {
   };
 
   const handleOpenDocument = (item: QueueItem) => {
+    if (item.itemType === "video-extract") {
+      addTab({
+        title: item.entityTitle ?? item.documentTitle,
+        icon: <TextT className="w-4 h-4 text-muted-foreground" />,
+        type: "document-viewer",
+        content: DocumentViewer,
+        closable: true,
+        data: {
+          documentId: item.documentId,
+          focusedVideoExtractId: item.entityId ?? item.id,
+          openedFrom: "queue",
+          hideRatingOrbs: true,
+        },
+      }, paneId);
+      return;
+    }
+
     // Extracts are readable as items in their own right: route the queue's
     // primary action to the extract reader. "Open source document" remains
     // available from inside the reader.

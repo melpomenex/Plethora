@@ -4,6 +4,7 @@
  */
 
 import { useVideoExtractPlayback } from '../../hooks/useVideoExtractPlayback';
+import type { VideoExtract } from '../../api/video-extracts';
 import { useState, useEffect, useCallback, useRef, useMemo, useId } from 'react';
 import { appAudioFocus, type AudioOutputLease } from "../../services/audio/audioFocus";
 import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../../services/audio/audioPlaybackRollout";
@@ -70,6 +71,10 @@ interface LocalVideoPlayerProps {
   className?: string;
   mediaType?: "video" | "audio";
   onEnded?: () => void;
+  initialSeekTime?: number;
+  initialEndTime?: number;
+  autoPlayOnOpen?: boolean;
+  armedExtract?: VideoExtract | null;
 }
 
 export function LocalVideoPlayer({
@@ -80,9 +85,13 @@ export function LocalVideoPlayer({
   className = '',
   mediaType = "video",
   onEnded,
+  initialSeekTime,
+  initialEndTime,
+  autoPlayOnOpen = false,
+  armedExtract = null,
 }: LocalVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const { select: selectExtract, confirm: confirmExtractPlayback, cancel: cancelExtractPlayback } = useVideoExtractPlayback(documentId);
+  const { select: selectExtract, confirm: confirmExtractPlayback, cancel: cancelExtractPlayback } = useVideoExtractPlayback(documentId, armedExtract);
   const outputId = useId();
   const outputLease = useRef<AudioOutputLease | null>(null);
   const outputRequest = useRef(0);
@@ -167,7 +176,9 @@ export function LocalVideoPlayer({
   const [activeExtractEndTime, setActiveExtractEndTime] = useState<number | null>(null);
 
   // Position tracking
-  const [startTime, setStartTime] = useState(0);
+  const [startTime, setStartTime] = useState<number>(() =>
+    typeof initialSeekTime === 'number' && Number.isFinite(initialSeekTime) ? initialSeekTime : 0
+  );
   const [documentFilePath, setDocumentFilePath] = useState<string | null>(null);
   const startTimeRef = useRef(0);
   const lastSavedTimeRef = useRef(0);
@@ -422,8 +433,24 @@ export function LocalVideoPlayer({
     };
   }, [isResizingTranscript]);
 
+  useEffect(() => {
+    if (typeof initialSeekTime !== 'number' || !Number.isFinite(initialSeekTime)) {
+      setActiveExtractStartTime(null);
+      setActiveExtractEndTime(null);
+      return;
+    }
+    setActiveExtractStartTime(initialSeekTime);
+    setActiveExtractEndTime(typeof initialEndTime === 'number' ? initialEndTime : null);
+    startTimeRef.current = initialSeekTime;
+    setStartTime(initialSeekTime);
+    const video = videoRef.current;
+    if (video && video.readyState >= 1) {
+      video.currentTime = initialSeekTime;
+    }
+  }, [initialSeekTime, initialEndTime]);
+
   const loadSavedPosition = useCallback(async () => {
-    if (!documentId) {
+    if (!documentId || (typeof initialSeekTime === 'number' && Number.isFinite(initialSeekTime))) {
       return;
     }
 
@@ -444,7 +471,7 @@ export function LocalVideoPlayer({
     } catch (error) {
       console.error('[LocalVideoPlayer] Failed to load position:', error);
     }
-  }, [documentId, mediaType]);
+  }, [documentId, mediaType, initialSeekTime]);
 
   const mapTranscriptSegments = useCallback((segments: Array<{ time: number; text: string }>): TranscriptSegment[] => {
     if (!segments || segments.length === 0) return [];
@@ -858,7 +885,7 @@ export function LocalVideoPlayer({
     setResolvedSourceIndex(nextIndex);
     setCurrentTime(resumeTime);
     return true;
-  }, [activeSourceStrategy, mediaType, normalizedSources, resolvedSourceIndex]);
+  }, [activeSourceStrategy, cancelExtractPlayback, mediaType, normalizedSources, resolvedSourceIndex]);
 
   // Toggle play/pause
   const togglePlay = async () => {
@@ -1153,14 +1180,20 @@ export function LocalVideoPlayer({
   const handleLoadedMetadata = useCallback(() => {
     if (videoRef.current) {
       syncMediaDuration();
-      if (startTimeRef.current > 0) {
-        videoRef.current.currentTime = startTimeRef.current;
+      const seekTo = typeof initialSeekTime === 'number' && Number.isFinite(initialSeekTime)
+        ? initialSeekTime
+        : startTimeRef.current;
+      if (seekTo > 0) {
+        videoRef.current.currentTime = seekTo;
       }
       if (playbackRate !== 1) {
         videoRef.current.playbackRate = playbackRate;
       }
+      if (autoPlayOnOpen) {
+        void attemptPlay('segment-open');
+      }
     }
-  }, [playbackRate, syncMediaDuration]);
+  }, [attemptPlay, autoPlayOnOpen, initialSeekTime, playbackRate, syncMediaDuration]);
 
   const handleCanPlay = useCallback(() => {
     syncMediaDuration();
@@ -1197,6 +1230,7 @@ export function LocalVideoPlayer({
       return;
     }
 
+    cancelExtractPlayback();
     const userFriendlyMessage = formatSourceFailureMessage(failure);
     const titleKey = mediaType === "audio" ? "viewer.audioPlaybackError" : "viewer.videoPlaybackError";
 
@@ -1212,7 +1246,7 @@ export function LocalVideoPlayer({
     setSourceFailureStrategy(activeSourceStrategy);
     setPlayError(userFriendlyMessage);
     toast.error(t(titleKey), userFriendlyMessage);
-  }, [activeSource, activeSourceStrategy, formatSourceFailureMessage, mediaType, t, toast, tryRuntimeFallback]);
+  }, [activeSource, activeSourceStrategy, cancelExtractPlayback, formatSourceFailureMessage, mediaType, t, toast, tryRuntimeFallback]);
 
   const mediaElement = mediaType === "audio" ? (
     <audio

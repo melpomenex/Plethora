@@ -3,6 +3,7 @@ import { useTabsStore } from "../../stores";
 import { usePaneId } from "../common/Tabs";
 import { useI18n } from "../../lib/i18n";
 import { ExtractsList } from "../extracts/ExtractsList";
+import { VideoExtractsList } from "../video/VideoExtracts";
 import { DocumentViewer } from "./TabRegistry";
 
 interface DocumentExtractsTabProps {
@@ -63,6 +64,32 @@ export function DocumentExtractsTab({ documentId, documentTitle }: DocumentExtra
           </button>
         </div>
         <ExtractsList documentId={documentId} />
+
+        <section className="mt-8 space-y-3">
+          <div className="flex items-center justify-between gap-3 border-b border-border pb-2">
+            <h3 className="text-sm font-medium text-foreground">{t("videoExtract.libraryTitle")}</h3>
+          </div>
+          <VideoExtractsList
+            documentId={documentId}
+            onPlayExtract={(extract) =>
+              addTab(
+                {
+                  title: extract.title,
+                  icon: <TextT className="w-4 h-4 text-muted-foreground" />,
+                  type: "document-viewer",
+                  content: DocumentViewer,
+                  closable: true,
+                  data: {
+                    documentId: extract.document_id,
+                    focusedVideoExtractId: extract.id,
+                    hideRatingOrbs: true,
+                  },
+                },
+                paneId,
+              )
+            }
+          />
+        </section>
       </div>
     </div>
   );

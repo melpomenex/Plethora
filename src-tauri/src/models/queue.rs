@@ -72,4 +72,14 @@ pub struct QueueItem {
     pub is_new_item: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entity_id: Option<String>,
+    /// Exact title of the reviewable entity when it differs from the combined
+    /// document title (currently video extracts).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entity_title: Option<String>,
+    /// Video-extract playback start/end. Only meaningful for
+    /// `item_type = "video-extract"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub start_time: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_time: Option<f64>,
 }

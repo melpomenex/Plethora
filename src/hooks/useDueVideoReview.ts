@@ -1,15 +1,16 @@
 import { useEffect, useRef, useState } from "react";
-import { getVideoExtracts, type VideoExtract } from "../api/video-extracts";
+import { type VideoExtract } from "../api/video-extracts";
 import { useToast } from "../components/common/Toast";
-import { useSettingsStore } from "../stores/settingsStore";
 import { useVideoExtractReview } from "./useVideoExtractReview";
 import { useI18n } from "../lib/i18n";
 
-/** Own the due-list load, one rating at a time, and session advancement. */
-export function useDueVideoReview(documentId?: string, onComplete?: () => void) {
-  const [extracts, setExtracts] = useState<VideoExtract[]>([]);
+/**
+ * Own one rating at a time and session advancement for the source-panel review
+ * mode. The caller supplies the canonical candidate list; this hook never
+ * applies an ad-hoc `review_count === 0` filter of its own.
+ */
+export function useDueVideoReview(extracts: VideoExtract[], onComplete?: () => void) {
   const [currentIndex, setCurrentIndex] = useState(0);
-  const [loading, setLoading] = useState(true);
   const [isRating, setIsRating] = useState(false);
   const ratingInFlight = useRef<symbol | null>(null);
   const generationRef = useRef(0);
@@ -19,30 +20,12 @@ export function useDueVideoReview(documentId?: string, onComplete?: () => void) 
   const { t } = useI18n();
 
   useEffect(() => {
-    const generation = ++generationRef.current;
+    generationRef.current += 1;
     ratingInFlight.current = null;
     setIsRating(false);
     setCurrentIndex(0);
     committed.current.clear();
-    setLoading(true);
-    void (async () => {
-      try {
-        const allExtracts = documentId ? await getVideoExtracts(documentId) : [];
-        const now = new Date();
-        const limits = useSettingsStore.getState().settings.learning;
-        const due = [
-          ...allExtracts.filter((e) => e.review_count > 0 && e.next_review_date && new Date(e.next_review_date) <= now).slice(0, limits.reviewsPerDay),
-          ...allExtracts.filter((e) => e.review_count === 0).slice(0, limits.newCardsPerDay),
-        ];
-        if (generation === generationRef.current) setExtracts(due);
-      } catch (err) {
-        if (generation === generationRef.current) toast.error(err instanceof Error ? err.message : t("videoExtract.failedLoadDue"));
-      } finally {
-        if (generation === generationRef.current) setLoading(false);
-      }
-    })();
-    return () => { generationRef.current += 1; };
-  }, [documentId]);
+  }, [extracts]);
 
   const rate = async (extractId: string, rating: number) => {
     const current = extracts[currentIndex];
@@ -66,5 +49,5 @@ export function useDueVideoReview(documentId?: string, onComplete?: () => void) 
       }
     }
   };
-  return { extracts, currentIndex, loading, isRating: isRating || controller.isRating(extracts[currentIndex]?.id ?? ""), rate, retryRating: controller.retryRating };
+  return { extracts, currentIndex, isRating: isRating || controller.isRating(extracts[currentIndex]?.id ?? ""), rate, retryRating: controller.retryRating };
 }

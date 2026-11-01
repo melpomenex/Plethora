@@ -28,6 +28,7 @@ export function gateScrollItemsByType<T extends { type: string }>(
       case "flashcard":
         return itemTypes.learningItems;
       case "extract":
+      case "video-extract":
         return itemTypes.extracts;
       default:
         return true;
@@ -56,6 +57,7 @@ export function gateScrollItemsByComposition<T extends { type: string }>(
       case "flashcard":
         return composition.flashcards > 0;
       case "extract":
+      case "video-extract":
         return composition.extracts > 0;
       default:
         return true;

@@ -6964,6 +6964,62 @@ impl Repository {
         Ok(extract.clone())
     }
 
+    /// Create a video extract with an explicit, validated queue intent.
+    ///
+    /// This is the canonical creation boundary for the Tauri command, MCP tool,
+    /// and tests. It validates the parent video, title, range, and intent before
+    /// inserting one row in a transaction.
+    pub async fn create_video_extract_with_intent(
+        &self,
+        mut extract: crate::models::VideoExtract,
+        add_to_queue: bool,
+        initial_review_date: Option<chrono::DateTime<Utc>>,
+        now: chrono::DateTime<Utc>,
+    ) -> Result<crate::models::VideoExtract> {
+        extract.title = extract.title.trim().to_string();
+        if extract.title.is_empty() {
+            return Err(PlethoraError::InvalidInput(
+                "A video extract title is required".into(),
+            ));
+        }
+        if !extract.start_time.is_finite()
+            || !extract.end_time.is_finite()
+            || extract.start_time < 0.0
+            || extract.end_time <= extract.start_time
+            || extract.end_time - extract.start_time > 600.0
+        {
+            return Err(PlethoraError::InvalidInput(
+                "Enter a valid segment of up to 10 minutes".into(),
+            ));
+        }
+
+        let parent = self
+            .get_document(&extract.document_id)
+            .await?
+            .ok_or_else(|| PlethoraError::NotFound("Source video not found".into()))?;
+        if !matches!(parent.file_type, FileType::Video | FileType::Youtube) {
+            return Err(PlethoraError::InvalidInput(
+                "Video extracts require a video or YouTube source".into(),
+            ));
+        }
+        extract.collection_id = parent.collection_id.clone();
+        let (status, date) = crate::models::video_extract::resolve_creation_schedule(
+            add_to_queue,
+            initial_review_date,
+            now,
+        )
+        .map_err(PlethoraError::InvalidInput)?;
+        extract.queue_status = status;
+        extract.next_review_date = date;
+        extract.date_created = now;
+        extract.date_modified = now;
+
+        let mut tx = self.pool.begin().await?;
+        super::video_extract_repository::insert_video_extract(&mut tx, &extract).await?;
+        tx.commit().await?;
+        Ok(extract)
+    }
+
     /// Get a video extract by ID
     pub async fn get_video_extract(&self, id: &str) -> Result<Option<crate::models::VideoExtract>> {
         let row = sqlx::query("SELECT * FROM video_extracts WHERE id = ?")
@@ -6986,6 +7042,10 @@ impl Repository {
                     collection_id: row
                         .try_get("collection_id")
                         .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                    queue_status: crate::models::video_extract::VideoExtractQueueStatus::from_db(
+                        row.try_get::<Option<String>, _>("queue_status").ok().flatten().as_deref(),
+                        row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("next_review_date").ok().flatten(),
+                    ),
                     start_time: row.try_get("start_time")?,
                     end_time: row.try_get("end_time")?,
                     title: row.try_get("title")?,
@@ -7033,6 +7093,10 @@ impl Repository {
                 collection_id: row
                     .try_get("collection_id")
                     .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                queue_status: crate::models::video_extract::VideoExtractQueueStatus::from_db(
+                    row.try_get::<Option<String>, _>("queue_status").ok().flatten().as_deref(),
+                    row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("next_review_date").ok().flatten(),
+                ),
                 start_time: row.try_get("start_time")?,
                 end_time: row.try_get("end_time")?,
                 title: row.try_get("title")?,
@@ -7055,57 +7119,32 @@ impl Repository {
         Ok(extracts)
     }
 
-    /// Get due video extracts (for review queue)
-    pub async fn get_due_video_extracts(
+    /// Canonical video-extract queue candidates at an explicit cutoff.
+    ///
+    /// This is the only place that decides which saved extracts are eligible
+    /// for an ordinary queue. It intentionally excludes reviewed rows with no
+    /// date, not-queued rows, future-scheduled rows, and rows whose source is
+    /// archived/dismissed.
+    pub async fn get_video_extract_queue_candidates(
         &self,
-        before: &chrono::DateTime<chrono::Utc>,
+        cutoff: &chrono::DateTime<chrono::Utc>,
     ) -> Result<Vec<crate::models::VideoExtract>> {
-        let rows = sqlx::query("SELECT * FROM video_extracts WHERE next_review_date IS NOT NULL AND next_review_date <= ? ORDER BY next_review_date")
-            .bind(before)
-            .fetch_all(&self.pool)
-            .await?;
-
-        let mut extracts = Vec::new();
-        for row in rows {
-            let tags_json: String = row.try_get("tags")?;
-            let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
-
-            let memory_state_json: Option<String> = row.try_get("memory_state").ok();
-            let memory_state = memory_state_json.and_then(|json| serde_json::from_str(&json).ok());
-
-            extracts.push(crate::models::VideoExtract {
-                id: row.try_get("id")?,
-                document_id: row.try_get("document_id")?,
-                collection_id: row
-                    .try_get("collection_id")
-                    .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
-                start_time: row.try_get("start_time")?,
-                end_time: row.try_get("end_time")?,
-                title: row.try_get("title")?,
-                transcript_text: row.try_get("transcript_text").ok(),
-                notes: row.try_get("notes").ok(),
-                tags,
-                thumbnail_url: row.try_get("thumbnail_url").ok(),
-                memory_state,
-                next_review_date: row.try_get("next_review_date").ok(),
-                last_review_date: row.try_get("last_review_date").ok(),
-                first_seen_at: row.try_get("first_seen_at").ok(),
-                last_seen_at: row.try_get("last_seen_at").ok(),
-                review_count: row.try_get("review_count").unwrap_or(0),
-                reps: row.try_get("reps").unwrap_or(0),
-                date_created: row.try_get("date_created")?,
-                date_modified: row.try_get("date_modified")?,
-            });
-        }
-
-        Ok(extracts)
-    }
-
-    /// Get new video extracts (no reviews yet) — server-side filtered
-    pub async fn get_new_video_extracts(&self) -> Result<Vec<crate::models::VideoExtract>> {
         let rows = sqlx::query(
-            "SELECT * FROM video_extracts WHERE review_count = 0 AND next_review_date IS NULL ORDER BY date_created DESC"
+            r#"
+            SELECT ve.*
+            FROM video_extracts ve
+            JOIN documents d ON d.id = ve.document_id
+            WHERE ve.queue_status = 'queued'
+              AND COALESCE(d.is_archived, 0) = 0
+              AND COALESCE(d.is_dismissed, 0) = 0
+              AND (
+                (ve.next_review_date IS NULL AND ve.review_count = 0)
+                OR (ve.next_review_date IS NOT NULL AND ve.next_review_date <= ?1)
+              )
+            ORDER BY ve.next_review_date ASC, ve.id ASC
+            "#,
         )
+        .bind(cutoff)
         .fetch_all(&self.pool)
         .await?;
 
@@ -7113,7 +7152,6 @@ impl Repository {
         for row in rows {
             let tags_json: String = row.try_get("tags")?;
             let tags: Vec<String> = serde_json::from_str(&tags_json).unwrap_or_default();
-
             let memory_state_json: Option<String> = row.try_get("memory_state").ok();
             let memory_state = memory_state_json.and_then(|json| serde_json::from_str(&json).ok());
 
@@ -7123,6 +7161,10 @@ impl Repository {
                 collection_id: row
                     .try_get("collection_id")
                     .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                queue_status: crate::models::video_extract::VideoExtractQueueStatus::from_db(
+                    row.try_get::<Option<String>, _>("queue_status").ok().flatten().as_deref(),
+                    row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("next_review_date").ok().flatten(),
+                ),
                 start_time: row.try_get("start_time")?,
                 end_time: row.try_get("end_time")?,
                 title: row.try_get("title")?,
@@ -7330,7 +7372,7 @@ impl Repository {
         .map_err(PlethoraError::Database)?;
 
         let video_extract_rows: Vec<(String, i64)> = sqlx::query_as(
-            "SELECT DATE(next_review_date) as day, COUNT(*) as count FROM video_extracts WHERE next_review_date IS NOT NULL AND next_review_date >= ?1 AND next_review_date <= ?2 GROUP BY DATE(next_review_date)"
+            "SELECT DATE(ve.next_review_date) as day, COUNT(*) as count FROM video_extracts ve JOIN documents d ON d.id = ve.document_id WHERE ve.queue_status = 'queued' AND COALESCE(d.is_archived, 0) = 0 AND COALESCE(d.is_dismissed, 0) = 0 AND ve.next_review_date IS NOT NULL AND ve.next_review_date >= ?1 AND ve.next_review_date <= ?2 GROUP BY DATE(ve.next_review_date)"
         )
         .bind(day_start)
         .bind(day_end)
@@ -7360,7 +7402,7 @@ impl Repository {
         .await
         .map_err(PlethoraError::Database)?;
         let overdue_video_extracts: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM video_extracts WHERE next_review_date IS NOT NULL AND next_review_date < ?1",
+            "SELECT COUNT(*) FROM video_extracts ve JOIN documents d ON d.id = ve.document_id WHERE ve.queue_status = 'queued' AND COALESCE(d.is_archived, 0) = 0 AND COALESCE(d.is_dismissed, 0) = 0 AND ve.next_review_date IS NOT NULL AND ve.next_review_date < ?1",
         )
         .bind(day_start)
         .fetch_one(&self.pool)
@@ -7380,7 +7422,10 @@ impl Repository {
     }
 
     /// Get all video extracts
-    pub async fn get_all_video_extracts(&self) -> Result<Vec<crate::models::VideoExtract>> {
+    pub async fn get_all_video_extracts(
+        &self,
+        collection_id: Option<&str>,
+    ) -> Result<Vec<crate::models::VideoExtract>> {
         let rows = sqlx::query("SELECT * FROM video_extracts ORDER BY date_created DESC")
             .fetch_all(&self.pool)
             .await?;
@@ -7399,6 +7444,10 @@ impl Repository {
                 collection_id: row
                     .try_get("collection_id")
                     .unwrap_or_else(|_| DEFAULT_COLLECTION_ID.to_string()),
+                queue_status: crate::models::video_extract::VideoExtractQueueStatus::from_db(
+                    row.try_get::<Option<String>, _>("queue_status").ok().flatten().as_deref(),
+                    row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("next_review_date").ok().flatten(),
+                ),
                 start_time: row.try_get("start_time")?,
                 end_time: row.try_get("end_time")?,
                 title: row.try_get("title")?,
@@ -7415,6 +7464,20 @@ impl Repository {
                 reps: row.try_get("reps").unwrap_or(0),
                 date_created: row.try_get("date_created")?,
                 date_modified: row.try_get("date_modified")?,
+            });
+        }
+
+        if let Some(cid) = collection_id {
+            let default_scope = cid == DEFAULT_COLLECTION_ID || cid == "default" || cid.is_empty();
+            extracts.retain(|extract| {
+                if default_scope {
+                    extract.collection_id.is_empty()
+                        || extract.collection_id == cid
+                        || extract.collection_id == DEFAULT_COLLECTION_ID
+                        || extract.collection_id == "default"
+                } else {
+                    extract.collection_id == cid
+                }
             });
         }
 

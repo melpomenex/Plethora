@@ -13,7 +13,7 @@
 
 export interface PrioritizableScrollItem {
   id: string;
-  type: "document" | "rss" | "flashcard" | "extract" | "podcast";
+  type: "document" | "rss" | "flashcard" | "extract" | "video-extract" | "podcast";
   /** Priority score; higher surfaces earlier. */
   engagementScore?: number;
 }
@@ -137,7 +137,11 @@ export function selectByQuotaInOrder<T extends PrioritizableScrollItem>(
 ): { selected: T[]; shortfall: { documents: number; extracts: number; flashcards: number } } {
   const remaining = { ...quota };
   const keyOf = (type: T["type"]) =>
-    type === "flashcard" ? "flashcards" : type === "extract" ? "extracts" : "documents";
+    type === "flashcard"
+      ? "flashcards"
+      : type === "extract" || type === "video-extract"
+        ? "extracts"
+        : "documents";
 
   const selected: T[] = [];
   for (const item of items) {

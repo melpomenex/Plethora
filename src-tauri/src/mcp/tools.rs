@@ -3,7 +3,7 @@ use crate::commands::review::apply_review;
 use crate::database::Repository;
 use crate::models::{Document, Extract, FileType, ItemType, LearningItem, VideoExtract};
 use crate::youtube::TranscriptSegment;
-use chrono::{Duration, Utc};
+use chrono::Utc;
 use serde_json::json;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -408,7 +408,8 @@ impl MCPToolRegistry {
                     "end_time": {"type": "number", "description": "End time in seconds (optional, used instead of transcript search)"},
                     "title": {"type": "string", "description": "Title for the extract (optional, auto-generated if not provided)"},
                     "tags": {"type": "array", "items": {"type": "string"}, "description": "Tags for categorization"},
-                    "add_to_queue": {"type": "boolean", "description": "Whether to add to review queue (default: true)"}
+                    "add_to_queue": {"type": "boolean", "description": "Whether to add to the review queue now (default: true)"},
+                    "initial_review_date": {"type": "string", "description": "Optional RFC3339 date for the first review. Omit for immediate eligibility when add_to_queue is true."}
                 },
                 "required": []
             }),
@@ -1647,6 +1648,14 @@ impl MCPToolRegistry {
         let title = args["title"].as_str();
         let tags = args["tags"].as_array();
         let add_to_queue = args["add_to_queue"].as_bool().unwrap_or(true);
+        let initial_review_date = args["initial_review_date"]
+            .as_str()
+            .map(|value| {
+                chrono::DateTime::parse_from_rfc3339(value)
+                    .map(|date| date.with_timezone(&Utc))
+                    .map_err(|_| "initial_review_date must be an RFC3339 timestamp".to_string())
+            })
+            .transpose()?;
 
         // Find the video document
         let doc = if let Some(doc_id) = document_id {
@@ -1831,13 +1840,16 @@ impl MCPToolRegistry {
                 .collect();
         }
 
-        // Add to queue if requested
-        if add_to_queue {
-            let tomorrow = Utc::now() + Duration::days(1);
-            extract.next_review_date = Some(tomorrow);
-        }
-
-        match self.repository.create_video_extract(&extract).await {
+        match self
+            .repository
+            .create_video_extract_with_intent(
+                extract,
+                add_to_queue,
+                initial_review_date,
+                Utc::now(),
+            )
+            .await
+        {
             Ok(created) => Ok(ToolCallResult {
                 content: vec![ToolContent {
                     r#type: "text".to_string(),

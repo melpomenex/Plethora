@@ -642,36 +642,22 @@ pub async fn create_video_extract(
     notes: Option<String>,
     tags: Option<Vec<String>>,
     add_to_queue: Option<bool>,
+    initial_review_date: Option<chrono::DateTime<chrono::Utc>>,
     repo: State<'_, Repository>,
 ) -> Result<VideoExtract, String> {
-    if start_time < 0.0 {
-        return Err("Start time cannot be negative".to_string());
-    }
-    if end_time <= start_time {
-        return Err("End time must be greater than start time".to_string());
-    }
-
-    let duration = end_time - start_time;
-    if duration > 600.0 {
-        return Err("Extract duration cannot exceed 10 minutes (600 seconds)".to_string());
-    }
-
     let mut extract = VideoExtract::new(document_id, start_time, end_time, title);
     extract.transcript_text = transcript_text;
     extract.notes = notes;
     extract.tags = tags.unwrap_or_default();
 
-    // Schedule for review if requested
-    if add_to_queue.unwrap_or(false) {
-        let tomorrow = chrono::Utc::now() + chrono::Duration::days(1);
-        extract.next_review_date = Some(tomorrow);
-    }
-
-    repo.create_video_extract(&extract)
-        .await
-        .map_err(|e| format!("Failed to create video extract: {}", e))?;
-
-    Ok(extract)
+    repo.create_video_extract_with_intent(
+        extract,
+        add_to_queue.unwrap_or(false),
+        initial_review_date,
+        chrono::Utc::now(),
+    )
+    .await
+    .map_err(|e| e.to_string())
 }
 
 /// Get all video extracts for a document
@@ -759,6 +745,65 @@ pub async fn mark_video_extract_seen(
 ) -> Result<VideoExtract, String> {
     repo.mark_video_extract_seen(&extract_id, chrono::Utc::now())
         .await.map_err(|e| format!("Could not save viewing progress: {}", e))
+}
+
+/// All saved video extracts in a collection (library view), regardless of queue status.
+#[tauri::command]
+pub async fn get_all_video_extracts(
+    collection_id: Option<String>,
+    repo: State<'_, Repository>,
+) -> Result<Vec<VideoExtract>, String> {
+    repo.get_all_video_extracts(collection_id.as_deref())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Change explicit queue membership without touching review history.
+#[tauri::command]
+pub async fn set_video_extract_queue_membership(
+    extract_id: String,
+    queued: bool,
+    initial_review_date: Option<chrono::DateTime<chrono::Utc>>,
+    repo: State<'_, Repository>,
+) -> Result<VideoExtract, String> {
+    repo.set_video_extract_queue_membership(
+        &extract_id,
+        queued,
+        initial_review_date,
+        chrono::Utc::now(),
+    )
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Postpone a queued extract without changing its history.
+#[tauri::command]
+pub async fn postpone_video_extract(
+    extract_id: String,
+    days: i32,
+    repo: State<'_, Repository>,
+) -> Result<VideoExtract, String> {
+    repo.postpone_video_extract(&extract_id, days, chrono::Utc::now())
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Canonical eligible review candidates for the source-panel session.
+#[tauri::command]
+pub async fn get_video_extract_review_candidates(
+    document_id: Option<String>,
+    now: Option<chrono::DateTime<chrono::Utc>>,
+    repo: State<'_, Repository>,
+) -> Result<Vec<VideoExtract>, String> {
+    let cutoff = now.unwrap_or_else(chrono::Utc::now);
+    let mut candidates = repo
+        .get_video_extract_queue_candidates(&cutoff)
+        .await
+        .map_err(|e| e.to_string())?;
+    if let Some(document_id) = document_id {
+        candidates.retain(|extract| extract.document_id == document_id);
+    }
+    Ok(candidates)
 }
 
 /// Snapshot local metadata and receipts for a collection archive.

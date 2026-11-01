@@ -50,6 +50,10 @@ export interface RustQueueItem {
   priority_explicitly_set?: boolean;
   priority_score?: number;
   entity_id?: string;
+  entity_title?: string;
+  start_time?: number;
+  end_time?: number;
+  is_new_item?: boolean;
   priority: number;
   due_date?: string;
   estimated_time: number;
@@ -88,6 +92,10 @@ export function convertQueueItem(item: RustQueueItem): QueueItem {
     priorityExplicitlySet: item.priority_explicitly_set,
     priorityScore: item.priority_score,
     entityId: item.entity_id,
+    entityTitle: item.entity_title,
+    startTime: item.start_time,
+    endTime: item.end_time,
+    isNewItem: item.is_new_item,
     priority: item.priority,
     dueDate: item.due_date,
     estimatedTime: item.estimated_time,

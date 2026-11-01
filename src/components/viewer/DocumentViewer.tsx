@@ -92,6 +92,7 @@ import { selectHasActiveAudio, useAudioPlaybackStore } from "../../stores/audioP
 import { findSessionByDocumentId } from "../../api/recordingSessions";
 import type { RecordingSession } from "../../types/recordingSession";
 import { getAudioEditionByDocument } from "../../api/audioEditions";
+import { formatTimeRange, getVideoExtract, type VideoExtract } from "../../api/video-extracts";
 
 const LearningStudio = lazy(() =>
   import("../recording/LearningStudio").then((m) => ({ default: m.LearningStudio }))
@@ -539,6 +540,8 @@ interface DocumentViewerProps {
   onExtractCreated?: (extract: Extract, sourceContext?: ExtractSourceContext) => void;
   extractPostCreateBehavior?: "show-extracts" | "stay-in-reader";
   focusedExtractId?: string;
+  /** Video extract to open at its segment bounds. */
+  focusedVideoExtractId?: string;
   extractSourceContext?: ExtractSourceContext;
   onVideoContextChange?: (context: VideoViewerContext | null) => void;
   onMediaSectionsChange?: (sections: SectionNode[]) => void;
@@ -630,6 +633,7 @@ export function DocumentViewer({
   onExtractCreated,
   extractPostCreateBehavior = "show-extracts",
   focusedExtractId,
+  focusedVideoExtractId,
   extractSourceContext,
   onVideoContextChange,
   onMediaSectionsChange,
@@ -650,6 +654,58 @@ export function DocumentViewer({
   // out (Scroll Mode renders its own overlay) or when the document was opened
   // outside the queue (library browsing, search, recents, restored tabs, etc.).
   const shouldHideRatingOrbs = hideRatingOrbs || openedFrom !== "queue";
+  const [focusedVideoExtract, setFocusedVideoExtract] = useState<VideoExtract | null>(null);
+  const [focusedVideoExtractError, setFocusedVideoExtractError] = useState<string | null>(null);
+  const [dismissedVideoFocusId, setDismissedVideoFocusId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setFocusedVideoExtractError(null);
+    if (!focusedVideoExtractId || focusedVideoExtractId === dismissedVideoFocusId) {
+      setFocusedVideoExtract(null);
+      return () => { cancelled = true; };
+    }
+    void getVideoExtract(focusedVideoExtractId)
+      .then((extract) => {
+        if (cancelled) return;
+        if (!extract || extract.document_id !== documentId) {
+          setFocusedVideoExtract(null);
+          setFocusedVideoExtractError("This segment does not belong to the open source video.");
+          return;
+        }
+        setFocusedVideoExtract(extract);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setFocusedVideoExtract(null);
+        setFocusedVideoExtractError(error instanceof Error ? error.message : "Could not open this video segment.");
+      });
+    return () => { cancelled = true; };
+  }, [focusedVideoExtractId, documentId, dismissedVideoFocusId]);
+
+  const focusedVideoBanner = focusedVideoExtract ? (
+    <div className="flex items-center justify-between gap-3 border-b border-border bg-muted/40 px-4 py-2 text-sm">
+      <div className="min-w-0">
+        <div className="truncate font-medium text-foreground">{focusedVideoExtract.title}</div>
+        <div className="text-xs text-muted-foreground">{formatTimeRange(focusedVideoExtract)}</div>
+      </div>
+      <button
+        type="button"
+        className="shrink-0 rounded border border-border bg-background px-2 py-1 text-xs text-foreground hover:bg-muted"
+        onClick={() => {
+          setDismissedVideoFocusId(focusedVideoExtract.id);
+          setFocusedVideoExtract(null);
+        }}
+      >
+        View full video
+      </button>
+    </div>
+  ) : focusedVideoExtractError ? (
+    <div className="border-b border-destructive/30 bg-destructive/10 px-4 py-2 text-xs text-destructive">
+      {focusedVideoExtractError}
+    </div>
+  ) : null;
+
   const { hydrateDocument, setCurrentDocument, updateDocument, updateDocumentOptimistic } = useDocumentStore(
     useShallow(s => ({
       hydrateDocument: s.hydrateDocument,
@@ -8502,15 +8558,22 @@ export function DocumentViewer({
           )
         ) : docType === "video" ? (
           mediaSource ? (
-            <div className="h-full w-full bg-black">
-              <LocalVideoPlayer
-                src={localVideoSource!}
-                documentId={currentDocument.id}
-                title={currentDocument.title}
-                className="h-full w-full"
-                mediaType="video"
-                onEnded={onEnded}
-              />
+            <div className="flex h-full w-full flex-col bg-black">
+              {focusedVideoBanner}
+              <div className="min-h-0 flex-1">
+                <LocalVideoPlayer
+                  src={localVideoSource!}
+                  documentId={currentDocument.id}
+                  title={currentDocument.title}
+                  className="h-full w-full"
+                  mediaType="video"
+                  onEnded={onEnded}
+                  initialSeekTime={focusedVideoExtract?.start_time}
+                  initialEndTime={focusedVideoExtract?.end_time}
+                  armedExtract={focusedVideoExtract}
+                  autoPlayOnOpen={Boolean(focusedVideoExtract)}
+                />
+              </div>
             </div>
           ) : mediaError ? (
             <div className="flex items-center justify-center h-full">
@@ -8879,7 +8942,9 @@ export function DocumentViewer({
             )}
           </div>
         ) : docType === "youtube" ? (
-          <div className="h-full min-h-0 overflow-hidden">
+          <div className="flex h-full min-h-0 flex-col overflow-hidden">
+            {focusedVideoBanner}
+            <div className="min-h-0 flex-1">
             <YouTubeViewer
               videoId={
                 extractYouTubeVideoId(currentDocument.filePath || "") ??
@@ -8890,8 +8955,10 @@ export function DocumentViewer({
               }
               documentId={currentDocument.id}
               title={currentDocument.title}
+              armedExtract={focusedVideoExtract}
+              initialEndTime={focusedVideoExtract?.end_time}
               onLoad={handleYouTubeLoad}
-              initialSeekTime={initialJump?.kind === "youtube" ? initialJump.timeSeconds : undefined}
+              initialSeekTime={focusedVideoExtract?.start_time ?? (initialJump?.kind === "youtube" ? initialJump.timeSeconds : undefined)}
               transcriptSearchQuery={normalizedViewerSearchQuery}
               activeTranscriptMatchIndex={viewerSearchState.activeMatchIndex}
               onTranscriptSearchStateChange={(state) => {
@@ -8905,7 +8972,7 @@ export function DocumentViewer({
               }}
               initialTranscriptHighlightQuery={jumpHighlightQuery}
               initialTranscriptSegmentId={initialJump?.kind === "youtube" ? initialJump.segmentId : undefined}
-              autoPlayOnOpen={!!autoPlay && initialJump?.kind === "youtube"}
+              autoPlayOnOpen={Boolean(focusedVideoExtract) || (!!autoPlay && initialJump?.kind === "youtube")}
               compactOnMobile={embedded}
               onEnded={onEnded}
               onArchive={() => {
@@ -8939,6 +9006,7 @@ export function DocumentViewer({
                 onSelectionChange?.(text);
               }}
             />
+          </div>
           </div>
         ) : docType === "image" ? (
           <ImageViewer

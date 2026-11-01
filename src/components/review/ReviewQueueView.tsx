@@ -652,7 +652,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   // Every visible row is selectable, not just learning items: the bulk actions
   // resolve documents and extracts too, and select-all now covers them, so a
   // narrower list here would select rows the user has no checkbox to clear.
-  const selectableItems = visibleItems;
+  const selectableItems = visibleItems.filter((item) => item.itemType !== "video-extract");
   const selectableIds = useMemo(() => selectableItems.map((item) => item.id), [selectableItems]);
 
   const allSelected = selectableItems.length > 0 && selectableItems.every((item) => selectedIds.has(item.id));
@@ -966,6 +966,18 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       await handleCtxSuspend(item);
     } else if (item.itemType === "document") {
       await handleDismissDocument(item);
+    } else if (item.itemType === "video-extract") {
+      try {
+        const { setVideoExtractQueueMembership } = await import("../../api/video-extracts");
+        await setVideoExtractQueueMembership(item.entityId ?? item.id, false);
+        toast.success(t("videoExtract.removedFromQueue"), t("videoExtract.removedFromQueueDesc"));
+        await refreshQueue();
+      } catch (error) {
+        toast.error(
+          t("queue.operationFailed"),
+          error instanceof Error ? error.message : t("queue.pleaseRefresh"),
+        );
+      }
     }
   };
 
@@ -1165,6 +1177,16 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
   };
 
   const buildDetailsTarget = (item: QueueItem): ItemDetailsTarget => {
+    if (item.itemType === "video-extract") {
+      return {
+        type: "video-extract",
+        id: item.entityId ?? item.id,
+        title: item.entityTitle ?? item.documentTitle,
+        tags: item.tags,
+        sourceTitle: item.documentTitle,
+        documentId: item.documentId,
+      };
+    }
     if (item.itemType === "learning-item") {
       return {
         type: "learning-item",

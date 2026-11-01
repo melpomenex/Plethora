@@ -50,6 +50,12 @@ export interface QueueItem {
   /** Position in queue for interspersion calculation */
   position?: number;
 
+  /** Exact title of the reviewable entity when it differs from the combined title. */
+  entityTitle?: string;
+  /** Video-extract playback start/end (seconds). */
+  startTime?: number;
+  endTime?: number;
+
   // FSRS / algorithm metadata (populated when available)
   stability?: number;
   difficulty?: number;

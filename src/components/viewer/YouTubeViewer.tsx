@@ -4,6 +4,7 @@
  */
 
 import { useVideoExtractPlayback } from '../../hooks/useVideoExtractPlayback';
+import type { VideoExtract } from '../../api/video-extracts';
 import { useState, useEffect, useCallback, useRef, useMemo, useId } from "react";
 import { appAudioFocus, type AudioOutputLease } from "../../services/audio/audioFocus";
 import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../../services/audio/audioPlaybackRollout";
@@ -98,7 +99,9 @@ interface YouTubeViewerProps {
   onSelectionChange?: (text: string) => void;
   onArchive?: () => void;
   initialSeekTime?: number;
+  initialEndTime?: number;
   autoPlayOnOpen?: boolean;
+  armedExtract?: VideoExtract | null;
   transcriptSearchQuery?: string;
   onTranscriptSearchQueryChange?: (query: string) => void;
   activeTranscriptMatchIndex?: number;
@@ -128,7 +131,9 @@ export function YouTubeViewer({
   onSelectionChange,
   onArchive,
   initialSeekTime,
+  initialEndTime,
   autoPlayOnOpen,
+  armedExtract,
   transcriptSearchQuery,
   onTranscriptSearchQueryChange,
   activeTranscriptMatchIndex,
@@ -210,7 +215,7 @@ export function YouTubeViewer({
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const playerRef = useRef<YouTubePlayer | null>(null);
-  const { select: selectExtract, confirm: confirmExtractPlayback, cancel: cancelExtractPlayback } = useVideoExtractPlayback(documentId);
+  const { select: selectExtract, confirm: confirmExtractPlayback, cancel: cancelExtractPlayback } = useVideoExtractPlayback(documentId, armedExtract);
   const outputId = useId();
   const outputLease = useRef<AudioOutputLease | null>(null);
   const outputRequest = useRef(0);
@@ -300,6 +305,16 @@ export function YouTubeViewer({
   const [extractStartTime, setExtractStartTime] = useState(0);
   const [activeExtractStartTime, setActiveExtractStartTime] = useState<number | null>(null);
   const [activeExtractEndTime, setActiveExtractEndTime] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (typeof initialSeekTime !== "number" || !Number.isFinite(initialSeekTime)) {
+      setActiveExtractStartTime(null);
+      setActiveExtractEndTime(null);
+      return;
+    }
+    setActiveExtractStartTime(initialSeekTime);
+    setActiveExtractEndTime(typeof initialEndTime === "number" ? initialEndTime : null);
+  }, [initialSeekTime, initialEndTime]);
 
   const localResumeKey = useMemo(() => {
     // Stored in localStorage as a best-effort fallback when backend/IndexedDB state

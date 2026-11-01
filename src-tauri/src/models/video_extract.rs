@@ -11,12 +11,95 @@ use uuid::Uuid;
 pub use super::learning_item::MemoryState;
 pub use super::learning_item::ReviewRating;
 
+/// Explicit queue membership for a video extract.
+///
+/// This is deliberately persisted rather than inferred from `next_review_date`:
+/// a NULL date means "unreviewed and eligible now" only while queued, and is
+/// inert while not queued.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VideoExtractQueueStatus {
+    #[default]
+    NotQueued,
+    Queued,
+}
+
+impl VideoExtractQueueStatus {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotQueued => "not_queued",
+            Self::Queued => "queued",
+        }
+    }
+
+    /// Parse a persisted value. Missing/unrecognised values infer intent from
+    /// the legacy date-presence signal; this is only a compatibility fallback.
+    pub fn from_db(value: Option<&str>, next_review_date: Option<DateTime<Utc>>) -> Self {
+        match value {
+            Some("queued") => Self::Queued,
+            Some("not_queued") => Self::NotQueued,
+            _ => {
+                if next_review_date.is_some() {
+                    Self::Queued
+                } else {
+                    Self::NotQueued
+                }
+            }
+        }
+    }
+
+    pub fn is_queued(self) -> bool {
+        matches!(self, Self::Queued)
+    }
+}
+
+/// Resolve the explicit creation intent into persisted membership and date.
+///
+/// Rules:
+/// - not adding to the queue stores `not_queued` and no date; a date is invalid
+/// - adding with no date stores `queued` and NULL (eligible now as new)
+/// - adding with a date on the current UTC day stores NULL (eligible now)
+/// - adding with a future date stores the start of that UTC day
+/// - adding with a date before the current UTC day is invalid
+pub fn resolve_creation_schedule(
+    add_to_queue: bool,
+    initial_review_date: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> Result<(VideoExtractQueueStatus, Option<DateTime<Utc>>), String> {
+    if !add_to_queue {
+        if initial_review_date.is_some() {
+            return Err("An initial review date requires Add to Queue".into());
+        }
+        return Ok((VideoExtractQueueStatus::NotQueued, None));
+    }
+
+    let Some(requested) = initial_review_date else {
+        return Ok((VideoExtractQueueStatus::Queued, None));
+    };
+    let requested_day = requested.date_naive();
+    let today = now.date_naive();
+    if requested_day < today {
+        return Err("The initial review date cannot be in the past".into());
+    }
+    if requested_day == today {
+        return Ok((VideoExtractQueueStatus::Queued, None));
+    }
+    let start = requested_day
+        .and_hms_opt(0, 0, 0)
+        .ok_or_else(|| "Invalid initial review date".to_string())?
+        .and_utc();
+    Ok((VideoExtractQueueStatus::Queued, Some(start)))
+}
+
 /// A timestamp-linked extract from a video with FSRS scheduling support
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VideoExtract {
     pub id: String,
     pub document_id: String,
     pub collection_id: String,
+    /// Explicit queue membership. See [`VideoExtractQueueStatus`].
+    #[serde(default)]
+    pub queue_status: VideoExtractQueueStatus,
     /// Start time of the segment in seconds
     pub start_time: f64,
     /// End time of the segment in seconds
@@ -60,6 +143,7 @@ impl VideoExtract {
             id: Uuid::new_v4().to_string(),
             document_id,
             collection_id: super::collection::DEFAULT_COLLECTION_ID.to_string(),
+            queue_status: VideoExtractQueueStatus::NotQueued,
             start_time,
             end_time,
             title,
@@ -101,6 +185,7 @@ impl VideoExtract {
         next_review_date: DateTime<Utc>,
     ) -> Self {
         let mut extract = Self::new(document_id, start_time, end_time, title);
+        extract.queue_status = VideoExtractQueueStatus::Queued;
         extract.next_review_date = Some(next_review_date);
         extract
     }
@@ -213,6 +298,53 @@ mod tests {
     }
 
     #[test]
+    fn test_creation_intent_matrix() {
+        use chrono::TimeZone;
+        let now = Utc.with_ymd_and_hms(2026, 10, 29, 12, 0, 0).unwrap();
+        assert_eq!(
+            resolve_creation_schedule(false, None, now).unwrap(),
+            (VideoExtractQueueStatus::NotQueued, None)
+        );
+        assert_eq!(
+            resolve_creation_schedule(true, None, now).unwrap(),
+            (VideoExtractQueueStatus::Queued, None)
+        );
+        assert_eq!(
+            resolve_creation_schedule(
+                true,
+                Some(Utc.with_ymd_and_hms(2026, 10, 29, 0, 0, 0).unwrap()),
+                now
+            )
+            .unwrap(),
+            (VideoExtractQueueStatus::Queued, None)
+        );
+        assert_eq!(
+            resolve_creation_schedule(
+                true,
+                Some(Utc.with_ymd_and_hms(2026, 10, 30, 0, 0, 0).unwrap()),
+                now
+            )
+            .unwrap(),
+            (
+                VideoExtractQueueStatus::Queued,
+                Some(Utc.with_ymd_and_hms(2026, 10, 30, 0, 0, 0).unwrap())
+            )
+        );
+        assert!(resolve_creation_schedule(
+            true,
+            Some(Utc.with_ymd_and_hms(2026, 10, 28, 23, 59, 59).unwrap()),
+            now
+        )
+        .is_err());
+        assert!(resolve_creation_schedule(
+            false,
+            Some(Utc.with_ymd_and_hms(2026, 10, 30, 0, 0, 0).unwrap()),
+            now
+        )
+        .is_err());
+    }
+
+    #[test]
     fn test_transcript_preview() {
         let long_text = "a".repeat(300);
         let extract = VideoExtract::with_transcript(
@@ -251,6 +383,10 @@ pub struct VideoExtractReviewResult {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VideoExtractLifecycleArchive {
+    /// Archive schema version. 0 means a pre-membership archive and triggers
+    /// date-presence inference on restore; current exports write 2.
+    #[serde(default)]
+    pub format_version: u32,
     #[serde(default)]
     pub extracts: Vec<VideoExtract>,
     #[serde(default)]

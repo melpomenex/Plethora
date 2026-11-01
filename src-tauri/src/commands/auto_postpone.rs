@@ -215,7 +215,8 @@ async fn append_candidates(
                 0 AS lapses, 0 AS is_suspended, COALESCE(d.is_archived, 0) AS is_archived, \
                 COALESCE(d.is_dismissed, 0) AS is_dismissed, CASE WHEN d.id IS NULL THEN 1 ELSE 0 END AS is_inactive \
          FROM video_extracts v LEFT JOIN documents d ON d.id = v.document_id \
-         WHERE v.next_review_date IS NOT NULL \
+         WHERE v.queue_status = 'queued' \
+           AND v.next_review_date IS NOT NULL \
            AND (v.next_review_date < ? OR date(v.next_review_date) IS NULL) \
            AND {scope}"
     );
@@ -293,7 +294,7 @@ async fn append_scheduled_dates(
     let sql = format!(
         "SELECT v.next_review_date AS due_date FROM video_extracts v \
          JOIN documents d ON d.id = v.document_id \
-         WHERE v.next_review_date IS NOT NULL AND v.next_review_date >= ? AND v.next_review_date < ? \
+         WHERE v.queue_status = 'queued' AND v.next_review_date IS NOT NULL AND v.next_review_date >= ? AND v.next_review_date < ? \
            AND d.is_archived = 0 AND d.is_dismissed = 0 AND {scope}"
     );
     let mut query = sqlx::query(&sql).bind(window_start).bind(window_end);
@@ -546,6 +547,11 @@ mod tests {
                 .await
                 .unwrap();
         }
+        sqlx::query("UPDATE video_extracts SET queue_status = 'queued' WHERE id = ?")
+            .bind(&video_id)
+            .execute(repo.pool())
+            .await
+            .unwrap();
         sqlx::query("UPDATE documents SET collection_id = 'other' WHERE id = ?")
             .bind(&other_collection_document)
             .execute(repo.pool())

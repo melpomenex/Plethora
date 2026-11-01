@@ -31,6 +31,14 @@ vi.mock("../../extracts/ExtractsList", () => ({
   ),
 }));
 
+vi.mock("../../../hooks/useVideoExtracts", () => ({
+  useAllVideoExtracts: () => ({ data: [], isLoading: false, error: null }),
+}));
+
+vi.mock("../../video/VideoExtracts", () => ({
+  VideoExtractLibraryList: () => <div data-testid="video-extract-library" />,
+}));
+
 const makeExtract = (id: string, documentId: string, overrides: Partial<Extract> = {}): Extract => ({
   id,
   document_id: documentId,
@@ -86,7 +94,8 @@ describe("ExtractsTab", () => {
     expect(screen.getByTestId("extracts-list-doc-a")).toBeInTheDocument();
     expect(screen.getByTestId("extracts-list-doc-b")).toBeInTheDocument();
 
-    const sections = Array.from(container.querySelectorAll("section"));
+    const sections = Array.from(container.querySelectorAll("section"))
+      .filter((section) => section.querySelector('[data-testid^="extracts-list-"]'));
     expect(sections).toHaveLength(2);
     expect(sections[0].textContent).toContain("Doc A");
     expect(sections[1].textContent).toContain("Doc B");
