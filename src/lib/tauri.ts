@@ -135,13 +135,42 @@ function coerceError(err: unknown, context?: string): Error {
   // Structured Tauri rejection, e.g. { type: "integration_auth_error", message: "..." }
   // produced by IncrementumError's Serialize impl. Preserve the typed `type` on
   // the Error so callers can branch on it (e.g. offer a re-authenticate path),
-  // and prefer the inner message over an opaque JSON blob.
-  if (err && typeof err === "object" && typeof (err as { type?: unknown }).type === "string") {
-    const obj = err as { type: string; message?: unknown };
+  // and prefer the inner message over an opaque JSON blob. Media compatibility
+  // errors also carry `code`/`detail`/`retryable`; preserve those so the
+  // evidence-based classifier can use them after the IPC boundary.
+  if (
+    err &&
+    typeof err === "object" &&
+    (typeof (err as { type?: unknown }).type === "string" ||
+      typeof (err as { code?: unknown }).code === "string")
+  ) {
+    const obj = err as {
+      type?: string;
+      code?: string;
+      message?: unknown;
+      detail?: unknown;
+      retryable?: unknown;
+      jobId?: unknown;
+      documentId?: unknown;
+    };
     const inner =
-      typeof obj.message === "string" && obj.message.length > 0 ? obj.message : JSON.stringify(err);
-    const e = new Error(context ? `${context}: ${inner}` : inner);
-    (e as Error & { type: string }).type = obj.type;
+      typeof obj.message === "string" && obj.message.length > 0
+        ? obj.message
+        : JSON.stringify(err);
+    const e = new Error(context ? `${context}: ${inner}` : inner) as Error & {
+      type?: string;
+      code?: string;
+      detail?: string;
+      retryable?: boolean;
+      jobId?: string;
+      documentId?: string;
+    };
+    if (typeof obj.type === "string") e.type = obj.type;
+    if (typeof obj.code === "string") e.code = obj.code;
+    if (typeof obj.detail === "string") e.detail = obj.detail;
+    if (typeof obj.retryable === "boolean") e.retryable = obj.retryable;
+    if (typeof obj.jobId === "string") e.jobId = obj.jobId;
+    if (typeof obj.documentId === "string") e.documentId = obj.documentId;
     return e;
   }
   try {

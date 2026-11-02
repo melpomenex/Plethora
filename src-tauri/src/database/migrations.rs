@@ -4907,6 +4907,45 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
     ),
 
+    Migration::new(
+        "137_media_compatibility",
+        r#"
+        CREATE TABLE IF NOT EXISTS media_inspections (
+            document_id TEXT NOT NULL,
+            source_fingerprint TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            inspection_json TEXT NOT NULL,
+            schema_version INTEGER NOT NULL,
+            probed_at TEXT NOT NULL,
+            PRIMARY KEY (document_id, source_fingerprint)
+        );
+        CREATE INDEX IF NOT EXISTS idx_media_inspections_document
+            ON media_inspections(document_id, probed_at);
+
+        CREATE TABLE IF NOT EXISTS media_compatibility_artifacts (
+            cache_key TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            source_path TEXT NOT NULL,
+            source_fingerprint TEXT NOT NULL,
+            inspection_hash TEXT NOT NULL,
+            plan_json TEXT NOT NULL,
+            output_path TEXT NOT NULL,
+            output_container TEXT NOT NULL,
+            output_size INTEGER NOT NULL,
+            duration_seconds REAL,
+            timeline_offset_seconds REAL NOT NULL DEFAULT 0,
+            state TEXT NOT NULL CHECK (state IN ('building','ready','failed')),
+            error_code TEXT,
+            created_at TEXT NOT NULL,
+            last_accessed_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_media_artifacts_document
+            ON media_compatibility_artifacts(document_id, last_accessed_at);
+        CREATE INDEX IF NOT EXISTS idx_media_artifacts_state
+            ON media_compatibility_artifacts(state, last_accessed_at);
+        "#,
+    ),
+
 ];
 
 /// Get the migrations directory path

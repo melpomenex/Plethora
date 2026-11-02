@@ -1,5 +1,10 @@
 ## Context
 
+> **STATUS: SUPERSEDED — DO NOT IMPLEMENT.** The asset-protocol premise and
+> whole-file Blob fallback in this design are obsolete. See
+> `openspec/changes/reliable-local-video-playback-and-codec-compatibility/`
+> for the verified architecture and current requirements.
+
 Local video/audio documents are loaded in `DocumentViewer.tsx` through a simple split:
 
 - Browser/PWA `browser-file://` imports use an object URL from the in-memory `File`

@@ -77,6 +77,7 @@ mod external_open;
 
 mod epub_server;
 mod media_server;
+mod media_compat;
 mod security;
 #[cfg(test)]
 mod security_tests;
@@ -1222,6 +1223,7 @@ pub fn run() {
                 });
                 app.manage(FocusTimer::new());
             app.manage(media_control::MediaControlBridge::default());
+            app.manage(media_compat::jobs::MediaCompatState::new());
             app.manage(audio_lifecycle::AudioLifecycleState::default());
             audio_lifecycle::start(app.handle());
                 app.manage(commands::podcast::PodcastTranscriptionTokens::default());
@@ -1838,6 +1840,17 @@ pub fn run() {
             commands::pdf_reflow_resolve_selection,
             commands::pdf_reflow_selection_rects,
             media_server::get_media_stream_url,
+            media_compat::commands::probe_media_transport,
+            media_compat::commands::inspect_local_media,
+            media_compat::commands::get_media_runtime_capabilities,
+            media_compat::commands::plan_media_playback,
+            media_compat::commands::start_media_compatibility_job,
+            media_compat::commands::cancel_media_compatibility_job,
+            media_compat::commands::list_media_compatibility_jobs,
+            media_compat::commands::get_media_compatibility_artifact_url,
+            media_compat::commands::get_media_compatibility_cache_usage,
+            media_compat::commands::clear_media_compatibility_cache,
+            media_compat::commands::prune_media_compatibility_cache,
             epub_server::get_epub_stream_url,
             web_proxy::get_web_proxy_url,
             web_proxy::set_web_bridge_script,

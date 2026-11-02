@@ -8564,6 +8564,7 @@ export function DocumentViewer({
                 <LocalVideoPlayer
                   src={localVideoSource!}
                   documentId={currentDocument.id}
+                  filePath={currentDocument.filePath}
                   title={currentDocument.title}
                   className="h-full w-full"
                   mediaType="video"

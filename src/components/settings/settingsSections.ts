@@ -20,6 +20,7 @@ export enum SettingsTab {
   Shortcuts = "shortcuts",
   AI = "ai",
   AudioTranscription = "audio-transcription",
+  MediaPlayback = "media-playback",
   TTS = "tts",
   Integrations = "integrations",
   CloudStorage = "cloud-storage",
@@ -163,6 +164,11 @@ export const SETTINGS_SECTION_METADATA: SettingsSectionMetadata[] = [
       "download",
       "offline",
     ],
+  },
+  {
+    id: SettingsTab.MediaPlayback,
+    labelKey: "settings.mediaPlayback",
+    keywords: ["video", "media", "playback", "codec", "mkv", "hevc", "hdr", "transcode", "conversion", "cache", "ffmpeg", "gstreamer"],
   },
   {
     id: SettingsTab.TTS,

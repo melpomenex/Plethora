@@ -726,6 +726,27 @@ function mergeScrollQueueSettings(persisted?: Partial<ScrollQueueSettings>): Scr
   return merged;
 }
 
+export function mergeMediaPlaybackSettings(
+  persisted?: Partial<MediaPlaybackSettings> | null,
+): MediaPlaybackSettings {
+  const mode = persisted?.compatibilityMode;
+  const quality = persisted?.conversionQuality;
+  const hardware = persisted?.hardwareAcceleration;
+  const cache = persisted?.cacheLimitGb;
+  return {
+    compatibilityMode:
+      mode === "automatic-inexpensive" || mode === "ask" || mode === "never"
+        ? mode
+        : "automatic-inexpensive",
+    conversionQuality: quality === "quality" ? "quality" : "balanced",
+    hardwareAcceleration: hardware === "off" ? "off" : "auto",
+    cacheLimitGb:
+      typeof cache === "number" && Number.isFinite(cache)
+        ? Math.min(500, Math.max(5, Math.round(cache)))
+        : 25,
+  };
+}
+
 /**
  * RSS Queue Settings
  */
@@ -1087,6 +1108,13 @@ export interface FoundryLocalSettings {
   model: string;
 }
 
+export interface MediaPlaybackSettings {
+  compatibilityMode: "automatic-inexpensive" | "ask" | "never";
+  conversionQuality: "balanced" | "quality";
+  hardwareAcceleration: "auto" | "off";
+  cacheLimitGb: number;
+}
+
 /**
  * Main Settings Interface
  */
@@ -1118,6 +1146,7 @@ export interface Settings {
   handsFreeStudy: HandsFreeStudySettings;
   languageLearning: LanguageLearningSettings;
   sponsorBlock: SponsorBlockSettings;
+  mediaPlayback: MediaPlaybackSettings;
   plethora?: PlethoraSettings;
 }
 
@@ -1612,6 +1641,12 @@ export const defaultSettings: Settings = {
     showUnavailableProviders: true,
   },
   sponsorBlock: defaultSponsorBlockSettings,
+  mediaPlayback: {
+    compatibilityMode: "automatic-inexpensive",
+    conversionQuality: "balanced",
+    hardwareAcceleration: "auto",
+    cacheLimitGb: 25,
+  },
   plethora: {
     overrides: {},
   },
@@ -2082,6 +2117,7 @@ export const useSettingsStore = create<SettingsState>()(
           podcastQueue: { ...defaultSettings.podcastQueue, ...persisted.podcastQueue },
           rssSummary: { ...defaultSettings.rssSummary, ...persisted.rssSummary },
           youtube: { ...defaultSettings.youtube, ...persisted.youtube },
+          mediaPlayback: mergeMediaPlaybackSettings(persisted.mediaPlayback),
           features: mergeFeaturePreferences(persisted.features),
           foundryLocal: {
             ...defaultSettings.foundryLocal,

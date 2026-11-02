@@ -1,5 +1,9 @@
 ## 1. Source resolution
 
+> **STATUS: SUPERSEDED — DO NOT IMPLEMENT.** The definitive change is
+> `reliable-local-video-playback-and-codec-compatibility`. These tasks assume a
+> `convertFileSrc` fast path and a Blob fallback that no longer match the source.
+
 - [ ] 1.1 Refactor `DocumentViewer.tsx` media loading so local desktop media resolves a structured source strategy instead of a bare URL string.
 - [ ] 1.2 Keep `convertFileSrc(filePath)` as the preferred Tauri fast path for local media, but add a fallback source path for unreadable/rejected media.
 - [ ] 1.3 Ensure fallback source creation preserves the correct MIME type for video and audio documents.

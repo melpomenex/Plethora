@@ -1526,6 +1526,42 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     revealTargetId: "audioTranscription.reveal.groq",
   },
 
+  /* ── Media & Playback ────────────────────────────────────────────────── */
+  {
+    id: "mediaPlayback.compatibilityMode",
+    kind: "group",
+    section: SettingsTab.MediaPlayback,
+    label: k("settings.mediaCompatibilityMode"),
+    description: k("settings.mediaPlaybackDesc"),
+    aliases: [lit("video conversion"), lit("codec recovery"), lit("transcode")],
+    keywords: ["video", "codec", "mkv", "hevc", "transcode", "conversion"],
+    targetId: "mediaPlayback.automatic-inexpensive",
+  },
+  {
+    id: "mediaPlayback.ask",
+    kind: "setting",
+    section: SettingsTab.MediaPlayback,
+    label: k("settings.mediaCompatibilityMode.ask"),
+    keywords: ["ask", "confirm", "conversion"],
+    targetId: "mediaPlayback.ask",
+  },
+  {
+    id: "mediaPlayback.never",
+    kind: "setting",
+    section: SettingsTab.MediaPlayback,
+    label: k("settings.mediaCompatibilityMode.never"),
+    keywords: ["never", "disable", "conversion"],
+    targetId: "mediaPlayback.never",
+  },
+  {
+    id: "mediaPlayback.quality",
+    kind: "setting",
+    section: SettingsTab.MediaPlayback,
+    label: k("settings.mediaConversionQuality"),
+    keywords: ["quality", "1080p", "resolution", "crf"],
+    targetId: "mediaPlayback.quality.balanced",
+  },
+
   /* ── Text to Speech ──────────────────────────────────────────────────── */
   {
     id: "tts.enabled",

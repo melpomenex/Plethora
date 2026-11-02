@@ -135,18 +135,19 @@ describe("LocalVideoPlayer source resolution stability", () => {
     });
   });
 
-  it("does not re-probe the source when the parent re-renders with an identical inline descriptor", async () => {
+  it("does not probe the source again when the parent re-renders with an identical inline descriptor", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
-    const { unmount } = render(<Harness sourceUrl="http://127.0.0.1:41777/media/stream" />);
+    const { container, unmount } = render(<Harness sourceUrl="http://127.0.0.1:41777/media/stream" />);
 
-    await waitFor(() => expect(probeMocks.calls).toBe(1), { timeout: 2000 });
+    await waitFor(() => expect(container.querySelector("video")?.getAttribute("src")).toBe("http://127.0.0.1:41777/media/stream"), { timeout: 2000 });
 
     // A burst of parent re-renders — each passes a NEW descriptor object with
     // the same content, exactly what DocumentViewer does on every re-render.
     for (let i = 0; i < 12; i += 1) harnessBump();
     await new Promise((r) => setTimeout(r, 150));
 
-    expect(probeMocks.calls).toBe(1);
+    // The primary path never runs a second media-element probe.
+    expect(probeMocks.calls).toBe(0);
 
     const depthErrors = consoleError.mock.calls.filter((c) =>
       String(c[0]).includes("Maximum update depth"),
@@ -156,14 +157,15 @@ describe("LocalVideoPlayer source resolution stability", () => {
     expect(depthErrors).toEqual([]);
   });
 
-  it("re-probes when the source content actually changes", async () => {
-    const { rerender, unmount } = render(
+  it("switches to a new source without a probe when the source content changes", async () => {
+    const { container, rerender, unmount } = render(
       <Harness sourceUrl="http://127.0.0.1:41777/media/one" />,
     );
-    await waitFor(() => expect(probeMocks.calls).toBe(1), { timeout: 2000 });
+    await waitFor(() => expect(container.querySelector("video")?.getAttribute("src")).toBe("http://127.0.0.1:41777/media/one"), { timeout: 2000 });
 
     rerender(<Harness sourceUrl="http://127.0.0.1:41777/media/two" />);
-    await waitFor(() => expect(probeMocks.calls).toBe(2), { timeout: 2000 });
+    await waitFor(() => expect(container.querySelector("video")?.getAttribute("src")).toBe("http://127.0.0.1:41777/media/two"), { timeout: 2000 });
+    expect(probeMocks.calls).toBe(0);
 
     unmount();
   });

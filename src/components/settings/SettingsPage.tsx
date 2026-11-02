@@ -13,6 +13,7 @@ import {
   Brain,
   CaretRight,
   Cloud,
+  FilmStrip,
   FolderOpen,
   GraduationCap,
   Keyboard,
@@ -153,6 +154,9 @@ const NotificationSettings = lazySection("NotificationSettings", () =>
 );
 const AudioTranscriptionSettings = lazySection("AudioTranscriptionSettings", () =>
   import("./AudioTranscriptionSettings").then((m) => ({ default: m.AudioTranscriptionSettings }))
+);
+const MediaPlaybackSettings = lazySection("MediaPlaybackSettings", () =>
+  import("./MediaPlaybackSettings").then((m) => ({ default: m.MediaPlaybackSettings }))
 );
 const TTSSettings = lazySection("TTSSettings", () =>
   import("./TTSSettings").then((m) => ({ default: m.TTSSettings }))
@@ -331,6 +335,7 @@ const SETTINGS_TAB_ICONS: Record<SettingsTab, React.ElementType> = {
   [SettingsTab.Shortcuts]: Keyboard,
   [SettingsTab.AI]: Brain,
   [SettingsTab.AudioTranscription]: Microphone,
+  [SettingsTab.MediaPlayback]: FilmStrip,
   [SettingsTab.TTS]: SpeakerHigh,
   [SettingsTab.Integrations]: Plug,
   [SettingsTab.CloudStorage]: Cloud,
@@ -354,6 +359,7 @@ const SETTINGS_TAB_DESCRIPTIONS: Record<SettingsTab, string> = {
   [SettingsTab.Shortcuts]: "Keyboard shortcuts and keybindings",
   [SettingsTab.AI]: "AI providers, on-device models (Gemini Nano / Apple), and AI Learning features",
   [SettingsTab.AudioTranscription]: "Download Whisper models for local transcription",
+  [SettingsTab.MediaPlayback]: "Video compatibility, conversion quality, hardware acceleration, and cache",
   [SettingsTab.TTS]: "Configure Fal.ai voices, cloning, and generation presets",
   [SettingsTab.Integrations]: "Third-party app integrations",
   [SettingsTab.CloudStorage]: "Cloud storage providers and backups",
@@ -925,6 +931,7 @@ export function SettingsPage() {
           )}
           {activeTab === SettingsTab.AI && <AISettings onChange={() => setHasChanges(true)} />}
           {activeTab === SettingsTab.AudioTranscription && <AudioTranscriptionSettings />}
+          {activeTab === SettingsTab.MediaPlayback && <MediaPlaybackSettings />}
           {activeTab === SettingsTab.TTS && <TTSSettings />}
           {activeTab === SettingsTab.Embeddings && (
             <div className="space-y-8">

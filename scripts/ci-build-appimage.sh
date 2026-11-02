@@ -152,6 +152,11 @@ bundle_gstreamer_plugins() {
     "libgstvorbis.so"
     "libgstopus.so"
     "libgstisomp4.so"
+    "libgstmatroska.so"
+    "libgstaudioparsers.so"
+    "libgstsoup.so"
+    "libgstvolume.so"
+    "libgstogg.so"
     "libgsttypefindfunctions.so"
     "libgstapp.so"
     "libgstautodetect.so"
@@ -163,6 +168,8 @@ bundle_gstreamer_plugins() {
     "libgstopengl.so"
     "libgstvpx.so"
     "libgstdav1d.so"
+    "libgstde265.so"
+    "libgstdtsdec.so"
     "libgstva.so"
   )
   local REQUIRED_PLUGINS=(
@@ -173,6 +180,10 @@ bundle_gstreamer_plugins() {
     "libgstaudioconvert.so"
     "libgstaudioresample.so"
     "libgstisomp4.so"
+    "libgstmatroska.so"
+    "libgstaudioparsers.so"
+    "libgstsoup.so"
+    "libgstvolume.so"
     "libgsttypefindfunctions.so"
     "libgstapp.so"
   )
@@ -220,7 +231,7 @@ bundle_gstreamer_plugins() {
     while read -r dep; do
       dep_base="$(basename "$dep")"
       case "$dep_base" in
-        libavcodec*|libavformat*|libavutil*|libswresample*|libswscale*|libpostproc*|libvpx*|libdav1d*|libaom*)
+        libavcodec*|libavformat*|libavutil*|libswresample*|libswscale*|libpostproc*|libvpx*|libdav1d*|libaom*|libogg*|libvorbis*|libopus*|libde265*|libdca*)
           if [[ -z "${copied_deps[$dep_base]:-}" && ! -e "$APPDIR/usr/lib/$dep_base" ]]; then
             cp -L "$dep" "$APPDIR/usr/lib/$dep_base"
             copied_deps[$dep_base]=1

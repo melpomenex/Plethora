@@ -6,7 +6,8 @@ pkgdesc="Plethora - Spaced repetition and incremental reading for effective lear
 arch=('x86_64')
 url="https://plethora.app"
 license=('custom')
-depends=('webkit2gtk-4.1' 'gtk3' 'libappindicator-gtk3' 'librsvg' 'xdotool' 'gstreamer' 'gst-plugins-base' 'gst-plugins-good')
+depends=('webkit2gtk-4.1' 'gtk3' 'libappindicator-gtk3' 'librsvg' 'xdotool' 'gstreamer' 'gst-plugins-base' 'gst-plugins-good' 'gst-plugins-bad' 'gst-libav' 'ffmpeg')
+optdepends=('gst-plugins-ugly: additional legacy audio/video codecs')
 makedepends=('cargo' 'pnpm' 'git')
 options=('!lto')  # Disable LTO to avoid compilation issues
 

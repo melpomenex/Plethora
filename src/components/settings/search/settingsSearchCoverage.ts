@@ -125,6 +125,15 @@ export const SETTINGS_SEARCH_COVERAGE: readonly SettingsSearchCoverageRow[] = [
     ],
   },
   {
+    section: SettingsTab.MediaPlayback,
+    sources: ["MediaPlaybackSettings.tsx"],
+    catalogPrefixes: ["section.media-playback", "mediaPlayback."],
+    exclusions: [
+      "The cache limit slider is a value control covered by the cache group; individual gigabyte values are not indexed.",
+      "Clear-cache and media-support checks are consequential actions, not settings destinations.",
+    ],
+  },
+  {
     section: SettingsTab.TTS,
     sources: ["TTSSettings.tsx", "HuggingFaceModelManager.tsx", "VoiceBrowser.tsx", "AndroidTtsModelManager.tsx"],
     catalogPrefixes: ["section.tts", "tts."],

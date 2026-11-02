@@ -1,5 +1,18 @@
 # Change: Fix local video playback source resolution
 
+> **STATUS: SUPERSEDED — DO NOT IMPLEMENT.**
+>
+> This change predates the current local-media architecture. Its premise —
+> `convertFileSrc()` as the desktop fast path plus a whole-file Blob fallback —
+> is obsolete: the app declares no `assetProtocol` and now resolves local media
+> through the loopback media server. Its source-vs-codec classification is also
+> too narrow for the verified PGS/bitmap-subtitle failure.
+>
+> The definitive work is
+> `openspec/changes/reliable-local-video-playback-and-codec-compatibility/`.
+> Do not check, implement, or archive this change's tasks. Keep this file only as
+> historical context.
+
 ## Why
 Local video playback currently fails in the desktop viewer with a browser media error:
 

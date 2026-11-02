@@ -31,9 +31,18 @@ const VIDEO_MIME_TYPES: Record<string, string> = {
   webm: "video/webm",
   mov: "video/quicktime",
   mkv: "video/x-matroska",
+  mka: "audio/x-matroska",
   avi: "video/x-msvideo",
   m4v: "video/x-m4v",
   mp4: "video/mp4",
+  mpg: "video/mpeg",
+  mpeg: "video/mpeg",
+  ts: "video/mp2t",
+  m2ts: "video/mp2t",
+  flv: "video/x-flv",
+  wmv: "video/x-ms-wmv",
+  "3gp": "video/3gpp",
+  ogv: "video/ogg",
 };
 
 const AUDIO_MIME_TYPES: Record<string, string> = {
@@ -42,9 +51,15 @@ const AUDIO_MIME_TYPES: Record<string, string> = {
   m4b: "audio/mp4",
   aac: "audio/aac",
   ogg: "audio/ogg",
+  oga: "audio/ogg",
   flac: "audio/flac",
   opus: "audio/opus",
   mp3: "audio/mpeg",
+  weba: "audio/webm",
+  aiff: "audio/aiff",
+  aif: "audio/aiff",
+  wma: "audio/x-ms-wma",
+  ape: "audio/x-ape",
 };
 
 export const SOURCE_RESOLUTION_TIMEOUT_MS = 10_000;
@@ -255,6 +270,16 @@ export async function resolveLocalMediaSource(
       status: "skipped",
       detail: "Not running in Tauri.",
     });
+  }
+
+  if (mediaType === "video") {
+    attempts.push({
+      strategy: "backend-blob",
+      status: "skipped",
+      detail:
+        "Video is streamed through the authorized source or a browser File object; it is never materialized as a whole-file Blob.",
+    });
+    throw new Error(`Could not resolve a playable media source. ${formatAttemptSummary(attempts)}`);
   }
 
   try {

@@ -19,7 +19,7 @@
 use axum::{
     body::Body,
     extract::{Query, State},
-    http::{header, HeaderMap, HeaderValue, StatusCode},
+    http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     routing::get,
     Router,
@@ -148,7 +148,26 @@ pub(crate) fn allowed_media_roots(app_handle: &tauri::AppHandle) -> Result<Vec<P
         .app_cache_dir()
         .map_err(|error| format!("Failed to resolve app cache directory: {error}"))?;
 
-    Ok(vec![app_data, app_cache])
+    // Best-effort create: a missing root would otherwise make an otherwise
+    // valid app-managed path fail the canonical-prefix check on first run.
+    let _ = std::fs::create_dir_all(&app_data);
+    let _ = std::fs::create_dir_all(&app_cache);
+
+    let mut roots = vec![app_data, app_cache];
+
+    // Legacy app-managed media directories. Desktop imports/video copies have
+    // historically lived under `<data_dir>/incrementum/{videos,audio}` rather
+    // than Tauri's app data directory. These are app-created media roots, not
+    // arbitrary user directories; do not add the whole `incrementum` folder.
+    if let Some(data_dir) = dirs::data_dir() {
+        for subdir in ["videos", "audio"] {
+            let candidate = data_dir.join("incrementum").join(subdir);
+            let _ = std::fs::create_dir_all(&candidate);
+            roots.push(candidate);
+        }
+    }
+
+    Ok(roots)
 }
 
 fn canonicalize_media_file(path: &Path) -> Result<PathBuf, StatusCode> {
@@ -223,10 +242,63 @@ fn media_content_type(path: &Path) -> &'static str {
         "flac" => "audio/flac",
         "wav" => "audio/wav",
         "aac" => "audio/aac",
+        "weba" => "audio/webm",
+        "aiff" | "aif" => "audio/aiff",
+        "wma" => "audio/x-ms-wma",
+        "ape" => "audio/x-ape",
+        "mka" => "audio/x-matroska",
         "mp4" => "video/mp4",
+        "m4v" => "video/x-m4v",
         "webm" => "video/webm",
+        "mkv" => "video/x-matroska",
+        "mov" => "video/quicktime",
+        "avi" => "video/x-msvideo",
+        "mpg" | "mpeg" => "video/mpeg",
+        "ts" | "m2ts" => "video/mp2t",
+        "flv" => "video/x-flv",
+        "wmv" => "video/x-ms-wmv",
+        "3gp" => "video/3gpp",
+        "ogv" => "video/ogg",
         _ => "application/octet-stream",
     }
+}
+
+const MEDIA_ERROR_HEADER: HeaderName = HeaderName::from_static("x-plethora-media-error");
+
+/// Build a small, machine-readable error response for media requests.
+/// The body is intentionally tiny; the header lets a transport probe read the
+/// code without parsing JS/HTML/body content.
+pub(crate) fn media_error_response(
+    status: StatusCode,
+    code: &'static str,
+    message: &'static str,
+    content_range: Option<String>,
+) -> Response {
+    #[derive(serde::Serialize)]
+    struct BodyPayload {
+        code: &'static str,
+        message: &'static str,
+    }
+
+    let bytes = serde_json::to_vec(&BodyPayload { code, message }).unwrap_or_default();
+    let mut response = Response::new(Body::from(bytes));
+    *response.status_mut() = status;
+
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_static("application/json"),
+    );
+    headers.insert(
+        MEDIA_ERROR_HEADER,
+        HeaderValue::from_static(code),
+    );
+    if let Some(content_range) = content_range {
+        if let Ok(value) = HeaderValue::from_str(&content_range) {
+            headers.insert(header::CONTENT_RANGE, value);
+        }
+    }
+    response
 }
 
 pub(crate) fn path_label(path: &Path) -> &str {
@@ -269,16 +341,28 @@ pub(crate) fn response_with_body(
 }
 
 /// Parse a single `bytes=START-END` range header.
+///
+/// Plethora deliberately keeps its existing contract: malformed, multi-range,
+/// and unsatisfiable ranges return `Err(())` (HTTP 416). Media elements only
+/// emit single ranges, and the mobile audiobook contract explicitly requires
+/// 416 for invalid ranges. Do not change this to RFC-lenient “ignore and return
+/// 200” without updating `fix-mobile-audiobook-playback` at the same time.
 pub(crate) fn parse_range(value: &str, total: u64) -> Result<(u64, u64), ()> {
     if total == 0 {
         return Err(());
     }
 
-    let range = value.strip_prefix("bytes=").ok_or(())?;
+    let value = value.trim();
+    if value.len() < 6 || !value[..6].eq_ignore_ascii_case("bytes=") {
+        return Err(());
+    }
+    let range = value[6..].trim();
     if range.contains(',') {
         return Err(());
     }
     let (start_raw, end_raw) = range.split_once('-').ok_or(())?;
+    let start_raw = start_raw.trim();
+    let end_raw = end_raw.trim();
 
     let (start, end) = if start_raw.is_empty() {
         let suffix_length = end_raw.parse::<u64>().map_err(|_| ())?;
@@ -336,21 +420,46 @@ async fn stream_handler(
                 range_header,
                 started.elapsed().as_millis()
             );
-            return (status, "media file unavailable").into_response();
+            let (code, message) = if status == StatusCode::NOT_FOUND {
+                ("media_not_found", "media file not found")
+            } else if status == StatusCode::FORBIDDEN {
+                ("media_forbidden", "media file unavailable")
+            } else {
+                ("media_stat_failed", "media file unavailable")
+            };
+            return media_error_response(status, code, message, None);
         }
     };
 
     let file = match File::open(&file_path).await {
         Ok(file) => file,
         Err(error) => {
+            let (status, code, message) = match error.kind() {
+                std::io::ErrorKind::PermissionDenied => (
+                    StatusCode::FORBIDDEN,
+                    "media_permission_denied",
+                    "media file permission denied",
+                ),
+                std::io::ErrorKind::NotFound => (
+                    StatusCode::NOT_FOUND,
+                    "media_not_found",
+                    "media file not found",
+                ),
+                _ => (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "media_open_failed",
+                    "cannot open media file",
+                ),
+            };
             tracing::warn!(
-                "[audiobook.media_request] file={} status=404 range={:?} error={} elapsed_ms={}",
+                "[audiobook.media_request] file={} status={} range={:?} error={} elapsed_ms={}",
                 path_label(&file_path),
+                status.as_u16(),
                 range_header,
                 error,
                 started.elapsed().as_millis()
             );
-            return (StatusCode::NOT_FOUND, "media file unavailable").into_response();
+            return media_error_response(status, code, message, None);
         }
     };
     let total = match file.metadata().await {
@@ -362,7 +471,12 @@ async fn stream_handler(
                 error,
                 started.elapsed().as_millis()
             );
-            return (StatusCode::INTERNAL_SERVER_ERROR, "cannot stat media file").into_response();
+            return media_error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "media_stat_failed",
+                "cannot stat media file",
+                None,
+            );
         }
     };
     let content_type = media_content_type(&file_path);
@@ -371,13 +485,6 @@ async fn stream_handler(
         let (start, end) = match parse_range(range_header, total) {
             Ok(range) => range,
             Err(()) => {
-                let mut response =
-                    (StatusCode::RANGE_NOT_SATISFIABLE, "invalid media range").into_response();
-                response.headers_mut().insert(
-                    header::CONTENT_RANGE,
-                    HeaderValue::from_str(&format!("bytes */{total}"))
-                        .unwrap_or_else(|_| HeaderValue::from_static("bytes */0")),
-                );
                 tracing::warn!(
                     "[audiobook.media_request] file={} status=416 total={} range={} elapsed_ms={}",
                     path_label(&file_path),
@@ -385,7 +492,12 @@ async fn stream_handler(
                     range_header,
                     started.elapsed().as_millis()
                 );
-                return response;
+                return media_error_response(
+                    StatusCode::RANGE_NOT_SATISFIABLE,
+                    "media_range_not_satisfiable",
+                    "invalid media range",
+                    Some(format!("bytes */{total}")),
+                );
             }
         };
 
@@ -399,7 +511,12 @@ async fn stream_handler(
                 error,
                 started.elapsed().as_millis()
             );
-            return (StatusCode::INTERNAL_SERVER_ERROR, "media seek failed").into_response();
+            return media_error_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "media_seek_failed",
+                "media seek failed",
+                None,
+            );
         }
 
         tracing::info!(
@@ -453,10 +570,24 @@ pub async fn get_media_stream_url(
     file_path: String,
     repo: tauri::State<'_, crate::database::Repository>,
 ) -> Result<String, String> {
-    let (canonical, granted) = authorize_media_file(&app_handle, &file_path, &repo).await?;
+    mint_stream_url(&app_handle, &file_path, &repo, "media").await
+}
+
+/// Mint a loopback stream URL for an authorized local file.
+///
+/// This is the shared implementation used by the Tauri command and by the
+/// compatibility artifact URL command. `purpose` is a log label only; it never
+/// changes authorization.
+pub(crate) async fn mint_stream_url(
+    app_handle: &tauri::AppHandle,
+    file_path: &str,
+    repo: &crate::database::Repository,
+    purpose: &str,
+) -> Result<String, String> {
+    let (canonical, granted) = authorize_media_file(app_handle, file_path, repo).await?;
     let metadata = std::fs::metadata(&canonical)
         .map_err(|error| format!("Cannot stat media file: {error}"))?;
-    let port = start(&app_handle).await?;
+    let port = start(app_handle).await?;
     if granted {
         if let Some(state) = MEDIA_SERVER_STATE.get() {
             grant_path(state, canonical.clone());
@@ -465,7 +596,8 @@ pub async fn get_media_stream_url(
     let canonical_string = canonical.to_string_lossy().into_owned();
     let encoded = urlencoding::encode(&canonical_string);
     tracing::info!(
-        "[audiobook.source_resolution] file={} size={} strategy=local-media-server port={}",
+        "[media.source_resolution] purpose={} file={} size={} strategy=local-media-server port={}",
+        purpose,
         path_label(&canonical),
         metadata.len(),
         port
@@ -956,5 +1088,181 @@ mod tests {
             bytes
         );
         fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn container_extensions_have_correct_mime_types() {
+        for (name, expected) in [
+            ("video.mkv", "video/x-matroska"),
+            ("audio.mka", "audio/x-matroska"),
+            ("clip.mov", "video/quicktime"),
+            ("clip.avi", "video/x-msvideo"),
+            ("clip.m4v", "video/x-m4v"),
+            ("clip.ts", "video/mp2t"),
+            ("clip.m2ts", "video/mp2t"),
+            ("clip.flv", "video/x-flv"),
+            ("clip.wmv", "video/x-ms-wmv"),
+            ("clip.3gp", "video/3gpp"),
+            ("clip.ogv", "video/ogg"),
+            ("audio.weba", "audio/webm"),
+            ("audio.aiff", "audio/aiff"),
+            ("audio.wma", "audio/x-ms-wma"),
+            ("audio.ape", "audio/x-ape"),
+            ("book.m4b", "audio/mp4"),
+            ("song.mp3", "audio/mpeg"),
+            ("unknown.bin", "application/octet-stream"),
+            ("no-extension", "application/octet-stream"),
+        ] {
+            assert_eq!(
+                media_content_type(Path::new(name)),
+                expected,
+                "unexpected content type for {name}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn mkv_stream_reports_matroska_content_type() {
+        let root = std::env::temp_dir().join(format!("plethora-media-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create test root");
+        let path = root.join("movie.mkv");
+        fs::write(&path, b"matroska-fixture").expect("write fixture");
+        let app = Router::new()
+            .route("/stream", get(stream_handler))
+            .with_state(test_state(&root));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/stream?path={}",
+                        urlencoding::encode(&path.to_string_lossy())
+                    ))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()[header::CONTENT_TYPE], "video/x-matroska");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[tokio::test]
+    async fn invalid_range_response_has_machine_readable_code() {
+        let (root, path) = temp_file(b"0123456789");
+        let app = Router::new()
+            .route("/stream", get(stream_handler))
+            .with_state(test_state(&root));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/stream?path={}",
+                        urlencoding::encode(&path.to_string_lossy())
+                    ))
+                    .header(header::RANGE, "bytes=99-100")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+        assert_eq!(
+            response.headers()[&MEDIA_ERROR_HEADER],
+            "media_range_not_satisfiable"
+        );
+        assert_eq!(response.headers()[header::CONTENT_RANGE], "bytes */10");
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[tokio::test]
+    async fn unauthorized_request_has_machine_readable_code() {
+        let allowed_root =
+            std::env::temp_dir().join(format!("plethora-media-{}", Uuid::new_v4()));
+        fs::create_dir_all(&allowed_root).expect("create allowed root");
+        let library_root =
+            std::env::temp_dir().join(format!("plethora-library-{}", Uuid::new_v4()));
+        fs::create_dir_all(&library_root).expect("create library root");
+        let path = library_root.join("book.m4b");
+        fs::write(&path, b"some bytes").expect("write media");
+        let app = Router::new()
+            .route("/stream", get(stream_handler))
+            .with_state(test_state(&allowed_root));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "/stream?path={}",
+                        urlencoding::encode(&path.to_string_lossy())
+                    ))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::FORBIDDEN);
+        assert_eq!(
+            response.headers()[&MEDIA_ERROR_HEADER],
+            "media_forbidden"
+        );
+        fs::remove_dir_all(allowed_root).expect("cleanup allowed root");
+        fs::remove_dir_all(library_root).expect("cleanup library root");
+    }
+
+    #[tokio::test]
+    async fn head_request_reports_headers_without_body() {
+        let bytes = b"0123456789abcdef";
+        let (root, path) = temp_file(bytes);
+        let app = Router::new()
+            .route("/stream", get(stream_handler))
+            .with_state(test_state(&root));
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(axum::http::Method::HEAD)
+                    .uri(format!(
+                        "/stream?path={}",
+                        urlencoding::encode(&path.to_string_lossy())
+                    ))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()[header::CONTENT_LENGTH],
+            bytes.len().to_string()
+        );
+        assert_eq!(
+            to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
+            b""
+        );
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    #[test]
+    fn range_parser_trims_and_accepts_uppercase_unit() {
+        assert_eq!(parse_range(" bytes=3-7 ", 10), Ok((3, 7)));
+        assert_eq!(parse_range("BYTES=3-7", 10), Ok((3, 7)));
+        assert_eq!(parse_range("bytes=-0", 10), Err(()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlink_inside_allowed_root_cannot_escape() {
+        let allowed = std::env::temp_dir().join(format!("plethora-media-{}", Uuid::new_v4()));
+        let outside = std::env::temp_dir().join(format!("plethora-outside-{}", Uuid::new_v4()));
+        fs::create_dir_all(&allowed).expect("allowed root");
+        fs::create_dir_all(&outside).expect("outside root");
+        let target = outside.join("secret.mkv");
+        fs::write(&target, b"secret").expect("target");
+        let link = allowed.join("link.mkv");
+        std::os::unix::fs::symlink(&target, &link).expect("symlink");
+        let roots = vec![allowed.clone()];
+        let result = canonical_path_within_roots(&link, &roots);
+        assert_eq!(result.unwrap_err(), StatusCode::FORBIDDEN);
+        fs::remove_dir_all(allowed).expect("cleanup allowed");
+        fs::remove_dir_all(outside).expect("cleanup outside");
     }
 }

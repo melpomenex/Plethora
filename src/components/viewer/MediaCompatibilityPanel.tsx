@@ -1,0 +1,175 @@
+import { useI18n } from "../../lib/i18n";
+import type { MediaPlaybackFailure, MediaPlaybackPlan } from "../../lib/media/types";
+import type { MediaCompatibilityState } from "../../hooks/useMediaCompatibility";
+import { cn } from "../../utils";
+
+interface MediaCompatibilityPanelProps {
+  state: MediaCompatibilityState;
+  failureMessage?: string;
+  onConfirmConsent: () => void;
+  onCancel: () => void;
+  onRetry: () => void;
+  onTryOriginal: () => void;
+  onManageCache?: () => void;
+  onInstallHelp?: () => void;
+}
+
+function consentBody(plan: MediaPlaybackPlan): string {
+  if (plan.consentReasons.includes("hdr_tone_mapping")) {
+    return "This is an HDR video. Preparing it will convert it to standard dynamic range, which changes how it looks and cannot be undone in the prepared copy.";
+  }
+  if (plan.strategy === "video_transcode") {
+    return "This video's picture format is not supported by the system player. Preparing it will re-encode the video and may take a long time.";
+  }
+  if (plan.strategy === "audio_transcode") {
+    return "This video's audio format is not supported by the system player. Plethora will convert only the audio track and keep the video unchanged.";
+  }
+  return "This video's container is not supported by the system player. Plethora will copy the video and audio into a compatible container.";
+}
+
+function actionLabel(action: string): string {
+  switch (action) {
+    case "retry": return "Retry";
+    case "convert": return "Prepare a compatible copy";
+    case "try_original": return "Try original anyway";
+    case "reimport": return "Re-import video";
+    case "manage_cache": return "Manage compatibility cache";
+    case "install_help": return "How to install FFmpeg";
+    case "resume": return "Resume";
+    case "show_details": return "Details";
+    default: return action;
+  }
+}
+
+export function MediaCompatibilityPanel({
+  state,
+  failureMessage,
+  onConfirmConsent,
+  onCancel,
+  onRetry,
+  onTryOriginal,
+  onManageCache,
+  onInstallHelp,
+}: MediaCompatibilityPanelProps) {
+  const { t } = useI18n();
+
+  if (
+    state.kind === "idle" ||
+    state.kind === "native" ||
+    state.kind === "ready" ||
+    state.kind === "inspecting"
+  ) {
+    return null;
+  }
+
+  const failure: MediaPlaybackFailure | undefined = state.kind === "failed" ? state.failure : undefined;
+  const plan = state.kind === "consent" || state.kind === "preparing" || state.kind === "failed"
+    ? state.plan
+    : undefined;
+  const job = state.kind === "preparing" ? state.job : state.kind === "failed" ? state.job : undefined;
+
+  return (
+    <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/80 p-4" role="alert">
+      <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 text-foreground shadow-2xl">
+        {state.kind === "preparing" && (
+          <>
+            <h3 className="text-lg font-semibold">{t("mediaCompatibility.preparing.title", "Preparing this video for playback")}</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {plan?.strategy === "audio_transcode"
+                ? t("mediaCompatibility.preparing.audio", "Converting an unsupported audio track. The video is kept unchanged.")
+                : plan?.strategy === "video_transcode"
+                  ? t("mediaCompatibility.preparing.video", "Converting the video to a compatible format. This can take a while.")
+                  : t("mediaCompatibility.preparing.remux", "Creating a compatible copy without re-encoding the video or audio.")}
+            </p>
+            <div className="mt-4 h-2 overflow-hidden rounded-full bg-muted" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={job?.progress.percent ?? undefined}>
+              {job?.progress.percent == null ? (
+                <div className="h-full w-1/3 animate-pulse rounded-full bg-primary" />
+              ) : (
+                <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${job.progress.percent}%` }} />
+              )}
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              {job?.progress.processedSeconds != null && job.progress.durationSeconds
+                ? `${Math.floor(job.progress.processedSeconds)}s of ${Math.floor(job.progress.durationSeconds)}s`
+                : t("mediaCompatibility.preparing.background", "You can keep using Plethora while this finishes.")}
+            </p>
+            <div className="mt-5 flex justify-end">
+              <button type="button" className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-muted" onClick={onCancel}>
+                {t("mediaCompatibility.preparing.cancel", "Cancel")}
+              </button>
+            </div>
+          </>
+        )}
+
+        {state.kind === "consent" && plan && (
+          <>
+            <h3 className="text-lg font-semibold">{t("mediaCompatibility.consent.title", "Prepare this video for playback?")}</h3>
+            <p className="mt-2 text-sm text-muted-foreground">{consentBody(plan)}</p>
+            {plan.estimated?.outputBytesFloor ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {t("mediaCompatibility.consent.storage", "At least")} {Math.ceil(plan.estimated.outputBytesFloor / (1024 ** 3))} GB {t("mediaCompatibility.consent.storageSuffix", "of temporary storage may be needed.")}
+              </p>
+            ) : null}
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button type="button" className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-muted" onClick={onCancel}>
+                {t("mediaCompatibility.consent.cancel", "Cancel")}
+              </button>
+              <button type="button" className="rounded-lg border border-border px-4 py-2 text-sm hover:bg-muted" onClick={onTryOriginal}>
+                {t("mediaCompatibility.consent.tryOriginal", "Try original anyway")}
+              </button>
+              <button type="button" className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:opacity-90" onClick={onConfirmConsent}>
+                {t("mediaCompatibility.consent.convert", "Prepare")}
+              </button>
+            </div>
+          </>
+        )}
+
+        {state.kind === "failed" && failure && (
+          <>
+            <h3 className="text-lg font-semibold">{t("mediaCompatibility.failure.title", "Playback Error")}</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {failureMessage ?? t(failure.messageKey, failure.code)}
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">{failure.code}</p>
+            {failure.actions.length > 0 && (
+              <div className="mt-5 flex flex-wrap justify-end gap-2">
+                {failure.actions.filter((action) => action !== "show_details").map((action) => (
+                  <button
+                    key={action}
+                    type="button"
+                    className={cn(
+                      "rounded-lg px-4 py-2 text-sm",
+                      action === "convert" || action === "retry"
+                        ? "bg-primary text-primary-foreground hover:opacity-90"
+                        : "border border-border hover:bg-muted",
+                    )}
+                    onClick={() => {
+                      if (action === "retry" || action === "resume") onRetry();
+                      else if (action === "convert") onConfirmConsent();
+                      else if (action === "try_original") onTryOriginal();
+                      else if (action === "manage_cache") onManageCache?.();
+                      else if (action === "install_help") onInstallHelp?.();
+                    }}
+                  >
+                    {actionLabel(action)}
+                  </button>
+                ))}
+              </div>
+            )}
+            <details className="mt-4 text-xs text-muted-foreground">
+              <summary className="cursor-pointer select-none">{t("mediaCompatibility.failure.details", "Technical details")}</summary>
+              <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
+                <dt>Strategy</dt><dd>{plan?.strategy ?? "unknown"}</dd>
+                <dt>Failure</dt><dd>{failure.code}</dd>
+                <dt>Container</dt><dd>{state.inspection?.container ?? "unknown"}</dd>
+                <dt>Video</dt><dd>{state.inspection?.videoStreams.find((stream) => !stream.isAttachedPic)?.codec ?? "unknown"}</dd>
+                <dt>Audio</dt><dd>{state.inspection?.audioStreams[0]?.codec ?? "none"}</dd>
+                <dt>Subtitles</dt><dd>{state.inspection?.subtitleStreams.length ?? 0}</dd>
+              </dl>
+            </details>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

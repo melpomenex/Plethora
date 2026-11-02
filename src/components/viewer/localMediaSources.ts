@@ -1,3 +1,6 @@
+import { classifyPlaybackFailure } from "../../lib/media/errorClassification";
+import type { MediaFailureCode } from "../../lib/media/types";
+
 export type LocalMediaType = "video" | "audio";
 
 export type LocalMediaFailureKind =
@@ -29,6 +32,9 @@ export interface LocalMediaProbeFailure {
   message: string;
   mediaErrorCode?: number;
   mimeTypeSupport?: CanPlayTypeResult;
+  /** Evidence-backed code when available; legacy consumers can ignore it. */
+  code?: MediaFailureCode;
+  indeterminate?: boolean;
 }
 
 export interface LocalMediaProbeResult {
@@ -100,66 +106,93 @@ export function getMimeTypeSupport(
   return media.canPlayType(mimeType);
 }
 
+/**
+ * Legacy wrapper over the evidence-based classifier.
+ *
+ * This function cannot prove source access on its own: callers that have a
+ * transport probe must use `classifyPlaybackFailure` directly. Code 4 with no
+ * probe/inspection/capability evidence is indeterminate, never source-access.
+ *
+ * @deprecated Use `classifyPlaybackFailure` with transport/inspection evidence.
+ */
 export function classifyLocalMediaError(
   candidate: LocalMediaSourceCandidate,
   mediaType: LocalMediaType,
   errorCode?: number,
 ): LocalMediaProbeFailure {
   const mimeTypeSupport = getMimeTypeSupport(mediaType, candidate.mimeType);
-  const protocolMatch = candidate.src.match(/^[a-zA-Z][a-zA-Z\d+.-]*:/);
-  const protocol = protocolMatch ? protocolMatch[0].toLowerCase() : "";
-  const localProtocol = protocol === "asset:" || protocol === "tauri:" || protocol === "file:";
+  const classified = classifyPlaybackFailure({
+    mediaErrorCode: errorCode,
+    strategy: candidate.strategy,
+  });
 
-  if (errorCode === MediaError.MEDIA_ERR_ABORTED) {
+  if (classified.code === "source_not_found") {
     return {
-      kind: "aborted",
-      message: "Playback was interrupted before the media finished loading.",
+      kind: "source-access",
+      message: "The media source could not be found.",
       mediaErrorCode: errorCode,
       mimeTypeSupport,
+      code: classified.code,
     };
   }
-
-  if (errorCode === MediaError.MEDIA_ERR_NETWORK) {
+  if (
+    classified.code === "source_permission_denied" ||
+    classified.code === "source_transport_failed" ||
+    classified.code === "source_server_unavailable" ||
+    classified.code === "source_range_invalid" ||
+    classified.code === "source_empty"
+  ) {
     return {
       kind: "source-access",
       message: "The media source could not be opened or read by the current app runtime.",
       mediaErrorCode: errorCode,
       mimeTypeSupport,
+      code: classified.code,
     };
   }
-
-  if (errorCode === MediaError.MEDIA_ERR_DECODE) {
+  if (classified.code === "playback_interrupted") {
     return {
-      kind: "decode",
-      message: "The file was opened, but the embedded browser could not decode its media stream.",
+      kind: "aborted",
+      message: "Playback was interrupted before the media finished loading.",
       mediaErrorCode: errorCode,
       mimeTypeSupport,
+      code: classified.code,
     };
   }
-
-  if (errorCode === MediaError.MEDIA_ERR_SRC_NOT_SUPPORTED) {
-    if (mimeTypeSupport === "probably" || mimeTypeSupport === "maybe" || localProtocol) {
-      return {
-        kind: "source-access",
-        message: "The local media source was rejected before playback could begin.",
-        mediaErrorCode: errorCode,
-        mimeTypeSupport,
-      };
-    }
-
+  if (
+    classified.code === "container_unsupported" ||
+    classified.code === "video_decoder_unavailable" ||
+    classified.code === "audio_decoder_unavailable" ||
+    classified.code === "bitmap_subtitle_unsupported" ||
+    classified.code === "dolby_vision_unsupported"
+  ) {
     return {
       kind: "unsupported-format",
-      message: "The file format or codec is not supported by the embedded browser.",
+      message: mediaType === "audio"
+        ? "This audio format is not supported by the embedded browser."
+        : "This video's container, video, audio, or subtitle format is not supported by the embedded browser.",
       mediaErrorCode: errorCode,
       mimeTypeSupport,
+      code: classified.code,
+    };
+  }
+  if (classified.code === "decoder_initialization_failed") {
+    return {
+      kind: "decode",
+      message: "The file was opened, but the embedded browser could not initialize its media decoder.",
+      mediaErrorCode: errorCode,
+      mimeTypeSupport,
+      code: classified.code,
     };
   }
 
   return {
     kind: "unknown",
-    message: "The media source could not be validated.",
+    message: "The media source could not be classified from the available evidence.",
     mediaErrorCode: errorCode,
     mimeTypeSupport,
+    code: classified.code,
+    indeterminate: true,
   };
 }
 
@@ -183,6 +216,7 @@ export async function probeLocalMediaSource(
       media.onerror = null;
       media.onloadedmetadata = null;
       media.oncanplay = null;
+      media.onplaying = null;
     };
 
     const finish = (result: LocalMediaProbeResult) => {
@@ -198,9 +232,12 @@ export async function probeLocalMediaSource(
         ok: false,
         candidate,
         failure: {
-          kind: "source-access",
-          message: "Timed out while probing the media source for initial playback.",
+          kind: "unknown",
+          message:
+            "Timed out while waiting for the media source to become playable. Metadata alone is not proof that the codecs can be decoded.",
           mimeTypeSupport: getMimeTypeSupport(mediaType, candidate.mimeType),
+          code: "media_compatibility_indeterminate",
+          indeterminate: true,
         },
       });
     }, timeoutMs);
@@ -211,8 +248,14 @@ export async function probeLocalMediaSource(
       (media as HTMLVideoElement).playsInline = true;
     }
 
-    media.onloadedmetadata = () => finish({ ok: true, candidate });
+    // A metadata event proves the container was parsed, not that the video,
+    // audio, or bitmap subtitle streams can be decoded. Keep waiting for
+    // canplay/playing; a timeout is indeterminate, not a fabricated cause.
+    media.onloadedmetadata = () => {
+      /* metadata loaded; still wait for canplay/playing */
+    };
     media.oncanplay = () => finish({ ok: true, candidate });
+    media.onplaying = () => finish({ ok: true, candidate });
     media.onerror = () => {
       finish({
         ok: false,
