@@ -5,7 +5,7 @@ vi.mock("../../../api/documents", () => ({ getDocument: vi.fn(async (id: string)
  * `LibraryAnswer` validator contract.
  */
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { askLibrary, askLibraryTask, dedupeRetrievedChunks, fitChunksToContextBudget } from "../tasks/definitions/libraryTask";
 import { FakeSemanticRetriever } from "../__fixtures__/FakePlatformProviders";
 import { FakeAIProvider } from "../__fixtures__/FakeAIProvider";
@@ -19,6 +19,84 @@ import { isValidOutcome } from "../schemas/common";
 import { findUntrustedLeaks, hasContainmentClause } from "../tasks/containment";
 import { rewriteFollowUpQueryWithHistory } from "../assistant/promptBuilder";
 import type { RetrievalResult } from "../../../api/ai-learning";
+import { PinnedCloudProvider } from "../providers/cloudProvider";
+import { useLLMProvidersStore } from "../../../stores/llmProvidersStore";
+import { estimateTokens } from "../chunkTextByTokens";
+import { citedSourceToCitation } from "../assistant/citations";
+
+describe("themes query through the production generation pipeline", () => {
+  it("recovers native empty content with the selected allowance and maps both citations", async () => {
+    const evidence = [chunk("themes-a", CHUNK_A), { ...chunk("themes-b", CHUNK_B), documentId: "doc-2", location: { sourceType: "text" as const, documentId: "doc-2", ordinal: 2, startOffset: 10, endOffset: 100 } }];
+    const config = { id: "selected", name: "Selected", provider: "openai" as const, model: "test-model", enabled: true, apiKey: "fixture", maxTokens: 4096, contextWindowTokens: 16384, temperature: 0.2 };
+    const previous = useLLMProvidersStore.getState().providers;
+    useLLMProvidersStore.setState({ providers: [{ ...config, id: "other", maxTokens: 512 }, config] });
+    const requests: import("../../../api/llm").LLMRequest[] = [];
+    const provider = new PinnedCloudProvider(config, { chat: async request => {
+      requests.push(request);
+      // Use the API boundary as native IPC does, rather than an idealized provider mock.
+      const { normalizeLLMResponse } = await import("../../../api/llm/response");
+      return normalizeLLMResponse(requests.length === 1 ? {
+        content: "", finish_reason: "length", usage: { prompt_tokens: 100, completion_tokens: 4096, total_tokens: 4196 },
+      } : { content: JSON.stringify({ answer: "Based on the retrieved sources, learning through spaced review [1] and active recall [2] are themes.", evidenceLevel: "supported", sourceRefs: [{ refId: "themes-a", quote: CHUNK_A }, { refId: "themes-b", quote: CHUNK_B }] }), finish_reason: "stop" });
+    } });
+    try {
+      const result = await askLibrary({ query: "What are the main themes in my library?", provider, composition: { retrieverId: "ai_learning", generatorKind: "cloud", namespace: "library" }, retrieve: async () => ({ results: evidence, mode: "semantic", candidatesScanned: 2 }) });
+      expect(requests).toHaveLength(2);
+      expect(requests.map(r => r.maxTokens)).toEqual([4096, 4096]);
+      expect(result.sources.map(s => [s.documentId, s.referenceNumber, s.quote])).toEqual([["doc-1", 1, CHUNK_A], ["doc-2", 2, CHUNK_B]]);
+      expect(result.sources[1].location).toEqual(evidence[1].location);
+      expect(result.sources.map(cited => citedSourceToCitation(cited))).toMatchObject([
+        { documentId: "doc-1", displayNumber: 1, validation: "verified", locator: { textRange: { start: 0, end: CHUNK_A.length } } },
+        { documentId: "doc-2", displayNumber: 2, validation: "verified", locator: { textRange: { start: 10, end: 100 } } },
+      ]);
+      expect(result.answer.answer).toContain("Based on the retrieved sources");
+      expect(result.run.validationOutcome).toBe("repaired");
+    } finally { useLLMProvidersStore.setState({ providers: previous }); }
+  });
+});
+
+describe("selected-generator source and correction budgets", () => {
+  const valid = JSON.stringify({ answer: "From the retrieved sources, review matters [1].", sourceRefs: [{ refId: "a", quote: CHUNK_A }], evidenceLevel: "supported" });
+  it.each([4096, 8192, 16384])("fits both full requests in a %i-token on-device context", async contextTokens => {
+    const provider = new FakeAIProvider({ capabilities: { contextTokens }, responses: [{ requestId: "r", text: "", finishReason: "length" }, { requestId: "r2", text: valid }] });
+    await askLibrary({ query: "What are the main themes in my library?", provider,
+      contextPassage: "Selected background. ".repeat(8), history: [{ role: "user", content: "Prior question. ".repeat(15) }],
+      retrieve: async () => ({ results: [chunk("a", CHUNK_A), ...Array.from({ length: 30 }, (_, i) => chunk(`long-${i}`, `Unique ${i}. ` + "More evidence. ".repeat(50)))], mode: "semantic", candidatesScanned: 31 }) });
+    expect(provider.requests).toHaveLength(2);
+    for (const request of provider.requests) {
+      expect(estimateTokens(request.text) + estimateTokens(request.systemInstruction ?? "") + request.maxOutputTokens! + 32).toBeLessThanOrEqual(contextTokens);
+      expect(request.maxOutputTokens).toBe(1200);
+    }
+  });
+  it("honors a small configured cloud ceiling in both attempts", async () => {
+    const requests: import("../../../api/llm").LLMRequest[] = [];
+    const provider = new PinnedCloudProvider({ id: "small", name: "Small", provider: "openai", model: "fixture", enabled: true, apiKey: "fixture", maxTokens: 256, contextWindowTokens: 4096, temperature: 0.2 }, { chat: async req => { requests.push(req); return { content: requests.length === 1 ? "" : valid }; } });
+    await askLibrary({ query: "themes small", provider, retrieve: async () => ({ results: [chunk("a", CHUNK_A)], mode: "semantic", candidatesScanned: 1 }) });
+    expect(requests.map(r => r.maxTokens)).toEqual([256, 256]);
+  });
+  it("resolves no generator in retrieval-only mode", async () => {
+    const provider = new FakeAIProvider();
+    const caps = vi.spyOn(provider, "getCapabilities").mockRejectedValue(new Error("must not resolve"));
+    const result = await askLibrary({ query: "retrieval only", provider, composition: { retrieverId: "ai_learning", generatorKind: "none", namespace: "library" }, retrieve: async () => ({ results: [chunk("a", CHUNK_A)], mode: "semantic", candidatesScanned: 1 }) });
+    expect(caps).not.toHaveBeenCalled();
+    expect(provider.callCount).toBe(0);
+    expect(result.sources).toHaveLength(1);
+  });
+  it("retains eligible source context when generation fails", async () => {
+    const provider = new FakeAIProvider({ responses: [{ requestId: "empty", text: "" }] });
+    await expect(askLibrary({ query: "failed themes", provider, retrieve: async () => ({ results: [chunk("a", CHUNK_A)], mode: "lexicalOnly", candidatesScanned: 1 }) })).rejects.toMatchObject({ category: "InvalidStructuredOutput", generation: { stage: "generation", evidenceCount: 1, retrievalMode: "lexicalOnly" }, completion: { attemptCount: 2, terminalFailureKind: "empty-response" } });
+  });
+  it("never supplies excluded, remote-local-only or out-of-scope evidence to either attempt", async () => {
+    const provider = new FakeAIProvider({ kind: "cloud", capabilities: { contextTokens: 8192 }, responses: [{ requestId: "empty", text: "" }, { requestId: "done", text: JSON.stringify({ answer: "Invented [2].", sourceRefs: [{ refId: "forbidden", quote: "SECRET" }], evidenceLevel: "supported" }) }] });
+    const result = await askLibrary({ query: "restricted themes", provider, filters: { documentIds: ["doc-1", "excluded", "local"] },
+      loadDocumentMetadata: async id => ({ isAiExcluded: id === "excluded", isLocalOnly: id === "local" }),
+      retrieve: async () => ({ results: [chunk("a", CHUNK_A), ...["excluded", "local", "out-of-scope"].map(id => ({ ...chunk("forbidden-" + id, "SECRET " + id), documentId: id }))], mode: "semantic", candidatesScanned: 4 }) });
+    expect(provider.requests).toHaveLength(2);
+    expect(provider.requests.every(r => !r.text.includes("SECRET"))).toBe(true);
+    expect(result.sources).toEqual([]);
+    expect(result.answer.evidenceLevel).toBe("none");
+  });
+});
 
 function chunk(chunkId: string, text: string, ordinal = 0): RetrievalResult {
   return {

@@ -1,3 +1,4 @@
+import { parseOpenAICompletion, parseAnthropicCompletion } from "../api/llm/response";
 /**
  * Browser backend command handlers
  * Maps Tauri command names to IndexedDB operations
@@ -4875,14 +4876,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             }
 
             const data = await response.json();
-            return {
-                content: data.content?.[0]?.text || '',
-                usage: data.usage ? {
-                    promptTokens: data.usage.input_tokens,
-                    completionTokens: data.usage.output_tokens,
-                    totalTokens: data.usage.input_tokens + data.usage.output_tokens,
-                } : undefined,
-            };
+            return parseAnthropicCompletion(data);
         }
 
         // OpenAI-compatible API (OpenAI, OpenRouter)
@@ -4916,17 +4910,7 @@ const commandHandlers: Record<string, CommandHandler> = {
         }
 
         const data = await response.json();
-        return {
-            content: data.choices?.[0]?.message?.content || '',
-            usage: data.usage ? {
-                promptTokens: data.usage.prompt_tokens,
-                completionTokens: data.usage.completion_tokens,
-                totalTokens: data.usage.total_tokens,
-                // DeepSeek only: automatic prompt-cache hit/miss token counts.
-                promptCacheHitTokens: data.usage.prompt_cache_hit_tokens,
-                promptCacheMissTokens: data.usage.prompt_cache_miss_tokens,
-            } : undefined,
-        };
+        return parseOpenAICompletion(data);
     },
 
     llm_chat_with_context: async (args) => {

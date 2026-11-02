@@ -1,6 +1,12 @@
 import { Dict, en } from "./en";
 
 export const zh: Dict = {
+  "qaGeneration.empty": "已找到资料，但 AI 模型未返回回答。请重试或检查 AI 设置。",
+  "qaGeneration.outputLimit": "已找到资料，但 AI 模型在完成回答前达到了输出上限。请在 AI 设置中检查模型和输出上限，然后重试。",
+  "qaGeneration.refusal": "已找到资料，但 AI 模型拒绝回答。",
+  "qaGeneration.provider": "已找到资料，但 AI 服务提供商未能完成回答。请重试或检查 AI 设置。",
+  "qaGeneration.unusable": "已找到资料，但 AI 模型返回的回答无法使用。请重试或检查 AI 设置。",
+
 
   "commandPalette.openReaderFirst": "请先打开文档，再执行此阅读操作。",
   "commandPalette.openPdfFirst": "请先打开 PDF 文档，再切换重排模式。",

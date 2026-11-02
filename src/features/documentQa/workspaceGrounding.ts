@@ -1,6 +1,6 @@
+import { PinnedCloudProvider, getActiveCloudConfig } from "../../lib/ai/providers/cloudProvider";
 import { runAssistantTurn, type AssistantTurnRequest } from "../../lib/ai/assistant/orchestrator";
 import { trimToTokenWindow } from "../../utils/tokenizer";
-import { useLLMProvidersStore } from "../../stores/llmProvidersStore";
 import type { Document } from "../../types/document";
 import type { Message, RagHit } from "../../stores/documentQAStore";
 import type { AskLibraryResult } from "../../lib/ai/tasks/definitions/libraryTask";
@@ -73,7 +73,7 @@ export async function askQaKnowledge(options: {
   }
   const documentIds = documents.map((doc) => doc.id);
   let libraryResult: AskLibraryResult | undefined;
-  const configured = useLLMProvidersStore.getState().providers.find((provider) => provider.enabled);
+  const configured = getActiveCloudConfig();
   const settings = useSettingsStore.getState().settings;
   const turnScope =
     options.scope.conversationScope ??
@@ -155,6 +155,7 @@ export async function askQaKnowledge(options: {
     chatExecutor: options.chatExecutor,
     libraryExecutor: async ({ rewrittenQuery, history, contextBudgetTokens, k }) => {
       libraryResult = await askLibrary({ query: rewrittenQuery, history, contextBudgetTokens, k, config, composition,
+        provider: composition.generatorKind === "cloud" && configured ? new PinnedCloudProvider(configured) : undefined,
         filters: { documentIds }, contextPassage: options.contextPassage,
         evidenceScope: turnScope === "document" ? "document" : "library" });
       return libraryResult;

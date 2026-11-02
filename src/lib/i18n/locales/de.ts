@@ -1,6 +1,12 @@
 import { Dict, en } from "./en";
 
 export const de: Dict = {
+  "qaGeneration.empty": "Quellen wurden gefunden, aber das KI-Modell hat keine Antwort zurückgegeben. Versuche es erneut oder prüfe die KI-Einstellungen.",
+  "qaGeneration.outputLimit": "Quellen wurden gefunden, aber das KI-Modell hat sein Ausgabelimit erreicht, bevor die Antwort fertig war. Prüfe Modell und Ausgabelimit in den KI-Einstellungen und versuche es erneut.",
+  "qaGeneration.refusal": "Quellen wurden gefunden, aber das KI-Modell hat die Antwort verweigert.",
+  "qaGeneration.provider": "Quellen wurden gefunden, aber der KI-Anbieter konnte die Antwort nicht abschließen. Versuche es erneut oder prüfe die KI-Einstellungen.",
+  "qaGeneration.unusable": "Quellen wurden gefunden, aber das KI-Modell hat eine unbrauchbare Antwort zurückgegeben. Versuche es erneut oder prüfe die KI-Einstellungen.",
+
 
   "commandPalette.openReaderFirst": "Vor dieser Leseaktion ein Dokument öffnen.",
   "commandPalette.openPdfFirst": "Zum Umschalten des Textflusses ein PDF-Dokument öffnen.",

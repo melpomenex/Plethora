@@ -11,6 +11,14 @@ beforeEach(() => {
 });
 
 describe("recordTaskDiagnostic", () => {
+  it("whitelists recovery categories and finite counts without response payloads", () => {
+    const safe = recordTaskDiagnostic({ taskId: "ask-library", taskType: "prompt", attemptCount: 2, firstFailureKind: "output-limit", terminalFailureKind: "empty-response", finishReason: "length", inputTokens: 10, outputTokens: 20, retrievalCount: 2 });
+    expect(safe).toMatchObject({ attemptCount: 2, firstFailureKind: "output-limit", terminalFailureKind: "empty-response", finishReason: "length", outputTokens: 20, retrievalCount: 2 });
+    const unsafe = recordTaskDiagnostic({ taskId: "ask-library", taskType: "prompt", attemptCount: 99, firstFailureKind: "PRIVATE", terminalFailureKind: "https://private", finishReason: "PRIVATE", errorCode: "PRIVATE", inputTokens: "PRIVATE", outputTokens: Infinity, tokenLimit: -1, reasoning: "PRIVATE", tools: "PRIVATE", apiKey: "PRIVATE", endpoint: "PRIVATE", error: "PRIVATE" } as unknown as Parameters<typeof recordTaskDiagnostic>[0]);
+    expect(JSON.stringify(unsafe)).not.toContain("PRIVATE");
+    expect(unsafe.attemptCount).toBeUndefined();
+    expect(unsafe.outputTokens).toBeUndefined();
+  });
   it("records sanitized metadata without prompt or source text fields", () => {
     const diag = recordTaskDiagnostic({
       taskId: "task-123",

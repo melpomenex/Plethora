@@ -16,6 +16,8 @@ import {
 } from "./tasks/definitions/libraryTask";
 import { resolveEmbeddingConfigForRag } from "../../components/assistant/ragConfig";
 import { toAIError } from "./errors";
+import type { AIError } from "./errors";
+import { libraryGenerationFailureMessage } from "./libraryGenerationFailure";
 import { resolveLibraryRagComposition } from "./resolveLibraryRag";
 import { onDeviceRunLabel } from "./privacyIndicator";
 
@@ -34,6 +36,7 @@ export interface UseAskLibrary {
   running: boolean;
   /** Human-readable failure (typed AIError message when available). */
   error: string | null;
+  failure: AIError | null;
   result: AskLibraryResult | null;
   /** Ask a question; aborts any in-flight ask. */
   ask: (query: string, options?: AskLibraryCallOptions) => Promise<void>;
@@ -45,6 +48,7 @@ export interface UseAskLibrary {
 export function useAskLibrary(): UseAskLibrary {
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<AIError | null>(null);
   const [result, setResult] = useState<AskLibraryResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -59,6 +63,7 @@ export function useAskLibrary(): UseAskLibrary {
 
       setRunning(true);
       setError(null);
+      setFailure(null);
       setResult(null);
       try {
         // An explicit empty restriction is refused, never widened.
@@ -82,7 +87,9 @@ export function useAskLibrary(): UseAskLibrary {
         setResult(next);
       } catch (e) {
         if (controller.signal.aborted) return;
-        setError(toAIError(e).message || String(e));
+        const mapped = toAIError(e);
+        setFailure(mapped);
+        setError(libraryGenerationFailureMessage(mapped) ?? mapped.message);
       } finally {
         if (!controller.signal.aborted) setRunning(false);
       }
@@ -95,6 +102,7 @@ export function useAskLibrary(): UseAskLibrary {
     abortRef.current = null;
     setRunning(false);
     setError(null);
+    setFailure(null);
     setResult(null);
   }, []);
 
@@ -105,5 +113,5 @@ export function useAskLibrary(): UseAskLibrary {
       )
     : null;
 
-  return { running, error, result, ask, reset, privacyLabel };
+  return { running, error, failure, result, ask, reset, privacyLabel };
 }

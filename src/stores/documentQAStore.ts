@@ -25,6 +25,7 @@ export interface ToolCall {
 }
 
 export interface Message {
+  generationFailure?: import("../lib/ai/libraryGenerationFailure").LibraryGenerationFailureContext;
   id: string;
   role: "user" | "assistant" | "system";
   content: string;

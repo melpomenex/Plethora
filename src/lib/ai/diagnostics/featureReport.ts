@@ -26,6 +26,7 @@ import type {
   FeatureStage,
 } from "../diagnostics";
 import { FEATURE_STAGES } from "../diagnostics";
+import { sanitizeCompletionRecovery, type CompletionRecovery } from "../tasks/completion";
 
 export const DIAGNOSTICS_REPORT_SCHEMA_VERSION = "ai-diagnostics-report-v1";
 export const MAX_REPORT_BYTES = 256 * 1024;
@@ -44,7 +45,7 @@ export interface RedactedDiagnosticsReportInput {
   readonly now?: number;
 }
 
-export interface RedactedTaskEntry {
+export interface RedactedTaskEntry extends Partial<CompletionRecovery> {
   readonly taskId: string;
   readonly taskType: string;
   readonly modelClass?: string;
@@ -222,6 +223,7 @@ const KNOWN_RECOVERY_CODES = new Set([
 ]);
 
 const ERROR_CATEGORY_ALLOWLIST = new Set([
+  "ProviderOffline",
   "Cancelled",
   "ModelUnavailable",
   "ModelDownloadRequired",
@@ -308,7 +310,7 @@ export function normalizeErrorCode(value: unknown): string | undefined {
   return typeof value === "string" && KNOWN_ERROR_CODES.has(value) ? value : undefined;
 }
 
-function normalizeRecoveryCode(value: unknown): string | undefined {
+export function normalizeRecoveryCode(value: unknown): string | undefined {
   return typeof value === "string" && KNOWN_RECOVERY_CODES.has(value) ? value : undefined;
 }
 
@@ -331,8 +333,7 @@ function normalizeTask(task: OnDeviceTaskDiagnostic): RedactedTaskEntry {
     errorCode: normalizeErrorCode(task.errorCode),
     grounded: task.grounded,
     accepted: task.accepted,
-    inputTokens: task.inputTokens,
-    outputTokens: task.outputTokens,
+    ...sanitizeCompletionRecovery(task),
     tokenLimit: task.tokenLimit,
     firstTokenLatencyMs: task.firstTokenLatencyMs,
     totalLatencyMs: task.totalLatencyMs,

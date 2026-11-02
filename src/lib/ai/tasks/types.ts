@@ -73,8 +73,12 @@ export interface AITaskRunOptions {
   kind?: "ondevice" | "cloud";
   /** Explicit provider injection (tests, fake providers). */
   provider?: AIProvider;
+  /** Router-selected provider frozen during source preparation; keeps normal fallback consent. */
+  resolvedProvider?: AIProvider;
   /** Overrides the task's default output-token ceiling. */
   maxOutputTokens?: number;
+  /** Policy frozen before source preparation, checked again on both attempts. */
+  requestPolicy?: import("../../../api/llm/policy").LlmRequestPolicy;
   /** Overrides the task's timeout. 0 disables. */
   timeoutMs?: number;
   /** Overrides the task's streaming preference. */

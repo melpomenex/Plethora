@@ -1,6 +1,5 @@
 import { getDocument } from "../../../../api/documents";
 import { resolveRequestPolicy } from "../../../../api/llm/policy";
-import { useLLMProvidersStore } from "../../../../stores/llmProvidersStore";
 import { rewriteFollowUpQueryWithHistory, summarizeEvictedTurns, type ConversationHistoryTurn } from "../../assistant/promptBuilder";
 /**
  * `AskLibraryTask` — whole-library grounded Q&A (design D15 / ai-library-rag
@@ -47,7 +46,10 @@ import { registerTasks } from "../registry";
 import type { AITaskDefinition, AITaskResult } from "../types";
 import { DEFAULT_LIBRARY_RAG, type RagComposition } from "../../ragComposition";
 import { RAG_NAMESPACE_HELP, type SemanticRetriever } from "../../capabilities/search";
-import { AIError } from "../../errors";
+import { AIError, toAIError } from "../../errors";
+import { CloudProvider } from "../../providers/cloudProvider";
+import { resolveTaskRoute } from "../router";
+import { CORRECTION_OVERHEAD_TOKENS, structuredSystemInstruction } from "../completion";
 
 export const ASK_LIBRARY_TASK_ID = "ask-library";
 
@@ -76,6 +78,7 @@ const ASK_LIBRARY_CORE_INSTRUCTION = [
   "If the chunks do not contain enough relevant material, answer honestly that the library does not appear to cover the question and set evidenceLevel to \"none\" — never answer from outside knowledge.",
   "If the chunks disagree, present the conflict with citations from each side and set evidenceLevel to \"conflicting\" — do not silently pick a side.",
   "Use \"supported\" when the chunks directly answer the question, \"weak\" when they only partially or indirectly support an answer.",
+  "For themes or broad synthesis, describe only what the retrieved sources support; do not claim exhaustive library coverage or corpus-wide frequency.",
   "Return ONLY the JSON object.",
 ].join("\n");
 
@@ -188,7 +191,7 @@ export function fitChunksToContextBudget(
   let used = 0;
   for (const result of results) {
     // Each block wraps the chunk with an id tag + [N] marker overhead.
-    const cost = estimateTokens(result.text) + 8;
+    const cost = estimateTokens(`[${kept.length + 1}] ${wrapUntrustedBlock(result.chunkId, result.text)}\n`) + 1;
     if (used + cost > budget) break;
     used += cost;
     kept.push(result);
@@ -329,6 +332,34 @@ function citedFromBudgeted(budgeted: RetrievalResult[]): AskLibraryCitedSource[]
   }));
 }
 
+/** Freeze the generator before privacy checks and source preparation. */
+async function resolveLibraryGenerator(options: AskLibraryOptions, composition: RagComposition, hasEvidence: boolean): Promise<AIProvider | undefined> {
+  const resolved = composition.generatorKind === "none" || (!hasEvidence && !options.contextPassage?.trim())
+    ? undefined
+    : options.provider ?? (await resolveTaskRoute(askLibraryTask, { kind: options.kind ?? (composition.generatorKind === "cloud" ? "cloud" : undefined) }))?.provider;
+  return resolved instanceof CloudProvider ? resolved.pin() : resolved;
+}
+
+/** Reserve the actual prompt and correction before allocating source chunks. */
+async function prepareLibraryBudget(options: AskLibraryOptions, composition: RagComposition, provider?: AIProvider) {
+  const capabilities = await provider?.getCapabilities();
+  const policy = provider?.getRequestPolicy?.() ?? resolveRequestPolicy({
+    provider: "ondevice", providerContextTokens: capabilities?.contextTokens ?? 4096,
+    providerMaxOutput: ASK_LIBRARY_MAX_OUTPUT_TOKENS,
+  });
+  const inputBase = { query: options.query, sources: [], contextPassage: options.contextPassage, history: options.history };
+  const fixedTokens = estimateTokens(askLibraryTask.buildInput(inputBase).text) +
+    estimateTokens(structuredSystemInstruction(askLibraryTask.systemInstruction, askLibraryTask.schema?.json)) +
+    CORRECTION_OVERHEAD_TOKENS + 32;
+  const available = policy.promptBudgetTokens - fixedTokens;
+  if (composition.generatorKind !== "none" && provider && available < 0) {
+    throw new AIError("InputTooLarge", "Question, history and selection exceed the selected model context.", { code: "context_too_large", taskId: ASK_LIBRARY_TASK_ID });
+  }
+  const budget = composition.generatorKind === "none" ? options.contextBudgetTokens ?? ASK_LIBRARY_CONTEXT_TOKEN_BUDGET :
+    Math.max(0, Math.min(options.contextBudgetTokens ?? Infinity, available));
+  return { policy, budget };
+}
+
 export async function askLibrary(options: AskLibraryOptions): Promise<AskLibraryResult> {
   const composition = options.composition ?? DEFAULT_LIBRARY_RAG;
   if (composition.namespace === RAG_NAMESPACE_HELP && !options.retriever && !options.retrieve) {
@@ -339,12 +370,6 @@ export async function askLibrary(options: AskLibraryOptions): Promise<AskLibrary
     );
   }
 
-  const configured = useLLMProvidersStore.getState().providers.find((provider) => provider.enabled);
-  const capabilities = options.provider ? await options.provider.getCapabilities() : undefined;
-  const policy = resolveRequestPolicy({ provider: configured?.provider ?? "ondevice", providerContextTokens: capabilities?.contextTokens ?? configured?.contextWindowTokens,
-    perModelOverride: configured?.model ? configured.modelContextWindows?.[configured.model] : undefined,
-    providerMaxOutput: configured?.maxTokens });
-  const budget = options.contextBudgetTokens ?? (policy.promptBudgetTokens <= 4096 ? 2400 : policy.promptBudgetTokens <= 16384 ? Math.min(6000, Math.floor(policy.promptBudgetTokens * .55)) : Math.min(14000, Math.floor(policy.promptBudgetTokens * .6)));
   const query = rewriteFollowUpQueryWithHistory(options.query, options.history);
   const retrieve = options.retrieve ?? retrieveFromLibrary;
   const retrieval = options.retriever
@@ -381,12 +406,15 @@ export async function askLibrary(options: AskLibraryOptions): Promise<AskLibrary
       }),
     ),
   );
+  const provider = await resolveLibraryGenerator(options, composition, retrieval.results.length > 0);
+  const { policy, budget } = await prepareLibraryBudget(options, composition, provider);
+  const sendsOffDevice = provider instanceof CloudProvider ? provider.sendsTextOffDevice() : provider?.kind === "cloud";
   const privacyEligible = retrieval.results.filter((hit) => {
     const doc = metadata.get(hit.documentId);
     if (!doc) return false;
     return (
       !doc.isAiExcluded &&
-      !(doc.isLocalOnly && composition.generatorKind === "cloud" && configured?.provider !== "ollama")
+      !(doc.isLocalOnly && sendsOffDevice)
     );
   });
   const eligibleResults = options.filters?.documentIds ? privacyEligible.filter((hit) => options.filters!.documentIds!.includes(hit.documentId)) : privacyEligible;
@@ -481,20 +509,35 @@ export async function askLibrary(options: AskLibraryOptions): Promise<AskLibrary
     text: result.text,
   }));
 
-  const run = await runTask(
-    askLibraryTask,
-    { query: options.query, sources, contextPassage: options.contextPassage, history: options.history },
-    {
-      signal: options.signal,
-      provider: options.provider,
-      kind: options.kind,
-      targetId: `library:${options.query}`,
-      retrieval: {
-        count: retrieval.results.length,
-        chunkIds: retrieval.results.map((r) => r.chunkId),
-      },
-    }
-  );
+  let run: AITaskResult<LibraryAnswer>;
+  try {
+    if (!provider) throw new AIError("ModelUnavailable", "No AI provider is available for this question.", { code: "model_unavailable", taskId: ASK_LIBRARY_TASK_ID });
+    run = await runTask(
+      askLibraryTask,
+      { query: options.query, sources, contextPassage: options.contextPassage, history: options.history },
+      {
+        signal: options.signal,
+        provider: options.provider ? provider : undefined,
+        resolvedProvider: provider,
+        maxOutputTokens: policy.maxOutputTokens,
+        requestPolicy: policy,
+        kind: options.kind,
+        targetId: `library:${options.query}`,
+        retrieval: {
+          count: retrieval.results.length,
+          chunkIds: retrieval.results.map((r) => r.chunkId),
+        },
+      }
+    );
+  } catch (error) {
+    const mapped = toAIError(error, { providerId: provider?.id, taskId: ASK_LIBRARY_TASK_ID });
+    throw new AIError(mapped.category, mapped.message, {
+      code: mapped.code, providerId: mapped.providerId, taskId: mapped.taskId,
+      details: mapped.details, completion: mapped.completion,
+      generation: { stage: "generation", evidenceCount: budgeted.length + (hasGroundingPassage ? 1 : 0), retrievalMode: retrieval.mode },
+      cause: mapped,
+    });
+  }
 
   // The validator dropped fabricated refs; map the surviving ones back to
   // their retrieval results *with the original prompt ordinal* so citation

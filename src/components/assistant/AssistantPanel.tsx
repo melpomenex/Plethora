@@ -1,3 +1,5 @@
+import { libraryGenerationFailureMessage, libraryGenerationFailureContext } from "../../lib/ai/libraryGenerationFailure";
+import { PinnedCloudProvider } from "../../lib/ai/providers/cloudProvider";
 import { allowsChatCardCreation } from "../../lib/ai/assistant/toolCallParser";
 import { scopedBodyTokenBudget } from "../../utils/scopedContextBudget";
 import { resolveScopedSectionContext } from "../../features/documentQa/sectionContextRequest";
@@ -232,6 +234,7 @@ export interface AttachedImage {
 }
 
 interface Message {
+  generationFailure?: import("../../lib/ai/libraryGenerationFailure").LibraryGenerationFailureContext;
   action?: ActionEnvelope;
   quiz?: QuizQuestion;
   actionError?: boolean;
@@ -1642,9 +1645,10 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       const errorMessage: Message = {
         action,
         actionError: Boolean(action),
+        generationFailure: libraryGenerationFailureContext(error),
         id: `error-${Date.now()}`,
         role: "system",
-        content: `Error: ${error instanceof ContextActionError ? t(error.key) : error instanceof Error ? error.message : "Failed to get response"}`,
+        content: libraryGenerationFailureMessage(error) ?? `Error: ${error instanceof ContextActionError ? t(error.key) : error instanceof Error ? error.message : "Failed to get response"}`,
         timestamp: Date.now(),
       };
       appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, errorMessage]);
@@ -2590,6 +2594,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           const filters = guards.resolveRetrievalFilters(scope, frozen);
           return askLibrary({
             query: rewrittenQuery,
+            provider: new PinnedCloudProvider(provider),
             history,
             contextPassage,
             contextBudgetTokens,
@@ -2604,6 +2609,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 
       return { content: response.rawContent, imagesStripped, modelName, sourceContext };
     } catch (error) {
+      if (libraryGenerationFailureMessage(error)) throw error;
       console.error("LLM API error:", error);
       if (hasSectionMentions || throwOnLlmError) throw error;
       // Better error handling - Tauri errors can be strings or objects
@@ -4132,6 +4138,11 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                   <AssistantResponseContent content={message.content} thinking={message.thinking} onTimestampClick={context?.type === "video" ? (seconds) => window.dispatchEvent(new CustomEvent("plethora:assistant-seek", { detail: { documentId: message.provenance?.sourceId ?? context.documentId, seconds } })) : undefined} />
                 )}
               </div>
+
+              {message.generationFailure && <div className="flex flex-wrap gap-1">
+                <button type="button" disabled={isLoading} className={ACTION_CONTROL_CLASS} onClick={() => handleRetryMessage(message)}>{t("assistant.actions.retry")}</button>
+                <button type="button" className={ACTION_CONTROL_CLASS} onClick={handleOpenSettingsToAI}>{t("qaWorkspace.configure")}</button>
+              </div>}
 
               {message.quiz && message.action && <QuizControls quiz={message.quiz} retired={Boolean(message.quiz.retired || message.action.target.owner !== actionOwner)} busy={isLoading}
                 onReveal={part => setMessages(prev => prev.map(m => m.id === message.id && m.quiz ? { ...m, quiz: { ...m.quiz, [part === 'hint' ? 'hintRevealed' : 'answerRevealed']: true } } : m))}

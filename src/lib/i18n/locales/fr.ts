@@ -1,6 +1,12 @@
 import { Dict, en } from "./en";
 
 export const fr: Dict = {
+  "qaGeneration.empty": "Des sources ont été trouvées, mais le modèle d’IA n’a renvoyé aucune réponse. Réessayez ou vérifiez les paramètres de l’IA.",
+  "qaGeneration.outputLimit": "Des sources ont été trouvées, mais le modèle d’IA a atteint sa limite de sortie avant de terminer sa réponse. Vérifiez le modèle et la limite de sortie dans les paramètres de l’IA, puis réessayez.",
+  "qaGeneration.refusal": "Des sources ont été trouvées, mais le modèle d’IA a refusé de répondre.",
+  "qaGeneration.provider": "Des sources ont été trouvées, mais le fournisseur d’IA n’a pas pu terminer la réponse. Réessayez ou vérifiez les paramètres de l’IA.",
+  "qaGeneration.unusable": "Des sources ont été trouvées, mais le modèle d’IA a renvoyé une réponse inutilisable. Réessayez ou vérifiez les paramètres de l’IA.",
+
 
   "commandPalette.openReaderFirst": "Ouvrez un document avant d’utiliser cette action de lecture.",
   "commandPalette.openPdfFirst": "Ouvrez un document PDF avant de changer la redistribution du texte.",

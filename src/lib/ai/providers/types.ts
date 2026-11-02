@@ -82,6 +82,7 @@ export interface AIRequest {
   structured?: boolean;
   /** Canonical schema name for providers that compile schemas natively. */
   schemaName?: string;
+  taskManagedRecovery?: boolean;
 }
 
 export interface AIUsageMetadata {
@@ -96,6 +97,7 @@ export interface AIResponse {
   /** Native structured payload when `structured` was requested and supported. */
   structured?: unknown;
   finishReason?: string;
+  responseKind?: import("../../../api/llm/response").LLMResponseKind;
   baseModelName?: string;
   usage?: AIUsageMetadata;
 }
@@ -125,6 +127,8 @@ export interface AIProvider {
   readonly kind: AIProviderKind;
   /** Live capability snapshot. */
   getCapabilities(): Promise<AIModelCapabilities>;
+  /** Frozen request policy when the provider has configured output/context limits. */
+  getRequestPolicy?(): import("../../../api/llm/policy").LlmRequestPolicy;
   generateStream(req: AIRequest, opts?: AIStreamOptions): Promise<AIResponse>;
   countTokens?(req: AIRequest): Promise<AIUsageMetadata>;
   warmUp?(): Promise<void>;

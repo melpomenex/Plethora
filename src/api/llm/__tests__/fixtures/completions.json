@@ -1,0 +1,284 @@
+[
+  {
+    "name": "null",
+    "upstream": {
+      "choices": [
+        {
+          "message": {
+            "content": null
+          },
+          "finish_reason": null
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 42,
+        "completion_tokens": 100,
+        "total_tokens": 142
+      }
+    },
+    "native": {
+      "content": "",
+      "response_kind": "empty",
+      "usage": {
+        "prompt_tokens": 42,
+        "completion_tokens": 100,
+        "total_tokens": 142
+      }
+    },
+    "canonical": {
+      "content": "",
+      "responseKind": "empty",
+      "usage": {
+        "promptTokens": 42,
+        "completionTokens": 100,
+        "totalTokens": 142
+      }
+    }
+  },
+  {
+    "name": "whitespace",
+    "upstream": {
+      "choices": [
+        {
+          "message": {
+            "content": "  "
+          },
+          "finish_reason": null
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 42,
+        "completion_tokens": 100,
+        "total_tokens": 142
+      }
+    },
+    "native": {
+      "content": "  ",
+      "response_kind": "empty",
+      "usage": {
+        "prompt_tokens": 42,
+        "completion_tokens": 100,
+        "total_tokens": 142
+      }
+    },
+    "canonical": {
+      "content": "  ",
+      "responseKind": "empty",
+      "usage": {
+        "promptTokens": 42,
+        "completionTokens": 100,
+        "totalTokens": 142
+      }
+    }
+  },
+  {
+    "name": "text-parts",
+    "upstream": {
+      "choices": [
+        {
+          "message": {
+            "content": [
+              {
+                "type": "text",
+                "text": "{\"ok\":"
+              },
+              {
+                "type": "text",
+                "text": "true}"
+              },
+              {
+                "type": "reasoning",
+                "text": "PRIVATE"
+              }
+            ]
+          },
+          "finish_reason": null
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 42,
+        "completion_tokens": 100,
+        "total_tokens": 142
+      }
+    },
+    "native": {
+      "content": "{\"ok\":true}",
+      "response_kind": "final-text",
+      "usage": {
+        "prompt_tokens": 42,
+        "completion_tokens": 100,
+        "total_tokens": 142
+      }
+    },
+    "canonical": {
+      "content": "{\"ok\":true}",
+      "responseKind": "final-text",
+      "usage": {
+        "promptTokens": 42,
+        "completionTokens": 100,
+        "totalTokens": 142
+      }
+    }
+  },
+  {
+    "name": "output-limit",
+    "upstream": {
+      "choices": [
+        {
+          "message": {
+            "content": null
+          },
+          "finish_reason": "max_tokens"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 42,
+        "completion_tokens": 100,
+        "total_tokens": 142
+      }
+    },
+    "native": {
+      "content": "",
+      "response_kind": "empty",
+      "usage": {
+        "prompt_tokens": 42,
+        "completion_tokens": 100,
+        "total_tokens": 142
+      },
+      "finish_reason": "max_tokens"
+    },
+    "canonical": {
+      "content": "",
+      "responseKind": "empty",
+      "usage": {
+        "promptTokens": 42,
+        "completionTokens": 100,
+        "totalTokens": 142
+      },
+      "finishReason": "length"
+    }
+  },
+  {
+    "name": "refusal",
+    "upstream": {
+      "choices": [
+        {
+          "message": {
+            "content": null,
+            "refusal": "PRIVATE REFUSAL"
+          },
+          "finish_reason": "content_filter"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 42,
+        "completion_tokens": 100,
+        "total_tokens": 142
+      }
+    },
+    "native": {
+      "content": "",
+      "response_kind": "refusal",
+      "usage": {
+        "prompt_tokens": 42,
+        "completion_tokens": 100,
+        "total_tokens": 142
+      },
+      "finish_reason": "content_filter"
+    },
+    "canonical": {
+      "content": "",
+      "responseKind": "refusal",
+      "usage": {
+        "promptTokens": 42,
+        "completionTokens": 100,
+        "totalTokens": 142
+      },
+      "finishReason": "content_filter"
+    }
+  },
+  {
+    "name": "reasoning-only",
+    "upstream": {
+      "choices": [
+        {
+          "message": {
+            "content": null,
+            "reasoning_content": "PRIVATE REASONING"
+          },
+          "finish_reason": "length"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 42,
+        "completion_tokens": 100,
+        "total_tokens": 142
+      }
+    },
+    "native": {
+      "content": "",
+      "response_kind": "reasoning-only",
+      "usage": {
+        "prompt_tokens": 42,
+        "completion_tokens": 100,
+        "total_tokens": 142
+      },
+      "finish_reason": "length"
+    },
+    "canonical": {
+      "content": "",
+      "responseKind": "reasoning-only",
+      "usage": {
+        "promptTokens": 42,
+        "completionTokens": 100,
+        "totalTokens": 142
+      },
+      "finishReason": "length"
+    }
+  },
+  {
+    "name": "tool-only",
+    "upstream": {
+      "choices": [
+        {
+          "message": {
+            "content": null,
+            "tool_calls": [
+              {
+                "function": {
+                  "arguments": "PRIVATE TOOL"
+                }
+              }
+            ]
+          },
+          "finish_reason": "tool_calls"
+        }
+      ],
+      "usage": {
+        "prompt_tokens": 42,
+        "completion_tokens": 100,
+        "total_tokens": 142
+      }
+    },
+    "native": {
+      "content": "",
+      "response_kind": "tool-only",
+      "usage": {
+        "prompt_tokens": 42,
+        "completion_tokens": 100,
+        "total_tokens": 142
+      },
+      "finish_reason": "tool_calls"
+    },
+    "canonical": {
+      "content": "",
+      "responseKind": "tool-only",
+      "usage": {
+        "promptTokens": 42,
+        "completionTokens": 100,
+        "totalTokens": 142
+      },
+      "finishReason": "tool_calls"
+    }
+  }
+]

@@ -8,6 +8,7 @@ import { render, screen, fireEvent, waitFor, within } from "@testing-library/rea
 import { AskSheet } from "../AskSheet";
 import type { AskLibraryResult } from "../../../lib/ai/tasks/definitions/libraryTask";
 import { RAG_NAMESPACE_LIBRARY } from "../../../lib/ai/capabilities/search";
+import { AIError } from "../../../lib/ai/errors";
 
 vi.mock("../../../hooks/useMobileShell", () => ({
   useMobileShell: () => true,
@@ -94,6 +95,15 @@ function openSheet(request = REQUEST) {
 }
 
 describe("task 2.1 — composer", () => {
+  it("explains a generation failure and keeps settings and the question available", async () => {
+    mockAskInScope.mockRejectedValueOnce(new AIError("InvalidStructuredOutput", "PRIVATE", { generation: { stage: "generation", evidenceCount: 2, retrievalMode: "semantic" }, completion: { attemptCount: 2, terminalFailureKind: "empty-response" } }));
+    openSheet();
+    fireEvent.click(await screen.findByText("What is spaced repetition?"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Sources were found, but the AI model returned no answer");
+    expect(screen.getByRole("button", { name: "AI settings" })).toBeEnabled();
+    expect(screen.queryByText("PRIVATE")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText(/ask a question/i)).toBeInTheDocument();
+  });
   it("opens with the passage as context chip, scope picker, and voice control", async () => {
     openSheet();
     expect(await screen.findByText("The forgetting curve shows memory decaying over time.")).toBeInTheDocument();

@@ -168,6 +168,11 @@ describe("feature observations", () => {
 
 describe("redacted diagnostics report", () => {
   beforeEach(() => clearAllDiagnostics());
+  it("retains bounded recovery metadata in the content-free export", () => {
+    recordTaskDiagnostic({ taskId: "ask-library", taskType: "prompt", attemptCount: 2, firstFailureKind: "output-limit", terminalFailureKind: "empty-response", outputLimitObserved: true, finishReason: "stop", inputTokens: 20, outputTokens: 1, retrievalCount: 2 });
+    const report = buildRedactedDiagnosticsReport({ appVersion: "test", platformFamily: "linux", taskDiagnostics: getTaskDiagnostics(), featureReadiness: [], featureSummaries: [] });
+    expect(report.tasks[0]).toMatchObject({ attemptCount: 2, firstFailureKind: "output-limit", terminalFailureKind: "empty-response", outputLimitObserved: true, finishReason: "stop", outputTokens: 1, retrievalCount: 2 });
+  });
 
   const SECRETS = [
     "sk-live-51H8SECRETKEY",

@@ -68,6 +68,13 @@ afterEach(() => {
 });
 
 describe("runTask on-device → cloud fallback guard", () => {
+  it("keeps consent-controlled fallback after source preparation froze a route", async () => {
+    const { onDevice, cloud } = route(new Error("on-device failed"), "cloud answer");
+    const result = await runTask(task(), { q: "x" }, { resolvedProvider: onDevice });
+    expect(result.output).toBe("cloud answer");
+    expect(cloud.callCount).toBe(1);
+    expect(requestCloudFallbackMock).toHaveBeenCalledOnce();
+  });
   it("retries on the cloud provider when fallback consent is granted", async () => {
     const { cloud } = route(new Error("on-device exploded"), "cloud answer");
     const result = await runTask(task(), { q: "x" });

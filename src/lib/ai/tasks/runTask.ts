@@ -14,6 +14,7 @@
  *      retrieval refs, validation outcome, fallback path, error category).
  */
 
+import { completionMetadata, responseFailureKind, structuredSystemInstruction, CORRECTION_OVERHEAD_TOKENS, type CompletionRecovery, type CompletionFailureKind, errorFailureKind } from "./completion";
 import { estimateTokens } from "../chunkTextByTokens";
 import { recordFeatureObservation, recordTaskDiagnostic } from "../diagnostics";
 import { normalizeProviderClass } from "../diagnostics/featureReport";
@@ -30,8 +31,7 @@ import type {
 } from "../providers/types";
 import { fnv1aHash, hashCapabilities } from "../providers/types";
 import { repairTruncatedJson } from "../schemas/jsonRepair";
-import type { ValidationOutcome } from "../schemas/common";
-import { isFailedOutcome, isValidOutcome } from "../schemas/common";
+import { isValidOutcome } from "../schemas/common";
 import { resolveTaskRoute, type AITaskRoute } from "./router";
 import type {
   AITaskDefinition,
@@ -46,10 +46,6 @@ const REPAIR_PREAMBLE =
 const REPAIR_INSTRUCTION =
   "Respond again with ONLY the corrected JSON value — no prose, no markdown fences.";
 
-const STRICT_JSON_PREAMBLE =
-  "Respond with ONLY a single JSON value (no prose, no markdown fences, no commentary) " +
-  "exactly matching this shape. Emit COMPACT JSON on a single line: no indentation and " +
-  "no redundant whitespace — pretty-printing wastes the output budget and gets truncated:";
 
 function taskLayerProviderKind(kind: AIProvider["kind"]): "ondevice" | "cloud" {
   return kind === "cloud" ? "cloud" : "ondevice";
@@ -130,10 +126,11 @@ async function executeTask<I, O>(
   }
 
   // ── Resolve provider (router; reasoning fallback per design D3) ──────────
-  const route = options.provider
+  const selectedProvider = options.provider ?? options.resolvedProvider;
+  const route = selectedProvider
     ? {
         task: task as AITaskDefinition<never, unknown>,
-        provider: options.provider,
+        provider: selectedProvider,
         requestedModelClass: task.modelClass,
         servedModelClass: task.modelClass,
         fallbackPath: "none" as const,
@@ -170,7 +167,8 @@ async function executeTask<I, O>(
     throw error;
   }
 
-  const maxOutputTokens = options.maxOutputTokens ?? task.maxOutputTokens;
+  const policy = boundedRequestPolicy(options.requestPolicy, provider.getRequestPolicy?.());
+  const maxOutputTokens = Math.min(options.maxOutputTokens ?? task.maxOutputTokens, policy?.maxOutputTokens ?? Infinity);
 
   // ── Token budget (estimation only — no blocking token-count IPC, keeping
   //    the nano fast-path finding intact) ───────────────────────────────────
@@ -214,33 +212,17 @@ async function executeTask<I, O>(
     options.onChunk?.(chunk);
   };
 
+  const ctx: GenerationContext = {
+    provider, capabilities, built, maxOutputTokens, controller, streamWanted, trackFirstToken,
+    policy, recovery: { attemptCount: 0 },
+  };
   try {
-    const response = await generateWithFallbacks(task, input, options, {
-      provider,
-      capabilities,
-      built,
-      maxOutputTokens,
-      controller,
-      streamWanted,
-      trackFirstToken,
-    });
-
-    // ── Output validation (design D5) ──────────────────────────────────────
-    const { value, validationOutcome } = await validateOutput(
-      task,
-      input,
-      response,
-      options,
-      {
-        provider,
-        capabilities,
-        built,
-        maxOutputTokens,
-        controller,
-        streamWanted,
-        trackFirstToken,
-      }
-    );
+    let response = await generateWithFallbacks(task, input, options, ctx);
+    Object.assign(ctx.recovery, completionMetadata(response));
+    ctx.recovery.outputLimitObserved = response.finishReason === "length";
+    const validated = await validateOutput(task, input, response, options, ctx);
+    const { value, validationOutcome } = validated;
+    response = validated.response;
 
     recordTaskDiagnostic({
       taskId: task.id,
@@ -262,6 +244,7 @@ async function executeTask<I, O>(
         firstTokenAt !== undefined ? firstTokenAt - started : undefined,
       totalLatencyMs: Date.now() - started,
       finishReason: response.finishReason,
+      ...ctx.recovery,
     });
 
     if (options.observation) {
@@ -293,16 +276,7 @@ async function executeTask<I, O>(
       usage: response.usage,
     };
   } catch (error) {
-    let mapped = toAIError(error, { providerId: provider.id, taskId: task.id });
-    if (timedOut) {
-      // A timeout-triggered abort must read as a generation failure, not a
-      // user cancellation (which would suppress cloud fallback).
-      mapped = new AIError(
-        "GenerationFailed",
-        `Task ${task.id} exceeded its ${timeoutMs}ms timeout.`,
-        { code: "timeout", providerId: provider.id, taskId: task.id, cause: error }
-      );
-    }
+    const mapped = completionError(error, task.id, ctx, timedOut, timeoutMs);
     recordFailure(task, options, started, mapped, route, capabilityHash, firstTokenAt);
 
     // On-device failure (e.g. timeout or generation failure) may retry on the
@@ -334,7 +308,8 @@ async function executeTask<I, O>(
           if (!altRoute) continue;
           try {
             return await executeTask(task, input, { ...options, provider: next });
-          } catch {
+          } catch (error) {
+            rethrowTerminalError(error, options.signal);
             // Try remaining on-device / local-model providers before cloud.
           }
         }
@@ -347,7 +322,8 @@ async function executeTask<I, O>(
             ...options,
             provider: cloudRoute.provider,
           });
-        } catch {
+        } catch (error) {
+          rethrowTerminalError(error, options.signal);
           // Fallback also failed or unavailable; throw original mapped error below
         }
       }
@@ -372,6 +348,8 @@ interface GenerationContext {
   controller: AbortController;
   streamWanted: boolean;
   trackFirstToken: (chunk: string) => void;
+  recovery: CompletionRecovery;
+  policy?: AITaskRunOptions["requestPolicy"];
 }
 
 async function generateWithFallbacks<I, O>(
@@ -382,6 +360,7 @@ async function generateWithFallbacks<I, O>(
 ): Promise<AIResponse> {
   // Legacy cloud commands keep byte-identical Phase-0 behavior (design D30).
   if (ctx.provider.kind === "cloud" && task.cloudExecutor) {
+    ctx.recovery.attemptCount++;
     const raw = await task.cloudExecutor(input, { signal: ctx.controller.signal });
     const out = typeof raw === "string" ? { text: raw } : raw;
     ctx.trackFirstToken(out.text);
@@ -404,15 +383,19 @@ async function generateWithFallbacks<I, O>(
     systemInstruction: useNativeStructured
       ? task.systemInstruction
       : task.outputKind === "structured" && task.schema
-        ? `${task.systemInstruction}\n\n${STRICT_JSON_PREAMBLE} ${task.schema.json}`
+        ? structuredSystemInstruction(task.systemInstruction, task.schema.json)
         : task.systemInstruction,
     text: ctx.built.text,
     image: ctx.built.image,
     maxOutputTokens: ctx.maxOutputTokens,
     structured: useNativeStructured,
     schemaName: useNativeStructured ? task.schema!.nativeName : undefined,
+    // Structured tasks own correction; text-only tasks retain legacy transport behavior.
+    taskManagedRecovery: task.outputKind === "structured",
   };
 
+  checkRequestBudget(request, ctx);
+  ctx.recovery.attemptCount++;
   try {
     return await ctx.provider.generateStream(request, {
       signal: ctx.controller.signal,
@@ -434,153 +417,141 @@ async function generateWithFallbacks<I, O>(
 // Structured-output validation + strict-JSON fallback + ONE repair retry
 // ──────────────────────────────────────────────────────────────────────────
 
-async function validateOutput<I, O>(
-  task: AITaskDefinition<I, O>,
-  input: I,
-  response: AIResponse,
-  options: AITaskRunOptions,
-  ctx: GenerationContext
-): Promise<{ value: O; validationOutcome: AITaskValidationOutcome }> {
-  if (task.outputKind !== "structured" || !task.validate) {
-    if (task.validate) {
-      // Text task with a validator: still fail closed.
-      const outcome = task.validate(response.text, input);
-      if (isValidOutcome(outcome)) {
-        return { value: outcome.value, validationOutcome: "text" };
-      }
-      throw invalidStructuredOutput(task.id, outcome.errors);
-    }
-    return { value: response.text as unknown as O, validationOutcome: "text" };
-  }
-
-  const attempt = (candidate: unknown): ValidationOutcome<O> | undefined =>
-    candidate === undefined ? undefined : task.validate!(candidate, input);
-
-  // 1. Native structured payload (schema-compiled path) when present.
-  if (response.structured !== null && response.structured !== undefined) {
-    const outcome = attempt(response.structured);
-    if (outcome !== undefined && isValidOutcome(outcome)) {
-      return { value: outcome.value, validationOutcome: "native-structured" };
-    }
-    if (outcome !== undefined && isFailedOutcome(outcome)) {
-      // 2. One repair retry through strict-JSON text mode.
-      const repaired = await repairOnce(task, input, ctx, outcome.errors, response);
-      if (repaired) return repaired;
-      throw invalidStructuredOutput(task.id, outcome.errors);
-    }
-  }
-
-  // 3. Strict-JSON parse of the text response.
-  const parsed = parseStrictJson(response.text);
-  if (isParseFailure(parsed)) {
-    const empty = parsed.error === "empty response";
-    const emptyErrors = empty
-      ? ["empty response (provider body had no content)"]
-      : [parsed.error];
-    if (!empty) {
-      // Truncation salvage (device reports: "Unterminated string … at position
-      // N"): output clipped at the token cap. Close strings/brackets and drop
-      // the incomplete tail programmatically — a proposal missing its last,
-      // half-written entry beats no proposal, and the repair retry would
-      // truncate again at the same cap. The task validator still gates this.
-      const salvaged = repairTruncatedJson(response.text);
-      if (salvaged !== null) {
-        const outcome = attempt(salvaged);
-        if (outcome !== undefined && isValidOutcome(outcome)) {
-          return { value: outcome.value, validationOutcome: "truncated-json-salvaged" };
-        }
-        // Salvage parsed but failed validation: repair against the real
-        // validation errors rather than the parse error.
-        const errors =
-          outcome !== undefined && isFailedOutcome(outcome)
-            ? outcome.errors
-            : [parsed.error];
-        const repaired = await repairOnce(task, input, ctx, errors, response);
-        if (repaired) return repaired;
-        throw invalidStructuredOutput(task.id, errors);
-      }
-    }
-    const repaired = await repairOnce(task, input, ctx, emptyErrors, response);
-    if (repaired) return repaired;
-    throw invalidStructuredOutput(task.id, emptyErrors);
-  }
-  const outcome = attempt(parsed.value);
-  if (outcome !== undefined && isValidOutcome(outcome)) {
-    return { value: outcome.value, validationOutcome: "strict-json" };
-  }
-  const errors =
-    outcome !== undefined && isFailedOutcome(outcome)
-      ? outcome.errors
-      : ["structured output failed validation"];
-  const repaired = await repairOnce(task, input, ctx, errors, response);
-  if (repaired) return repaired;
-  throw invalidStructuredOutput(task.id, errors);
+interface ValidatedOutput<O> {
+  value: O;
+  validationOutcome: AITaskValidationOutcome;
+  response: AIResponse;
 }
 
-/** Bound for the rejected-response excerpt embedded in a repair request. */
+type OutputCheck<O> = { ok: true; value: O; validationOutcome: AITaskValidationOutcome } |
+  { ok: false; errors: string[]; kind: CompletionFailureKind };
+
+/** One validation pass; correction never recursively enters validation/recovery. */
+function inspectOutput<I, O>(task: AITaskDefinition<I, O>, input: I, response: AIResponse, salvage: boolean): OutputCheck<O> {
+  if (responseFailureKind(response, "schema-invalid") === "refusal") {
+    return { ok: false, errors: ["provider refusal"], kind: "refusal" };
+  }
+  if (task.outputKind !== "structured" || !task.validate) {
+    const outcome = task.validate?.(response.text, input);
+    if (!outcome) return { ok: true, value: response.text as O, validationOutcome: "text" };
+    if (isValidOutcome(outcome)) return { ok: true, value: outcome.value, validationOutcome: "text" };
+    return { ok: false, errors: outcome.errors, kind: "schema-invalid" };
+  }
+  let candidate = response.structured;
+  let validationOutcome: AITaskValidationOutcome = "native-structured";
+  if (candidate == null) {
+    const parsed = parseStrictJson(response.text);
+    validationOutcome = "strict-json";
+    if (isParseFailure(parsed)) {
+      candidate = salvage && response.text.trim() ? repairTruncatedJson(response.text) : null;
+      if (candidate == null) return { ok: false, errors: [parsed.error === "empty response" ? "empty response (provider body had no content)" : parsed.error], kind: responseFailureKind(response, "malformed-json") };
+      validationOutcome = "truncated-json-salvaged";
+    } else candidate = parsed.value;
+  }
+  const outcome = task.validate(candidate, input);
+  return isValidOutcome(outcome) ? { ok: true, value: outcome.value, validationOutcome } :
+    { ok: false, errors: outcome.errors, kind: responseFailureKind(response, "schema-invalid") };
+}
+
+async function validateOutput<I, O>(
+  task: AITaskDefinition<I, O>, input: I, response: AIResponse,
+  _options: AITaskRunOptions, ctx: GenerationContext
+): Promise<ValidatedOutput<O>> {
+  const checked = inspectOutput(task, input, response, true);
+  if (checked.ok === true) return { ...checked, response };
+  ctx.recovery.firstFailureKind = checked.kind;
+  if (checked.kind === "refusal") {
+    ctx.recovery.terminalFailureKind = "refusal";
+    throw new AIError("SafetyBlocked", "The model refused to answer.", { code: "safety_blocked", taskId: task.id });
+  }
+  if (task.outputKind !== "structured" || !task.validate) throw invalidStructuredOutput(task.id, checked.errors);
+  const repaired = await repairOnce(task, input, ctx, checked.errors, response);
+  if (repaired.ok === true) return repaired.output;
+  throw repaired.error;
+}
+
+/** Both limits are included in the source-preparation correction reserve. */
 const REPAIR_REJECTED_BOUND = 2_000;
+const REPAIR_ERROR_BOUND = 160;
+
+type CorrectionResult<O> = { ok: true; output: ValidatedOutput<O> } | { ok: false; error: AIError };
 
 async function repairOnce<I, O>(
-  task: AITaskDefinition<I, O>,
-  input: I,
-  ctx: GenerationContext,
-  errors: string[],
-  rejected?: AIResponse
-): Promise<{ value: O; validationOutcome: AITaskValidationOutcome } | undefined> {
-  // A truncation-shaped parse error or a provider-reported "length" finish
-  // reason means the previous output was cut off at the token cap — tell the
-  // model to compact and shorten instead of re-emitting the same length
-  // (which would truncate identically).
-  const truncationHint =
-    errors.some((e) => /Unterminated string|Unexpected end|truncat/i.test(e)) ||
-    rejected?.finishReason === "length"
-      ? "\nYour previous output was CUT OFF at the output-token limit. Shorten the content (fewer or terser entries) so the JSON document completes within the limit."
-      : "";
-  const raw = rejected?.text ?? "";
-  const rawExcerpt =
-    raw.length === 0
-      ? "(empty response)"
-      : raw.length <= REPAIR_REJECTED_BOUND
-        ? raw
-        : `${raw.slice(0, REPAIR_REJECTED_BOUND)}\n…[truncated; ${raw.length} chars total]`;
+  task: AITaskDefinition<I, O>, input: I, ctx: GenerationContext,
+  errors: string[], rejected: AIResponse
+): Promise<CorrectionResult<O>> {
+  const truncationHint = rejected.finishReason === "length" || errors.some(e => /Unterminated string|Unexpected end|truncat/i.test(e))
+    ? "\nYour previous output was CUT OFF at the output-token limit. Shorten the content (fewer or terser entries) so the JSON document completes within the limit."
+    : rejected.responseKind === "reasoning-only" ? "\nReturn a compact final JSON answer within the output limit." : "";
+  const excerpt = rejected.text.length > REPAIR_REJECTED_BOUND
+    ? `${rejected.text.slice(0, REPAIR_REJECTED_BOUND)}\n…[truncated; ${rejected.text.length} chars total]`
+    : rejected.text || "(empty response)";
+  const suffix = `\n\n${REPAIR_PREAMBLE}\n${errors.slice(0, 8).map(e => `- ${e.slice(0, REPAIR_ERROR_BOUND)}`).join("\n")}${truncationHint}\n\nYour rejected response (bounded):\n${excerpt}\n${REPAIR_INSTRUCTION}`;
   const repairRequest: AIRequest = {
     requestId: makeRequestId(`${task.id}-repair`),
-    systemInstruction: `${task.systemInstruction}\n\n${STRICT_JSON_PREAMBLE} ${
-      task.schema?.json ?? ""
-    }`,
-    text: `${ctx.built.text}\n\n${REPAIR_PREAMBLE}\n${errors
-      .slice(0, 8)
-      .map((e) => `- ${e}`)
-      .join("\n")}${truncationHint}\n\nYour rejected response (bounded):\n${rawExcerpt}\n${REPAIR_INSTRUCTION}`,
-    image: ctx.built.image,
-    maxOutputTokens: ctx.maxOutputTokens,
-    structured: false,
+    systemInstruction: structuredSystemInstruction(task.systemInstruction, task.schema?.json),
+    text: ctx.built.text + suffix,
+    image: ctx.built.image, maxOutputTokens: ctx.maxOutputTokens,
+    structured: false, taskManagedRecovery: true,
   };
-
-  let response: AIResponse;
   try {
-    response = await ctx.provider.generateStream(repairRequest, {
-      signal: ctx.controller.signal,
-      stream: false,
-    });
+    // No provider call if cancellation landed between attempts.
+    if (ctx.controller.signal.aborted) throw new AIError("Cancelled", "Correction was cancelled.", { code: "cancelled" });
+    if (estimateTokens(suffix) > CORRECTION_OVERHEAD_TOKENS) throw new AIError("InputTooLarge", "Correction exceeds its reserved budget.", { code: "context_too_large" });
+    checkRequestBudget(repairRequest, ctx);
+    ctx.recovery.attemptCount++;
+    // Clear first-attempt usage; a failing provider request supplies no completion metadata.
+    Object.assign(ctx.recovery, { finishReason: undefined, inputTokens: undefined, outputTokens: undefined });
+    const response = await ctx.provider.generateStream(repairRequest, { signal: ctx.controller.signal, stream: false });
+    Object.assign(ctx.recovery, completionMetadata(response));
+    ctx.recovery.outputLimitObserved ||= response.finishReason === "length";
+    const checked = inspectOutput(task, input, response, false);
+    if (checked.ok === true) return { ok: true, output: { value: checked.value, response, validationOutcome: "repaired" } };
+    ctx.recovery.terminalFailureKind = checked.kind;
+    return { ok: false, error: checked.kind === "refusal"
+      ? new AIError("SafetyBlocked", "The model refused to answer.", { code: "safety_blocked", taskId: task.id })
+      : invalidStructuredOutput(task.id, checked.errors) };
   } catch (error) {
-    if (isCancelledError(error)) throw error;
-    return undefined;
+    const mapped = toAIError(error, { providerId: ctx.provider.id, taskId: task.id });
+    ctx.recovery.terminalFailureKind = errorFailureKind(mapped);
+    return { ok: false, error: mapped };
   }
+}
 
-  const candidate =
-    response.structured !== null && response.structured !== undefined
-      ? response.structured
-      : (() => {
-          const parsed = parseStrictJson(response.text);
-          return isParseFailure(parsed) ? undefined : parsed.value;
-        })();
+function completionError(error: unknown, taskId: string, ctx: GenerationContext, timedOut: boolean, timeoutMs: number): AIError {
+  let mapped = toAIError(error, { providerId: ctx.provider.id, taskId });
+  if (timedOut) mapped = new AIError("GenerationFailed", `Task ${taskId} exceeded its ${timeoutMs}ms timeout.`, {
+    code: "timeout", providerId: ctx.provider.id, taskId, cause: error,
+  });
+  ctx.recovery.terminalFailureKind ??= errorFailureKind(mapped);
+  if (timedOut) ctx.recovery.terminalFailureKind = "timeout";
+  return new AIError(mapped.category, mapped.message, {
+    code: mapped.code, providerId: mapped.providerId, taskId: mapped.taskId,
+    details: mapped.details, completion: { ...ctx.recovery }, cause: mapped,
+  });
+}
 
-  const outcome = task.validate!(candidate, input);
-  if (outcome !== undefined && isValidOutcome(outcome)) {
-    return { value: outcome.value, validationOutcome: "repaired" };
+/** Cancellation and refusal from any fallback remain terminal. */
+function rethrowTerminalError(error: unknown, signal?: AbortSignal): void {
+  const terminal = toAIError(error);
+  if (["Cancelled", "SafetyBlocked"].includes(terminal.category) || signal?.aborted) throw terminal;
+}
+
+function checkRequestBudget(request: AIRequest, ctx: GenerationContext): void {
+  if (!ctx.policy) return;
+  const input = estimateTokens(request.text) + estimateTokens(request.systemInstruction ?? "") + (request.image ? 258 : 0) + 32;
+  if (input + ctx.maxOutputTokens > ctx.policy.configuredContextTokens || ctx.maxOutputTokens > ctx.policy.maxOutputTokens) {
+    throw new AIError("InputTooLarge", "The complete request exceeds the selected model context.", { code: "context_too_large", providerId: ctx.provider.id });
   }
-  return undefined;
+}
+
+/** A consented fallback reuses evidence within the intersection of both policies. */
+function boundedRequestPolicy(prepared: AITaskRunOptions["requestPolicy"], serving: AITaskRunOptions["requestPolicy"]): AITaskRunOptions["requestPolicy"] {
+  if (!prepared || !serving) return prepared;
+  return { ...prepared,
+    configuredContextTokens: Math.min(prepared.configuredContextTokens, serving.configuredContextTokens),
+    maxOutputTokens: Math.min(prepared.maxOutputTokens, serving.maxOutputTokens),
+  };
 }
 
 export type ParsedJsonResult = { ok: true; value: unknown } | { ok: false; error: string };
@@ -632,6 +603,8 @@ function makeRequestId(prefix: string): string {
 /** Derive the validation-outcome class from a thrown AIError's details. */
 function validationOutcomeForError(error: AIError): AITaskValidationOutcome | undefined {
   if (error.category !== "InvalidStructuredOutput") return undefined;
+  if (error.completion?.terminalFailureKind === "empty-response" || error.completion?.terminalFailureKind === "reasoning-only" || error.completion?.terminalFailureKind === "tool-only") return "empty-response";
+  if (error.completion?.terminalFailureKind === "output-limit") return "truncated-json";
   const details = (error.details ?? []) as string[];
   if (details.some((d) => typeof d === "string" && d.includes("empty response"))) {
     return "empty-response";
@@ -685,6 +658,7 @@ function recordFailure<I, O>(
     fallbackPath: route?.fallbackPath,
     errorCategory: error.category,
     errorCode: error.code,
+    ...error.completion,
     firstTokenLatencyMs: firstTokenAt !== undefined ? firstTokenAt - started : undefined,
     totalLatencyMs: Date.now() - started,
   });

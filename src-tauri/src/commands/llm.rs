@@ -127,10 +127,16 @@ struct OpenAIChoice {
 struct OpenAIResponseMessageContent {
     #[serde(default)]
     content: Option<OpenAIResponseContentValue>,
-    /// DeepSeek-R1-style reasoning channel; captured for diagnostics when the
-    /// final content comes back empty (reasoning-only turn).
+    /// Presence only is exposed; reasoning is never forwarded as final text.
     #[serde(default)]
+    #[serde(alias = "reasoning")]
     reasoning_content: Option<String>,
+    #[serde(default)]
+    refusal: Option<serde_json::Value>,
+    #[serde(default)]
+    tool_calls: Option<Vec<serde_json::Value>>,
+    #[serde(default)]
+    function_call: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -142,6 +148,8 @@ enum OpenAIResponseContentValue {
 
 #[derive(Debug, Deserialize)]
 struct OpenAIResponseContentPart {
+    #[serde(default, rename = "type")]
+    content_type: Option<String>,
     #[serde(default)]
     text: Option<String>,
 }
@@ -152,10 +160,45 @@ impl OpenAIResponseMessageContent {
             Some(OpenAIResponseContentValue::Text(s)) => s.clone(),
             Some(OpenAIResponseContentValue::Parts(parts)) => parts
                 .iter()
+                .filter(|p| matches!(p.content_type.as_deref(), None | Some("text") | Some("output_text")))
                 .filter_map(|p| p.text.clone())
                 .collect::<Vec<_>>()
                 .join(""),
             None => String::new(),
+        }
+    }
+}
+
+
+impl OpenAIResponse {
+    fn into_llm_response(self) -> LLMResponse {
+        let choice = self.choices.first();
+        let content = choice.map(|c| c.message.text()).unwrap_or_default();
+        let finish_reason = normalize_finish_reason(choice.and_then(|c| c.finish_reason.clone()));
+        let response_kind = choice.map(|c| {
+            let parts = match &c.message.content {
+                Some(OpenAIResponseContentValue::Parts(parts)) => parts.as_slice(),
+                _ => &[],
+            };
+            if c.message.refusal.as_ref().is_some_and(|v| !v.is_null() && v != "")
+                || matches!(finish_reason.as_deref(), Some("content_filter" | "safety" | "refusal"))
+                || parts.iter().any(|p| p.content_type.as_deref() == Some("refusal")) {
+                "refusal"
+            } else if !content.trim().is_empty() { "final-text" }
+            else if c.message.tool_calls.as_ref().is_some_and(|calls| !calls.is_empty()) || c.message.function_call.is_some() || matches!(finish_reason.as_deref(), Some("tool_calls" | "function_call")) { "tool-only" }
+            else if c.message.reasoning_content.as_ref().is_some_and(|r| !r.trim().is_empty())
+                || parts.iter().any(|p| matches!(p.content_type.as_deref(), Some("reasoning" | "thinking"))) { "reasoning-only" }
+            else { "empty" }
+        }).unwrap_or("empty");
+        LLMResponse {
+            content,
+            finish_reason,
+            response_kind: Some(response_kind.to_string()),
+            usage: self.usage.map(|u| LLMUsage {
+                prompt_tokens: u.prompt_tokens(), completion_tokens: u.completion_tokens(),
+                total_tokens: u.total_tokens(), prompt_cache_hit_tokens: u.prompt_cache_hit_tokens,
+                prompt_cache_miss_tokens: u.prompt_cache_miss_tokens,
+            }),
         }
     }
 }
@@ -273,6 +316,7 @@ struct AnthropicImageSource {
 
 #[derive(Debug, Deserialize)]
 struct AnthropicResponse {
+    #[serde(default)]
     content: Vec<AnthropicContent>,
     usage: Option<AnthropicUsage>,
     #[serde(default)]
@@ -281,6 +325,7 @@ struct AnthropicResponse {
 
 #[derive(Debug, Deserialize)]
 struct AnthropicContent {
+    #[serde(default)]
     text: String,
     #[serde(rename = "type")]
     content_type: String,
@@ -393,7 +438,7 @@ fn read_memory_file(app: &AppHandle) -> Option<String> {
 /// Normalize a provider stop reason to the task-layer vocabulary: Anthropic's
 /// "max_tokens" means truncation at the output cap, reported as "length".
 fn normalize_finish_reason(reason: Option<String>) -> Option<String> {
-    reason.map(|r| if r == "max_tokens" { "length".to_string() } else { r })
+    reason.map(|r| if matches!(r.as_str(), "max_tokens" | "max_output_tokens" | "MAX_TOKENS") { "length".to_string() } else { r })
 }
 
 // Non-streaming commands
@@ -408,6 +453,7 @@ pub async fn llm_chat(
     api_key: Option<String>,
     base_url: Option<String>,
     policy: Option<LlmRequestPolicy>,
+    task_managed_recovery: Option<bool>,
 ) -> Result<LLMResponse, String> {
     let client = Client::new();
     let model = normalize_model(model, &provider);
@@ -436,6 +482,7 @@ pub async fn llm_chat(
                 max_tokens,
                 api_key.as_deref(),
                 &base_url,
+                task_managed_recovery.unwrap_or(false),
             )
             .await?
         }
@@ -556,6 +603,7 @@ pub async fn llm_chat_with_context(
             api_key.clone(),
             base_url.clone(),
             Some(policy),
+            None,
         )
     };
 
@@ -1619,6 +1667,7 @@ async fn call_openai_with_key(
     max_tokens: usize,
     api_key: Option<&str>,
     base_url: &str,
+    task_managed_recovery: bool,
 ) -> Result<LLMResponse, String> {
     // Reasoning-first OpenAI-compatible models (e.g. Inception Mercury, whose
     // docs default to max_tokens=8192) can spend a small token budget
@@ -1659,55 +1708,17 @@ async fn call_openai_with_key(
             .await
             .map_err(|e| format!("Failed to parse OpenAI response: {}", e))?;
 
-        let content = openai_response
-            .choices
-            .first()
-            .map(|c| c.message.text())
-            .unwrap_or_default();
-        if !content.trim().is_empty() {
-            return Ok(LLMResponse {
-                content,
-                usage: openai_response.usage.map(|u| LLMUsage {
-                    prompt_tokens: u.prompt_tokens(),
-                    completion_tokens: u.completion_tokens(),
-                    total_tokens: u.total_tokens(),
-                    prompt_cache_hit_tokens: u.prompt_cache_hit_tokens,
-                    prompt_cache_miss_tokens: u.prompt_cache_miss_tokens,
-                }),
-                finish_reason: openai_response
-                    .choices
-                    .first()
-                    .and_then(|c| c.finish_reason.clone()),
-            });
+        let response = openai_response.into_llm_response();
+        if task_managed_recovery || !response.content.trim().is_empty()
+            || response.response_kind.as_deref() == Some("refusal") {
+            return Ok(response);
         }
-
         if budget >= EMPTY_CONTENT_RETRY_TOKENS {
-            let finish_reason = openai_response
-                .choices
-                .first()
-                .and_then(|c| c.finish_reason.clone())
-                .unwrap_or_else(|| "unknown".to_string());
-            let completion_tokens = openai_response
-                .usage
-                .as_ref()
-                .map(|u| u.completion_tokens())
-                .unwrap_or(0);
-            let had_reasoning = openai_response
-                .choices
-                .first()
-                .map(|c| {
-                    c.message
-                        .reasoning_content
-                        .as_deref()
-                        .map(|r| !r.trim().is_empty())
-                        .unwrap_or(false)
-                })
-                .unwrap_or(false);
             return Err(format!(
                 "The model returned an empty message (finish_reason={}, completion_tokens={}).{}",
-                finish_reason,
-                completion_tokens,
-                if had_reasoning {
+                response.finish_reason.as_deref().unwrap_or("unknown"),
+                response.usage.as_ref().map(|u| u.completion_tokens).unwrap_or(0),
+                if response.response_kind.as_deref() == Some("reasoning-only") {
                     " It produced reasoning but no final answer — lower reasoning effort or raise maxTokens."
                 } else {
                     " Reasoning models can exhaust the token budget before any content is emitted — raise maxTokens or retry."
@@ -1770,9 +1781,15 @@ async fn call_anthropic_with_key(
         .filter(|c| c.content_type == "text")
         .map(|c| c.text.clone())
         .collect::<Vec<_>>()
-        .join("\n");
+        .join("");
 
+    let response_kind = if anthropic_response.stop_reason.as_deref() == Some("refusal") { "refusal" }
+        else if !content.trim().is_empty() { "final-text" }
+        else if anthropic_response.content.iter().any(|c| c.content_type == "tool_use") { "tool-only" }
+        else if anthropic_response.content.iter().any(|c| matches!(c.content_type.as_str(), "thinking" | "redacted_thinking")) { "reasoning-only" }
+        else { "empty" };
     Ok(LLMResponse {
+        response_kind: Some(response_kind.to_string()),
         content,
         usage: anthropic_response.usage.map(|u| LLMUsage {
             prompt_tokens: u.input_tokens,
@@ -1821,6 +1838,7 @@ async fn call_ollama_with_url(
     let prompt_tokens = native.prompt_eval_count.unwrap_or(0);
     let completion_tokens = native.eval_count.unwrap_or(0);
     Ok(LLMResponse {
+        response_kind: None,
         content: native.content(),
         usage: if prompt_tokens > 0 || completion_tokens > 0 {
             Some(LLMUsage {
@@ -1904,22 +1922,10 @@ async fn call_openrouter_with_key(
         )
     })?;
 
-    let choice = openrouter_response
-        .choices
-        .first()
-        .ok_or_else(|| "OpenRouter response contained no choices".to_string())?;
-
-    Ok(LLMResponse {
-        content: choice.message.text(),
-        usage: openrouter_response.usage.map(|u| LLMUsage {
-            prompt_tokens: u.prompt_tokens(),
-            completion_tokens: u.completion_tokens(),
-            total_tokens: u.total_tokens(),
-            prompt_cache_hit_tokens: None,
-            prompt_cache_miss_tokens: None,
-        }),
-        finish_reason: choice.finish_reason.clone(),
-    })
+    if openrouter_response.choices.is_empty() {
+        return Err("OpenRouter response contained no choices".to_string());
+    }
+    Ok(openrouter_response.into_llm_response())
 }
 
 async fn test_openai_connection(
@@ -2711,6 +2717,8 @@ pub struct LLMResponse {
     /// Provider-reported stop reason (e.g. "length" for truncation).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finish_reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_kind: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -2764,12 +2772,72 @@ mod tests {
     fn llm_response_serializes_finish_reason() {
         let response = LLMResponse {
             content: "hello".into(),
+            response_kind: None,
             usage: None,
             finish_reason: Some("length".into()),
         };
         let json = serde_json::to_value(response).unwrap();
         assert_eq!(json["content"], "hello");
         assert_eq!(json["finish_reason"], "length");
+    }
+
+    #[test]
+    fn completion_fixtures_match_native_wire_contract() {
+        let fixtures: serde_json::Value = serde_json::from_str(include_str!("../../../src/api/llm/__tests__/fixtures/completions.json")).unwrap();
+        for fixture in fixtures.as_array().unwrap() {
+            let parsed: OpenAIResponse = serde_json::from_value(fixture["upstream"].clone()).unwrap();
+            let actual = serde_json::to_value(parsed.into_llm_response()).unwrap();
+            let mut expected = fixture["native"].clone();
+            if expected["finish_reason"] == "max_tokens" { expected["finish_reason"] = "length".into(); }
+            assert_eq!(actual, expected, "fixture {}", fixture["name"]);
+        }
+        let old: LLMResponse = serde_json::from_str(r#"{"content":"ok","usage":null}"#).unwrap();
+        assert!(old.response_kind.is_none());
+    }
+
+    /// Exercise actual HTTP requests so the task-owned flag cannot hide extra calls.
+    #[tokio::test]
+    async fn task_managed_empty_response_has_no_hidden_http_retry() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        for managed in [true, false] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let server = std::thread::spawn(move || {
+                let mut budgets = vec![];
+                // Managed execution: initial + task correction. Legacy: hidden recovery.
+                for _ in 0..2 {
+                    let (mut stream, _) = listener.accept().unwrap();
+                    stream.set_read_timeout(Some(std::time::Duration::from_secs(5))).unwrap();
+                    let mut bytes = Vec::new();
+                    let body = loop {
+                        let mut buffer = [0; 4096];
+                        let n = stream.read(&mut buffer).unwrap();
+                        assert!(n > 0);
+                        bytes.extend_from_slice(&buffer[..n]);
+                        if let Some(pos) = bytes.windows(4).position(|w| w == b"\r\n\r\n") {
+                            let headers = String::from_utf8_lossy(&bytes[..pos]).to_lowercase();
+                            let len: usize = headers.lines().find_map(|l| l.strip_prefix("content-length:")).unwrap().trim().parse().unwrap();
+                            if bytes.len() >= pos + 4 + len { break bytes[pos+4..pos+4+len].to_vec(); }
+                        }
+                    };
+                    budgets.push(serde_json::from_slice::<serde_json::Value>(&body).unwrap()["max_tokens"].as_u64().unwrap());
+                    let payload = r#"{"choices":[{"message":{"content":null,"reasoning_content":"PRIVATE"},"finish_reason":"length"}]}"#;
+                    write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", payload.len(), payload).unwrap();
+                }
+                budgets
+            });
+            let client = Client::builder().timeout(std::time::Duration::from_secs(5)).build().unwrap();
+            if managed {
+                for _ in 0..2 {
+                    let response = call_openai_with_key(&client, "test", vec![], 0.2, 1200, None, &url, true).await.unwrap();
+                    assert_eq!(response.response_kind.as_deref(), Some("reasoning-only"));
+                }
+            } else {
+                assert!(call_openai_with_key(&client, "test", vec![], 0.2, 1200, None, &url, false).await.is_err());
+            }
+            assert_eq!(server.join().unwrap(), if managed { vec![1200, 1200] } else { vec![1200, 8192] });
+        }
     }
 
     #[test]

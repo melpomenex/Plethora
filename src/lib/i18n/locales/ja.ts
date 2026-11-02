@@ -1,6 +1,12 @@
 import { Dict, en } from "./en";
 
 export const ja: Dict = {
+  "qaGeneration.empty": "資料は見つかりましたが、AIモデルから回答が返されませんでした。再試行するか、AI設定を確認してください。",
+  "qaGeneration.outputLimit": "資料は見つかりましたが、回答が完了する前にAIモデルの出力上限に達しました。AI設定でモデルと出力上限を確認してから、再試行してください。",
+  "qaGeneration.refusal": "資料は見つかりましたが、AIモデルが回答を拒否しました。",
+  "qaGeneration.provider": "資料は見つかりましたが、AIプロバイダーが回答を完了できませんでした。再試行するか、AI設定を確認してください。",
+  "qaGeneration.unusable": "資料は見つかりましたが、AIモデルから利用できない回答が返されました。再試行するか、AI設定を確認してください。",
+
 
   "commandPalette.openReaderFirst": "この閲覧操作を実行する前に文書を開いてください。",
   "commandPalette.openPdfFirst": "リフローを切り替える前にPDF文書を開いてください。",

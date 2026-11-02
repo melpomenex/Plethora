@@ -1,3 +1,5 @@
+import { Button } from "../md3/Button";
+import { libraryGenerationFailureMessage } from "../../lib/ai/libraryGenerationFailure";
 import { useComposerDictation } from "../../hooks/useComposerDictation";
 import { ComposerDictationControl } from "./ComposerDictationControl";
 import { useDocumentStore } from "../../stores/documentStore";
@@ -124,6 +126,7 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
   const [thinking, setThinking] = useState("");
   const [lastQuestion, setLastQuestion] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [generationFailed, setGenerationFailed] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [followUps, setFollowUps] = useState<string[]>([]);
   const [indexState, setIndexState] = useState<AskSheetIndexState | null>(null);
@@ -160,6 +163,7 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
       setThinking("");
     setLastQuestion("");
     setError(null);
+    setGenerationFailed(false);
     setExpanded(false);
     setFollowUps([]);
     setTraceHits(null);
@@ -211,6 +215,7 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
       abortRef.current = controller;
       setPhase("working");
       setError(null);
+    setGenerationFailed(false);
       setExpanded(false);
       setFollowUps([]);
       setTraceHits(null);
@@ -247,7 +252,9 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
         }
       } catch (e) {
         if (controller.signal.aborted) return;
-        setError(e instanceof Error ? e.message : String(e));
+        const failure = libraryGenerationFailureMessage(e);
+        setGenerationFailed(Boolean(failure));
+        setError(failure ?? t("askSheet.askFailed"));
         setPhase("error");
       }
     },
@@ -385,8 +392,14 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
       >
         <div className="px-4 pt-1 pb-4 flex flex-col gap-3" onClick={(e) => e.stopPropagation()}>
           {phase === "error" && error && (
-            <div className="rounded-xl bg-destructive/10 text-destructive text-sm px-3 py-2">
-              {t("askSheet.askFailed")}
+            <div role="alert" className="rounded-xl bg-destructive/10 text-destructive text-sm px-3 py-2">
+              <p>{error}</p>
+              {generationFailed && <Button variant="text" onClick={async () => {
+                localStorage.setItem("plethora_settings_initial_tab", "ai");
+                const [{ useTabsStore }, { createCanonicalTab }] = await Promise.all([import("../../stores/tabsStore"), import("../tabs/TabRegistry")]);
+                useTabsStore.getState().addTab(createCanonicalTab("settings"));
+                onClose();
+              }}>{t("qaWorkspace.configure")}</Button>}
             </div>
           )}
 

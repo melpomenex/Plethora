@@ -5,6 +5,7 @@
 
 import { invokeCommand, listen, type UnlistenFn } from "../../lib/tauri";
 import { resolveRequestPolicy, type LlmRequestPolicy } from "./policy";
+import { normalizeLLMResponse, type LLMResponseKind } from "./response";
 
 export type {
   ContextWindowPreset,
@@ -66,16 +67,19 @@ export interface LLMRequest {
   requestId?: string;
   /** Optional resolved request policy (Ollama `num_ctx` / cloud `max_tokens`). */
   policy?: LlmRequestPolicy;
+  /** The task runner owns the single corrective attempt. Disable hidden transport recovery. */
+  taskManagedRecovery?: boolean;
 }
 
 export interface LLMResponse {
   content: string;
   /** Provider-reported stop reason ("length" = truncated at the output cap). */
   finishReason?: string;
+  responseKind?: LLMResponseKind;
   usage?: {
-    promptTokens: number;
-    completionTokens: number;
-    totalTokens: number;
+    promptTokens?: number;
+    completionTokens?: number;
+    totalTokens?: number;
     // DeepSeek only: how many prompt tokens were served from DeepSeek's
     // automatic prompt cache (billed at the model's discounted cache_read
     // rate) vs. freshly processed. Undefined for other providers.
@@ -112,7 +116,7 @@ export interface StreamOptions {
  * Chat with LLM (non-streaming)
  */
 export async function chatWithLLM(request: LLMRequest): Promise<LLMResponse> {
-  return await invokeCommand<LLMResponse>("llm_chat", {
+  return normalizeLLMResponse(await invokeCommand<unknown>("llm_chat", {
     provider: request.provider,
     model: request.model,
     messages: request.messages,
@@ -121,7 +125,8 @@ export async function chatWithLLM(request: LLMRequest): Promise<LLMResponse> {
     apiKey: request.apiKey,
     baseUrl: request.baseUrl,
     policy: request.policy,
-  });
+    taskManagedRecovery: request.taskManagedRecovery,
+  }));
 }
 
 /**
@@ -209,7 +214,7 @@ export async function chatWithContext(
     policy,
   };
 
-  return await invokeCommand<LLMResponse>("llm_chat_with_context", args);
+  return normalizeLLMResponse(await invokeCommand<unknown>("llm_chat_with_context", args));
 }
 
 /**

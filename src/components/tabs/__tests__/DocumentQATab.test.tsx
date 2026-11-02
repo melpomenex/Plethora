@@ -4,6 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 
 import { useLibraryAskHandoffStore } from "../../../commandPalette/libraryAskHandoff";
 import { askLibrary } from "../../../lib/ai/tasks/definitions/libraryTask";
+import { AIError } from "../../../lib/ai/errors";
 vi.mock("../../../lib/ai/tasks/definitions/libraryTask", () => ({ askLibrary: vi.fn() }));
 vi.mock("../../../lib/ai/resolveLibraryRag", () => ({ resolveLibraryRagComposition: vi.fn().mockResolvedValue({ retrieverId: "ai_learning", generatorKind: "ondevice", namespace: "library" }) }));
 vi.mock("../../assistant/ragConfig", () => ({ resolveEmbeddingConfigForRag: vi.fn().mockResolvedValue(undefined) }));
@@ -802,6 +803,28 @@ describe("Document Q&A workspace entry", () => {
     await screen.findByText("Cells share a common structure [1].");
     expect(useDocumentQAStore.getState().messages.filter((message) => message.role === "user")).toHaveLength(1);
     expect(chatWithContext).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["empty-response", "InvalidStructuredOutput", "returned no answer"],
+    ["output-limit", "InvalidStructuredOutput", "reached its output limit"],
+    ["refusal", "SafetyBlocked", "refused to answer"],
+    ["provider-error", "ProviderOffline", "could not complete the answer"],
+  ] as const)("shows sources-found generation copy for %s with retry and settings", async (kind, category, phrase) => {
+    vi.mocked(askLibrary).mockRejectedValue(new AIError(category, "PRIVATE upstream details", {
+      generation: { stage: "generation", evidenceCount: 2, retrievalMode: "semantic" },
+      completion: { attemptCount: kind === "refusal" ? 1 : 2, terminalFailureKind: kind, outputLimitObserved: kind === "output-limit" },
+    }));
+    render(<DocumentQATab />);
+    fireEvent.click(screen.getByRole("button", { name: /^Answer from:/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /^My library/ }));
+    fireEvent.change(questionInput(), { target: { value: "What are the main themes in my library?" } });
+    fireEvent.click(screen.getByRole("button", { name: "Ask" }));
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain(phrase));
+    expect(screen.getByRole("alert").textContent).toContain("Sources were found");
+    expect(screen.getByRole("button", { name: "Review and retry" })).toBeEnabled();
+    expect(within(screen.getByRole("alert")).getByRole("button", { name: "AI settings" })).toBeEnabled();
+    expect(screen.queryByText(/PRIVATE|rebuild.*embedding/i)).not.toBeInTheDocument();
   });
 
   it("preserves the live draft and session if storage fails during a new conversation", async () => {

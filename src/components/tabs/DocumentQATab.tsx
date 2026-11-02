@@ -1,3 +1,5 @@
+import { libraryGenerationFailureMessage, libraryGenerationFailureContext } from "../../lib/ai/libraryGenerationFailure";
+import { PinnedCloudProvider } from "../../lib/ai/providers/cloudProvider";
 import { allowsChatCardCreation } from "../../lib/ai/assistant/toolCallParser";
 import { scopedBodyTokenBudget } from "../../utils/scopedContextBudget";
 import { resolveRequestPolicy } from "../../api/llm/policy";
@@ -863,7 +865,10 @@ export function DocumentQATab() {
     setSummaryAfterPick(false);
   };
   const openWorkspaceSettings = () => {
-    if (workspace.flush()) useTabsStore.getState().addTab(createCanonicalTab("settings"));
+    if (workspace.flush()) {
+      localStorage.setItem("plethora_settings_initial_tab", "ai");
+      useTabsStore.getState().addTab(createCanonicalTab("settings"));
+    }
   };
   const importWorkspaceDocuments = async () => {
     if (!workspace.flush()) return;
@@ -1703,7 +1708,7 @@ export function DocumentQATab() {
         systemInstruction: provider.systemPrompt,
         libraryExecutor: assistantScope === "library" ? async ({ rewrittenQuery, history, contextPassage, contextBudgetTokens, k }) => {
           const [{ askLibrary }, { resolveEmbeddingConfigForRag }] = await Promise.all([import("../../lib/ai/tasks/definitions/libraryTask"), import("../assistant/ragConfig")]);
-          return askLibrary({ query: rewrittenQuery, history, contextPassage, contextBudgetTokens, k, config: await resolveEmbeddingConfigForRag().catch(() => undefined), filters: { documentIds: eligible.map((doc) => doc.id) }, evidenceScope: "library" });
+          return askLibrary({ query: rewrittenQuery, history, contextPassage, contextBudgetTokens, k, provider: new PinnedCloudProvider(provider), config: await resolveEmbeddingConfigForRag().catch(() => undefined), filters: { documentIds: eligible.map((doc) => doc.id) }, evidenceScope: "library" });
         } : undefined,
       });
       setSuggestSwitchToChat(Boolean(response.suggestSwitchToChat));
@@ -1731,13 +1736,15 @@ export function DocumentQATab() {
         await executeToolCalls(assistantMessage.id, toolCalls, focusedSectionContext?.ok ? focusedSectionContext.source : undefined);
       }
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      setProviderError(reason.startsWith("qaWorkspace.") ? t(reason) : t("qaWorkspace.requestFailed", { reason }));
+      const generationFailure = libraryGenerationFailureMessage(error);
+      const reason = generationFailure ?? (error instanceof Error ? error.message : String(error));
+      setProviderError(generationFailure ?? (reason.startsWith("qaWorkspace.") ? t(reason) : t("qaWorkspace.requestFailed", { reason })));
       if (!responseCommitted) restoreComposer();
       const errorMessage = {
         id: `error-${Date.now()}`,
         role: "system" as const,
-        content: `Error: ${error instanceof Error ? error.message : "Failed to get response from AI. Please check your API key and try again."}`,
+        generationFailure: libraryGenerationFailureContext(error),
+        content: generationFailure ?? `Error: ${error instanceof Error ? error.message : "Failed to get response from AI. Please check your API key and try again."}`,
         timestamp: Date.now(),
       };
       addMessage(errorMessage);

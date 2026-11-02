@@ -17,6 +17,8 @@ import {
   type FeatureId,
 } from "./features/types";
 import type { AITaskFallbackPath, AITaskModelClass, AITaskType, AITaskValidationOutcome } from "./tasks/types";
+import { sanitizeCompletionRecovery, type CompletionFailureKind } from "./tasks/completion";
+import { normalizeErrorCode, normalizeRecoveryCode } from "./diagnostics/featureReport";
 
 export interface OnDeviceTaskDiagnostic {
   taskId: string;
@@ -47,6 +49,10 @@ export interface OnDeviceTaskDiagnostic {
   totalLatencyMs?: number;
   finishReason?: string;
   errorCode?: string;
+  attemptCount?: number;
+  firstFailureKind?: CompletionFailureKind;
+  terminalFailureKind?: CompletionFailureKind;
+  outputLimitObserved?: boolean;
   grounded?: boolean;
   accepted?: boolean;
   /**
@@ -85,6 +91,10 @@ export interface OnDeviceTaskDiagnostic {
 
 const diagnosticLog: OnDeviceTaskDiagnostic[] = [];
 const MAX_DIAGNOSTIC_ENTRIES = 50;
+
+function safeTokenCount(value: number | undefined): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : undefined;
+}
 
 /**
  * Counter-only whitelist for the agent tool outcome ledger: only the known
@@ -137,13 +147,11 @@ export function recordTaskDiagnostic(
     fallbackPath: entry.fallbackPath,
     errorCategory: entry.errorCategory,
     baseModelName: entry.baseModelName,
-    inputTokens: entry.inputTokens,
-    outputTokens: entry.outputTokens,
-    tokenLimit: entry.tokenLimit,
+    tokenLimit: safeTokenCount(entry.tokenLimit),
     firstTokenLatencyMs: entry.firstTokenLatencyMs,
     totalLatencyMs: entry.totalLatencyMs,
-    finishReason: entry.finishReason,
-    errorCode: entry.errorCode,
+    ...sanitizeCompletionRecovery(entry),
+    errorCode: normalizeErrorCode(entry.errorCode),
     grounded: entry.grounded,
     accepted: entry.accepted,
     agentTurns: entry.agentTurns,
@@ -306,6 +314,7 @@ const PROVIDER_CLASSES = new Set([
 const MODEL_CLASSES = new Set(["fast", "full", "reasoning", "embedding"]);
 
 const FEATURE_ERROR_CATEGORIES = new Set([
+  "ProviderOffline",
   "Cancelled",
   "ModelUnavailable",
   "ModelDownloadRequired",
@@ -366,7 +375,7 @@ export function recordFeatureObservation(
     providerClass: safeProviderClass(input.providerClass),
     modelClass: safeModelClass(input.modelClass),
     errorCategory: safeErrorCategory(input.errorCategory),
-    recoveryCode: safeString(input.recoveryCode, 64),
+    recoveryCode: normalizeRecoveryCode(input.recoveryCode) ?? normalizeErrorCode(input.recoveryCode),
     smoke: input.smoke === true || undefined,
   };
 

@@ -120,6 +120,12 @@ export class AIError extends Error {
   readonly taskId?: string;
   /** Structured detail (error codes/paths, never raw user content). */
   readonly details?: string[];
+  readonly completion?: import("./tasks/completion").CompletionRecovery;
+  readonly generation?: {
+    stage: "generation";
+    evidenceCount: number;
+    retrievalMode: "semantic" | "lexicalOnly";
+  };
 
   constructor(
     category: AIErrorCategory,
@@ -129,6 +135,8 @@ export class AIError extends Error {
       providerId?: string;
       taskId?: string;
       details?: string[];
+      completion?: AIError["completion"];
+      generation?: AIError["generation"];
       cause?: unknown;
     } = {}
   ) {
@@ -139,6 +147,8 @@ export class AIError extends Error {
     this.providerId = options.providerId;
     this.taskId = options.taskId;
     this.details = options.details;
+    this.completion = options.completion;
+    this.generation = options.generation;
     if (options.cause !== undefined) {
       (this as Error & { cause?: unknown }).cause = options.cause;
     }
@@ -332,6 +342,8 @@ export function toAIError(
         providerId: context.providerId,
         taskId: context.taskId ?? error.taskId,
         details: error.details,
+        completion: error.completion,
+        generation: error.generation,
         cause: error,
       });
     }

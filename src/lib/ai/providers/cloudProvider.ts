@@ -142,6 +142,29 @@ export class CloudProvider implements AIProvider {
     return capabilitiesFromCloudConfig(this.activeConfig());
   }
 
+  /** Capture the actual generator before preparing sources. */
+  pin(): CloudProvider {
+    const config = this.activeConfig();
+    return config ? new PinnedCloudProvider(config, this.transport) : this;
+  }
+
+  getRequestPolicy() {
+    const config = this.activeConfig();
+    return resolveRequestPolicy({
+      provider: config?.provider,
+      providerMaxOutput: config?.maxTokens,
+      providerContextTokens: config?.contextWindowTokens,
+      perModelOverride: config?.modelContextWindows?.[config.model],
+      autoPreset: config?.contextWindowPreset === "auto",
+      applyOllamaDefaultGuard: config?.provider === "ollama",
+    });
+  }
+
+  sendsTextOffDevice(): boolean {
+    const config = this.activeConfig();
+    return !config || !providerAllowsKeylessAccess(config.provider, config.baseUrl);
+  }
+
   async generateStream(req: AIRequest, opts: AIStreamOptions = {}): Promise<AIResponse> {
     const config = this.activeConfig();
     if (!config) {
@@ -166,6 +189,7 @@ export class CloudProvider implements AIProvider {
       maxTokens: req.maxOutputTokens ?? config.maxTokens,
       apiKey: config.apiKey || undefined,
       baseUrl: config.baseUrl,
+      taskManagedRecovery: req.taskManagedRecovery,
       policy: resolveRequestPolicy({
         provider: config.provider,
         providerMaxOutput: config.maxTokens,
@@ -190,6 +214,7 @@ export class CloudProvider implements AIProvider {
           requestId: req.requestId,
           text: res.content,
           finishReason: res.finishReason,
+          responseKind: res.responseKind,
           baseModelName: config.model,
           usage: res.usage
             ? {
@@ -345,7 +370,7 @@ export class PinnedCloudProvider extends CloudProvider {
   constructor(config: LLMProviderConfig, transport: CloudProviderTransport = {}) {
     // Snapshot the config at construction: later store edits (or mutations of
     // the caller's object) never alter what this instance serves.
-    super(transport, { ...config, apiKey: config.apiKey });
+    super(transport, { ...config, modelContextWindows: { ...config.modelContextWindows }, apiKey: config.apiKey });
     this.id = `${CLOUD_PROVIDER_ID}:${config.id}`;
   }
 }

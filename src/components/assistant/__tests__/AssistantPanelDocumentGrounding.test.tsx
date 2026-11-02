@@ -1,3 +1,6 @@
+import { AIError } from "../../../lib/ai/errors";
+import { askLibrary } from "../../../lib/ai/tasks/definitions/libraryTask";
+vi.mock("../../../lib/ai/tasks/definitions/libraryTask", () => ({ askLibrary: vi.fn() }));
 /**
  * Document-scope grounding regression (`fix-document-mode-grounding`):
  * whole-document requests must use the document's own evidence — the canonical
@@ -27,6 +30,7 @@ vi.mock("../../../lib/tauri", async (importOriginal) => {
 
 vi.mock("../../../api/llm", () => ({
   chatWithContext: vi.fn(),
+  streamChatWithLLM: vi.fn(),
 }));
 
 vi.mock("../../../api/mcp", () => ({
@@ -95,6 +99,20 @@ describe("AssistantPanel Document-scope grounding", () => {
     seedProviders();
     vi.mocked(chatWithContext).mockReset();
     vi.mocked(chatWithContext).mockResolvedValue({ content: "A grounded summary." } as never);
+  });
+
+  it("presents a library generation failure with existing retry and AI Settings actions", async () => {
+    vi.mocked(askLibrary).mockRejectedValueOnce(new AIError("InvalidStructuredOutput", "PRIVATE", { generation: { stage: "generation", evidenceCount: 2, retrievalMode: "semantic" }, completion: { attemptCount: 2, terminalFailureKind: "empty-response" } }));
+    render(<AssistantPanel context={windowedContext(2000)} />);
+    fireEvent.click(await screen.findByRole("button", { name: /^Answer from:/ }));
+    fireEvent.click(screen.getByRole("menuitemradio", { name: /^My library/ }));
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "What are the main themes in my library?" } });
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+    await screen.findByText(/Sources were found, but the AI model returned no answer/);
+    expect(screen.getByRole("button", { name: "AI settings" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Retry" })).toBeEnabled();
+    expect(screen.queryByText("PRIVATE")).not.toBeInTheDocument();
   });
 
   it("answers a summary from the canonical full text when it fits the budget", async () => {

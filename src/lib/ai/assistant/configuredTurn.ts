@@ -1,5 +1,4 @@
 import { useSettingsStore } from "../../../stores/settingsStore";
-import { useLLMProvidersStore } from "../../../stores/llmProvidersStore";
 import { resolveAiPath } from "../provider";
 import { runTask } from "../tasks/runTask";
 import { runAssistantTurn, type AssistantTurnRequest } from "./orchestrator";
@@ -8,6 +7,7 @@ import { loadDocumentQaText } from "../../../features/documentQa/sectionContextR
 import { isVideoDocumentFileType } from "../../../features/documentQa/legacyContextWindow";
 import { extractDocumentText } from "../../../api/documents";
 import { trimToTokenWindow } from "../../../utils/tokenizer";
+import { PinnedCloudProvider, getActiveCloudConfig } from "../providers/cloudProvider";
 
 /** Shared configured adapter for surfaces that do not expose their own provider picker. */
 export async function runConfiguredAssistantTurn(options: Omit<AssistantTurnRequest, "provider"> & {
@@ -17,7 +17,7 @@ export async function runConfiguredAssistantTurn(options: Omit<AssistantTurnRequ
   const ids = options.documentIds ?? (options.sourceId ? [options.sourceId] : []);
   const documents = await Promise.all(ids.map((id) => getDocument(id)));
   const path = await resolveAiPath("prompt");
-  const configured = useLLMProvidersStore.getState().providers.find((provider) => provider.enabled);
+  const configured = getActiveCloudConfig();
   const provider = path === "ondevice" ? "ondevice" : configured?.provider ?? "ondevice";
   const configuredContextTokens = path === "ondevice" ? 4096 : configured?.contextWindowTokens;
   let sourceContent = options.sourceContent;
@@ -70,6 +70,8 @@ export async function runConfiguredAssistantTurn(options: Omit<AssistantTurnRequ
       ]);
       const [composition, config] = await Promise.all([resolveLibraryRagComposition(), resolveEmbeddingConfigForRag().catch(() => undefined)]);
       return askLibrary({ query: rewrittenQuery, history, contextPassage, contextBudgetTokens, k, composition, config,
+        provider: path === "cloud" && configured ? new PinnedCloudProvider(configured) : undefined,
+        kind: path === "ondevice" ? "ondevice" : undefined,
         filters: ids.length ? { documentIds: ids } : undefined, signal: options.signal,
         evidenceScope: options.scope === "document" ? "document" : "library" });
     } : undefined,

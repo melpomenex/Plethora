@@ -108,6 +108,7 @@ describe("text tasks through runTask", () => {
     expect(provider.requests[0].systemInstruction).toContain(UNTRUSTED_CONTAINMENT_CLAUSE);
     expect(provider.requests[0].text).toContain("Question: why?");
     expect(provider.requests[0].maxOutputTokens).toBe(128);
+    expect(provider.requests[0].taskManagedRecovery).toBe(false);
   });
 
   it("rejects oversized inputs against the provider context (estimation only)", async () => {
