@@ -2,7 +2,7 @@ import { chromium } from "@playwright/test";
 import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 
-const OUT_DIR = resolve("mobile-screenshots");
+const OUT_DIR = resolve("mobile-screenshots", "obsidian-noir");
 await mkdir(OUT_DIR, { recursive: true });
 
 const browser = await chromium.launch({ headless: true });
