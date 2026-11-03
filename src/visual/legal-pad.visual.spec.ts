@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 
 test("paper is decoded, interactive, previewable and reversible", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.goto("/legal-pad-harness.html");
+  await page.goto("/src/visual/entries/legal-pad-harness.html");
   await expect(page.locator('main[data-ready="true"]')).toBeVisible();
   await expect(page.locator("html")).toHaveAttribute("data-theme-material", "paper");
   const frame = page.frameLocator("iframe");
@@ -44,7 +44,7 @@ test("paper is decoded, interactive, previewable and reversible", async ({ page 
 test.describe('high density phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3 });
   test('selects and decodes a bounded high-density texture', async ({ page }) => {
-    await page.goto('/legal-pad-harness.html');
+    await page.goto('/src/visual/entries/legal-pad-harness.html');
     await expect(page.locator('html')).toHaveAttribute('data-theme-material','paper');
     const sample=await page.evaluate(async()=>{
       const css=getComputedStyle(document.documentElement).getPropertyValue('--paper-grain');

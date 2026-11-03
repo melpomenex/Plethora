@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("preserves reading position across streaming, resize, conversations, and reopening", async ({ page }) => {
-  await page.goto("/issue6-assistant-scroll-harness.html");
+  await page.goto("/src/visual/entries/issue6-assistant-scroll-harness.html");
   const scroll = page.locator("[data-scroll]");
   const distanceFromBottom = () => scroll.evaluate((el) => el.scrollHeight - el.clientHeight - el.scrollTop);
   await expect.poll(distanceFromBottom).toBeLessThanOrEqual(1);
@@ -41,7 +41,7 @@ test("preserves reading position across streaming, resize, conversations, and re
 });
 
 test("restores from session state and advances to a surviving anchor", async ({ page }) => {
-  await page.goto("/issue6-assistant-scroll-harness.html");
+  await page.goto("/src/visual/entries/issue6-assistant-scroll-harness.html");
   const scroll = page.locator("[data-scroll]");
   await scroll.evaluate((el) => { el.scrollTop = 380; });
   await expect(page.getByRole("button", { name: "Latest message" })).toBeVisible();
@@ -56,7 +56,7 @@ test("restores from session state and advances to a surviving anchor", async ({ 
 test("the real assistant preserves position through provider changes and hydration", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.goto("/assistant-controls-harness.html?picker&scroll&width=420");
+  await page.goto("/src/visual/entries/assistant-controls-harness.html?picker&scroll&width=420");
   const scroll = page.locator("[data-assistant-messages]");
   await expect(scroll.locator("[data-assistant-message-id]")).toHaveCount(24);
   await scroll.evaluate((el) => { el.scrollTop = 300; });

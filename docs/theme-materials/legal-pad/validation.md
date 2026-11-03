@@ -42,7 +42,7 @@ The source requirement was strengthened by the user's explicit choice: genuine h
 
 ## How to review the current implementation
 
-Run `npm run dev -- --port 5199 --strictPort` and open `/legal-pad-harness.html` for the actual palette/material, Appearance controls and canonical HTML reader. The normal app's existing theme picker also exposes Legal Pad. This harness is a deterministic browser review surface, not a replacement for testing each native reader and app destination. `npx playwright test src/visual/legal-pad.visual.spec.ts` runs the local browser contract independently of the currently incomplete scholarly fixture.
+Run `npm run dev -- --port 5199 --strictPort` and open `/src/visual/entries/legal-pad-harness.html` for the actual palette/material, Appearance controls and canonical HTML reader. The normal app's existing theme picker also exposes Legal Pad. This harness is a deterministic browser review surface, not a replacement for testing each native reader and app destination. `npx playwright test src/visual/legal-pad.visual.spec.ts` runs the local browser contract independently of the currently incomplete scholarly fixture.
 
 Controlled performance rerun, after competing Node build/test work stopped: **`npm run bench:check` passed**, all **60 benchmark comparisons** and the bundle budget. Existing stale/missing baseline warnings remain. No performance baseline or bundle ceiling was relaxed. This supersedes the failed uncontrolled run as the CPU/bundle gate result; it does not certify native GPU, memory or power budgets.
 

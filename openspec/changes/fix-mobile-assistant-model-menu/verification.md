@@ -17,7 +17,7 @@ No iOS simulator or Android device was attached (`adb devices` returned an empty
   - Desktop keeps the anchored `w-72` wrapper and uses the shared picker inside it.
   - Model-control trigger exposes `aria-haspopup`/`aria-expanded`; transient menus close with the mobile presentation.
 - Locales: added `assistant.modelPicker.*` labels in `en`, `de`, `es`, `fr`, `ja`, and `zh`.
-- Coverage: `src/components/assistant/__tests__/AssistantPanelMobileModelPicker.test.tsx`, `src/visual/assistantModelPickerHarness.tsx`, `public/assistant-model-picker-harness.html`, and `src/visual/assistant-model-picker.visual.spec.ts`.
+- Coverage: `src/components/assistant/__tests__/AssistantPanelMobileModelPicker.test.tsx`, `src/visual/assistantModelPickerHarness.tsx`, `src/visual/entries/assistant-model-picker-harness.html`, and `src/visual/assistant-model-picker.visual.spec.ts`.
 
 ## Focused unit/integration tests
 

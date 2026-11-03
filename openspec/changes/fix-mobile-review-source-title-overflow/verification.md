@@ -25,7 +25,7 @@ No iOS simulator or Android device was attached.
   `review.sourceDetailsHide` to `en`, `zh`, `es`, `de`, `fr`, `ja`.
 - Coverage: extended `CardSourceContext.test.tsx`, added
   `src/visual/cardSourceContextHarness.tsx` with
-  `public/card-source-context-harness.html`, and added
+  `src/visual/entries/card-source-context-harness.html`, and added
   `src/visual/card-source-context.visual.spec.ts`.
 
 ## Focused unit/integration tests

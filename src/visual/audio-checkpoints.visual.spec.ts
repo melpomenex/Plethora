@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 test("browser checkpoints migrate, reject stale owners, project atomically and preserve reader position", async ({ page }) => {
-  await page.goto("/audio-checkpoint-harness.html");
+  await page.goto("/src/visual/entries/audio-checkpoint-harness.html");
   await page.evaluate(async () => {
     localStorage.setItem("audiobook-legacy-book-bookmarks", JSON.stringify([{ id: "saved-mark", time: 42, title: "Keep this" }]));
     await new Promise<void>((resolve, reject) => {

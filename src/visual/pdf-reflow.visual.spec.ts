@@ -13,7 +13,7 @@ import { expect, test } from "@playwright/test";
  * don't require the native backend. Backend-dependent journeys stay on the
  * manual smoke checklist (task 10.6).
  *
- * The harness (public/visual-harness.html) mounts the real renderer with
+ * The harness (src/visual/entries/visual-harness.html) mounts the real renderer with
  * deterministic SVG data-URL figures — wide/tall/square/tiny crops plus one
  * whose URL is aborted — covering every intrinsic-dims source (measured
  * crop, model sourceWidth/sourceHeight, bbox fallback) and the pre-load
@@ -57,12 +57,12 @@ test.describe("reflow renderer layout", () => {
     test(`text and figure layout at ${viewport.name}`, async ({ page }) => {
       await page.setViewportSize({ width: viewport.width, height: viewport.height });
       // The renderer is exercised through a minimal harness page served by
-      // the dev server (public/visual-harness.html) that mounts the
+      // the dev server (src/visual/entries/visual-harness.html) that mounts the
       // canonical reflow renderer on a deterministic fixture model. The
       // blocked route keeps one figure permanently unloaded so the pre-load
       // reservation can be measured.
       await page.route("**/blocked-figure.png", (route) => route.abort());
-      await page.goto("/visual-harness.html");
+      await page.goto("/src/visual/entries/visual-harness.html");
       await page.waitForSelector("[data-pdf-reflow-page] img");
       await page.waitForFunction(() => {
         const imgs = Array.from(document.querySelectorAll("[data-pdf-reflow-block] img"));
@@ -154,7 +154,7 @@ test.describe("reflow renderer layout", () => {
   test("image scaling modes: fit shows the full image, original scrolls, hide removes figures", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.route("**/blocked-figure.png", (route) => route.abort());
-    await page.goto("/visual-harness.html");
+    await page.goto("/src/visual/entries/visual-harness.html");
     await page.waitForSelector("[data-pdf-reflow-page] img");
     const setMode = (mode: string) =>
       page.evaluate((value) => {

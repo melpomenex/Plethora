@@ -202,7 +202,7 @@ async function openSelectionMenu(
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await mockRssApi(page);
-  await page.goto("/rss-selection-harness.html");
+  await page.goto("/src/visual/entries/rss-selection-harness.html");
   await page.locator('[data-harness-view="story"]').waitFor();
 });
 

@@ -6,7 +6,7 @@ each section.
 ## Visual fixture and captures (10.1, 10.2)
 
 Deterministic fixture: `src/visual/commandPaletteHarness.tsx` (mounted by
-`public/command-palette-harness.html`) with a fixed clock (relative times are
+`src/visual/entries/command-palette-harness.html`) with a fixed clock (relative times are
 literal strings), a pinned fixture font stack, fixed inline-SVG cover, and
 synthetic candidate data that never touches production stores. The fixture
 applies real themes through `ThemeProvider` (default `biolume-abyss`, the app

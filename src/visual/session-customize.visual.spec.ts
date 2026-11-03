@@ -22,7 +22,7 @@ const PHONE_ACTIONS = [
 ];
 
 async function openDialog(page: Page) {
-  await page.goto("/session-customize-harness.html");
+  await page.goto("/src/visual/entries/session-customize-harness.html");
   await page.getByRole("button", { name: "New Queue", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
 }
@@ -259,7 +259,7 @@ test("desktop: the dialog is centered and keeps the single action row", async ({
 for (const width of [1440, 2466]) {
   test(`desktop ${width}: long content stays inside the bounded dialog`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1000 });
-    await page.goto("/session-customize-harness.html?crowded");
+    await page.goto("/src/visual/entries/session-customize-harness.html?crowded");
     const trigger = page.getByRole("button", { name: "New Queue", exact: true });
     await trigger.click();
     const dialog = page.getByRole("dialog");

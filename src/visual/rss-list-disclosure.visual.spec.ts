@@ -120,7 +120,7 @@ async function installRoutes(page: Page, fixtures: RouteFixtures) {
 
 async function openHarness(page: Page, fixtures: RouteFixtures) {
   await installRoutes(page, fixtures);
-  await page.goto("/rss-customization-harness.html");
+  await page.goto("/src/visual/entries/rss-customization-harness.html");
   await page.getByRole("button", { name: "list-card", exact: true }).waitFor();
 }
 

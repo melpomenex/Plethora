@@ -3,7 +3,7 @@ import { expect, test } from "@playwright/test";
 for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
   test(`palette actions produce real outcomes at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
-    await page.goto("/palette-actions-harness.html");
+    await page.goto("/src/visual/entries/palette-actions-harness.html");
     const open = async () => {
       await page.getByRole("button", { name: "Open commands" }).click();
       await expect(page.getByRole("combobox", { name: "Search, ask, or run a command" })).toBeVisible();

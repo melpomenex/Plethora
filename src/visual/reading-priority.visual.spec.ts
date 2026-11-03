@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 async function load(page: Page, width = 390, height = 844) {
   await page.setViewportSize({ width, height });
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/rating-orbs-harness.html?priority");
+  await page.goto("/src/visual/entries/rating-orbs-harness.html?priority");
   await page.waitForFunction(() => window.ratingHarness?.themes.length > 0);
   await expect(page.getByRole("button", { name: "Reading Priority: Normal" })).toBeVisible();
 }

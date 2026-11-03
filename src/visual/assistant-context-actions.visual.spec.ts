@@ -20,7 +20,7 @@ for (const layout of layouts) test(`${layout.name}: action fit, menu bounds and 
   await page.emulateMedia({ reducedMotion: 'reduce' });
   const inference: string[] = [];
   page.on('request', request => { if (/api\.openai|openrouter\.ai|api\.anthropic/.test(request.url())) inference.push(request.url()); });
-  await page.goto(`/assistant-controls-harness.html?actions&${layout.query}`);
+  await page.goto(`/src/visual/entries/assistant-controls-harness.html?actions&${layout.query}`);
   const strip = page.locator('[data-assistant-action-strip]');
   const add = page.locator('[data-assistant-composer-add]');
   const mobile = layout.query.includes('mobile');

@@ -17,7 +17,7 @@ const layouts = [
 for (const layout of layouts) {
   test(`${layout.name}: mode and source hierarchy, containment, and continuity`, async ({ page }) => {
     await page.setViewportSize({ width: layout.width, height: layout.height });
-    await page.goto(`/assistant-controls-harness.html?${layout.query}`);
+    await page.goto(`/src/visual/entries/assistant-controls-harness.html?${layout.query}`);
     const source = page.locator("[data-assistant-answer-from] > button");
     await expect(source).toBeVisible({ timeout: 30_000 });
     await expect(page.locator("[data-assistant-toolbar] [data-assistant-answer-from]")).toHaveCount(0);

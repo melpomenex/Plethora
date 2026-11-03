@@ -14,7 +14,7 @@ import { expect, test, type Page } from "@playwright/test";
 const CARD = '[data-testid="edition-card-edition-1"]';
 
 async function openShelf(page: Page) {
-  await page.goto("/audiobooks-tab-harness.html");
+  await page.goto("/src/visual/entries/audiobooks-tab-harness.html");
   await page.locator(CARD).waitFor({ state: "visible" });
 }
 

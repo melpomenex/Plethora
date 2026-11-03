@@ -47,8 +47,6 @@ Device: Pixel 9 Pro XL (`adb-47241FDAS006KM-7WgEBV._adb-tls-connect._tcp`), 1008
 
 Reproduced the reported defect through the palette → New Queue path: the dialog's action row sat at `y 1863–2094` while the bottom navigation occupies `y 2052–2191`, so the lower third of Cancel and Apply Customization was behind the navigation, the scrim did not dim the navigation, and the navigation remained clickable while the dialog was open.
 
-Evidence: `mobile-screenshots/session-customize-layering/before-pixel9-narrow-toolbar.png`.
-
 ## Validation limits and unrelated failures
 
 - Full vitest suite (`npx vitest run`, 874 files): 7134 passed, 25 failed — none attributable to this change. 5 of those failures (Toolbar, `useShareTargetDedupe` ×2, `iosCapabilitiesDoc`, `audioEditionIntegration`) fail identically with every change of this one stashed, plus the pre-existing `ReviewQueueView` dropdown test. The remaining 19 are the OCR command suite (3) and the in-progress assistant-composer work (16) that is being edited in this working tree in parallel.

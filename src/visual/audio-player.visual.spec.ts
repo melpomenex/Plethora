@@ -4,7 +4,7 @@ for (const mobile of [false, true]) {
   test(`audio survives source close, navigation and expansion at ${mobile ? "320px" : "1280px"}`, async ({ page }) => {
     page.on("pageerror", error => { console.error("audio fixture:", error.message); });
     await page.setViewportSize(mobile ? { width: 320, height: 740 } : { width: 1280, height: 720 });
-    await page.goto(`/audio-player-harness.html${mobile ? "?mobile" : ""}`);
+    await page.goto(`/src/visual/entries/audio-player-harness.html${mobile ? "?mobile" : ""}`);
     await page.getByRole("button", { name: "Play fixture", exact: true }).click();
     const player = page.getByRole("region", { name: "Audio player" });
     await expect(player.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
@@ -58,7 +58,7 @@ for (const viewport of [
     const layout = { width: Math.floor(viewport.width / zoom), height: Math.floor(viewport.height / zoom) };
     test(`desktop dock stays contained and reserved at ${viewport.width}x${viewport.height} @ ${zoom * 100}%`, async ({ page }) => {
       await page.setViewportSize(layout);
-      await page.goto("/audio-player-harness.html");
+      await page.goto("/src/visual/entries/audio-player-harness.html");
       await page.getByRole("button", { name: "Play fixture", exact: true }).click();
       const player = page.getByRole("region", { name: "Audio player" });
       await expect(player.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
@@ -98,7 +98,7 @@ for (const viewport of [
 for (const width of [768, 1024]) {
   test(`tablet-width desktop dock stays contained at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1024 });
-    await page.goto("/audio-player-harness.html");
+    await page.goto("/src/visual/entries/audio-player-harness.html");
     await page.getByRole("button", { name: "Play fixture", exact: true }).click();
     const player = page.getByRole("region", { name: "Audio player" });
     await expect(player.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
@@ -117,7 +117,7 @@ for (const width of [768, 1024]) {
 
 for (const width of [320, 360, 390, 412]) {  test(`mobile dock sits above navigation with reachable transport at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 740 });
-    await page.goto("/audio-player-harness.html?mobile");
+    await page.goto("/src/visual/entries/audio-player-harness.html?mobile");
     await page.getByRole("button", { name: "Play fixture", exact: true }).click();
     const player = page.getByRole("region", { name: "Audio player" });
     await expect(player.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
@@ -160,7 +160,7 @@ test("mini-player text and primary transport meet AA contrast in light and dark 
   const measure = async (scheme: "light" | "dark") => {
     await page.emulateMedia({ colorScheme: scheme });
     await page.setViewportSize({ width: 1280, height: 720 });
-    await page.goto("/audio-player-harness.html");
+    await page.goto("/src/visual/entries/audio-player-harness.html");
     await page.getByRole("button", { name: "Play fixture", exact: true }).click();
     const player = page.getByRole("region", { name: "Audio player" });
     await expect(player.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
@@ -204,7 +204,7 @@ test("expanded player module loads lazily and reduced motion disables dock anima
     if (request.url().includes("ExpandedAudioPlayer")) requests.push(request.url());
   });
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.goto("/audio-player-harness.html");
+  await page.goto("/src/visual/entries/audio-player-harness.html");
   await page.getByRole("button", { name: "Play fixture", exact: true }).click();
   const player = page.getByRole("region", { name: "Audio player" });
   await expect(player.getByRole("button", { name: "Pause", exact: true })).toBeVisible();
@@ -229,7 +229,7 @@ test("expanded player module loads lazily and reduced motion disables dock anima
 test("queue controls remain distinct from transport and preserve paused intent without a source view", async ({ page }) => {
   page.on("pageerror", error => console.error("audio queue fixture:", error.stack));
   await page.setViewportSize({ width: 320, height: 740 });
-  await page.goto("/audio-player-harness.html?mobile&queue");
+  await page.goto("/src/visual/entries/audio-player-harness.html?mobile&queue");
   await page.getByRole("button", { name: "Play fixture", exact: true }).click();
   const player = page.getByRole("region", { name: "Audio player" });
   await player.getByRole("button", { name: "Pause", exact: true }).click();

@@ -23,7 +23,7 @@ Inspected working tree based on `e5e52634`, including existing uncommitted chang
 | `src/styles/reading.css:157`; `src/index.css:152,182` | RSS layout styles already live in `reading.css`. Motion uses `--md-duration-short` (150ms) and `--md-easing-standard`; reduced motion and application animation settings set duration to zero. The stylesheet is already imported. |
 | Installed `@tanstack/virtual-core` 3.13.18, `src/index.ts:243,380,862,887` | `measureElement` registers a border-box `ResizeObserver`, reads `borderBoxSize` or `offsetHeight`, and calls `resizeItem` when size changes. Default correction also adjusts partially visible rows. `shouldAdjustScrollPositionOnItemSizeChange` is an **instance property**, not a constructor option in this installed version. The React adapter rerenders on size notifications. |
 
-`src/visual/rss-customization.visual.spec.ts`, `src/visual/rssCustomizationHarness.tsx`, and `public/rss-customization-harness.html` already exercise the real `RSSReader` through mocked HTTP routes. Vitest uses jsdom and Testing Library (`vitest.config.ts`); real geometry belongs in Playwright (`playwright.config.ts`). Do not use the separate, currently untracked RSS selection harness as this feature's foundation.
+`src/visual/rss-customization.visual.spec.ts`, `src/visual/rssCustomizationHarness.tsx`, and `src/visual/entries/rss-customization-harness.html` already exercise the real `RSSReader` through mocked HTTP routes. Vitest uses jsdom and Testing Library (`vitest.config.ts`); real geometry belongs in Playwright (`playwright.config.ts`). Do not use the separate, currently untracked RSS selection harness as this feature's foundation.
 
 The existing `article-layouts` spec describes a separate left/top thumbnail-position choice, but the verified preference type and customization panel contain no position field/control. Its delta replaces that stale scenario with actual presentation/size-driven placement. Do not add a position preference or redesign Magazine/Grid to satisfy the stale wording.
 
@@ -50,7 +50,7 @@ These are expected future implementation edits, not changes made by this plannin
 | `src/visual/rss-customization.visual.spec.ts` | Extend the harness interface declaration while retaining existing tests. |
 | `src/visual/rss-list-disclosure.visual.spec.ts` | New: real browser geometry, interactions, and stress coverage. |
 
-No edit is required to `public/rss-customization-harness.html`, `ArticleLayouts.tsx`, `RSSCustomizationPanel.tsx`, `rssCustomization.ts`, reader/full-content/story components, shared menu infrastructure, or package files.
+No edit is required to `src/visual/entries/rss-customization-harness.html`, `ArticleLayouts.tsx`, `RSSCustomizationPanel.tsx`, `rssCustomization.ts`, reader/full-content/story components, shared menu infrastructure, or package files.
 
 ## Decisions
 

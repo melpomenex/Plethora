@@ -11,7 +11,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 
-const HARNESS = "/assistant-model-picker-harness.html";
+const HARNESS = "/src/visual/entries/assistant-model-picker-harness.html";
 const RESULTS_DIR = ".playwright/results";
 mkdirSync(RESULTS_DIR, { recursive: true });
 
@@ -188,7 +188,7 @@ async function expectRowInList(page: Page, selector: string) {
 test.describe("production desktop provider picker", () => {
   test("reflows while open after panel, viewport, and scale changes", async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 720 });
-    await page.goto("/assistant-controls-harness.html?picker&width=420&side=right");
+    await page.goto("/src/visual/entries/assistant-controls-harness.html?picker&width=420&side=right");
     await page.getByTitle("Change Active AI Model").click();
     const menu = page.locator("[data-assistant-model-menu]");
     await menu.evaluate((element) => Promise.all(element.getAnimations().map((animation) => animation.finished)));
@@ -218,7 +218,7 @@ test.describe("production desktop provider picker", () => {
           test(`${side} ${panelWidth}px ${viewport.width}x${viewport.height} scale ${zoom}`, async ({ page }) => {
             await page.setViewportSize(viewport);
             const active = panelWidth === 320 ? "deepseek" : "openai";
-            await page.goto(`/assistant-controls-harness.html?picker&width=${panelWidth}&side=${side}&active=${active}&theme=legal-pad`);
+            await page.goto(`/src/visual/entries/assistant-controls-harness.html?picker&width=${panelWidth}&side=${side}&active=${active}&theme=legal-pad`);
             const trigger = page.getByTitle("Change Active AI Model");
             await expect(trigger).toBeVisible({ timeout: 30_000 });
             // CSS scale exercises conversion between viewport rectangles and

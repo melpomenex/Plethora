@@ -106,7 +106,7 @@ Alternative considered: a generated list of questions and answers is simpler but
 
 ### Match the existing instrument and verify its pressure points
 
-Use existing Material button/menu primitives, semantic tokens, Phosphor glyphs, focus and overlay contracts. No new visual brand or hardcoded application palette. The companion `.lavish/assistant-context-actions.html` is an illustrative interaction concept in Plethora's Material theme roles, not a live Assistant and not a pixel-exact implementation commitment. It demonstrates phone idle/More/quiz and the document-side desktop panel.
+Use existing Material button/menu primitives, semantic tokens, Phosphor glyphs, focus and overlay contracts. No new visual brand or hardcoded application palette. An illustrative interaction concept in Plethora's Material theme roles — not a live Assistant and not a pixel-exact implementation commitment — demonstrated phone idle/More/quiz and the document-side desktop panel.
 
 Localize labels, target kinds, menus, placeholders, accessible names, errors, quiz controls, and display prompts in all six locales. Keep action IDs and outcome policy independent of localization. No new Settings controls are required; if implementation later adds one, apply the repository's Settings search catalog, coverage, and tests.
 

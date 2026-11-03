@@ -12,7 +12,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { readFileSync } from "node:fs";
 
-const HARNESS = "/ai-diagnostics-harness.html";
+const HARNESS = "/src/visual/entries/ai-diagnostics-harness.html";
 
 async function openHarness(page: Page) {
   await page.goto(HARNESS, { timeout: 30_000 });

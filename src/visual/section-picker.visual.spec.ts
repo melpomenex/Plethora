@@ -45,7 +45,7 @@ async function expectPickerVisible(page: Page, hostSelector: string, name: strin
 
 test("desktop assistant: # picker is unclipped and expands the outline", async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto("/assistant-controls-harness.html?width=420&sections");
+  await page.goto("/src/visual/entries/assistant-controls-harness.html?width=420&sections");
 
   const input = page.getByRole("textbox").first();
   await input.click();
@@ -68,7 +68,7 @@ test("desktop assistant: # picker is unclipped and expands the outline", async (
 
 test("mobile assistant sheet: # picker stays anchored and visible", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/assistant-controls-harness.html?mobile&sections");
+  await page.goto("/src/visual/entries/assistant-controls-harness.html?mobile&sections");
 
   const input = page.getByRole("textbox").first();
   await input.click();

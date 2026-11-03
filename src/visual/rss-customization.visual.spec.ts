@@ -64,7 +64,7 @@ test.beforeEach(async ({ page }) => {
       body: JSON.stringify(body),
     });
   });
-  await page.goto("/rss-customization-harness.html");
+  await page.goto("/src/visual/entries/rss-customization-harness.html");
   await page.getByText("Customize fixture", { exact: true }).waitFor();
 });
 for (const viewport of [

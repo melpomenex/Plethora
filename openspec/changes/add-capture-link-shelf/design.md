@@ -135,4 +135,4 @@ No database migration or historical backfill is expected. Land the command and n
 
 ## Review Artifact
 
-The standalone concept preview at `../../../.lavish/capture-link-shelf.html` uses illustrative content and the application's theme roles, with the supplied warm dark theme as its first view. It demonstrates covers, a missing-cover tile, hover/focus actions, phone reflow, light-theme compatibility, and shelf loading/empty/error states. Preview actions simulate navigation and clearly identify it as a concept; this file is not product implementation.
+A standalone concept preview (not committed to the repository) used illustrative content and the application's theme roles, with the supplied warm dark theme as its first view. It demonstrates covers, a missing-cover tile, hover/focus actions, phone reflow, light-theme compatibility, and shelf loading/empty/error states. Preview actions simulate navigation and clearly identify it as a concept; this file is not product implementation.

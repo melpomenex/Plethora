@@ -7,9 +7,9 @@
 
 ## Illustrative concept verification
 
-Concept: [Assistant actions](../../../.lavish/assistant-context-actions.html). Design authority: existing Plethora Material 3 roles and the Launch Purple theme in `DESIGN.md` and `src/themes/fallback.ts`.
+Concept: an illustrative Assistant actions interaction prototype (not committed to the repository). Design authority: existing Plethora Material 3 roles and the Launch Purple theme in `DESIGN.md` and `src/themes/fallback.ts`.
 
-Inspected the rendered phone and document-side desktop concepts in the in-app browser. Exercised More and its bounded grouped menu, explicit whole-document outline naming, hidden quiz answers and Show answer, and action access through the add control while an unsent draft exists. The simulated Explain action preserved the draft. Confirmed the mobile strip hides while its action menu is open. Saved a [preview screenshot](../../../.lavish/assistant-context-actions-preview.png).
+Inspected the rendered phone and document-side desktop concepts in the in-app browser. Exercised More and its bounded grouped menu, explicit whole-document outline naming, hidden quiz answers and Show answer, and action access through the add control while an unsent draft exists. The simulated Explain action preserved the draft. Confirmed the mobile strip hides while its action menu is open. Reviewed a preview screenshot of the prototype.
 
 The concept contains illustrative content and sends no AI requests. It demonstrates the interaction direction, not production grounding, provider behavior, adaptive sheet geometry, localization, card persistence, or the complete accessibility/device matrix. Those checks and `npm run bench:check` are implementation acceptance tasks in `tasks.md`; application tests and benchmarks were not run for this proposal-only change.
 

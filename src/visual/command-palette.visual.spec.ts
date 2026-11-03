@@ -43,7 +43,7 @@ async function box(page: Page, selector: string) {
 
 async function openHub(page: Page, viewport = { width: 1586, height: 992 }) {
   await page.setViewportSize(viewport);
-  await page.goto("/command-palette-harness.html");
+  await page.goto("/src/visual/entries/command-palette-harness.html");
   await page.getByRole("combobox").waitFor();
   await expect(page.getByText("Quick Actions")).toBeVisible();
   // Wait for the lazily-loaded theme catalog + applied material (biolume-abyss

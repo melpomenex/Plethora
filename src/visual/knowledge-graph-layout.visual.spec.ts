@@ -12,7 +12,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 
-const HARNESS = "/knowledge-graph-layout-harness.html";
+const HARNESS = "/src/visual/entries/knowledge-graph-layout-harness.html";
 const RESULTS_DIR = ".playwright/results";
 mkdirSync(RESULTS_DIR, { recursive: true });
 

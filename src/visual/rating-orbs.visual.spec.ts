@@ -4,7 +4,7 @@ import { contrastRatio, parseColor } from "../themes/color";
 async function load(page: Page, width = 390, height = 844) {
   await page.setViewportSize({ width, height });
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await page.goto("/rating-orbs-harness.html");
+  await page.goto("/src/visual/entries/rating-orbs-harness.html");
   await expect(page.locator("[data-rating-dock]")).toBeVisible({ timeout: 30_000 });
   await page.waitForFunction(() => window.ratingHarness?.themes.length > 0);
 }

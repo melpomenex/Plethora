@@ -82,7 +82,7 @@ async function openHarness(page: Page, width: number, height: number) {
   // retry keeps a cold Vite start from masquerading as a layout regression.
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      await page.goto("/card-source-context-harness.html", { timeout: 20_000 });
+      await page.goto("/src/visual/entries/card-source-context-harness.html", { timeout: 20_000 });
       await page
         .locator('[data-fixture="short"] [data-card-source-context]')
         .waitFor({ timeout: 20_000 });

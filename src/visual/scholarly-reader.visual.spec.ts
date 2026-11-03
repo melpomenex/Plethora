@@ -2,7 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
 async function openReader(page: Page, theme = 'biolume-abyss'): Promise<void> {
-  await page.goto(`/scholarly-reader-harness.html?theme=${theme}`);
+  await page.goto(`/src/visual/entries/scholarly-reader-harness.html?theme=${theme}`);
   await page.locator('#scholarly-reader-shell[data-ready="true"]').waitFor();
   await page.waitForFunction(() => {
     const frame = document.querySelector<HTMLIFrameElement>('#scholarly-reader-frame');
@@ -28,7 +28,7 @@ test.describe('canonical scholarly reader computed contract', () => {
         .replace(/<style>/g, `<style nonce="${nonce}">`);
       await route.fulfill({ response, body: html, headers: { ...response.headers(), 'content-security-policy': csp } });
     });
-    await page.goto('/scholarly-reader-harness.html?theme=biolume-abyss');
+    await page.goto('/src/visual/entries/scholarly-reader-harness.html?theme=biolume-abyss');
     await page.locator('#scholarly-reader-shell[data-ready="true"]').waitFor();
 
     const initial = await page.evaluate(() => {

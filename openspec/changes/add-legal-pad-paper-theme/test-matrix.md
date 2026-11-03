@@ -58,7 +58,7 @@ Mandatory release rows are A/B/C/E/F/G/H/I; D/J can use responsive/emulated cove
 
 ## Screenshot golden plan
 
-Extend `src/visual/scholarlyReaderHarness.ts` and existing entrypoint for HTML; add `src/visual/legalPadHarness.tsx`, `public/legal-pad-harness.html`, and `src/visual/legal-pad.visual.spec.ts` for shared chrome, reader fixtures, preview and error/override variants. Integrate actual production styles/components; no hand-drawn substitute paper. Browser tests verify both computed CSS and pixels, since a declaration alone cannot prove a successful image decode. Fix font/image loading and texture phase before capture. New goldens require visual review; the existing 2% pixel allowance is a ceiling, not permission to overlook seams or unreadable text.
+Extend `src/visual/scholarlyReaderHarness.ts` and existing entrypoint for HTML; add `src/visual/legalPadHarness.tsx`, `src/visual/entries/legal-pad-harness.html`, and `src/visual/legal-pad.visual.spec.ts` for shared chrome, reader fixtures, preview and error/override variants. Integrate actual production styles/components; no hand-drawn substitute paper. Browser tests verify both computed CSS and pixels, since a declaration alone cannot prove a successful image decode. Fix font/image loading and texture phase before capture. New goldens require visual review; the existing 2% pixel allowance is a ceiling, not permission to overlook seams or unreadable text.
 
 Use names `legal-pad-{surface}-{viewport}-{detail}-{appearance}.png`. Viewports are **CSS px**; include DPR in test context/output metadata and use distinct snapshot names for DPR variants.
 
