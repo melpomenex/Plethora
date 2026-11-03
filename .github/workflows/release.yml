@@ -17,18 +17,35 @@ on:
         required: false
         type: boolean
         default: false
+      linux_only:
+        description: 'Run only Linux jobs (deb legs + AppImage); skip Windows, macOS, and Arch. Used to backfill Linux release assets.'
+        required: false
+        type: boolean
+        default: false
+      appimage_only:
+        description: 'Run only the release-appimage job; skip matrix legs and Arch.'
+        required: false
+        type: boolean
+        default: false
+      skip_manifest:
+        description: 'Skip update manifest generation and release verification. Use when backfilling partial assets before other legs finish.'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 jobs:
   release:
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.appimage_only) }}
     continue-on-error: ${{ !matrix.required }}
     strategy:
       fail-fast: false
       # windows_only dispatch (release backfill) collapses the matrix to the
       # Windows leg only, so an existing release gains its installer without
       # rebuilding/re-uploading (and re-signing) every other platform's assets.
+      # linux_only dispatch runs only the deb matrix legs (+ AppImage).
       # The matrix context is NOT available in a job-level `if`, so the leg
       # filter has to live here in the matrix expression itself.
       # macOS note: `app` bundle is required so the updater emits
@@ -37,6 +54,8 @@ jobs:
       matrix:
         ${{ (github.event_name == 'workflow_dispatch' && inputs.windows_only == true
             && fromJSON('{"include":[{"id":"windows-x86_64","platform":"windows-latest","os":"windows","arch":"x86_64","tauri_args":"--bundles nsis","required":false}]}'))
+            || (github.event_name == 'workflow_dispatch' && inputs.linux_only == true
+            && fromJSON('{"include":[{"id":"linux-x86_64","platform":"ubuntu-latest","os":"linux","arch":"x86_64","tauri_args":"--bundles deb","required":true},{"id":"linux-aarch64","platform":"ubuntu-24.04-arm","os":"linux","arch":"aarch64","tauri_args":"--bundles deb","required":false}]}'))
             || fromJSON('{"include":[{"id":"macos-aarch64","platform":"macos-latest","os":"macos","arch":"aarch64","tauri_args":"--bundles app,dmg","required":true},{"id":"windows-x86_64","platform":"windows-latest","os":"windows","arch":"x86_64","tauri_args":"--bundles nsis","required":false},{"id":"linux-x86_64","platform":"ubuntu-latest","os":"linux","arch":"x86_64","tauri_args":"--bundles deb","required":true},{"id":"linux-aarch64","platform":"ubuntu-24.04-arm","os":"linux","arch":"aarch64","tauri_args":"--bundles deb","required":false}]}') }}
 
     runs-on: ${{ matrix.platform }}
@@ -92,16 +111,24 @@ jobs:
           # Compiling the final plethora-tauri lib needs more memory than the
           # 16 GB runner provides; when RAM+swap ran out, the kernel/oomd took
           # the runner agent down mid-compile ("runner received a shutdown
-          # signal"). A 16 GB swapfile plus stopping systemd-oomd (which kills
-          # the whole user slice on memory-pressure spikes) turns the hard
-          # failure into a slower-but-successful compile.
+          # signal"). A 32 GB swapfile plus completely masking systemd-oomd
+          # (which kills the whole user slice on memory-pressure spikes) and
+          # protecting runner processes from the kernel OOM killer ensures the
+          # large link completes safely.
           sudo swapoff -a || true
           sudo rm -f /swapfile
-          sudo fallocate -l 16G /swapfile
+          sudo fallocate -l 32G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
+          sudo sysctl -w vm.swappiness=80
+          sudo sysctl -w vm.vfs_cache_pressure=50
           sudo systemctl stop systemd-oomd 2>/dev/null || true
+          sudo systemctl disable --now systemd-oomd 2>/dev/null || true
+          sudo systemctl mask systemd-oomd 2>/dev/null || true
+          for pid in $(pgrep -f "Runner\.(Listener|Worker)" 2>/dev/null || true); do
+            echo -1000 | sudo tee "/proc/$pid/oom_score_adj" >/dev/null 2>&1 || true
+          done
           free -m
 
       - name: Rust setup
@@ -506,16 +533,24 @@ jobs:
           # Compiling the final plethora-tauri lib needs more memory than the
           # 16 GB runner provides; when RAM+swap ran out, the kernel/oomd took
           # the runner agent down mid-compile ("runner received a shutdown
-          # signal"). A 16 GB swapfile plus stopping systemd-oomd (which kills
-          # the whole user slice on memory-pressure spikes) turns the hard
-          # failure into a slower-but-successful compile.
+          # signal"). A 32 GB swapfile plus completely masking systemd-oomd
+          # (which kills the whole user slice on memory-pressure spikes) and
+          # protecting runner processes from the kernel OOM killer ensures the
+          # large link completes safely.
           sudo swapoff -a || true
           sudo rm -f /swapfile
-          sudo fallocate -l 16G /swapfile
+          sudo fallocate -l 32G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
+          sudo sysctl -w vm.swappiness=80
+          sudo sysctl -w vm.vfs_cache_pressure=50
           sudo systemctl stop systemd-oomd 2>/dev/null || true
+          sudo systemctl disable --now systemd-oomd 2>/dev/null || true
+          sudo systemctl mask systemd-oomd 2>/dev/null || true
+          for pid in $(pgrep -f "Runner\.(Listener|Worker)" 2>/dev/null || true); do
+            echo -1000 | sudo tee "/proc/$pid/oom_score_adj" >/dev/null 2>&1 || true
+          done
           free -m
 
       - name: Rust setup
@@ -661,7 +696,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release-arch:
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.windows_only) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.windows_only || inputs.linux_only || inputs.appimage_only)) }}
     runs-on: ubuntu-latest
     # Compile on the Ubuntu VM (same 16 GB environment the deb legs use) and
     # only ASSEMBLE the pacman package inside an ephemeral archlinux container.
@@ -698,16 +733,24 @@ jobs:
           # Compiling the final plethora-tauri lib needs more memory than the
           # 16 GB runner provides; when RAM+swap ran out, the kernel/oomd took
           # the runner agent down mid-compile ("runner received a shutdown
-          # signal"). A 16 GB swapfile plus stopping systemd-oomd (which kills
-          # the whole user slice on memory-pressure spikes) turns the hard
-          # failure into a slower-but-successful compile.
+          # signal"). A 32 GB swapfile plus completely masking systemd-oomd
+          # (which kills the whole user slice on memory-pressure spikes) and
+          # protecting runner processes from the kernel OOM killer ensures the
+          # large link completes safely.
           sudo swapoff -a || true
           sudo rm -f /swapfile
-          sudo fallocate -l 16G /swapfile
+          sudo fallocate -l 32G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
+          sudo sysctl -w vm.swappiness=80
+          sudo sysctl -w vm.vfs_cache_pressure=50
           sudo systemctl stop systemd-oomd 2>/dev/null || true
+          sudo systemctl disable --now systemd-oomd 2>/dev/null || true
+          sudo systemctl mask systemd-oomd 2>/dev/null || true
+          for pid in $(pgrep -f "Runner\.(Listener|Worker)" 2>/dev/null || true); do
+            echo -1000 | sudo tee "/proc/$pid/oom_score_adj" >/dev/null 2>&1 || true
+          done
           free -m
 
       - name: Rust setup
@@ -896,7 +939,7 @@ jobs:
 
   release-readiness:
     needs: [release, release-appimage, release-arch, verify-release]
-    if: ${{ always() && !(github.event_name == 'workflow_dispatch' && inputs.windows_only) }}
+    if: ${{ always() && !(github.event_name == 'workflow_dispatch' && (inputs.windows_only || inputs.linux_only || inputs.appimage_only)) }}
     runs-on: ubuntu-latest
     steps:
       - name: Summarize required and optional release outcomes
@@ -932,7 +975,7 @@ jobs:
     # windows_only backfills skip it: latest.json on the existing release
     # stays byte-identical so already-shipped updaters are untouched.
     needs: [release, release-appimage]
-    if: ${{ !cancelled() && !(github.event_name == 'workflow_dispatch' && inputs.windows_only) }}
+    if: ${{ !cancelled() && !(github.event_name == 'workflow_dispatch' && (inputs.windows_only || inputs.skip_manifest)) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -1069,7 +1112,7 @@ jobs:
     # diagnosed here too. windows_only backfills skip manifest regeneration,
     # so there is no new chain to verify.
     needs: [create-update-manifest]
-    if: ${{ !cancelled() && !(github.event_name == 'workflow_dispatch' && inputs.windows_only) }}
+    if: ${{ !cancelled() && !(github.event_name == 'workflow_dispatch' && (inputs.windows_only || inputs.skip_manifest)) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -1088,7 +1131,7 @@ jobs:
 
   sync-release-notes:
     needs: [create-update-manifest]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.windows_only) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.windows_only || inputs.skip_manifest)) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
