@@ -157,6 +157,15 @@ if (fs.existsSync(cargoLockPath)) {
   fs.writeFileSync(cargoLockPath, cargoLock, 'utf8');
 }
 
+// --- 3a. Windows package-identity metadata sync ----------------------------
+// Keep the application manifest and both AppxManifests in sync with tauri.conf.json
+// so the Windows release leg passes its sync check.
+try {
+  execSync('node scripts/sync-windows-identity.mjs --write', { stdio: 'inherit', cwd: rootDir });
+} catch (err) {
+  console.warn('Warning: Failed to sync Windows identity metadata:', err.message);
+}
+
 // --- 3b. iOS build number + generated project version sync (task 4.4) ------
 // Monotonic CURRENT_PROJECT_VERSION: committed counter file, incremented once
 // per release; explicit IOS_BUILD_NUMBER overrides (e.g. extra TestFlight
