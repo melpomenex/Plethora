@@ -2630,6 +2630,9 @@ pub async fn download_podcast_episode(
         PlethoraError::Internal(format!("Failed to create temporary download file: {}", e))
     })?;
 
+    // Local throttle state for download progress (last_emitted_pct, last_emit).
+    let mut dl_throttle: (i32, Instant) = (-1, Instant::now() - Duration::from_secs(1));
+
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk =
@@ -2640,12 +2643,24 @@ pub async fn download_podcast_episode(
         downloaded += chunk.len() as u64;
 
         if total_size > 0 {
-            let progress = ((downloaded as f64 / total_size as f64) * 100.0) as u32;
-            let _ = app_handle.emit(
-                "podcast://download-progress",
-                serde_json::json!({ "episodeId": &episode_id, "progress": progress }),
-            );
+            let progress = ((downloaded as f64 / total_size as f64) * 100.0) as i32;
+            let pct_changed = (progress - dl_throttle.0).abs() >= PROGRESS_MIN_DELTA_PCT;
+            let time_ok = dl_throttle.1.elapsed() >= PROGRESS_MIN_INTERVAL;
+            if pct_changed && time_ok {
+                dl_throttle = (progress, Instant::now());
+                let _ = app_handle.emit(
+                    "podcast://download-progress",
+                    serde_json::json!({ "episodeId": &episode_id, "progress": progress }),
+                );
+            }
         }
+    }
+
+    if total_size > 0 && dl_throttle.0 != 100 {
+        let _ = app_handle.emit(
+            "podcast://download-progress",
+            serde_json::json!({ "episodeId": &episode_id, "progress": 100 }),
+        );
     }
 
     file.flush()

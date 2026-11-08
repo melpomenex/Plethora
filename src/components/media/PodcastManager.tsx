@@ -299,7 +299,10 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
       "podcast://download-progress",
       (e) => {
         const { episodeId, progress } = e.payload;
-        setDownloadProgress((prev) => new Map(prev).set(episodeId, progress));
+        setDownloadProgress((prev) => {
+          if (prev.get(episodeId) === progress) return prev;
+          return new Map(prev).set(episodeId, progress);
+        });
       },
     );
 

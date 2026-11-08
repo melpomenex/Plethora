@@ -591,8 +591,8 @@ function AudiobookViewerSurface({
   const [volumeBoostEnabled, setVolumeBoostEnabled] = useState(false);
 
   // Listening statistics & tracking
-  const [listeningStats, setListeningStats] = useState({ today: 0, week: 0 });
   const lastTimeRef = useRef(0);
+  const pendingListeningSecondsRef = useRef(0);
 
   // Audiobook (non-podcast) Groq transcription state. Used on mobile and when
   // the provider is Groq — the auto-transcription queue worker has no Groq path,
@@ -1769,6 +1769,80 @@ const editionSectionIdsRef = useRef<string[]>([]);
     viewerSourceKey,
   ]);
   
+  // Listening statistics accumulator (batched to prevent localStorage thrashing and React re-renders)
+  const flushListeningTime = useCallback(() => {
+    const seconds = pendingListeningSecondsRef.current;
+    if (seconds <= 0) return;
+    pendingListeningSecondsRef.current = 0;
+
+    const key = "audiobook-listening-stats-summary";
+    const raw = localStorage.getItem(key);
+    let today = 0;
+    let week = 0;
+    let lastDate = new Date().toDateString();
+
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw);
+        today = parsed.today || 0;
+        week = parsed.week || 0;
+        lastDate = parsed.lastDate || new Date().toDateString();
+      } catch {
+        // ignore
+      }
+    }
+
+    const currentDate = new Date().toDateString();
+    if (lastDate !== currentDate) {
+      today = 0; // reset daily stats
+    }
+
+    today += seconds;
+    week += seconds;
+
+    const updated = { today, week, lastDate: currentDate };
+    localStorage.setItem(key, JSON.stringify(updated));
+  }, []);
+
+  const accumulateListeningTime = useCallback((seconds: number) => {
+    if (seconds <= 0) return;
+    pendingListeningSecondsRef.current += seconds;
+    if (pendingListeningSecondsRef.current >= 5) {
+      flushListeningTime();
+    }
+  }, [flushListeningTime]);
+
+  // Memoize all segments to avoid regex splitting and mapping transcripts on every timeupdate
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const allSegments: any[] = useMemo(() => {
+    if (isPodcast) {
+      if (podcastTranscriptSegments.length > 0) {
+        return podcastTranscriptSegments.map((s, i) => ({
+          id: `pod-seg-${i}`,
+          startTime: s.start || 0,
+          endTime: s.end || 0,
+          text: s.text,
+          wordTimings: s.wordTimings,
+        }));
+      }
+      if (podcastTranscriptText) {
+        return podcastTranscriptText
+          .split(/(?<=[.!?])\s+/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+          .map((text, i) => ({ id: `pod-seg-${i}`, startTime: 0, endTime: 0, text }));
+      }
+      return [];
+    }
+    return transcript?.segments || documentTranscriptSegments || [];
+  }, [
+    isPodcast,
+    podcastTranscriptSegments,
+    podcastTranscriptText,
+    transcript?.segments,
+    documentTranscriptSegments,
+  ]);
+
   const syncTranscriptAndSponsorBlockAtTime = useCallback((time: number, playingNow: boolean) => {
     const diff = time - lastTimeRef.current;
     if (playingNow && diff > 0 && diff < 5) {
@@ -1823,18 +1897,6 @@ const editionSectionIdsRef = useRef<string[]>([]);
       }
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const allSegments: any[] = isPodcast
-      ? (podcastTranscriptSegments.length > 0
-          ? podcastTranscriptSegments.map((s, i) => ({
-              id: `pod-seg-${i}`,
-              startTime: s.start || 0,
-              endTime: s.end || 0,
-              text: s.text,
-              wordTimings: s.wordTimings,
-            }))
-          : (podcastTranscriptText || "").split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean).map((text, i) => ({ id: `pod-seg-${i}`, startTime: 0, endTime: 0, text })))
-      : (transcript?.segments || documentTranscriptSegments);
     if (allSegments.length > 0) {
       const checkTime = sponsorBlockCuts.length > 0
         ? mapCutTimeToOriginalTime(time, sponsorBlockCuts)
@@ -1864,18 +1926,15 @@ const editionSectionIdsRef = useRef<string[]>([]);
       }
     }
   }, [
+    accumulateListeningTime,
     activeSegmentId,
+    allSegments,
     audioRef,
     controllerBacked,
-    documentTranscriptSegments,
-    isPodcast,
-    podcastTranscriptSegments,
-    podcastTranscriptText,
     showTranscript,
     sponsorBlock.canSkip,
     sponsorBlockCuts,
     sponsorBlockSegments,
-    transcript,
   ]);
 
   const syncTimeEffectsRef = useRef(syncTranscriptAndSponsorBlockAtTime);
@@ -2419,6 +2478,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
   
   const handlePause = () => {
     setIsPlaying(false);
+    flushListeningTime();
     if (audioRef.current) {
       void persistPosition(audioRef.current.currentTime);
       const currentEdition = audioEditionRef.current ?? audioEdition;
@@ -2973,40 +3033,22 @@ const editionSectionIdsRef = useRef<string[]>([]);
     applyPlaybackRate(nextRate);
   };
 
-  // Listening statistics accumulator
-  const accumulateListeningTime = (seconds: number) => {
-    if (seconds <= 0) return;
-    const key = "audiobook-listening-stats-summary";
-    const raw = localStorage.getItem(key);
-    let today = 0;
-    let week = 0;
-    let lastDate = new Date().toDateString();
-    
-    if (raw) {
-      try {
-        const parsed = JSON.parse(raw);
-        today = parsed.today || 0;
-        week = parsed.week || 0;
-        lastDate = parsed.lastDate || new Date().toDateString();
-      } catch {
-        // ignore
-      }
-    }
-    
-    const currentDate = new Date().toDateString();
-    if (lastDate !== currentDate) {
-      today = 0; // reset daily stats
-    }
-    
-    today += seconds;
-    week += seconds;
-    
-    const updated = { today, week, lastDate: currentDate };
-    localStorage.setItem(key, JSON.stringify(updated));
-    setListeningStats(updated);
-  };
-
   // Smart audio nodes initialization (Volume Boost & Silence Skip)
+  const audioContextRef = useRef<AudioContext | null>(null);
+  useEffect(() => {
+    audioContextRef.current = audioContext;
+  }, [audioContext]);
+
+  useEffect(() => {
+    return () => {
+      if (audioContextRef.current && audioContextRef.current.state !== "closed") {
+        void audioContextRef.current.close().catch(() => {});
+        audioContextRef.current = null;
+      }
+      flushListeningTime();
+    };
+  }, [flushListeningTime]);
+
   const initAudioNodes = () => {
     if (!audioRef.current || audioContext) return;
     try {
