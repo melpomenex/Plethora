@@ -68,8 +68,57 @@ describe("fetchSponsorBlockSegments — request shape", () => {
     fetchMock.mockResolvedValue(response([]));
     await fetchSponsorBlockSegments("vid1", ["sponsor", "intro"]);
     const url = fetchMock.mock.calls[0][0] as string;
-    expect(url).toContain("categories=sponsor%2Cintro");
+    expect(url).toContain("/skipSegments?videoID=vid1");
+    expect(url).not.toContain("/skipSegments/vid1");
+    expect(url).toContain("category=sponsor");
+    expect(url).toContain("category=intro");
     expect(url).not.toContain("music_offtopic");
+  });
+
+  it("parses the current per-video segment-object shape", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => [
+        {
+          segment: [10, 20],
+          UUID: "uuid-1",
+          category: "sponsor",
+          actionType: "skip",
+          locked: 0,
+          votes: 5,
+        },
+        {
+          segment: [30, 40],
+          UUID: "uuid-2",
+          category: "intro",
+          actionType: "mute",
+          locked: 0,
+          votes: 2,
+        },
+      ],
+    } as unknown as Response);
+    const segments = await fetchSponsorBlockSegments("vid1", ["sponsor", "intro"]);
+    expect(segments).toEqual([
+      expect.objectContaining({
+        category: "sponsor",
+        actionType: "skip",
+        segment: [10, 20],
+        UUID: "uuid-1",
+        votes: 5,
+      }),
+      expect.objectContaining({
+        category: "intro",
+        actionType: "mute",
+        segment: [30, 40],
+        UUID: "uuid-2",
+      }),
+    ]);
+  });
+
+  it("treats a 404 as no segments without throwing", async () => {
+    fetchMock.mockResolvedValue({ ok: false, status: 404 } as Response);
+    await expect(fetchSponsorBlockSegments("vid1")).resolves.toEqual([]);
   });
 
   it("returns an empty list and no throw when the service is unreachable", async () => {

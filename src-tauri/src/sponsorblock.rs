@@ -56,17 +56,37 @@ static HTTP: Lazy<reqwest::Client> = Lazy::new(|| {
 });
 
 /// Fetch SponsorBlock segments for a YouTube video ID
+///
+/// Per https://wiki.sponsor.ajay.app/w/API_Docs the per-video lookup is
+/// `GET /api/skipSegments?videoID=...` with REPEATED `category=` and
+/// `actionType=` params. The `/skipSegments/<id>` path route is the
+/// sha256-hash-prefix lookup, and comma-joined `categories=` is rejected
+/// with HTTP 400.
 pub async fn fetch_sponsorblock_segments(
     video_id: &str,
 ) -> Result<Vec<(String, f64, f64, String)>, String> {
-    let categories = "sponsor,intro,outro,selfpromo,interaction,music_offtopic,preview";
-    let url = format!(
-        "https://sponsor.ajay.app/api/skipSegments/{}?categories={}&actionTypes=skip,mute",
-        video_id, categories
-    );
+    let mut url = reqwest::Url::parse("https://sponsor.ajay.app/api/skipSegments")
+        .map_err(|e| format!("Failed to build SponsorBlock URL: {}", e))?;
+    {
+        let mut pairs = url.query_pairs_mut();
+        pairs.append_pair("videoID", video_id);
+        for cat in [
+            "sponsor",
+            "intro",
+            "outro",
+            "selfpromo",
+            "interaction",
+            "music_offtopic",
+            "preview",
+        ] {
+            pairs.append_pair("category", cat);
+        }
+        pairs.append_pair("actionType", "skip");
+        pairs.append_pair("actionType", "mute");
+    }
 
     let response = HTTP
-        .get(&url)
+        .get(url.as_str())
         .send()
         .await
         .map_err(|e| format!("Request failed: {}", e))?;

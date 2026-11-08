@@ -34,13 +34,27 @@ export interface VideoIDResult {
 }
 
 /**
- * SponsorBlock API response
+ * SponsorBlock API response: the legacy/hash-prefix shape, kept as a fallback.
  */
-interface SponsorBlockResponse {
+interface SponsorBlockLegacyResponse {
   sponsorTimes: Array<[number, number]>;
   UUID: string[];
   category: SponsorBlockCategory[];
   actionType: string[];
+}
+
+/**
+ * SponsorBlock API response: the current per-video shape returned by
+ * `GET /api/skipSegments?videoID=...&category=...&actionType=...`.
+ */
+interface SponsorBlockSegmentResponse {
+  segment: [number, number];
+  UUID: string;
+  category: string;
+  actionType: string;
+  locked?: number;
+  votes?: number;
+  description?: string;
 }
 
 /**
@@ -145,33 +159,57 @@ export async function fetchSponsorBlockSegments(
 
   const request = (async (): Promise<SponsorBlockSegment[]> => {
     try {
-      const categoriesParam = categories.join(",");
-      const response = await fetch(
-        `${SPONSORBLOCK_API}/skipSegments/${videoID}?categories=${encodeURIComponent(
-          categoriesParam
-        )}&actionTypes=skip,mute`,
-        { signal: AbortSignal.timeout(SPONSORBLOCK_TIMEOUT_MS) }
-      );
+      // Per https://wiki.sponsor.ajay.app/w/API_Docs the per-video lookup is
+      // `GET /api/skipSegments?videoID=...` with REPEATED `category=` and
+      // `actionType=` params. The `/skipSegments/<id>` path route is the
+      // sha256-hash-prefix lookup, and comma-joined `categories=` is rejected
+      // with HTTP 400 — both mistakes made every request fail silently.
+      const params = new URLSearchParams();
+      params.append("videoID", videoID);
+      for (const category of categories) params.append("category", category);
+      params.append("actionType", "skip");
+      params.append("actionType", "mute");
+      const response = await fetch(`${SPONSORBLOCK_API}/skipSegments?${params.toString()}`, {
+        signal: AbortSignal.timeout(SPONSORBLOCK_TIMEOUT_MS),
+      });
+
+      // 404 is the normal "no segments for this video" answer.
+      if (response.status === 404) return [];
 
       if (!response.ok) {
         throw new Error(`SponsorBlock returned HTTP ${response.status}`);
       }
 
-      const data: SponsorBlockResponse[] = await response.json();
+      const data: unknown = await response.json();
 
       if (!Array.isArray(data) || data.length === 0) return [];
 
       // Transform response into our format
       const segments: SponsorBlockSegment[] = [];
-      const responseData = data[0];
+      const first = data[0] as Partial<SponsorBlockSegmentResponse> &
+        Partial<SponsorBlockLegacyResponse>;
 
-      if (responseData && responseData.sponsorTimes) {
-        for (let i = 0; i < responseData.sponsorTimes.length; i++) {
+      if (first && Array.isArray(first.segment)) {
+        // Current per-video shape: one object per segment.
+        for (const item of data as SponsorBlockSegmentResponse[]) {
+          if (!Array.isArray(item.segment) || item.segment.length !== 2) continue;
           segments.push({
-            category: responseData.category[i] || "sponsor",
-            actionType: (responseData.actionType[i] as "skip" | "mute" | "full") || "skip",
-            segment: responseData.sponsorTimes[i],
-            UUID: responseData.UUID?.[i] || "",
+            category: (item.category as SponsorBlockCategory) || "sponsor",
+            actionType: (item.actionType as "skip" | "mute" | "full") || "skip",
+            segment: item.segment,
+            UUID: item.UUID || "",
+            locked: item.locked ?? 0,
+            votes: item.votes ?? 0,
+          });
+        }
+      } else if (first && Array.isArray(first.sponsorTimes)) {
+        // Legacy/hash-prefix shape: parallel arrays on a single object.
+        for (let i = 0; i < first.sponsorTimes.length; i++) {
+          segments.push({
+            category: first.category?.[i] || "sponsor",
+            actionType: (first.actionType?.[i] as "skip" | "mute" | "full") || "skip",
+            segment: first.sponsorTimes[i],
+            UUID: first.UUID?.[i] || "",
             locked: 0,
             votes: 0,
           });
