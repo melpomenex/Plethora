@@ -641,7 +641,7 @@ function AudiobookViewerSurface({
 
     // Skip local file cover extraction for remote podcast episodes
     const isRemote = document.filePath?.startsWith("http://") || document.filePath?.startsWith("https://") || document.filePath?.startsWith("data:");
-    if (isRemote || (!document.filePath && remoteAudioUrl)) {
+    if (isRemote || (!document.filePath && remoteAudioUrl) || episodeId) {
       return;
     }
 
@@ -796,12 +796,16 @@ function AudiobookViewerSurface({
     setCurrentPartIndex(0);
     setPreparedPlaybackPath(null);
     setPreparedPlaybackSrc(null);
+    setPodcastLocalSrc(null);
+    setFallbackSrc(null);
+    fallbackAttemptedRef.current = false;
+    setHasTriedFallback(false);
   }, [document.id]);
 
   useEffect(() => {
     const isDirectAudio = isDirectAudioDocument(document);
     const ext = document.filePath?.split(".").pop()?.toLowerCase();
-    if (controllerBacked || !isTauri() || !document.filePath || editionOwnsPlaylistRef.current || !isDirectAudio) {
+    if (controllerBacked || !isTauri() || !document.filePath || editionOwnsPlaylistRef.current || !isDirectAudio || episodeId) {
       setPreparedPlaybackPath(null);
       setPreparedPlaybackSrc(null);
       return;
@@ -949,20 +953,27 @@ function AudiobookViewerSurface({
             const localUrl = await invokeCommand<string>("get_media_stream_url", { filePath: downloadedPath });
             const currentAudio = audioRef.current;
             const wasPlaying = Boolean(currentAudio && !currentAudio.paused);
-            const savedPos =
-              currentAudio && Number.isFinite(currentAudio.currentTime) && currentAudio.currentTime > 0
-                ? currentAudio.currentTime
-                : currentTimeRef.current;
-            if (savedPos > 0) {
-              pendingSeekTimeRef.current = savedPos;
-              setIsWaitingForSeek(true);
-            }
-            setPodcastLocalSrc(localUrl);
+            const isActivelyPlaying = Boolean(
+              isPlaying ||
+              wasPlaying ||
+              (currentAudio && Number.isFinite(currentAudio.currentTime) && currentAudio.currentTime > 0) ||
+              currentTimeRef.current > 0
+            );
+
             setIsDownloading(false);
 
-            // Auto play if requested or if already playing before download completed
-            if (shouldPlayAfterDownloadRef.current || autoPlayOnOpen || wasPlaying) {
-              pendingAutoplayAfterDownloadRef.current = true;
+            if (isActivelyPlaying) {
+              // The episode was already streaming smoothly via remoteAudioUrl.
+              // Swapping the <audio src> mid-playback aborts active audio buffers,
+              // triggers CoreAudio ring buffer leaks on macOS, and will fail if
+              // loopback streaming has mixed-content/codec restrictions in WKWebView.
+              // The downloaded file remains on disk for future plays and offline cache.
+              console.log("[AudiobookViewer] Background download complete; preserving active remote stream without mid-playback swap");
+            } else {
+              setPodcastLocalSrc(localUrl);
+              if (shouldPlayAfterDownloadRef.current || autoPlayOnOpen) {
+                pendingAutoplayAfterDownloadRef.current = true;
+              }
             }
           }
         } else if (!cancelled) {
@@ -986,7 +997,7 @@ function AudiobookViewerSurface({
   }, [episodeId, remoteAudioUrl, autoPlayOnOpen]);
 
   useEffect(() => {
-    if (!isTauri() || !document.filePath || multiPartInfo) {
+    if (!isTauri() || !document.filePath || multiPartInfo || episodeId) {
       return;
     }
 
@@ -2540,9 +2551,26 @@ const editionSectionIdsRef = useRef<string[]>([]);
     // HTTP Range requests so the WebView only fetches the bytes it needs.
     // This mirrors the strategy already used by localMediaSource.ts on mobile.
 
-    // For podcast episodes with a remote URL, prefer the local download.
+    // For podcast episodes with a remote URL, fall back gracefully between remote and local.
     if (isTauri() && remoteAudioUrl && episodeId) {
       try {
+        const currentSrc = audioRef.current?.currentSrc || audioRef.current?.src || "";
+        const isLocalFailed = Boolean(
+          podcastLocalSrc ||
+          currentSrc.includes("127.0.0.1") ||
+          currentSrc.startsWith("blob:") ||
+          (document.filePath && currentSrc.includes(encodeURIComponent(document.filePath)))
+        );
+
+        if (isLocalFailed) {
+          // The local loopback stream failed. Fall back immediately to the
+          // canonical HTTPS remote stream so playback continues seamlessly.
+          console.log("[AudiobookViewer] Local playback failed; falling back to remote audio stream:", remoteAudioUrl);
+          setPodcastLocalSrc(null);
+          setFallbackSrc(remoteAudioUrl);
+          return true;
+        }
+
         showInfo(t("viewer.loadingAudio"), t("viewer.directPlaybackFailed"));
         let localPath = await getDownloadedEpisodePath(episodeId);
         if (!localPath) {
@@ -2925,17 +2953,20 @@ const editionSectionIdsRef = useRef<string[]>([]);
     pendingAutoplayAfterFallbackRef.current = false;
     const audio = audioRef.current;
     audio.load();
-    void audio.play()
-      .then(() => {
-        showSuccess(t("viewer.audioLoaded"), t("viewer.retryPlay"));
-      })
-      .catch((err) => {
-        console.error("[AudiobookViewer] Fallback play error:", err);
-        showError(
-          t("viewer.playbackFailed"),
-          err instanceof Error ? err.message : t("viewer.audioFormatNotSupported")
-        );
-      });
+    const playPromise = audio.play();
+    if (playPromise && typeof playPromise.then === "function") {
+      void playPromise
+        .then(() => {
+          showSuccess(t("viewer.audioLoaded"), t("viewer.retryPlay"));
+        })
+        .catch((err) => {
+          console.error("[AudiobookViewer] Fallback play error:", err);
+          showError(
+            t("viewer.playbackFailed"),
+            err instanceof Error ? err.message : t("viewer.audioFormatNotSupported")
+          );
+        });
+    }
   }, [controllerBacked, fallbackSrc, showError, showSuccess, t]);
 
   useEffect(() => {
@@ -3041,6 +3072,14 @@ const editionSectionIdsRef = useRef<string[]>([]);
 
   useEffect(() => {
     return () => {
+      const audio = audioRef.current;
+      if (audio) {
+        try {
+          audio.pause();
+          audio.removeAttribute("src");
+          audio.load();
+        } catch (_) {}
+      }
       if (audioContextRef.current && audioContextRef.current.state !== "closed") {
         void audioContextRef.current.close().catch(() => {});
         audioContextRef.current = null;

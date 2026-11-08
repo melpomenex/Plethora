@@ -321,14 +321,20 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
           next.delete(episodeId);
           return next;
         });
-        // Probe duration for this episode
+        // Probe duration for this episode if not already known
         void (async () => {
-          const duration = await probeAudioDuration(path);
-          if (duration) {
-            setEpisodes((prev) =>
-              prev.map((ep) => (ep.id === episodeId ? { ...ep, duration } : ep))
-            );
-          }
+          setEpisodes((prev) => {
+            const current = prev.find((ep) => ep.id === episodeId);
+            if (current?.duration && current.duration > 0) return prev;
+            void probeAudioDuration(path).then((duration) => {
+              if (duration) {
+                setEpisodes((p) =>
+                  p.map((ep) => (ep.id === episodeId ? { ...ep, duration } : ep))
+                );
+              }
+            });
+            return prev;
+          });
         })();
         // The backend auto-imports the downloaded episode as a Document (due
         // immediately), so it appears in the reading queue. Refresh the queue so

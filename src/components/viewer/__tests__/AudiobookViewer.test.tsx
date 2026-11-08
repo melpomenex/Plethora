@@ -47,6 +47,8 @@ const toastMocks = vi.hoisted(() => ({
 const podcastMocks = vi.hoisted(() => ({
   getPodcastTranscript: vi.fn(),
   transcribePodcastEpisode: vi.fn(),
+  downloadEpisodeAudio: vi.fn(),
+  getDownloadedEpisodePath: vi.fn(),
 }));
 
 vi.mock("../../../lib/tauri", async (importOriginal) => {
@@ -115,8 +117,8 @@ vi.mock("../../../api/podcast", () => ({
   getEpisodePosition: vi.fn(async () => null),
   updateEpisodePosition: vi.fn(),
   markEpisodePlayed: vi.fn(),
-  downloadEpisodeAudio: vi.fn(),
-  getDownloadedEpisodePath: vi.fn(),
+  downloadEpisodeAudio: (...args: unknown[]) => podcastMocks.downloadEpisodeAudio(...args),
+  getDownloadedEpisodePath: (...args: unknown[]) => podcastMocks.getDownloadedEpisodePath(...args),
   getPodcastTranscript: podcastMocks.getPodcastTranscript,
   transcribePodcastEpisode: podcastMocks.transcribePodcastEpisode,
   transcribePodcastEpisodeWithGroq: vi.fn(),
@@ -715,6 +717,90 @@ describe("transcription provider routing and labels", () => {
 
     await waitFor(() => {
       expect(transcriptionMocks.loadTranscript).toHaveBeenCalledWith("book-1", "chapter-17");
+    });
+  });
+
+  describe("podcast playback robustness", () => {
+    it("preserves active remote audio source without mid-playback swap when background download completes", async () => {
+      let downloadResolve: (path: string) => void = () => {};
+      const downloadPromise = new Promise<string>((resolve) => {
+        downloadResolve = resolve;
+      });
+
+      podcastMocks.getDownloadedEpisodePath.mockResolvedValue(null);
+      podcastMocks.downloadEpisodeAudio.mockReturnValue(downloadPromise);
+      tauriMocks.invokeCommand.mockImplementation(async (cmd: string) => {
+        if (cmd === "get_media_stream_url") {
+          return "http://127.0.0.1:43123/stream?path=%2FUsers%2Ftest%2Fpodcasts%2Fep-1.mp3";
+        }
+        return undefined;
+      });
+
+      const { container } = render(
+        <AudiobookViewer
+          document={{ ...desktopDocument(), filePath: "" }}
+          episodeId="ep-1"
+          remoteAudioUrl="https://cdn.example.com/ep-1.mp3"
+          autoPlayOnOpen={true}
+        />,
+      );
+
+      const audio = container.querySelector("audio");
+      expect(audio).not.toBeNull();
+      expect(audio?.getAttribute("src")).toBe("https://cdn.example.com/ep-1.mp3");
+
+      // Simulate that playback has started
+      Object.defineProperty(audio, "currentTime", { configurable: true, value: 5 });
+      Object.defineProperty(audio, "paused", { configurable: true, value: false });
+      fireEvent.play(audio!);
+
+      // Complete background download
+      downloadResolve("/Users/test/podcasts/ep-1.mp3");
+
+      // Wait a tick for download handler
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      // The src MUST remain the active remote stream, preventing WKWebView CoreAudio ring-buffer leaks
+      expect(audio?.getAttribute("src")).toBe("https://cdn.example.com/ep-1.mp3");
+    });
+
+    it("falls back directly to remoteAudioUrl when local podcast playback fails", async () => {
+      podcastMocks.getDownloadedEpisodePath.mockResolvedValue("/Users/test/podcasts/ep-1.mp3");
+      tauriMocks.invokeCommand.mockImplementation(async (cmd: string) => {
+        if (cmd === "get_media_stream_url") {
+          return "http://127.0.0.1:43123/stream?path=%2FUsers%2Ftest%2Fpodcasts%2Fep-1.mp3";
+        }
+        return undefined;
+      });
+
+      const { container } = render(
+        <AudiobookViewer
+          document={{ ...desktopDocument(), filePath: "/Users/test/podcasts/ep-1.mp3" }}
+          episodeId="ep-1"
+          remoteAudioUrl="https://cdn.example.com/ep-1.mp3"
+        />,
+      );
+
+      const audio = container.querySelector("audio");
+      expect(audio).not.toBeNull();
+
+      await waitFor(() => {
+        expect(audio?.getAttribute("src")).toBe(
+          "http://127.0.0.1:43123/stream?path=%2FUsers%2Ftest%2Fpodcasts%2Fep-1.mp3",
+        );
+      });
+
+      // Simulate local playback failure (e.g. WKWebView loopback / codec error)
+      Object.defineProperty(audio, "error", {
+        configurable: true,
+        value: { code: 4, message: "MEDIA_ERR_SRC_NOT_SUPPORTED" },
+      });
+      fireEvent.error(audio!);
+
+      // Must fall back to remoteAudioUrl immediately without circular re-try of failing stream
+      await waitFor(() => {
+        expect(audio?.getAttribute("src")).toBe("https://cdn.example.com/ep-1.mp3");
+      });
     });
   });
 });

@@ -302,23 +302,41 @@ export async function deleteDownloadedEpisode(
  */
 export async function probeAudioDuration(localPath: string): Promise<number | null> {
   try {
-    const { convertFileSrc } = await import("../lib/tauri");
-    const url = await convertFileSrc(localPath);
+    const { invokeCommand, isTauri, convertFileSrc } = await import("../lib/tauri");
+    let url: string;
+    try {
+      if (isTauri()) {
+        url = await invokeCommand<string>("get_media_stream_url", { filePath: localPath });
+      } else {
+        url = await convertFileSrc(localPath);
+      }
+    } catch {
+      url = await convertFileSrc(localPath);
+    }
     return new Promise((resolve) => {
       const audio = new Audio();
       audio.preload = "metadata";
-      const timeout = setTimeout(() => {
-        audio.src = "";
-        resolve(null);
-      }, 5000);
-      audio.addEventListener("loadedmetadata", () => {
+      let cleanedUp = false;
+      const cleanup = () => {
+        if (cleanedUp) return;
+        cleanedUp = true;
         clearTimeout(timeout);
+        try {
+          audio.removeAttribute("src");
+          audio.load();
+        } catch (_) {}
+      };
+      const timeout = setTimeout(() => {
+        cleanup();
+        resolve(null);
+      }, 3000);
+      audio.addEventListener("loadedmetadata", () => {
         const dur = audio.duration;
-        audio.src = "";
+        cleanup();
         resolve(Number.isFinite(dur) && dur > 0 ? Math.round(dur) : null);
       });
       audio.addEventListener("error", () => {
-        clearTimeout(timeout);
+        cleanup();
         resolve(null);
       });
       audio.src = url;
