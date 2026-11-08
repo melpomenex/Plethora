@@ -14,6 +14,10 @@ const VALID_ERROR_CODES = new Set<AudioPlaybackErrorCode>([
 
 const AUDIO_EXTENSION_MIMES: Record<string, string> = {
   mp3: "audio/mpeg",
+  mpeg: "audio/mpeg",
+  mpg: "audio/mpeg",
+  mpga: "audio/mpeg",
+  mp4: "audio/mp4",
   m4a: "audio/mp4",
   m4b: "audio/mp4",
   aac: "audio/aac",
@@ -25,6 +29,7 @@ const AUDIO_EXTENSION_MIMES: Record<string, string> = {
   webm: "audio/webm",
   wma: "audio/x-ms-wma",
   aiff: "audio/aiff",
+  aif: "audio/aiff",
 };
 
 export class AudioPlaybackException extends Error {
@@ -38,7 +43,19 @@ export class AudioPlaybackException extends Error {
 }
 
 export function inferAudioMimeFromUrl(url: string): string | undefined {
-  const clean = url.split(/[?#]/, 1)[0] ?? "";
+  let target = url;
+  if (url.includes("?")) {
+    try {
+      const parsed = new URL(url, "http://127.0.0.1");
+      const pathParam = parsed.searchParams.get("path") || parsed.searchParams.get("file");
+      if (pathParam) {
+        target = pathParam;
+      }
+    } catch {
+      // Fall back to target as url
+    }
+  }
+  const clean = target.split(/[?#]/, 1)[0] ?? "";
   const ext = clean.split(".").pop()?.toLowerCase() ?? "";
   return AUDIO_EXTENSION_MIMES[ext];
 }

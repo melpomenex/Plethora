@@ -228,13 +228,36 @@ pub(crate) fn canonical_path_within_roots_or_granted(
 }
 
 fn media_content_type(path: &Path) -> &'static str {
-    match path
+    let ext = path
         .extension()
         .and_then(|extension| extension.to_str())
         .unwrap_or_default()
-        .to_ascii_lowercase()
-        .as_str()
-    {
+        .to_ascii_lowercase();
+
+    // Podcast audio files are stored under `podcast-audio` or `temp_transcription`.
+    // Ensure that audio containers (.mpeg, .mp4, .aac, .mp3, etc.) within podcast
+    // directories are strictly classified as audio/ MIME types, never video/.
+    let path_str = path.to_string_lossy();
+    let is_podcast_audio =
+        path_str.contains("podcast-audio") || path_str.contains("temp_transcription");
+
+    if is_podcast_audio {
+        match ext.as_str() {
+            "mp3" | "mpeg" | "mpg" | "mpga" => return "audio/mpeg",
+            "m4a" | "m4b" | "mp4" => return "audio/mp4",
+            "aac" => return "audio/aac",
+            "ogg" | "oga" => return "audio/ogg",
+            "opus" => return "audio/opus",
+            "flac" => return "audio/flac",
+            "wav" => return "audio/wav",
+            "weba" => return "audio/webm",
+            "aiff" | "aif" => return "audio/aiff",
+            "wma" => return "audio/x-ms-wma",
+            _ => {}
+        }
+    }
+
+    match ext.as_str() {
         "mp3" => "audio/mpeg",
         "m4a" | "m4b" => "audio/mp4",
         "ogg" | "oga" => "audio/ogg",
@@ -1264,5 +1287,26 @@ mod tests {
         assert_eq!(result.unwrap_err(), StatusCode::FORBIDDEN);
         fs::remove_dir_all(allowed).expect("cleanup allowed");
         fs::remove_dir_all(outside).expect("cleanup outside");
+    }
+
+    #[test]
+    fn media_content_type_treats_podcast_audio_as_audio_mimes() {
+        let podcast_mpeg = Path::new("/user/data/podcast-audio/episode123.mpeg");
+        assert_eq!(media_content_type(podcast_mpeg), "audio/mpeg");
+
+        let podcast_mpg = Path::new("/user/data/podcast-audio/episode123.mpg");
+        assert_eq!(media_content_type(podcast_mpg), "audio/mpeg");
+
+        let podcast_mp4 = Path::new("/user/data/podcast-audio/episode123.mp4");
+        assert_eq!(media_content_type(podcast_mp4), "audio/mp4");
+
+        let podcast_m4a = Path::new("/user/data/podcast-audio/episode123.m4a");
+        assert_eq!(media_content_type(podcast_m4a), "audio/mp4");
+
+        let video_mpeg = Path::new("/user/data/videos/movie.mpeg");
+        assert_eq!(media_content_type(video_mpeg), "video/mpeg");
+
+        let video_mp4 = Path::new("/user/data/videos/movie.mp4");
+        assert_eq!(media_content_type(video_mp4), "video/mp4");
     }
 }

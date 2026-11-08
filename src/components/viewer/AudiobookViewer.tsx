@@ -947,11 +947,21 @@ function AudiobookViewerSurface({
 
           if (!cancelled) {
             const localUrl = await invokeCommand<string>("get_media_stream_url", { filePath: downloadedPath });
+            const currentAudio = audioRef.current;
+            const wasPlaying = Boolean(currentAudio && !currentAudio.paused);
+            const savedPos =
+              currentAudio && Number.isFinite(currentAudio.currentTime) && currentAudio.currentTime > 0
+                ? currentAudio.currentTime
+                : currentTimeRef.current;
+            if (savedPos > 0) {
+              pendingSeekTimeRef.current = savedPos;
+              setIsWaitingForSeek(true);
+            }
             setPodcastLocalSrc(localUrl);
             setIsDownloading(false);
 
-            // Auto play if requested
-            if (shouldPlayAfterDownloadRef.current || autoPlayOnOpen) {
+            // Auto play if requested or if already playing before download completed
+            if (shouldPlayAfterDownloadRef.current || autoPlayOnOpen || wasPlaying) {
               pendingAutoplayAfterDownloadRef.current = true;
             }
           }
@@ -2657,6 +2667,13 @@ const editionSectionIdsRef = useRef<string[]>([]);
           return;
         }
 
+        const hasAudioSrcAttached = Boolean(
+          audioRef.current.src || audioRef.current.currentSrc
+        );
+        if (!hasAudioSrcAttached) {
+          return;
+        }
+
         try {
           await audioRef.current.play();
         } catch (err) {
@@ -4027,7 +4044,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
       {!controllerBacked && (
         <audio
           ref={audioRef}
-          src={fallbackSrc || podcastLocalSrc || (!isTauri() || downloadError ? remoteAudioUrl : undefined) || preparedPlaybackSrc || (!isTauri() && isDirectAudioDocument(document) ? fileContent : undefined) || (multiPartInfo ? partSources[currentPartIndex] || null : null) || undefined}
+          src={fallbackSrc || podcastLocalSrc || remoteAudioUrl || preparedPlaybackSrc || (!isTauri() && isDirectAudioDocument(document) ? fileContent : undefined) || (multiPartInfo ? partSources[currentPartIndex] || null : null) || undefined}
           onTimeUpdate={handleTimeUpdate}
           onLoadedMetadata={handleLoadedMetadata}
           onDurationChange={handleDurationChange}

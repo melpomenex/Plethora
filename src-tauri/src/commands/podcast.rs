@@ -476,11 +476,10 @@ async fn run_transcription_job(
     std::fs::create_dir_all(&temp_dir)
         .map_err(|e| PlethoraError::Internal(format!("Failed to create temp dir: {}", e)))?;
 
-    let ext = episode
-        .audio_type
-        .as_deref()
-        .and_then(|t| t.split('/').last())
-        .unwrap_or("mp3");
+    let ext = resolve_podcast_audio_ext(
+        episode.audio_type.as_deref(),
+        Some(&episode.audio_url),
+    );
     let temp_file = temp_dir.join(format!("{}_episode.{}", episode_id, ext));
 
     // Insert cancellation token
@@ -2501,6 +2500,69 @@ pub fn podcast_audio_dir_public(app_handle: &AppHandle) -> std::result::Result<P
     podcast_audio_dir(app_handle).map_err(|e| e.to_string())
 }
 
+/// Resolve the normalized file extension for a podcast audio file based on MIME type and audio URL.
+/// Defaults to "mp3". Standardizes "audio/mpeg" to "mp3" (rather than "mpeg") so media elements
+/// and local media servers recognize the file as audio rather than video.
+pub(crate) fn resolve_podcast_audio_ext(
+    audio_type: Option<&str>,
+    audio_url: Option<&str>,
+) -> &'static str {
+    if let Some(raw_mime) = audio_type {
+        let mime = raw_mime
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        match mime.as_str() {
+            "audio/mpeg" | "audio/mp3" | "audio/x-mpeg" | "audio/x-mp3" | "audio/mpg" => {
+                return "mp3"
+            }
+            "audio/mp4" | "audio/x-m4a" | "audio/m4a" => return "m4a",
+            "audio/aac" | "audio/x-aac" => return "aac",
+            "audio/ogg" | "audio/vorbis" => return "ogg",
+            "audio/opus" => return "opus",
+            "audio/wav" | "audio/x-wav" | "audio/wave" => return "wav",
+            "audio/flac" | "audio/x-flac" => return "flac",
+            "audio/webm" => return "webm",
+            _ => {
+                if let Some(subtype) = mime.strip_prefix("audio/") {
+                    match subtype {
+                        "mpeg" | "mp3" | "x-mpeg" | "x-mp3" | "mpg" => return "mp3",
+                        "mp4" | "x-m4a" | "m4a" => return "m4a",
+                        "aac" | "x-aac" => return "aac",
+                        "ogg" | "vorbis" => return "ogg",
+                        "opus" => return "opus",
+                        "wav" | "x-wav" | "wave" => return "wav",
+                        "flac" | "x-flac" => return "flac",
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(url) = audio_url {
+        let clean_url = url.split(&['?', '#'][..]).next().unwrap_or("");
+        if let Some(ext) = clean_url.rsplit('.').next() {
+            let ext_lower = ext.to_ascii_lowercase();
+            match ext_lower.as_str() {
+                "mp3" | "mpeg" | "mpg" | "mpga" => return "mp3",
+                "m4a" | "m4b" => return "m4a",
+                "aac" => return "aac",
+                "ogg" | "oga" => return "ogg",
+                "opus" => return "opus",
+                "wav" => return "wav",
+                "flac" => return "flac",
+                "webm" | "weba" => return "webm",
+                _ => {}
+            }
+        }
+    }
+
+    "mp3"
+}
+
 /// Find existing downloaded file for an episode (checks common extensions)
 fn find_existing_download(app_handle: &AppHandle, episode_id: &str) -> Option<PathBuf> {
     let dir = podcast_audio_dir(app_handle).ok()?;
@@ -2527,11 +2589,20 @@ pub async fn download_podcast_episode(
         return Ok(existing.to_string_lossy().to_string());
     }
 
+    let audio_type = match audio_type {
+        Some(t) if !t.trim().is_empty() => Some(t),
+        _ => {
+            let repo = app_handle.state::<Repository>();
+            if let Ok(Some(episode)) = repo.get_podcast_episode_by_id(&episode_id).await {
+                episode.audio_type
+            } else {
+                None
+            }
+        }
+    };
+
     let audio_dir = podcast_audio_dir(&app_handle)?;
-    let ext = audio_type
-        .as_deref()
-        .and_then(|t| t.split('/').last())
-        .unwrap_or("mp3");
+    let ext = resolve_podcast_audio_ext(audio_type.as_deref(), Some(&audio_url));
     let dest_path = audio_dir.join(format!("{}.{}", episode_id, ext));
     let temp_path = dest_path.with_extension("downloading");
 
@@ -3118,5 +3189,54 @@ mod on_device_tests {
         });
         let (result, _) = run(&pool, &doc_id, "/nonexistent/audio.m4b", bridge).await;
         assert!(matches!(result, Err(PlethoraError::NotFound(_))));
+    }
+
+    #[test]
+    fn test_resolve_podcast_audio_ext() {
+        use super::resolve_podcast_audio_ext;
+
+        // Normalizes audio/mpeg to mp3, never mpeg
+        assert_eq!(resolve_podcast_audio_ext(Some("audio/mpeg"), None), "mp3");
+        assert_eq!(resolve_podcast_audio_ext(Some("audio/mp3"), None), "mp3");
+        assert_eq!(resolve_podcast_audio_ext(Some("audio/x-mpeg"), None), "mp3");
+        assert_eq!(resolve_podcast_audio_ext(Some("audio/mpeg; charset=utf-8"), None), "mp3");
+
+        // AAC and MP4
+        assert_eq!(resolve_podcast_audio_ext(Some("audio/mp4"), None), "m4a");
+        assert_eq!(resolve_podcast_audio_ext(Some("audio/x-m4a"), None), "m4a");
+        assert_eq!(resolve_podcast_audio_ext(Some("audio/aac"), None), "aac");
+
+        // Ogg, Opus, Flac, Wav
+        assert_eq!(resolve_podcast_audio_ext(Some("audio/ogg"), None), "ogg");
+        assert_eq!(resolve_podcast_audio_ext(Some("audio/opus"), None), "opus");
+        assert_eq!(resolve_podcast_audio_ext(Some("audio/flac"), None), "flac");
+        assert_eq!(resolve_podcast_audio_ext(Some("audio/wav"), None), "wav");
+
+        // URL fallback when audio_type is None
+        assert_eq!(
+            resolve_podcast_audio_ext(None, Some("https://example.com/ep1.mp3?token=123")),
+            "mp3"
+        );
+        assert_eq!(
+            resolve_podcast_audio_ext(None, Some("https://example.com/ep1.mpeg")),
+            "mp3"
+        );
+        assert_eq!(
+            resolve_podcast_audio_ext(None, Some("https://example.com/ep1.m4a?auth=abc#sec")),
+            "m4a"
+        );
+        assert_eq!(
+            resolve_podcast_audio_ext(None, Some("https://example.com/ep1.aac")),
+            "aac"
+        );
+
+        // Ambiguous/unknown MIME falls back to URL extension
+        assert_eq!(
+            resolve_podcast_audio_ext(Some("application/octet-stream"), Some("https://example.com/ep.m4a")),
+            "m4a"
+        );
+
+        // Fallback default
+        assert_eq!(resolve_podcast_audio_ext(None, None), "mp3");
     }
 }
