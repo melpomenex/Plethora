@@ -49,6 +49,7 @@ pub mod pdf_mobile;
 pub mod pdf_reflow;
 pub mod pdf_reflow_cache;
 pub mod podcast;
+pub mod podcast_ad;
 pub mod position;
 pub mod queue;
 pub mod queue_bulk;

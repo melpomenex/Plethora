@@ -351,4 +351,50 @@ mod tests {
             Some((1, "completed".into()))
         );
     }
+
+    #[tokio::test]
+    async fn permanent_transcript_storage_and_document_linking() {
+        let repo = fixture().await;
+        let ep_id = "test-ep-300";
+        sqlx::query("INSERT INTO podcast_episodes (id, transcript_text, transcript_status, duration) VALUES (?, NULL, 'none', 120)")
+            .bind(ep_id)
+            .execute(repo.pool())
+            .await
+            .unwrap();
+
+        // 1. Store segment in podcast_transcript_segments
+        let words_json = r#"[{"word":"Hello","start_ms":0,"end_ms":500}]"#;
+        sqlx::query("INSERT INTO podcast_transcript_segments (episode_id, start_ms, end_ms, text, word_timings_json) VALUES (?, 0, 500, 'Hello', ?)")
+            .bind(ep_id)
+            .bind(words_json)
+            .execute(repo.pool())
+            .await
+            .unwrap();
+
+        // 2. Link Document with source = "podcast:test-ep-300"
+        let doc_id = "doc-test-ep-300";
+        let metadata = format!(r#"{{"source":"podcast:{}"}}"#, ep_id);
+        sqlx::query("INSERT INTO documents (id, metadata) VALUES (?, ?)")
+            .bind(doc_id)
+            .bind(&metadata)
+            .execute(repo.pool())
+            .await
+            .unwrap();
+
+        // 3. Verify segments are fetched with words
+        let segments = repo.get_podcast_transcript_segments_with_words(ep_id).await.unwrap();
+        assert_eq!(segments.len(), 1);
+        assert_eq!(segments[0].text, "Hello");
+        assert_eq!(segments[0].word_timings_json.as_deref(), Some(words_json));
+
+        // 4. Verify Document record is linked to this episode
+        let linked_doc: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM documents WHERE json_extract(metadata, '$.source') = ?"
+        )
+        .bind(format!("podcast:{}", ep_id))
+        .fetch_optional(repo.pool())
+        .await
+        .unwrap();
+        assert_eq!(linked_doc, Some(doc_id.to_string()));
+    }
 }

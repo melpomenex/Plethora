@@ -1,5 +1,17 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **Local-first podcast ad removal & chapter ingestion** — End-to-end automated detection and preemptive skipping of sponsor segments and promotions in podcast episodes without modifying or re-encoding media files on disk.
+- **Preemptive 120ms lookahead audio skip** — Seamless real-time audio skips governed by a 120ms lookahead guard in the global audio controller with zero audible leakage and automatic seek-target collision resolution.
+- **Floating skip toast with instant Undo** — Non-intrusive floating notification toast on ad skip with immediate one-click undo and temporary segment bypass.
+- **Visual scrubber ad indicators & interval editor** — Amber/yellow striped ad segments on seekbars, context menu editing, and a responsive manual interval editor sheet with waveform preview.
+- **Universal chapter parser** — Ingestion for Podcasting 2.0 JSON chapters (`<podcast:chapters>`), Podlove Simple Chapters (`<psc:chapters>`), native ID3v2/MP4 CHAP metadata, and episode description timestamps.
+- **Dual transcript display modes** — Seamless switching between Clean mode (collapsing or excising detected sponsor segments) and Verbatim mode (full transcript with visual ad badges and read-along sync).
+- **Mobile energy & thermal policies** — Device-aware charging and battery-state scheduling (deferring heavy transcription/detection on mobile until plugged in) and multi-tier thermal throttling (core scaling and thread suspension).
+
 ## [3.6.0] - 2026-11-03
 
 ### Added

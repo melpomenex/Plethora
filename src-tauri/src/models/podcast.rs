@@ -55,6 +55,10 @@ pub struct PodcastEpisode {
     pub transcript_status: String,
     pub transcript_error: Option<String>,
     pub transcribed_at: Option<String>,
+    pub ad_removal_status: Option<String>,
+    pub clean_transcript_id: Option<String>,
+    pub chapters_source: Option<String>,
+    pub ad_free_duration_ms: Option<i64>,
 }
 
 /// Parsed podcast feed from RSS XML (intermediate struct before DB insert)
@@ -82,6 +86,9 @@ pub struct ParsedPodcastEpisode {
     pub file_size: Option<i64>,
     pub image_url: Option<String>,
     pub link: Option<String>,
+    pub chapters_url: Option<String>,
+    pub chapters_type: Option<String>,
+    pub inline_chapters: Vec<crate::models::PodcastChapter>,
 }
 
 /// Raw search result from the RSS.com PodcastIndex API (matches upstream JSON)

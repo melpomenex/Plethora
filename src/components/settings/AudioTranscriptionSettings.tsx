@@ -61,6 +61,7 @@ import {
 import { cn } from "../../utils";
 import { useI18n } from "../../lib/i18n";
 import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
+import { PodcastSettings } from "./PodcastSettings";
 import { useToast } from "../common/Toast";
 import { resolveTranscription, isNemotronModelId, isWhistleModelId } from "../../lib/transcriptionProvider";
 import { showTranscriptionResolutionFailure } from "../../lib/transcriptionResolutionFailure";
@@ -1593,6 +1594,8 @@ export function AudioTranscriptionSettings() {
           )}
         </section>
       )}
+
+      <PodcastSettings />
     </div>
   );
 }

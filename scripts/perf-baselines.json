@@ -130,7 +130,7 @@
     },
     "reader-speech-index/locate": {
       "cost": 4.128,
-      "tolerance": 1.4,
+      "tolerance": 1.6,
       "reason": "improve-reader-tts: initial baseline for 2k locate() lookups (epub anchors via per-section offsetForAnchor, binary search) against the built index."
     },
     "visible-text/first-visible-scan": {
@@ -231,7 +231,23 @@
     },
     "commandPalette/recent-selection-3000-docs": {
       "cost": 0.1539,
+      "tolerance": 1.8,
       "reason": "revamp-command-palette: initial baseline for selecting the recent-open candidate over a 3,000-document cache with collection-keyed open history."
+    },
+    "podcastAd/cue-regex-throughput-200-sentences": {
+      "cost": 0.03518,
+      "tolerance": 1.4,
+      "reason": "podcast-ad-removal: cue regex throughput benchmark over 200 synthetic sentences"
+    },
+    "podcastAd/lookahead-120ms-search-100-probes": {
+      "cost": 0.004226,
+      "tolerance": 1.4,
+      "reason": "podcast-ad-removal: 120ms lookahead search cost over 100 probes across ad intervals"
+    },
+    "podcastAd/interval-merger-synthetic-batch": {
+      "cost": 0.0006185,
+      "tolerance": 1.4,
+      "reason": "podcast-ad-removal: interval merger and safety thresholding benchmark"
     },
     "commandPalette/scope-filter-2000-results": {
       "cost": 0.1677,

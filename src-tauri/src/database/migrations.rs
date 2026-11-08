@@ -4946,6 +4946,111 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
     ),
 
+    Migration::new(
+        "138_podcast_chapters_and_ad_intervals",
+        r#"
+        -- 1. Podcast Chapters
+        CREATE TABLE IF NOT EXISTS podcast_chapters (
+            id TEXT PRIMARY KEY,
+            episode_id TEXT NOT NULL REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+            chapter_index INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            start_ms INTEGER NOT NULL,
+            end_ms INTEGER NOT NULL,
+            image_url TEXT,
+            link_url TEXT,
+            source TEXT NOT NULL CHECK (source IN ('podcast20_json', 'podlove_xml', 'id3_chap', 'description_timestamp', 'generated')),
+            is_advertisement INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(episode_id, chapter_index)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_podcast_chapters_episode_start 
+            ON podcast_chapters(episode_id, start_ms);
+
+        -- 2. Detected Advertisement Intervals
+        CREATE TABLE IF NOT EXISTS podcast_ad_intervals (
+            id TEXT PRIMARY KEY,
+            episode_id TEXT NOT NULL REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+            media_revision TEXT NOT NULL,
+            start_ms INTEGER NOT NULL,
+            end_ms INTEGER NOT NULL,
+            category TEXT NOT NULL CHECK (category IN ('external_ad', 'podcast_cross_promo', 'host_self_promo', 'bumper', 'uncertain')),
+            confidence REAL NOT NULL,
+            origin TEXT NOT NULL CHECK (origin IN ('metadata_chapter', 'classifier_llm', 'manual_user')),
+            metadata_json TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_podcast_ad_intervals_episode 
+            ON podcast_ad_intervals(episode_id, start_ms);
+
+        -- 3. Podcast Ad Corrections & Manual Overrides
+        CREATE TABLE IF NOT EXISTS podcast_ad_corrections (
+            id TEXT PRIMARY KEY,
+            episode_id TEXT NOT NULL REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+            correction_type TEXT NOT NULL CHECK (correction_type IN ('restore_content', 'mark_ad', 'adjust_boundary')),
+            start_ms INTEGER NOT NULL,
+            end_ms INTEGER NOT NULL,
+            user_note TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_podcast_ad_corrections_episode 
+            ON podcast_ad_corrections(episode_id);
+
+        -- 4. Podcast Processing Policies (Global & Per-Feed)
+        CREATE TABLE IF NOT EXISTS podcast_processing_policies (
+            feed_id TEXT PRIMARY KEY REFERENCES podcast_feeds(id) ON DELETE CASCADE,
+            auto_detect_ads INTEGER NOT NULL DEFAULT 1,
+            skip_external_ads INTEGER NOT NULL DEFAULT 1,
+            skip_cross_promo INTEGER NOT NULL DEFAULT 1,
+            skip_self_promo INTEGER NOT NULL DEFAULT 0,
+            min_confidence REAL NOT NULL DEFAULT 0.85,
+            processing_mode TEXT NOT NULL DEFAULT 'smart' CHECK (processing_mode IN ('battery_saver', 'smart', 'always', 'manual')),
+            require_ad_free INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        -- 5. Podcast Preparation Jobs Queue & Lifecycle
+        CREATE TABLE IF NOT EXISTS podcast_processing_jobs (
+            id TEXT PRIMARY KEY,
+            episode_id TEXT NOT NULL UNIQUE REFERENCES podcast_episodes(id) ON DELETE CASCADE,
+            status TEXT NOT NULL CHECK (status IN ('queued', 'inspecting_metadata', 'transcribing', 'classifying', 'refining_boundaries', 'ready', 'failed', 'cancelled', 'deferred')),
+            stage_progress INTEGER NOT NULL DEFAULT 0,
+            overall_progress INTEGER NOT NULL DEFAULT 0,
+            error_message TEXT,
+            deferral_reason TEXT CHECK (deferral_reason IN ('on_battery', 'low_power_mode', 'thermal_pressure', 'metered_network', 'missing_model', null)),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_podcast_processing_jobs_status 
+            ON podcast_processing_jobs(status, updated_at);
+
+        -- 6. Podcast Ad Settings (Global default configuration)
+        CREATE TABLE IF NOT EXISTS podcast_ad_settings (
+            id TEXT PRIMARY KEY DEFAULT 'default',
+            auto_detect_ads INTEGER NOT NULL DEFAULT 1,
+            skip_external_ads INTEGER NOT NULL DEFAULT 1,
+            skip_cross_promo INTEGER NOT NULL DEFAULT 1,
+            skip_self_promo INTEGER NOT NULL DEFAULT 0,
+            min_confidence REAL NOT NULL DEFAULT 0.85,
+            min_ad_duration_seconds INTEGER NOT NULL DEFAULT 10,
+            mobile_charging_only INTEGER NOT NULL DEFAULT 1,
+            processing_mode TEXT NOT NULL DEFAULT 'smart' CHECK (processing_mode IN ('battery_saver', 'smart', 'always', 'manual')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT OR IGNORE INTO podcast_ad_settings (id) VALUES ('default');
+
+        -- 7. Add columns to podcast_episodes
+        ALTER TABLE podcast_episodes ADD COLUMN ad_removal_status TEXT NOT NULL DEFAULT 'none';
+        ALTER TABLE podcast_episodes ADD COLUMN clean_transcript_id TEXT;
+        ALTER TABLE podcast_episodes ADD COLUMN chapters_source TEXT;
+        ALTER TABLE podcast_episodes ADD COLUMN ad_free_duration_ms INTEGER;
+        "#,
+    ),
+
 ];
 
 /// Get the migrations directory path
@@ -6482,5 +6587,46 @@ mod tests {
         let rejected = sqlx::query("UPDATE video_extracts SET queue_status = 'paused' WHERE id = 'dated-new'")
             .execute(&pool).await;
         assert!(rejected.is_err(), "the status CHECK must reject unknown values");
+    }
+
+    #[tokio::test]
+    async fn migration_138_creates_podcast_chapters_and_ad_tables() {
+        let pool = pool_migrated_up_to("138_podcast_chapters_and_ad_intervals").await;
+        run_migrations(&pool).await.expect("apply 138");
+
+        for table in [
+            "podcast_chapters",
+            "podcast_ad_intervals",
+            "podcast_ad_corrections",
+            "podcast_processing_policies",
+            "podcast_processing_jobs",
+            "podcast_ad_settings",
+        ] {
+            let (count,): (i64,) = sqlx::query_as(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            )
+            .bind(table)
+            .fetch_one(&pool)
+            .await
+            .unwrap_or((0,));
+            assert_eq!(count, 1, "Table '{}' should exist after migration 138", table);
+        }
+
+        let columns = sqlx::query("PRAGMA table_info(podcast_episodes)")
+            .fetch_all(&pool)
+            .await
+            .expect("inspect podcast_episodes columns");
+        for expected in [
+            "ad_removal_status",
+            "clean_transcript_id",
+            "chapters_source",
+            "ad_free_duration_ms",
+        ] {
+            assert!(
+                columns.iter().any(|c| c.get::<String, _>("name") == expected),
+                "podcast_episodes should have column {}",
+                expected
+            );
+        }
     }
 }

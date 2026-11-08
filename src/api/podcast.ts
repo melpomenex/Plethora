@@ -74,6 +74,10 @@ export interface PodcastEpisode {
   transcriptError?: string | null;
   transcribedAt?: string | null;
   transcriptText?: string | null;
+  adRemovalStatus?: string | null;
+  cleanTranscriptId?: string | null;
+  chaptersSource?: string | null;
+  adFreeDurationMs?: number | null;
 }
 
 export interface PodcastSearchResult {

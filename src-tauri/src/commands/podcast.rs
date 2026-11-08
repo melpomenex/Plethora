@@ -719,13 +719,25 @@ async fn run_transcription_job(
     repo.update_episode_transcript_status(&episode_id, "done", None, Some(&full_text))
         .await?;
 
-    // 9b. Persist the real per-segment start_ms/end_ms timings so the viewer can
-    //     sync highlighting to playback. (Local Whisper is segment-level only;
-    //     word_timings_by_segment is all None here. Groq word-level timings are
-    //     persisted via the separate save_podcast_transcript_segments path.)
-    let word_timings_none: Vec<Option<String>> = segments_vec.iter().map(|_| None).collect();
+    // 9b. Persist the real per-segment start_ms/end_ms timings and word-level timings
+    //     so the viewer can sync highlighting and ad detection can locate boundaries.
+    let word_timings: Vec<Option<String>> = segments_vec
+        .iter()
+        .map(|seg| {
+            if seg.words_json.is_some() {
+                seg.words_json.clone()
+            } else {
+                let tokens = crate::transcription::manager::extract_word_tokens(seg);
+                if !tokens.is_empty() {
+                    serde_json::to_string(&tokens).ok()
+                } else {
+                    None
+                }
+            }
+        })
+        .collect();
     if let Err(e) = repo
-        .save_podcast_transcript_segments(&episode_id, &segments_vec, &word_timings_none)
+        .save_podcast_transcript_segments(&episode_id, &segments_vec, &word_timings)
         .await
     {
         eprintln!(
@@ -804,6 +816,9 @@ async fn create_transcript_extracts(
     doc.content = Some(text.to_string());
     doc.tags = vec!["podcast".to_string(), "transcript".to_string()];
     doc.is_favorite = false;
+    let mut meta = crate::models::document::DocumentMetadata::default();
+    meta.source = Some(format!("podcast:{}", episode.id));
+    doc.metadata = Some(meta);
     let doc = repo.create_document(&doc).await?;
 
     if auto_segment {
@@ -2354,6 +2369,9 @@ pub async fn save_podcast_transcript_segments(
         .collect();
     repo.save_podcast_transcript_segments(&episode_id, &seg_models, &word_timings)
         .await?;
+    if let Ok(Some(episode)) = repo.get_podcast_episode_by_id(&episode_id).await {
+        let _ = create_transcript_extracts(&repo, &episode, &full_text, false).await;
+    }
     eprintln!(
         "[podcast-transcribe] save_podcast_transcript_segments: SAVED OK for episode {}",
         episode_id

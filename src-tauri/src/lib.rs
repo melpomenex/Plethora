@@ -7,14 +7,14 @@ mod algorithms;
 mod arena_model_identity;
 mod anki;
 mod backup;
-mod battery;
+pub mod battery;
 mod build_profile;
 mod browser_sync_server;
 mod rss_preferences;
 mod cloud;
 mod cloud_sync;
 mod commands;
-mod database;
+pub mod database;
 mod demo;
 mod entitlements;
 pub mod error;
@@ -44,7 +44,8 @@ pub mod pdf;
 mod plethora_auth;
 mod plethora_cloud;
 mod pocket_tts;
-mod podcast;
+pub mod podcast;
+pub mod mobile;
 pub mod processor;
 mod scheduler;
 mod scheduler_identity;
@@ -56,7 +57,7 @@ mod study_json_import;
 mod sync;
 mod tas;
 mod threadreader;
-mod transcription;
+pub mod transcription;
 mod twitter;
 mod utils;
 mod youtube;
@@ -2548,6 +2549,15 @@ pub fn run() {
             commands::podcast::get_downloaded_episode_path,
             commands::podcast::delete_downloaded_episode,
             commands::podcast::save_podcast_transcript,
+            // Podcast Ad Removal & Chapter Commands
+            commands::podcast_ad::get_episode_chapters,
+            commands::podcast_ad::get_episode_ad_intervals,
+            commands::podcast_ad::detect_episode_ads,
+            commands::podcast_ad::cancel_ad_detection,
+            commands::podcast_ad::save_manual_ad_interval,
+            commands::podcast_ad::delete_ad_interval,
+            commands::podcast_ad::get_podcast_ad_settings,
+            commands::podcast_ad::update_podcast_ad_settings,
             sponsorblock::get_sponsorblock_cuts,
             // TAS (Tag-Aware Scheduling) commands
             commands::tas::build_tas_queue,

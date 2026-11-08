@@ -21,6 +21,7 @@ pub mod migrations;
 pub mod media_compat_repository;
 pub mod neural_queue_repository;
 pub mod podcast_transcript_repository;
+pub mod podcast_ad_repository;
 pub mod priority_rank;
 pub mod recording_session_repository;
 pub mod repository;

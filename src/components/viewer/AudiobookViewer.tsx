@@ -39,6 +39,7 @@ import {
   Sparkle,
   SpeakerHigh,
   SpeakerSlash,
+  Tag,
   TextT,
   X,
 } from "@phosphor-icons/react";
@@ -84,6 +85,11 @@ import { getFiniteMediaDuration } from "./localMediaSources";
 import { KaraokeText } from "../media/KaraokeText";
 import { findActiveWordIndex, type WordTiming } from "../../utils/wordTimings";
 import { ResponsiveDialogSheet } from "../adaptive/ResponsiveDialogSheet";
+import { getEpisodeChapters, getEpisodeAdIntervals } from "../../api/podcastAd";
+import type { PodcastChapter, PodcastAdInterval } from "../../types/podcastAd";
+import { PodcastChapterSheet } from "../podcast/PodcastChapterSheet";
+import { AdIntervalEditor } from "../podcast/AdIntervalEditor";
+import { AdSkipToast } from "../podcast/AdSkipToast";
 import { usePaletteActionListener } from "../../commandPalette/paletteActionEvents";
 import { useIsActiveTab } from "../common/Tabs";
 import {
@@ -455,6 +461,59 @@ function AudiobookViewerSurface({
 
   // Podcast transcript state (podcasts are stored separately from document/audiobook transcripts)
   const isPodcast = !!episodeId;
+  const [podcastChapters, setPodcastChapters] = useState<PodcastChapter[]>([]);
+  const [adIntervals, setAdIntervals] = useState<PodcastAdInterval[]>([]);
+  const [showAdEditor, setShowAdEditor] = useState(false);
+  const [adSkipToastInfo, setAdSkipToastInfo] = useState<{
+    intervalId: string;
+    category?: string;
+    brand?: string;
+    fromSec: number;
+    toSec: number;
+  } | null>(null);
+
+  // Load podcast chapters and ad intervals from backend repository via Tauri IPC
+  useEffect(() => {
+    if (isPodcast && episodeId) {
+      let isMounted = true;
+      getEpisodeChapters(episodeId)
+        .then((chaps) => {
+          if (!isMounted) return;
+          if (Array.isArray(chaps)) {
+            setPodcastChapters(chaps);
+            if (chaps.length > 0) {
+              setChapters(
+                chaps.map((c) => ({
+                  id: c.chapterIndex + 1,
+                  title: c.title,
+                  startTime: c.startMs / 1000,
+                  endTime: c.endMs / 1000,
+                  duration: Math.max(0, (c.endMs - c.startMs) / 1000),
+                }))
+              );
+            }
+          }
+        })
+        .catch((err) => {
+          console.warn("[AudiobookViewer] Failed to load episode chapters:", err);
+        });
+
+      getEpisodeAdIntervals(episodeId)
+        .then((intervals) => {
+          if (!isMounted) return;
+          if (Array.isArray(intervals)) {
+            setAdIntervals(intervals);
+          }
+        })
+        .catch((err) => {
+          console.warn("[AudiobookViewer] Failed to load ad intervals:", err);
+        });
+
+      return () => {
+        isMounted = false;
+      };
+    }
+  }, [isPodcast, episodeId]);
   const configuredTranscriptionResolution = useTranscriptionResolution();
   const isMobile = useMobileShell();
   const [showMobileDetails, setShowMobileDetails] = useState(false);
@@ -1071,27 +1130,43 @@ function AudiobookViewerSurface({
   // this presentation unmounts. The viewer only supplies policy and notification.
   useEffect(() => {
     if (!controllerBacked || !isOwnerSource) return;
-    const intervals = sponsorBlockSegments.map(segment => ({
+    const sponsorIntervals = sponsorBlockSegments.map(segment => ({
       id: segment.UUID,
       category: segment.category,
       startSec: segment.segment[0],
       endSec: segment.segment[1],
     }));
-    void runAudioAction(owner => { owner.setPolicyIntervals?.(intervals); });
-  }, [controllerBacked, isOwnerSource, sponsorBlockSegments]);
+    const podcastIntervals = adIntervals.map(ad => ({
+      id: ad.id,
+      category: ad.category,
+      startSec: ad.startMs / 1000,
+      endSec: ad.endMs / 1000,
+    }));
+    const combined = [...sponsorIntervals, ...podcastIntervals];
+    void runAudioAction(owner => { owner.setPolicyIntervals?.(combined); });
+  }, [controllerBacked, isOwnerSource, sponsorBlockSegments, adIntervals]);
 
   useEffect(() => {
     if (!controllerBacked || !ownerPolicySkip) return;
-    setSkipNotification({
+    setAdSkipToastInfo({
+      intervalId: ownerPolicySkip.id,
       category: ownerPolicySkip.category,
-      savedSeconds: Math.round(ownerPolicySkip.toSec - ownerPolicySkip.fromSec),
-      originalStart: ownerPolicySkip.fromSec,
-      originalEnd: ownerPolicySkip.toSec,
-      undoable: true,
+      fromSec: ownerPolicySkip.fromSec,
+      toSec: ownerPolicySkip.toSec,
     });
-    if (skipNotificationTimeoutRef.current) clearTimeout(skipNotificationTimeoutRef.current);
-    skipNotificationTimeoutRef.current = setTimeout(() => setSkipNotification(null), 4000);
   }, [controllerBacked, ownerPolicySkip]);
+
+  const handleUndoAdSkip = (intervalId: string, fromSec: number) => {
+    if (controllerBacked) {
+      void runAudioAction(owner => {
+        owner.bypassPolicyInterval?.(intervalId);
+        owner.seekTo?.(fromSec);
+      });
+    } else if (audioRef.current) {
+      audioRef.current.currentTime = fromSec;
+    }
+    setAdSkipToastInfo(null);
+  };
   /** Sections kept live ahead of the playhead (working set, task 5.6). */
 const WORKING_SET_AHEAD = 2;
 
@@ -4259,12 +4334,35 @@ const editionSectionIdsRef = useRef<string[]>([]);
                   isDownloading ? "cursor-not-allowed opacity-50" : "cursor-pointer"
                 )}
                 onClick={handleProgressClick}
+                onContextMenu={isPodcast ? (e) => {
+                  e.preventDefault();
+                  setShowAdEditor(true);
+                } : undefined}
+                title={isPodcast ? "Right-click to manage ad intervals" : undefined}
               >
                 {/* Buffered */}
                 <div 
                   className="absolute h-full bg-muted-foreground/30 rounded-full"
                   style={{ width: `${duration > 0 ? (buffered / duration) * 100 : 0}%` }}
                 />
+                {/* Detected Ad Intervals */}
+                {duration > 0 && adIntervals.map((ad) => {
+                  const left = Math.max(0, (ad.startMs / 1000 / duration) * 100);
+                  const width = Math.min(100 - left, ((ad.endMs - ad.startMs) / 1000 / duration) * 100);
+                  return (
+                    <div
+                      key={ad.id}
+                      data-testid={`seekbar-ad-segment-${ad.id}`}
+                      className="absolute h-full bg-amber-500/70 rounded-none z-10 pointer-events-none"
+                      style={{
+                        left: `${left}%`,
+                        width: `${width}%`,
+                        backgroundImage: "repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(0,0,0,0.2) 3px, rgba(0,0,0,0.2) 6px)",
+                      }}
+                      title={`Ad: ${(ad.category || "sponsor").replace(/_/g, " ")}`}
+                    />
+                  );
+                })}
                 {/* Played */}
                 <div 
                   className="absolute h-full bg-primary rounded-full"
@@ -4334,6 +4432,19 @@ const editionSectionIdsRef = useRef<string[]>([]);
                 >
                   <BookmarkSimple className="h-5 w-5" />
                 </button>
+
+                {/* Ads (Podcasts) */}
+                {isPodcast && (
+                  <button
+                    type="button"
+                    onClick={() => setShowAdEditor(true)}
+                    data-testid="open-ad-editor-btn"
+                    className="p-2 hover:bg-muted rounded-lg transition-colors text-amber-500 hover:text-amber-600"
+                    title="Advertisement intervals"
+                  >
+                    <Tag className="h-5 w-5" weight="fill" />
+                  </button>
+                )}
               </div>
               )}
 
@@ -4905,89 +5016,138 @@ const editionSectionIdsRef = useRef<string[]>([]);
           logic, multi-part selector, and active-chapter highlight as the desktop
           left sidebar. Rendered via portal so it overlays correctly even inside
           the Queue's paged container. */}
-      <ResponsiveDialogSheet
-        open={showChaptersSheet}
-        onClose={() => setShowChaptersSheet(false)}
-        title={t("viewer.chapters")}
-        description={
-          currentChapter
-            ? `${currentChapter.title} · ${audiobookApi.formatDuration(currentChapter.startTime)}`
-            : undefined
-        }
-        closeLabel={t("viewer.chapters")}
-        presentation="auto"
-        className="max-w-lg"
-      >
-        {/* Part selector for multi-part books (mirrors the desktop sidebar) */}
-        {multiPartInfo && (
-          <div className="mb-3 rounded-xl border border-border bg-muted/30 p-3">
-            <p className="text-xs text-muted-foreground mb-1.5">{t("viewer.selectPart")}</p>
-            <select
-              value={currentPartIndex}
-              onChange={(e) => goToPart(Number(e.target.value))}
-              className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all text-foreground cursor-pointer"
-            >
-              {multiPartInfo.partFiles.map((part, idx) => {
-                const fileName = part.split(/[/\\]/).pop() || `Part ${idx + 1}`;
-                return (
-                  <option key={idx} value={idx}>
-                    Part {idx + 1}: {fileName}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-        )}
-
-        <div className="-mx-1 max-h-[60vh] overflow-y-auto">
-          {chapters.length === 0 ? (
-            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
-              {t("viewer.chapters")}
+      {isPodcast && Array.isArray(podcastChapters) && podcastChapters.length > 0 ? (
+        <PodcastChapterSheet
+          open={showChaptersSheet}
+          onClose={() => setShowChaptersSheet(false)}
+          chapters={podcastChapters}
+          currentTimeMs={currentTime * 1000}
+          onSeek={(startMs) => {
+            seek(startMs / 1000);
+          }}
+          episodeTitle={episodeTitle}
+        />
+      ) : (
+        <ResponsiveDialogSheet
+          open={showChaptersSheet}
+          onClose={() => setShowChaptersSheet(false)}
+          title={t("viewer.chapters")}
+          description={
+            currentChapter
+              ? `${currentChapter.title} · ${audiobookApi.formatDuration(currentChapter.startTime)}`
+              : undefined
+          }
+          closeLabel={t("viewer.chapters")}
+          presentation="auto"
+          className="max-w-lg"
+        >
+          {/* Part selector for multi-part books (mirrors the desktop sidebar) */}
+          {multiPartInfo && (
+            <div className="mb-3 rounded-xl border border-border bg-muted/30 p-3">
+              <p className="text-xs text-muted-foreground mb-1.5">{t("viewer.selectPart")}</p>
+              <select
+                value={currentPartIndex}
+                onChange={(e) => goToPart(Number(e.target.value))}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary focus:ring-1 focus:ring-primary/20 transition-all text-foreground cursor-pointer"
+              >
+                {multiPartInfo.partFiles.map((part, idx) => {
+                  const fileName = part.split(/[/\\]/).pop() || `Part ${idx + 1}`;
+                  return (
+                    <option key={idx} value={idx}>
+                      Part {idx + 1}: {fileName}
+                    </option>
+                  );
+                })}
+              </select>
             </div>
-          ) : (
-            chapters.map((chapter) => {
-              const isActive = currentChapter?.id === chapter.id;
-              return (
-                <button
-                  key={chapter.id}
-                  type="button"
-                  onClick={() => goToChapter(chapter)}
-                  className={cn(
-                    "w-full min-h-[48px] rounded-xl px-3 py-2.5 text-left transition-colors flex items-center gap-3",
-                    isActive
-                      ? "bg-primary/10 text-primary"
-                      : "text-foreground hover:bg-muted active:bg-muted"
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
-                      isActive
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-muted text-muted-foreground"
-                    )}
-                  >
-                    {chapter.id}
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">
-                      {chapter.title}
-                    </span>
-                  </span>
-                  <span
-                    className={cn(
-                      "shrink-0 text-xs tabular-nums",
-                      isActive ? "text-primary/80" : "text-muted-foreground"
-                    )}
-                  >
-                    {audiobookApi.formatDuration(chapter.startTime)}
-                  </span>
-                </button>
-              );
-            })
           )}
-        </div>
-      </ResponsiveDialogSheet>
+
+          <div className="-mx-1 max-h-[60vh] overflow-y-auto">
+            {chapters.length === 0 ? (
+              <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+                {t("viewer.chapters")}
+              </div>
+            ) : (
+              chapters.map((chapter) => {
+                const isActive = currentChapter?.id === chapter.id;
+                return (
+                  <button
+                    key={chapter.id}
+                    type="button"
+                    onClick={() => goToChapter(chapter)}
+                    className={cn(
+                      "w-full min-h-[48px] rounded-xl px-3 py-2.5 text-left transition-colors flex items-center gap-3",
+                      isActive
+                        ? "bg-primary/10 text-primary"
+                        : "text-foreground hover:bg-muted active:bg-muted"
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+                        isActive
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-muted text-muted-foreground"
+                      )}
+                    >
+                      {chapter.id}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium">
+                        {chapter.title}
+                      </span>
+                    </span>
+                    <span
+                      className={cn(
+                        "shrink-0 text-xs tabular-nums",
+                        isActive ? "text-primary/80" : "text-muted-foreground"
+                      )}
+                    >
+                      {audiobookApi.formatDuration(chapter.startTime)}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </ResponsiveDialogSheet>
+      )}
+
+      {/* Podcast ad interval editor */}
+      {isPodcast && episodeId && (
+        <AdIntervalEditor
+          open={showAdEditor}
+          onClose={() => setShowAdEditor(false)}
+          episodeId={episodeId}
+          durationSec={duration}
+          currentTimeSec={currentTime}
+          adIntervals={adIntervals}
+          onIntervalsChanged={(updated) => setAdIntervals(updated)}
+          onSeek={(sec) => {
+            if (controllerBacked) {
+              void runAudioAction((owner) => {
+                owner.seekTo?.(sec);
+              });
+            } else if (audioRef.current) {
+              audioRef.current.currentTime = sec;
+            }
+          }}
+        />
+      )}
+
+      {/* Floating ad skip notification toast with undo */}
+      {adSkipToastInfo && (
+        <AdSkipToast
+          open={Boolean(adSkipToastInfo)}
+          intervalId={adSkipToastInfo.intervalId}
+          category={adSkipToastInfo.category}
+          brand={adSkipToastInfo.brand}
+          fromSec={adSkipToastInfo.fromSec}
+          toSec={adSkipToastInfo.toSec}
+          onUndo={handleUndoAdSkip}
+          onDismiss={() => setAdSkipToastInfo(null)}
+        />
+      )}
     </div>
   );
 }

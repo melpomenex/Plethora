@@ -38,6 +38,8 @@ export interface AudioPlaybackOwner {
   setVolumeBoost?(enabled: boolean): Promise<boolean>;
   setSilenceSkip?(enabled: boolean): Promise<boolean>;
   setPolicyIntervals?(intervals: readonly AudioPolicyInterval[]): void;
+  bypassPolicyInterval?(intervalId: string): void;
+  unbypassPolicyInterval?(intervalId: string): void;
   duckForFeedback?(duckRatio: number, durationMs: number): () => void;
   setSleepTimer(deadlineMs: number | null): void | Promise<void>;
   refreshManifest?(): Promise<void>;

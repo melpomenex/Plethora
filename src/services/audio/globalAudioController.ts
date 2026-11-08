@@ -154,10 +154,17 @@ export class GlobalAudioController {
       await this.enqueue(async () => {
         if (!this.current(generation)) { item.release?.(); return; }
         this.item = { ...item, parts: withAudioBoundaries(item.parts) };
-        this.policyIntervals = [...(item.policyIntervals ?? [])].sort((left, right) => left.startSec - right.startSec);
+        this.policyIntervals = [...(item.policyIntervals ?? this.policyIntervals)].sort((left, right) => left.startSec - right.startSec);
         this.skippedPolicy.clear();
         this.publish({ metadata: { ...this.snapshot!.metadata, title: item.title, artist: item.artist, artworkUrl: item.artworkUrl }, mediaRevision: item.mediaRevision, durationSec: audioDuration(this.item.parts), capabilities: { ...this.snapshot!.capabilities, canBoostVolume: Boolean(this.engine?.setVolumeBoost), canSkipSilence: Boolean(this.engine?.sampleAmplitude) } });
-        const target = options.explicitPosition === undefined ? (item.resume ?? { partIndex: 0, timeInPart: 0 }) : locateAudioPosition(this.item.parts, options.explicitPosition);
+        const resumePos = item.resume ?? { partIndex: 0, timeInPart: 0 };
+        const initialGlobal = options.explicitPosition !== undefined
+          ? options.explicitPosition
+          : globalAudioPosition(this.item.parts, resumePos.partIndex, resumePos.timeInPart);
+        const clampedGlobal = initialGlobal !== null ? this.clampPositionPastAdIntervals(initialGlobal) : null;
+        const target = clampedGlobal !== null
+          ? locateAudioPosition(this.item.parts, clampedGlobal)
+          : (options.explicitPosition === undefined ? resumePos : locateAudioPosition(this.item.parts, options.explicitPosition));
         if (!target || !this.item.parts[target.partIndex]) throw new Error("Audio resume position unavailable");
         await this.loadPart(target.partIndex, target.timeInPart, generation);
       });
@@ -177,13 +184,28 @@ export class GlobalAudioController {
     const local = Math.min(sample.timeInPart, part.durationSec ?? Infinity);
     const global = globalAudioPosition(this.item.parts, this.snapshot.partIndex, local);
     if (global === null) return false;
+    const LOOKAHEAD_SEC = 0.120;
     for (const interval of this.policyIntervals) {
-      if (global < interval.startSec || global >= interval.endSec) continue;
+      if (global + LOOKAHEAD_SEC < interval.startSec || global >= interval.endSec) continue;
       if (this.skippedPolicy.has(interval.id)) return false;
       this.skippedPolicy.add(interval.id);
       this.publish({ policySkip: { id: interval.id, category: interval.category, fromSec: interval.startSec, toSec: interval.endSec, at: this.now() } });
       if (interval.endSec - global > 0.05) {
-        void this.seekTo(interval.endSec).catch(() => this.skippedPolicy.delete(interval.id));
+        const currentVol = this.effectiveEngineVolume();
+        try {
+          this.engine?.setVolume(0);
+        } catch {
+          // Ignore
+        }
+        void this.seekTo(interval.endSec)
+          .catch(() => this.skippedPolicy.delete(interval.id))
+          .finally(() => {
+            try {
+              this.engine?.setVolume(currentVol);
+            } catch {
+              // Ignore
+            }
+          });
       }
       return true;
     }
@@ -356,7 +378,18 @@ export class GlobalAudioController {
       const parts = this.item!.parts.map((part, partIndex) => partIndex === index ? { ...part, durationSec: duration } : part);
       this.item = { ...this.item!, parts: withAudioBoundaries(parts) };
     }
-    this.engine!.seek(Math.min(finiteSeconds(local), duration ?? Infinity));
+    let targetLocal = local;
+    const initialGlobal = globalAudioPosition(this.item!.parts, index, local);
+    if (initialGlobal !== null) {
+      const clampedGlobal = this.clampPositionPastAdIntervals(initialGlobal);
+      if (clampedGlobal !== initialGlobal) {
+        const located = locateAudioPosition(this.item!.parts, clampedGlobal);
+        if (located && located.partIndex === index) {
+          targetLocal = located.timeInPart;
+        }
+      }
+    }
+    this.engine!.seek(Math.min(finiteSeconds(targetLocal), duration ?? Infinity));
     this.engine!.setRate(this.snapshot!.playbackRate);
     this.engine!.setVolume(this.effectiveEngineVolume());
     this.ready = true;
@@ -630,6 +663,25 @@ export class GlobalAudioController {
       .map(interval => ({ id: String(interval.id), category: String(interval.category ?? "sponsor"), startSec: Math.max(0, interval.startSec), endSec: Math.max(0, interval.endSec) }))
       .sort((left, right) => left.startSec - right.startSec);
     this.skippedPolicy.clear();
+  };
+
+  clampPositionPastAdIntervals = (globalPosition: number): number => {
+    let clamped = globalPosition;
+    for (const interval of this.policyIntervals) {
+      if (this.skippedPolicy.has(interval.id)) continue;
+      if (clamped >= interval.startSec && clamped < interval.endSec) {
+        clamped = interval.endSec + 0.050;
+      }
+    }
+    return clamped;
+  };
+
+  bypassPolicyInterval = (id: string): void => {
+    this.skippedPolicy.add(id);
+  };
+
+  unbypassPolicyInterval = (id: string): void => {
+    this.skippedPolicy.delete(id);
   };
 
   private effectiveEngineVolume(): number {

@@ -74,3 +74,9 @@ pub use podcast::{
     ParsedPodcastEpisode, ParsedPodcastFeed, PodcastEpisode, PodcastFeed, PodcastFeedResponse,
     PodcastSearchResponse, PodcastSearchResult,
 };
+pub mod podcast_ad;
+pub use podcast_ad::{
+    AdDetectionMethod, ChapterSource, PodcastAdCorrection, PodcastAdDetectionStatus,
+    PodcastAdInterval, PodcastAdSettings, PodcastChapter, PodcastProcessingJob,
+};
+

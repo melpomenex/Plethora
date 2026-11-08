@@ -468,4 +468,80 @@ describe("owner-lifetime processing and source policy", () => {
     expect(vi.mocked(h.engine.seek).mock.calls.length).toBe(seekCount);
     await h.controller.dispose();
   });
+
+  it("preemptively skips ad with 120ms lookahead and temporarily mutes engine during seek", async () => {
+    const h = setup();
+    await h.controller.load(key("A"), { intent: "play" });
+    h.controller.setPolicyIntervals?.([
+      { id: "ad-lookahead", category: "external_ad", startSec: 20, endSec: 40 },
+    ]);
+    const events = h.events.at(-1)!;
+
+    // Current time is 19.90 (within 120ms of ad start at 20.0, before hitting 20.0)
+    events.sample({ timeInPart: 19.90, durationSec: 60, paused: false, seekable: true });
+
+    // Assert policySkip triggered before currentTime reached 20.0
+    await vi.waitFor(() =>
+      expect(h.controller.getSnapshot()?.policySkip).toMatchObject({
+        id: "ad-lookahead",
+        fromSec: 20,
+        toSec: 40,
+      })
+    );
+    // Assert sought to ad end
+    await vi.waitFor(() => expect(h.sample.timeInPart).toBe(40));
+
+    // Engine volume was temporarily set to 0 during seek and restored
+    expect(h.engine.setVolume).toHaveBeenCalledWith(0);
+    await vi.waitFor(() => expect(h.engine.setVolume).toHaveBeenLastCalledWith(1));
+    await h.controller.dispose();
+  });
+
+  it("clamps initial start-of-track position past pre-roll ad interval", async () => {
+    const resolveWithAd = vi.fn(async (source: AudioSourceKey) => {
+      const base = item(source.sourceId);
+      return {
+        ...base,
+        policyIntervals: [
+          { id: "preroll-ad", category: "external_ad", startSec: 0, endSec: 30 },
+        ],
+      };
+    });
+    const h = setup(resolveWithAd);
+
+    // Load episode starting at 0:00 (inside 0-30s pre-roll ad)
+    await h.controller.load(key("EpisodeWithPreRoll"), { intent: "play", explicitPosition: 0 });
+
+    // Initial position was clamped past the pre-roll ad (to 30.05s)
+    await vi.waitFor(() => {
+      const snap = h.controller.getSnapshot();
+      expect(snap?.positionSec).toBeGreaterThanOrEqual(30);
+    });
+    expect(h.sample.timeInPart).toBeGreaterThanOrEqual(30);
+    await h.controller.dispose();
+  });
+
+  it("supports bypassing policy interval when user requests undo", async () => {
+    const h = setup();
+    await h.controller.load(key("A"), { intent: "play" });
+    h.controller.setPolicyIntervals?.([
+      { id: "ad-undoable", category: "external_ad", startSec: 10, endSec: 25 },
+    ]);
+
+    // Bypass this ad interval
+    h.controller.bypassPolicyInterval?.("ad-undoable");
+
+    // Seek inside ad interval
+    await h.controller.seekTo(15);
+
+    const events = h.events.at(-1)!;
+    // Sample inside ad interval
+    events.sample({ timeInPart: 15, durationSec: 60, paused: false, seekable: true });
+    await Promise.resolve();
+
+    // Does NOT skip because it was bypassed
+    expect(h.controller.getSnapshot()?.policySkip).toBeUndefined();
+    expect(h.sample.timeInPart).toBe(15);
+    await h.controller.dispose();
+  });
 });

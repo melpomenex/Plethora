@@ -6,6 +6,7 @@ pub mod idle_scanner;
 pub mod job_queue;
 pub mod model_manager;
 pub mod nemotron;
+pub mod manager;
 
 use crate::database::Repository;
 use crate::error::Result;

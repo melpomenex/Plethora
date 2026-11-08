@@ -9442,6 +9442,10 @@ fn map_row_to_podcast_episode(row: &SqliteRow) -> PodcastEpisode {
             .unwrap_or_else(|_| "none".to_string()),
         transcript_error: row.try_get("transcript_error").ok().flatten(),
         transcribed_at: row.try_get("transcribed_at").ok().flatten(),
+        ad_removal_status: row.try_get("ad_removal_status").ok().flatten(),
+        clean_transcript_id: row.try_get("clean_transcript_id").ok().flatten(),
+        chapters_source: row.try_get("chapters_source").ok().flatten(),
+        ad_free_duration_ms: row.try_get("ad_free_duration_ms").ok().flatten(),
     }
 }
 

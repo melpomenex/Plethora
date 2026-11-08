@@ -117,8 +117,8 @@ export const SETTINGS_SEARCH_COVERAGE: readonly SettingsSearchCoverageRow[] = [
   },
   {
     section: SettingsTab.AudioTranscription,
-    sources: ["AudioTranscriptionSettings.tsx", "OnDeviceAiPanel.tsx"],
-    catalogPrefixes: ["section.audio-transcription", "audioTranscription."],
+    sources: ["AudioTranscriptionSettings.tsx", "OnDeviceAiPanel.tsx", "PodcastSettings.tsx"],
+    catalogPrefixes: ["section.audio-transcription", "audioTranscription.", "settings.podcast."],
     exclusions: [
       "API key values and usage figures are private/runtime values and are not indexed.",
       "Download/delete model buttons are consequential actions; provider configuration groups are indexed.",
