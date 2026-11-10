@@ -4,13 +4,12 @@
 mod ai;
 mod ai_learning;
 mod algorithms;
-mod arena_model_identity;
 mod anki;
+mod arena_model_identity;
 mod backup;
 pub mod battery;
-mod build_profile;
 mod browser_sync_server;
-mod rss_preferences;
+mod build_profile;
 mod cloud;
 mod cloud_sync;
 mod commands;
@@ -19,20 +18,21 @@ mod demo;
 mod entitlements;
 pub mod error;
 mod generator;
+mod rss_preferences;
 // Linux graphics policy: single owner of the WebKitGTK acceleration env
 // decision (PLETHORA_GPU_MODE), applied from main() before any webview.
 pub mod graphics;
 // Linux AppImage parent environment setup must run before WebKit/GStreamer
 // can start helper processes. Other targets use a no-op implementation.
-pub mod linux_runtime;
+mod audio_lifecycle;
 mod integrations;
 mod ipc_compat;
 mod kindle_clippings;
 mod legacy_data;
-mod migrations;
+pub mod linux_runtime;
 mod mcp;
 mod media_control;
-mod audio_lifecycle;
+mod migrations;
 pub mod models;
 mod notebooklm;
 mod notifications;
@@ -40,24 +40,24 @@ mod ocr;
 // `pub` (visibility only, no behavior change) so the dev-only diagnostic bin
 // `src/bin/pdf-reflow-diag.rs` can call `pdf::analysis::analyze_page`
 // directly without a Tauri runtime.
+pub mod mobile;
 pub mod pdf;
 mod plethora_auth;
 mod plethora_cloud;
 mod pocket_tts;
 pub mod podcast;
-pub mod mobile;
 pub mod processor;
+pub mod recording;
 mod scheduler;
 mod scheduler_identity;
 mod segmentation;
-pub mod recording;
-mod tts;
 mod services;
 mod study_json_import;
 mod sync;
 mod tas;
 mod threadreader;
 pub mod transcription;
+mod tts;
 mod twitter;
 mod utils;
 mod youtube;
@@ -72,18 +72,18 @@ mod screenshot;
 // Native tray / menu-bar / status-area icon (requirement #20). Desktop-only:
 // tauri-build emits the `desktop` cfg alias for every non-mobile target, so
 // Android/iOS never compile the tray code.
+mod external_open;
 #[cfg(desktop)]
 mod tray;
-mod external_open;
 
 mod epub_server;
-mod media_server;
+#[cfg(test)]
+mod issue6_test_support;
 mod media_compat;
+mod media_server;
 mod security;
 #[cfg(test)]
 mod security_tests;
-#[cfg(test)]
-mod issue6_test_support;
 mod sponsorblock;
 mod web_proxy;
 
@@ -98,9 +98,9 @@ use std::sync::{
 use tauri::{Emitter, Manager};
 use tokio::sync::Notify;
 use url::Url;
-mod startup_trace;
 #[cfg(feature = "startup-bench")]
 mod startup_fixture;
+mod startup_trace;
 
 // Global state for the database
 struct AppState {
@@ -677,8 +677,8 @@ fn apply_unbundled_dock_icon() {
             return;
         }
     }
-    use objc2::MainThreadMarker;
     use objc2::AnyThread;
+    use objc2::MainThreadMarker;
     use objc2_app_kit::{NSApplication, NSImage};
     use objc2_foundation::NSData;
 
@@ -689,9 +689,7 @@ fn apply_unbundled_dock_icon() {
     let png: &'static [u8] = include_bytes!("../icons/macos-dock-icon.png");
     // Safety: `png` is a compile-time constant PNG payload; all AppKit calls
     // happen on the main thread (guaranteed by MainThreadMarker).
-    let data = unsafe {
-        NSData::dataWithBytes_length(png.as_ptr() as *const _, png.len())
-    };
+    let data = unsafe { NSData::dataWithBytes_length(png.as_ptr() as *const _, png.len()) };
     let Some(image) = NSImage::initWithData(NSImage::alloc(), &data) else {
         tracing::warn!("[dock-icon] rounded tile PNG failed to decode");
         return;
@@ -819,10 +817,7 @@ pub fn run() {
     })();
 
     // Check for command line argument to clear window state
-    #[cfg(all(
-        not(dev),
-        not(any(target_os = "android", target_os = "ios"))
-    ))]
+    #[cfg(all(not(dev), not(any(target_os = "android", target_os = "ios"))))]
     {
         let clear_requested = std::env::args().any(|arg| {
             arg == "--clear-window-state" || arg == "--reset-window-state" || arg == "-c"
@@ -835,19 +830,13 @@ pub fn run() {
             let mut candidates: Vec<std::path::PathBuf> = Vec::new();
             if cfg!(target_os = "macos") {
                 if let Some(data_dir) = dirs::data_dir() {
-                    candidates.push(
-                        data_dir.join("com.plethora.app/.window-state.json"),
-                    );
-                    candidates.push(
-                        data_dir.join("com.incrementum.app/.window-state.json"),
-                    );
+                    candidates.push(data_dir.join("com.plethora.app/.window-state.json"));
+                    candidates.push(data_dir.join("com.incrementum.app/.window-state.json"));
                 }
             } else {
                 if let Some(config_dir) = dirs::config_dir() {
                     candidates.push(config_dir.join("com.plethora.app/.window-state.json"));
-                    candidates.push(
-                        config_dir.join("com.incrementum.app/.window-state.json"),
-                    );
+                    candidates.push(config_dir.join("com.incrementum.app/.window-state.json"));
                 }
             }
 
@@ -865,11 +854,9 @@ pub fn run() {
     // Single-instance must register before every other plugin (upstream requirement).
     #[cfg(desktop)]
     {
-        builder = builder.plugin(tauri_plugin_single_instance::init(
-            |app, argv, cwd| {
-                external_open::on_second_instance(app, argv, cwd);
-            },
-        ));
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            external_open::on_second_instance(app, argv, cwd);
+        }));
     }
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -879,10 +866,7 @@ pub fn run() {
         builder = builder.on_web_content_process_terminate(move |webview| {
             let count = RECOVERY_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
             let label = webview.label().to_string();
-            tracing::warn!(
-                "[WebviewRecovery] content process terminated: {}",
-                label
-            );
+            tracing::warn!("[WebviewRecovery] content process terminated: {}", label);
             let app = webview.app_handle();
             let _ = app.emit(
                 "webview-content-process-terminated",
@@ -1007,10 +991,7 @@ pub fn run() {
     // plugin is absent from the dependency graph and the mobile build passes
     // --features custom-protocol, so Tauri serves the bundled frontendDist via
     // tauri:// instead — the mobile WebView can't reach the loopback server.
-    #[cfg(all(
-        not(dev),
-        not(any(target_os = "android", target_os = "ios"))
-    ))]
+    #[cfg(all(not(dev), not(any(target_os = "android", target_os = "ios"))))]
     {
         builder = builder.plugin(tauri_plugin_localhost::Builder::new(LOCALHOST_PORT).build());
     }
@@ -1026,10 +1007,7 @@ pub fn run() {
     // / restored off-screen after a monitor disconnect) that can render the
     // whole window invisible. tauri.conf.json sets `center: true`, so with
     // POSITION disabled the window re-centers safely each launch.
-    #[cfg(all(
-        not(dev),
-        not(any(target_os = "android", target_os = "ios"))
-    ))]
+    #[cfg(all(not(dev), not(any(target_os = "android", target_os = "ios"))))]
     {
         builder = builder.plugin(
             tauri_plugin_window_state::Builder::default()
@@ -2657,6 +2635,42 @@ pub fn run() {
             commands::associate_session_document,
             commands::disassociate_session_document,
             commands::list_session_related_documents,
+            commands::create_study_plan,
+            commands::list_study_plans,
+            commands::get_study_plan,
+            commands::save_study_plan_draft,
+            commands::publish_study_plan_version,
+            commands::discard_study_plan_draft,
+            commands::set_study_plan_node_activity,
+            commands::archive_study_plan,
+            commands::delete_study_plan,
+            commands::import_legacy_study_plans,
+            commands::resolve_study_source_refs,
+            commands::start_study_generation_job,
+            commands::claim_study_job_step,
+            commands::complete_study_job_step,
+            commands::fail_study_job_step,
+            commands::cancel_study_generation_job,
+            commands::resume_study_generation_job,
+            commands::recover_interrupted_study_jobs,
+            commands::list_study_generation_jobs,
+            commands::create_assessment_blueprint,
+            commands::save_assessment_blueprint_draft,
+            commands::get_assessment_blueprint_revision,
+            commands::list_assessment_blueprints,
+            commands::upsert_assessment_question_draft,
+            commands::publish_assessment_blueprint,
+            commands::discard_assessment_blueprint_draft,
+            commands::archive_assessment_blueprint,
+            commands::delete_unused_assessment_blueprint,
+            commands::start_exam_attempt,
+            commands::get_exam_attempt,
+            commands::list_exam_attempts,
+            commands::save_exam_response,
+            commands::submit_exam_attempt,
+            commands::check_practice_response,
+            commands::cancel_exam_attempt,
+            commands::delete_exam_history,
             audio_lifecycle::get_audio_lifecycle_capabilities,
         ])
         .build({

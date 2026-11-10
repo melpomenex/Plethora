@@ -235,6 +235,15 @@ export const NAVIGATION_DESTINATIONS: NavigationDestination[] = [
     aliases: ["browser", "web", "url"],
     keywords: ["web", "url", "browse"],
   },
+  {
+    id: "study-plans",
+    labelKey: "palette.destination.studyPlans",
+    descriptionKey: "palette.destination.studyPlansDesc",
+    path: "/study-plans",
+    tabType: "study-plans",
+    aliases: ["study plans", "curriculum", "study plan", "learning paths", "plans"],
+    keywords: ["study", "plan", "curriculum", "learn", "topics", "assessments"],
+  },
 ];
 
 /**
@@ -262,6 +271,11 @@ export const TAB_TYPE_ALIASES: Record<string, TabType> = {
   "needs-review": "import-needs-review", "import-needs-review": "import-needs-review",
   "continue-reading": "continue-reading",
   extracts: "extracts",
+  "study-plans": "study-plans",
+  "study-plan": "study-plans",
+  curriculum: "study-plans",
+  plans: "study-plans",
+  "learning-paths": "study-plans",
 };
 
 /** Resolve a navigate-event path (without or with a leading slash) to a tab type. */

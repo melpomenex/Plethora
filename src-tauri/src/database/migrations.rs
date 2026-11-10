@@ -5051,6 +5051,393 @@ pub const MIGRATIONS: &[Migration] = &[
         "#,
     ),
 
+    Migration::new(
+        "139_persistent_study_plans",
+        r#"
+        CREATE TABLE study_plans (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 120),
+            goal TEXT NOT NULL CHECK(length(trim(goal)) BETWEEN 1 AND 200),
+            depth TEXT NOT NULL CHECK(depth IN ('survey','foundational','deep')),
+            status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active','archived')),
+            current_version_id TEXT REFERENCES study_plan_versions(id) ON DELETE SET NULL,
+            draft_version_id TEXT REFERENCES study_plan_versions(id) ON DELETE SET NULL,
+            current_version INTEGER NOT NULL DEFAULT 0 CHECK(current_version >= 0),
+            revision INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0),
+            legacy_import_key TEXT UNIQUE,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE study_plan_nodes (
+            id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL REFERENCES study_plans(id) ON DELETE CASCADE,
+            semantic_key TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            UNIQUE(plan_id, semantic_key),
+            UNIQUE(plan_id, id)
+        );
+
+        CREATE TABLE study_plan_versions (
+            id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL REFERENCES study_plans(id) ON DELETE CASCADE,
+            version INTEGER NOT NULL CHECK(version > 0),
+            state TEXT NOT NULL CHECK(state IN ('draft','published','superseded')),
+            base_version_id TEXT REFERENCES study_plan_versions(id) ON DELETE SET NULL,
+            source_scope_json TEXT NOT NULL,
+            change_summary_json TEXT,
+            created_by TEXT NOT NULL CHECK(created_by IN
+                ('user','ai','legacy-import','diagnostic-adaptation')),
+            created_at TEXT NOT NULL,
+            published_at TEXT,
+            UNIQUE(plan_id, version),
+            CHECK((state='published' AND published_at IS NOT NULL) OR state <> 'published')
+        );
+        CREATE UNIQUE INDEX one_study_plan_draft
+            ON study_plan_versions(plan_id) WHERE state='draft';
+        CREATE INDEX study_plan_versions_head
+            ON study_plan_versions(plan_id, version DESC);
+
+        CREATE TABLE study_source_refs (
+            id TEXT PRIMARY KEY,
+            schema_version INTEGER NOT NULL DEFAULT 1 CHECK(schema_version=1),
+            document_id TEXT NOT NULL,
+            extract_id TEXT,
+            excerpt TEXT NOT NULL CHECK(length(excerpt) BETWEEN 1 AND 1600),
+            excerpt_sha256 TEXT NOT NULL,
+            revision TEXT NOT NULL,
+            revision_kind TEXT NOT NULL CHECK(revision_kind IN ('content-hash','modified-at','unknown')),
+            document_title TEXT NOT NULL,
+            source_type TEXT NOT NULL,
+            jump_json TEXT,
+            chunk_json TEXT,
+            section_label TEXT,
+            captured_at TEXT NOT NULL
+        );
+        CREATE INDEX study_source_refs_document
+            ON study_source_refs(document_id, revision);
+        CREATE INDEX study_source_refs_extract
+            ON study_source_refs(extract_id) WHERE extract_id IS NOT NULL;
+        CREATE UNIQUE INDEX study_source_refs_content
+            ON study_source_refs(document_id, revision, excerpt_sha256, COALESCE(extract_id,''));
+
+        CREATE TABLE study_plan_version_nodes (
+            version_id TEXT NOT NULL REFERENCES study_plan_versions(id) ON DELETE CASCADE,
+            node_id TEXT NOT NULL REFERENCES study_plan_nodes(id) ON DELETE CASCADE,
+            title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 160),
+            summary TEXT NOT NULL DEFAULT '' CHECK(length(summary) <= 1000),
+            learning_objectives_json TEXT NOT NULL,
+            concept_id TEXT REFERENCES concepts(id) ON DELETE SET NULL,
+            concept_label TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            included INTEGER NOT NULL CHECK(included IN (0,1)),
+            locked INTEGER NOT NULL DEFAULT 0 CHECK(locked IN (0,1)),
+            user_added INTEGER NOT NULL DEFAULT 0 CHECK(user_added IN (0,1)),
+            user_modified INTEGER NOT NULL DEFAULT 0 CHECK(user_modified IN (0,1)),
+            material_support TEXT NOT NULL CHECK(material_support IN ('grounded','unsupported','not-validated')),
+            why_here TEXT,
+            PRIMARY KEY(version_id, node_id),
+            CHECK((included=1 AND position >= 0) OR (included=0 AND position=-1))
+        );
+        CREATE UNIQUE INDEX study_plan_included_positions
+            ON study_plan_version_nodes(version_id, position) WHERE included=1;
+        CREATE INDEX study_plan_version_nodes_concept
+            ON study_plan_version_nodes(concept_id) WHERE concept_id IS NOT NULL;
+
+        CREATE TABLE study_plan_prerequisites (
+            version_id TEXT NOT NULL REFERENCES study_plan_versions(id) ON DELETE CASCADE,
+            prerequisite_node_id TEXT NOT NULL REFERENCES study_plan_nodes(id) ON DELETE CASCADE,
+            dependent_node_id TEXT NOT NULL REFERENCES study_plan_nodes(id) ON DELETE CASCADE,
+            support TEXT NOT NULL CHECK(support IN
+                ('user','confirmed-concept-link','inferred','unsupported')),
+            rationale TEXT,
+            PRIMARY KEY(version_id, prerequisite_node_id, dependent_node_id),
+            CHECK(prerequisite_node_id <> dependent_node_id)
+        );
+        CREATE INDEX study_plan_prereqs_dependent
+            ON study_plan_prerequisites(version_id, dependent_node_id);
+
+        CREATE TABLE study_plan_node_sources (
+            version_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            source_ref_id TEXT NOT NULL REFERENCES study_source_refs(id) ON DELETE RESTRICT,
+            ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 7),
+            role TEXT NOT NULL DEFAULT 'primary' CHECK(role IN ('primary','supporting')),
+            PRIMARY KEY(version_id, node_id, source_ref_id),
+            UNIQUE(version_id, node_id, ordinal),
+            FOREIGN KEY(version_id, node_id) REFERENCES study_plan_version_nodes(version_id, node_id)
+                ON DELETE CASCADE
+        );
+        CREATE INDEX study_plan_node_sources_ref
+            ON study_plan_node_sources(source_ref_id);
+
+        CREATE TABLE study_plan_prerequisite_sources (
+            version_id TEXT NOT NULL,
+            prerequisite_node_id TEXT NOT NULL,
+            dependent_node_id TEXT NOT NULL,
+            source_ref_id TEXT NOT NULL REFERENCES study_source_refs(id) ON DELETE RESTRICT,
+            ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 3),
+            PRIMARY KEY(version_id, prerequisite_node_id, dependent_node_id, source_ref_id),
+            FOREIGN KEY(version_id, prerequisite_node_id, dependent_node_id)
+                REFERENCES study_plan_prerequisites(version_id, prerequisite_node_id, dependent_node_id)
+                ON DELETE CASCADE
+        );
+
+        CREATE TABLE study_plan_node_activity (
+            plan_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            activity TEXT NOT NULL DEFAULT 'not-started'
+                CHECK(activity IN ('not-started','in-progress','completed','skipped')),
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(plan_id, node_id),
+            FOREIGN KEY(plan_id, node_id) REFERENCES study_plan_nodes(plan_id, id) ON DELETE CASCADE
+        );
+        CREATE INDEX study_plan_activity_plan
+            ON study_plan_node_activity(plan_id, activity);
+        "#,
+    ),
+
+    Migration::new(
+        "140_study_generation_jobs",
+        r#"
+        CREATE TABLE study_generation_jobs (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL CHECK(kind IN ('curriculum','assessment-generation','exam-grading')),
+            target_id TEXT NOT NULL,
+            target_revision INTEGER NOT NULL CHECK(target_revision >= 0),
+            creation_key TEXT NOT NULL UNIQUE,
+            request_hash TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN
+                ('queued','running','awaiting-review','interrupted','completed','failed','cancelled')),
+            next_step_index INTEGER NOT NULL DEFAULT 0 CHECK(next_step_index >= 0),
+            lease_owner TEXT,
+            lease_expires_at TEXT,
+            cancellation_epoch INTEGER NOT NULL DEFAULT 0,
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            preflight_json TEXT NOT NULL,
+            progress_json TEXT NOT NULL,
+            last_error_json TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT
+        );
+        CREATE UNIQUE INDEX one_active_study_request ON study_generation_jobs(kind,target_id,request_hash)
+            WHERE status IN ('queued','running','interrupted','awaiting-review');
+        CREATE INDEX study_jobs_target ON study_generation_jobs(target_id,kind,updated_at DESC);
+        CREATE INDEX study_jobs_recovery ON study_generation_jobs(status,lease_expires_at);
+
+        CREATE TABLE study_generation_steps (
+            job_id TEXT NOT NULL REFERENCES study_generation_jobs(id) ON DELETE CASCADE,
+            step_key TEXT NOT NULL,
+            ordinal INTEGER NOT NULL CHECK(ordinal >= 0),
+            input_hash TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('pending','running','completed','failed','skipped')),
+            output_ref_id TEXT,
+            safe_error_json TEXT,
+            completed_at TEXT,
+            PRIMARY KEY(job_id, step_key),
+            UNIQUE(job_id, ordinal),
+            UNIQUE(job_id, input_hash)
+        );
+        CREATE INDEX study_steps_pending ON study_generation_steps(job_id,status,ordinal);
+        "#,
+    ),
+
+    Migration::new(
+        "141_assessment_blueprints",
+        r#"
+        CREATE TABLE assessment_blueprints (
+            id TEXT PRIMARY KEY,
+            plan_id TEXT REFERENCES study_plans(id) ON DELETE SET NULL,
+            title TEXT NOT NULL CHECK(length(title) BETWEEN 1 AND 160),
+            current_revision_id TEXT REFERENCES assessment_blueprint_revisions(id) ON DELETE SET NULL,
+            lifecycle TEXT NOT NULL DEFAULT 'active' CHECK(lifecycle IN ('active','archived')),
+            revision INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE assessment_blueprint_revisions (
+            id TEXT PRIMARY KEY,
+            blueprint_id TEXT NOT NULL REFERENCES assessment_blueprints(id) ON DELETE CASCADE,
+            revision INTEGER NOT NULL CHECK(revision > 0),
+            state TEXT NOT NULL CHECK(state IN ('draft','needs-review','ready','failed','cancelled')),
+            plan_version_id TEXT REFERENCES study_plan_versions(id) ON DELETE SET NULL,
+            config_json TEXT NOT NULL,
+            scoring_json TEXT NOT NULL,
+            source_scope_json TEXT NOT NULL,
+            quota_json TEXT NOT NULL,
+            generation_job_id TEXT REFERENCES study_generation_jobs(id) ON DELETE SET NULL,
+            source_snapshot_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            published_at TEXT,
+            UNIQUE(blueprint_id, revision),
+            CHECK((state='ready' AND published_at IS NOT NULL) OR state <> 'ready')
+        );
+        CREATE UNIQUE INDEX one_blueprint_draft ON assessment_blueprint_revisions(blueprint_id)
+            WHERE state IN ('draft','needs-review','failed');
+        CREATE INDEX blueprint_revisions_plan_version ON assessment_blueprint_revisions(plan_version_id);
+        CREATE INDEX blueprint_revisions_current ON assessment_blueprint_revisions(blueprint_id,revision DESC);
+
+        CREATE TABLE assessment_questions (
+            id TEXT PRIMARY KEY,
+            blueprint_id TEXT NOT NULL REFERENCES assessment_blueprints(id) ON DELETE CASCADE,
+            semantic_fingerprint TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            archived_at TEXT,
+            UNIQUE(blueprint_id, semantic_fingerprint)
+        );
+
+        CREATE TABLE assessment_question_revisions (
+            id TEXT PRIMARY KEY,
+            question_id TEXT NOT NULL REFERENCES assessment_questions(id) ON DELETE CASCADE,
+            blueprint_revision_id TEXT NOT NULL REFERENCES assessment_blueprint_revisions(id) ON DELETE CASCADE,
+            revision INTEGER NOT NULL CHECK(revision > 0),
+            slot_key TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK(kind IN
+                ('single-select','multi-select','cloze','short-answer','essay')),
+            payload_json TEXT NOT NULL,
+            answer_key_json TEXT NOT NULL,
+            rubric_json TEXT,
+            max_points INTEGER NOT NULL CHECK(max_points BETWEEN 1 AND 20),
+            difficulty INTEGER NOT NULL CHECK(difficulty BETWEEN 1 AND 5),
+            validation TEXT NOT NULL CHECK(validation IN ('draft','valid','invalid')),
+            validation_issues_json TEXT NOT NULL DEFAULT '[]',
+            committed_at TEXT,
+            provider_json TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(question_id, blueprint_revision_id),
+            UNIQUE(blueprint_revision_id, slot_key)
+        );
+        CREATE INDEX question_revisions_paper ON assessment_question_revisions(blueprint_revision_id,slot_key);
+        CREATE INDEX question_revisions_fingerprint ON assessment_question_revisions(fingerprint);
+        CREATE UNIQUE INDEX one_selected_question_fingerprint
+            ON assessment_question_revisions(blueprint_revision_id,fingerprint) WHERE validation='valid';
+
+        CREATE TABLE assessment_question_sources (
+            question_revision_id TEXT NOT NULL REFERENCES assessment_question_revisions(id) ON DELETE CASCADE,
+            source_ref_id TEXT NOT NULL REFERENCES study_source_refs(id) ON DELETE RESTRICT,
+            ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 3),
+            role TEXT NOT NULL CHECK(role IN ('primary','supporting','expected-answer')),
+            PRIMARY KEY(question_revision_id,source_ref_id),
+            UNIQUE(question_revision_id,ordinal)
+        );
+        CREATE INDEX assessment_question_sources_ref ON assessment_question_sources(source_ref_id);
+
+        CREATE TABLE assessment_question_targets (
+            question_revision_id TEXT NOT NULL REFERENCES assessment_question_revisions(id) ON DELETE CASCADE,
+            concept_id TEXT REFERENCES concepts(id) ON DELETE SET NULL,
+            concept_label TEXT NOT NULL,
+            node_id TEXT,
+            objective_text TEXT NOT NULL,
+            ordinal INTEGER NOT NULL CHECK(ordinal BETWEEN 0 AND 5),
+            PRIMARY KEY(question_revision_id,ordinal)
+        );
+        CREATE INDEX assessment_question_targets_concept ON assessment_question_targets(concept_id,concept_label);
+        CREATE INDEX assessment_question_targets_node ON assessment_question_targets(node_id);
+
+        CREATE TRIGGER committed_assessment_question_immutable
+        BEFORE UPDATE OF payload_json,answer_key_json,rubric_json,slot_key,fingerprint,
+            kind,max_points,difficulty,question_id,blueprint_revision_id,revision
+        ON assessment_question_revisions
+        WHEN OLD.committed_at IS NOT NULL
+        BEGIN SELECT RAISE(ABORT,'committed_question_immutable'); END;
+        "#,
+    ),
+
+    Migration::new(
+        "142_assessment_sessions",
+        r#"
+        CREATE TABLE exam_attempts (
+            id TEXT PRIMARY KEY,
+            blueprint_revision_id TEXT NOT NULL REFERENCES assessment_blueprint_revisions(id) ON DELETE RESTRICT,
+            client_start_key TEXT NOT NULL,
+            mode TEXT NOT NULL CHECK(mode IN ('exam','practice','diagnostic')),
+            status TEXT NOT NULL CHECK(status IN
+                ('in-progress','submitted','grading','partially-graded','complete','grading-failed','cancelled')),
+            question_revision_ids_json TEXT NOT NULL,
+            revision INTEGER NOT NULL DEFAULT 1,
+            started_at TEXT NOT NULL,
+            deadline_at TEXT,
+            submitted_at TEXT,
+            completed_at TEXT,
+            submission_reason TEXT CHECK(submission_reason IN ('user','timer','timer-recovered')),
+            submission_key TEXT UNIQUE,
+            awarded_points REAL,
+            maximum_points REAL NOT NULL CHECK(maximum_points > 0),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(blueprint_revision_id, client_start_key),
+            CHECK(awarded_points IS NULL OR (awarded_points >= 0 AND awarded_points <= maximum_points))
+        );
+        CREATE INDEX exam_attempts_paper ON exam_attempts(blueprint_revision_id, started_at DESC);
+        CREATE INDEX exam_attempts_status ON exam_attempts(status, deadline_at);
+        CREATE INDEX exam_attempts_history ON exam_attempts(completed_at DESC);
+
+        CREATE TABLE exam_responses (
+            id TEXT PRIMARY KEY,
+            attempt_id TEXT NOT NULL REFERENCES exam_attempts(id) ON DELETE CASCADE,
+            question_revision_id TEXT NOT NULL REFERENCES assessment_question_revisions(id) ON DELETE RESTRICT,
+            draft_json TEXT NOT NULL,
+            mark TEXT NOT NULL CHECK(mark IN ('unanswered','answered','skipped')),
+            revision INTEGER NOT NULL DEFAULT 1,
+            last_client_mutation_id TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(attempt_id, question_revision_id),
+            UNIQUE(attempt_id, last_client_mutation_id)
+        );
+        CREATE INDEX exam_responses_attempt ON exam_responses(attempt_id, question_revision_id);
+
+        CREATE TABLE exam_response_submissions (
+            id TEXT PRIMARY KEY,
+            response_id TEXT NOT NULL REFERENCES exam_responses(id) ON DELETE CASCADE,
+            attempt_id TEXT NOT NULL REFERENCES exam_attempts(id) ON DELETE CASCADE,
+            question_revision_id TEXT NOT NULL REFERENCES assessment_question_revisions(id) ON DELETE RESTRICT,
+            ordinal INTEGER NOT NULL CHECK(ordinal > 0),
+            kind TEXT NOT NULL CHECK(kind IN ('exam-final','practice-check')),
+            response_json TEXT NOT NULL,
+            mark TEXT NOT NULL CHECK(mark IN ('unanswered','answered','skipped')),
+            hint_level INTEGER NOT NULL DEFAULT 0 CHECK(hint_level BETWEEN 0 AND 3),
+            created_at TEXT NOT NULL,
+            UNIQUE(response_id, ordinal)
+        );
+        CREATE UNIQUE INDEX one_exam_final_submission ON exam_response_submissions(response_id)
+            WHERE kind='exam-final';
+        CREATE INDEX response_submissions_attempt ON exam_response_submissions(attempt_id, ordinal);
+
+        CREATE TABLE exam_grades (
+            id TEXT PRIMARY KEY,
+            response_submission_id TEXT NOT NULL REFERENCES exam_response_submissions(id) ON DELETE CASCADE,
+            question_revision_id TEXT NOT NULL REFERENCES assessment_question_revisions(id) ON DELETE RESTRICT,
+            origin TEXT NOT NULL CHECK(origin IN ('deterministic','ai','manual')),
+            state TEXT NOT NULL CHECK(state IN ('final','needs-review','failed')),
+            points REAL,
+            max_points REAL NOT NULL CHECK(max_points > 0),
+            assessment_json TEXT,
+            criteria_json TEXT NOT NULL DEFAULT '[]',
+            provenance_json TEXT,
+            manual_reason TEXT,
+            supersedes_grade_id TEXT REFERENCES exam_grades(id) ON DELETE SET NULL,
+            is_current INTEGER NOT NULL DEFAULT 1 CHECK(is_current IN (0,1)),
+            created_at TEXT NOT NULL,
+            CHECK(points IS NULL OR (points >= 0 AND points <= max_points)),
+            CHECK((origin='manual' AND length(trim(manual_reason)) > 0) OR origin <> 'manual'),
+            CHECK((state='final' AND points IS NOT NULL) OR state <> 'final')
+        );
+        CREATE UNIQUE INDEX one_current_exam_grade ON exam_grades(response_submission_id)
+            WHERE is_current=1;
+        CREATE INDEX exam_grades_question ON exam_grades(question_revision_id, created_at);
+        CREATE INDEX exam_grades_submission_history ON exam_grades(response_submission_id, created_at);
+
+        CREATE TRIGGER committed_assessment_question_history_delete_guard
+        BEFORE DELETE ON assessment_question_revisions
+        WHEN OLD.committed_at IS NOT NULL AND EXISTS (
+            SELECT 1 FROM exam_responses WHERE question_revision_id=OLD.id
+        )
+        BEGIN SELECT RAISE(ABORT,'committed_question_immutable'); END;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
@@ -5771,8 +6158,12 @@ mod tests {
             .execute(&pool).await.unwrap();
         run_migrations(&pool).await.unwrap();
         run_migrations(&pool).await.unwrap();
-        let saved: (f64, Option<i32>) = sqlx::query_as("SELECT priority_score, priority_slider FROM extracts WHERE id = 'child'")
-            .fetch_one(&pool).await.unwrap();
+        let saved: (f64, Option<i32>) = sqlx::query_as(
+            "SELECT priority_score, priority_slider FROM extracts WHERE id = 'child'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
         assert_eq!(saved, (12.375, None));
     }
 
@@ -6554,7 +6945,12 @@ mod tests {
         .execute(&pool).await.expect("seed parent");
         for (id, date, reviews, seen) in [
             ("dated-new", Some("2026-10-30T00:00:00Z"), 0, None),
-            ("dated-reviewed", Some("2026-09-01T00:00:00Z"), 3, Some("2026-08-01T00:00:00Z")),
+            (
+                "dated-reviewed",
+                Some("2026-09-01T00:00:00Z"),
+                3,
+                Some("2026-08-01T00:00:00Z"),
+            ),
             ("undated-new", None, 0, None),
             ("undated-reviewed", None, 2, None),
         ] {
@@ -6572,9 +6968,13 @@ mod tests {
         let rows: Vec<(String, Option<String>, String, String, i64, String)> = sqlx::query_as(
             "SELECT id, next_review_date, queue_status, collection_id, review_count, COALESCE(first_seen_at, '') FROM video_extracts ORDER BY id",
         ).fetch_all(&pool).await.expect("read upgraded rows");
-        let by_id: std::collections::HashMap<_, _> = rows.into_iter().map(|row| (row.0.clone(), row)).collect();
+        let by_id: std::collections::HashMap<_, _> =
+            rows.into_iter().map(|row| (row.0.clone(), row)).collect();
         assert_eq!(by_id["dated-new"].2, "queued");
-        assert_eq!(by_id["dated-new"].1.as_deref(), Some("2026-10-30T00:00:00Z"));
+        assert_eq!(
+            by_id["dated-new"].1.as_deref(),
+            Some("2026-10-30T00:00:00Z")
+        );
         assert_eq!(by_id["dated-reviewed"].2, "queued");
         assert_eq!(by_id["dated-reviewed"].4, 3);
         assert_eq!(by_id["dated-reviewed"].5, "2026-08-01T00:00:00Z");
@@ -6584,9 +6984,14 @@ mod tests {
         for row in by_id.values() {
             assert_eq!(row.3, "collection-b");
         }
-        let rejected = sqlx::query("UPDATE video_extracts SET queue_status = 'paused' WHERE id = 'dated-new'")
-            .execute(&pool).await;
-        assert!(rejected.is_err(), "the status CHECK must reject unknown values");
+        let rejected =
+            sqlx::query("UPDATE video_extracts SET queue_status = 'paused' WHERE id = 'dated-new'")
+                .execute(&pool)
+                .await;
+        assert!(
+            rejected.is_err(),
+            "the status CHECK must reject unknown values"
+        );
     }
 
     #[tokio::test]
@@ -6609,7 +7014,11 @@ mod tests {
             .fetch_one(&pool)
             .await
             .unwrap_or((0,));
-            assert_eq!(count, 1, "Table '{}' should exist after migration 138", table);
+            assert_eq!(
+                count, 1,
+                "Table '{}' should exist after migration 138",
+                table
+            );
         }
 
         let columns = sqlx::query("PRAGMA table_info(podcast_episodes)")
@@ -6623,10 +7032,1100 @@ mod tests {
             "ad_free_duration_ms",
         ] {
             assert!(
-                columns.iter().any(|c| c.get::<String, _>("name") == expected),
+                columns
+                    .iter()
+                    .any(|c| c.get::<String, _>("name") == expected),
                 "podcast_episodes should have column {}",
                 expected
             );
         }
+    }
+
+    #[tokio::test]
+    async fn migration_139_persistent_study_plans_fresh_and_prior_db() {
+        // 1. Prior DB test: migrate up to 139, then apply 139
+        let prior_pool = pool_migrated_up_to("139_persistent_study_plans").await;
+        run_migrations(&prior_pool)
+            .await
+            .expect("apply 139 on prior db");
+
+        let tables = [
+            "study_plans",
+            "study_plan_nodes",
+            "study_plan_versions",
+            "study_source_refs",
+            "study_plan_version_nodes",
+            "study_plan_prerequisites",
+            "study_plan_node_sources",
+            "study_plan_prerequisite_sources",
+            "study_plan_node_activity",
+        ];
+        for table in tables {
+            let (count,): (i64,) = sqlx::query_as(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            )
+            .bind(table)
+            .fetch_one(&prior_pool)
+            .await
+            .unwrap();
+            assert_eq!(
+                count, 1,
+                "Table '{}' should exist after migration 139",
+                table
+            );
+        }
+
+        // 2. Fresh DB test: empty pool migrating all the way through
+        let fresh_pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("open fresh in-memory db");
+        run_migrations(&fresh_pool)
+            .await
+            .expect("run all migrations on fresh db");
+        for table in tables {
+            let (count,): (i64,) = sqlx::query_as(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+            )
+            .bind(table)
+            .fetch_one(&fresh_pool)
+            .await
+            .unwrap();
+            assert_eq!(count, 1, "Table '{}' should exist on fresh db", table);
+        }
+    }
+
+    #[tokio::test]
+    async fn migration_139_persistent_study_plans_constraints_and_foreign_keys() {
+        let pool = pool_migrated_up_to("139_persistent_study_plans").await;
+        run_migrations(&pool).await.expect("apply 139");
+
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // 1. Insert valid study plan
+        sqlx::query(
+            "INSERT INTO study_plans (id, title, goal, depth, status, created_at, updated_at)
+             VALUES ('sp_1', 'Distributed Systems', 'Learn Raft and Paxos', 'foundational', 'active', '2026-11-10T17:00:00Z', '2026-11-10T17:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 2. Insert study_plan_nodes
+        sqlx::query(
+            "INSERT INTO study_plan_nodes (id, plan_id, semantic_key, created_at)
+             VALUES ('spn_1', 'sp_1', 'raft-consensus', '2026-11-10T17:00:00Z'),
+                    ('spn_2', 'sp_1', 'paxos-consensus', '2026-11-10T17:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Semantic uniqueness per plan: duplicate semantic_key should fail
+        let dup_sem = sqlx::query(
+            "INSERT INTO study_plan_nodes (id, plan_id, semantic_key, created_at)
+             VALUES ('spn_dup', 'sp_1', 'raft-consensus', '2026-11-10T17:00:00Z')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            dup_sem.is_err(),
+            "Duplicate semantic_key for same plan must fail"
+        );
+
+        // 3. Insert study_plan_versions
+        sqlx::query(
+            "INSERT INTO study_plan_versions (id, plan_id, version, state, source_scope_json, created_by, created_at, published_at)
+             VALUES ('spv_1', 'sp_1', 1, 'published', '{\"schemaVersion\":1}', 'user', '2026-11-10T17:00:00Z', '2026-11-10T17:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // One draft constraint: inserting two draft versions for same plan must fail
+        sqlx::query(
+            "INSERT INTO study_plan_versions (id, plan_id, version, state, source_scope_json, created_by, created_at)
+             VALUES ('spv_d1', 'sp_1', 2, 'draft', '{\"schemaVersion\":1}', 'user', '2026-11-10T17:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let dup_draft = sqlx::query(
+            "INSERT INTO study_plan_versions (id, plan_id, version, state, source_scope_json, created_by, created_at)
+             VALUES ('spv_d2', 'sp_1', 3, 'draft', '{\"schemaVersion\":1}', 'user', '2026-11-10T17:00:00Z')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            dup_draft.is_err(),
+            "Only one draft version per plan is allowed"
+        );
+
+        // 4. Insert study_source_refs
+        sqlx::query(
+            "INSERT INTO study_source_refs (id, schema_version, document_id, excerpt, excerpt_sha256, revision, revision_kind, document_title, source_type, captured_at)
+             VALUES ('ssr_1', 1, 'doc_1', 'Raft is a consensus algorithm.', 'sha256:abc', 'rev1', 'content-hash', 'Raft Paper', 'pdf', '2026-11-10T17:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 5. Insert version nodes
+        sqlx::query(
+            "INSERT INTO study_plan_version_nodes (version_id, node_id, title, learning_objectives_json, concept_label, position, included, material_support)
+             VALUES ('spv_1', 'spn_1', 'Raft', '[\"Understand leader election\"]', 'Raft', 0, 1, 'grounded'),
+                    ('spv_1', 'spn_2', 'Paxos', '[\"Understand synod\"]', 'Paxos', 1, 1, 'grounded')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Position unique constraint for included nodes
+        let dup_pos = sqlx::query(
+            "INSERT INTO study_plan_version_nodes (version_id, node_id, title, learning_objectives_json, concept_label, position, included, material_support)
+             VALUES ('spv_1', 'spn_dup', 'Other', '[\"Obj\"]', 'Other', 0, 1, 'grounded')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            dup_pos.is_err(),
+            "Duplicate position for included nodes in same version must fail"
+        );
+
+        // Excluded node position must be -1
+        let bad_excluded_pos = sqlx::query(
+            "INSERT INTO study_plan_version_nodes (version_id, node_id, title, learning_objectives_json, concept_label, position, included, material_support)
+             VALUES ('spv_d1', 'spn_1', 'Raft', '[\"Obj\"]', 'Raft', 2, 0, 'grounded')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            bad_excluded_pos.is_err(),
+            "Excluded node position must be -1"
+        );
+
+        // 6. Prerequisites and Sources
+        sqlx::query(
+            "INSERT INTO study_plan_prerequisites (version_id, prerequisite_node_id, dependent_node_id, support)
+             VALUES ('spv_1', 'spn_1', 'spn_2', 'user')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO study_plan_node_sources (version_id, node_id, source_ref_id, ordinal, role)
+             VALUES ('spv_1', 'spn_1', 'ssr_1', 0, 'primary')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 7. Node activity
+        sqlx::query(
+            "INSERT INTO study_plan_node_activity (plan_id, node_id, activity, updated_at)
+             VALUES ('sp_1', 'spn_1', 'in-progress', '2026-11-10T17:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let bad_act = sqlx::query(
+            "INSERT INTO study_plan_node_activity (plan_id, node_id, activity, updated_at)
+             VALUES ('sp_1', 'spn_2', 'mastered', '2026-11-10T17:00:00Z')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            bad_act.is_err(),
+            "Invalid activity 'mastered' must fail check constraint"
+        );
+
+        // 8. Foreign key integrity check
+        let fk_violations: Vec<(String, i64, String, i64)> =
+            sqlx::query_as("PRAGMA foreign_key_check")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert!(
+            fk_violations.is_empty(),
+            "PRAGMA foreign_key_check found violations: {:?}",
+            fk_violations
+        );
+
+        // 9. Cascade delete isolation: deleting plan deletes versions/nodes/activity, but leaves source refs
+        sqlx::query("DELETE FROM study_plans WHERE id = 'sp_1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let (nodes_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM study_plan_nodes")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            nodes_count, 0,
+            "Deleting plan should cascade delete study_plan_nodes"
+        );
+
+        let (versions_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM study_plan_versions")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            versions_count, 0,
+            "Deleting plan should cascade delete study_plan_versions"
+        );
+
+        let (activity_count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM study_plan_node_activity")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            activity_count, 0,
+            "Deleting plan should cascade delete study_plan_node_activity"
+        );
+
+        let (refs_count,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM study_source_refs")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            refs_count, 1,
+            "Deleting plan must NOT delete study_source_refs (history retained)"
+        );
+    }
+
+    #[tokio::test]
+    async fn migration_140_study_generation_jobs_fresh_and_prior_db() {
+        let prior_pool = pool_migrated_up_to("140_study_generation_jobs").await;
+        run_migrations(&prior_pool).await.expect("apply 140");
+
+        let fresh_pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("open fresh in-memory db");
+        run_migrations(&fresh_pool)
+            .await
+            .expect("apply all migrations fresh");
+
+        let job_tables = ["study_generation_jobs", "study_generation_steps"];
+        for table in job_tables {
+            let (count,): (i64,) =
+                sqlx::query_as("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?")
+                    .bind(table)
+                    .fetch_one(&prior_pool)
+                    .await
+                    .unwrap();
+            assert_eq!(
+                count, 1,
+                "Table '{}' should exist after migration 140",
+                table
+            );
+
+            let (fresh_count,): (i64,) =
+                sqlx::query_as("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?")
+                    .bind(table)
+                    .fetch_one(&fresh_pool)
+                    .await
+                    .unwrap();
+            assert_eq!(fresh_count, 1, "Table '{}' should exist on fresh db", table);
+        }
+    }
+
+    #[tokio::test]
+    async fn migration_140_study_generation_jobs_constraints_and_uniqueness() {
+        let pool = pool_migrated_up_to("140_study_generation_jobs").await;
+        run_migrations(&pool).await.expect("apply 140");
+
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // 1. Insert a valid curriculum generation job
+        sqlx::query(
+            "INSERT INTO study_generation_jobs (
+                id, kind, target_id, target_revision, creation_key, request_hash, status,
+                next_step_index, preflight_json, progress_json, created_at, updated_at
+            ) VALUES (
+                'job_1', 'curriculum', 'sp_target_1', 1, 'ck_1', 'req_hash_1', 'running',
+                0, '{\"provider\":\"openai\"}', '{\"completedSteps\":0}', '2026-11-10T18:00:00Z', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 2. Active duplicate check: same kind, target_id, request_hash when active must fail
+        let dup_active = sqlx::query(
+            "INSERT INTO study_generation_jobs (
+                id, kind, target_id, target_revision, creation_key, request_hash, status,
+                next_step_index, preflight_json, progress_json, created_at, updated_at
+            ) VALUES (
+                'job_dup', 'curriculum', 'sp_target_1', 1, 'ck_2', 'req_hash_1', 'queued',
+                0, '{\"provider\":\"openai\"}', '{\"completedSteps\":0}', '2026-11-10T18:00:00Z', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            dup_active.is_err(),
+            "Active duplicate request on same target must violate one_active_study_request index"
+        );
+
+        // 3. Complete job_1 -> then inserting same request_hash should SUCCEED
+        sqlx::query("UPDATE study_generation_jobs SET status = 'completed' WHERE id = 'job_1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let subsequent_job = sqlx::query(
+            "INSERT INTO study_generation_jobs (
+                id, kind, target_id, target_revision, creation_key, request_hash, status,
+                next_step_index, preflight_json, progress_json, created_at, updated_at
+            ) VALUES (
+                'job_2', 'curriculum', 'sp_target_1', 1, 'ck_3', 'req_hash_1', 'running',
+                0, '{\"provider\":\"openai\"}', '{\"completedSteps\":0}', '2026-11-10T18:01:00Z', '2026-11-10T18:01:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            subsequent_job.is_ok(),
+            "Subsequent request after completion of previous job must succeed"
+        );
+
+        // 4. CHECK constraint: reject arbitrary invalid kind
+        let bad_kind = sqlx::query(
+            "INSERT INTO study_generation_jobs (
+                id, kind, target_id, target_revision, creation_key, request_hash, status,
+                next_step_index, preflight_json, progress_json, created_at, updated_at
+            ) VALUES (
+                'job_bad_kind', 'arbitrary-worker', 'target_1', 0, 'ck_bad', 'req_bad', 'queued',
+                0, '{}', '{}', '2026-11-10T18:00:00Z', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            bad_kind.is_err(),
+            "Invalid job kind must violate CHECK constraint"
+        );
+
+        // 5. Insert valid steps
+        sqlx::query(
+            "INSERT INTO study_generation_steps (
+                job_id, step_key, ordinal, input_hash, status
+            ) VALUES (
+                'job_2', 'step_decompose_0', 0, 'input_hash_step_0', 'completed'
+            ), (
+                'job_2', 'step_prereqs_1', 1, 'input_hash_step_1', 'running'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Duplicate ordinal in same job must fail
+        let dup_ordinal = sqlx::query(
+            "INSERT INTO study_generation_steps (
+                job_id, step_key, ordinal, input_hash, status
+            ) VALUES (
+                'job_2', 'step_another_0', 0, 'input_hash_step_other', 'pending'
+            )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            dup_ordinal.is_err(),
+            "Duplicate ordinal in same job must fail"
+        );
+
+        // 6. Foreign key check
+        let fk_violations: Vec<(String, i64, String, i64)> =
+            sqlx::query_as("PRAGMA foreign_key_check")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert!(
+            fk_violations.is_empty(),
+            "foreign_key_check found violations: {:?}",
+            fk_violations
+        );
+
+        // 7. Cascade delete: deleting job cascades to steps
+        sqlx::query("DELETE FROM study_generation_jobs WHERE id = 'job_2'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let (step_count,): (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM study_generation_steps WHERE job_id = 'job_2'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            step_count, 0,
+            "Deleting job should cascade delete its steps"
+        );
+    }
+
+    #[tokio::test]
+    async fn migration_141_assessment_blueprints_fresh_and_prior_db() {
+        let prior_pool = pool_migrated_up_to("141_assessment_blueprints").await;
+        run_migrations(&prior_pool).await.expect("apply 141");
+
+        let fresh_pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("open fresh in-memory db");
+        run_migrations(&fresh_pool)
+            .await
+            .expect("apply all migrations fresh");
+
+        let blueprint_tables = [
+            "assessment_blueprints",
+            "assessment_blueprint_revisions",
+            "assessment_questions",
+            "assessment_question_revisions",
+            "assessment_question_sources",
+            "assessment_question_targets",
+        ];
+        for table in blueprint_tables {
+            let (count,): (i64,) =
+                sqlx::query_as("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?")
+                    .bind(table)
+                    .fetch_one(&prior_pool)
+                    .await
+                    .unwrap();
+            assert_eq!(
+                count, 1,
+                "Table '{}' should exist after migration 141",
+                table
+            );
+
+            let (fresh_count,): (i64,) =
+                sqlx::query_as("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?")
+                    .bind(table)
+                    .fetch_one(&fresh_pool)
+                    .await
+                    .unwrap();
+            assert_eq!(fresh_count, 1, "Table '{}' should exist on fresh db", table);
+        }
+    }
+
+    #[tokio::test]
+    async fn migration_141_assessment_blueprints_constraints_and_invariants() {
+        let pool = pool_migrated_up_to("141_assessment_blueprints").await;
+        run_migrations(&pool).await.expect("apply 141");
+
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        // 1. Seed prerequisite document and study source ref
+        sqlx::query(
+            "INSERT INTO documents (
+                id, title, file_path, file_type, date_added, date_modified
+            ) VALUES (
+                'doc_test', 'Test Document', '/path/doc', 'pdf', '2026-11-10T18:00:00Z', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO study_source_refs (
+                id, document_id, extract_id, excerpt, excerpt_sha256, revision, revision_kind,
+                document_title, source_type, captured_at
+            ) VALUES (
+                'ref_1', 'doc_test', NULL, 'Excerpt text', 'sha256:ef01', 'rev_1', 'content-hash',
+                'Test Document', 'pdf', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 2. Seed a study plan
+        sqlx::query(
+            "INSERT INTO study_plans (
+                id, title, goal, depth, status, current_version, revision, created_at, updated_at
+            ) VALUES (
+                'plan_1', 'Distributed Systems', 'Master Raft and Paxos', 'deep', 'active', 0, 1,
+                '2026-11-10T18:00:00Z', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 3. Create assessment blueprint attached to plan_1
+        sqlx::query(
+            "INSERT INTO assessment_blueprints (
+                id, plan_id, title, lifecycle, revision, created_at, updated_at
+            ) VALUES (
+                'bp_1', 'plan_1', 'Midterm Assessment', 'active', 1,
+                '2026-11-10T18:00:00Z', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 4. Create draft blueprint revision
+        sqlx::query(
+            "INSERT INTO assessment_blueprint_revisions (
+                id, blueprint_id, revision, state, config_json, scoring_json,
+                source_scope_json, quota_json, source_snapshot_hash, created_at
+            ) VALUES (
+                'bpr_1', 'bp_1', 1, 'draft', '{}', '{}', '{}', '{}', 'sha256:snap1', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 5. one_blueprint_draft: second draft revision must fail
+        let dup_draft = sqlx::query(
+            "INSERT INTO assessment_blueprint_revisions (
+                id, blueprint_id, revision, state, config_json, scoring_json,
+                source_scope_json, quota_json, source_snapshot_hash, created_at
+            ) VALUES (
+                'bpr_dup', 'bp_1', 2, 'needs-review', '{}', '{}', '{}', '{}', 'sha256:snap2', '2026-11-10T18:01:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            dup_draft.is_err(),
+            "Multiple active draft revisions on same blueprint must fail"
+        );
+
+        // 6. Create assessment question & revision
+        sqlx::query(
+            "INSERT INTO assessment_questions (
+                id, blueprint_id, semantic_fingerprint, created_at
+            ) VALUES (
+                'q_1', 'bp_1', 'fp_q1', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO assessment_question_revisions (
+                id, question_id, blueprint_revision_id, revision, slot_key, fingerprint,
+                kind, payload_json, answer_key_json, max_points, difficulty, validation, created_at
+            ) VALUES (
+                'aqr_1', 'q_1', 'bpr_1', 1, 'slot_0', 'fp_q1',
+                'single-select', '{\"prompt\":\"Q1\"}', '{\"correctOptionId\":\"opt_1\"}',
+                1, 3, 'draft', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 7. Attach source ref with RESTRICT
+        sqlx::query(
+            "INSERT INTO assessment_question_sources (
+                question_revision_id, source_ref_id, ordinal, role
+            ) VALUES (
+                'aqr_1', 'ref_1', 0, 'primary'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 8. Test draft update succeeds
+        sqlx::query("UPDATE assessment_question_revisions SET max_points = 2 WHERE id = 'aqr_1'")
+            .execute(&pool)
+            .await
+            .expect("Updating draft question revision must succeed");
+
+        // 9. Test committed immutability trigger
+        sqlx::query("UPDATE assessment_question_revisions SET committed_at = '2026-11-10T19:00:00Z' WHERE id = 'aqr_1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let mutate_committed = sqlx::query(
+            "UPDATE assessment_question_revisions SET max_points = 5 WHERE id = 'aqr_1'",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            mutate_committed.is_err(),
+            "Mutating committed question revision must trigger abort"
+        );
+
+        // 10. Test ON DELETE RESTRICT on study_source_refs
+        let delete_source_ref = sqlx::query("DELETE FROM study_source_refs WHERE id = 'ref_1'")
+            .execute(&pool)
+            .await;
+        assert!(
+            delete_source_ref.is_err(),
+            "Deleting source ref linked to an assessment question must fail via ON DELETE RESTRICT"
+        );
+
+        // 11. Test plan detachment: deleting plan sets blueprint plan_id to NULL
+        sqlx::query("DELETE FROM study_plans WHERE id = 'plan_1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let (plan_id,): (Option<String>,) =
+            sqlx::query_as("SELECT plan_id FROM assessment_blueprints WHERE id = 'bp_1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(
+            plan_id.is_none(),
+            "Deleting plan must set blueprint plan_id to NULL"
+        );
+
+        // 12. CHECK constraints: invalid kind and invalid points
+        let bad_kind = sqlx::query(
+            "INSERT INTO assessment_question_revisions (
+                id, question_id, blueprint_revision_id, revision, slot_key, fingerprint,
+                kind, payload_json, answer_key_json, max_points, difficulty, validation, created_at
+            ) VALUES (
+                'aqr_bad', 'q_1', 'bpr_1', 2, 'slot_1', 'fp_bad',
+                'arbitrary-kind', '{}', '{}', 1, 3, 'draft', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(bad_kind.is_err(), "Invalid kind must fail CHECK constraint");
+
+        let bad_points = sqlx::query(
+            "INSERT INTO assessment_question_revisions (
+                id, question_id, blueprint_revision_id, revision, slot_key, fingerprint,
+                kind, payload_json, answer_key_json, max_points, difficulty, validation, created_at
+            ) VALUES (
+                'aqr_bad_pts', 'q_1', 'bpr_1', 3, 'slot_2', 'fp_bad2',
+                'single-select', '{}', '{}', 25, 3, 'draft', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            bad_points.is_err(),
+            "max_points > 20 must fail CHECK constraint"
+        );
+
+        // 13. State ready requires published_at
+        let bad_ready = sqlx::query(
+            "INSERT INTO assessment_blueprint_revisions (
+                id, blueprint_id, revision, state, config_json, scoring_json,
+                source_scope_json, quota_json, source_snapshot_hash, created_at, published_at
+            ) VALUES (
+                'bpr_bad_ready', 'bp_1', 10, 'ready', '{}', '{}', '{}', '{}', 'sha256:s', '2026-11-10T18:00:00Z', NULL
+            )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            bad_ready.is_err(),
+            "Ready state without published_at must fail CHECK constraint"
+        );
+    }
+
+    #[tokio::test]
+    async fn migration_142_assessment_sessions_fresh_and_prior_db() {
+        let prior_pool = pool_migrated_up_to("142_assessment_sessions").await;
+        run_migrations(&prior_pool)
+            .await
+            .expect("Migrating from 142 on prior db succeeds");
+
+        let fresh_pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("open fresh in-memory db");
+        run_migrations(&fresh_pool)
+            .await
+            .expect("Fresh migration through 142 succeeds");
+
+        // Verify tables exist
+        for table in &[
+            "exam_attempts",
+            "exam_responses",
+            "exam_response_submissions",
+            "exam_grades",
+        ] {
+            let (count,): (i64,) =
+                sqlx::query_as("SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?")
+                    .bind(table)
+                    .fetch_one(&fresh_pool)
+                    .await
+                    .unwrap();
+            assert_eq!(count, 1, "Table {} must exist", table);
+        }
+
+        // Verify indexes exist
+        for idx in &[
+            "exam_attempts_paper",
+            "exam_attempts_status",
+            "exam_attempts_history",
+            "exam_responses_attempt",
+            "one_exam_final_submission",
+            "response_submissions_attempt",
+            "one_current_exam_grade",
+            "exam_grades_question",
+            "exam_grades_submission_history",
+        ] {
+            let (count,): (i64,) =
+                sqlx::query_as("SELECT count(*) FROM sqlite_master WHERE type='index' AND name=?")
+                    .bind(idx)
+                    .fetch_one(&fresh_pool)
+                    .await
+                    .unwrap();
+            assert_eq!(count, 1, "Index {} must exist", idx);
+        }
+
+        // Verify committed_assessment_question_history_delete_guard trigger exists
+        let (count,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name='committed_assessment_question_history_delete_guard'",
+        )
+        .fetch_one(&fresh_pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            count, 1,
+            "Trigger committed_assessment_question_history_delete_guard must exist"
+        );
+    }
+
+    #[tokio::test]
+    async fn migration_142_assessment_sessions_constraints_and_invariants() {
+        let pool = pool_migrated_up_to("142_assessment_sessions").await;
+        run_migrations(&pool).await.expect("apply 142");
+
+        // 1. Seed base requirements: document, source ref, plan, blueprint, ready revision, question, committed question revision
+        sqlx::query(
+            "INSERT INTO documents (
+                id, title, file_path, file_type, date_added, date_modified, content
+            ) VALUES (
+                'doc_sess', 'Session Doc', '/tmp/sess.pdf', 'pdf', '2026-11-10T18:00:00Z', '2026-11-10T18:00:00Z', 'Content'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO study_plans (
+                id, title, goal, depth, status, current_version, revision, created_at, updated_at
+            ) VALUES (
+                'plan_sess', 'Exam Plan', 'Study Goal', 'survey', 'active', 0, 1,
+                '2026-11-10T18:00:00Z', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO assessment_blueprints (
+                id, plan_id, title, lifecycle, revision, created_at, updated_at
+            ) VALUES (
+                'bp_sess', 'plan_sess', 'Exam Session BP', 'active', 1,
+                '2026-11-10T18:00:00Z', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO assessment_blueprint_revisions (
+                id, blueprint_id, revision, state, config_json, scoring_json,
+                source_scope_json, quota_json, source_snapshot_hash, created_at, published_at
+            ) VALUES (
+                'bpr_ready', 'bp_sess', 1, 'ready', '{}', '{}', '{}', '{}', 'sha256:snap',
+                '2026-11-10T18:00:00Z', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO assessment_questions (
+                id, blueprint_id, semantic_fingerprint, created_at
+            ) VALUES (
+                'q_sess_1', 'bp_sess', 'fp_sess_1', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO assessment_question_revisions (
+                id, question_id, blueprint_revision_id, revision, slot_key, fingerprint,
+                kind, payload_json, answer_key_json, max_points, difficulty, validation, committed_at, created_at
+            ) VALUES (
+                'aqr_sess_1', 'q_sess_1', 'bpr_ready', 1, 'slot_0', 'fp_sess_1',
+                'single-select', '{\"prompt\":\"Q1\"}', '{\"correctOptionId\":\"opt_1\"}',
+                2, 2, 'valid', '2026-11-10T18:00:00Z', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 2. Insert valid exam_attempt
+        sqlx::query(
+            "INSERT INTO exam_attempts (
+                id, blueprint_revision_id, client_start_key, mode, status,
+                question_revision_ids_json, revision, started_at, deadline_at,
+                maximum_points, created_at, updated_at
+            ) VALUES (
+                'att_1', 'bpr_ready', 'client_start_uuid_1', 'exam', 'in-progress',
+                '[\"aqr_sess_1\"]', 1, '2026-11-10T18:00:00Z', '2026-11-10T19:00:00Z',
+                2.0, '2026-11-10T18:00:00Z', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 3. Test UNIQUE(blueprint_revision_id, client_start_key)
+        let dup_attempt = sqlx::query(
+            "INSERT INTO exam_attempts (
+                id, blueprint_revision_id, client_start_key, mode, status,
+                question_revision_ids_json, revision, started_at, maximum_points,
+                created_at, updated_at
+            ) VALUES (
+                'att_dup', 'bpr_ready', 'client_start_uuid_1', 'exam', 'in-progress',
+                '[\"aqr_sess_1\"]', 1, '2026-11-10T18:00:00Z', 2.0,
+                '2026-11-10T18:00:00Z', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            dup_attempt.is_err(),
+            "Duplicate client_start_key on same blueprint revision must fail"
+        );
+
+        // 4. Test awarded_points <= maximum_points CHECK
+        let bad_points = sqlx::query(
+            "INSERT INTO exam_attempts (
+                id, blueprint_revision_id, client_start_key, mode, status,
+                question_revision_ids_json, revision, started_at, awarded_points,
+                maximum_points, created_at, updated_at
+            ) VALUES (
+                'att_bad_pts', 'bpr_ready', 'client_start_uuid_2', 'exam', 'complete',
+                '[\"aqr_sess_1\"]', 1, '2026-11-10T18:00:00Z', 5.0, 2.0,
+                '2026-11-10T18:00:00Z', '2026-11-10T18:00:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            bad_points.is_err(),
+            "awarded_points > maximum_points must fail CHECK constraint"
+        );
+
+        // 5. Insert valid exam_response
+        sqlx::query(
+            "INSERT INTO exam_responses (
+                id, attempt_id, question_revision_id, draft_json, mark,
+                revision, last_client_mutation_id, updated_at
+            ) VALUES (
+                'resp_1', 'att_1', 'aqr_sess_1', '{\"kind\":\"single-select\",\"optionId\":\"opt_1\"}',
+                'answered', 1, 'mut_1', '2026-11-10T18:05:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 6. Test UNIQUE(attempt_id, question_revision_id)
+        let dup_resp_q = sqlx::query(
+            "INSERT INTO exam_responses (
+                id, attempt_id, question_revision_id, draft_json, mark,
+                revision, last_client_mutation_id, updated_at
+            ) VALUES (
+                'resp_dup', 'att_1', 'aqr_sess_1', '{}', 'unanswered', 1, 'mut_2', '2026-11-10T18:06:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            dup_resp_q.is_err(),
+            "Duplicate question response in same attempt must fail"
+        );
+
+        // 7. Test UNIQUE(attempt_id, last_client_mutation_id)
+        let dup_mut = sqlx::query(
+            "INSERT INTO exam_responses (
+                id, attempt_id, question_revision_id, draft_json, mark,
+                revision, last_client_mutation_id, updated_at
+            ) VALUES (
+                'resp_dup_mut', 'att_1', 'aqr_sess_other', '{}', 'unanswered', 1, 'mut_1', '2026-11-10T18:06:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            dup_mut.is_err(),
+            "Duplicate last_client_mutation_id in same attempt must fail"
+        );
+
+        // 8. Insert valid exam_response_submissions
+        sqlx::query(
+            "INSERT INTO exam_response_submissions (
+                id, response_id, attempt_id, question_revision_id, ordinal,
+                kind, response_json, mark, hint_level, created_at
+            ) VALUES (
+                'sub_1', 'resp_1', 'att_1', 'aqr_sess_1', 1,
+                'exam-final', '{\"kind\":\"single-select\",\"optionId\":\"opt_1\"}',
+                'answered', 0, '2026-11-10T18:10:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 9. Test one_exam_final_submission: second exam-final submission for same response_id must fail
+        let dup_final = sqlx::query(
+            "INSERT INTO exam_response_submissions (
+                id, response_id, attempt_id, question_revision_id, ordinal,
+                kind, response_json, mark, hint_level, created_at
+            ) VALUES (
+                'sub_2', 'resp_1', 'att_1', 'aqr_sess_1', 2,
+                'exam-final', '{\"kind\":\"single-select\",\"optionId\":\"opt_1\"}',
+                'answered', 0, '2026-11-10T18:11:00Z'
+            )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            dup_final.is_err(),
+            "Multiple exam-final submissions on same response must fail"
+        );
+
+        // 10. Insert valid exam_grades
+        sqlx::query(
+            "INSERT INTO exam_grades (
+                id, response_submission_id, question_revision_id, origin, state,
+                points, max_points, is_current, created_at
+            ) VALUES (
+                'grd_1', 'sub_1', 'aqr_sess_1', 'deterministic', 'final',
+                2.0, 2.0, 1, '2026-11-10T18:10:01Z'
+            )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 11. Test one_current_exam_grade: second is_current=1 grade for same submission must fail
+        let dup_current_grade = sqlx::query(
+            "INSERT INTO exam_grades (
+                id, response_submission_id, question_revision_id, origin, state,
+                points, max_points, is_current, created_at
+            ) VALUES (
+                'grd_2', 'sub_1', 'aqr_sess_1', 'deterministic', 'final',
+                2.0, 2.0, 1, '2026-11-10T18:10:02Z'
+            )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            dup_current_grade.is_err(),
+            "Multiple is_current=1 grades on same submission must fail"
+        );
+
+        // 12. Test manual grade requirement: origin='manual' requires non-empty manual_reason
+        let bad_manual = sqlx::query(
+            "INSERT INTO exam_grades (
+                id, response_submission_id, question_revision_id, origin, state,
+                points, max_points, manual_reason, is_current, created_at
+            ) VALUES (
+                'grd_bad_man', 'sub_1', 'aqr_sess_1', 'manual', 'final',
+                2.0, 2.0, '   ', 0, '2026-11-10T18:10:03Z'
+            )",
+        )
+        .execute(&pool)
+        .await;
+        assert!(
+            bad_manual.is_err(),
+            "Manual origin without non-empty manual_reason must fail CHECK"
+        );
+
+        // 13. Test committed_assessment_question_history_delete_guard trigger
+        let delete_committed_q =
+            sqlx::query("DELETE FROM assessment_question_revisions WHERE id = 'aqr_sess_1'")
+                .execute(&pool)
+                .await;
+        assert!(
+            delete_committed_q.is_err(),
+            "Deleting committed question revision referenced by exam_responses must be aborted by trigger"
+        );
+
+        // 14. Test blueprint revision ON DELETE RESTRICT from exam_attempts
+        let delete_bp_rev =
+            sqlx::query("DELETE FROM assessment_blueprint_revisions WHERE id = 'bpr_ready'")
+                .execute(&pool)
+                .await;
+        assert!(
+            delete_bp_rev.is_err(),
+            "Deleting blueprint revision referenced by exam_attempts must fail ON DELETE RESTRICT"
+        );
+
+        // 15. Test CASCADE delete from exam_attempts
+        sqlx::query("DELETE FROM exam_attempts WHERE id = 'att_1'")
+            .execute(&pool)
+            .await
+            .expect("Deleting exam_attempt must succeed");
+
+        let (resp_count,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM exam_responses WHERE attempt_id = 'att_1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            resp_count, 0,
+            "exam_responses must cascade delete with attempt"
+        );
+
+        let (sub_count,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM exam_response_submissions WHERE attempt_id = 'att_1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            sub_count, 0,
+            "exam_response_submissions must cascade delete with attempt"
+        );
+
+        let (grd_count,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM exam_grades WHERE id = 'grd_1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            grd_count, 0,
+            "exam_grades must cascade delete with submission"
+        );
     }
 }

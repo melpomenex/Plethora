@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { generateLearningPathTopology, LearningPathNode } from '../learningPaths';
+import {
+  generateLearningPathTopology,
+  type LearningPathNode,
+} from '../learningPaths';
 
 describe('Learning Path Topology Planning', () => {
   it('orders nodes such that all prerequisites precede dependent nodes', () => {
@@ -45,5 +48,32 @@ describe('Learning Path Topology Planning', () => {
     expect(sorted[0].orderIndex).toBe(0);
     expect(sorted[1].orderIndex).toBe(1);
     expect(sorted[2].orderIndex).toBe(2);
+  });
+
+  it('rejects dependency cycles instead of silently appending cyclic nodes', () => {
+    const cyclicNodes: Omit<LearningPathNode, 'orderIndex'>[] = [
+      {
+        id: 'node-x',
+        pathId: 'p1',
+        title: 'Topic X',
+        sourceDocIds: [],
+        prerequisiteNodeIds: ['node-y'],
+        isUserModified: false,
+        status: 'pending',
+      },
+      {
+        id: 'node-y',
+        pathId: 'p1',
+        title: 'Topic Y',
+        sourceDocIds: [],
+        prerequisiteNodeIds: ['node-x'],
+        isUserModified: false,
+        status: 'pending',
+      },
+    ];
+
+    expect(() => generateLearningPathTopology(cyclicNodes)).toThrow(
+      /Topology planning failed: dependency_cycle/
+    );
   });
 });

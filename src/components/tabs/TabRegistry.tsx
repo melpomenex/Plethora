@@ -51,6 +51,7 @@ export const ImageRegistryTab = debugLazy("ImageRegistryTab", () => import("./Im
 export const PodcastTab = debugLazy("PodcastTab", () => import("../media/PodcastManager").then(m => ({ default: m.PodcastManager })));
 export const AudiobooksTab = debugLazy("AudiobooksTab", () => import("./AudiobooksTab").then(m => ({ default: m.AudiobooksTab })));
 export const ImportNeedsReviewTab = debugLazy("ImportNeedsReviewTab", () => import("../../pages/ImportNeedsReviewPage").then(m => ({ default: m.ImportNeedsReviewTab })));
+export const StudyPlansTab = debugLazy("StudyPlansTab", () => import("../study-plans/StudyPlansTab").then(m => ({ default: m.StudyPlansTab })));
 
 /**
  * Destinations a user is likely to tap first on a fresh boot. Their lazy
@@ -94,6 +95,7 @@ export const TAB_TYPE_ICONS: Record<string, string> = {
   "queue-scroll": "📜", "audiobook-epub-sync": "🎧",
   audiobook: "🎧",
   "import-needs-review": "🧭",
+  "study-plans": "🧭",
 };
 
 export const tabContentRegistry: Record<TabType, { content: ComponentType; title: string; icon: string; closable: boolean }> = {
@@ -121,6 +123,7 @@ export const tabContentRegistry: Record<TabType, { content: ComponentType; title
   audiobook: { content: AudiobooksTab, title: "Audiobooks", icon: "🎧", closable: true },
   extracts: { content: ExtractsTab, title: "Extracts", icon: "✂️", closable: true },
   "import-needs-review": { content: ImportNeedsReviewTab, title: "Import Needs Review", icon: "🧭", closable: true },
+  "study-plans": { content: StudyPlansTab, title: "Study Plans", icon: "🧭", closable: true },
 };
 
 export function createCanonicalTab(type: TabType): Omit<Tab, "id"> {
