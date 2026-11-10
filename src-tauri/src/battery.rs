@@ -108,10 +108,10 @@ pub fn get_battery_state() -> BatteryState {
 // Android native JNI callback hook
 #[cfg(target_os = "android")]
 #[no_mangle]
-pub extern "C" fn Java_app_plethora_battery_PlethoraBatteryBridge_nativeOnThermalStatusChanged(
-    _env: jni::JNIEnv,
-    _class: jni::objects::JClass,
-    status_code: jni::sys::jint,
+pub extern "system" fn Java_app_plethora_battery_PlethoraBatteryBridge_nativeOnThermalStatusChanged(
+    _env: *mut std::ffi::c_void,
+    _class: *mut std::ffi::c_void,
+    status_code: i32,
 ) {
     let status_str = match status_code {
         0 => "normal",
