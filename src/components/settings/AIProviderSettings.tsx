@@ -665,7 +665,7 @@ export function AISettings({ onChange }: { onChange: () => void }) {
         >
           <NumericInput
             min={1000}
-            max={32000}
+            max={1000000}
             step={500}
             value={contextWindowTokens}
             onChange={handleSaveContextWindow}

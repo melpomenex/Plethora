@@ -22,6 +22,7 @@ export type ContextWindowPreset =
   | "16k"
   | "32k"
   | "64k"
+  | "128k"
   | "custom";
 
 export const CONTEXT_WINDOW_PRESET_VALUES: Record<Exclude<ContextWindowPreset, "auto" | "custom">, number> = {
@@ -30,6 +31,7 @@ export const CONTEXT_WINDOW_PRESET_VALUES: Record<Exclude<ContextWindowPreset, "
   "16k": 16384,
   "32k": 32768,
   "64k": 65536,
+  "128k": 131072,
 };
 
 export interface LlmRequestPolicy {
@@ -74,11 +76,16 @@ export function resolveAutoContext(input: PolicyResolutionInput): number {
   return Math.min(AUTO_CONTEXT_CEILING, Math.max(AUTO_CONTEXT_FLOOR, resolved));
 }
 
-function resolveConfiguredContextTokens(input: PolicyResolutionInput): number {
+export function resolveConfiguredContextTokens(input: PolicyResolutionInput): number {
+  const explicitOverride = positive(input.configuredContextOverride);
+  if (explicitOverride != null) return explicitOverride;
+
+  const perModel = positive(input.perModelOverride);
+  if (perModel != null) return perModel;
+
   if (input.autoPreset) return resolveAutoContext(input);
+
   return (
-    positive(input.configuredContextOverride) ??
-    positive(input.perModelOverride) ??
     positive(input.providerContextTokens) ??
     positive(input.globalContextTokens) ??
     positive(input.discoveredNumCtx) ??

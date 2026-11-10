@@ -66,6 +66,7 @@ import {
 import { classifyPlaybackFailure, type PlaybackFailureInput } from "../../lib/media/errorClassification";
 import type { MediaPlaybackFailure } from "../../lib/media/types";
 import { probeMediaTransport } from "../../api/mediaCompatibility";
+import { formatVideoTimestamp } from "../../lib/ai/assistant/videoContextPlanner";
 
 interface LocalVideoPlayerProps {
   src: LocalMediaSourceInput; // Local file URL or richer source descriptor
@@ -80,6 +81,14 @@ interface LocalVideoPlayerProps {
   initialEndTime?: number;
   autoPlayOnOpen?: boolean;
   armedExtract?: VideoExtract | null;
+  onVideoContextChange?: (context: {
+    videoId: string;
+    title: string;
+    duration: number;
+    currentTime: number;
+    transcript?: string;
+    transcriptStatus?: "loading" | "ready-full" | "ready-indexed" | "partial" | "unavailable" | "failed";
+  } | null) => void;
 }
 
 export function LocalVideoPlayer({
@@ -95,6 +104,7 @@ export function LocalVideoPlayer({
   initialEndTime,
   autoPlayOnOpen = false,
   armedExtract = null,
+  onVideoContextChange,
 }: LocalVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const { select: selectExtract, confirm: confirmExtractPlayback, cancel: cancelExtractPlayback } = useVideoExtractPlayback(documentId, armedExtract);
@@ -640,6 +650,28 @@ export function LocalVideoPlayer({
       setIsLoadingTranscript(false);
     }
   }, [documentId, mapTranscriptSegments]);
+
+  useEffect(() => {
+    if (!onVideoContextChange || !documentId) return;
+    const formattedTranscript = transcriptSegments.length > 0
+      ? transcriptSegments.map(s => `[${formatVideoTimestamp(s.start)}] ${s.text}`).join('\n')
+      : undefined;
+    const status = formattedTranscript
+      ? ("ready-full" as const)
+      : isLoadingTranscript
+        ? ("loading" as const)
+        : transcriptError
+          ? ("failed" as const)
+          : ("unavailable" as const);
+    onVideoContextChange({
+      videoId: documentId,
+      title: title || "",
+      duration: duration || 0,
+      currentTime: currentTime || 0,
+      transcript: formattedTranscript,
+      transcriptStatus: status,
+    });
+  }, [onVideoContextChange, documentId, title, duration, currentTime, transcriptSegments, isLoadingTranscript, transcriptError]);
 
   const savePosition = useCallback(async (time: number) => {
     const currentDocumentId = documentIdRef.current;

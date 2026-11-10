@@ -155,6 +155,18 @@ describe("assembleAssistantPrompt", () => {
 
     expect(assembled.systemPrompt).not.toContain("SOURCE COVERAGE LIMIT");
   });
+
+  it("does not add a coverage limit for hierarchical-full source answers", () => {
+    const assembled = assembleAssistantPrompt({
+      scope: "document",
+      userQuestion: "Summarize this document",
+      sourceId: "doc-1",
+      sourceContent: "The hierarchical summary of the long video.",
+      sourceCoverage: "hierarchical-full",
+    });
+
+    expect(assembled.systemPrompt).not.toContain("SOURCE COVERAGE LIMIT");
+  });
 });
 
 describe("rewriteFollowUpQueryWithHistory", () => {

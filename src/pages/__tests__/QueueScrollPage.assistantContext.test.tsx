@@ -415,6 +415,7 @@ describe("Queue Scroll assistant context parity", () => {
     expect(panelProbe.context.content).toContain("[34:20] The speaker explains attention.");
     expect(panelProbe.context.position?.currentTime).toBe(2060);
     expect(panelProbe.context.transcriptStatus).toBe("ready-full");
+    expect(panelProbe.context.coverage).toBe("full");
     expect(panelProbe.context.status).toBe("ready");
     expect(panelProbe.context.metadata?.videoId).toBe("vid-1");
   });

@@ -53,4 +53,111 @@ describe("video context planning", () => {
     expect(planVideoContext({ segments: [], query: "summary", sourceBudgetTokens: 200 }).coverage).toBe("none");
     expect(planVideoContext({ segments: longTranscript, query: "unmatchedword", sourceBudgetTokens: 200 }).content).toBe("");
   });
+
+  describe("broadened whole-source action matching", () => {
+    it.each([
+      "Key points",
+      "Summarize",
+      "Outline document",
+      "Examine argument",
+      "Analyze argument",
+      "Quiz me",
+      "Make flashcards",
+      "Key terms",
+      "What are the main claims in this video?",
+      "Give me a high-level overview of the entire video",
+    ])("routes '%s' to map-reduce when over budget", (query) => {
+      const plan = planVideoContext({
+        segments: longTranscript,
+        query,
+        sourceBudgetTokens: 700,
+      });
+      expect(plan.mode).toBe("map-reduce");
+    });
+  });
+
+  describe("direct full-transcript inclusion when fitting budget", () => {
+    it("returns mode full and coverage full for a 25,000-token transcript in a 45,000-token budget", () => {
+      // 100 segments with ~250 tokens (~1000 chars) each -> 25,000 tokens / 100,000 chars
+      const segments = Array.from({ length: 100 }, (_, i) => ({
+        start: i * 60,
+        duration: 55,
+        text: `Segment ${i}: Discussion of scientific finding number ${i} with substantial detailed analysis.`,
+      }));
+
+      const plan = planVideoContext({
+        segments,
+        query: "Key points",
+        sourceBudgetTokens: 45000,
+      });
+
+      expect(plan.mode).toBe("full");
+      expect(plan.coverage).toBe("full");
+      expect(plan.content).toContain("[00:00]");
+      expect(plan.content).toContain(`Segment 99`);
+    });
+  });
+
+  describe("whole-transcript semantic retrieval for unbounded factual queries", () => {
+    it("retrieves late-video evidence across entire transcript even when paused at early currentTime", () => {
+      const plantSegment = {
+        start: 6300, // 1h 45m
+        duration: 60,
+        text: "The speaker discusses plants producing chemical signaling networks across mycelial connections.",
+      };
+      const segments = [
+        ...longTranscript,
+        plantSegment,
+      ];
+
+      const plan = planVideoContext({
+        segments,
+        query: "What did the speaker say about plants?",
+        currentTime: 1100, // 18:20
+        sourceBudgetTokens: 700,
+      });
+
+      expect(plan.mode).toBe("retrieval");
+      expect(plan.coverage).toBe("chunks");
+      expect(plan.content).toContain("plants producing chemical signaling");
+      expect(plan.content).toContain("[1:45:00]");
+    });
+  });
+
+  describe("bounded retrieval for explicit localized queries", () => {
+    it("preserves bounded window for 'around 18:20' query", () => {
+      const plan = planVideoContext({
+        segments: longTranscript,
+        query: "What happened around 18:20 in the lecture?",
+        sourceBudgetTokens: 700,
+      });
+      expect(plan.mode).toBe("timestamp");
+      expect(plan.coverage).toBe("window");
+      expect(plan.content).toContain("[18:");
+    });
+
+    it("preserves bounded window for 'what did he just say' at playback position", () => {
+      const plan = planVideoContext({
+        segments: longTranscript,
+        query: "what did he just say?",
+        currentTime: 1200,
+        sourceBudgetTokens: 700,
+      });
+      expect(plan.mode).toBe("playback");
+      expect(plan.coverage).toBe("window");
+      expect(plan.content).toContain("[20:00]");
+    });
+
+    it("preserves bounded window when user provides an explicit text selection", () => {
+      const plan = planVideoContext({
+        segments: longTranscript,
+        query: "Explain this",
+        selection: "quantum entanglement and non-local interactions",
+        sourceBudgetTokens: 700,
+      });
+      expect(plan.mode).toBe("retrieval");
+      expect(plan.coverage).toBe("chunks");
+      expect(plan.content).toContain("quantum");
+    });
+  });
 });

@@ -2745,6 +2745,8 @@ export function QueueScrollPage() {
                 contextWindowTokens: maxTokens,
                 selection: selection || undefined,
                 status: "ready",
+                transcriptStatus: "ready-full",
+                coverage: "full",
                 source: "video-transcript",
                 metadata: {
                   title: title || undefined,
@@ -2908,8 +2910,9 @@ export function QueueScrollPage() {
     if (item.type === "document" && assistantContext?.documentId !== item.documentId) return undefined;
     if (item.type === "extract" && assistantContext?.extractId !== item.extract?.id) return undefined;
     if (item.type === "rss" && assistantContext?.url !== (item.rssItem?.link || `rss:${item.rssItem?.id}`)) return undefined;
-    const base = liveVideoContext ? { ...assistantContext, type: "video", documentId: item.documentId,
-      position: { currentTime: liveVideoContext.currentTime }, transcriptStatus: liveVideoContext.transcriptStatus,
+    const base = liveVideoContext ? { ...assistantContext, type: "video" as const, documentId: item.documentId,
+      position: { currentTime: liveVideoContext.currentTime }, transcriptStatus: liveVideoContext.transcriptStatus ?? (liveVideoContext.transcript?.trim() ? "ready-full" : undefined),
+      coverage: liveVideoContext.transcript?.trim() ? ("full" as const) : undefined,
       content: liveVideoContext.transcript, metadata: { title: liveVideoContext.title, duration: liveVideoContext.duration, videoId: liveVideoContext.videoId },
     } : assistantContext;
     return base ? { ...base, conversationId: queueItemConversationKey } : undefined;
@@ -4669,9 +4672,11 @@ export function QueueScrollPage() {
               <AssistantPanel
                 conversationKey={queueItemConversationKey}
                 conversationId={queueItemConversationKey}
-                context={liveVideoContext ? { ...assistantContext, type: "video", documentId: (renderedItem ?? currentItem)?.documentId,
+                context={liveVideoContext ? { ...assistantContext, type: "video" as const, documentId: (renderedItem ?? currentItem)?.documentId,
                   content: liveVideoContext.transcript, status: liveVideoContext.transcript?.trim() ? "ready" : liveVideoContext.transcriptStatus === "loading" ? "loading" : "unavailable",
-                  transcriptStatus: liveVideoContext.transcriptStatus, selection, position: { currentTime: liveVideoContext.currentTime }, metadata: liveVideoContext,
+                  transcriptStatus: liveVideoContext.transcriptStatus ?? (liveVideoContext.transcript?.trim() ? "ready-full" : undefined),
+                  coverage: liveVideoContext.transcript?.trim() ? ("full" as const) : undefined,
+                  selection, position: { currentTime: liveVideoContext.currentTime }, metadata: liveVideoContext,
                   resolveForPrompt: resolveContextForPrompt, retryTranscript: () => window.dispatchEvent(new CustomEvent("plethora:retry-transcript", { detail: { documentId: (renderedItem ?? currentItem)?.documentId } })),
                 } : assistantContext}
                 className="assistant-panel h-full"
@@ -5079,9 +5084,11 @@ export function QueueScrollPage() {
               <AssistantPanel
                 conversationKey={queueItemConversationKey}
                 conversationId={queueItemConversationKey}
-                context={liveVideoContext ? { ...assistantContext, type: "video", documentId: (renderedItem ?? currentItem)?.documentId,
+                context={liveVideoContext ? { ...assistantContext, type: "video" as const, documentId: (renderedItem ?? currentItem)?.documentId,
                   content: liveVideoContext.transcript, status: liveVideoContext.transcript?.trim() ? "ready" : liveVideoContext.transcriptStatus === "loading" ? "loading" : "unavailable",
-                  transcriptStatus: liveVideoContext.transcriptStatus, selection, position: { currentTime: liveVideoContext.currentTime }, metadata: liveVideoContext,
+                  transcriptStatus: liveVideoContext.transcriptStatus ?? (liveVideoContext.transcript?.trim() ? "ready-full" : undefined),
+                  coverage: liveVideoContext.transcript?.trim() ? ("full" as const) : undefined,
+                  selection, position: { currentTime: liveVideoContext.currentTime }, metadata: liveVideoContext,
                   resolveForPrompt: resolveContextForPrompt, retryTranscript: () => window.dispatchEvent(new CustomEvent("plethora:retry-transcript", { detail: { documentId: (renderedItem ?? currentItem)?.documentId } })),
                 } : assistantContext}
                 className="assistant-panel h-full"

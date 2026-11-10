@@ -166,12 +166,12 @@ describe('target availability and coverage', () => {
     await waitFor(() => expect(mocks.turn).toHaveBeenCalledOnce());
     expect(mocks.turn.mock.calls[0][0].action.target.content).toBe('Selected text only');
   });
-  it('discloses whole-source overflow and does not silently label the excerpt full', async () => {
+  it('preserves full canonical source target without premature head-truncation on outline', async () => {
     mocks.getDoc.mockResolvedValue({ id: 'a', title: 'A', content: 'Long canonical source. '.repeat(10000), contentHash: 'v1' });
     render(<AssistantPanel {...props} />); menu(); fireEvent.click(action('Outline document'));
     await waitFor(() => expect(mocks.turn).toHaveBeenCalledOnce());
-    expect(mocks.turn.mock.calls[0][0].action.target.coverage).toBe('window');
-    expect(mocks.turn.mock.calls[0][0].sourceCoverage).toBe('window');
+    expect(mocks.turn.mock.calls[0][0].action.target.coverage).toBe('full');
+    expect(mocks.turn.mock.calls[0][0].sourceCoverage).toBe('full');
   });
   it('requires a visible choice for a pin from another source before any action', async () => {
     const { rerender } = render(<AssistantPanel {...props} />);

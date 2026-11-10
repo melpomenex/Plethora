@@ -52,4 +52,58 @@ describe("LLMProviderSettings", () => {
     expect(screen.getByText("$0.3 per 1M tokens", { exact: true })).toBeTruthy();
     expect(screen.getByText("$0.0037 per 1K tokens", { exact: true })).toBeTruthy();
   });
+
+  it("renders Context Window selector and presets for OpenRouter provider", () => {
+    renderWithProviders(
+      <LLMProviderSettings
+        providers={[openRouterProvider]}
+        onAddProvider={vi.fn()}
+        onUpdateProvider={vi.fn()}
+        onRemoveProvider={vi.fn()}
+        onTestConnection={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByTitle("Edit provider"));
+
+    expect(screen.getAllByText(/context window/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: /^auto$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "4K" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "8K" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "16K" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "32K" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "64K" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "128K" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "CUSTOM" })).toBeTruthy();
+  });
+
+  it("persists contextWindowTokens and contextWindowPreset when updating an OpenRouter provider", () => {
+    const onUpdateProvider = vi.fn();
+    renderWithProviders(
+      <LLMProviderSettings
+        providers={[openRouterProvider]}
+        onAddProvider={vi.fn()}
+        onUpdateProvider={onUpdateProvider}
+        onRemoveProvider={vi.fn()}
+        onTestConnection={vi.fn()}
+      />
+    );
+
+    fireEvent.click(screen.getByTitle("Edit provider"));
+
+    // Click 64K preset
+    fireEvent.click(screen.getByText("64K"));
+
+    // Click Save Changes (or Update Provider button)
+    const saveButton = screen.getByRole("button", { name: /update provider|save changes|save/i });
+    fireEvent.click(saveButton);
+
+    expect(onUpdateProvider).toHaveBeenCalledWith(
+      "or-1",
+      expect.objectContaining({
+        contextWindowTokens: 65536,
+        contextWindowPreset: "64k",
+      })
+    );
+  });
 });

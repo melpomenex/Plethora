@@ -1,4 +1,4 @@
-import { planVideoContext, type VideoContextPlan, type VideoSegment } from "./videoContextPlanner";
+import { formatVideoTimestamp, planVideoContext, type VideoContextPlan, type VideoSegment } from "./videoContextPlanner";
 import { synthesizeWholeVideo } from "./videoMapReduce";
 
 /** Canonical timestamped text remains usable while the index is still warming. */
@@ -17,7 +17,7 @@ export async function resolveVideoSourceContext(input: {
   sourceBudgetTokens: number; currentTime?: number; selection?: string; cacheNamespace?: string;
   requireCompleteCoverage?: boolean;
   retrieveChunks?: () => Promise<ReadonlyArray<{ text: string; start: number; end: number; score: number }>>;
-  summarize: (text: string, maxOutputTokens: number) => Promise<string>;
+  summarize: (text: string, maxOutputTokens: number, directive?: string) => Promise<string>;
 }): Promise<VideoContextPlan> {
   const segments = input.segments ?? parseTranscriptSegments(input.content ?? "");
   let plan = planVideoContext({ ...input, segments });
@@ -27,7 +27,28 @@ export async function resolveVideoSourceContext(input: {
   }
   if (plan.mode !== "map-reduce") return plan;
   try {
-    const content = await synthesizeWholeVideo({ ...input, segments });
+    let failedRanges: Array<{ startSeconds: number; endSeconds: number }> = [];
+    const content = await synthesizeWholeVideo({
+      ...input,
+      segments,
+      onFailedRanges: (ranges) => {
+        failedRanges = ranges;
+      },
+    });
+    if (failedRanges.length > 0) {
+      const missingStr = failedRanges
+        .map((r) => `${formatVideoTimestamp(r.startSeconds)}–${formatVideoTimestamp(r.endSeconds)}`)
+        .join(", ");
+      return {
+        ...plan,
+        content,
+        coverage: "partial" as any,
+        limitations: [
+          ...(plan.limitations ?? []),
+          `Summary is partial; segments at ${missingStr} could not be analyzed due to model errors.`,
+        ],
+      };
+    }
     return { ...plan, content, coverage: "hierarchical-full" };
   } catch {
     // Hierarchical synthesis failed (e.g. a summarizer error or the summaries

@@ -8,7 +8,7 @@ export interface DocumentQaRequestContent {
 export async function loadDocumentQaText(
   documentId: string,
   loaders: {
-    getDocument: (id: string) => Promise<{ content?: string | null; fileType?: string; filePath?: string; metadata?: any } | null | undefined>;
+    getDocument: (id: string) => Promise<{ id?: string; content?: string | null; fileType?: string; filePath?: string; metadata?: any } | null | undefined>;
     extractDocumentText: (id: string) => Promise<{ content?: string | null } | null | undefined>;
   },
 ): Promise<string> {

@@ -61,10 +61,23 @@ export interface SourceProvenanceRef {
   coverage?: "full" | "window" | "chunks" | "hierarchical-full" | "none";
 }
 
+export interface StructuredTurnDiagnostics {
+  configuredContextTokens: number;
+  effectiveContextTokens: number;
+  promptBudgetTokens: number;
+  reservedOutputTokens: number;
+  estimatedSourceTokens: number;
+  sourceTokensIncluded: number;
+  sourceCoverage: "full" | "window" | "chunks" | "hierarchical-full" | "none";
+  windowCount: number;
+  processingMode: "direct" | "hierarchical" | "retrieval" | "none";
+}
+
 export interface AssistantRequestDiagnostics {
   scope: AssistantScope;
   provider: string;
   model?: string;
+  turnDiagnostics?: StructuredTurnDiagnostics;
   policy: {
     configuredContextTokens: number;
     promptBudgetTokens: number;

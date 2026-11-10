@@ -153,22 +153,16 @@ export function planVideoContext(input: VideoContextInput): VideoContextPlan {
   const references = parseTimestampReferences(input.query);
   const playback = input.currentTime != null && /\b(just (?:say|said)|this part|this passage|right now|speaker.*here|mean.*that|currently|playing)\b/i.test(input.query);
   const allowMapReduce = input.allowMapReduce !== false;
-  const summaryIntent = /\b(summar(?:y|ize)|main arguments|key takeaways|whole video|full outline|entire video|overview)\b/i.test(input.query);
-  if (allowMapReduce && !references.length && !playback && summaryIntent) {
-    return finalize(
-      { mode: "map-reduce", coverage: "none", content: "", chunkCount: index.windows.length, timeRangeCovered: range },
-      input,
+  const wholeSourceIntent =
+    /\b(summar(?:y|ize)|key points?|outline(?:\s+document)?|main (?:arguments?|points?|takeaways?|ideas?|claims?|themes?)|examine argument|analyze argument|quiz(?:\s+me)?|flashcards?|cards?|key terms?|whole video|entire video|full (?:outline|summary|transcript|video)|overview|big picture)\b/i.test(
+      input.query,
     );
-  }
-  // Complete-coverage turns never settle for a bounded fragment set while
-  // hierarchical synthesis can cover every window: an ordinary question whose
-  // evidence may lie anywhere must be answered from the whole transcript.
   if (
     allowMapReduce &&
-    input.requireCompleteCoverage &&
     !references.length &&
     !playback &&
-    !input.selection?.trim()
+    !input.selection?.trim() &&
+    (wholeSourceIntent || input.requireCompleteCoverage)
   ) {
     return finalize(
       { mode: "map-reduce", coverage: "none", content: "", chunkCount: index.windows.length, timeRangeCovered: range },

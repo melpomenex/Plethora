@@ -8573,6 +8573,7 @@ export function DocumentViewer({
                   initialEndTime={focusedVideoExtract?.end_time}
                   armedExtract={focusedVideoExtract}
                   autoPlayOnOpen={Boolean(focusedVideoExtract)}
+                  onVideoContextChange={setVideoContext}
                 />
               </div>
             </div>

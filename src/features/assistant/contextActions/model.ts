@@ -35,6 +35,16 @@ export interface ActionTarget {
   readonly key: string;
   readonly resolved?: boolean;
   readonly owner: string;
+  /**
+   * Target kind:
+   * - 'document': Whole-source canonical document or full video transcript.
+   *   Must NOT be pre-trimmed or treated as a bounded selection. Eligible for direct
+   *   inclusion or hierarchical map-reduce.
+   * - 'selection': Explicit user-selected text excerpt, strictly bounded to the selected passage.
+   * - 'passage': Explicit passage excerpt (e.g. pinned passage or locator).
+   * - 'sections': Explicit section selection.
+   * - 'conversation': Assistant chat history / conversation turns.
+   */
   readonly kind: TargetKind;
   readonly sourceType: 'document' | 'video' | 'web' | 'general';
   readonly documentId?: string;

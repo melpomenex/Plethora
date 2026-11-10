@@ -46,4 +46,62 @@ describe("resolveRequestPolicy", () => {
     });
     expect(policy.configuredContextTokens).toBeLessThanOrEqual(AUTO_CONTEXT_CEILING);
   });
+
+  describe("precedence order", () => {
+    it("respects perModelOverride over providerContextTokens, globalContextTokens, and discoveredNumCtx", () => {
+      const policy = resolveRequestPolicy({
+        perModelOverride: 64000,
+        providerContextTokens: 32000,
+        globalContextTokens: 16000,
+        discoveredNumCtx: 8192,
+      });
+      expect(policy.configuredContextTokens).toBe(64000);
+    });
+
+    it("respects perModelOverride even when autoPreset is true", () => {
+      const policy = resolveRequestPolicy({
+        perModelOverride: 64000,
+        autoPreset: true,
+        globalContextTokens: 16000,
+        discoveredNumCtx: 8192,
+      });
+      expect(policy.configuredContextTokens).toBe(64000);
+    });
+
+    it("respects providerContextTokens over globalContextTokens and discoveredNumCtx", () => {
+      const policy = resolveRequestPolicy({
+        providerContextTokens: 32000,
+        globalContextTokens: 16000,
+        discoveredNumCtx: 8192,
+      });
+      expect(policy.configuredContextTokens).toBe(32000);
+    });
+
+    it("respects globalContextTokens over discoveredNumCtx and conservative fallback", () => {
+      const policy = resolveRequestPolicy({
+        globalContextTokens: 50000,
+        discoveredNumCtx: 8192,
+      });
+      expect(policy.configuredContextTokens).toBe(50000);
+    });
+
+    it("resolves globalContextTokens of 50,000 without falling back to 8,192", () => {
+      const policy = resolveRequestPolicy({
+        globalContextTokens: 50000,
+      });
+      expect(policy.configuredContextTokens).toBe(50000);
+    });
+
+    it("respects discoveredNumCtx over conservative fallback", () => {
+      const policy = resolveRequestPolicy({
+        discoveredNumCtx: 12000,
+      });
+      expect(policy.configuredContextTokens).toBe(12000);
+    });
+
+    it("falls back to CONSERVATIVE_CONTEXT_FALLBACK (8192) when all inputs unset", () => {
+      const policy = resolveRequestPolicy({});
+      expect(policy.configuredContextTokens).toBe(8192);
+    });
+  });
 });

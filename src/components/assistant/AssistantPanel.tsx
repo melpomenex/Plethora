@@ -26,7 +26,7 @@ import { usePaneId, useTabId } from "../common/Tabs/TabContent";
 import { runAssistantTurn } from "../../lib/ai/assistant/orchestrator";
 import { isWholeDocumentRequest } from "../../lib/ai/assistant/documentIntent";
 import { countTokens } from "../../utils/tokenizer";
-import { isAssistantScope, type AssistantScope } from "../../lib/ai/assistant/scopes";
+import { isAssistantScope, type AssistantScope, type StructuredTurnDiagnostics } from "../../lib/ai/assistant/scopes";
 import { normalizeAssistantToolParameters } from "../../lib/ai/assistant/toolCallParser";
 import { useState, useRef, useEffect, useLayoutEffect, useMemo, useCallback, type ReactNode } from "react";
 import {
@@ -234,6 +234,46 @@ export interface AttachedImage {
   height?: number;
 }
 
+function getCoverageBadgeText(params: {
+  coverage?: "full" | "window" | "chunks" | "hierarchical-full" | "none";
+  diagnostics?: StructuredTurnDiagnostics;
+  duration?: number;
+  isVideo?: boolean;
+}): string | null {
+  const { coverage, diagnostics, duration, isVideo } = params;
+  const effectiveCoverage = coverage ?? diagnostics?.sourceCoverage;
+  if (!effectiveCoverage || effectiveCoverage === "none") return null;
+
+  const durationStr = duration && Number.isFinite(duration) && duration > 0 ? (() => {
+    const total = Math.floor(duration);
+    const hours = Math.floor(total / 3600);
+    const mins = Math.floor((total % 3600) / 60);
+    return hours > 0 ? `${hours}h ${String(mins).padStart(2, "0")}m` : `${mins}m`;
+  })() : undefined;
+
+  const sourceName = isVideo ? "transcript" : "document";
+
+  if (effectiveCoverage === "full") {
+    const mode = diagnostics?.processingMode === "hierarchical" ? "Analyzed in sections" : "Direct context";
+    return durationStr
+      ? `Full ${sourceName} · ${durationStr} · ${mode}`
+      : `Full ${sourceName} · ${mode}`;
+  }
+  if (effectiveCoverage === "hierarchical-full") {
+    return durationStr
+      ? `Full ${sourceName} · ${durationStr} · Analyzed in sections`
+      : `Full ${sourceName} · Analyzed in sections`;
+  }
+  if (effectiveCoverage === "window") {
+    return isVideo ? "Transcript excerpt" : "Document excerpt";
+  }
+  if (effectiveCoverage === "chunks") {
+    const count = diagnostics?.windowCount ?? 1;
+    return `Retrieved passages · ${count} section${count === 1 ? "" : "s"}`;
+  }
+  return null;
+}
+
 interface Message {
   generationFailure?: import("../../lib/ai/libraryGenerationFailure").LibraryGenerationFailureContext;
   action?: ActionEnvelope;
@@ -249,6 +289,8 @@ interface Message {
   images?: AttachedImage[];
   toolCalls?: ToolCall[];
   sourceContext?: SectionSourceReference;
+  diagnostics?: StructuredTurnDiagnostics;
+  sourceCoverage?: "full" | "window" | "chunks" | "hierarchical-full" | "none";
   /**
    * Learning Agent review artifact. Rendered by the dedicated proposals
    * component; never parsed as legacy tool calls or dispatched to MCP writes.
@@ -1611,6 +1653,8 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         timestamp: Date.now(),
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         sourceContext: response.sourceContext,
+        diagnostics: response.diagnostics,
+        sourceCoverage: response.sourceCoverage,
       };
 
       appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, assistantMessage]);
@@ -2242,7 +2286,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     contextData: Record<string, unknown>,
     isTwentyRules?: boolean,
     throwOnLlmError?: boolean,
-  ): Promise<{ content: string; toolCalls?: ToolCall[]; imagesStripped?: boolean; modelName?: string; sourceContext?: SectionSourceReference }> => {
+  ): Promise<{ content: string; toolCalls?: ToolCall[]; imagesStripped?: boolean; modelName?: string; sourceContext?: SectionSourceReference; diagnostics?: StructuredTurnDiagnostics; sourceCoverage?: "full" | "window" | "chunks" | "hierarchical-full" | "none" }> => {
     const mentionCandidates = selectionSection
       ? [selectionSection, ...assistantSectionFlat]
       : assistantSectionFlat;
@@ -2292,7 +2336,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           ? providerConfig.modelContextWindows?.[providerConfig.model]
           : undefined,
         providerContextTokens: providerConfig?.contextWindowTokens,
-        globalContextTokens: undefined,
+        globalContextTokens: useSettingsStore.getState().settings.ai.maxTokens,
         autoPreset: providerConfig?.contextWindowPreset === "auto",
         applyOllamaDefaultGuard: isOllama,
       });
@@ -2525,6 +2569,8 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           imagesStripped,
           modelName: appleFmProviderLabel,
           sourceContext,
+          diagnostics: fmResponse.turnDiagnostics ?? fmResponse.diagnostics?.turnDiagnostics,
+          sourceCoverage: fmResponse.sourceCoverage,
         };
       }
 
@@ -2566,13 +2612,20 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         sourceTitle: action?.target.title ?? llmContext?.metadata?.title ?? assistantDocumentTitle, sourceUrl: llmContext?.url,
         sourceContent: contextContent, selectionExcerpt: action ? undefined : pinnedSelection?.excerpt ?? llmContext?.selection,
         sourceCoverage: sourceCoverageForRequest,
-        explicitSourceContent: Boolean(sourceContentOverride || pinnedApplies || promptSectionNodes.length || toolExecutionContextRef.current.sourceEnvelope?.kind === "extract"),
+        explicitSourceContent: Boolean(
+          (sourceContentOverride && (!action || action.target.kind !== "document")) ||
+            pinnedApplies ||
+            promptSectionNodes.length ||
+            toolExecutionContextRef.current.sourceEnvelope?.kind === "extract"
+        ),
+        completeTranscriptSource: Boolean(llmContext?.type === "video" && (turnScope === "document" || Boolean(action))),
         playbackTimeSeconds: llmContext?.position?.currentTime, transcriptStatus: llmContext?.transcriptStatus,
         documentsForPrivacyCheck: privacyDocuments ?? (llmContext?.documentId && !llmContext.documentId.startsWith("extract:") ? [await getDocument(llmContext.documentId)] : []),
         strictLocalOnly: useSettingsStore.getState().settings.ai.strictLocalOnly,
         provider: effectiveProvider, model: provider.model, apiKey: provider.apiKey,
         baseUrl: provider.baseUrl?.trim() || undefined, temperature: provider.temperature,
         maxOutputTokens: provider.maxTokens, configuredContextTokens: policy.configuredContextTokens,
+        globalContextTokens: useSettingsStore.getState().settings.ai.maxTokens,
         memoryEnabled: useSettingsStore.getState().settings.ai.memoryEnabled,
         tools: turnTools, isTwentyRules, twentyRulesPrompt: buildTwentyRulesSystemPrompt(),
         systemInstruction: [provider.systemPrompt, toolInstruction].filter(Boolean).join("\n\n"),
@@ -2613,7 +2666,14 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       });
       setSuggestSwitchToChat(Boolean(response.suggestSwitchToChat));
 
-      return { content: response.rawContent, imagesStripped, modelName, sourceContext };
+      return {
+        content: response.rawContent,
+        imagesStripped,
+        modelName,
+        sourceContext,
+        diagnostics: response.turnDiagnostics ?? response.diagnostics?.turnDiagnostics,
+        sourceCoverage: response.sourceCoverage,
+      };
     } catch (error) {
       if (libraryGenerationFailureMessage(error)) throw error;
       console.error("LLM API error:", error);
@@ -4157,7 +4217,23 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                   {message.role === "user" ? (
                     renderUserMessageContent(message.content, assistantSectionFlat)
                   ) : (
-                    <AssistantResponseContent content={message.content} thinking={message.thinking} onTimestampClick={context?.type === "video" ? (seconds) => window.dispatchEvent(new CustomEvent("plethora:assistant-seek", { detail: { documentId: message.provenance?.sourceId ?? context.documentId, seconds } })) : undefined} />
+                    <>
+                      <AssistantResponseContent content={message.content} thinking={message.thinking} onTimestampClick={context?.type === "video" ? (seconds) => window.dispatchEvent(new CustomEvent("plethora:assistant-seek", { detail: { documentId: message.provenance?.sourceId ?? context.documentId, seconds } })) : undefined} />
+                      {(() => {
+                        const badgeText = getCoverageBadgeText({
+                          coverage: message.sourceCoverage,
+                          diagnostics: message.diagnostics,
+                          duration: context?.metadata?.duration ?? (context?.type === "video" ? Number(context?.metadata?.duration) : undefined),
+                          isVideo: context?.type === "video" || Boolean(context?.transcriptStatus),
+                        });
+                        if (!badgeText) return null;
+                        return (
+                          <div data-testid="assistant-coverage-badge" className="mt-2 inline-flex items-center gap-1.5 px-2 py-0.5 rounded text-xs font-medium bg-muted/60 text-muted-foreground border border-border/40">
+                            <span>{badgeText}</span>
+                          </div>
+                        );
+                      })()}
+                    </>
                   )}
                 </div>
               )}

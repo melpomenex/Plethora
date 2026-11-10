@@ -6,6 +6,7 @@ import { trimToTokenWindow } from '../../../utils/tokenizer';
 import { resolveRequestPolicy } from '../../../api/llm/policy';
 import { parseAssistantToolCalls, type ToolDefinitionLike } from '../../../lib/ai/assistant/toolCallParser';
 import type { LLMProviderConfig } from '../../../stores/llmProvidersStore';
+import { useSettingsStore } from '../../../stores/settingsStore';
 import { isolateCardActionCalls, parseQuizQuestion, type ActionEnvelope } from './model';
 
 export class ContextActionError extends Error {
@@ -23,7 +24,25 @@ export async function resolveActionEnvelope(action: ActionEnvelope, providerId: 
     if (canonical) { content = canonical; coverage = 'full'; }
   }
   if (!content.trim()) throw new ContextActionError('assistant.actions.noTarget');
-  const policy = resolveRequestPolicy({ provider: providerId, providerMaxOutput: provider?.maxTokens, configuredContextOverride: provider?.contextWindowTokens });
+  const policy = resolveRequestPolicy({
+    provider: providerId,
+    providerMaxOutput: provider?.maxTokens,
+    perModelOverride: provider?.model ? provider.modelContextWindows?.[provider.model] : undefined,
+    providerContextTokens: provider?.contextWindowTokens,
+    globalContextTokens: useSettingsStore.getState().settings.ai.maxTokens,
+    autoPreset: provider?.contextWindowPreset === 'auto',
+  });
+  if (target.kind === 'document') {
+    return Object.freeze({
+      ...action,
+      target: Object.freeze({
+        ...target,
+        resolved: true,
+        content,
+        coverage: 'full',
+      }),
+    });
+  }
   const trimmed = await trimToTokenWindow(content, Math.max(64, Math.floor(policy.promptBudgetTokens * 0.55)), provider?.model);
   return Object.freeze({ ...action, target: Object.freeze({ ...target, resolved: true, content: trimmed, coverage: trimmed !== content ? 'window' : coverage }) });
 }

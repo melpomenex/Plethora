@@ -509,7 +509,7 @@ export function AISettings() {
             </label>
             <NumericInput
               min={1000}
-              max={32000}
+              max={1000000}
               step={500}
               value={contextWindowTokens}
               onChange={(value) => setContextWindowTokens(value)}
