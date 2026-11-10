@@ -220,10 +220,16 @@ vi.mock("../../components/viewer/AudiobookViewer", () => ({
   AudiobookViewer: () => null,
 }));
 
-const panelProbe = vi.hoisted(() => ({ context: null as any }));
+const panelProbe = vi.hoisted(() => ({
+  context: null as any,
+  conversationKey: null as any,
+  conversationId: null as any,
+}));
 vi.mock("../../components/assistant/AssistantPanel", () => ({
   AssistantPanel: (props: any) => {
     panelProbe.context = props.context;
+    panelProbe.conversationKey = props.conversationKey;
+    panelProbe.conversationId = props.conversationId;
     return (
       <div data-testid="assistant-panel-probe" className={props.className}>
         <div data-testid="assistant-messages-probe" data-assistant-messages className="overflow-y-auto">
@@ -541,5 +547,47 @@ describe("Queue Scroll assistant context parity", () => {
     });
 
     expect(transcript.scrollTop).toBe(900);
+  });
+
+  it("binds stable conversationKey to active queue item and preserves scroll position across periodic updates", async () => {
+    const items = [
+      makeDocRow(firstEpubDoc.id, firstEpubDoc.title, 11),
+    ];
+    mocks.queueState.filteredItems = items;
+    mocks.queueState.items = items;
+    mocks.tabsState.tabs[0].data = {
+      queueScrollMode: "queue-list",
+      customQueueItems: items,
+    };
+    useDocumentStore.setState({ documents: [firstEpubDoc] });
+
+    render(<QueueScrollPage />);
+    expect(await screen.findByTestId("document-viewer")).toHaveAttribute("data-document-id", firstEpubDoc.id);
+
+    // Initial conversation key is stably bound to the active queue item
+    expect(panelProbe.conversationKey).toBe(`document:${firstEpubDoc.id}`);
+    expect(panelProbe.conversationId).toBe(`document:${firstEpubDoc.id}`);
+
+    const transcript = screen.getByTestId("assistant-messages-probe");
+    Object.defineProperties(transcript, {
+      scrollHeight: { configurable: true, value: 1500 },
+      clientHeight: { configurable: true, value: 400 },
+    });
+    transcript.scrollTop = 1100;
+
+    // Simulate periodic re-render / timer / context update (e.g. 10s idle check or scroll percent update)
+    act(() => viewerProbe.props.onScrollPositionChange({ scrollPercent: 65 }));
+
+    // Wait for debounced scroll update
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 600));
+    });
+
+    // Conversation key and ID must remain completely stable (never flapping to general)
+    expect(panelProbe.conversationKey).toBe(`document:${firstEpubDoc.id}`);
+    expect(panelProbe.conversationId).toBe(`document:${firstEpubDoc.id}`);
+
+    // Assistant messages container scroll position remains anchored at 1100 (never reset to 0)
+    expect(transcript.scrollTop).toBe(1100);
   });
 });

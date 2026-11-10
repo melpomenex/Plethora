@@ -41,7 +41,9 @@ function capturePosition(container: HTMLElement): ScrollPosition {
 
 function restorePosition(container: HTMLElement, position: ScrollPosition) {
   if (position.follow) {
-    container.scrollTop = container.scrollHeight;
+    if (container.scrollHeight > container.clientHeight) {
+      container.scrollTop = container.scrollHeight;
+    }
     return;
   }
   const elements = Array.from(container.querySelectorAll<HTMLElement>("[data-assistant-message-id]"));
@@ -49,7 +51,13 @@ function restorePosition(container: HTMLElement, position: ScrollPosition) {
   const successor = !anchor && position.followingIds?.map((id) => elements.find((element) => element.dataset.assistantMessageId === id)).find(Boolean);
   const target = anchor ?? successor;
   if (target && position.anchorOffset !== undefined) {
-    container.scrollTop += target.getBoundingClientRect().top - container.getBoundingClientRect().top - (anchor ? position.anchorOffset : 0);
+    const targetRect = target.getBoundingClientRect();
+    const containerRect = container.getBoundingClientRect();
+    if (targetRect.height > 0 && containerRect.height > 0) {
+      container.scrollTop += targetRect.top - containerRect.top - (anchor ? position.anchorOffset : 0);
+    } else {
+      container.scrollTop = position.top;
+    }
   } else {
     container.scrollTop = position.top;
   }
@@ -68,15 +76,46 @@ export function useAssistantConversationScroll(
     : key;
   const [showLatest, setShowLatest] = useState(false);
   const expectedScroll = useRef<number | null>(null);
+  const userInteractionRef = useRef(false);
+  const interactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const markUserInteraction = useCallback(() => {
+    userInteractionRef.current = true;
+    if (interactionTimerRef.current !== null) {
+      clearTimeout(interactionTimerRef.current);
+    }
+    interactionTimerRef.current = setTimeout(() => {
+      userInteractionRef.current = false;
+      interactionTimerRef.current = null;
+    }, 250);
+  }, []);
 
   const onScroll = useCallback(() => {
     if (!hydrated || !containerRef.current) return;
-    if (expectedScroll.current !== null && Math.abs(containerRef.current.scrollTop - expectedScroll.current) < 1) {
+    const container = containerRef.current;
+    if (expectedScroll.current !== null && Math.abs(container.scrollTop - expectedScroll.current) < 1) {
       expectedScroll.current = null;
       return;
     }
+
+    // Do not capture position during unmeasured or collapsed layout (scrollHeight <= clientHeight)
+    const isScrollable = container.scrollHeight > container.clientHeight;
+    if (!isScrollable) {
+      expectedScroll.current = null;
+      return;
+    }
+
+    const currentSaved = readPosition(effectiveKey);
+    // If follow mode was active and container suddenly dropped to scrollTop === 0 without user interaction
+    // (e.g. transient layout collapse or component re-render), preserve follow mode and restore to bottom.
+    if (currentSaved?.follow && container.scrollTop === 0 && !userInteractionRef.current) {
+      container.scrollTop = container.scrollHeight;
+      expectedScroll.current = container.scrollTop;
+      return;
+    }
+
     expectedScroll.current = null;
-    const position = capturePosition(containerRef.current);
+    const position = capturePosition(container);
     savePosition(effectiveKey, position);
     setShowLatest(!position.follow);
   }, [containerRef, effectiveKey, hydrated]);
@@ -97,20 +136,58 @@ export function useAssistantConversationScroll(
     const position = messages.length === 0 ? { follow: true, top: 0 } : readPosition(effectiveKey) ?? { follow: true, top: 0 };
     savePosition(effectiveKey, position);
     restorePosition(container, position);
-    expectedScroll.current = container.scrollTop;
+    if (position.follow) {
+      if (container.scrollHeight > container.clientHeight) {
+        expectedScroll.current = container.scrollTop;
+      }
+    } else {
+      expectedScroll.current = container.scrollTop;
+    }
     setShowLatest(!position.follow);
-    if (typeof ResizeObserver === "undefined") return;
+
+    const handleInteraction = () => markUserInteraction();
+    container.addEventListener("wheel", handleInteraction, { passive: true });
+    container.addEventListener("touchstart", handleInteraction, { passive: true });
+    container.addEventListener("pointerdown", handleInteraction, { passive: true });
+    container.addEventListener("keydown", handleInteraction, { passive: true });
+
+    if (typeof ResizeObserver === "undefined") {
+      return () => {
+        container.removeEventListener("wheel", handleInteraction);
+        container.removeEventListener("touchstart", handleInteraction);
+        container.removeEventListener("pointerdown", handleInteraction);
+        container.removeEventListener("keydown", handleInteraction);
+        if (interactionTimerRef.current !== null) {
+          clearTimeout(interactionTimerRef.current);
+        }
+      };
+    }
     const observer = new ResizeObserver(() => {
       const current = readPosition(effectiveKey);
       if (current) {
         restorePosition(container, current);
-        expectedScroll.current = container.scrollTop;
+        if (current.follow) {
+          if (container.scrollHeight > container.clientHeight) {
+            expectedScroll.current = container.scrollTop;
+          }
+        } else {
+          expectedScroll.current = container.scrollTop;
+        }
       }
     });
     observer.observe(container);
     for (const child of Array.from(container.children)) observer.observe(child);
-    return () => observer.disconnect();
-  }, [containerRef, effectiveKey, hydrated, messages]);
+    return () => {
+      observer.disconnect();
+      container.removeEventListener("wheel", handleInteraction);
+      container.removeEventListener("touchstart", handleInteraction);
+      container.removeEventListener("pointerdown", handleInteraction);
+      container.removeEventListener("keydown", handleInteraction);
+      if (interactionTimerRef.current !== null) {
+        clearTimeout(interactionTimerRef.current);
+      }
+    };
+  }, [containerRef, effectiveKey, hydrated, markUserInteraction, messages]);
 
   return { onScroll, showLatest: hydrated && showLatest, showNewest };
 }

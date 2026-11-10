@@ -278,6 +278,15 @@ interface ScrollItem {
   audioEditionId?: string;
 }
 
+const getQueueItemConversationKey = (item?: ScrollItem): string | undefined => {
+  if (!item) return undefined;
+  if (item.type === "document" && item.documentId) return `document:${item.documentId}`;
+  if (item.type === "extract" && item.extract) return `document:${item.extract.document_id || item.id}`;
+  if (item.type === "video-extract" && item.videoExtract) return `video:${item.videoExtract.documentId || item.id}`;
+  if (item.type === "rss" && item.rssItem) return `web:${item.rssItem.link || item.rssItem.id || item.id}`;
+  return `queue-item:${item.id}`;
+};
+
 /**
  * Map due flashcards to scroll items. Shared by the optimal path and the
  * sequential path's top-up so both entry points build identical cards.
@@ -2129,6 +2138,10 @@ export function QueueScrollPage() {
 
   // Rendered item tracks the active item identity (R06)
   const renderedItem = scrollItems[currentIndex];
+  const queueItemConversationKey = useMemo(
+    () => getQueueItemConversationKey(renderedItem ?? currentItem),
+    [renderedItem, currentItem]
+  );
 
   // V2 (overhaul-reader-selection-ux task 6.2): the shared controller owns the
   // mobile RSS selection lifecycle — stability-gated anchored bar, snapshot-
@@ -2895,11 +2908,12 @@ export function QueueScrollPage() {
     if (item.type === "document" && assistantContext?.documentId !== item.documentId) return undefined;
     if (item.type === "extract" && assistantContext?.extractId !== item.extract?.id) return undefined;
     if (item.type === "rss" && assistantContext?.url !== (item.rssItem?.link || `rss:${item.rssItem?.id}`)) return undefined;
-    return liveVideoContext ? { ...assistantContext, type: "video", documentId: item.documentId,
+    const base = liveVideoContext ? { ...assistantContext, type: "video", documentId: item.documentId,
       position: { currentTime: liveVideoContext.currentTime }, transcriptStatus: liveVideoContext.transcriptStatus,
       content: liveVideoContext.transcript, metadata: { title: liveVideoContext.title, duration: liveVideoContext.duration, videoId: liveVideoContext.videoId },
     } : assistantContext;
-  }, [assistantContext, liveVideoContext, renderedItem, currentItem]);
+    return base ? { ...base, conversationId: queueItemConversationKey } : undefined;
+  }, [assistantContext, liveVideoContext, renderedItem, currentItem, queueItemConversationKey]);
   useRegisterMobileAssistant(mobileContext, { revision: (renderedItem ?? currentItem)?.id ?? "queue", priority: 10,
     unavailableReason: askSheetOpen || selection || rssSelectedText ? "selection" : undefined });
 
@@ -4653,6 +4667,8 @@ export function QueueScrollPage() {
             </div>
             <div className="flex-shrink-0 h-full min-h-0 z-10">
               <AssistantPanel
+                conversationKey={queueItemConversationKey}
+                conversationId={queueItemConversationKey}
                 context={liveVideoContext ? { ...assistantContext, type: "video", documentId: (renderedItem ?? currentItem)?.documentId,
                   content: liveVideoContext.transcript, status: liveVideoContext.transcript?.trim() ? "ready" : liveVideoContext.transcriptStatus === "loading" ? "loading" : "unavailable",
                   transcriptStatus: liveVideoContext.transcriptStatus, selection, position: { currentTime: liveVideoContext.currentTime }, metadata: liveVideoContext,
@@ -5061,6 +5077,8 @@ export function QueueScrollPage() {
           <>
             <div className="flex-shrink-0 h-full min-h-0 z-10">
               <AssistantPanel
+                conversationKey={queueItemConversationKey}
+                conversationId={queueItemConversationKey}
                 context={liveVideoContext ? { ...assistantContext, type: "video", documentId: (renderedItem ?? currentItem)?.documentId,
                   content: liveVideoContext.transcript, status: liveVideoContext.transcript?.trim() ? "ready" : liveVideoContext.transcriptStatus === "loading" ? "loading" : "unavailable",
                   transcriptStatus: liveVideoContext.transcriptStatus, selection, position: { currentTime: liveVideoContext.currentTime }, metadata: liveVideoContext,
