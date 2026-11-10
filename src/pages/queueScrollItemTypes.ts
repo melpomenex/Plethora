@@ -140,7 +140,7 @@ export async function resolveMissingQueueCards(
   skipIds: ReadonlySet<string>,
 ): Promise<{ cards: Map<string, LearningItem>; failures: string[] }> {
   const ids = [...new Set(items.filter((item) => item.itemType === "learning-item")
-    .map((item) => item.learningItemId ?? item.id)
+    .map((item) => (item.learningItemId ?? item.id).replace(/^flashcard-/, ""))
     .filter((id) => !due.has(id) && !skipIds.has(id)))];
   const cards = new Map<string, LearningItem>();
   const failures: string[] = [];
@@ -154,7 +154,9 @@ export async function resolveMissingQueueCards(
     for (const entry of values) {
       if ("failed" in entry) { failures.push(entry.id); continue; }
       const card = normalizeLearningItem(entry.value);
-      if (card && card.id === entry.id && !card.is_suspended) cards.set(card.id, card);
+      if (card && card.id.replace(/^flashcard-/, "") === entry.id && !card.is_suspended) {
+        cards.set(entry.id, card.id.startsWith("flashcard-") ? { ...card, id: entry.id } : card);
+      }
     }
   }
   return { cards, failures };

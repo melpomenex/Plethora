@@ -300,4 +300,16 @@ describe("InlineCardEditor", () => {
     fireEvent.click(studioBtn);
     expect(onStudio).toHaveBeenCalledWith(expect.objectContaining({ id: "card-1" }));
   });
+
+  it("does not force studio redirect for simple qa cards", () => {
+    const qaCard: LearningItem = {
+      ...baseCard,
+      item_type: "qa",
+      interaction_metadata: undefined,
+    };
+    render(<InlineCardEditor card={qaCard} onClose={vi.fn()} onSave={vi.fn()} onEditInStudio={vi.fn()} />);
+    expect(screen.queryByTestId("inline-card-editor-studio-btn")).toBeNull();
+    expect(screen.getByDisplayValue("Capital of France?")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Paris")).toBeInTheDocument();
+  });
 });

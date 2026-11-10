@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useRef, memo } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef, memo } from "react";
 import {
   Check,
   Clock,
@@ -24,6 +24,7 @@ interface DeckManagerCardRowProps {
   onDuplicate: (card: LearningItem) => void;
   onMoveToDeck?: (cardId: string, deckId: string) => void;
   decks?: { id: string; name: string }[];
+  onTagsPersisted?: (tags: string[]) => void;
 }
 
 const STATE_CONFIG: Record<
@@ -98,8 +99,23 @@ export const DeckManagerCardRow = memo(function DeckManagerCardRow({
   onDuplicate,
   onMoveToDeck,
   decks,
+  onTagsPersisted,
 }: DeckManagerCardRowProps) {
   const [contextMenuPos, setContextMenuPos] = useState<{ x: number; y: number } | null>(null);
+  const [localTags, setLocalTags] = useState<string[] | null>(null);
+  const currentTags = localTags ?? card.tags ?? [];
+
+  useEffect(() => {
+    setLocalTags(null);
+  }, [card.tags]);
+
+  const handleTagsPersisted = useCallback(
+    (newTags: string[]) => {
+      setLocalTags(newTags);
+      onTagsPersisted?.(newTags);
+    },
+    [onTagsPersisted]
+  );
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const stateCfg = STATE_CONFIG[card.state] ?? STATE_CONFIG.New;
   const due = useMemo(() => relativeDueDate(card.due_date), [card.due_date]);
@@ -261,12 +277,12 @@ export const DeckManagerCardRow = memo(function DeckManagerCardRow({
       {/* Tags */}
       {!isMobile && (
         <div className="flex-1 min-w-0 flex items-center gap-0.5 overflow-hidden hidden lg:block">
-          {card.tags.length > 0 && (
-            <CompactTagEditor
-              target={{ type: "learning-item", id: card.id, tags: card.tags }}
-              previewLimit={2}
-            />
-          )}
+          <CompactTagEditor
+            target={{ type: "learning-item", id: card.id, tags: currentTags }}
+            previewLimit={2}
+            emptyLabel="+ Tag"
+            onTagsPersisted={handleTagsPersisted}
+          />
         </div>
       )}
 

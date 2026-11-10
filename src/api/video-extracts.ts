@@ -32,8 +32,10 @@ export interface VideoExtract {
   };
   next_review_date?: string;
   last_review_date?: string;
+  last_reviewed_at?: string | null;
   first_seen_at?: string | null;
   last_seen_at?: string | null;
+  last_viewed_at?: string | null;
   review_count: number;
   reps: number;
   date_created: string;

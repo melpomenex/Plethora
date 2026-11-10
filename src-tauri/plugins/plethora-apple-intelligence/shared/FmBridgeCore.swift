@@ -329,7 +329,10 @@ public actor FmBridgeCore {
     }
     if message.localizedCaseInsensitiveContains("unsafe")
       || message.localizedCaseInsensitiveContains("content policy")
-      || message.localizedCaseInsensitiveContains("content filter") {
+      || message.localizedCaseInsensitiveContains("content filter")
+      || message.localizedCaseInsensitiveContains("safety")
+      || message.localizedCaseInsensitiveContains("blocked")
+      || message.localizedCaseInsensitiveContains("guardrail") {
       return .coded("safety_blocked", "Apple Intelligence blocked this text on-device")
     }
     #if canImport(FoundationModels)

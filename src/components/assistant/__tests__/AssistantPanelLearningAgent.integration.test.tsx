@@ -109,6 +109,7 @@ const documentRecord = {
 function provider() {
   return new FakeAIProvider({
     kind: "ondevice",
+    capabilities: { contextTokens: 32000 },
     responses: [
       {
         requestId: "t1",

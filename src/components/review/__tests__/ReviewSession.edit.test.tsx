@@ -115,7 +115,18 @@ beforeEach(() => {
       general: { ...state.settings.general, language: "en" },
     },
   }));
-  updateLearningItemContentWithVersion.mockResolvedValue(undefined);
+  updateLearningItemContentWithVersion.mockImplementation(async (input: any) => ({
+    id: typeof input === "object" ? input.itemId : input,
+    question: typeof input === "object" ? input.question : "Edited question?",
+    answer: "answer-card-1",
+    difficulty: 3,
+    interval: 1,
+    review_count: 1,
+    lapses: 0,
+    state: "review",
+    is_suspended: false,
+    tags: [],
+  }));
   updateLearningItemTags.mockResolvedValue(undefined);
 });
 

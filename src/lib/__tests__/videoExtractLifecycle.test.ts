@@ -71,7 +71,24 @@ describe("video extract status", () => {
     expect(videoExtractLifecycleKind(extract({ first_seen_at: NOW.toISOString() }))).toBe(
       "seen_unreviewed",
     );
+    expect(videoExtractLifecycleKind(extract({ last_viewed_at: NOW.toISOString() }))).toBe(
+      "seen_unreviewed",
+    );
     expect(videoExtractLifecycleKind(extract({ review_count: 2 }))).toBe("reviewed");
+    expect(
+      videoExtractLifecycleKind(
+        extract({ last_reviewed_at: NOW.toISOString(), review_count: 0 }),
+      ),
+    ).toBe("reviewed");
+    expect(
+      videoExtractLifecycleKind(
+        extract({
+          last_viewed_at: NOW.toISOString(),
+          last_reviewed_at: NOW.toISOString(),
+          review_count: 0,
+        }),
+      ),
+    ).toBe("reviewed");
   });
 
   it("mirrors queue eligibility including the reviewed-NULL guard", () => {

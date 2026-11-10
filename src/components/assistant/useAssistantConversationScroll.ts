@@ -61,7 +61,11 @@ export function useAssistantConversationScroll(
   key: string,
   hydrated: boolean,
   messages: readonly unknown[],
+  conversationId?: string,
 ) {
+  const effectiveKey = conversationId && !key.includes(conversationId)
+    ? `${key}:${conversationId}`
+    : key;
   const [showLatest, setShowLatest] = useState(false);
   const expectedScroll = useRef<number | null>(null);
 
@@ -73,31 +77,31 @@ export function useAssistantConversationScroll(
     }
     expectedScroll.current = null;
     const position = capturePosition(containerRef.current);
-    savePosition(key, position);
+    savePosition(effectiveKey, position);
     setShowLatest(!position.follow);
-  }, [containerRef, hydrated, key]);
+  }, [containerRef, effectiveKey, hydrated]);
 
   const showNewest = useCallback(() => {
     const container = containerRef.current;
     if (!container) return;
     container.scrollTop = container.scrollHeight;
     expectedScroll.current = container.scrollTop;
-    savePosition(key, { follow: true, top: container.scrollTop });
+    savePosition(effectiveKey, { follow: true, top: container.scrollTop });
     setShowLatest(false);
-  }, [containerRef, key]);
+  }, [containerRef, effectiveKey]);
 
   useLayoutEffect(() => {
     const container = containerRef.current;
     if (!hydrated || !container) return;
     // A cleared conversation is a new reading state, even if its storage key is reused.
-    const position = messages.length === 0 ? { follow: true, top: 0 } : readPosition(key) ?? { follow: true, top: 0 };
-    savePosition(key, position);
+    const position = messages.length === 0 ? { follow: true, top: 0 } : readPosition(effectiveKey) ?? { follow: true, top: 0 };
+    savePosition(effectiveKey, position);
     restorePosition(container, position);
     expectedScroll.current = container.scrollTop;
     setShowLatest(!position.follow);
     if (typeof ResizeObserver === "undefined") return;
     const observer = new ResizeObserver(() => {
-      const current = readPosition(key);
+      const current = readPosition(effectiveKey);
       if (current) {
         restorePosition(container, current);
         expectedScroll.current = container.scrollTop;
@@ -106,7 +110,7 @@ export function useAssistantConversationScroll(
     observer.observe(container);
     for (const child of Array.from(container.children)) observer.observe(child);
     return () => observer.disconnect();
-  }, [containerRef, hydrated, key, messages]);
+  }, [containerRef, effectiveKey, hydrated, messages]);
 
   return { onScroll, showLatest: hydrated && showLatest, showNewest };
 }

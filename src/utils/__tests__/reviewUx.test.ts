@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { QueueItem } from "../../types/queue";
 import {
   applyFilters,
+  getFsrsSchedulingInfo,
   getPriorityScore,
   getPriorityVector,
   getQueueStatus,
@@ -38,6 +39,75 @@ describe("reviewUx helpers", () => {
   it("returns drifted status for overdue items", () => {
     const twoDaysAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
     expect(getQueueStatus(baseItem({ itemType: "document", dueDate: twoDaysAgo }))).toBe("drifted");
+  });
+
+  it("normalizes calendar-day statuses for documents in getQueueStatus", () => {
+    const today = new Date();
+    const todayIso = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 15, 30).toISOString();
+    const yesterdayIso = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1, 23, 59).toISOString();
+    const tomorrowIso = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 8, 0).toISOString();
+
+    expect(getQueueStatus(baseItem({ itemType: "document", dueDate: todayIso }))).toBe("due");
+    expect(getQueueStatus(baseItem({ itemType: "document", dueDate: yesterdayIso }))).toBe("drifted");
+    expect(getQueueStatus(baseItem({ itemType: "document", dueDate: tomorrowIso }))).toBe("scheduled");
+    expect(getQueueStatus(baseItem({ itemType: "document", dueDate: undefined }))).toBe("new");
+  });
+
+  it("normalizes calendar-day scheduling info in getFsrsSchedulingInfo", () => {
+    const today = new Date();
+    const todayIso = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 14, 0).toISOString();
+    const yesterdayIso = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1, 22, 0).toISOString();
+    const tomorrowIso = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1, 10, 0).toISOString();
+
+    const todayInfo = getFsrsSchedulingInfo(baseItem({ itemType: "document", dueDate: todayIso }));
+    expect(todayInfo.isDue).toBe(true);
+    expect(todayInfo.isOverdue).toBe(false);
+    expect(todayInfo.status).toBe("due");
+    expect(todayInfo.statusLabel).toBe("Due Today");
+    expect(todayInfo.daysUntilDue).toBe(0);
+
+    const yesterdayInfo = getFsrsSchedulingInfo(baseItem({ itemType: "document", dueDate: yesterdayIso }));
+    expect(yesterdayInfo.isDue).toBe(true);
+    expect(yesterdayInfo.isOverdue).toBe(true);
+    expect(yesterdayInfo.status).toBe("due-overdue");
+    expect(yesterdayInfo.statusLabel).toBe("Overdue");
+    expect(yesterdayInfo.daysUntilDue).toBe(-1);
+
+    const tomorrowInfo = getFsrsSchedulingInfo(baseItem({ itemType: "document", dueDate: tomorrowIso }));
+    expect(tomorrowInfo.isDue).toBe(false);
+    expect(tomorrowInfo.isOverdue).toBe(false);
+    expect(tomorrowInfo.status).toBe("scheduled");
+    expect(tomorrowInfo.statusLabel).toBe("Tomorrow");
+    expect(tomorrowInfo.daysUntilDue).toBe(1);
+  });
+
+  it("calculates overdue urgency only when strictly before today and respects priority fallback", () => {
+    const today = new Date();
+    const todayIso = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 18, 0).toISOString();
+    const yesterdayIso = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 2, 10, 0).toISOString();
+    const tomorrowIso = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 2, 10, 0).toISOString();
+
+    // Due today: overdue urgency must be 0
+    const todayVec = getPriorityVector(baseItem({ dueDate: todayIso }));
+    expect(todayVec.overduePenalty).toBe(0);
+
+    // Due in future: overdue urgency must be 0
+    const tomorrowVec = getPriorityVector(baseItem({ dueDate: tomorrowIso }));
+    expect(tomorrowVec.overduePenalty).toBe(0);
+
+    // Overdue: overdue urgency > 0
+    const yesterdayVec = getPriorityVector(baseItem({ dueDate: yesterdayIso }));
+    expect(yesterdayVec.overduePenalty).toBeGreaterThan(0);
+
+    // Priority resolution: unset slider/rating (0) falls back to item.priority
+    const fallbackVec = getPriorityVector(
+      baseItem({
+        priority: 8,
+        prioritySlider: 0,
+        priorityRating: 0,
+      }),
+    );
+    expect(fallbackVec.userIntent).toBe(80);
   });
 
   it("creates time estimate ranges", () => {

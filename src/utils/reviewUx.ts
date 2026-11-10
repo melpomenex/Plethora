@@ -94,19 +94,32 @@ const priorityPresets: Record<PriorityPreset, PriorityVector> = {
 };
 
 export function getPriorityVector(item: QueueItem): PriorityVector {
-  const now = Date.now();
-  const due = item.dueDate ? new Date(item.dueDate).getTime() : null;
-  const isDueValid = due !== null && !isNaN(due);
+  const nowDate = new Date();
+  const startOfToday = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate());
+  const dueDateObj = item.dueDate ? new Date(item.dueDate) : null;
+  const isDueValid = dueDateObj !== null && !isNaN(dueDateObj.getTime());
+  const startOfDueDay = isDueValid
+    ? new Date(dueDateObj.getFullYear(), dueDateObj.getMonth(), dueDateObj.getDate())
+    : null;
 
   // 1. Resolve overdue urgency O ∈ [0, 1]
+  // Only calculate overdue urgency when startOfDueDay < startOfToday. If due today or in the future, o = 0.
+  const isOverdue = isDueValid && startOfDueDay !== null && startOfDueDay.getTime() < startOfToday.getTime();
   const o =
     item.overdueUrgency != null
       ? item.overdueUrgency
-      : isDueValid && due <= now
-        ? Math.max(0, Math.min(1, -Math.expm1(-Math.max(0, (now - due) / 86400000) / 14)))
+      : isOverdue
+        ? Math.max(
+            0,
+            Math.min(
+              1,
+              -Math.expm1(-Math.max(0, (startOfToday.getTime() - startOfDueDay.getTime()) / 86400000) / 14),
+            ),
+          )
         : 0;
 
   // 2. Resolve temporal readiness A ∈ [0.5, 1.0] and temporal urgency T ∈ [0, 1]
+  const isFuture = isDueValid && startOfDueDay !== null && startOfDueDay.getTime() > startOfToday.getTime();
   const a = 0.5 + 0.5 * o;
   let t: number;
   if (item.temporalUrgency != null && Number.isFinite(item.temporalUrgency)) {
@@ -115,28 +128,29 @@ export function getPriorityVector(item: QueueItem): PriorityVector {
     const r = item.retrievability;
     if (isDueValid && r != null && Number.isFinite(r)) {
       const rRisk = Math.max(0, Math.min(1, 1 - r));
-      t = due > now ? rRisk : Math.max(rRisk, a);
+      t = isFuture ? rRisk : Math.max(rRisk, a);
     } else if (isDueValid) {
-      t = due > now ? 0 : a;
+      t = isFuture ? 0 : a;
     } else {
       t = 0.5;
     }
   } else {
     // Rotational items (document, extract, video-extract, etc.)
     if (isDueValid) {
-      t = due > now ? 0 : a;
+      t = isFuture ? 0 : a;
     } else {
       t = 0.5;
     }
   }
 
   // 3. Resolve manual priority P ∈ [0, 1] (D1/D4: count P once, no tag count, no rereading rating)
+  // priorityRating: 0 and prioritySlider: 0 mean unset in Plethora; fall back to item.priority
   let p: number;
   if (item.canonicalPriority != null && Number.isFinite(item.canonicalPriority)) {
     p = item.canonicalPriority;
-  } else if (item.prioritySlider != null && Number.isFinite(item.prioritySlider)) {
+  } else if (item.prioritySlider != null && Number.isFinite(item.prioritySlider) && item.prioritySlider > 0) {
     p = clamp(item.prioritySlider, 0, 100) / 100;
-  } else if (item.priorityRating != null && Number.isFinite(item.priorityRating)) {
+  } else if (item.priorityRating != null && Number.isFinite(item.priorityRating) && item.priorityRating > 0) {
     p = clamp(item.priorityRating, 1, 5) / 5;
   } else if (item.priority != null && Number.isFinite(item.priority)) {
     p = item.priority <= 1 ? item.priority : clamp(item.priority / 10, 0, 1);
@@ -223,25 +237,29 @@ export function orderQueueItems(
 }
 
 export function getQueueStatus(item: QueueItem): QueueStatus {
-  const due = item.dueDate ? new Date(item.dueDate).getTime() : null;
-  const now = Date.now();
-  const oneDayMs = 24 * 60 * 60 * 1000;
-
   if (item.itemType === "learning-item") return "review";
   if (item.itemType === "extract") return "learning";
 
+  const nowDate = new Date();
+  const startOfToday = new Date(nowDate.getFullYear(), nowDate.getMonth(), nowDate.getDate());
+  const dueDateObj = item.dueDate ? new Date(item.dueDate) : null;
+  const isDueValid = dueDateObj !== null && !isNaN(dueDateObj.getTime());
+  const startOfDueDay = isDueValid
+    ? new Date(dueDateObj.getFullYear(), dueDateObj.getMonth(), dueDateObj.getDate())
+    : null;
+
   // FSRS-based document status
   if (item.itemType === "document") {
-    if (!due) {
+    if (!startOfDueDay) {
       // New document - never been scheduled/read
       return "new";
     }
-    if (due < now - oneDayMs) {
-      // Overdue by more than a day
+    if (startOfDueDay.getTime() < startOfToday.getTime()) {
+      // Overdue
       return "drifted";
     }
-    if (due <= now) {
-      // Due today or within the last day
+    if (startOfDueDay.getTime() === startOfToday.getTime()) {
+      // Due today
       return "due";
     }
     return "scheduled";
@@ -260,9 +278,18 @@ export function getFsrsSchedulingInfo(item: QueueItem): {
 } {
   const due = item.dueDate ? new Date(item.dueDate) : null;
   const now = new Date();
-  const isDue = due ? due <= now : false;
-  const isOverdue = due ? due < now : false;
-  const daysUntilDue = due ? Math.ceil((due.getTime() - now.getTime()) / (24 * 60 * 60 * 1000)) : null;
+  const isDueValid = due !== null && !isNaN(due.getTime());
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfDueDay = isDueValid
+    ? new Date(due.getFullYear(), due.getMonth(), due.getDate())
+    : null;
+
+  const isDue = startOfDueDay ? startOfDueDay.getTime() <= startOfToday.getTime() : false;
+  const isOverdue = startOfDueDay ? startOfDueDay.getTime() < startOfToday.getTime() : false;
+  const rawDaysUntilDue = startOfDueDay
+    ? Math.round((startOfDueDay.getTime() - startOfToday.getTime()) / (24 * 60 * 60 * 1000))
+    : null;
+  const daysUntilDue = rawDaysUntilDue === 0 ? 0 : rawDaysUntilDue;
 
   let status = "unknown";
   let statusLabel = "Unknown";
@@ -277,11 +304,12 @@ export function getFsrsSchedulingInfo(item: QueueItem): {
     status = "rss";
     statusLabel = "RSS Article";
   } else if (item.itemType === "document") {
-    if (!due) {
+    if (!startOfDueDay) {
       status = "new";
       statusLabel = "New";
     } else if (isOverdue) {
-      const daysOverdue = Math.floor((now.getTime() - due.getTime()) / (24 * 60 * 60 * 1000));
+      const rawDaysOverdue = Math.round((startOfToday.getTime() - startOfDueDay.getTime()) / (24 * 60 * 60 * 1000));
+      const daysOverdue = rawDaysOverdue === 0 ? 0 : rawDaysOverdue;
       if (daysOverdue >= 7) {
         status = "drifted";
         statusLabel = `Overdue (${daysOverdue}d)`;

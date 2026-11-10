@@ -36,6 +36,7 @@ import { DaqeKnobPanel } from "../queue/DaqeKnobPanel";
 import { DaqeDecisionModelSettings } from "../queue/DaqeDecisionModelSettings";
 import { DecisionModelStatusLine } from "../queue/DecisionModelStatusLine";
 import type { DecisionModelStatus } from "../../lib/daqe/decisionModelProbe";
+import { ReviewSettings } from "./ReviewSettings";
 import { applyPreset, type DaqePresetId } from "../../lib/daqe/presets";
 import type { DaqeKnobs } from "../../lib/daqe/knobs";
 
@@ -245,6 +246,9 @@ export function SmartQueuesSettings({
           </div>
         ) : null}
       </section>
+
+      {/* ── Review & Queue Ordering Settings ─────────────────────────────── */}
+      <ReviewSettings />
     </div>
   );
 }

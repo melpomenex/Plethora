@@ -583,29 +583,36 @@ export function PwaAssistantButton({
                 </div>
               )}
 
-              {messages.map((m) => (
-                <div
-                  key={m.id}
-                  className={m.role === "user" ? "flex justify-end" : "flex justify-start"}
-                >
+              {messages.map((m) => {
+                const hasText = Boolean(m.content && m.content.trim().length > 0);
+                const hasThinking = Boolean(m.thinking && m.thinking.trim().length > 0);
+                if (m.role === "assistant" && !hasText && !hasThinking) {
+                  return null;
+                }
+                return (
                   <div
-                    className={[
-                      "max-w-[92%] rounded-2xl px-3 py-2 text-sm border",
-                      m.role === "user"
-                        ? "bg-primary text-primary-foreground border-primary/20"
-                        : m.role === "assistant"
-                          ? "bg-card text-foreground border-border"
-                          : "bg-muted text-foreground border-border",
-                    ].join(" ")}
+                    key={m.id}
+                    className={m.role === "user" ? "flex justify-end" : "flex justify-start"}
                   >
-                    {m.role === "assistant" ? (
-                      <AssistantResponseContent content={m.content} thinking={m.thinking} className="prose prose-sm max-w-none" />
-                    ) : (
-                      <div className="whitespace-pre-wrap">{m.content}</div>
-                    )}
+                    <div
+                      className={[
+                        "max-w-[92%] rounded-2xl px-3 py-2 text-sm border",
+                        m.role === "user"
+                          ? "bg-primary text-primary-foreground border-primary/20"
+                          : m.role === "assistant"
+                            ? "bg-card text-foreground border-border"
+                            : "bg-muted text-foreground border-border",
+                      ].join(" ")}
+                    >
+                      {m.role === "assistant" ? (
+                        <AssistantResponseContent content={m.content} thinking={m.thinking} className="prose prose-sm max-w-none" />
+                      ) : (
+                        <div className="whitespace-pre-wrap">{m.content}</div>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               {isLoading && (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">

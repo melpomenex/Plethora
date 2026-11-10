@@ -12,7 +12,16 @@ export async function loadDocumentQaText(
     extractDocumentText: (id: string) => Promise<{ content?: string | null } | null | undefined>;
   },
 ): Promise<string> {
-  const document = await loaders.getDocument(documentId);
+  let document = await loaders.getDocument(documentId);
+  if (!document?.id) {
+    try {
+      const { useDocumentStore } = await import("../../stores/documentStore");
+      const fromStore = useDocumentStore.getState?.()?.documents?.find((d) => d.id === documentId);
+      if (fromStore) {
+        document = fromStore;
+      }
+    } catch {}
+  }
   if (document?.fileType === "youtube") {
     const videoId = document.filePath?.match(/(?:v=|youtu\.be\/|embed\/)([\w-]{11})/)?.[1] ?? document.filePath;
     if (videoId) {
@@ -45,8 +54,15 @@ export async function loadDocumentQaText(
     }
   }
   if (typeof document?.content === "string" && document.content.trim()) return document.content.trim();
-  const extracted = await loaders.extractDocumentText(documentId);
-  return typeof extracted?.content === "string" && extracted.content.trim() ? extracted.content.trim() : "";
+  try {
+    const extracted = await loaders.extractDocumentText(documentId);
+    if (typeof extracted?.content === "string" && extracted.content.trim()) {
+      return extracted.content.trim();
+    }
+  } catch (err) {
+    console.warn("Failed to extract document text for document:", documentId, err);
+  }
+  return "";
 }
 
 /**

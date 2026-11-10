@@ -56,7 +56,7 @@ export function InlineCardEditor({
   const isComplexType = Boolean(
     interactionMetadata?.interactionType ||
     interactionMetadata?.imageOcclusionAssetId ||
-    (!["basic", "cloze"].includes(((card.item_type ?? (card as any).itemType) ?? "").toLowerCase()) && (card.item_type ?? (card as any).itemType))
+    (!["basic", "cloze", "qa"].includes(((card.item_type ?? (card as any).itemType) ?? "").toLowerCase()) && (card.item_type ?? (card as any).itemType))
   );
 
   // Item type casing varies by source (Rust serializes lowercase snake_case,
@@ -150,7 +150,9 @@ export function InlineCardEditor({
         tags: newTags,
       });
 
-      onSave(canonical);
+      if (canonical) {
+        onSave(canonical);
+      }
 
       if (isCloze && !containsClozeMarker(clozeText)) {
         // Mirrors Anki's tolerance: the save goes through, but warns that no marker is present

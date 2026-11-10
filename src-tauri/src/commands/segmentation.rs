@@ -98,8 +98,8 @@ pub async fn auto_segment_and_create_extracts(
 
         sqlx::query(
             r#"
-            INSERT INTO extracts (id, document_id, content, page_title, date_created, date_modified)
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+            INSERT INTO extracts (id, document_id, content, page_title, date_created, date_modified, priority_score)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
             "#,
         )
         .bind(&extract_id)
@@ -108,6 +108,7 @@ pub async fn auto_segment_and_create_extracts(
         .bind(&segment.chapter_title)
         .bind(&now)
         .bind(&now)
+        .bind(doc.priority_score)
         .execute(repo.pool())
         .await
         .map_err(|e| {

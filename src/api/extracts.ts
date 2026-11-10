@@ -62,6 +62,7 @@ export interface CreateExtractInput {
   page_number?: number;
   selection_context?: SelectionContext | Record<string, unknown>;
   max_disclosure_level?: number;
+  priority_score?: number;
 }
 
 export interface UpdateExtractInput {
@@ -75,6 +76,7 @@ export interface UpdateExtractInput {
   color?: string;
   max_disclosure_level?: number;
   selection_context?: SelectionContext | Record<string, unknown>;
+  priority_score?: number;
 }
 
 const EXTRACT_FIELD_ALIASES = {
@@ -166,6 +168,7 @@ export async function createExtract(input: CreateExtractInput): Promise<Extract>
     pageNumber: input.page_number,
     selectionContext: input.selection_context,
     maxDisclosureLevel: input.max_disclosure_level,
+    priorityScore: input.priority_score,
   });
   const normalized = normalizeExtract(extract);
   if (normalized.document_id) {
@@ -187,6 +190,7 @@ export async function updateExtract(input: UpdateExtractInput): Promise<Extract>
     color: input.color,
     maxDisclosureLevel: input.max_disclosure_level,
     selectionContext: input.selection_context,
+    priorityScore: input.priority_score,
   });
   const normalized = normalizeExtract(extract);
   return normalized;

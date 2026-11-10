@@ -85,6 +85,37 @@ describe("orderScrollItemsByPriority", () => {
     );
   });
 
+  it("bypasses variety deferrals when strictManual is true (boolean parameter)", () => {
+    const items = [
+      ...Array.from({ length: 6 }, (_, i) => card(`c${i}`, 5)),
+      doc("d0", 5),
+      doc("d1", 5),
+    ];
+    const defaultOrdered = orderScrollItemsByPriority(items);
+    expect(longestRunOf(defaultOrdered.map((i) => i.type), "flashcard")).toBeLessThanOrEqual(
+      MAX_SAME_TYPE_CONSECUTIVE
+    );
+
+    const strictOrdered = orderScrollItemsByPriority(items, MAX_SAME_TYPE_CONSECUTIVE, true);
+    expect(longestRunOf(strictOrdered.map((i) => i.type), "flashcard")).toBe(6);
+    expect(strictOrdered.map((i) => i.id)).toEqual([
+      "c0", "c1", "c2", "c3", "c4", "c5", "d0", "d1"
+    ]);
+  });
+
+  it("bypasses variety deferrals when options.strictManual is true (options object)", () => {
+    const items = [
+      ...Array.from({ length: 6 }, (_, i) => card(`c${i}`, 5)),
+      doc("d0", 5),
+      doc("d1", 5),
+    ];
+    const strictOrdered = orderScrollItemsByPriority(items, { strictManual: true });
+    expect(longestRunOf(strictOrdered.map((i) => i.type), "flashcard")).toBe(6);
+    expect(strictOrdered.map((i) => i.id)).toEqual([
+      "c0", "c1", "c2", "c3", "c4", "c5", "d0", "d1"
+    ]);
+  });
+
   it("does not reorder across priority tiers", () => {
     // A higher-priority document must precede lower-priority flashcards even
     // when the flashcards would otherwise cluster.

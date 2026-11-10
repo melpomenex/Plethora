@@ -988,7 +988,23 @@ function throwIfAborted(signal?: AbortSignal): void {
  */
 export function toOnDeviceAiError(error: unknown): OnDeviceAiError {
   if (error instanceof OnDeviceAiError) return error;
+  if (typeof error === "object" && error !== null) {
+    const raw = error as Record<string, unknown>;
+    const directCode = typeof raw.code === "string" ? raw.code : undefined;
+    if (directCode && (ON_DEVICE_AI_ERROR_CODES as readonly string[]).includes(directCode)) {
+      const msg = typeof raw.message === "string" ? raw.message : JSON.stringify(error);
+      return new OnDeviceAiError(directCode as OnDeviceAiErrorCode, msg);
+    }
+  }
   const message = error instanceof Error ? error.message : String(error);
+  try {
+    const parsed = JSON.parse(message);
+    if (parsed && typeof parsed.code === "string" && (ON_DEVICE_AI_ERROR_CODES as readonly string[]).includes(parsed.code)) {
+      return new OnDeviceAiError(parsed.code as OnDeviceAiErrorCode, parsed.message ?? message);
+    }
+  } catch {
+    // not JSON
+  }
   const code = ON_DEVICE_AI_ERROR_CODES.find((candidate) => message.includes(candidate));
   return new OnDeviceAiError(code ?? "inference_failed", message);
 }

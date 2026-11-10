@@ -26,7 +26,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 pub use goal_alignment::local_goal_alignment;
-pub use ranker::rank;
+pub use ranker::{rank, rank_strict_manual, rank_with_mode, QueueOrderingMode};
 pub use terms::ItemSignals;
 
 /// An item already reviewed in the current session, as the interleaving penalty

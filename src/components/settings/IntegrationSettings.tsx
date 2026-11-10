@@ -47,7 +47,7 @@ import {
   type ObsidianConfig,
   type AnkiConfig,
 } from "../../api/integrations";
-import { openFolderPicker, isTauri } from "../../lib/tauri";
+import { openFolderPicker, openFilePicker, isTauri, invokeCommand } from "../../lib/tauri";
 import {
   getStoredYouTubeCookies,
   storeYouTubeCookies,
@@ -127,11 +127,26 @@ export function IntegrationSettings() {
   // YouTube Cookies state
   const [youtubeCookies, setYoutubeCookies] = useState<YouTubeCookie[]>([]);
   const [cookieInput, setCookieInput] = useState("");
+  const [cookieFilePath, setCookieFilePath] = useState<string>(() => {
+    return localStorage.getItem("plethora_youtube_cookie_file") || "";
+  });
   const [cookieTestStatus, setCookieTestStatus] = useState<{
     status: "idle" | "testing" | "success" | "error";
     message: string;
   }>({ status: "idle", message: "" });
   const [showCookieInput, setShowCookieInput] = useState(false);
+
+  const handleCookieFilePathChange = async (path: string) => {
+    setCookieFilePath(path);
+    try {
+      localStorage.setItem("plethora_youtube_cookie_file", path);
+      if (isTauri()) {
+        await invokeCommand("set_youtube_cookies_path", { path: path ? path.trim() : null });
+      }
+    } catch (e) {
+      console.error("Failed to persist custom cookies path:", e);
+    }
+  };
 
   // Operation status
   const [isOperating, setIsOperating] = useState(false);
@@ -259,6 +274,16 @@ export function IntegrationSettings() {
 
   useEffect(() => {
     setYoutubeCookies(getStoredYouTubeCookies());
+    if (isTauri()) {
+      invokeCommand<string | null>("get_youtube_cookies_path")
+        .then((path) => {
+          if (path) {
+            setCookieFilePath(path);
+            localStorage.setItem("plethora_youtube_cookie_file", path);
+          }
+        })
+        .catch(() => {});
+    }
   }, []);
 
   const loadExtensionStatus = async () => {
@@ -1155,6 +1180,48 @@ export function IntegrationSettings() {
                   </div>
                 </div>
               )}
+
+              {/* Custom Cookies File Path */}
+              <SettingsSearchTarget id="setting-youtube-cookie-file" label={t("integrations.youtubeCookieFile") || "YouTube Cookie File"}>
+                <div className="p-4 bg-muted/30 rounded-lg space-y-2">
+                  <label className="block text-sm font-medium text-foreground">
+                    {t("integrations.youtubeCookieFile") || "Custom Cookies File"}
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    {t("integrations.youtubeCookieFileDesc") || "Path to a cookies.txt file for yt-dlp authenticated requests"}
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={cookieFilePath}
+                      onChange={(e) => handleCookieFilePathChange(e.target.value)}
+                      placeholder="/path/to/cookies.txt"
+                      aria-label="YouTube Cookie File Path"
+                      className="flex-1 px-3 py-1.5 bg-background border border-border rounded-lg text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                    />
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          const file = await openFilePicker({
+                            title: t("integrations.selectCookieFile") || "Select cookies.txt",
+                            filters: [{ name: "Text Files", extensions: ["txt"] }],
+                          });
+                          if (file && typeof file === "string") {
+                            handleCookieFilePathChange(file);
+                          }
+                        } catch (err) {
+                          console.error("Failed to select cookies file:", err);
+                        }
+                      }}
+                      className="px-3 py-1.5 bg-secondary text-secondary-foreground rounded-lg hover:opacity-90 flex items-center gap-1.5 text-xs font-medium"
+                    >
+                      <FolderOpen className="w-3.5 h-3.5" />
+                      {t("common.browse") || "Browse"}
+                    </button>
+                  </div>
+                </div>
+              </SettingsSearchTarget>
 
               {/* Instructions */}
               <div className="p-4 bg-muted/30 rounded-lg">

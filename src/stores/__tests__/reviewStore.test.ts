@@ -234,6 +234,31 @@ describe("reviewStore Wave 1 behavior", () => {
     expect(state.sessionId).toBe("session-in-progress");
   });
 
+  it("advances session immediately on deletion with flashcard- prefix and completes on last card without requiring recall grade", () => {
+    const single = makeLearningCard({ id: "card-single" });
+    useReviewStore.setState({
+      queue: [single],
+      currentCard: single,
+      currentIndex: 0,
+      isAnswerShown: true,
+      reviewsCompleted: 3,
+      correctCount: 2,
+    });
+
+    // Delete with flashcard- prefix
+    useReviewStore.getState().removeItemFromSession("flashcard-card-single");
+
+    const state = useReviewStore.getState();
+    expect(state.queue).toEqual([]);
+    expect(state.currentCard).toBeNull();
+    expect(state.currentIndex).toBe(0);
+    expect(state.isAnswerShown).toBe(false);
+    expect(state.reviewPhase).toBe("question");
+    // Progress not artificially incremented or modified by a recall grade
+    expect(state.reviewsCompleted).toBe(3);
+    expect(state.correctCount).toBe(2);
+  });
+
   it("starts a review session in the exact order supplied by the Review Queue", async () => {
     const first = makeLearningCard({ id: "card-1" });
     const second = makeLearningCard({ id: "card-2" });

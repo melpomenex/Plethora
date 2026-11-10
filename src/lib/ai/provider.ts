@@ -239,5 +239,5 @@ export async function runAiAction<T>(
 /** Whether the UI may offer an explicit cloud retry after an on-device safety refusal. */
 export function canOfferCloudRetryForSafety(error: unknown): boolean {
   const mapped = toAIError(error);
-  return mapped.category === "SafetyBlocked" && hasCloudProvider() && allowCloudFallback();
+  return mapped.category === "SafetyBlocked" && hasCloudProvider();
 }

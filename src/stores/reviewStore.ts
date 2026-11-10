@@ -900,14 +900,25 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   },
 
   patchCurrentCard: (updated) => {
+    if (!updated) return;
     const { queue, currentCard } = get();
-    const nextQueue = queue.map((item) => (item.id === updated.id ? updated : item));
-    const nextCurrentCard = currentCard?.id === updated.id ? updated : currentCard;
+    const inQueue = queue.some((item) => item.id === updated.id);
+    const nextQueue = inQueue
+      ? queue.map((item) => (item.id === updated.id ? updated : item))
+      : queue;
+    const nextCurrentCard = inQueue
+      ? (currentCard?.id === updated.id ? updated : currentCard)
+      : updated;
     set({ queue: nextQueue, currentCard: nextCurrentCard });
   },
 
   removeItemFromSession: (itemId: string) => {
     const state = get();
+    const matchingItem = state.queue.find(
+      (item) => item.id === itemId || item.id.replace(/^flashcard-/, "") === itemId.replace(/^flashcard-/, "")
+    );
+    const targetItemId = matchingItem ? matchingItem.id : itemId;
+
     const sessionState: SessionState<ReviewSessionItem> = {
       items: state.queue,
       currentId: state.currentCard?.id ?? null,
@@ -916,7 +927,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       revealRevision: state.revealRevision ?? 0,
       generation: state.generation ?? 1,
     };
-    const result = reconcileItemRemoval(sessionState, itemId);
+    const result = reconcileItemRemoval(sessionState, targetItemId);
 
     set({
       queue: result.nextItems,

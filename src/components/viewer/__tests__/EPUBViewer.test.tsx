@@ -8,6 +8,7 @@ import {
   serializeEpubRules,
   isEpubCoverSection,
   normalizeEpubSvgElements,
+  wrapEpubTables,
   getViewerDimensions,
 } from "../EPUBViewer";
 import ePub from "epubjs";
@@ -1203,6 +1204,43 @@ describe("EPUB reader cover and media scaling in viewer", () => {
     const override = doc.getElementById("epub-override-styles");
     expect(override!.textContent).toContain("body.epub-cover-page p");
     expect(override!.textContent).toContain("min-width: 0 !important");
+  });
+});
+
+describe("wrapEpubTables", () => {
+  it("wraps tables in epub-table-wrapper and sets responsive properties", () => {
+    const doc = document.implementation.createHTMLDocument("test");
+    const container = doc.createElement("div");
+    container.innerHTML = `
+      <p>Intro text</p>
+      <table id="test-table">
+        <thead>
+          <tr><th>Col 1</th><th>Col 2</th><th>Col 3</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>Data 1</td><td>Data 2</td><td>Data 3</td></tr>
+        </tbody>
+      </table>
+      <p>Outro text</p>
+    `;
+    doc.body.appendChild(container);
+
+    wrapEpubTables(doc);
+
+    const table = doc.getElementById("test-table")!;
+    expect(table.style.getPropertyValue("min-width")).toBe("max-content");
+
+    const wrapper = table.parentElement!;
+    expect(wrapper.classList.contains("epub-table-wrapper")).toBe(true);
+    expect(wrapper.style.getPropertyValue("overflow-x")).toBe("auto");
+    expect(wrapper.style.getPropertyValue("max-width")).toBe("100%");
+    expect(wrapper.getAttribute("role")).toBe("region");
+    expect(wrapper.getAttribute("tabindex")).toBe("0");
+
+    // Idempotent: wrapping again should not double-wrap
+    wrapEpubTables(doc);
+    expect(table.parentElement).toBe(wrapper);
+    expect(doc.querySelectorAll(".epub-table-wrapper").length).toBe(1);
   });
 });
 

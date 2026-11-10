@@ -65,7 +65,7 @@ export const SETTINGS_SEARCH_COVERAGE: readonly SettingsSearchCoverageRow[] = [
   },
   {
     section: SettingsTab.SmartQueue,
-    sources: ["SmartQueuesSettings.tsx"],
+    sources: ["SmartQueuesSettings.tsx", "ReviewSettings.tsx"],
     catalogPrefixes: ["section.smart-queue", "smartQueue."],
     exclusions: [
       "Individual ranking knobs are one repeated editor template; the ranking group covers them.",
@@ -75,7 +75,7 @@ export const SETTINGS_SEARCH_COVERAGE: readonly SettingsSearchCoverageRow[] = [
   {
     section: SettingsTab.Documents,
     sources: ["DocumentsSettings.tsx", "OCRSettings.tsx", "../tas/TASSettingsPanel.tsx"],
-    catalogPrefixes: ["section.documents", "documents."],
+    catalogPrefixes: ["section.documents", "documents.", "setting-extract-priority-inheritance"],
     exclusions: [
       "OCR/TAS sub-panels expose their controls through the OCR group destination.",
       "Import buttons execute file pickers and are not search destinations.",
@@ -148,7 +148,7 @@ export const SETTINGS_SEARCH_COVERAGE: readonly SettingsSearchCoverageRow[] = [
   {
     section: SettingsTab.Integrations,
     sources: ["IntegrationSettings.tsx", "NotebookLMWorkspace.tsx", "../media/YouTubePlaylistManager.tsx"],
-    catalogPrefixes: ["section.integrations", "integrations."],
+    catalogPrefixes: ["section.integrations", "integrations.", "setting-youtube-cookie-file"],
     exclusions: [
       "Vault paths, cookies, and tokens are private values and are not indexed.",
       "Sync/test actions are consequential and are reached through their configuration groups.",

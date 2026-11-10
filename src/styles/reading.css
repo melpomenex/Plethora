@@ -105,10 +105,41 @@
   font-size: 0.9em;
 }
 
-.reading-prose table {
+.reading-prose .epub-table-wrapper,
+.reading-prose .table-container,
+.reading-prose .table-wrapper,
+.rss-reading-prose .epub-table-wrapper,
+.rss-reading-prose .table-container,
+.rss-reading-prose .table-wrapper {
   display: block;
   width: 100%;
+  max-width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 1.5em 0;
+}
+
+.reading-prose table,
+.rss-reading-prose table {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: max-content;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.reading-prose .epub-table-wrapper > table,
+.reading-prose .table-container > table,
+.reading-prose .table-wrapper > table,
+.rss-reading-prose .epub-table-wrapper > table,
+.rss-reading-prose .table-container > table,
+.rss-reading-prose .table-wrapper > table {
+  display: table;
+  width: 100%;
+  min-width: max-content;
+  max-width: none;
+  margin: 0;
 }
 
 .reading-prose code {

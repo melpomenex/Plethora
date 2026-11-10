@@ -18,25 +18,6 @@ export function QACreatorPopup({ extractId, onCreated, onCancel }: QACreatorPopu
     const [isSubmitting, setIsSubmitting] = useState(false);
     const questionRef = useRef<HTMLTextAreaElement>(null);
 
-    useEffect(() => {
-        // Focus question on mount
-        questionRef.current?.focus();
-
-        // Escape to close
-        const handleKeyDown = (e: KeyboardEvent) => {
-            if (e.key === "Escape") {
-                onCancel();
-            }
-            // Ctrl+Enter to submit
-            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
-                handleSubmit();
-            }
-        };
-
-        window.addEventListener("keydown", handleKeyDown);
-        return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [onCancel, question, answer]);
-
     const handleSubmit = async () => {
         if (!question.trim() || !answer.trim() || isSubmitting) return;
 
@@ -49,6 +30,31 @@ export function QACreatorPopup({ extractId, onCreated, onCancel }: QACreatorPopu
             setIsSubmitting(false);
         }
     };
+
+    const handleSubmitRef = useRef(handleSubmit);
+    handleSubmitRef.current = handleSubmit;
+    const onCancelRef = useRef(onCancel);
+    onCancelRef.current = onCancel;
+
+    useEffect(() => {
+        // Focus question on mount only
+        questionRef.current?.focus();
+    }, []);
+
+    useEffect(() => {
+        // Escape to close, Ctrl+Enter to submit
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                onCancelRef.current();
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                handleSubmitRef.current();
+            }
+        };
+
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, []);
 
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">

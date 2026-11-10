@@ -129,7 +129,7 @@ class LearningItemMutationCoordinator {
       released = true;
 
       // Stale completion / wrong item guard:
-      if (updated.id !== itemId || state.currentRevision !== revision) {
+      if (!updated || updated.id !== itemId || state.currentRevision !== revision) {
         return false;
       }
 

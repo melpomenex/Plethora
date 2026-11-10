@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::RwLock;
 use tauri::{AppHandle, Manager, State};
 
 use crate::database::Repository;
@@ -15,6 +16,52 @@ use crate::models::{Document, DocumentMetadata, FileType};
 pub mod captions;
 pub mod innertube;
 pub use innertube::{fetch_youtube_transcript_on_device_internal, OnDeviceTranscriptResult};
+
+static CUSTOM_COOKIES_PATH: RwLock<Option<PathBuf>> = RwLock::new(None);
+
+/// Set or clear the configured custom cookies.txt path
+pub fn set_custom_cookies_path(path: Option<PathBuf>) {
+    if let Ok(mut lock) = CUSTOM_COOKIES_PATH.write() {
+        *lock = path;
+    }
+}
+
+/// Resolve the active custom cookies path.
+/// Checks:
+/// 1. In-memory configured path via `set_custom_cookies_path`
+/// 2. Environment variables: `PLETHORA_YOUTUBE_COOKIES`, `YOUTUBE_COOKIES_FILE`, `YOUTUBE_COOKIES_PATH`
+/// 3. App data directory fallback: `incrementum/cookies.txt` or `incrementum/youtube_cookies.txt`
+pub fn get_custom_cookies_path() -> Option<PathBuf> {
+    if let Ok(lock) = CUSTOM_COOKIES_PATH.read() {
+        if let Some(ref p) = *lock {
+            if p.exists() {
+                return Some(p.clone());
+            }
+        }
+    }
+
+    for env_var in &["PLETHORA_YOUTUBE_COOKIES", "YOUTUBE_COOKIES_FILE", "YOUTUBE_COOKIES_PATH"] {
+        if let Ok(val) = std::env::var(env_var) {
+            let p = PathBuf::from(val);
+            if p.exists() {
+                return Some(p);
+            }
+        }
+    }
+
+    if let Some(data_dir) = dirs::data_dir() {
+        let candidate1 = data_dir.join("incrementum").join("cookies.txt");
+        if candidate1.exists() {
+            return Some(candidate1);
+        }
+        let candidate2 = data_dir.join("incrementum").join("youtube_cookies.txt");
+        if candidate2.exists() {
+            return Some(candidate2);
+        }
+    }
+
+    None
+}
 
 /// Bump when the shape/quality of cached `segments_json` changes in a way that
 /// makes previously cached rows stale (e.g. word timings were not captured yet).
@@ -538,6 +585,12 @@ pub async fn download_video(
             cmd.arg("--embed-subs");
         }
 
+        if let Some(cookie_path) = get_custom_cookies_path() {
+            if cookie_path.exists() {
+                cmd.arg("--cookies").arg(cookie_path);
+            }
+        }
+
         cmd.arg(url_for_download);
 
         cmd.output()
@@ -587,8 +640,12 @@ pub async fn download_video(
     Ok(final_filepath)
 }
 
-/// Try to run yt-dlp with browser cookies from common browsers
-fn try_with_browser_cookies(url: &str, args: &[&str]) -> Result<std::process::Output, String> {
+/// Try to run yt-dlp with optional custom cookies and browser cookies fallback
+pub fn try_with_cookies(
+    url: &str,
+    args: &[&str],
+    custom_cookie_path: Option<&std::path::Path>,
+) -> Result<std::process::Output, String> {
     let browsers = [
         "chrome", "firefox", "safari", "edge", "brave", "vivaldi", "opera",
     ];
@@ -604,6 +661,40 @@ fn try_with_browser_cookies(url: &str, args: &[&str]) -> Result<std::process::Ou
     let stderr = String::from_utf8_lossy(&output.stderr);
     if output.status.success() && !stderr.contains("Sign in to confirm") {
         return Ok(output);
+    }
+
+    // Try custom cookies file before falling back to browser cookies
+    let resolved_cookie_path = custom_cookie_path
+        .map(|p| p.to_path_buf())
+        .or_else(get_custom_cookies_path);
+
+    if let Some(cookie_path) = resolved_cookie_path {
+        if cookie_path.exists() {
+            let cookie_output = ytdlp_command().and_then(|mut cmd| {
+                cmd.args(args)
+                    .arg("--cookies")
+                    .arg(&cookie_path)
+                    .arg(url);
+                cmd.output()
+                    .map_err(|e| format!("Failed to run yt-dlp with custom cookies: {}", e))
+            });
+
+            match cookie_output {
+                Ok(result) => {
+                    let result_stderr = String::from_utf8_lossy(&result.stderr);
+                    if result.status.success() && !result_stderr.contains("Sign in to confirm") {
+                        eprintln!(
+                            "Successfully used custom cookies from {}",
+                            cookie_path.display()
+                        );
+                        return Ok(result);
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to run yt-dlp with custom cookies: {}", e);
+                }
+            }
+        }
     }
 
     // Try with each browser's cookies
@@ -639,14 +730,20 @@ fn try_with_browser_cookies(url: &str, args: &[&str]) -> Result<std::process::Ou
     if !output.status.success() || stderr.contains("Sign in to confirm") {
         return Err("YouTube is requiring sign-in to access this video.\n\n\
             To fix this:\n\
-            1. Open YouTube in your browser (Chrome, Firefox, Safari, or Edge)\n\
-            2. Watch any video for 10-20 seconds\n\
-            3. Try again in the app\n\n\
-            The app will automatically use your browser cookies if available."
+            1. Provide a custom cookies.txt file or\n\
+            2. Open YouTube in your browser (Chrome, Firefox, Safari, or Edge)\n\
+            3. Watch any video for 10-20 seconds\n\
+            4. Try again in the app\n\n\
+            The app will automatically use your custom cookies or browser cookies if available."
             .to_string());
     }
 
     Ok(output)
+}
+
+/// Try to run yt-dlp with browser cookies from common browsers
+pub fn try_with_browser_cookies(url: &str, args: &[&str]) -> Result<std::process::Output, String> {
+    try_with_cookies(url, args, None)
 }
 
 /// Extract transcript using yt-dlp
@@ -1015,6 +1112,63 @@ pub fn get_playlist_info(url: &str) -> Result<serde_json::Value, String> {
         }
     }
 
+    // Try with custom cookies before browser cookies
+    if let Some(cookie_path) = get_custom_cookies_path() {
+        if cookie_path.exists() {
+            eprintln!(
+                "[yt-dlp] Trying with custom cookies from {}...",
+                cookie_path.display()
+            );
+            let output = ytdlp_command()
+                .map_err(|e| format!("Failed to prepare yt-dlp command: {}", e))?
+                .args([
+                    "--dump-json",
+                    "--flat-playlist",
+                    "--no-download",
+                    "--ignore-errors",
+                    "--cookies",
+                ])
+                .arg(&cookie_path)
+                .arg(url)
+                .output();
+
+            match output {
+                Ok(output) if output.status.success() => {
+                    eprintln!("[yt-dlp] Success with custom cookies");
+                    let stdout_str = String::from_utf8_lossy(&output.stdout);
+
+                    let mut entries = Vec::new();
+                    for line in stdout_str.lines() {
+                        if line.trim().is_empty() {
+                            continue;
+                        }
+                        if let Ok(video) = serde_json::from_str::<serde_json::Value>(line) {
+                            entries.push(video);
+                        }
+                    }
+
+                    if !entries.is_empty() {
+                        let playlist = serde_json::json!({
+                            "title": entries.first().and_then(|e| e["playlist_title"].as_str()).unwrap_or("Unknown Playlist"),
+                            "channel": entries.first().and_then(|e| e["channel"].as_str()).unwrap_or("Unknown Channel"),
+                            "channel_id": entries.first().and_then(|e| e["channel_id"].as_str()),
+                            "description": entries.first().and_then(|e| e["description"].as_str()).unwrap_or(""),
+                            "entries": entries,
+                        });
+                        return Ok(playlist);
+                    }
+                }
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    eprintln!("[yt-dlp] Failed with custom cookies: {}", stderr);
+                }
+                Err(e) => {
+                    eprintln!("[yt-dlp] Command failed with custom cookies: {}", e);
+                }
+            }
+        }
+    }
+
     // Try with each browser's cookies
     for browser in &browsers {
         eprintln!("[yt-dlp] Trying with {} cookies...", browser);
@@ -1129,6 +1283,20 @@ pub async fn setup_ytdlp_auto() -> Result<String, String> {
 pub async fn get_ytdlp_path() -> Result<String, String> {
     let path = get_ytdlp_binary_path()?;
     Ok(path.to_string_lossy().to_string())
+}
+
+/// Tauri command: Set custom YouTube cookies.txt file path
+#[tauri::command]
+pub async fn set_youtube_cookies_path(path: Option<String>) -> Result<(), String> {
+    let p = path.filter(|s| !s.trim().is_empty()).map(PathBuf::from);
+    set_custom_cookies_path(p);
+    Ok(())
+}
+
+/// Tauri command: Get custom YouTube cookies.txt file path
+#[tauri::command]
+pub async fn get_youtube_cookies_path() -> Result<Option<String>, String> {
+    Ok(get_custom_cookies_path().map(|p| p.to_string_lossy().to_string()))
 }
 
 /// Tauri command: Get video info
@@ -1879,6 +2047,28 @@ pub async fn get_youtube_chapters(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn custom_cookies_path_configuration() {
+        // Clear initially
+        set_custom_cookies_path(None);
+
+        // Non-existent path returns None when resolving active path
+        set_custom_cookies_path(Some(PathBuf::from("/non/existent/cookies.txt")));
+        assert!(get_custom_cookies_path().is_none());
+
+        // Create a temporary file
+        let temp_dir = std::env::temp_dir();
+        let cookie_file = temp_dir.join(format!("test_yt_cookies_{}.txt", std::process::id()));
+        std::fs::write(&cookie_file, "# Netscape HTTP Cookie File\n").unwrap();
+
+        set_custom_cookies_path(Some(cookie_file.clone()));
+        assert_eq!(get_custom_cookies_path(), Some(cookie_file.clone()));
+
+        // Reset
+        set_custom_cookies_path(None);
+        let _ = std::fs::remove_file(cookie_file);
+    }
 
     /// yt-dlp writes `{id}.{lang}.{ext}`; if the candidate list or the extension
     /// dispatch misses `.json3` the transcript silently comes back empty.

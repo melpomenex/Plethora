@@ -286,6 +286,35 @@ export function normalizeEpubSvgElements(doc: globalThis.Document | undefined): 
 }
 
 /**
+ * Wraps table elements inside an EPUB content document in a scrollable
+ * container and applies responsive styling to prevent columns from collapsing
+ * and letters from crushing vertically.
+ */
+export function wrapEpubTables(doc: globalThis.Document | undefined): void {
+  if (!doc) return;
+  const tables = doc.querySelectorAll("table");
+  tables.forEach((table) => {
+    table.style.setProperty("min-width", "max-content");
+    const parent = table.parentElement;
+    if (parent && parent.classList.contains("epub-table-wrapper")) {
+      return;
+    }
+    const wrapper = doc.createElement("div");
+    wrapper.className = "epub-table-wrapper";
+    wrapper.style.setProperty("overflow-x", "auto");
+    wrapper.style.setProperty("max-width", "100%");
+    wrapper.style.setProperty("-webkit-overflow-scrolling", "touch");
+    wrapper.setAttribute("role", "region");
+    wrapper.setAttribute("tabindex", "0");
+    wrapper.setAttribute("aria-label", "Table container");
+    if (parent) {
+      parent.insertBefore(wrapper, table);
+      wrapper.appendChild(table);
+    }
+  });
+}
+
+/**
  * Resolve effective reader viewport dimensions from host container or window.
  */
 export function getViewerDimensions(viewerEl: HTMLElement | null): { height: number; width: number } {
@@ -900,6 +929,7 @@ export function EPUBViewer({
     const isCover = isEpubCoverSection(contents, renditionRef.current || rendition || book);
 
     normalizeEpubSvgElements(doc);
+    wrapEpubTables(doc);
 
     if (doc.documentElement) {
       doc.documentElement.style.setProperty("--epub-viewport-height", `${vHeight}px`);
@@ -1075,10 +1105,26 @@ export function EPUBViewer({
         margin: 1em auto !important;
         display: block !important;
       }
-      table {
+      .epub-table-wrapper {
+        display: block !important;
+        width: 100% !important;
         max-width: 100% !important;
+        overflow-x: auto !important;
+        -webkit-overflow-scrolling: touch !important;
+        margin: 1em 0 !important;
+      }
+      table {
+        min-width: max-content !important;
+        max-width: 100% !important;
+        overflow-x: auto !important;
+        display: block !important;
         border-collapse: collapse !important;
         margin: 1em 0 !important;
+      }
+      .epub-table-wrapper > table {
+        display: table !important;
+        max-width: none !important;
+        margin: 0 !important;
       }
       td, th {
         padding: 0.5em !important;
@@ -1766,6 +1812,7 @@ export function EPUBViewer({
 
             // TEMPORARY diagnostics (fix-mobile-epub-theme-regression task 1.2).
             }
+            wrapEpubTables(contents?.document);
             epubDiag("content hook", {
               spineIndex: contents.section?.index,
               override: !!contents.document.getElementById("epub-override-styles"),

@@ -286,16 +286,20 @@ function toFlashcardScrollItems(
   cards: LearningItem[],
   stableRandom: (str: string, offset?: number) => number
 ): ScrollItem[] {
-  return cards.map((item) => ({
-    id: `flashcard-${item.id}`,
-    type: "flashcard" as const,
-    documentTitle: item.question.substring(0, 50) + (item.question.length > 50 ? "..." : ""),
-    learningItem: item,
-    category: item.tags?.[0] ?? "flashcards",
-    estimatedTime: 2, // Flashcards are quick
-    // Use stable random based on item ID to prevent re-render loops
-    engagementScore: 5 + stableRandom(item.id, 1) * 2,
-  }));
+  return cards.map((rawItem) => {
+    const canonicalId = rawItem.id.replace(/^flashcard-/, "");
+    const item = rawItem.id.startsWith("flashcard-") ? { ...rawItem, id: canonicalId } : rawItem;
+    return {
+      id: `flashcard-${canonicalId}`,
+      type: "flashcard" as const,
+      documentTitle: item.question.substring(0, 50) + (item.question.length > 50 ? "..." : ""),
+      learningItem: item,
+      category: item.tags?.[0] ?? "flashcards",
+      estimatedTime: 2, // Flashcards are quick
+      // Use stable random based on item ID to prevent re-render loops
+      engagementScore: 5 + stableRandom(canonicalId, 1) * 2,
+    };
+  });
 }
 
 /**
@@ -770,22 +774,24 @@ export function QueueScrollPage() {
   const [editingLearningItem, setEditingLearningItem] = useState<LearningItem | null>(null);
 
   const handleEditInStudio = (card: LearningItem) => {
+    const canonicalId = card.id.replace(/^flashcard-/, "");
+    const canonicalCard = card.id.startsWith("flashcard-") ? { ...card, id: canonicalId } : card;
     const interactionMetadata =
-      (card as any).interaction_metadata ?? (card as any).interactionMetadata;
+      (canonicalCard as any).interaction_metadata ?? (canonicalCard as any).interactionMetadata;
     const occlusionAssetId = interactionMetadata?.imageOcclusionAssetId;
     setEditingLearningItem(null);
     if (occlusionAssetId) {
       window.dispatchEvent(
         new CustomEvent("plethora:create-image-occlusion", {
-          detail: { assetId: occlusionAssetId, documentId: card.document_id ?? undefined },
+          detail: { assetId: occlusionAssetId, documentId: canonicalCard.document_id ?? undefined },
         })
       );
       return;
     }
     setFlashcardStudioSeed({
-      key: `queue-edit-${card.id}-${Date.now()}`,
-      documentId: card.document_id ?? null,
-      excerpt: card.question || card.cloze_text || "",
+      key: `queue-edit-${canonicalCard.id}-${Date.now()}`,
+      documentId: canonicalCard.document_id ?? null,
+      excerpt: canonicalCard.question || canonicalCard.cloze_text || "",
       resetDraftCards: true,
     });
   };
@@ -1424,16 +1430,29 @@ export function QueueScrollPage() {
             if (item.itemType === "learning-item") {
               // Skip flashcards already reviewed/dismissed this session — without
               // this, the rebuild re-inserts them (customQueueItems is static).
-              if (item.learningItemId && ratedFlashcardIds.has(item.learningItemId)) return null;
-              if (!item.learningItemId && ratedFlashcardIds.has(item.id)) return null;
-              const cardId = item.learningItemId ?? item.id;
-              const cardObj = flashcardsMap.get(cardId) ?? resolvedCards.cards.get(cardId);
+              const rawCardId = item.learningItemId ?? item.id;
+              const cardId = rawCardId.replace(/^flashcard-/, "");
+              if (
+                ratedFlashcardIds.has(cardId) ||
+                ratedFlashcardIds.has(rawCardId) ||
+                ratedFlashcardIds.has(item.id)
+              ) {
+                return null;
+              }
+              const cardObj =
+                flashcardsMap.get(cardId) ??
+                flashcardsMap.get(rawCardId) ??
+                resolvedCards.cards.get(cardId) ??
+                resolvedCards.cards.get(rawCardId);
               if (!cardObj || cardObj.is_suspended) return null;
+              const canonicalCard = cardObj.id.startsWith("flashcard-")
+                ? { ...cardObj, id: cardObj.id.replace(/^flashcard-/, "") }
+                : cardObj;
               return {
-                id: item.id.startsWith("flashcard-") ? item.id : `flashcard-${item.learningItemId ?? item.id}`,
+                id: item.id.startsWith("flashcard-") ? item.id : `flashcard-${canonicalCard.id}`,
                 type: "flashcard" as const,
-                documentTitle: item.documentTitle || (item.question ? item.question.substring(0, 50) : ""),
-                learningItem: cardObj,
+                documentTitle: item.documentTitle || (canonicalCard.question ? canonicalCard.question.substring(0, 50) : ""),
+                learningItem: canonicalCard,
                 category: item.tags?.[0] ?? "flashcards",
                 estimatedTime: item.estimatedTime ?? 2,
                 engagementScore: item.priority ?? 5,
@@ -3044,7 +3063,7 @@ export function QueueScrollPage() {
       } else if (currentItem.type === "extract" && currentItem.extract) {
         await deleteExtractUndoable(currentItem.extract.id);
       } else if (currentItem.type === "flashcard" && currentItem.learningItem) {
-        await deleteLearningItemUndoable(currentItem.learningItem.id);
+        await deleteLearningItemUndoable(currentItem.learningItem.id.replace(/^flashcard-/, ""));
       } else {
         token?.release();
         return;
@@ -3060,10 +3079,11 @@ export function QueueScrollPage() {
 
   const handleFlashcardDelete = useCallback(async (queueItemId: string, learningItemId: string) => {
     if (isRating) return;
-    const token = cardMutationCoordinator.acquireMutationToken(learningItemId, "delete");
+    const canonicalId = learningItemId.replace(/^flashcard-/, "");
+    const token = cardMutationCoordinator.acquireMutationToken(canonicalId, "delete");
     if (!token) return;
     try {
-      await deleteLearningItemUndoable(learningItemId);
+      await deleteLearningItemUndoable(canonicalId);
       token.release();
       advanceAfterRemoval(queueItemId);
       void loadQueue();
@@ -3562,7 +3582,11 @@ export function QueueScrollPage() {
         if (currentItem?.type === "flashcard" && currentItem.learningItem) {
           e.preventDefault();
           e.stopImmediatePropagation();
-          setEditingLearningItem(currentItem.learningItem);
+          const card = currentItem.learningItem;
+          const canonical = card.id.startsWith("flashcard-")
+            ? { ...card, id: card.id.replace(/^flashcard-/, "") }
+            : card;
+          setEditingLearningItem(canonical);
           return;
         }
       }
@@ -4738,7 +4762,13 @@ export function QueueScrollPage() {
               learningItem={renderedItem.learningItem}
               onRate={handleRating}
               onRevealChange={handleFlashcardReveal}
-              onEdit={() => setEditingLearningItem(renderedItem.learningItem!)}
+              onEdit={() => {
+                const card = renderedItem.learningItem!;
+                const canonical = card.id.startsWith("flashcard-")
+                  ? { ...card, id: card.id.replace(/^flashcard-/, "") }
+                  : card;
+                setEditingLearningItem(canonical);
+              }}
               onDelete={() => {
                 void handleFlashcardDelete(renderedItem.id, renderedItem.learningItem!.id);
               }}
@@ -5162,21 +5192,37 @@ export function QueueScrollPage() {
             </div>
             <div className="max-h-[75dvh] overflow-y-auto">
               <InlineCardEditor
-                card={editingLearningItem}
+                card={
+                  editingLearningItem
+                    ? editingLearningItem.id.startsWith("flashcard-")
+                      ? { ...editingLearningItem, id: editingLearningItem.id.replace(/^flashcard-/, "") }
+                      : editingLearningItem
+                    : null
+                }
                 surface="queue"
                 onClose={() => setEditingLearningItem(null)}
                 onSave={(updated) => {
-                  setEditingLearningItem(updated);
+                  const canonicalUpdated = updated.id.startsWith("flashcard-")
+                    ? { ...updated, id: updated.id.replace(/^flashcard-/, "") }
+                    : updated;
+                  setEditingLearningItem(canonicalUpdated);
                   setScrollItems((prev) =>
-                    prev.map((item) =>
-                      item.type === "flashcard" && item.learningItem?.id === updated.id
-                        ? {
-                            ...item,
-                            learningItem: updated,
-                            documentTitle: updated.question.substring(0, 50) + (updated.question.length > 50 ? "..." : ""),
-                          }
-                        : item
-                    )
+                    prev.map((item) => {
+                      if (item.type !== "flashcard") return item;
+                      const itemCardId = item.learningItem?.id.replace(/^flashcard-/, "");
+                      const matches =
+                        itemCardId === canonicalUpdated.id ||
+                        item.id === `flashcard-${canonicalUpdated.id}` ||
+                        item.id === canonicalUpdated.id;
+                      if (!matches) return item;
+                      return {
+                        ...item,
+                        learningItem: canonicalUpdated,
+                        documentTitle:
+                          canonicalUpdated.question.substring(0, 50) +
+                          (canonicalUpdated.question.length > 50 ? "..." : ""),
+                      };
+                    })
                   );
                 }}
                 onSaved={() => setEditingLearningItem(null)}

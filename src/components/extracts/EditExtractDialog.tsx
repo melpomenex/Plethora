@@ -1,6 +1,8 @@
 import type { Extract } from "../../api/extracts";
 import { CreateExtractDialog } from "./CreateExtractDialog";
 
+export { ExtractContentEditor } from "./ExtractContentEditor";
+
 interface EditExtractDialogProps {
   extract: Extract;
   isOpen: boolean;

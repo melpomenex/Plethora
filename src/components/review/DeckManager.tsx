@@ -746,6 +746,12 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
     }
   }, [decks, allCards, toast, loadAllItems]);
 
+  const handleCardTagsPersisted = useCallback((cardId: string, tags: string[]) => {
+    setAllCards((prev) =>
+      prev.map((c) => (c.id === cardId ? { ...c, tags } : c))
+    );
+  }, []);
+
   const deckOptions = useMemo(
     () => sortedDecks.map((d) => ({ id: d.id, name: d.name })),
     [sortedDecks]
@@ -1401,6 +1407,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
                             onDuplicate={handleCardDuplicate}
                             onMoveToDeck={handleCardMoveToDeck}
                             decks={deckOptions}
+                            onTagsPersisted={(tags) => handleCardTagsPersisted(card.id, tags)}
                           />
                         ))}
                       </div>
@@ -1428,6 +1435,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
                                 onDuplicate={handleCardDuplicate}
                                 onMoveToDeck={handleCardMoveToDeck}
                                 decks={deckOptions}
+                                onTagsPersisted={(tags) => handleCardTagsPersisted(card.id, tags)}
                               />
                             </div>
                           );

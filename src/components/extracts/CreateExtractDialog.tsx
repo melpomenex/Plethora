@@ -41,6 +41,7 @@ import {
 import { isNativeMobile, isTauri } from "../../lib/tauri";
 import { useOverlayDismissal } from "../../hooks/useOverlayDismissal";
 import { ImageRegistryLibrary } from "../image-registry/ImageRegistryLibrary";
+import { ExtractContentEditor } from "./ExtractContentEditor";
 import type { DragEvent, ClipboardEvent as ReactClipboardEvent } from "react";
 
 interface CreateExtractDialogProps {
@@ -738,51 +739,12 @@ export function CreateExtractDialog({
               </button>
             </div>
 
-            {/* Annotation Toolbar — mousedown is suppressed so the textarea
-                keeps its focus and live selection (the old activeElement
-                guard made these buttons dead). */}
-            {!showPreview && (
-              <div className="flex items-center gap-1 mb-2 p-2 bg-muted/50 rounded-md">
-                {ANNOTATIONS.map((annotation) => (
-                  <button
-                    key={annotation.type}
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => applyAnnotation(annotation)}
-                    className="p-1.5 hover:bg-muted rounded transition-colors"
-                    title={annotation.label}
-                  >
-                    <annotation.icon className="w-4 h-4 text-muted-foreground" />
-                  </button>
-                ))}
-                <div className="flex-1" />
-                <span className="text-xs text-muted-foreground">
-                  {t("extracts.selectTextToFormat")}
-                </span>
-              </div>
-            )}
-
-            {!showPreview ? (
-              <textarea
-                ref={contentTextareaRef}
-                value={content}
-                onChange={(e) => setContent(e.target.value)}
-                onKeyDown={handleContentKeyDown}
-                placeholder="Enter the extract content... Use **bold**, _italic_, `code`, or • for bullets"
-                rows={4}
-                className="w-full px-3 py-2 bg-background border border-border rounded-md text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            ) : (
-              <div className="w-full px-3 py-2 bg-background border border-border rounded-md text-foreground min-h-[100px]">
-                {content ? (
-                  <div
-                    className="prose prose-sm dark:prose-invert max-w-none"
-                    dangerouslySetInnerHTML={{ __html: DOMPurify.sanitize(formatContent(content)) }}
-                  />
-                ) : (
-                  <span className="text-muted-foreground">{t("extracts.previewHint")}</span>
-                )}
-              </div>
-            )}
+            <ExtractContentEditor
+              value={content}
+              onChange={setContent}
+              showPreview={showPreview}
+              textareaRef={contentTextareaRef}
+            />
           </div>
 
           {articleImages.length > 0 && (

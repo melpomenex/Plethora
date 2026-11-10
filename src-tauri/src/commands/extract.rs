@@ -39,7 +39,42 @@ pub async fn create_extract(
     page_number: Option<i32>,
     selection_context: Option<serde_json::Value>,
     max_disclosure_level: Option<i32>,
+    priority_score: Option<f64>,
     repo: State<'_, Repository>,
+) -> Result<Extract> {
+    create_extract_inner(
+        document_id,
+        content,
+        html_content,
+        source_url,
+        note,
+        tags,
+        category,
+        color,
+        page_number,
+        selection_context,
+        max_disclosure_level,
+        priority_score,
+        &repo,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn create_extract_inner(
+    document_id: String,
+    content: String,
+    html_content: Option<String>,
+    source_url: Option<String>,
+    note: Option<String>,
+    tags: Option<Vec<String>>,
+    category: Option<String>,
+    color: Option<String>,
+    page_number: Option<i32>,
+    selection_context: Option<serde_json::Value>,
+    max_disclosure_level: Option<i32>,
+    priority_score: Option<f64>,
+    repo: &Repository,
 ) -> Result<Extract> {
     let mut extract = Extract::new(document_id.clone(), content);
     extract.html_content = html_content;
@@ -54,13 +89,16 @@ pub async fn create_extract(
         extract.max_disclosure_level = level;
     }
     // Inherit the parent document's priority score (incremental reading
-    // priority chain). Falls back to 0.0 when the document is unknown or
-    // has no priority set.
-    if let Ok(Some(doc)) = repo.get_document(&document_id).await {
+    // priority chain). If manually overridden via priority_score, use that;
+    // otherwise copy from the parent document if it exists.
+    // Falls back to 0.0 when the document is unknown or has no priority set.
+    if let Some(override_priority) = priority_score {
+        extract.priority_score = override_priority;
+    } else if let Ok(Some(doc)) = repo.get_document(&document_id).await {
         extract.priority_score = doc.priority_score;
     }
     let created = repo.create_extract(&extract).await?;
-    append_daily_note_extract_link(&created, &repo).await?;
+    append_daily_note_extract_link(&created, repo).await?;
     Ok(created)
 }
 
@@ -96,6 +134,7 @@ pub async fn update_extract(
     color: Option<String>,
     max_disclosure_level: Option<i32>,
     selection_context: Option<serde_json::Value>,
+    priority_score: Option<f64>,
     repo: State<'_, Repository>,
 ) -> Result<Extract> {
     let mut extract = repo
@@ -129,6 +168,9 @@ pub async fn update_extract(
     }
     if let Some(selection_context) = selection_context {
         extract.selection_context = Some(selection_context);
+    }
+    if let Some(priority) = priority_score {
+        extract.priority_score = priority;
     }
     extract.date_modified = chrono::Utc::now();
 
@@ -186,4 +228,95 @@ pub async fn get_session_learning_object_sources(
     repo: State<'_, Repository>,
 ) -> Result<Vec<crate::database::LearningObjectSource>> {
     repo.get_learning_object_sources_for_session(&session_id).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::issue6_test_support::issue6_repository;
+
+    #[tokio::test]
+    async fn test_create_extract_inherits_document_priority() {
+        let repo = issue6_repository().await;
+        // In issue6_repository(), "issue6-document" has priority_score = 75.0
+        let doc = repo.get_document("issue6-document").await.unwrap().unwrap();
+        assert_eq!(doc.priority_score, 75.0);
+
+        let created = create_extract_inner(
+            "issue6-document".to_string(),
+            "Inherited priority extract".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &repo,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(created.priority_score, 75.0);
+    }
+
+    #[tokio::test]
+    async fn test_create_extract_manual_override() {
+        let repo = issue6_repository().await;
+        let created = create_extract_inner(
+            "issue6-document".to_string(),
+            "Overridden priority extract".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(35.5),
+            &repo,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(created.priority_score, 35.5);
+    }
+
+    #[tokio::test]
+    async fn test_create_extract_zero_priority_document_defaults_to_zero() {
+        let repo = issue6_repository().await;
+        let mut zero_doc = crate::models::Document::new(
+            "Zero Doc".into(),
+            "fixture://zero-doc".into(),
+            crate::models::FileType::Markdown,
+        );
+        zero_doc.id = "zero-doc".into();
+        zero_doc.priority_score = 0.0;
+        repo.create_document(&zero_doc).await.unwrap();
+
+        let created = create_extract_inner(
+            "zero-doc".to_string(),
+            "Default priority extract".to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            &repo,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(created.priority_score, 0.0);
+    }
 }

@@ -21,6 +21,10 @@ export interface PrioritizableScrollItem {
 /** Default cap on consecutive items of the same type. */
 export const MAX_SAME_TYPE_CONSECUTIVE = 3;
 
+export interface OrderScrollItemsOptions {
+  strictManual?: boolean;
+}
+
 /**
  * Order scroll items by priority (engagementScore, desc) with a gentle variety
  * guard: no more than `maxSameTypeConsecutive` items of the same type appear in
@@ -28,13 +32,28 @@ export const MAX_SAME_TYPE_CONSECUTIVE = 3;
  * across priority tiers, so a higher-priority document still precedes a
  * lower-priority flashcard.
  *
+ * When `strictManual` is true, the variety guard (streak checking and deferrals)
+ * is bypassed so that items remain in their strict priority descending order.
+ *
  * Within a priority tier (equal engagementScore), ties break by the item's id
  * for determinism across renders.
  */
 export function orderScrollItemsByPriority<T extends PrioritizableScrollItem>(
   items: T[],
-  maxSameTypeConsecutive: number = MAX_SAME_TYPE_CONSECUTIVE
+  maxSameTypeConsecutiveOrOptions: number | OrderScrollItemsOptions = MAX_SAME_TYPE_CONSECUTIVE,
+  strictManual: boolean = false
 ): T[] {
+  let maxSameTypeConsecutive = MAX_SAME_TYPE_CONSECUTIVE;
+  let isStrictManual = strictManual;
+
+  if (typeof maxSameTypeConsecutiveOrOptions === "object" && maxSameTypeConsecutiveOrOptions !== null) {
+    if (typeof maxSameTypeConsecutiveOrOptions.strictManual === "boolean") {
+      isStrictManual = maxSameTypeConsecutiveOrOptions.strictManual;
+    }
+  } else if (typeof maxSameTypeConsecutiveOrOptions === "number") {
+    maxSameTypeConsecutive = maxSameTypeConsecutiveOrOptions;
+  }
+
   // Always sort by priority desc; stable tiebreak by id for determinism.
   // (The variety guard below is what's gated on length, not the sort itself —
   // a 2-item session must still put the higher-priority item first.)
@@ -45,8 +64,8 @@ export function orderScrollItemsByPriority<T extends PrioritizableScrollItem>(
   });
 
   // The variety guard only matters once the session is long enough to form a
-  // run longer than the cap; short sessions are returned in priority order.
-  if (sorted.length <= maxSameTypeConsecutive) return sorted;
+  // run longer than the cap; short sessions or strict manual ordering return in priority order.
+  if (isStrictManual || sorted.length <= maxSameTypeConsecutive) return sorted;
 
   // Variety guard: walk the sorted list and defer items that would extend a
   // same-type run past the limit. Deferred items are re-inserted at the next

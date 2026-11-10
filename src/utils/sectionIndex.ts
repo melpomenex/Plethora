@@ -1829,7 +1829,7 @@ export function extractPdfSemanticSections(
   const flatten = (items: typeof outline, level = 1) => {
     for (const item of items) {
       const title = (item.title || "Untitled").trim();
-      const page = item.pageNumber || 1;
+      const page = item.pageNumber || (typeof (item as any).dest === "number" ? (item as any).dest : 1);
       flatOutline.push({ title, pageNumber: page, level });
       if (item.items && item.items.length > 0) {
         flatten(item.items, level + 1);
@@ -1869,11 +1869,14 @@ export function extractPdfSemanticSections(
         );
         sectionText = pages.map((p) => p.text).join("\n\n");
       } else if (fullContent) {
+        const hasAnyTitleMatch = consolidatedOutline.some((it) => fullContent.indexOf(it.title) !== -1);
         const titleIdx = fullContent.indexOf(item.title);
         if (titleIdx !== -1) {
           const nextWithTitle = consolidatedOutline.slice(idx + 1).find((next) => fullContent.indexOf(next.title, titleIdx + item.title.length) !== -1);
           const nextIdx = nextWithTitle ? fullContent.indexOf(nextWithTitle.title, titleIdx + item.title.length) : -1;
           sectionText = nextIdx !== -1 ? fullContent.slice(titleIdx, nextIdx).trim() : fullContent.slice(titleIdx).trim();
+        } else if (hasAnyTitleMatch) {
+          sectionText = item.title;
         } else {
           sectionText = "";
         }

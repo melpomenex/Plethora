@@ -59,6 +59,16 @@ describe("dueState", () => {
     expect(dueState("2026-06-20", TODAY, t)?.key).toBe("upcoming");
   });
 
+  it("normalizes same-day times to today (daysDiff === 0) and not overdue", () => {
+    const morning = dueState("2026-06-15T06:00:00Z", TODAY, t);
+    expect(morning?.key).toBe("today");
+    expect(morning?.daysDiff).toBe(0);
+
+    const night = dueState("2026-06-15T23:59:59Z", TODAY, t);
+    expect(night?.key).toBe("today");
+    expect(night?.daysDiff).toBe(0);
+  });
+
   it("returns danger severity for overdue", () => {
     expect(dueState("2026-06-14", TODAY, t)?.severity).toBe("danger");
   });

@@ -344,6 +344,8 @@ export interface SmartQueueSettings {
   autoRefresh: boolean;
   refreshInterval: number;
   queueStrategyPreset: string;
+  queueOrderingMode?: "adaptive" | "strict_manual";
+  documentRotationInterval?: number;
   /** Persisted item type preferences from Customize Queue modal */
   sessionItemTypes?: {
     documents?: boolean;

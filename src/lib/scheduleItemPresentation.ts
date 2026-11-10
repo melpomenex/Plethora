@@ -97,7 +97,10 @@ export function dueState(
   const due = parseScheduleDate(dueDate);
   const today = parseScheduleDate(todayKey);
   if (!due || !today) return null;
-  const daysDiff = Math.round((due.getTime() - today.getTime()) / 86400000);
+  const startOfDue = new Date(due.getFullYear(), due.getMonth(), due.getDate());
+  const startOfToday = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  const rawDiff = Math.round((startOfDue.getTime() - startOfToday.getTime()) / 86400000);
+  const daysDiff = rawDiff === 0 ? 0 : rawDiff;
 
   let key: DueStateKey;
   let label: string;

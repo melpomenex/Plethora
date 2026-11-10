@@ -286,6 +286,7 @@ interface DocumentSettings {
   smartTagging: SmartTaggingSettings;
   cacheContent: boolean;
   autoCleanupCache: boolean;
+  extractPriorityInheritance?: boolean;
 }
 
 export interface SmartTaggingSettings {
@@ -663,6 +664,8 @@ interface SmartQueueSettings {
   autoRefresh: boolean;
   refreshInterval: number;
   queueStrategyPreset: string;
+  queueOrderingMode?: "adaptive" | "strict_manual";
+  documentRotationInterval?: number;
   sessionItemTypes?: {
     documents?: boolean;
     extracts?: boolean;
@@ -1382,6 +1385,7 @@ export const defaultSettings: Settings = {
     },
     cacheContent: true,
     autoCleanupCache: false,
+    extractPriorityInheritance: true,
   },
   ai: {
     enabled: false,
@@ -1518,6 +1522,8 @@ export const defaultSettings: Settings = {
     autoRefresh: false,
     refreshInterval: 60,
     queueStrategyPreset: "maximize-retention",
+    queueOrderingMode: "adaptive",
+    documentRotationInterval: 7,
     sessionItemTypes: {
       documents: true,
       extracts: true,

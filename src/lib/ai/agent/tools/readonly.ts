@@ -87,6 +87,30 @@ function handleOf(entry: AgentEvidenceEntry): string {
   return entry.handle;
 }
 
+/**
+ * Parameter alias normalization for LLM queries (e.g. topic, query, search, concept).
+ * Normalizes aliases before strict parameter rejection runs.
+ */
+function normalizeQueryAliases(
+  raw: Record<string, unknown>,
+  targetKey: "query" | "topic"
+): Record<string, unknown> {
+  const out = { ...raw };
+  const aliases = ["topic", "query", "search", "concept"].filter((k) => k !== targetKey);
+  if (out[targetKey] === undefined || out[targetKey] === null || out[targetKey] === "") {
+    for (const alias of aliases) {
+      if (typeof out[alias] === "string" && (out[alias] as string).trim().length > 0) {
+        out[targetKey] = out[alias];
+        break;
+      }
+    }
+  }
+  for (const alias of aliases) {
+    delete out[alias];
+  }
+  return out;
+}
+
 // ──────────────────────────────────────────────────────────────────────────
 // search_library
 // ──────────────────────────────────────────────────────────────────────────
@@ -125,7 +149,7 @@ export const searchLibraryTool: AgentToolDefinition<SearchLibraryInput> = {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["search_library: expected object"] };
     }
-    const raw = input as Record<string, unknown>;
+    const raw = normalizeQueryAliases(input as Record<string, unknown>, "query");
     const errors = [
       ...rejectUnknownParams(raw, ["query", "scope"], "search_library"),
     ];
@@ -475,7 +499,7 @@ export const getRelatedMaterialTool: AgentToolDefinition<RelatedMaterialInput> =
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["get_related_material: expected object"] };
     }
-    const raw = input as Record<string, unknown>;
+    const raw = normalizeQueryAliases(input as Record<string, unknown>, "topic");
     const errors = [
       ...rejectUnknownParams(raw, ["topic"], "get_related_material"),
     ];
@@ -561,7 +585,7 @@ export const getExistingCardsTool: AgentToolDefinition<ExistingCardsInput> = {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["get_existing_cards: expected object"] };
     }
-    const raw = input as Record<string, unknown>;
+    const raw = normalizeQueryAliases(input as Record<string, unknown>, "query");
     const errors = [
       ...rejectUnknownParams(raw, ["query", "limit"], "get_existing_cards"),
     ];
@@ -654,7 +678,7 @@ export const getReviewHistoryTool: AgentToolDefinition<ReviewHistoryInput> = {
     if (typeof input !== "object" || input === null || Array.isArray(input)) {
       return { ok: false, errors: ["get_review_history: expected object"] };
     }
-    const raw = input as Record<string, unknown>;
+    const raw = normalizeQueryAliases(input as Record<string, unknown>, "query");
     const errors = [
       ...rejectUnknownParams(raw, ["query", "limit"], "get_review_history"),
     ];

@@ -1,5 +1,6 @@
 import { getDocument } from '../../../api/documents';
 import { getExtract } from '../../../api/extracts';
+import { useDocumentStore } from '../../../stores/documentStore';
 import type { Document } from '../../../types/document';
 
 export interface FrozenAssistantSource {
@@ -56,8 +57,14 @@ export async function resolveAssistantSource(
   if (!documentId || (displayId && !displayId.startsWith('extract:') && displayId !== documentId)) {
     throw new Error('The selected extract belongs to another document. Reselect the source.');
   }
-  const document = await loaders.getDocument(documentId);
-  if (!document || ('_deleted' in document && document._deleted === true)) {
+  let document = await loaders.getDocument(documentId);
+  if (!document?.id) {
+    const fromStore = useDocumentStore.getState?.()?.documents?.find((d) => d.id === documentId);
+    if (fromStore) {
+      document = fromStore;
+    }
+  }
+  if (!document || !document.id || ('_deleted' in document && document._deleted === true)) {
     throw new Error('The selected source document no longer exists.');
   }
   return freezeAssistantSource(document, extract ?? undefined, reference.contextKey ?? displayId);

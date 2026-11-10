@@ -119,4 +119,26 @@ describe("tool descriptor ↔ validator contract", () => {
       expect(outcome.ok, `${name} should accept descriptor-valid input`).toBe(true);
     }
   });
+
+  it("normalizes query/topic parameter aliases (topic, query, search, concept)", () => {
+    const searchTool = getAgentTool("search_library")!;
+    expect(searchTool.validate({ topic: "photosynthesis" }).ok).toBe(true);
+    expect(searchTool.validate({ search: "photosynthesis" }).ok).toBe(true);
+    expect(searchTool.validate({ concept: "photosynthesis" }).ok).toBe(true);
+
+    const relatedTool = getAgentTool("get_related_material")!;
+    expect(relatedTool.validate({ query: "thermodynamics" }).ok).toBe(true);
+    expect(relatedTool.validate({ search: "thermodynamics" }).ok).toBe(true);
+    expect(relatedTool.validate({ concept: "thermodynamics" }).ok).toBe(true);
+
+    const cardsTool = getAgentTool("get_existing_cards")!;
+    expect(cardsTool.validate({ topic: "biology" }).ok).toBe(true);
+    expect(cardsTool.validate({ search: "biology" }).ok).toBe(true);
+    expect(cardsTool.validate({ concept: "biology" }).ok).toBe(true);
+
+    const historyTool = getAgentTool("get_review_history")!;
+    expect(historyTool.validate({ topic: "physics" }).ok).toBe(true);
+    expect(historyTool.validate({ search: "physics" }).ok).toBe(true);
+    expect(historyTool.validate({ concept: "physics" }).ok).toBe(true);
+  });
 });

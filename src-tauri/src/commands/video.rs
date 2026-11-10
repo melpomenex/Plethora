@@ -813,3 +813,151 @@ pub async fn get_video_extract_lifecycle(
 ) -> Result<crate::models::video_extract::VideoExtractLifecycleArchive, String> {
     repo.export_video_extract_lifecycle(document_ids.as_deref()).await.map_err(|e| e.to_string())
 }
+
+/// YouTube runtime health status
+#[derive(serde::Serialize, serde::Deserialize, Clone, Debug)]
+pub struct YouTubeRuntimeHealth {
+    pub ytdlp_installed: bool,
+    pub ytdlp_path: Option<String>,
+    pub ytdlp_version: Option<String>,
+    pub ytdlp_age_days: Option<i64>,
+    pub ytdlp_outdated: bool,
+    pub js_engine_available: bool,
+    pub js_engine_name: Option<String>,
+    pub custom_cookies_configured: bool,
+    pub custom_cookies_path: Option<String>,
+    pub status: String,
+    pub message: Option<String>,
+}
+
+/// Helper function to detect available JS engines for yt-dlp
+pub fn detect_js_engine() -> (bool, Option<String>) {
+    let engines = ["node", "deno", "bun", "quickjs"];
+    for engine in &engines {
+        if let Ok(output) = std::process::Command::new(engine).arg("--version").output() {
+            if output.status.success() {
+                let ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                return (true, Some(format!("{} ({})", engine, ver)));
+            }
+        }
+    }
+    (false, None)
+}
+
+/// Helper function to compute yt-dlp age from its version string (YYYY.MM.DD)
+pub fn compute_ytdlp_age_days(version: &str) -> Option<i64> {
+    let parts: Vec<&str> = version.split('.').collect();
+    if parts.len() >= 3 {
+        let date_str = format!("{}.{}.{}", parts[0], parts[1], parts[2]);
+        if let Ok(release_date) = chrono::NaiveDate::parse_from_str(&date_str, "%Y.%m.%d") {
+            let today = chrono::Utc::now().date_naive();
+            return Some((today - release_date).num_days());
+        }
+    }
+    None
+}
+
+/// Tauri command: Check YouTube runtime health (yt-dlp version/age, JS engine availability)
+#[tauri::command]
+pub async fn check_youtube_runtime_health() -> Result<YouTubeRuntimeHealth, String> {
+    tokio::task::spawn_blocking(move || {
+        let ytdlp_installed = crate::youtube::check_ytdlp_installed().unwrap_or(false)
+            || crate::youtube::check_ytdlp_in_app_dir().unwrap_or(false);
+
+        let ytdlp_path = if ytdlp_installed {
+            crate::youtube::get_ytdlp_binary_path()
+                .ok()
+                .map(|p| p.to_string_lossy().to_string())
+        } else {
+            None
+        };
+
+        let ytdlp_version = if ytdlp_installed {
+            crate::youtube::get_ytdlp_version().ok()
+        } else {
+            None
+        };
+
+        let ytdlp_age_days = ytdlp_version.as_deref().and_then(compute_ytdlp_age_days);
+        // YouTube changes extractors frequently; versions older than 90 days are considered outdated
+        let ytdlp_outdated = ytdlp_age_days.map(|d| d > 90).unwrap_or(false);
+
+        let (js_engine_available, js_engine_name) = detect_js_engine();
+
+        let custom_cookies = crate::youtube::get_custom_cookies_path();
+        let custom_cookies_configured = custom_cookies.is_some();
+        let custom_cookies_path = custom_cookies.map(|p| p.to_string_lossy().to_string());
+
+        let (status, message) = if !ytdlp_installed {
+            (
+                "error".to_string(),
+                Some("yt-dlp is not installed or not found in PATH".to_string()),
+            )
+        } else if ytdlp_outdated && !js_engine_available {
+            (
+                "warning".to_string(),
+                Some("yt-dlp is outdated (>90 days old) and no JS engine (Node, Deno, Bun, QuickJS) was found".to_string()),
+            )
+        } else if ytdlp_outdated {
+            (
+                "warning".to_string(),
+                Some(format!(
+                    "yt-dlp is {} days old; consider updating to prevent YouTube signature extraction errors",
+                    ytdlp_age_days.unwrap_or(90)
+                )),
+            )
+        } else if !js_engine_available {
+            (
+                "warning".to_string(),
+                Some("No JS engine (Node, Deno, Bun, QuickJS) detected; complex YouTube video signatures may fail".to_string()),
+            )
+        } else {
+            (
+                "ok".to_string(),
+                Some("YouTube runtime is healthy".to_string()),
+            )
+        };
+
+        Ok(YouTubeRuntimeHealth {
+            ytdlp_installed,
+            ytdlp_path,
+            ytdlp_version,
+            ytdlp_age_days,
+            ytdlp_outdated,
+            js_engine_available,
+            js_engine_name,
+            custom_cookies_configured,
+            custom_cookies_path,
+            status,
+            message,
+        })
+    })
+    .await
+    .map_err(|e| format!("Health check task join error: {}", e))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_ytdlp_age_days() {
+        assert!(compute_ytdlp_age_days("invalid").is_none());
+        assert!(compute_ytdlp_age_days("2020.01.01").is_some());
+        let age = compute_ytdlp_age_days("2020.01.01").unwrap();
+        assert!(age > 365 * 2);
+
+        let today = chrono::Utc::now().date_naive();
+        let today_str = format!("{}.{:02}.{:02}", today.year(), today.month(), today.day());
+        use chrono::Datelike;
+        let today_age = compute_ytdlp_age_days(&today_str);
+        assert_eq!(today_age, Some(0));
+    }
+
+    #[tokio::test]
+    async fn test_check_youtube_runtime_health() {
+        let health = check_youtube_runtime_health().await.unwrap();
+        // Should succeed and return health record with status
+        assert!(health.status == "ok" || health.status == "warning" || health.status == "error");
+    }
+}

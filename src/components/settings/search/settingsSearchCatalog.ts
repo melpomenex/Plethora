@@ -919,6 +919,26 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
 
   /* ── Smart Queues ────────────────────────────────────────────────────── */
   {
+    id: "smartQueue.orderingMode",
+    kind: "setting",
+    section: SettingsTab.SmartQueue,
+    label: lit("Queue Ordering Mode"),
+    description: lit("Select between Adaptive multi-factor ranking and Strict Manual priority ordering"),
+    aliases: [lit("queue ordering"), lit("strict manual"), lit("adaptive queue")],
+    keywords: ["queue", "ordering", "mode", "adaptive", "strict", "manual", "priority"],
+    targetId: "setting-queue-ordering-mode",
+  },
+  {
+    id: "smartQueue.documentRotationInterval",
+    kind: "setting",
+    section: SettingsTab.SmartQueue,
+    label: lit("Document Rotation Interval"),
+    description: lit("Number of days between reading passes for rotational documents"),
+    aliases: [lit("document rotation"), lit("rotation interval"), lit("reading rotation")],
+    keywords: ["document", "rotation", "interval", "reading", "days", "schedule"],
+    targetId: "setting-document-rotation-interval",
+  },
+  {
     id: "smartQueue.ranking",
     kind: "group",
     section: SettingsTab.SmartQueue,
@@ -1075,6 +1095,15 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     keywords: ["storage", "cache", "documents"],
     targetId: "documents.storage",
   },
+  {
+    id: "setting-extract-priority-inheritance",
+    kind: "setting",
+    section: SettingsTab.Documents,
+    label: lit("Extract Priority Inheritance"),
+    description: lit("Automatically inherit priority from parent document for new extracts"),
+    keywords: ["extract", "priority", "inheritance", "inherit", "queue", "score"],
+    targetId: "setting-extract-priority-inheritance",
+  },
 
   /* ── RSS ─────────────────────────────────────────────────────────────── */
   {
@@ -1178,6 +1207,18 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     aliases: [lit("gemini nano"), lit("apple intelligence"), lit("local model")],
     keywords: ["on-device", "local", "gemini", "nano", "apple"],
     targetId: "ai.onDevice",
+    availability: "on-device-ai",
+  },
+  {
+    id: "ai.safetyFallback",
+    kind: "setting",
+    section: SettingsTab.AI,
+    label: lit("AI Safety & Cloud Fallback"),
+    description: lit("Fallback to cloud provider or retry when on-device models or safety filters trigger"),
+    groupPath: [lit("On-Device AI")],
+    aliases: [lit("safety blocked"), lit("safety fallback"), lit("cloud fallback retry")],
+    keywords: ["ai", "safety", "fallback", "blocked", "cloud", "retry", "on-device"],
+    targetId: "setting-ai-safety-fallback",
     availability: "on-device-ai",
   },
   {
@@ -1794,6 +1835,17 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     aliases: [lit("youtube login"), lit("cookies")],
     keywords: ["youtube", "cookies", "auth"],
     targetId: "integrations.youtubeCookies",
+    revealTargetId: "integrations.reveal.youtube-cookies",
+  },
+  {
+    id: "integrations.youtubeCookieFile",
+    kind: "setting",
+    section: SettingsTab.Integrations,
+    label: lit("YouTube Cookie File"),
+    description: lit("Path to a custom cookies.txt file for yt-dlp authentication"),
+    aliases: [lit("youtube cookies.txt"), lit("cookies file"), lit("yt-dlp cookies")],
+    keywords: ["youtube", "cookies", "cookies.txt", "file", "yt-dlp", "authentication"],
+    targetId: "setting-youtube-cookie-file",
     revealTargetId: "integrations.reveal.youtube-cookies",
   },
   {

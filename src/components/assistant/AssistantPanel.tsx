@@ -191,6 +191,7 @@ import { decodeAgentDraftArtifact } from "../../lib/ai/assistant/conversations/s
 import type { Document } from "../../types/document";
 
 export interface AssistantContext {
+  conversationId?: string;
   contextKey?: string;
   extractId?: string;
   sourceEnvelope?: FrozenAssistantSource;
@@ -278,6 +279,7 @@ interface AssistantPanelProps {
   /** Fill the host width and disable the desktop drag handle (used by mobile sheets). */
   fillContainer?: boolean;
   conversationKey?: string;
+  conversationId?: string;
   mobilePresentation?: MobileAssistantPresentation;
 }
 
@@ -448,6 +450,7 @@ export function AssistantPanel({
   appendContextMessages = true,
   fillContainer = false,
   conversationKey: explicitConversationKey,
+  conversationId: explicitConversationId,
   mobilePresentation,
 }: AssistantPanelProps) {
   const { t, locale } = useI18n();
@@ -888,8 +891,9 @@ export function AssistantPanel({
   const [copiedMessageId, setCopiedMessageId] = useState<string | null>(null);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
-  const scrollKey = JSON.stringify([sessionKey, mobilePresentation?.viewIdentity ?? null, paneId ?? null, tabId ?? null]);
-  const conversationScroll = useAssistantConversationScroll(messagesContainerRef, scrollKey, hydratedSessionKey === sessionKey, messages);
+  const activeConversationId = explicitConversationId ?? explicitConversationKey ?? context?.conversationId ?? sessionKey;
+  const scrollKey = JSON.stringify([sessionKey, activeConversationId, mobilePresentation?.viewIdentity ?? null, paneId ?? null, tabId ?? null]);
+  const conversationScroll = useAssistantConversationScroll(messagesContainerRef, scrollKey, hydratedSessionKey === sessionKey, messages, activeConversationId);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const requireLocalDictation = useSettingsStore(state => state.settings.ai.strictLocalOnly === true);
   const sourceLocalOnly = useDocumentStore(state => state.documents.some(document => (context?.privacyDocumentIds ?? [context?.documentId]).includes(document.id) && document.isLocalOnly));
@@ -1439,6 +1443,8 @@ export function AssistantPanel({
 
     const turnContext = actionTurnContext(action) ?? (isMobileSession ? context?.snapshotForSubmit?.() ?? context : context);
     const turnProvenance = actionProvenance(action) ?? (isMobileSession ? mergeAssistantProvenance(assistantSourceProvenance(turnContext), messages.map(m => m.provenance)) : undefined);
+    const initialProviderSnapshot = useLLMProvidersStore.getState().providers.map(provider => ({ ...provider }));
+    const initialModel = initialProviderSnapshot.find((p) => p.provider === effectiveProvider)?.model;
     const hasImages = (request.images?.length ?? 0) > 0;
     const userMessage: Message = {
       action,
@@ -1562,9 +1568,9 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         conversationHistory: filteredHistory,
         availableTools: getAvailableTools(),
         currentUserImages: userMessage.images,
-        providerSnapshot: useLLMProvidersStore.getState().providers.map(provider => ({ ...provider })),
+        providerSnapshot: initialProviderSnapshot,
         currentProvider: effectiveProvider,
-        currentModel: useLLMProvidersStore.getState().providers.find((p) => p.provider === effectiveProvider)?.model,
+        currentModel: initialModel,
         sourceContentOverride: action?.target.content ?? request.sourceContentOverride,
         action,
         turnProvenance,
@@ -4076,7 +4082,22 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             )}
           </div>
         ) : (
-          messages.map((message) => (
+          messages.map((message) => {
+            const hasTextContent = Boolean(message.content && message.content.trim().length > 0);
+            const hasThinking = Boolean(message.thinking && message.thinking.trim().length > 0);
+            const hasImages = Boolean(message.images && message.images.length > 0);
+            const hasToolCalls = Boolean(message.toolCalls && message.toolCalls.length > 0);
+            const hasArtifacts = Boolean(
+              message.agentRun || message.quiz || message.action || message.generationFailure
+            );
+            const hasBubble = hasTextContent || hasThinking || hasImages;
+
+            // Suppress empty assistant chat bubbles/messages if content is empty/whitespace-only and there are no tool calls, attachments, or artifacts
+            if (message.role === "assistant" && !hasBubble && !hasToolCalls && !hasArtifacts) {
+              return null;
+            }
+
+            return (
             <div
               key={message.id}
               data-assistant-message-id={message.id}
@@ -4110,34 +4131,36 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               </div>
 
               {/* Message Content */}
-              <div
-                className={`max-w-[85%] px-3 py-2 rounded-lg text-sm ${message.role === "user"
-                  ? "bg-primary text-primary-foreground"
-                  : message.role === "system"
-                    ? "bg-muted text-muted-foreground"
-                    : "bg-muted text-foreground"
-                  }`}
-              >
-                {/* Image thumbnails for user messages */}
-                {message.images && message.images.length > 0 && (
-                  <div className="flex gap-1.5 flex-wrap mb-1.5">
-                    {message.images.map((img) => (
-                      <img
-                        key={img.id}
-                        src={img.dataUrl}
-                        alt={img.fileName || "Attached image"}
-                        className="max-w-[120px] max-h-[120px] rounded-md object-cover cursor-pointer hover:opacity-80 transition-opacity"
-                        onClick={() => window.open(img.dataUrl, "_blank")}
-                      />
-                    ))}
-                  </div>
-                )}
-                {message.role === "user" ? (
-                  renderUserMessageContent(message.content, assistantSectionFlat)
-                ) : (
-                  <AssistantResponseContent content={message.content} thinking={message.thinking} onTimestampClick={context?.type === "video" ? (seconds) => window.dispatchEvent(new CustomEvent("plethora:assistant-seek", { detail: { documentId: message.provenance?.sourceId ?? context.documentId, seconds } })) : undefined} />
-                )}
-              </div>
+              {hasBubble && (
+                <div
+                  className={`max-w-[85%] px-3 py-2 rounded-lg text-sm ${message.role === "user"
+                    ? "bg-primary text-primary-foreground"
+                    : message.role === "system"
+                      ? "bg-muted text-muted-foreground"
+                      : "bg-muted text-foreground"
+                    }`}
+                >
+                  {/* Image thumbnails for user messages */}
+                  {message.images && message.images.length > 0 && (
+                    <div className="flex gap-1.5 flex-wrap mb-1.5">
+                      {message.images.map((img) => (
+                        <img
+                          key={img.id}
+                          src={img.dataUrl}
+                          alt={img.fileName || "Attached image"}
+                          className="max-w-[120px] max-h-[120px] rounded-md object-cover cursor-pointer hover:opacity-80 transition-opacity"
+                          onClick={() => window.open(img.dataUrl, "_blank")}
+                        />
+                      ))}
+                    </div>
+                  )}
+                  {message.role === "user" ? (
+                    renderUserMessageContent(message.content, assistantSectionFlat)
+                  ) : (
+                    <AssistantResponseContent content={message.content} thinking={message.thinking} onTimestampClick={context?.type === "video" ? (seconds) => window.dispatchEvent(new CustomEvent("plethora:assistant-seek", { detail: { documentId: message.provenance?.sourceId ?? context.documentId, seconds } })) : undefined} />
+                  )}
+                </div>
+              )}
 
               {message.generationFailure && <div className="flex flex-wrap gap-1">
                 <button type="button" disabled={isLoading} className={ACTION_CONTROL_CLASS} onClick={() => handleRetryMessage(message)}>{t("assistant.actions.retry")}</button>
@@ -4167,8 +4190,8 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 </div>
               )}
 
-              {/* Message Actions - always visible on assistant answers */}
-              {message.role === "assistant" && (
+              {/* Message Actions - only visible on assistant answers when there is text content */}
+              {message.role === "assistant" && hasTextContent && (
                 <div className="flex items-center gap-0.5 mt-1 opacity-100 transition-opacity motion-reduce:transition-none">
                   <button
                     type="button"
@@ -4271,7 +4294,8 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 );
               })()}
             </div>
-          ))
+            );
+          })
         )}
         {isLoading && (
           <div className="flex items-center gap-2 self-start text-xs text-muted-foreground" role="status">

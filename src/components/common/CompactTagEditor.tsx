@@ -18,6 +18,8 @@ export interface CompactTagEditorProps {
   previewLimit?: number;
   /** Force mobile sheet/modal presentation mode (optional, defaults to auto-detect). */
   isMobile?: boolean;
+  /** Label to show when tags array is empty (e.g. "+ Tag"). */
+  emptyLabel?: string;
 }
 
 /**
@@ -37,6 +39,7 @@ export function CompactTagEditor({
   onTagClick,
   previewLimit = 3,
   isMobile: isMobileProp,
+  emptyLabel,
 }: CompactTagEditorProps) {
   const { t } = useI18n();
   const isMobileShell = useMobileShell();
@@ -169,11 +172,15 @@ export function CompactTagEditor({
         className="inline-flex min-w-0 max-w-full items-center gap-1.5 overflow-hidden rounded-md border border-border/50 bg-muted/40 px-2 py-1 text-xs text-foreground hover:bg-muted/70 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
       >
         <Tag className="w-3.5 h-3.5 shrink-0 text-muted-foreground" />
-        {preview.map((tag) => (
-          <span key={tag} className="max-w-[5rem] truncate sm:max-w-[8rem]">
-            {tag}
-          </span>
-        ))}
+        {tags.length === 0 && emptyLabel ? (
+          <span className="text-muted-foreground">{emptyLabel}</span>
+        ) : (
+          preview.map((tag) => (
+            <span key={tag} className="max-w-[5rem] truncate sm:max-w-[8rem]">
+              {tag}
+            </span>
+          ))
+        )}
         {remaining > 0 && <span className="shrink-0 text-muted-foreground">+{remaining}</span>}
         <span className="shrink-0 text-muted-foreground">
           <PencilSimple className="w-3 h-3" />

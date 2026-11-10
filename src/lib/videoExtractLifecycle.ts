@@ -54,8 +54,8 @@ export type VideoExtractQueueKind =
   | "needs_schedule";
 
 export function videoExtractLifecycleKind(extract: VideoExtract): VideoExtractLifecycleKind {
-  if (extract.review_count > 0) return "reviewed";
-  if (extract.first_seen_at) return "seen_unreviewed";
+  if (extract.last_reviewed_at || extract.review_count > 0) return "reviewed";
+  if (extract.last_viewed_at || extract.first_seen_at) return "seen_unreviewed";
   return "new";
 }
 
