@@ -63,6 +63,7 @@ describe('Exam Sessions API wrappers', () => {
     ],
     submissions: [],
     currentGrades: [],
+    questions: [],
   };
 
   it('fails closed when not running inside Tauri', async () => {
@@ -146,6 +147,28 @@ describe('Exam Sessions API wrappers', () => {
         attempt_id: 'att_1',
       });
       expect(res.attempt.id).toBe('att_1');
+    });
+
+    it('normalizes native attempt question projections into the runner revision shape', async () => {
+      vi.mocked(tauriLib.invokeCommand).mockResolvedValueOnce({
+        ...mockAttemptDetail,
+        questions: [{
+          id: 'qrev_1', questionId: 'q_1', blueprintRevisionId: 'bpr_1', revision: 1,
+          slotKey: 'slot_1', fingerprint: 'fp_1', validation: 'valid', validationIssues: [],
+          committedAt: null, provider: null, createdAt: '2026-11-10T12:00:00Z',
+          question: {
+            schemaVersion: 1, kind: 'single-select', prompt: 'Public prompt', difficulty: 2,
+            learningObjectives: [], maxPoints: 1, applicationLevel: 'recall',
+            options: [{ id: 'a', text: 'Choice A' }, { id: 'b', text: 'Choice B' }],
+          },
+        }],
+      });
+
+      const detail = await getExamAttempt('att_1');
+      expect(detail.questions).toHaveLength(1);
+      expect(detail.questions?.[0].question.prompt).toBe('Public prompt');
+      expect((detail.questions?.[0].question as any).correctOptionId).toBeUndefined();
+      expect(detail.questions?.[0].provider).toBeNull();
     });
 
     it('listExamAttempts invokes list_exam_attempts', async () => {

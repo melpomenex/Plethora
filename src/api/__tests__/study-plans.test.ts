@@ -22,7 +22,8 @@ import type {
 } from '../../types/learningPaths';
 import type { StudySourceRefInput, StudySourceResolution } from '../../types/studySource';
 
-vi.mock('../../lib/tauri', () => ({
+vi.mock('../../lib/tauri', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../lib/tauri')>(),
   isTauri: vi.fn(),
   invokeCommand: vi.fn(),
 }));

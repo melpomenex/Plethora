@@ -8,8 +8,14 @@ import type { GradeRecord, GradeSettlementOutcome } from '../../../../types/asse
 describe('ManualGradeReview', () => {
   const sampleQuestionRevision: AssessmentQuestionRevision = {
     id: 'rev-q1',
-    blueprintQuestionId: 'bq-1',
-    revisionNumber: 1,
+    questionId: 'bq-1',
+    blueprintRevisionId: 'blueprint-rev-1',
+    revision: 1,
+    slotKey: 'slot-1',
+    fingerprint: 'fixture',
+    validation: 'valid',
+    committedAt: '2026-03-30T10:00:00Z',
+    provider: null,
     createdAt: '2026-03-30T10:00:00Z',
     question: {
       schemaVersion: 1,

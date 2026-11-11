@@ -292,6 +292,8 @@ pub struct CreateStudyPlanInput {
 pub struct SaveStudyPlanDraftInput {
     pub plan_id: String,
     pub expected_draft_revision: i64,
+    #[serde(default)]
+    pub source_refs: std::collections::BTreeMap<String, super::study_source::StudySourceRefInput>,
     pub source_scope: Option<serde_json::Value>,
     pub nodes: Vec<StudyPlanVersionNode>,
     pub prerequisites: Vec<PlanPrerequisite>,

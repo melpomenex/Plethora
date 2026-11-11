@@ -1,3 +1,4 @@
+use super::assessment_blueprint::QuestionKind;
 /**
  * Domain Models and DTOs for Exam Sessions and Resumable Attempts.
  *
@@ -149,6 +150,8 @@ pub struct PracticeCheckResult {
     pub submission: ResponseSubmission,
     pub grade: Option<ExamGrade>,
     pub attempt_revision: i64,
+    pub response_revision: i64,
+    pub explanation: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -158,6 +161,28 @@ pub struct AttemptDetail {
     pub responses: Vec<ExamResponse>,
     pub submissions: Vec<ResponseSubmission>,
     pub current_grades: Vec<ExamGrade>,
+    pub questions: Vec<AttemptQuestionRevision>,
+}
+
+/// Attempt-scoped question projection. `question` is an explicit public
+/// allowlist while an attempt is in progress and a full pinned question only
+/// after submission or an individual Practice Check.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AttemptQuestionRevision {
+    pub id: String,
+    pub question_id: String,
+    pub blueprint_revision_id: String,
+    pub revision: i64,
+    pub slot_key: String,
+    pub fingerprint: String,
+    pub kind: QuestionKind,
+    pub question: serde_json::Value,
+    pub validation: String,
+    pub validation_issues: Vec<serde_json::Value>,
+    pub committed_at: Option<String>,
+    pub provider: Option<serde_json::Value>,
+    pub created_at: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -65,7 +65,7 @@ describe('Assessment Generation Coordinator (C3-T07)', () => {
       blueprintId: 'ab_1',
       revision: 1,
       state: 'draft',
-      planVersionId: null,
+      planVersionId: 'spv_1',
       config: mockConfig,
       scoring: {
         schemaVersion: 1,
@@ -162,7 +162,9 @@ describe('Assessment Generation Coordinator (C3-T07)', () => {
     ]);
 
     await expect(
-      verifyAssessmentSourceRevisions(mockDetail.revision.sourceScope, mockResolve)
+      verifyAssessmentSourceRevisions(mockDetail.revision.sourceScope, {
+        ref_1: { ref: mockSourceRef, status: 'current', navigation: 'exact' },
+      }, mockResolve)
     ).rejects.toMatchObject({
       code: 'stale_source',
     });
@@ -178,7 +180,7 @@ describe('Assessment Generation Coordinator (C3-T07)', () => {
       },
     });
 
-    const mockStartJob = vi.fn().mockResolvedValue({ id: 'job_gen_1' });
+    const mockStartJob = vi.fn().mockImplementation(async ({ creationKey }) => ({ id: 'job_gen_1', creationKey }));
     const mockClaimStep = vi.fn().mockResolvedValue({
       stepKey: 'question_batch:0000',
       stepStatus: 'pending',
@@ -229,6 +231,15 @@ describe('Assessment Generation Coordinator (C3-T07)', () => {
           claimStepFn: mockClaimStep,
           completeStepFn: mockCompleteStep,
           resolveSourceRefsFn: mockResolveSources,
+          getStudyPlanFn: vi.fn().mockResolvedValue({
+            version: { id: 'spv_1', sourceScope: mockDetail.revision.sourceScope },
+            sourceRefs: { ref_1: { ref: mockSourceRef, status: 'current', navigation: 'exact' } },
+          }),
+          refreshScopeFn: vi.fn(async (scope) => scope),
+          preflightFn: vi.fn().mockResolvedValue({
+            preflight: mockPreflight,
+            route: { provider: { id: 'native-local' }, task: {} },
+          }),
           runPinnedTaskFn: mockRunPinned,
         },
       }
@@ -251,6 +262,31 @@ describe('Assessment Generation Coordinator (C3-T07)', () => {
     expect(result.quotaReport.accepted).toBe(2);
     expect(result.quotaReport.deficits).toHaveLength(0);
     expect(mockSaveDraft).toHaveBeenCalled();
+    const submittedStep = mockStartJob.mock.calls[0][0].steps[0];
+    expect(mockCompleteStep.mock.calls[0][0].inputHash).toBe(submittedStep.inputHash);
+    expect(mockResolveSources.mock.calls[0][0][0]).toMatchObject({
+      documentId: 'doc_1',
+      excerpt: 'Sample excerpt from document 1',
+      revision: 'rev_1',
+    });
+  });
+
+  it('fails source-only generation before creating a job when the committed version has no verified refs', async () => {
+    const startJob = vi.fn();
+    await expect(runAssessmentGenerationCoordinator(
+      { blueprintRevisionId: 'abr_1', expectedRevision: 1 },
+      mockPreflight,
+      { deps: {
+        getBlueprintRevisionFn: vi.fn().mockResolvedValue(mockDetail),
+        getStudyPlanFn: vi.fn().mockResolvedValue({
+          version: { id: 'spv_1', sourceScope: mockDetail.revision.sourceScope }, sourceRefs: {},
+        }),
+        refreshScopeFn: vi.fn(async (scope) => scope),
+        resolveSourceRefsFn: vi.fn(),
+        startJobFn: startJob,
+      } }
+    )).rejects.toMatchObject({ code: 'missing_source' });
+    expect(startJob).not.toHaveBeenCalled();
   });
 
   it('handles abort signal gracefully and throws cancelled error', async () => {

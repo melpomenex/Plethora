@@ -7,7 +7,7 @@
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { GenerationPrivacySummary } from '../GenerationPrivacySummary';
 import { GenerationProgress } from '../GenerationProgress';
 import { GenerationIssueList } from '../GenerationIssueList';
@@ -17,6 +17,9 @@ import { CurriculumDraftPreview } from '../CurriculumDraftPreview';
 import { CurriculumGenerator } from '../CurriculumGenerator';
 import type { StudyAiPreflight, StudyJobProgress, StudyGenerationJob } from '../../../lib/study-plans/generation/types';
 import type { StudyPlanDetail } from '../../../types/learningPaths';
+import { invokeCommand } from '../../../lib/tauri';
+import { useLLMProvidersStore } from '../../../stores/llmProvidersStore';
+import { useSettingsStore } from '../../../stores/settingsStore';
 
 // Mock Tauri invoke to operate safely in node
 vi.mock('../../../lib/tauri', async (importOriginal) => {
@@ -213,7 +216,7 @@ describe('Curriculum Generation UI Components (C2-T09)', () => {
         />
       );
 
-      expect(screen.getByText(/On-Device Private/i)).toBeInTheDocument();
+      expect(screen.getByText(/On-device/i)).toBeInTheDocument();
       expect(screen.getByText(/apple-foundation-models/i)).toBeInTheDocument();
       expect(screen.getByText(/Up to 4 Model Calls/i)).toBeInTheDocument();
       expect(screen.queryByLabelText(/Cloud disclosure acceptance/i)).not.toBeInTheDocument();
@@ -256,9 +259,9 @@ describe('Curriculum Generation UI Components (C2-T09)', () => {
         />
       );
 
-      expect(screen.getByText(/Cloud Route/i)).toBeInTheDocument();
-      const cloudCb = screen.getByLabelText(/Cloud disclosure acceptance/i);
-      const costCb = screen.getByLabelText(/Cost consent acceptance/i);
+      expect(screen.getByText(/Model and location/i)).toBeInTheDocument();
+      const cloudCb = screen.getByLabelText(/approve the off-device data transfers/i);
+      const costCb = screen.getByLabelText(/authorize the disclosed execution budget/i);
 
       expect(cloudCb).toBeInTheDocument();
       expect(costCb).toBeInTheDocument();
@@ -352,7 +355,7 @@ describe('Curriculum Generation UI Components (C2-T09)', () => {
       expect(screen.getByText(/Deterministic Source Outline \(No AI Inference\)/i)).toBeInTheDocument();
       expect(screen.getByText(/4 Confirmed Concepts/i)).toBeInTheDocument();
       expect(screen.getByText(/3 Verified Prerequisite Links/i)).toBeInTheDocument();
-      expect(screen.getByText(/2 Grounded Sources/i)).toBeInTheDocument();
+      expect(screen.getByText(/2 Source Documents/i)).toBeInTheDocument();
     });
   });
 
@@ -474,6 +477,157 @@ describe('Curriculum Generation UI Components (C2-T09)', () => {
       fireEvent.click(rulesOnlyBtn);
 
       expect(screen.getByRole('button', { name: /Build Deterministic Outline/i })).toBeInTheDocument();
+    });
+
+    it('inspects the exact configured OpenRouter model and requires fresh cloud and cost consent', async () => {
+      const primaryConfigId = 'synthetic-openrouter-primary-config';
+      const alternateConfigId = 'synthetic-openrouter-alternate-config';
+      const primaryModelId = 'synthetic-lab/consensus-auditor-v1';
+      const alternateModelId = 'synthetic-lab/consensus-auditor-v2';
+      const primarySecret = 'synthetic-secret-primary-do-not-leak';
+      const alternateSecret = 'synthetic-secret-alternate-do-not-leak';
+      useLLMProvidersStore.setState({
+        providers: [
+          {
+            id: primaryConfigId,
+            provider: 'openrouter',
+            name: 'Synthetic Primary Route',
+            apiKey: primarySecret,
+            baseUrl: 'https://router.synthetic.example/v1',
+            model: primaryModelId,
+            enabled: true,
+            temperature: 0.1,
+            maxTokens: 8192,
+          },
+          {
+            id: alternateConfigId,
+            provider: 'openrouter',
+            name: 'Synthetic Alternate Route',
+            apiKey: alternateSecret,
+            baseUrl: 'https://alternate.synthetic.example/v1',
+            model: alternateModelId,
+            enabled: true,
+            temperature: 0.2,
+            maxTokens: 4096,
+          },
+        ],
+      });
+      useSettingsStore.setState((state) => ({
+        settings: {
+          ...state.settings,
+          ai: { ...state.settings.ai, strictLocalOnly: false },
+          embedding: {
+            ...state.settings.embedding,
+            provider: 'ollama',
+            ollamaBaseUrl: 'http://127.0.0.1:11434',
+            ollamaModel: 'synthetic-local-embedder',
+          },
+        },
+      }));
+      vi.mocked(invokeCommand).mockImplementation(async (command: string) => {
+        if (command === 'get_document') {
+          return {
+            id: 'doc_1',
+            title: 'Paxos Made Simple',
+            fileType: 'pdf',
+            contentHash: 'rev_1',
+            dateModified: '2026-11-10T00:00:00Z',
+            isAiExcluded: false,
+            isLocalOnly: false,
+          } as any;
+        }
+        if (command === 'ai_learning_index_status') {
+          return {
+            aggregate: {
+              totalDocuments: 1,
+              indexedDocuments: 1,
+              queuedDocuments: 0,
+              indexingDocuments: 0,
+              staleDocuments: 0,
+              failedDocuments: 0,
+              totalChunks: 1,
+              totalEmbeddings: 1,
+              embeddingStorageBytes: 1,
+              embeddingModels: [],
+              paused: false,
+              pendingDocuments: 0,
+            },
+            documents: [{
+              documentId: 'doc_1',
+              state: 'indexed',
+              chunksIndexed: 1,
+              totalChunks: 1,
+              updatedAt: '2026-11-10T00:00:00Z',
+            }],
+          } as any;
+        }
+        throw new Error(`Unexpected IPC command: ${command}`);
+      });
+
+      const launch = vi.fn().mockResolvedValue({
+        planDetail: mockPlanDetail,
+        mergeResult: { nodes: [], prerequisites: [], diff: {}, droppedEdgesCount: 0 },
+        retrieval: undefined,
+      });
+      render(
+        <CurriculumGenerator
+          planDetail={mockPlanDetail}
+          isOpen
+          onClose={vi.fn()}
+          onSuccess={vi.fn()}
+          jobController={{ startCurriculumJob: launch } as any}
+        />
+      );
+
+      const generationModel = screen.getByLabelText(/Generation model/i);
+      fireEvent.change(generationModel, { target: { value: alternateConfigId } });
+
+      // The exact configured model is visible during inspection before consent.
+      await waitFor(() => expect(screen.queryByText(/Checking model/)).not.toBeInTheDocument());
+      expect(await screen.findByText(alternateModelId)).toBeInTheDocument();
+      const start = screen.getByRole('button', { name: /Start AI Generation/i });
+      expect(start).toBeDisabled();
+      expect(launch).not.toHaveBeenCalled();
+
+      const cloudConsent = await screen.findByLabelText(/approve the off-device data transfers/i);
+      fireEvent.click(cloudConsent);
+      expect(start).toBeDisabled();
+      expect(launch).not.toHaveBeenCalled();
+
+      const costConsent = screen.getByLabelText(/authorize the disclosed execution budget/i);
+      fireEvent.click(costConsent);
+      expect(start).toBeEnabled();
+
+      // Changing the selected configuration invalidates both previous consents.
+      fireEvent.change(generationModel, { target: { value: primaryConfigId } });
+      expect(await screen.findByText(primaryModelId)).toBeInTheDocument();
+      expect(screen.getByLabelText(/approve the off-device data transfers/i)).not.toBeChecked();
+      expect(screen.getByLabelText(/authorize the disclosed execution budget/i)).not.toBeChecked();
+      expect(start).toBeDisabled();
+      expect(launch).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByLabelText(/approve the off-device data transfers/i));
+      expect(start).toBeDisabled();
+      fireEvent.click(screen.getByLabelText(/authorize the disclosed execution budget/i));
+      expect(start).toBeEnabled();
+      fireEvent.click(start);
+
+      await waitFor(() => expect(launch).toHaveBeenCalledTimes(1));
+      const [request, route] = launch.mock.calls[0] as any[];
+      expect(request.rulesOnly).toBe(false);
+      expect(route.model).toMatchObject({
+        configId: primaryConfigId,
+        provider: 'OpenRouter',
+        id: primaryModelId,
+        endpointOrigin: 'https://router.synthetic.example',
+      });
+      expect(route.cloudDisclosureAccepted).toBe(true);
+      expect(route.costConsentAccepted).toBe(true);
+      expect(JSON.stringify(route)).not.toContain(primarySecret);
+      expect(JSON.stringify(route)).not.toContain(alternateSecret);
+      expect(JSON.stringify(route)).not.toContain('/v1');
+      expect(invokeCommand).toHaveBeenCalledWith('get_document', { id: 'doc_1' });
+      expect(invokeCommand).toHaveBeenCalledWith('ai_learning_index_status', expect.any(Object));
     });
   });
 });

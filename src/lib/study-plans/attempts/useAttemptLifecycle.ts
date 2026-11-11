@@ -13,14 +13,14 @@ import {
   type AttemptControllerNativeAdapter,
   defaultNativeAdapter,
 } from './attemptController';
-import type { AttemptDetail } from '../../../types/assessmentSessions';
+import type { AttemptDetail, PracticeCheckResult } from '../../../types/assessmentSessions';
 import { getRemainingTimeSeconds } from './attemptRecovery';
 
 export interface UseAttemptLifecycleOptions {
   detail: AttemptDetail;
   adapter?: AttemptControllerNativeAdapter;
   debounceMs?: number;
-  onAutoSubmit?: () => void;
+  onAutoSubmit?: (completed: AttemptDetail) => void;
 }
 
 export function useAttemptLifecycle({
@@ -70,29 +70,42 @@ export function useAttemptLifecycle({
     };
   }, [controller]);
 
-  // Timer interval for deadline tracking
+  const autoSubmitCallback = useRef(onAutoSubmit);
+  autoSubmitCallback.current = onAutoSubmit;
+
   useEffect(() => {
     const deadlineAt = state.attempt.deadlineAt;
-    if (!deadlineAt || state.attempt.status !== 'in-progress' || state.isReadOnly) {
+    if (!deadlineAt || state.attempt.status !== 'in-progress') return;
+
+    const autoSubmit = (reason: 'timer' | 'timer-recovered') => {
+      if (autoSubmittedRef.current) return;
+      autoSubmittedRef.current = true;
+      void controller.submitAttempt(reason).then(
+        (completed) => autoSubmitCallback.current?.(completed),
+        () => { autoSubmittedRef.current = false; },
+      );
+    };
+    if (state.isReadOnly && getRemainingTimeSeconds(deadlineAt) === 0) {
+      autoSubmit('timer-recovered');
       return;
     }
 
     const interval = setInterval(() => {
       const remaining = getRemainingTimeSeconds(deadlineAt);
       controller.updateRemainingSeconds(remaining);
-
-      if (remaining !== null && remaining <= 0 && !autoSubmittedRef.current) {
-        autoSubmittedRef.current = true;
+      if (remaining !== null && remaining <= 0) {
         clearInterval(interval);
-        controller.submitAttempt('timer').catch(() => {
-          // Handled in submitError state
-        });
-        onAutoSubmit?.();
+        autoSubmit('timer');
       }
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [state.attempt.deadlineAt, state.attempt.status, state.isReadOnly, controller, onAutoSubmit]);
+  }, [state.attempt.deadlineAt, state.attempt.status, state.isReadOnly, controller]);
+
+  const acknowledgePracticeCheck = useCallback(
+    (result: PracticeCheckResult) => controller.acknowledgePracticeCheck(result),
+    [controller],
+  );
 
   const selectQuestion = useCallback(
     (index: number) => controller.selectQuestion(index),
@@ -132,6 +145,7 @@ export function useAttemptLifecycle({
   const cancelAttempt = useCallback(() => controller.cancelAttempt(), [controller]);
 
   return {
+    acknowledgePracticeCheck,
     state,
     controller,
     selectQuestion,

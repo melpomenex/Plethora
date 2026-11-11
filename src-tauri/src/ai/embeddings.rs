@@ -134,6 +134,11 @@ pub struct OpenAIEmbeddingProvider {
 }
 
 impl OpenAIEmbeddingProvider {
+    pub(crate) fn with_client(mut self, client: reqwest::Client) -> Self {
+        self.client = client;
+        self
+    }
+
     /// Create a new OpenAI embedding provider
     pub fn new(api_key: String, model: Option<String>) -> Self {
         let model = model.unwrap_or_else(|| "text-embedding-3-small".to_string());
@@ -326,6 +331,11 @@ pub struct CohereEmbeddingProvider {
 }
 
 impl CohereEmbeddingProvider {
+    pub(crate) fn with_client(mut self, client: reqwest::Client) -> Self {
+        self.client = client;
+        self
+    }
+
     /// Create a new Cohere embedding provider
     pub fn new(api_key: String, model: Option<String>) -> Self {
         let model = model.unwrap_or_else(|| "embed-english-v3.0".to_string());
@@ -540,6 +550,11 @@ pub struct OpenRouterEmbeddingProvider {
 }
 
 impl OpenRouterEmbeddingProvider {
+    pub(crate) fn with_client(mut self, client: reqwest::Client) -> Self {
+        self.client = client;
+        self
+    }
+
     /// Create a new OpenRouter embedding provider
     pub fn new(api_key: String, model: String) -> Self {
         // Try to parse dimension from model name or use default
@@ -833,6 +848,11 @@ pub struct OllamaEmbeddingProvider {
 }
 
 impl OllamaEmbeddingProvider {
+    pub(crate) fn with_client(mut self, client: reqwest::Client) -> Self {
+        self.client = client;
+        self
+    }
+
     /// Create a new Ollama embedding provider
     pub fn new(base_url: String, model: String) -> Self {
         // Default dimension for common Ollama embedding models

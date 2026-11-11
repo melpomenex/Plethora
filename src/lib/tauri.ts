@@ -153,6 +153,9 @@ function coerceError(err: unknown, context?: string): Error {
       jobId?: unknown;
       documentId?: unknown;
     };
+    if ("messageKey" in err && typeof err.messageKey === "string" && typeof obj.code === "string") {
+      return Object.assign(new Error(err.messageKey), err);
+    }
     const inner =
       typeof obj.message === "string" && obj.message.length > 0
         ? obj.message

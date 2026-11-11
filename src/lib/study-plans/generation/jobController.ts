@@ -11,7 +11,6 @@ import {
   cancelStudyGenerationJob,
   listStudyGenerationJobs,
   recoverInterruptedStudyJobs,
-  resumeStudyGenerationJob,
 } from '../../../api/study-generation';
 import { StudyApiError } from '../../../api/study-plans';
 import {
@@ -98,6 +97,16 @@ export class StudyJobController {
           ...options,
           signal: compositeSignal,
           onProgress,
+          onJobStarted: (jobId) => {
+            const entry = this.activeJobs.get(tempJobKey);
+            if (entry) {
+              this.activeJobs.delete(tempJobKey);
+              entry.jobId = jobId;
+              this.activeJobs.set(jobId, entry);
+            }
+            assignedJobId = jobId;
+            options.onJobStarted?.(jobId);
+          },
         });
         assignedJobId = result.jobId;
         return result;
@@ -148,8 +157,13 @@ export class StudyJobController {
     freshPreflight: StudyAiPreflight,
     options: CoordinatorRunOptions = {}
   ): Promise<CoordinatorRunResult> {
-    await resumeStudyGenerationJob(jobId, freshPreflight);
-    return this.startCurriculumJob(request, freshPreflight, options);
+    const jobs = await listStudyGenerationJobs(request.baseVersionId);
+    const job = jobs.find((candidate) => candidate.id === jobId &&
+      (candidate.status === 'interrupted' || candidate.status === 'failed'));
+    if (!job) {
+      throw new StudyApiError({ code: 'invalid_state', messageKey: 'study_generation.error.job_unavailable', retryable: true });
+    }
+    return this.startCurriculumJob(request, freshPreflight, { ...options, resumeFrom: job });
   }
 
   /**

@@ -4,6 +4,26 @@ import React from 'react';
 import { StudyPlanCreateForm } from '../StudyPlanCreateForm';
 import { useLearningPathsStore } from '../../../stores/learningPathsStore';
 import * as api from '../../../api/study-plans';
+import * as sourceApi from '../../../api/study-sources';
+
+vi.mock('../../../api/study-sources', () => ({
+  resolveStudySourceScope: vi.fn(async (selected) => ({
+    schemaVersion: 1,
+    selected,
+    resolvedDocuments: [{ documentId: 'doc1', title: 'Intro to Cryptography' }],
+    frozenAt: '2026-11-10T00:00:00Z',
+    indexCompleteness: 'complete',
+    limitations: [],
+  })),
+}));
+
+vi.mock('../../../lib/study-plans/studyErrorMessage', () => ({
+  studyErrorMessage: (error: any, fallback: string) => error?.messageKey || fallback,
+}));
+
+vi.mock('../CurriculumGenerator', () => ({
+  CurriculumGenerator: ({ initialMode }: { initialMode: string }) => <div data-testid="generator-mode">{initialMode}</div>,
+}));
 
 vi.mock('../../../lib/tauri', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../lib/tauri')>();
@@ -132,6 +152,45 @@ describe('StudyPlanCreateForm', () => {
     await waitFor(() => {
       expect(screen.getByRole('alert')).toHaveTextContent(/Database locked during creation/i);
     });
+    expect(screen.getByLabelText(/plan title/i)).toHaveValue('ZK-SNARKs Architecture');
+    expect(screen.getByLabelText(/learning objective/i)).toHaveValue('Understand arithmetic circuits');
     expect(handleSuccess).not.toHaveBeenCalled();
+  });
+
+  it('resolves and persists selected sources before creating the plan', async () => {
+    const mockDetail = { plan: { id: 'plan1' }, version: {}, activityByNodeId: {}, sourceRefs: {} };
+    vi.mocked(api.createStudyPlan).mockResolvedValueOnce(mockDetail as any);
+    const onSuccess = vi.fn();
+    render(<StudyPlanCreateForm onSuccess={onSuccess} onCancel={vi.fn()} initialPrefill={{ documentIds: ['doc1'] }} />);
+    fireEvent.change(screen.getByLabelText(/plan title/i), { target: { value: 'Crypto' } });
+    fireEvent.change(screen.getByLabelText(/learning objective/i), { target: { value: 'Understand crypto' } });
+    fireEvent.click(screen.getByRole('button', { name: /create draft plan/i }));
+    await waitFor(() => expect(api.createStudyPlan).toHaveBeenCalled());
+    const input = vi.mocked(api.createStudyPlan).mock.calls[0][0] as any;
+    expect(sourceApi.resolveStudySourceScope).toHaveBeenCalledWith(expect.objectContaining({ documentIds: ['doc1'] }));
+    expect(input.sourceScope.resolvedDocuments).toHaveLength(1);
+    expect(input.sourceScope.limitations).toEqual([]);
+  });
+
+  it('requires sources for AI and opens the generator in Outline mode', async () => {
+    const mockDetail = {
+      plan: { id: 'plan1', title: 'Crypto', goal: 'Understand crypto', depth: 'foundational', status: 'active', currentVersion: 0, createdAt: '', updatedAt: '' },
+      version: { nodes: [], prerequisites: [] },
+      activityByNodeId: {},
+      sourceRefs: {},
+    };
+    vi.mocked(api.createStudyPlan).mockResolvedValueOnce(mockDetail as any);
+    render(<StudyPlanCreateForm onSuccess={vi.fn()} onCancel={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText(/plan title/i), { target: { value: 'Crypto' } });
+    fireEvent.change(screen.getByLabelText(/learning objective/i), { target: { value: 'Understand crypto' } });
+    fireEvent.click(screen.getByLabelText(/source outline/i));
+    fireEvent.click(screen.getByRole('button', { name: /continue to source outline/i }));
+    expect(screen.getByRole('alert')).toHaveTextContent(/select at least one source/i);
+    expect(api.createStudyPlan).not.toHaveBeenCalled();
+
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'Intro to Cryptography' }));
+    fireEvent.click(screen.getByRole('button', { name: /continue to source outline/i }));
+    await waitFor(() => expect(sourceApi.resolveStudySourceScope).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByTestId('generator-mode')).toHaveTextContent('rules-only'));
   });
 });

@@ -5,6 +5,8 @@ import { KnowledgeGapCard } from './KnowledgeGapCard';
 export interface GapHistoryProps {
   gaps: KnowledgeGapView[];
   onDismiss?: (gapId: string) => void;
+  onOpenSource?: (sourceRefId: string | null) => void;
+  onPrepareAssessment?: (gap: KnowledgeGapView, mode: 'practice' | 'exam') => void;
   onRefresh?: () => void;
   isRefreshing?: boolean;
 }
@@ -12,6 +14,8 @@ export interface GapHistoryProps {
 export const GapHistory: React.FC<GapHistoryProps> = ({
   gaps,
   onDismiss,
+  onOpenSource,
+  onPrepareAssessment,
   onRefresh,
   isRefreshing = false,
 }) => {
@@ -43,7 +47,8 @@ export const GapHistory: React.FC<GapHistoryProps> = ({
       )}
       <div className="space-y-2">
         {active.map((g) => (
-          <KnowledgeGapCard key={g.id} gap={g} onDismiss={onDismiss} />
+          <KnowledgeGapCard key={g.id} gap={g} onDismiss={onDismiss} onOpenSource={onOpenSource}
+            onPrepareAssessment={onPrepareAssessment} />
         ))}
       </div>
       {past.length > 0 && (
@@ -53,7 +58,7 @@ export const GapHistory: React.FC<GapHistoryProps> = ({
           </summary>
           <div className="space-y-2 mt-2">
             {past.map((g) => (
-              <KnowledgeGapCard key={g.id} gap={g} />
+              <KnowledgeGapCard key={g.id} gap={g} onOpenSource={onOpenSource} />
             ))}
           </div>
         </details>

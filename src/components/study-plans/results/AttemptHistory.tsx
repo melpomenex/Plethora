@@ -83,6 +83,7 @@ export const AttemptHistory: React.FC<AttemptHistoryProps> = ({
         {attemptsWithDelta.map(({ attempt, priorAttempt, deltaText, deltaPositive }) => {
           const isComplete = attempt.status === 'complete';
           const isInProgress = attempt.status === 'in-progress';
+          const hasResults = !isInProgress && attempt.status !== 'cancelled';
           const dateFormatted = new Date(attempt.startedAt).toLocaleDateString([], {
             year: 'numeric',
             month: 'short',
@@ -144,7 +145,7 @@ export const AttemptHistory: React.FC<AttemptHistoryProps> = ({
                   </Button>
                 )}
 
-                {isComplete && (
+                {hasResults && (
                   <Button
                     variant="tonal"
                     size="sm"

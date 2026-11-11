@@ -125,6 +125,8 @@ export interface RetrievalResponse {
   mode: "semantic" | "lexicalOnly";
   candidatesScanned: number;
   spotlightHitCount?: number;
+  embeddingBackend?: string;
+  embeddingModel?: string;
 }
 
 export interface EmbeddingModelUsage {
@@ -255,6 +257,7 @@ export async function retrieveFromLibrary(
     filters?: RetrievalFilters;
     config?: EmbeddingConfig;
     includeSpotlight?: boolean;
+    isolatedConfig?: boolean;
   } = {}
 ): Promise<RetrievalResponse> {
   const sqlite = await invokeCommand<RetrievalResponse>("ai_learning_retrieve", {
@@ -262,6 +265,7 @@ export async function retrieveFromLibrary(
     k: options.k ?? null,
     filters: options.filters ?? null,
     config: options.config ?? null,
+    isolatedConfig: options.isolatedConfig ?? null,
     paidEmbeddingsEnabled: paidEmbeddingsConsentFlag(),
     paid_embeddings_enabled: paidEmbeddingsConsentFlag(),
   });

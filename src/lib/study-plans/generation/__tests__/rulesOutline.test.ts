@@ -42,26 +42,28 @@ describe('Rules-Only Curriculum Outline Generator (No-AI)', () => {
     limitations: [],
   };
 
-  it('generates a valid, deterministic grounded outline from documents without concepts', () => {
+  it('keeps document-only output as coarse inventory without invented units, citations, or links', () => {
     const result = generateRulesOnlyCurriculumOutline({
       sourceScope: sampleScope,
       depth: 'foundational',
       goal: 'Understand OS virtual memory',
     });
 
-    expect(result.decomposeBatch.topics.length).toBeGreaterThanOrEqual(3);
+    expect(result.decomposeBatch.topics).toHaveLength(2);
     expect(result.decomposeBatch.schemaVersion).toBe(1);
     expect(result.prerequisiteBatch.schemaVersion).toBe(1);
 
-    // Each topic is grounded and points to a valid source handle
+    // Document titles are inventory labels, not claims about unseen contents.
     for (const t of result.decomposeBatch.topics) {
-      expect(t.materialSupport).toBe('grounded');
-      expect(t.sourceHandles.length).toBeGreaterThanOrEqual(1);
-      expect(result.sourceHandleMap.has(t.sourceHandles[0])).toBe(true);
+      expect(t.materialSupport).toBe('unsupported');
+      expect(t.sourceHandles).toEqual([]);
+      expect(t.learningObjectives).toHaveLength(1);
+      expect(t.learningObjectives[0]).toContain('Review the title');
+      expect(t.summary).toContain('contents were not inspected');
+      expect(t.whyHere).toContain('inventory only');
     }
-
-    // Prerequisite edges form a sequential progression
-    expect(result.prerequisiteBatch.edges.length).toBeGreaterThanOrEqual(2);
+    expect(result.sourceHandleMap.size).toBe(0);
+    expect(result.prerequisiteBatch.edges).toEqual([]);
   });
 
   it('incorporates confirmed concepts and confirmed prerequisite links when present', () => {
@@ -89,7 +91,9 @@ describe('Rules-Only Curriculum Outline Generator (No-AI)', () => {
     expect(topics.some((t) => t.title === 'Page Table Management')).toBe(true);
 
     const edges = result.prerequisiteBatch.edges;
-    expect(edges.length).toBeGreaterThanOrEqual(2);
+    expect(edges).toHaveLength(2);
+    expect(topics.every((topic) => topic.sourceHandles.length === 0)).toBe(true);
+    expect(topics.every((topic) => topic.materialSupport === 'unsupported')).toBe(true);
     expect(edges[0].rationale).toContain('Confirmed conceptual prerequisite');
   });
 

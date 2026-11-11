@@ -93,7 +93,7 @@ export function capabilitiesFromCloudConfig(
     multiImage: vision,
     systemInstructions: true,
     toolCalling: false,
-    reasoning: cloudModelSupportsReasoning(config.model),
+    reasoning: config.modelPricing?.[config.model]?.reasoning ?? cloudModelSupportsReasoning(config.model),
     embeddings: false,
     // Configured runtime ceiling for local models — not the model's theoretical max.
     contextTokens:

@@ -34,6 +34,7 @@ import type { StudyGenerationJob } from '../../lib/study-plans/generation/types'
 import {
   cancelStudyGenerationJob,
   recoverInterruptedStudyJobs,
+  listStudyGenerationJobs,
 } from '../../api/study-generation';
 import { PlanOutline } from './PlanOutline';
 import { PlanNodeEditor } from './PlanNodeEditor';
@@ -43,25 +44,35 @@ import { PlanVersionHistory, type PlanVersionSummary } from './PlanVersionHistor
 import { CurriculumGenerator } from './CurriculumGenerator';
 import { StudyJobRecoveryList } from './StudyJobRecoveryList';
 import { StudyPlanProgress } from './evidence/StudyPlanProgress';
+import type { StudyPlanProgressProps } from './evidence/StudyPlanProgress';
 import { orderStudyPlan } from '../../lib/study-plans/topology';
+import { openStudySource } from '../../lib/study-plans/openStudySource';
+import { useTabId } from '../common/Tabs/TabContent';
 import { Button } from '../md3/Button';
 import { ConfirmDialog } from '../common/ConfirmDialog';
+import { studyErrorMessage } from '../../lib/study-plans/studyErrorMessage';
 
 export interface StudyPlanEditorProps {
   planDetail: StudyPlanDetail;
+  initialNodeId?: string;
   onBack: () => void;
   onOpenSource?: (sourceRefId: string, resolution?: StudySourceResolution) => void;
   onOpenAssessmentBuilder?: (planId: string, versionId: string) => void;
+  onPrepareAssessment?: StudyPlanProgressProps['onPrepareAssessment'];
 }
 
 type EditorTab = 'outline' | 'sources' | 'diff' | 'history' | 'progress';
 
 export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
   planDetail,
+  initialNodeId,
   onBack,
   onOpenSource,
   onOpenAssessmentBuilder,
+  onPrepareAssessment,
 }) => {
+  const originTabId = useTabId();
+  const selectPlan = useLearningPathsStore((state) => state.selectPlan);
   const saveDraftAction = useLearningPathsStore((s) => s.saveDraft);
   const publishVersionAction = useLearningPathsStore((s) => s.publishVersion);
   const discardDraftAction = useLearningPathsStore((s) => s.discardDraft);
@@ -76,7 +87,8 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
     planDetail.version.prerequisites
   );
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
-    planDetail.version.nodes[0]?.nodeId || null
+    planDetail.version.nodes.find((node) => node.nodeId === initialNodeId)?.nodeId ??
+    planDetail.version.nodes[0]?.nodeId ?? null
   );
 
   const [isDirty, setIsDirty] = useState(false);
@@ -91,30 +103,38 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
 
   // Curriculum generator & interrupted jobs state
   const [isGeneratorOpen, setIsGeneratorOpen] = useState(false);
+  const [recoveryJob, setRecoveryJob] = useState<StudyGenerationJob>();
+  const draftVersionId = planDetail.plan.draftVersionId;
   const [interruptedJobs, setInterruptedJobs] = useState<StudyGenerationJob[]>([]);
 
   useEffect(() => {
-    let isMounted = true;
-    recoverInterruptedStudyJobs()
+    let active = true;
+    if (!draftVersionId || isGeneratorOpen) return;
+    void recoverInterruptedStudyJobs()
+      .then(() => listStudyGenerationJobs(draftVersionId))
       .then((jobs) => {
-        if (isMounted) {
-          setInterruptedJobs(jobs.filter((j) => j.targetId === planDetail.plan.id));
-        }
+        if (active) setInterruptedJobs(jobs.filter((job) => job.kind === 'curriculum' &&
+          (job.status === 'interrupted' || job.status === 'failed')));
       })
       .catch(() => {
-        // Safe fail-closed: recovery list is an informational helper
+        if (active) setInterruptedJobs([]);
       });
-    return () => {
-      isMounted = false;
-    };
-  }, [planDetail.plan.id]);
+    return () => { active = false; };
+  }, [draftVersionId, isGeneratorOpen]);
+
+  useEffect(() => {
+    if (initialNodeId && planDetail.version.nodes.some((node) => node.nodeId === initialNodeId)) {
+      setSelectedNodeId(initialNodeId);
+      setActiveTab('outline');
+    }
+  }, [initialNodeId, planDetail.version.nodes]);
 
   // Sync state if planDetail props change from store
   useEffect(() => {
     setNodes(planDetail.version.nodes);
     setPrerequisites(planDetail.version.prerequisites);
     setIsDirty(false);
-  }, [planDetail.version.id, planDetail.version.state]);
+  }, [planDetail.version.id, planDetail.version.state, planDetail.plan.revision]);
 
   const handleNodesChange = (updatedNodes: StudyPlanVersionNode[]) => {
     setNodes(updatedNodes);
@@ -135,6 +155,23 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
     handleNodesChange(updated);
   };
 
+  const handleOpenSource = (refId: string, resolution = planDetail.sourceRefs[refId]) => {
+    if (onOpenSource) {
+      onOpenSource(refId, resolution);
+      return;
+    }
+    if (!resolution) {
+      setErrorBanner('The saved source reference is unavailable.');
+      return;
+    }
+    void openStudySource(resolution, {
+      allowCoarseNavigationOnStale: true,
+      returnContext: { originPlanId: planDetail.plan.id, originTabId: originTabId ?? undefined },
+    }).then((result) => {
+      if (result.success === false) setErrorBanner(result.message);
+    }, () => setErrorBanner('Could not open the source.'));
+  };
+
   const handleActivityChange = async (nodeId: string, activity: NodeActivity) => {
     try {
       await setNodeActivityAction(
@@ -144,7 +181,7 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
         planDetail.plan.revision
       );
     } catch (err: any) {
-      setErrorBanner(err?.messageKey || 'Failed to update topic activity');
+      setErrorBanner(studyErrorMessage(err, 'Could not update topic activity.'));
     }
   };
 
@@ -155,7 +192,7 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
     const dagResult = orderStudyPlan(nodes, prerequisites);
     if (!dagResult.ok) {
       setErrorBanner(
-        `Cannot save draft: ${dagResult.error.code} (${dagResult.error.messageKey})`
+        dagResult.error.code === 'dependency_cycle' ? 'Remove the circular prerequisite before saving.' : 'Check that the prerequisite links point to included topics.'
       );
       return;
     }
@@ -175,7 +212,7 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
       setIsDirty(false);
       setSaveSuccessNotice('Draft saved successfully.');
     } catch (err: any) {
-      setErrorBanner(err?.messageKey || err?.message || 'Failed to save draft');
+      setErrorBanner(studyErrorMessage(err, 'Could not save the draft. Your edits are still here.'));
     } finally {
       setIsSaving(false);
     }
@@ -186,7 +223,7 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
     const dagResult = orderStudyPlan(nodes, prerequisites);
     if (!dagResult.ok) {
       setErrorBanner(
-        `Cannot publish version: ${dagResult.error.code} (${dagResult.error.messageKey})`
+        dagResult.error.code === 'dependency_cycle' ? 'Remove the circular prerequisite before publishing.' : 'Check that the prerequisite links point to included topics.'
       );
       return;
     }
@@ -200,27 +237,26 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
     setErrorBanner(null);
 
     try {
-      // If dirty, save draft first
-      if (isDirty) {
-        await saveDraftAction({
+      const saved = isDirty
+        ? await saveDraftAction({
           planId: planDetail.plan.id,
           expectedDraftRevision: planDetail.plan.revision,
           nodes,
           prerequisites,
-        });
-      }
+        })
+        : planDetail;
 
       await publishVersionAction(
-        planDetail.plan.id,
-        planDetail.version.id,
-        planDetail.plan.revision
+        saved.plan.id,
+        saved.version.id,
+        saved.plan.revision
       );
 
       setShowPublishDiffModal(false);
       setIsDirty(false);
       setSaveSuccessNotice('Plan version published successfully.');
     } catch (err: any) {
-      setErrorBanner(err?.messageKey || err?.message || 'Failed to publish plan version');
+      setErrorBanner(studyErrorMessage(err, 'Could not publish the plan. Your draft remains available.'));
     } finally {
       setIsPublishing(false);
     }
@@ -233,7 +269,7 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
       await discardDraftAction(planDetail.plan.id, planDetail.plan.revision);
       setSaveSuccessNotice('Draft discarded.');
     } catch (err: any) {
-      setErrorBanner(err?.messageKey || err?.message || 'Failed to discard draft');
+      setErrorBanner(studyErrorMessage(err, 'Could not discard the draft.'));
     }
   };
 
@@ -311,7 +347,7 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
               <Button
                 variant="outlined"
                 size="sm"
-                onClick={() => setIsGeneratorOpen(true)}
+                onClick={() => { setRecoveryJob(undefined); setIsGeneratorOpen(true); }}
                 aria-label="Regenerate curriculum"
               >
                 <Sparkle size={16} />
@@ -358,13 +394,13 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
       {interruptedJobs.length > 0 && (
         <StudyJobRecoveryList
           jobs={interruptedJobs}
-          onResumeJob={() => setIsGeneratorOpen(true)}
+          onResumeJob={(job) => { setRecoveryJob(job); setIsGeneratorOpen(true); }}
           onCancelJob={async (job) => {
             try {
               await cancelStudyGenerationJob(job.id, job.cancellationEpoch ?? 0);
               setInterruptedJobs((prev) => prev.filter((j) => j.id !== job.id));
             } catch (err: any) {
-              setErrorBanner(err?.messageKey || 'Failed to cancel job');
+              setErrorBanner(studyErrorMessage(err, 'Could not discard the generation job.'));
             }
           }}
         />
@@ -514,7 +550,7 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
                 onChangeNode={handleNodeUpdate}
                 onChangePrerequisites={handlePrerequisitesChange}
                 onChangeActivity={(act) => handleActivityChange(selectedNode.nodeId, act)}
-                onOpenSource={onOpenSource}
+                onOpenSource={handleOpenSource}
                 isReadOnly={!isDraft}
               />
             ) : (
@@ -534,7 +570,7 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
           <PlanSourceList
             sourceRefIds={Object.keys(planDetail.sourceRefs)}
             sourceResolutions={planDetail.sourceRefs}
-            onOpenSource={onOpenSource}
+            onOpenSource={handleOpenSource}
             isReadOnly={true}
           />
       </div>
@@ -577,8 +613,9 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
           <StudyPlanProgress
             planId={planDetail.plan.id}
             nodeTitles={Object.fromEntries(nodes.map((n) => [n.nodeId, n.title]))}
+            onPrepareAssessment={isDraft ? undefined : onPrepareAssessment}
             onOpenSource={(refId) => {
-              if (refId) onOpenSource?.(refId);
+              if (refId) handleOpenSource(refId);
             }}
           />
       </div>
@@ -647,12 +684,18 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
         <CurriculumGenerator
           planDetail={planDetail}
           isOpen={isGeneratorOpen}
-          onClose={() => setIsGeneratorOpen(false)}
+          recoveryJob={recoveryJob}
+          onClose={() => {
+            setIsGeneratorOpen(false);
+            void selectPlan(planDetail.plan.id).catch(() => setErrorBanner('Could not reload the saved draft.'));
+          }}
           onSuccess={(updatedDetail) => {
             setIsGeneratorOpen(false);
             setNodes(updatedDetail.version.nodes);
             setPrerequisites(updatedDetail.version.prerequisites);
             setSaveSuccessNotice('Curriculum updated successfully.');
+            void selectPlan(updatedDetail.plan.id, updatedDetail.version.id)
+              .catch(() => setErrorBanner('Could not reload the saved draft.'));
           }}
         />
       )}

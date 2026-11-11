@@ -274,6 +274,15 @@ fn gated_retrieve_backend(
 /// Retrieve the top-k chunks for a query (task 4.6). Falls back to
 /// lexical-only mode when no embedding backend is available or the index has
 /// no current-version embeddings.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryRetrievalResponse {
+    #[serde(flatten)]
+    retrieval: RetrievalResponse,
+    embedding_backend: &'static str,
+    embedding_model: String,
+}
+
 #[tauri::command]
 pub async fn ai_learning_retrieve(
     query: String,
@@ -281,17 +290,24 @@ pub async fn ai_learning_retrieve(
     filters: Option<RetrievalFilters>,
     config: Option<EmbeddingConfigInput>,
     paid_embeddings_enabled: Option<bool>,
+    isolated_config: Option<bool>,
     state: State<'_, AiLearningState>,
     repo: State<'_, Repository>,
-) -> Result<RetrievalResponse> {
+) -> Result<LibraryRetrievalResponse> {
     // Query-side embed_text on a billable cloud backend requires consent; a
     // denied/stale caller is rejected rather than silently billing. The gate
     // resolves the EFFECTIVE config (the one just passed or the stored one),
     // so a stored cloud backend cannot bill a query while consent is off.
-    if let Some(cfg) = config.as_ref() {
-        state.update_config(Some(cfg.clone()));
-    }
-    let backend = gated_retrieve_backend(&state, config.as_ref(), paid_embeddings_enabled)?;
+    let backend = if isolated_config == Some(true) {
+        ensure_embedding_consent(config.as_ref(), paid_embeddings_enabled)?;
+        EmbeddingBackend::from_isolated_config(config.as_ref())?
+    } else {
+        gated_effective_config(&state, config.as_ref(), paid_embeddings_enabled)?;
+        if let Some(cfg) = config.as_ref() {
+            state.update_config(Some(cfg.clone()));
+        }
+        gated_retrieve_backend(&state, config.as_ref(), paid_embeddings_enabled)?
+    };
     let filters = filters.unwrap_or_default();
     let mut response = retrieval::retrieve(
         repo.inner(),
@@ -302,7 +318,11 @@ pub async fn ai_learning_retrieve(
     )
     .await?;
     retrieval::resolve_titles(repo.inner(), &mut response.results).await;
-    Ok(response)
+    Ok(LibraryRetrievalResponse {
+        retrieval: response,
+        embedding_backend: backend.kind_name(),
+        embedding_model: backend.model_name(),
+    })
 }
 
 /// Direct chunk removal for extra sources (task 4.7 deletion sync): when an

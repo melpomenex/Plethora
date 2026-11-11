@@ -107,6 +107,32 @@ export type StudyStepStatus = 'pending' | 'running' | 'completed' | 'failed' | '
 
 export interface StudyAiPreflight {
   providerId: string;
+  modelSelection?: string;
+  model?: {
+    configId: string;
+    provider: string;
+    name: string;
+    id: string;
+    endpointOrigin: string;
+    endpointHash: string;
+    reasoningMetadata?: boolean;
+  };
+  modelClass?: string;
+  reasoningFallback?: boolean;
+  estimate?: {
+    modelSteps: number;
+    inputTokens: number;
+    outputTokens: number;
+    inputPrice?: number;
+    outputPrice?: number;
+    costUsd?: number;
+  };
+  embedding?: {
+    provider: string;
+    model: string;
+    endpointHash?: string;
+    maximumQueries: number;
+  };
   generationDestination: DestinationClassification | string;
   embeddingDestination: DestinationClassification | string | null;
   featureAllowed: boolean;
@@ -120,10 +146,20 @@ export interface StudyAiPreflight {
   maximumModelCalls: number;
 }
 
+export interface CurriculumExecutionStats {
+  modelCalls: number;
+  corrections: number;
+  reportedInputTokens: number;
+  reportedOutputTokens: number;
+  responsesWithUsage: number;
+  durationMs: number;
+}
+
 export interface StudyJobProgress {
   completed: number;
   total: number;
   labelKey: string;
+  execution?: CurriculumExecutionStats;
 }
 
 export interface StudyGenerationJob {

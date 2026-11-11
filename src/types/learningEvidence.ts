@@ -8,7 +8,7 @@
 
 import type { EvidenceCoverage, CoverageActivity } from '../lib/ai/concepts/coverage';
 import type { NodeActivity } from './learningPaths';
-import type { StudySourceResolution } from './studySources';
+import type { StudySourceResolution } from './studySource';
 
 export type EvidenceSourceKind =
   | 'exam-final'

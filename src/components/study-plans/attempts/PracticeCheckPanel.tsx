@@ -20,7 +20,6 @@ import type {
 } from '../../../types/assessmentSessions';
 import type { AssessmentQuestionRevision } from '../../../types/assessmentQuestions';
 import type { ResponseSlotState } from '../../../lib/study-plans/attempts/attemptController';
-import { gradeQuestionObjective } from '../../../lib/study-plans/attempts/objectiveGrading';
 import { checkPracticeResponse } from '../../../api/exam-sessions';
 import { PracticeRoundHistory, type PracticeRoundItem } from './PracticeRoundHistory';
 
@@ -57,15 +56,6 @@ export const PracticeCheckPanel: React.FC<PracticeCheckPanelProps> = ({
     setError(null);
 
     try {
-      // 1. Calculate deterministic objective grade
-      const objectiveGrade = gradeQuestionObjective(
-        qData,
-        slot.draft,
-        slot.mark,
-        questionRevision.id
-      );
-
-      // 2. Dispatch check_practice_response (C7-T02: record highest used hint 0..3)
       const clientMutationId = `mut_prac_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
       const safeHintLevel = Number.isInteger(hintLevel) && hintLevel >= 0 && hintLevel <= 3 ? hintLevel : 0;
       const result = await checkPracticeResponse({
@@ -76,7 +66,7 @@ export const PracticeCheckPanel: React.FC<PracticeCheckPanelProps> = ({
         hintLevel: safeHintLevel,
         draft: slot.draft,
         mark: slot.mark,
-        objectiveGrade,
+        objectiveGrade: null,
       });
 
       setLatestResult(result);
@@ -96,6 +86,7 @@ export const PracticeCheckPanel: React.FC<PracticeCheckPanelProps> = ({
   };
 
   const grade = latestResult?.grade;
+  const explanation = latestResult?.explanation ?? qData.explanation;
   const isCorrect = grade?.outcome === 'correct';
   const isPartial = grade?.outcome === 'partial';
   const isIncorrect = grade?.outcome === 'incorrect';
@@ -182,14 +173,14 @@ export const PracticeCheckPanel: React.FC<PracticeCheckPanelProps> = ({
       )}
 
       {/* Explanation & Grounding Card (Revealed after check) */}
-      {latestResult && qData.explanation && (
+      {latestResult && explanation && (
         <div className="p-4 bg-surface-container-low dark:bg-surface-container-low-dark rounded-xl border border-outline-variant/30 space-y-2">
           <h4 className="text-xs font-bold text-on-surface dark:text-on-surface-dark flex items-center gap-1.5 uppercase tracking-wide">
             <BookOpen size={16} className="text-primary dark:text-primary-dark" />
             Committed Explanation
           </h4>
           <p className="text-xs leading-relaxed text-on-surface-variant dark:text-on-surface-variant-dark whitespace-pre-line">
-            {qData.explanation}
+            {explanation}
           </p>
         </div>
       )}

@@ -174,10 +174,10 @@ export function mergeCurriculumProposals(
       });
     } else {
       // New proposal: create new node
-      const generatedId = `spn_${sha256(pTopic.handle + ':' + pTopic.title).slice(0, 16)}`;
+      const generatedId = `spn_${sha256(JSON.stringify([input.baseVersion?.planId, titleAndObjKey])).slice(0, 16)}`;
       topicHandleToNodeId.set(pTopic.handle, generatedId);
 
-      mergedNodesMap.set(generatedId, {
+      const generatedNode: StudyPlanVersionNode = {
         nodeId: generatedId,
         title: pTopic.title,
         summary: pTopic.summary,
@@ -192,7 +192,11 @@ export function mergeCurriculumProposals(
         materialSupport: pTopic.materialSupport,
         whyHere: pTopic.whyHere,
         sourceRefIds: resolvedRefIds.slice(0, 8),
-      });
+      };
+      mergedNodesMap.set(generatedId, generatedNode);
+      if (normConceptName) baseByConceptLabel.set(normConceptName, generatedNode);
+      baseByTitleAndObj.set(titleAndObjKey, generatedNode);
+      baseByTitle.set(normTitle, generatedNode);
     }
   }
 

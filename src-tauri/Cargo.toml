@@ -14,6 +14,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+unicode-normalization = "0.1"
 # Pin to 2.11.5 (latest 2.11.x). http://localhost is served via tauri-plugin-localhost
 # and is intentionally classified as a remote origin since 2.11.1 (GHSA-7gmj-67g7-phm9
 # follow-up). IPC access is scoped via capabilities/default.json `remote.urls` to

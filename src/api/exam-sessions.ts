@@ -19,6 +19,7 @@ import type {
   CheckPracticeInput,
   AttemptHistoryFilter,
 } from '../types/assessmentSessions';
+import type { AssessmentQuestionRevision } from '../types/assessmentQuestions';
 
 function ensureNativeSupport(): void {
   if (!isTauri()) {
@@ -52,7 +53,34 @@ export function normalizeExamResponse(raw: any): ExamResponse {
   };
 }
 
+function normalizeAttemptQuestion(raw: any): AssessmentQuestionRevision {
+  return {
+    id: raw.id,
+    questionId: raw.questionId,
+    blueprintRevisionId: raw.blueprintRevisionId,
+    revision: raw.revision,
+    slotKey: raw.slotKey,
+    fingerprint: raw.fingerprint,
+    question: (raw.question && typeof raw.question === 'object' ? raw.question : {}) as AssessmentQuestionRevision['question'],
+    validation: raw.validation ?? 'valid',
+    validationIssues: Array.isArray(raw.validationIssues) ? raw.validationIssues : [],
+    committedAt: raw.committedAt ?? null,
+    provider: raw.provider ?? null,
+    createdAt: raw.createdAt,
+  };
+}
+
+function outcomeFromGrade(grade: { state: string; points?: number | null; maxPoints: number }, mark?: string) {
+  if (grade.state !== 'final' || grade.points == null) return 'pending';
+  if (mark === 'unanswered' || mark === 'skipped') return mark;
+  if (grade.points >= grade.maxPoints) return 'correct';
+  return grade.points > 0 ? 'partial' : 'incorrect';
+}
+
 export function normalizeAttemptDetail(raw: any): AttemptDetail {
+  const submissionMarks = new Map<string, string>(
+    (raw.submissions ?? []).map((submission: { id: string; mark: string }) => [submission.id, submission.mark]),
+  );
   return {
     attempt: raw.attempt,
     responses: (raw.responses || []).map(normalizeExamResponse),
@@ -62,11 +90,12 @@ export function normalizeAttemptDetail(raw: any): AttemptDetail {
     })),
     currentGrades: (raw.currentGrades || []).map((g: any) => ({
       ...g,
+      outcome: g.outcome ?? outcomeFromGrade(g, submissionMarks.get(g.responseSubmissionId)),
       assessment: g.assessment ?? parseJson(g.assessmentJson, null),
       criteria: g.criteria ?? parseJson(g.criteriaJson, []),
       provenance: g.provenance ?? parseJson(g.provenanceJson, null),
     })),
-    questions: raw.questions,
+    questions: Array.isArray(raw.questions) ? raw.questions.map(normalizeAttemptQuestion) : [],
   };
 }
 
@@ -184,12 +213,15 @@ export async function checkPracticeResponse(
       grade: raw.grade
         ? {
             ...raw.grade,
+            outcome: raw.grade.outcome ?? outcomeFromGrade(raw.grade, raw.submission?.mark),
             assessment: raw.grade.assessment ?? parseJson(raw.grade.assessmentJson, null),
             criteria: raw.grade.criteria ?? parseJson(raw.grade.criteriaJson, []),
             provenance: raw.grade.provenance ?? parseJson(raw.grade.provenanceJson, null),
           }
         : null,
       attemptRevision: raw.attemptRevision,
+      ...(raw.responseRevision != null && { responseRevision: raw.responseRevision }),
+      ...(raw.explanation != null && { explanation: raw.explanation }),
     };
   } catch (err) {
     throw normalizeStudyError(err);

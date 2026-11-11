@@ -186,6 +186,7 @@ impl StudyGenerationRepository {
         let now = Utc::now().to_rfc3339();
         let job_id = format!("job_{}", Uuid::new_v4().simple());
         let initial_progress = StudyJobProgress {
+            execution: None,
             completed: 0,
             total: input.steps.len() as i64,
             label_key: "study_generation.progress.queued".to_string(),
@@ -1183,6 +1184,7 @@ mod tests {
                 output_ref_id: Some("out_0".to_string()),
                 next_step_index: 1,
                 progress: StudyJobProgress {
+                    execution: None,
                     completed: 1,
                     total: 2,
                     label_key: "step 1 done".to_string(),
@@ -1211,6 +1213,7 @@ mod tests {
                 output_ref_id: Some("out_1".to_string()),
                 next_step_index: 2,
                 progress: StudyJobProgress {
+                    execution: None,
                     completed: 2,
                     total: 2,
                     label_key: "curriculum ready".to_string(),
@@ -1359,6 +1362,7 @@ mod tests {
                 output_ref_id: None,
                 next_step_index: 1,
                 progress: StudyJobProgress {
+                    execution: None,
                     completed: 1,
                     total: 1,
                     label_key: "done".to_string(),
@@ -1380,6 +1384,7 @@ mod tests {
                 output_ref_id: Some("out_ref".to_string()),
                 next_step_index: 1,
                 progress: StudyJobProgress {
+                    execution: None,
                     completed: 1,
                     total: 1,
                     label_key: "done".to_string(),
@@ -1401,6 +1406,7 @@ mod tests {
                 output_ref_id: Some("out_ref".to_string()),
                 next_step_index: 1,
                 progress: StudyJobProgress {
+                    execution: None,
                     completed: 1,
                     total: 1,
                     label_key: "done".to_string(),

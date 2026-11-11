@@ -6,6 +6,7 @@ export interface KnowledgeGapCardProps {
   gap: KnowledgeGapView;
   onDismiss?: (gapId: string) => void;
   onOpenSource?: (sourceRefId: string | null) => void;
+  onPrepareAssessment?: (gap: KnowledgeGapView, mode: 'practice' | 'exam') => void;
 }
 
 function structuralNote(kind: KnowledgeGapView['kind']): string | null {
@@ -15,7 +16,7 @@ function structuralNote(kind: KnowledgeGapView['kind']): string | null {
   return null;
 }
 
-export const KnowledgeGapCard: React.FC<KnowledgeGapCardProps> = ({ gap, onDismiss, onOpenSource }) => {
+export const KnowledgeGapCard: React.FC<KnowledgeGapCardProps> = ({ gap, onDismiss, onOpenSource, onPrepareAssessment }) => {
   const note = structuralNote(gap.kind);
   return (
     <article
@@ -48,6 +49,14 @@ export const KnowledgeGapCard: React.FC<KnowledgeGapCardProps> = ({ gap, onDismi
         </p>
       )}
       <GapEvidencePanel gap={gap} onOpenSource={onOpenSource} />
+      {gap.status === 'active' && gap.demonstrated && onPrepareAssessment && (
+        <div className="flex flex-wrap gap-3">
+          <button type="button" className="min-h-10 text-sm underline"
+            onClick={() => onPrepareAssessment(gap, 'practice')}>Create practice draft</button>
+          <button type="button" className="min-h-10 text-sm underline"
+            onClick={() => onPrepareAssessment(gap, 'exam')}>Create follow-up exam draft</button>
+        </div>
+      )}
       {gap.status === 'active' && onDismiss && (
         <button
           type="button"

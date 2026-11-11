@@ -42,6 +42,7 @@ vi.mock("../../../lib/feedback", () => ({ emitFeedback: vi.fn() }));
 vi.mock("../../common/Toast", () => ({
   ToastType: { Info: "info" },
   useToast: () => ({ success: vi.fn(), error: vi.fn() }),
+  useToastStore: (selector: (state: { addToast: () => void }) => unknown) => selector({ addToast: vi.fn() }),
 }));
 
 // Unlike MainLayout.splitPane.test.tsx, this suite needs loadTabs()'s dynamic
@@ -83,8 +84,8 @@ vi.mock("../../tabs/TabRegistry", () => ({
   prefetchCommonTabs: vi.fn(),
   createCanonicalTab: (type: string) => ({
     type,
-    title: type === "dashboard" ? "Dashboard" : type,
-    icon: type === "dashboard" ? "📊" : "",
+    title: type === "dashboard" ? "Dashboard" : type === "study-plans" ? "Study Plans" : type,
+    icon: type === "dashboard" ? "📊" : type === "study-plans" ? "🧭" : "",
     content: Placeholder,
     closable: type !== "dashboard",
   }),
@@ -95,6 +96,7 @@ import { MainLayout } from "../MainLayout";
 import { createSplitPane, createTabPane, useTabsStore, type Pane } from "../../../stores";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { useDocumentStore } from "../../../stores/documentStore";
+import { requestDestinationAction, settleDestinationAction, useDestinationActionStore } from "../../../commandPalette/destinationActions";
 
 const originalLoadTabs = useTabsStore.getState().loadTabs;
 
@@ -288,6 +290,48 @@ describe("MainLayout applies Default View after a restored session", () => {
     expect(state.tabs.filter((tab) => tab.type === "dashboard")).toHaveLength(1);
     const dashboard = state.tabs.find((tab) => tab.type === "dashboard");
     expect(state.rootPane.type === "tabs" ? state.rootPane.activeTabId : null).toBe(dashboard?.id);
+  });
+
+  it("opens and reactivates the canonical Study Plans destination", async () => {
+    localStorage.removeItem("plethora-tabs");
+    useSettingsStore.getState().updateSettingsCategory("general", {
+      restoreSession: false,
+      defaultView: "queue",
+    });
+    useTabsStore.setState({ tabs: [], rootPane: createTabPane(), closedTabs: [], activeTabHistory: [] });
+
+    render(<MainLayout />);
+    await waitFor(() => expect(useTabsStore.getState().tabs.some((tab) => tab.type === "queue")).toBe(true));
+
+    act(() => window.dispatchEvent(new CustomEvent("navigate", { detail: "/study-plans" })));
+    const first = useTabsStore.getState().tabs.find((tab) => tab.type === "study-plans");
+    expect(first).toMatchObject({ title: "Study Plans", closable: true });
+    const activePane = useTabsStore.getState().rootPane;
+    expect(activePane.type === "tabs" ? activePane.activeTabId : null).toBe(first?.id);
+
+    act(() => window.dispatchEvent(new CustomEvent("navigate", { detail: "/queue" })));
+    act(() => window.dispatchEvent(new CustomEvent("navigate", { detail: "/study-plans" })));
+    expect(useTabsStore.getState().tabs.filter((tab) => tab.type === "study-plans")).toHaveLength(1);
+    const reactivatedPane = useTabsStore.getState().rootPane;
+    expect(reactivatedPane.type === "tabs" ? reactivatedPane.activeTabId : null).toBe(first?.id);
+  });
+
+  it.each(["home", "create"] as const)("routes the Study Plans %s action to the active MainLayout tab", async (action) => {
+    localStorage.removeItem("plethora-tabs");
+    useSettingsStore.getState().updateSettingsCategory("general", { restoreSession: false, defaultView: "queue" });
+    useTabsStore.setState({ tabs: [], rootPane: createTabPane(), closedTabs: [], activeTabHistory: [] });
+    render(<MainLayout />);
+    await waitFor(() => expect(useTabsStore.getState().tabs.some((tab) => tab.type === "queue")).toBe(true));
+
+    let completion!: Promise<void>;
+    act(() => { completion = requestDestinationAction({ destination: "study-plans", action }); });
+    const pending = useDestinationActionStore.getState().pending;
+    const studyPlans = useTabsStore.getState().tabs.find((tab) => tab.type === "study-plans");
+    expect(studyPlans).toBeDefined();
+    expect(pending).toMatchObject({ destination: "study-plans", action, tabId: studyPlans?.id });
+    expect(useTabsStore.getState().findPaneContainingTab(studyPlans!.id)).toMatchObject({ activeTabId: studyPlans!.id });
+    act(() => settleDestinationAction(pending!.id));
+    await expect(completion).resolves.toBeUndefined();
   });
 
   it("preserves a tab opened while restoration is pending and still recovers Dashboard", async () => {

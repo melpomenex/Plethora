@@ -222,6 +222,7 @@ export interface CreateStudyPlanInput {
 export interface SaveStudyPlanDraftInput {
   planId: string;
   expectedDraftRevision: number;
+  sourceRefs?: Record<string, StudySourceRefInput>;
   sourceScope?: StudySourceScopeV1 | Record<string, unknown>;
   nodes: StudyPlanVersionNode[];
   prerequisites: PlanPrerequisite[];

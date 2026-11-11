@@ -15,6 +15,7 @@ import {
   Pencil,
   ArrowLeft,
   GraduationCap,
+  Plus,
 } from '@phosphor-icons/react';
 import { Button } from '../../md3/Button';
 import { BlueprintSourceScope } from './BlueprintSourceScope';
@@ -22,14 +23,22 @@ import { BlueprintQuotaControls } from './BlueprintQuotaControls';
 import { BlueprintProviderSummary } from './BlueprintProviderSummary';
 import { GenerationDeficitReport } from './GenerationDeficitReport';
 import { BlueprintService } from '../../../lib/study-plans/assessments/blueprintService';
+import { QuestionEditor } from './QuestionEditor';
+import { planQuotaSlots } from '../../../lib/study-plans/assessments/quotaPlanner';
 import { runAssessmentGenerationCoordinator } from '../../../lib/study-plans/assessments/generationCoordinator';
-import { performStudyAiPreflight } from '../../../lib/study-plans/generation/preflight';
+import { performStudyAiPreflight, type StudyPreflightResult } from '../../../lib/study-plans/generation/preflight';
+import { refreshCurriculumScope } from '../../../lib/study-plans/generation/curriculumPreflight';
+import { GenerationPrivacySummary } from '../GenerationPrivacySummary';
 import { studyQuestionTask } from '../../../lib/ai/tasks/definitions/studyQuestionTasks';
 import { startExamAttempt } from '../../../api/exam-sessions';
 import type {
   AssessmentConfigV1,
   BlueprintDetail,
+  AssessmentQuestion,
+  AssessmentQuestionRevision,
+  QuotaSlot,
 } from '../../../types/assessmentQuestions';
+import type { StudySourceRefV1 } from '../../../types/studySource';
 import type { StudyAiPreflight, StudyJobProgress } from '../../../lib/study-plans/generation/types';
 import type { StudyPlanDetail } from '../../../types/learningPaths';
 
@@ -50,6 +59,66 @@ export interface AssessmentBuilderProps {
 }
 
 export type BuilderState = 'loading' | 'idle' | 'generating' | 'needs-review' | 'ready' | 'error';
+
+function createManualQuestion(slot: QuotaSlot, points: number, sourceRefId?: string, learningObjectives: string[] = []): AssessmentQuestion {
+  const sourceRefIds = sourceRefId ? [sourceRefId] : [];
+  const common = {
+    schemaVersion: 1 as const,
+    prompt: 'Write the question prompt',
+    difficulty: slot.difficulty,
+    learningObjectives,
+    sourceRefIds,
+    explanation: 'Explain the answer using the selected source material.',
+    maxPoints: points,
+    applicationLevel: 'recall' as const,
+    hints: [],
+  };
+  if (slot.kind === 'single-select') return {
+    ...common, kind: slot.kind,
+    options: [{ id: 'option_a', text: 'Option A' }, { id: 'option_b', text: 'Option B' }],
+    correctOptionId: 'option_a',
+  };
+  if (slot.kind === 'multi-select') return {
+    ...common, kind: slot.kind,
+    options: [{ id: 'option_a', text: 'Option A' }, { id: 'option_b', text: 'Option B' }, { id: 'option_c', text: 'Option C' }],
+    correctOptionIds: ['option_a', 'option_b'],
+  };
+  if (slot.kind === 'cloze') return {
+    ...common, kind: slot.kind,
+    prompt: 'Complete the sentence: {{blank_1}}.',
+    segments: [{ kind: 'blank', blankId: 'blank_1' }],
+    blanks: [{ id: 'blank_1', acceptedAnswers: ['answer'], caseSensitive: false }],
+  };
+  if (slot.kind === 'short-answer') {
+    const keyFactId = 'fact_1';
+    return {
+      ...common, kind: slot.kind,
+      referenceAnswer: 'Write the expected answer.',
+      keyFacts: [{ id: keyFactId, text: 'Expected key fact', required: true }],
+      acceptedAnswers: [],
+      rubric: {
+        schemaVersion: 1,
+        expectedConcepts: [],
+        gradingConstraints: [],
+        criteria: [{ id: 'criterion_1', title: 'Key fact', assessmentInstruction: 'Identify the key fact.', weight: 100,
+          grounding: sourceRefId ? 'source' : 'reasoning', sourceRefIds, keyFactIds: [keyFactId],
+          levels: { '0': 'Absent', '1': 'Weak', '2': 'Partial', '3': 'Mostly correct', '4': 'Accurate' } }],
+      },
+    };
+  }
+  return {
+    ...common, kind: slot.kind, maxPoints: Math.max(2, points),
+    expectedReasoning: 'Write the expected reasoning and solution steps.',
+    rubric: {
+      schemaVersion: 1, expectedConcepts: [], gradingConstraints: [],
+      criteria: ['Accuracy', 'Reasoning'].map((title, index) => ({
+        id: `criterion_${index + 1}`, title, assessmentInstruction: `Assess ${title.toLowerCase()}.`, weight: 50,
+        grounding: sourceRefId ? 'source' as const : 'reasoning' as const, sourceRefIds, keyFactIds: [],
+        levels: { '0': 'Absent', '1': 'Weak', '2': 'Partial', '3': 'Mostly correct', '4': 'Accurate' },
+      })),
+    },
+  };
+}
 
 export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   planDetail,
@@ -73,36 +142,66 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   const [preflight, setPreflight] = useState<StudyAiPreflight | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
+  const [manualQuestion, setManualQuestion] = useState<AssessmentQuestionRevision | null | undefined>(undefined);
+  const [isSavingQuestion, setIsSavingQuestion] = useState(false);
+  const [cloudDisclosureAccepted, setCloudDisclosureAccepted] = useState(false);
+  const [costConsentAccepted, setCostConsentAccepted] = useState(false);
+  const [preflightRoute, setPreflightRoute] = useState<StudyPreflightResult['route'] | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+
+  const availableSourceRefs: StudySourceRefV1[] = Object.entries(planDetail?.sourceRefs || {}).flatMap(([id, resolution]) => {
+    const scoped = detail?.revision.sourceScope.resolvedDocuments.find((doc) => doc.documentId === resolution.ref.documentId);
+    if (resolution.status !== 'current' || !scoped || scoped.revision !== resolution.ref.revision ||
+        (resolution.ref.extractId && !scoped.extractIds.includes(resolution.ref.extractId))) return [];
+    return [{ ...resolution.ref, id }];
+  });
+  const nextManualSlot = config && detail
+    ? planQuotaSlots(config, detail.revision.id).find((slot) => !detail.questions.some((question) => question.slotKey === slot.slotKey))
+    : undefined;
+
+  const saveManualQuestion = async (question: AssessmentQuestion) => {
+    if (!detail || !config || detail.revision.state === 'ready') return;
+    const existing = manualQuestion || undefined;
+    const slot = existing
+      ? planQuotaSlots(config, detail.revision.id).find((item) => item.slotKey === existing.slotKey)
+      : nextManualSlot;
+    if (!existing && !slot) throw new Error('All requested question slots are filled. Update the quota before adding another question.');
+    if (slot && (question.kind !== slot.kind || question.difficulty !== slot.difficulty)) {
+      throw new Error('Question kind and difficulty must match the assigned quota slot.');
+    }
+    const topicTarget = config.topicTargets[slot?.topicIndex ?? -1];
+    setIsSavingQuestion(true);
+    try {
+      await BlueprintService.saveQuestionFromDomain({
+        blueprintRevisionId: detail.revision.id,
+        question,
+        slotKey: existing?.slotKey ?? slot!.slotKey,
+        questionId: existing?.questionId,
+        targets: question.learningObjectives.map((objectiveText) => ({
+          objectiveText,
+          conceptId: topicTarget?.conceptId,
+          conceptLabel: planDetail?.version.nodes.find((node) => node.nodeId === topicTarget?.nodeId)?.conceptLabel || objectiveText,
+          nodeId: topicTarget?.nodeId,
+        })),
+      });
+      const refreshed = await BlueprintService.getBlueprintRevision(detail.revision.id);
+      setDetail(refreshed);
+      setManualQuestion(undefined);
+    } finally {
+      setIsSavingQuestion(false);
+    }
+  };
 
   // Initialize or load blueprint revision
   const initBlueprint = useCallback(async () => {
     setState('loading');
     setErrorBanner(null);
     try {
-      // 1. Preflight provider check
-      try {
-        const docs =
-          planDetail?.version.sourceScope.resolvedDocuments.map((d) => ({
-            id: d.documentId,
-            isAiExcluded: d.isAiExcluded,
-            isLocalOnly: d.isLocalOnly,
-          })) || [];
-        const res = await performStudyAiPreflight({
-          primaryTask: studyQuestionTask as any,
-          documents: docs,
-          sourceExcerptCount: 10,
-          plannedModelSteps: 2,
-        });
-        setPreflight(res.preflight);
-      } catch {
-        setPreflight(null);
-      }
-
-      // 2. Fetch existing or create draft
+      let loadedDetail: BlueprintDetail;
       if (initialRevisionId) {
         const fetched = await BlueprintService.getBlueprintRevision(initialRevisionId);
+        loadedDetail = fetched;
         setDetail(fetched);
         setTitle(fetched.blueprint.title);
         setConfig(fetched.revision.config);
@@ -158,15 +257,46 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
           sourceSnapshotHash: `sha256:${Date.now().toString(16)}`,
         });
 
+        loadedDetail = created;
         setDetail(created);
         setTitle(created.blueprint.title);
         setConfig(created.revision.config);
-        setState('idle');      }
+        setState('idle');
+      }
+
+      // Inspect the live frozen scope before showing budget, route, or consent details.
+      try {
+        const frozenScope = loadedDetail.revision.sourceScope;
+        const liveScope = frozenScope.resolvedDocuments.length
+          ? await refreshCurriculumScope(frozenScope)
+          : frozenScope;
+        const docs = liveScope.resolvedDocuments.map((doc) => ({
+          id: doc.documentId,
+          isAiExcluded: doc.isAiExcluded,
+          isLocalOnly: doc.isLocalOnly,
+        }));
+        const refs = Object.values(planDetail?.sourceRefs || {}).filter((resolution) =>
+          resolution.status === 'current' && liveScope.resolvedDocuments.some((doc) =>
+            doc.documentId === resolution.ref.documentId && doc.revision === resolution.ref.revision &&
+            (!resolution.ref.extractId || doc.extractIds.includes(resolution.ref.extractId))));
+        const res = await performStudyAiPreflight({
+          primaryTask: studyQuestionTask as any,
+          documents: docs,
+          sourceExcerptCount: refs.length,
+          plannedModelSteps: Math.ceil(loadedDetail.revision.config.requestedCount / (isMobile ? 3 : 6)),
+          inspectOnly: true,
+        });
+        setPreflight(res.preflight);
+        setPreflightRoute(res.route);
+      } catch {
+        setPreflight(null);
+        setPreflightRoute(null);
+      }
     } catch (err: any) {
       setErrorBanner(err?.messageKey || err?.message || 'Failed to initialize assessment');
       setState('error');
     }
-  }, [initialRevisionId, planDetail]);
+  }, [initialRevisionId, planDetail, initialConfig, isMobile]);
 
   useEffect(() => {
     initBlueprint();
@@ -174,7 +304,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
   // Save Draft modifications
   const handleSaveDraft = async () => {
-    if (!detail || !config) return;
+    if (!detail || !config) return null;
     setIsSaving(true);
     setErrorBanner(null);
     try {
@@ -185,8 +315,10 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
         config,
       });
       setDetail(updated);
+      return updated;
     } catch (err: any) {
       setErrorBanner(err?.messageKey || err?.message || 'Failed to save draft');
+      return null;
     } finally {
       setIsSaving(false);
     }
@@ -194,7 +326,10 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
   // Run AI Question Generation
   const handleGenerate = async () => {
-    if (!detail || !config || !preflight) return;
+    if (!detail || !config || !preflight || !preflightRoute || !preflight.featureAllowed) return;
+    const offDevice = preflight.sendsSourceOffDevice ||
+      (typeof preflight.embeddingDestination === 'object' && preflight.embeddingDestination?.sendsOffDevice);
+    if ((offDevice && !cloudDisclosureAccepted) || (preflight.billable && !costConsentAccepted)) return;
     setState('generating');
     setErrorBanner(null);
     setProgress({ completed: 0, total: 1, labelKey: 'Initializing generation…' });
@@ -204,16 +339,17 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
     try {
       // First persist current parameters to draft
-      await handleSaveDraft();
+      const savedDetail = await handleSaveDraft();
+      if (!savedDetail) throw new Error('Draft could not be saved. Generation was not started.');
 
       const result = await runAssessmentGenerationCoordinator(
         {
           blueprintRevisionId: detail.revision.id,
-          expectedRevision: detail.blueprint.revision,
-          planId: detail.blueprint.planId,
+          expectedRevision: savedDetail.blueprint.revision,
+          planId: savedDetail.blueprint.planId,
           isMobile,
         },
-        preflight,
+        { ...preflight, cloudDisclosureAccepted, costConsentAccepted },
         {
           signal: controller.signal,
           onProgress: (p) => setProgress(p),
@@ -320,15 +456,27 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             Save Draft
           </Button>
 
-          {onOpenQuestionEditor && detail && (
+          {detail && state !== 'ready' && (
             <Button
               variant="outlined"
               size="sm"
-              onClick={() => onOpenQuestionEditor(detail.revision.id)}
-              disabled={state === 'generating'}
+              onClick={() => onOpenQuestionEditor
+                ? onOpenQuestionEditor(detail.revision.id)
+                : nextManualSlot && setManualQuestion(null)}
+              disabled={state === 'generating' || (!onOpenQuestionEditor && !nextManualSlot)}
             >
               <Pencil className="w-4 h-4 mr-1.5" />
               Manual Question Editor ({detail.questions.length})
+            </Button>
+          )}
+          {detail && state !== 'ready' && nextManualSlot && (
+            <Button
+              variant="outlined"
+              size="sm"
+              onClick={() => setManualQuestion(null)}
+              disabled={state === 'generating'}
+            >
+              <Plus className="w-4 h-4 mr-1.5" /> Add Manual Question
             </Button>
           )}
 
@@ -337,7 +485,9 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               variant="filled"
               size="sm"
               onClick={handleGenerate}
-              disabled={state === 'generating' || state === 'ready'}
+              disabled={state === 'generating' || state === 'ready' || !preflightRoute || !preflight.featureAllowed ||
+                ((preflight.sendsSourceOffDevice || (typeof preflight.embeddingDestination === 'object' && preflight.embeddingDestination?.sendsOffDevice)) && !cloudDisclosureAccepted) ||
+                (preflight.billable && !costConsentAccepted)}
             >
               <Sparkle className="w-4 h-4 mr-1.5" />
               Generate Questions
@@ -425,6 +575,25 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
         />
       )}
 
+      {detail && detail.questions.length > 0 && (
+        <section aria-label="Saved questions" className="space-y-2">
+          <h2 className="text-sm font-semibold">Questions ({detail.questions.length}/{config?.requestedCount ?? detail.revision.config.requestedCount})</h2>
+          {detail.questions.map((revision) => (
+            <div key={revision.id} className="flex items-center justify-between gap-3 rounded-lg border border-surface-200 dark:border-surface-700 p-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm">{revision.question.prompt}</p>
+                <p className="text-xs text-surface-500">{revision.question.kind} · slot {revision.slotKey}</p>
+              </div>
+              {detail.revision.state !== 'ready' && (
+                <Button variant="outlined" size="sm" onClick={() => setManualQuestion(revision)} disabled={state === 'generating'}>
+                  <Pencil className="w-4 h-4 mr-1" /> Edit
+                </Button>
+              )}
+            </div>
+          ))}
+        </section>
+      )}
+
       {/* Core Builder Columns */}
       {config && detail && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -447,9 +616,41 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               requestedCount={config.requestedCount}
               isMobile={isMobile}
             />
+            <GenerationPrivacySummary
+              preflight={preflight}
+              purpose="assessment"
+              cloudDisclosureAccepted={cloudDisclosureAccepted}
+              onCloudDisclosureChange={setCloudDisclosureAccepted}
+              costConsentAccepted={costConsentAccepted}
+              onCostConsentChange={setCostConsentAccepted}
+              disabled={state === 'generating'}
+            />
           </div>
         </div>
       )}
+
+      {detail && manualQuestion !== undefined && (() => {
+        const slot: QuotaSlot | undefined = manualQuestion
+          ? { slotKey: manualQuestion.slotKey, slotIndex: 0, topicIndex: 0, kind: manualQuestion.question.kind, difficulty: manualQuestion.question.difficulty }
+          : nextManualSlot;
+        if (!slot) return null;
+        const initialQuestion = manualQuestion?.question ?? createManualQuestion(
+          slot,
+          config?.pointsByKind[slot.kind] ?? detail.revision.config.pointsByKind[slot.kind],
+          availableSourceRefs[0]?.id,
+          planDetail?.version.nodes.find((node) => node.nodeId === config?.topicTargets[slot.topicIndex]?.nodeId)?.learningObjectives ?? [],
+        );
+        return (
+          <QuestionEditor
+            key={manualQuestion?.id ?? `new-${slot.slotKey}`}
+            initialQuestion={initialQuestion}
+            availableSourceRefs={availableSourceRefs}
+            onSave={saveManualQuestion}
+            onClose={() => setManualQuestion(undefined)}
+            isSaving={isSavingQuestion}
+          />
+        );
+      })()}
     </div>
   );
 };

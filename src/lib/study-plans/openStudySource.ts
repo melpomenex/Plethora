@@ -67,6 +67,10 @@ export async function openStudySource(
   const ref: StudySourceRefV1 = 'ref' in input ? input.ref : input;
   const inputStatus = 'status' in input ? input.status : undefined;
 
+  if (inputStatus === 'missing') {
+    return { success: false, reason: 'missing', message: 'The saved source is unavailable.' };
+  }
+
   if (inputStatus === 'unsupported') {
     return {
       success: false,
@@ -120,7 +124,7 @@ export async function openStudySource(
 
   // Handle local video specifically (UX §5.1 item 3)
   const isVideo = doc.fileType === 'video' || ref.sourceType === 'video';
-  if (isVideo && ref.extractId) {
+  if (isVideo && ref.extractId && !isStale) {
     useTabsStore.getState().addTab({
       title: doc.title || ref.documentTitle || 'Video',
       icon: createElement(Scissors, { className: 'w-4 h-4 text-muted-foreground' }),
@@ -146,12 +150,12 @@ export async function openStudySource(
     };
   }
 
-  // Standard document opening via openDocumentAtLocation
+  const jump = isStale || ('navigation' in input && input.navigation !== 'exact') ? undefined : ref.jump;
   const opened = await openDocumentAtLocation(
     doc.id,
     {
-      initialJump: ref.jump,
-      highlightQuery: ref.excerpt,
+      initialJump: jump,
+      highlightQuery: isStale ? undefined : ref.excerpt,
     },
     useTabsStore.getState().addTab,
     options?.returnContext
@@ -172,6 +176,6 @@ export async function openStudySource(
 
   return {
     success: true,
-    navigation: isStale ? 'coarse' : ref.jump ? 'exact' : 'coarse',
+    navigation: jump ? 'exact' : 'coarse',
   };
 }

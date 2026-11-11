@@ -62,11 +62,13 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
     updateConfidence,
     markQuestion,
     flushResponse,
+    acknowledgePracticeCheck,
     submitAttempt,
   } = useAttemptLifecycle({
     detail,
-    onAutoSubmit: () => {
+    onAutoSubmit: (completed) => {
       setShowSubmitModal(false);
+      onComplete(completed);
     },
   });
 
@@ -311,6 +313,7 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
               attemptRevision={attempt.revision}
               slot={currentSlot}
               hintLevel={currentHintLevel}
+              onCheckSuccess={acknowledgePracticeCheck}
               disabled={isReadOnly}
             />
           </>

@@ -158,8 +158,8 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
       {isRulesOnly && (
         <RulesOnlyNotice
           conceptCount={nodes.filter((n) => Boolean(n.conceptId)).length}
-          edgeCount={prerequisites.length}
-          sourceCount={Object.keys(planDetail.sourceRefs).length}
+          edgeCount={prerequisites.filter((edge) => edge.support === 'confirmed-concept-link').length}
+          sourceCount={planDetail.version.sourceScope.resolvedDocuments.length}
         />
       )}
 

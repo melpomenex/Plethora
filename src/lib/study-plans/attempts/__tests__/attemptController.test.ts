@@ -297,11 +297,7 @@ describe('AttemptController', () => {
     expect(mockAdapter.submitAttempt).toHaveBeenCalledTimes(1);
 
     const submitCall = vi.mocked(mockAdapter.submitAttempt).mock.calls[0][0];
-    expect(submitCall.objectiveGrades).toHaveLength(2);
-    expect(submitCall.objectiveGrades[0].outcome).toBe('correct');
-    expect(submitCall.objectiveGrades[0].points).toBe(2);
-    expect(submitCall.objectiveGrades[1].outcome).toBe('correct');
-    expect(submitCall.objectiveGrades[1].points).toBe(4);
+    expect(submitCall.objectiveGrades).toEqual([]);
 
     expect(res.attempt.status).toBe('complete');
     expect(ctrl.getState().isReadOnly).toBe(true);

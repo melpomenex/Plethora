@@ -9,7 +9,6 @@ import type {
   StudyPlanDetail,
 } from '../../../../types/learningPaths';
 import type {
-  StudySourceRefInput,
   StudySourceScopeV1,
 } from '../../../../types/studySource';
 import { runNoAiCurriculumCoordinator } from '../noAiCoordinator';
@@ -96,7 +95,12 @@ describe('runNoAiCurriculumCoordinator (C2-T08)', () => {
     };
   }
 
-  it('generates a reproducible source-cited curriculum using confirmed concepts without AI', async () => {
+  function createMockPlanDetailWithScope(sourceScope: StudySourceScopeV1): StudyPlanDetail {
+    const detail = createMockPlanDetail();
+    return { ...detail, version: { ...detail.version, sourceScope } };
+  }
+
+  it('preserves confirmed concepts and prerequisite links without fabricating passage citations', async () => {
     let mockPlanDetail = createMockPlanDetail();
 
     const dummyConcepts: Concept[] = [
@@ -170,29 +174,17 @@ describe('runNoAiCurriculumCoordinator (C2-T08)', () => {
       return mockPlanDetail;
     });
 
-    const mockResolveRefs = vi.fn().mockImplementation(async (inputs: StudySourceRefInput[]) =>
-      inputs.map((inp, idx) => ({
-        ref: {
-          schemaVersion: 1,
-          id: `ssr_rules_${idx}`,
-          documentId: inp.documentId,
-          excerpt: inp.excerpt,
-          revision: inp.revision || 'rev_1',
-          revisionKind: 'content-hash',
-          excerptSha256: 'sha256_mock',
-          documentTitle: inp.documentTitle || 'Doc',
-          sourceType: inp.sourceType || 'pdf',
-          capturedAt: '2026-11-10T00:00:00Z',
-        },
-        status: 'current',
-        navigation: 'coarse',
-      }))
-    );
+    const refreshedScope: StudySourceScopeV1 = {
+      ...dummyScope,
+      resolvedDocuments: dummyScope.resolvedDocuments.map((doc) => ({ ...doc, revision: `live-${doc.revision}` })),
+      limitations: ['index_not_verified'],
+    };
+    const mockRefreshScope = vi.fn().mockResolvedValue(refreshedScope);
 
     const result = await runNoAiCurriculumCoordinator(dummyRequest, {
       getPlanFn: vi.fn().mockResolvedValue(mockPlanDetail),
       saveDraftFn: mockSaveDraft,
-      resolveSourceRefsFn: mockResolveRefs,
+      refreshScopeFn: mockRefreshScope,
       listConfirmedConceptLinksFn: vi.fn().mockResolvedValue(dummyLinks),
       listConceptsFn: vi.fn().mockResolvedValue(dummyConcepts),
     });
@@ -209,9 +201,13 @@ describe('runNoAiCurriculumCoordinator (C2-T08)', () => {
     // Confirmed prerequisite edge is wired
     expect(result.planDetail.version.prerequisites.length).toBe(1);
     expect(result.planDetail.version.prerequisites[0].support).toBe('confirmed-concept-link');
+    expect(result.planDetail.version.nodes.every((node) => node.sourceRefIds.length === 0)).toBe(true);
+    expect(result.planDetail.version.nodes.every((node) => node.materialSupport === 'unsupported')).toBe(true);
+    expect(mockRefreshScope).toHaveBeenCalledWith(dummyScope);
+    expect(savedDrafts[0].sourceScope).toEqual(refreshedScope);
   });
 
-  it('falls back to source document inventory when no concepts are present', async () => {
+  it('uses coarse document inventory with no fake objectives, references, or inferred edges', async () => {
     let mockPlanDetail = createMockPlanDetail();
 
     const mockSaveDraft = vi.fn().mockImplementation(async (input: SaveStudyPlanDraftInput) => {
@@ -227,67 +223,109 @@ describe('runNoAiCurriculumCoordinator (C2-T08)', () => {
       return mockPlanDetail;
     });
 
-    const mockResolveRefs = vi.fn().mockImplementation(async (inputs: StudySourceRefInput[]) =>
-      inputs.map((inp, idx) => ({
-        ref: {
-          schemaVersion: 1,
-          id: `ssr_doc_${idx}`,
-          documentId: inp.documentId,
-          excerpt: inp.excerpt,
-          revision: inp.revision || 'rev_1',
-          revisionKind: 'content-hash',
-          excerptSha256: 'sha256_mock',
-          documentTitle: inp.documentTitle || 'Doc',
-          sourceType: inp.sourceType || 'pdf',
-          capturedAt: '2026-11-10T00:00:00Z',
-        },
-        status: 'current',
-        navigation: 'coarse',
-      }))
-    );
+    const mockRefreshScope = vi.fn().mockResolvedValue(dummyScope);
 
     const result = await runNoAiCurriculumCoordinator(dummyRequest, {
       getPlanFn: vi.fn().mockResolvedValue(mockPlanDetail),
       saveDraftFn: mockSaveDraft,
-      resolveSourceRefsFn: mockResolveRefs,
+      refreshScopeFn: mockRefreshScope,
       listConfirmedConceptLinksFn: vi.fn().mockResolvedValue([]),
       listConceptsFn: vi.fn().mockResolvedValue([]),
     });
 
     expect(result.isRulesOnly).toBe(true);
-    expect(result.planDetail.version.nodes.length).toBeGreaterThanOrEqual(2);
+    expect(result.planDetail.version.nodes).toHaveLength(2);
     expect(result.planDetail.version.nodes[0].title).toBe('Operating Systems PDF');
     expect(result.planDetail.version.nodes[1].title).toBe('Virtual Memory EPUB');
-    expect(result.planDetail.version.nodes[0].sourceRefIds.length).toBe(1);
+    expect(result.planDetail.version.nodes.every((node) => node.sourceRefIds.length === 0)).toBe(true);
+    expect(result.planDetail.version.nodes.every((node) => node.learningObjectives[0].startsWith('Review the title'))).toBe(true);
+    expect(result.planDetail.version.nodes.every((node) => node.materialSupport === 'unsupported')).toBe(true);
+    expect(result.planDetail.version.nodes.every((node) => node.summary.includes('contents were not inspected'))).toBe(true);
+    expect(result.planDetail.version.prerequisites).toEqual([]);
+    expect(mockRefreshScope).toHaveBeenCalledTimes(1);
   });
 
   it('fails if source document revision has changed', async () => {
-    const staleResolveRefs = vi.fn().mockResolvedValue([
-      {
-        status: 'stale',
-        navigation: 'exact',
-        ref: {
-          schemaVersion: 1,
-          id: 'ssr_stale',
-          documentId: 'doc_os_1',
-          excerpt: '',
-          revision: 'rev_CHANGED',
-          revisionKind: 'content-hash',
-          excerptSha256: '',
-          documentTitle: 'OS',
-          sourceType: 'pdf',
-          capturedAt: '',
-        },
-      },
-    ]);
+    const staleRefresh = vi.fn().mockRejectedValue({ code: 'stale_source' });
 
     await expect(
       runNoAiCurriculumCoordinator(dummyRequest, {
         getPlanFn: vi.fn().mockResolvedValue(createMockPlanDetail()),
-        resolveSourceRefsFn: staleResolveRefs,
+        refreshScopeFn: staleRefresh,
       })
     ).rejects.toMatchObject({
       code: 'stale_source',
     });
+  });
+
+  it('rejects a request whose base draft version is no longer current', async () => {
+    const refreshScope = vi.fn().mockResolvedValue(dummyScope);
+    await expect(runNoAiCurriculumCoordinator(
+      { ...dummyRequest, baseVersionId: 'spv_old_draft' },
+      { getPlanFn: vi.fn().mockResolvedValue(createMockPlanDetail()), refreshScopeFn: refreshScope }
+    )).rejects.toMatchObject({ code: 'invalid_state' });
+    expect(refreshScope).not.toHaveBeenCalled();
+  });
+
+  it('uses selected extract links as concepts without fetching broad concept metadata', async () => {
+    const extractScope: StudySourceScopeV1 = {
+      ...dummyScope,
+      selected: { documentIds: [], extractIds: ['extract_selected'], collectionIds: [], tagIds: [] },
+      resolvedDocuments: [{ ...dummyScope.resolvedDocuments[0], extractIds: ['extract_selected'] }],
+    };
+    const extractLinks: ConceptLink[] = [
+      {
+        id: 'extract-concept-1', sourceKind: 'extract', sourceId: 'extract_selected',
+        targetKind: 'concept', targetId: 'c_extract_a', relationType: 'related-to',
+        confidence: 1, createdBy: 'user', createdAt: '2026-11-10T00:00:00Z', isDismissed: false,
+      },
+      {
+        id: 'extract-concept-2', sourceKind: 'concept', sourceId: 'c_extract_b',
+        targetKind: 'extract', targetId: 'extract_selected', relationType: 'related-to',
+        confidence: 1, createdBy: 'user', createdAt: '2026-11-10T00:00:00Z', isDismissed: false,
+      },
+      {
+        id: 'extract-prerequisite', sourceKind: 'concept', sourceId: 'c_extract_a',
+        targetKind: 'concept', targetId: 'c_extract_b', relationType: 'prerequisite-of',
+        confidence: 1, createdBy: 'user', createdAt: '2026-11-10T00:00:00Z', isDismissed: false,
+      },
+      {
+        id: 'unselected-document-concept', sourceKind: 'document', sourceId: 'doc_os_1',
+        targetKind: 'concept', targetId: 'c_unselected_doc', relationType: 'related-to',
+        confidence: 1, createdBy: 'user', createdAt: '2026-11-10T00:00:00Z', isDismissed: false,
+      },
+    ];
+    let mockPlanDetail = createMockPlanDetail();
+    const saveDraftFn = vi.fn().mockImplementation(async (input: SaveStudyPlanDraftInput) => {
+      mockPlanDetail = {
+        ...mockPlanDetail,
+        version: {
+          ...mockPlanDetail.version,
+          sourceScope: input.sourceScope as StudySourceScopeV1,
+          nodes: input.nodes,
+          prerequisites: input.prerequisites,
+        },
+      };
+      return mockPlanDetail;
+    });
+    const listConceptsFn = vi.fn().mockResolvedValue([]);
+
+    const result = await runNoAiCurriculumCoordinator(
+      { ...dummyRequest, sourceScope: extractScope },
+      {
+        getPlanFn: vi.fn().mockResolvedValue(createMockPlanDetailWithScope(extractScope)),
+        refreshScopeFn: vi.fn().mockResolvedValue(extractScope),
+        saveDraftFn,
+        listConfirmedConceptLinksFn: vi.fn().mockResolvedValue(extractLinks),
+        listConceptsFn,
+      }
+    );
+
+    const titles = result.planDetail.version.nodes.map((node) => node.title);
+    expect(titles).toContain('c_extract_a');
+    expect(titles).toContain('c_extract_b');
+    expect(titles).not.toContain('c_unselected_doc');
+    expect(listConceptsFn).not.toHaveBeenCalled();
+    expect(result.planDetail.version.prerequisites).toHaveLength(1);
   });
 });

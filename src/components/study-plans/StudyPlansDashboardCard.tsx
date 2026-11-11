@@ -24,6 +24,15 @@ export const StudyPlansDashboardCard: React.FC<StudyPlansDashboardCardProps> = (
   const [plans, setPlans] = useState<StudyPlanSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [navigationError, setNavigationError] = useState<string | null>(null);
+
+  const dispatchAction = (action: Parameters<typeof requestDestinationAction>[0]) => {
+    setNavigationError(null);
+    void requestDestinationAction(action).catch((err) => {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
+      setNavigationError(err instanceof Error ? err.message : 'Could not open Study Plans');
+    });
+  };
 
   useEffect(() => {
     if (!isTauri()) return;
@@ -51,15 +60,15 @@ export const StudyPlansDashboardCard: React.FC<StudyPlansDashboardCardProps> = (
   }, []);
 
   const handleOpenHome = () => {
-    void requestDestinationAction({ destination: 'study-plans', action: 'home' });
+    dispatchAction({ destination: 'study-plans', action: 'home' });
   };
 
   const handleCreate = () => {
-    void requestDestinationAction({ destination: 'study-plans', action: 'create' });
+    dispatchAction({ destination: 'study-plans', action: 'create' });
   };
 
   const handleOpenPlan = (planId: string) => {
-    void requestDestinationAction({ destination: 'study-plans', action: 'open-plan', planId });
+    dispatchAction({ destination: 'study-plans', action: 'open-plan', planId });
   };
 
   if (!isTauri()) {
@@ -72,6 +81,7 @@ export const StudyPlansDashboardCard: React.FC<StudyPlansDashboardCardProps> = (
       className={`bg-card border border-border rounded-xl p-5 flex flex-col justify-between ${className}`}
     >
       <div>
+        {navigationError && <p role="alert" className="text-xs text-destructive mb-2">{navigationError}</p>}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Compass className="w-5 h-5 text-primary" />

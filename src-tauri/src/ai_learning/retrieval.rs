@@ -87,8 +87,8 @@ pub async fn retrieve(
         match backend.embed_text(query).await {
             Ok(v) if !v.is_empty() => Some(v),
             Ok(_) => None,
-            Err(e) => {
-                debug!("query embedding failed, lexical fallback: {}", e);
+            Err(_) => {
+                debug!("query embedding failed, using lexical retrieval");
                 None
             }
         }

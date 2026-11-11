@@ -635,15 +635,15 @@ export function MainLayout() {
     }
 
     const config = tabConfig[type];
-    if (!config) return;
-    addTab({
+    if (!config && type !== "study-plans") return;
+    addTab(config ? {
       title: config.title,
       // TabBar derives the icon from `type` via getTabIcon(); no emoji needed.
       icon: null,
       type,
       content: config.content,
       closable: config.closable,
-    });
+    } : createCanonicalTab(type));
   }, [addTab]);
 
   useEffect(() => {

@@ -8,18 +8,24 @@ import * as coordinatorModule from '../../../../lib/study-plans/assessments/gene
 import type { BlueprintDetail } from '../../../../types/assessmentQuestions';
 import type { StudyPlanDetail } from '../../../../types/learningPaths';
 import type { StudyAiPreflight } from '../../../../lib/study-plans/generation/types';
+import { planQuotaSlots } from '../../../../lib/study-plans/assessments/quotaPlanner';
 
 vi.mock('../../../../lib/study-plans/assessments/blueprintService', () => ({
   BlueprintService: {
     createBlueprint: vi.fn(),
     getBlueprintRevision: vi.fn(),
     saveBlueprintDraft: vi.fn(),
+    saveQuestionFromDomain: vi.fn(),
     publishBlueprint: vi.fn(),
   },
 }));
 
 vi.mock('../../../../lib/study-plans/generation/preflight', () => ({
   performStudyAiPreflight: vi.fn(),
+}));
+
+vi.mock('../../../../lib/study-plans/generation/curriculumPreflight', () => ({
+  refreshCurriculumScope: vi.fn(async (scope) => scope),
 }));
 
 vi.mock('../../../../lib/study-plans/assessments/generationCoordinator', () => ({
@@ -185,7 +191,7 @@ describe('AssessmentBuilder Component (C3-T08)', () => {
   it('initializes draft blueprint on mount and renders sections', async () => {
     vi.mocked(preflightModule.performStudyAiPreflight).mockResolvedValueOnce({
       preflight: mockPreflight,
-      route: null as any,
+      route: { provider: { id: 'native' }, task: {} } as any,
     });
     vi.mocked(BlueprintService.createBlueprint).mockResolvedValueOnce(mockCreatedDetail);
 
@@ -226,7 +232,7 @@ describe('AssessmentBuilder Component (C3-T08)', () => {
   it('triggers coordinator on Generate Questions click', async () => {
     vi.mocked(preflightModule.performStudyAiPreflight).mockResolvedValueOnce({
       preflight: mockPreflight,
-      route: null as any,
+      route: { provider: { id: 'native' }, task: {} } as any,
     });
     vi.mocked(BlueprintService.createBlueprint).mockResolvedValueOnce(mockCreatedDetail);
     vi.mocked(BlueprintService.saveBlueprintDraft).mockResolvedValueOnce(mockCreatedDetail);
@@ -262,5 +268,60 @@ describe('AssessmentBuilder Component (C3-T08)', () => {
         expect.anything()
       );
     });
+  });
+
+  it('does not start generation when saving the current draft fails', async () => {
+    vi.mocked(preflightModule.performStudyAiPreflight).mockResolvedValueOnce({
+      preflight: mockPreflight,
+      route: { provider: { id: 'native' }, task: {} } as any,
+    });
+    vi.mocked(BlueprintService.createBlueprint).mockResolvedValueOnce(mockCreatedDetail);
+    vi.mocked(BlueprintService.saveBlueprintDraft).mockRejectedValueOnce(new Error('write failed'));
+
+    render(<AssessmentBuilder planDetail={mockPlanDetail} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Generate Questions')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Generate Questions'));
+
+    await waitFor(() => expect(screen.getByText('Draft could not be saved. Generation was not started.')).toBeInTheDocument());
+    expect(coordinatorModule.runAssessmentGenerationCoordinator).not.toHaveBeenCalled();
+  });
+
+  it('opens the built-in manual authoring flow and saves to the next unfilled quota slot', async () => {
+    vi.mocked(preflightModule.performStudyAiPreflight).mockResolvedValueOnce({
+      preflight: mockPreflight,
+      route: { provider: { id: 'native' }, task: {} } as any,
+    });
+    vi.mocked(BlueprintService.createBlueprint).mockResolvedValueOnce(mockCreatedDetail);
+    vi.mocked(BlueprintService.saveQuestionFromDomain).mockResolvedValueOnce({} as any);
+    vi.mocked(BlueprintService.getBlueprintRevision).mockResolvedValueOnce(mockCreatedDetail);
+
+    render(<AssessmentBuilder planDetail={mockPlanDetail} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Add Manual Question')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Add Manual Question'));
+    expect(screen.getByRole('dialog', { name: 'Question Editor' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /save question/i }));
+
+    await waitFor(() => expect(BlueprintService.saveQuestionFromDomain).toHaveBeenCalledTimes(1));
+    expect(BlueprintService.saveQuestionFromDomain).toHaveBeenCalledWith(expect.objectContaining({
+      blueprintRevisionId: mockCreatedDetail.revision.id,
+      slotKey: planQuotaSlots(mockCreatedDetail.revision.config, mockCreatedDetail.revision.id)[0].slotKey,
+      question: expect.objectContaining({ kind: 'single-select' }),
+    }));
+  });
+
+  it('keeps manual authoring unavailable for a Ready paper', async () => {
+    vi.mocked(preflightModule.performStudyAiPreflight).mockResolvedValueOnce({
+      preflight: mockPreflight,
+      route: { provider: { id: 'native' }, task: {} } as any,
+    });
+    vi.mocked(BlueprintService.getBlueprintRevision).mockResolvedValueOnce({
+      ...mockCreatedDetail,
+      revision: { ...mockCreatedDetail.revision, state: 'ready' },
+    });
+
+    render(<AssessmentBuilder blueprintRevisionId="abr_1" planDetail={mockPlanDetail} onClose={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText('Start Assessment')).toBeInTheDocument());
+    expect(screen.queryByText('Add Manual Question')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Manual Question Editor/)).not.toBeInTheDocument();
   });
 });

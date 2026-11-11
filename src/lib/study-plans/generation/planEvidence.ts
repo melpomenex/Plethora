@@ -15,6 +15,7 @@ export const EVIDENCE_LIMITS = {
   MAX_GLOBAL_HITS: 96,
   MAX_HANDLES_PER_BATCH: 12,
   MAX_CHARS_PER_BATCH: 18000,
+  MAX_EXCERPT_CHARS: 1600,
   DEPTH_CAPS: {
     survey: 8,
     foundational: 16,
@@ -40,7 +41,7 @@ export interface EvidenceBatch {
 }
 
 export interface PlanEvidenceOptions {
-  sourceScope: StudySourceScopeV1;
+  sourceScope?: StudySourceScopeV1;
   depth: StudyDepth;
   evidenceItems?: Array<{
     documentId: string;
@@ -69,21 +70,7 @@ export function planEvidenceBatches(options: PlanEvidenceOptions): {
   const seenSignatures = new Set<string>();
   const boundedItems: EvidenceHandleItem[] = [];
 
-  // If no raw items provided, synthesize coarse items from resolvedDocuments
-  const candidates =
-    rawItems.length > 0
-      ? rawItems
-      : (options.sourceScope.resolvedDocuments || []).map((doc) => ({
-          documentId: doc.documentId,
-          extractId: undefined as string | undefined,
-          documentTitle: doc.title,
-          sourceType: doc.sourceType,
-          revision: doc.revision,
-          excerpt: `Source document: ${doc.title}`,
-          excerptSha256: undefined as string | undefined,
-        }));
-
-  for (const item of candidates) {
+  for (const item of rawItems) {
     if (boundedItems.length >= EVIDENCE_LIMITS.MAX_GLOBAL_HITS) break;
 
     const signature = `${item.documentId}:${item.extractId || ''}:${item.excerpt.trim()}`;
@@ -98,7 +85,7 @@ export function planEvidenceBatches(options: PlanEvidenceOptions): {
       documentTitle: item.documentTitle || 'Untitled Source',
       sourceType: item.sourceType || 'document',
       revision: item.revision || 'unknown',
-      excerpt: item.excerpt.slice(0, 1600), // respect excerpt limit
+      excerpt: item.excerpt.slice(0, EVIDENCE_LIMITS.MAX_EXCERPT_CHARS), // respect excerpt limit
       excerptSha256: item.excerptSha256 || `sha256:${item.documentId}`,
     });
   }

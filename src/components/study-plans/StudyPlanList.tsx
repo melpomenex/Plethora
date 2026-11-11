@@ -17,15 +17,18 @@ import { StudyPlanSummaryCard } from './StudyPlanSummaryCard';
 import { LegacyStudyPlanImport } from './LegacyStudyPlanImport';
 import { StudyPlanStateNotice } from './StudyPlanStateNotice';
 import { Button } from '../md3/Button';
+import { studyErrorMessage } from '../../lib/study-plans/studyErrorMessage';
 
 export interface StudyPlanListProps {
   onCreateClick: () => void;
   onOpenPlan: (planId: string) => void;
+  onOpenAssessmentHistory?: () => void;
 }
 
 export const StudyPlanList: React.FC<StudyPlanListProps> = ({
   onCreateClick,
   onOpenPlan,
+  onOpenAssessmentHistory,
 }) => {
   const plans = useLearningPathsStore((s) => s.plans);
   const isLoading = useLearningPathsStore((s) => s.isLoading);
@@ -84,14 +87,15 @@ export const StudyPlanList: React.FC<StudyPlanListProps> = ({
           </p>
         </div>
 
-        <Button
-          variant="filled"
-          onClick={onCreateClick}
-          data-testid="create-study-plan-btn"
-        >
-          <Plus size={18} />
-          <span>Create Study Plan</span>
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {onOpenAssessmentHistory && (
+            <Button variant="outlined" onClick={onOpenAssessmentHistory}>Assessment history</Button>
+          )}
+          <Button variant="filled" onClick={onCreateClick} data-testid="create-study-plan-btn">
+            <Plus size={18} />
+            <span>Create Study Plan</span>
+          </Button>
+        </div>
       </div>
 
       {/* Legacy import banner if applicable */}
@@ -101,7 +105,7 @@ export const StudyPlanList: React.FC<StudyPlanListProps> = ({
       {error && !isLoading && (
         <StudyPlanStateNotice
           type="storage_failed"
-          message={error.messageKey}
+          message={studyErrorMessage(error, 'Could not load Study Plans.')}
           onRetry={refreshPlans}
         />
       )}

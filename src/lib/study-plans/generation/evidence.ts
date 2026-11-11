@@ -45,6 +45,8 @@ export interface HydrateEvidenceOptions {
   concurrency?: number; // default 2
   maxGlobalHits?: number; // default 96
   embeddingConfig?: EmbeddingConfig;
+  signal?: AbortSignal;
+  beforeQuery?: () => Promise<void>;
   retrieveFn?: (
     query: string,
     options?: {
@@ -52,6 +54,7 @@ export interface HydrateEvidenceOptions {
       filters?: RetrievalFilters;
       config?: EmbeddingConfig;
       includeSpotlight?: boolean;
+      isolatedConfig?: boolean;
     }
   ) => Promise<RetrievalResponse>;
   listConfirmedConceptLinksFn?: () => Promise<ConceptLink[]>;
@@ -67,6 +70,14 @@ export interface HydratedEvidenceResult {
   resolutions: StudySourceResolution[];
   uniqueHits: RetrievalResult[];
   conceptSeeds: string[];
+  retrieval?: {
+    mode: 'semantic' | 'lexicalOnly' | 'mixed' | 'unavailable';
+    embeddingModels: string[];
+    queryCount: number;
+    failedQueries: number;
+    verifiedPassages: number;
+    documentsWithEvidence: number;
+  };
 }
 
 /**
@@ -207,6 +218,8 @@ export async function hydrateCurriculumEvidence(
     concurrency = 2,
     maxGlobalHits = EVIDENCE_LIMITS.MAX_GLOBAL_HITS, // 96
     embeddingConfig,
+    signal,
+    beforeQuery,
     retrieveFn = retrieveFromLibrary,
     listConfirmedConceptLinksFn = listConfirmedConceptLinks,
     listConceptsFn = listConcepts,
@@ -219,7 +232,7 @@ export async function hydrateCurriculumEvidence(
 
   if (allowedDocIdsList.length === 0) {
     // Empty scope produces empty handles
-    const plan = planEvidenceBatches({ sourceScope, depth, evidenceItems: [] });
+    const plan = planEvidenceBatches({ depth, evidenceItems: [] });
     return {
       batches: plan.batches,
       allHandles: plan.allHandles,
@@ -231,51 +244,57 @@ export async function hydrateCurriculumEvidence(
     };
   }
 
-  // 1. Initial goal query
-  let goalHits: RetrievalResult[] = [];
-  try {
-    const res = await retrieveFn(goal, {
-      k: kGoal,
-      filters: { documentIds: allowedDocIdsList },
-      config: embeddingConfig,
-      includeSpotlight: false,
-    });
-    // Strict defense: drop any hit not in allowedDocIds
-    goalHits = (res.results || []).filter((h) => allowedDocIds.has(h.documentId));
-  } catch {
-    goalHits = [];
-  }
+  const fullDocumentIds = new Set(sourceScope.selected.documentIds);
+  const documentsById = new Map(sourceScope.resolvedDocuments.map((doc) => [doc.documentId, doc]));
+  const modes = new Set<RetrievalResponse['mode']>();
+  const embeddingModels = new Set<string>();
+  let failedQueries = 0;
+  let queryCount = 0;
 
-  // 2. Confirmed concept seeds
-  const seeds = await findConceptSeeds(
-    allowedDocIds,
-    allowedExtractIds,
-    maxConceptSeeds,
-    listConfirmedConceptLinksFn,
-    listConceptsFn
-  );
-
-  // 3. Per-seed retrieval with concurrency = 2
-  const seedHitsPerSeed = await runConcurrent(seeds, concurrency, async (seed) => {
+  async function retrieve(query: string, k: number): Promise<RetrievalResult[]> {
+    await beforeQuery?.();
+    signal?.throwIfAborted();
+    queryCount++;
     try {
-      const res = await retrieveFn(seed, {
-        k: kPerSeed,
+      const response = await retrieveFn(query, {
+        k,
         filters: { documentIds: allowedDocIdsList },
         config: embeddingConfig,
         includeSpotlight: false,
+        isolatedConfig: true,
       });
-      return (res.results || []).filter((h) => allowedDocIds.has(h.documentId));
+      modes.add(response.mode);
+      if (response.mode === 'semantic' && response.embeddingModel) {
+        embeddingModels.add(response.embeddingModel);
+      }
+      return response.results.filter((hit) => {
+        if (!allowedDocIds.has(hit.documentId)) return false;
+        const extractId = hit.location?.extractId ?? (hit.sourceType === 'extract' ? hit.sourceId : undefined);
+        return fullDocumentIds.has(hit.documentId) || !!extractId && allowedExtractIds.has(extractId);
+      });
     } catch {
+      signal?.throwIfAborted();
+      failedQueries++;
       return [];
     }
-  });
+  }
+
+  const goalHits = await retrieve(goal, kGoal);
+  const seeds = await findConceptSeeds(
+    fullDocumentIds,
+    allowedExtractIds,
+    Math.min(maxConceptSeeds, EVIDENCE_LIMITS.MAX_CONCEPT_SEEDS),
+    listConfirmedConceptLinksFn,
+    listConceptsFn,
+  );
+  const seedHitsPerSeed = await runConcurrent(seeds, concurrency, (seed) => retrieve(seed, kPerSeed));
 
   // 4. Aggregate & Deduplicate up to maxGlobalHits (96)
   const seenSignatures = new Set<string>();
   const uniqueHits: RetrievalResult[] = [];
 
   function addHit(hit: RetrievalResult) {
-    if (uniqueHits.length >= maxGlobalHits) return;
+    if (uniqueHits.length >= Math.min(maxGlobalHits, EVIDENCE_LIMITS.MAX_GLOBAL_HITS)) return;
     const sig = hit.chunkId
       ? `${hit.documentId}:${hit.chunkId}`
       : `${hit.documentId}:${hit.location?.startOffset ?? 0}-${hit.location?.endOffset ?? 0}:${hit.text.trim()}`;
@@ -293,101 +312,39 @@ export async function hydrateCurriculumEvidence(
     }
   }
 
-  // 5. Source Ref Hydration
-  let resolutions: StudySourceResolution[] = [];
-  let evidenceItemsForBatching: Array<{
-    documentId: string;
-    extractId?: string;
-    documentTitle: string;
-    sourceType: string;
-    revision: string;
-    excerpt: string;
-    excerptSha256?: string;
-  }> = [];
-
-  if (uniqueHits.length > 0) {
-    const refInputs: StudySourceRefInput[] = uniqueHits.map((hit) => ({
-      documentId: hit.documentId,
-      extractId: hit.location?.extractId,
-      excerpt: hit.text.slice(0, 1600),
-      documentTitle: hit.documentTitle,
-      sourceType: typeof hit.sourceType === 'string' ? hit.sourceType : 'document',
-      jump: mapLocationToJump(hit.location),
-      chunk: hit.location
-        ? {
-            chunkId: hit.chunkId,
-            ordinal: hit.ordinal,
-            startOffset: hit.location.startOffset,
-            endOffset: hit.location.endOffset,
-          }
-        : undefined,
-    }));
-
-    try {
-      resolutions = await resolveSourceRefsFn(refInputs);
-    } catch {
-      resolutions = [];
-    }
-
-    evidenceItemsForBatching = uniqueHits.map((hit, idx) => {
-      const res = resolutions[idx];
-      return {
-        documentId: hit.documentId,
-        extractId: hit.location?.extractId,
-        documentTitle: res?.ref?.documentTitle || hit.documentTitle || 'Source',
-        sourceType:
-          res?.ref?.sourceType ||
-          (typeof hit.sourceType === 'string' ? hit.sourceType : 'document'),
-        revision: res?.ref?.revision || 'unknown',
-        excerpt: res?.ref?.excerpt || hit.text.slice(0, 1600),
-        excerptSha256: res?.ref?.excerptSha256,
-      };
-    });
-  } else {
-    // Fallback when 0 retrieval hits: synthesize coarse refs from resolvedDocuments
-    const coarseInputs: StudySourceRefInput[] = (sourceScope.resolvedDocuments || []).map((doc) => ({
-      documentId: doc.documentId,
-      excerpt: `Source document: ${doc.title}`,
-      documentTitle: doc.title,
-      sourceType: doc.sourceType,
-      revision: doc.revision,
-    }));
-
-    try {
-      resolutions = await resolveSourceRefsFn(coarseInputs);
-    } catch {
-      resolutions = [];
-    }
-
-    evidenceItemsForBatching = (sourceScope.resolvedDocuments || []).map((doc, idx) => {
-      const res = resolutions[idx];
-      return {
-        documentId: doc.documentId,
-        documentTitle: res?.ref?.documentTitle || doc.title,
-        sourceType: res?.ref?.sourceType || doc.sourceType,
-        revision: res?.ref?.revision || doc.revision,
-        excerpt: res?.ref?.excerpt || `Source document: ${doc.title}`,
-        excerptSha256: res?.ref?.excerptSha256,
-      };
-    });
-  }
-
-  // 6. Partition into batches
-  const plan = planEvidenceBatches({
-    sourceScope,
-    depth,
-    evidenceItems: evidenceItemsForBatching,
+  signal?.throwIfAborted();
+  const refInputs: StudySourceRefInput[] = uniqueHits.filter((hit) => hit.text.trim()).map((hit) => ({
+    documentId: hit.documentId,
+    extractId: hit.location?.extractId ?? (hit.sourceType === 'extract' ? hit.sourceId : undefined),
+    excerpt: hit.text.trim().slice(0, EVIDENCE_LIMITS.MAX_EXCERPT_CHARS).replace(/[\uD800-\uDBFF]$/, ''),
+    documentTitle: hit.documentTitle,
+    sourceType: hit.sourceType,
+    revision: documentsById.get(hit.documentId)?.revision,
+    jump: mapLocationToJump(hit.location),
+    chunk: hit.location && hit.chunkId ? {
+      chunkId: hit.chunkId,
+      ordinal: hit.ordinal,
+      startOffset: hit.location.startOffset,
+      endOffset: hit.location.endOffset,
+    } : undefined,
+  }));
+  const resolutions = refInputs.length ? await resolveSourceRefsFn(refInputs) : [];
+  const verifiedRefs = resolutions.flatMap(({ status, ref }, index) => {
+    const input = refInputs[index];
+    return status === 'current' && input && ref.documentId === input.documentId &&
+      ref.extractId === input.extractId && (!input.revision || ref.revision === input.revision) &&
+      ref.excerpt === input.excerpt.replace(/\r\n/g, '\n') &&
+      ref.revisionKind !== 'unknown'
+      ? [ref] : [];
   });
-
-  // 7. Build handleToSourceRefIdMap
-  const handleToSourceRefIdMap = new Map<string, string>();
-  for (let i = 0; i < plan.allHandles.length; i++) {
-    const handleItem = plan.allHandles[i];
-    const resolution = resolutions[i];
-    if (resolution?.ref?.id) {
-      handleToSourceRefIdMap.set(handleItem.handle, resolution.ref.id);
-    }
-  }
+  const refKey = (ref: { documentId: string; extractId?: string; excerpt: string }) =>
+    JSON.stringify([ref.documentId, ref.extractId, ref.excerpt.trim()]);
+  const refsByEvidence = new Map(verifiedRefs.map((ref) => [refKey(ref), ref.id]));
+  const plan = planEvidenceBatches({ depth, evidenceItems: verifiedRefs });
+  const handleToSourceRefIdMap = new Map(plan.allHandles.flatMap((item) => {
+    const id = refsByEvidence.get(refKey(item));
+    return id ? [[item.handle, id] as const] : [];
+  }));
 
   return {
     batches: plan.batches,
@@ -397,5 +354,13 @@ export async function hydrateCurriculumEvidence(
     resolutions,
     uniqueHits,
     conceptSeeds: seeds,
+    retrieval: {
+      mode: modes.size > 1 ? 'mixed' : modes.values().next().value ?? 'unavailable',
+      embeddingModels: [...embeddingModels],
+      queryCount,
+      failedQueries,
+      verifiedPassages: plan.allHandles.length,
+      documentsWithEvidence: new Set(plan.allHandles.map((item) => item.documentId)).size,
+    },
   };
 }

@@ -49,15 +49,15 @@ export const StudyJobRecoveryList: React.FC<StudyJobRecoveryListProps> = ({
       </div>
 
       <p className="text-[11px] text-amber-800 dark:text-amber-200">
-        The following generation jobs were interrupted before completion. Partial checkpoints were
-        safely stored and can be resumed.
+        Review the model and privacy settings before resuming. If the source passages or model changed,
+        open the saved draft and start a new run.
       </p>
 
       <div className="space-y-2">
         {jobs.map((job) => {
-          const completedSteps = (job as any).progress?.completed ?? job.nextStepIndex ?? 0;
-          const totalSteps = (job as any).progress?.total ?? 2;
-          const kindLabel = ((job as any).jobKind || job.kind || 'curriculum').replace('-', ' ');
+          const completedSteps = job.progress?.completed ?? job.nextStepIndex;
+          const totalSteps = job.progress?.total ?? 0;
+          const kindLabel = job.kind.replaceAll('-', ' ');
 
           return (
             <div
@@ -81,10 +81,10 @@ export const StudyJobRecoveryList: React.FC<StudyJobRecoveryListProps> = ({
                   <span>
                     Progress: Step {completedSteps} of {totalSteps}
                   </span>
-                  {(job as any).lastError && (
+                  {job.lastError && (
                     <span className="text-red-500 flex items-center gap-1">
                       <Warning size={12} />
-                      <span className="truncate max-w-[200px]">{(job as any).lastError.code}</span>
+                      <span className="truncate max-w-[200px]">Previous run stopped</span>
                     </span>
                   )}
                 </div>

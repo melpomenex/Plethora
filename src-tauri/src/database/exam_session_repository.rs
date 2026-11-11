@@ -10,8 +10,426 @@ use chrono::Utc;
 use sqlx::{FromRow, Pool, Sqlite};
 use uuid::Uuid;
 
+use crate::database::assessment_blueprint_repository::AssessmentBlueprintRepository;
+use crate::models::assessment_blueprint::{AssessmentQuestionRevision, QuestionKind};
 use crate::models::exam_session::*;
 use crate::models::study_source::StudyCommandError;
+use serde_json::{Map, Value};
+use std::collections::{HashMap, HashSet};
+use unicode_normalization::UnicodeNormalization;
+
+fn string_field<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(Value::as_str)
+}
+
+fn project_question_payload(
+    revision: &AssessmentQuestionRevision,
+    reveal_answers: bool,
+    practice: bool,
+) -> Value {
+    let payload = &revision.payload;
+    let mut public = Map::new();
+    for key in [
+        "schemaVersion",
+        "prompt",
+        "difficulty",
+        "maxPoints",
+        "applicationLevel",
+    ] {
+        let value = payload.get(key).filter(|value| match key {
+            "schemaVersion" | "difficulty" | "maxPoints" => value.is_number(),
+            "prompt" | "applicationLevel" => value.is_string(),
+            _ => false,
+        });
+        if let Some(value) = value {
+            public.insert(key.to_string(), value.clone());
+        }
+    }
+    public.insert("maxPoints".into(), serde_json::json!(revision.max_points));
+    public.insert("difficulty".into(), serde_json::json!(revision.difficulty));
+    public.insert("kind".into(), Value::String(revision.kind.to_string()));
+    if let Some(objectives) = payload.get("learningObjectives").and_then(Value::as_array) {
+        public.insert(
+            "learningObjectives".into(),
+            Value::Array(
+                objectives
+                    .iter()
+                    .filter(|item| item.is_string())
+                    .cloned()
+                    .collect(),
+            ),
+        );
+    }
+    if practice {
+        if let Some(hints) = payload.get("hints").and_then(Value::as_array) {
+            public.insert(
+                "hints".into(),
+                Value::Array(
+                    hints
+                        .iter()
+                        .filter(|hint| hint.is_string())
+                        .take(3)
+                        .cloned()
+                        .collect(),
+                ),
+            );
+        }
+    }
+    if reveal_answers {
+        if let Some(explanation) = payload.get("explanation").filter(|value| value.is_string()) {
+            public.insert("explanation".into(), explanation.clone());
+        }
+        let source_ids = payload
+            .get("sourceRefIds")
+            .and_then(Value::as_array)
+            .filter(|ids| !ids.is_empty())
+            .cloned()
+            .unwrap_or_else(|| {
+                revision
+                    .sources
+                    .iter()
+                    .map(|source| Value::String(source.source_ref_id.clone()))
+                    .collect()
+            });
+        if !source_ids.is_empty() {
+            public.insert(
+                "sourceRefIds".into(),
+                Value::Array(source_ids.into_iter().filter(|id| id.is_string()).collect()),
+            );
+        }
+    }
+
+    match revision.kind {
+        QuestionKind::SingleSelect | QuestionKind::MultiSelect => {
+            if let Some(options) = payload.get("options").and_then(Value::as_array) {
+                let projected = options
+                    .iter()
+                    .filter_map(|option| {
+                        let id = string_field(option, "id")?;
+                        let text = string_field(option, "text")?;
+                        Some(serde_json::json!({ "id": id, "text": text }))
+                    })
+                    .collect();
+                public.insert("options".into(), Value::Array(projected));
+            }
+            if reveal_answers {
+                let key = if revision.kind == QuestionKind::SingleSelect {
+                    "correctOptionId"
+                } else {
+                    "correctOptionIds"
+                };
+                if let Some(answer) = revision.answer_key.get(key) {
+                    public.insert(key.to_string(), answer.clone());
+                }
+            }
+        }
+        QuestionKind::Cloze => {
+            if let Some(segments) = payload.get("segments").and_then(Value::as_array) {
+                let projected = segments.iter().filter_map(|segment| {
+                    match string_field(segment, "kind")? {
+                        "text" => Some(serde_json::json!({ "kind": "text", "text": string_field(segment, "text")? })),
+                        "blank" => Some(serde_json::json!({ "kind": "blank", "blankId": string_field(segment, "blankId")? })),
+                        _ => None,
+                    }
+                }).collect();
+                public.insert("segments".into(), Value::Array(projected));
+            }
+            if let Some(blanks) = payload.get("blanks").and_then(Value::as_array) {
+                let answer_blanks = revision.answer_key.get("blanks").and_then(Value::as_array);
+                let projected = blanks
+                    .iter()
+                    .filter_map(|blank| {
+                        let id = string_field(blank, "id")?;
+                        let case_sensitive = blank
+                            .get("caseSensitive")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(false);
+                        let mut item =
+                            serde_json::json!({ "id": id, "caseSensitive": case_sensitive });
+                        if reveal_answers {
+                            if let Some(answers) = answer_blanks
+                                .and_then(|items| {
+                                    items
+                                        .iter()
+                                        .find(|entry| string_field(entry, "id") == Some(id))
+                                })
+                                .and_then(|entry| entry.get("acceptedAnswers"))
+                            {
+                                item["acceptedAnswers"] = answers.clone();
+                            }
+                        }
+                        Some(item)
+                    })
+                    .collect();
+                public.insert("blanks".into(), Value::Array(projected));
+            }
+        }
+        QuestionKind::ShortAnswer => {
+            if reveal_answers {
+                for key in ["referenceAnswer", "keyFacts", "acceptedAnswers"] {
+                    if let Some(answer) = revision.answer_key.get(key) {
+                        public.insert(key.to_string(), answer.clone());
+                    }
+                }
+            }
+        }
+        QuestionKind::Essay => {
+            if reveal_answers {
+                if let Some(reasoning) = revision.answer_key.get("expectedReasoning") {
+                    public.insert("expectedReasoning".into(), reasoning.clone());
+                }
+            }
+        }
+    }
+    if reveal_answers {
+        if let Some(rubric) = &revision.rubric {
+            public.insert("rubric".into(), rubric.clone());
+        }
+    }
+    Value::Object(public)
+}
+
+fn project_attempt_question(
+    revision: &AssessmentQuestionRevision,
+    reveal_answers: bool,
+    practice: bool,
+) -> AttemptQuestionRevision {
+    AttemptQuestionRevision {
+        id: revision.id.clone(),
+        question_id: revision.question_id.clone(),
+        blueprint_revision_id: revision.blueprint_revision_id.clone(),
+        revision: revision.revision,
+        slot_key: revision.slot_key.clone(),
+        fingerprint: if reveal_answers {
+            revision.fingerprint.clone()
+        } else {
+            String::new()
+        },
+        kind: revision.kind,
+        question: project_question_payload(revision, reveal_answers, practice),
+        validation: revision.validation.clone(),
+        validation_issues: Vec::new(),
+        committed_at: revision.committed_at.clone(),
+        provider: None,
+        created_at: revision.created_at.clone(),
+    }
+}
+
+#[derive(FromRow)]
+struct ObjectiveQuestion {
+    kind: String,
+    answer_key_json: String,
+    payload_json: String,
+    max_points: i64,
+}
+
+fn normalize_answer(text: &str, case_sensitive: bool) -> String {
+    let normalized: String = text.nfkc().collect();
+    let spaces = normalized.split_whitespace().collect::<Vec<_>>().join(" ");
+    if case_sensitive {
+        spaces
+    } else {
+        spaces.to_lowercase()
+    }
+}
+
+fn accepted_match(values: Option<&Value>, text: &str, case_sensitive: bool) -> bool {
+    let answer = normalize_answer(text, case_sensitive);
+    !answer.is_empty()
+        && values.and_then(Value::as_array).is_some_and(|accepted| {
+            accepted
+                .iter()
+                .filter_map(Value::as_str)
+                .any(|value| normalize_answer(value, case_sensitive) == answer)
+        })
+}
+
+fn option_set(value: Option<&Value>) -> Option<HashSet<&str>> {
+    let items = value?.as_array()?;
+    let ids = items
+        .iter()
+        .map(Value::as_str)
+        .collect::<Option<HashSet<_>>>()?;
+    (ids.len() == items.len()).then_some(ids)
+}
+
+fn validate_scoring_response(
+    question: &ObjectiveQuestion,
+    draft: &Value,
+    key: &Value,
+    mark: &str,
+) -> bool {
+    if string_field(draft, "kind") != Some(question.kind.as_str())
+        || !matches!(mark, "answered" | "unanswered" | "skipped")
+    {
+        return false;
+    }
+    let valid_options = || {
+        serde_json::from_str::<Value>(&question.payload_json)
+            .ok()
+            .and_then(|payload| {
+                payload
+                    .get("options")
+                    .and_then(Value::as_array)
+                    .map(|options| {
+                        options
+                            .iter()
+                            .filter_map(|option| string_field(option, "id").map(str::to_string))
+                            .collect::<HashSet<_>>()
+                    })
+            })
+            .unwrap_or_default()
+    };
+    match question.kind.as_str() {
+        "single-select" => match draft.get("optionId") {
+            Some(Value::Null) => mark != "answered",
+            Some(Value::String(id)) => valid_options().contains(id),
+            _ => false,
+        },
+        "multi-select" => option_set(draft.get("optionIds")).is_some_and(|ids| {
+            let valid = valid_options();
+            ids.iter().all(|id| valid.contains(*id))
+        }),
+        "cloze" => draft
+            .get("answers")
+            .and_then(Value::as_object)
+            .is_some_and(|answers| {
+                key.get("blanks")
+                    .and_then(Value::as_array)
+                    .is_some_and(|blanks| {
+                        answers.iter().all(|(id, answer)| {
+                            answer.is_string()
+                                && blanks
+                                    .iter()
+                                    .any(|blank| string_field(blank, "id") == Some(id.as_str()))
+                        })
+                    })
+            }),
+        "short-answer" | "essay" => string_field(draft, "text").is_some(),
+        _ => false,
+    }
+}
+
+fn score_response(
+    question: &ObjectiveQuestion,
+    question_revision_id: &str,
+    draft_json: &str,
+    mark: &str,
+) -> Result<ObjectiveGradeOutput, StudyCommandError> {
+    let invalid =
+        || StudyCommandError::invalid_input("study.assessment.error.invalid_response", vec![]);
+    let draft: Value = serde_json::from_str(draft_json).map_err(|_| invalid())?;
+    let key: Value = serde_json::from_str(&question.answer_key_json).map_err(|_| {
+        StudyCommandError::invalid_state("study.assessment.error.invalid_committed_answer_key")
+    })?;
+    if !validate_scoring_response(question, &draft, &key, mark) {
+        return Err(invalid());
+    }
+    let max_points = question.max_points as f64;
+    let mut grade = ObjectiveGradeOutput {
+        question_revision_id: question_revision_id.to_string(),
+        origin: "deterministic".into(),
+        state: "final".into(),
+        points: Some(0.0),
+        max_points,
+        outcome: "incorrect".into(),
+        details: None,
+    };
+    if mark != "answered" {
+        grade.outcome = mark.to_string();
+        return Ok(grade);
+    }
+
+    let fraction = match question.kind.as_str() {
+        "single-select" => {
+            let selected = string_field(&draft, "optionId").ok_or_else(invalid)?;
+            if Some(selected) == string_field(&key, "correctOptionId") {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        "multi-select" => {
+            let selected = option_set(draft.get("optionIds")).ok_or_else(invalid)?;
+            if Some(selected) == option_set(key.get("correctOptionIds")) {
+                1.0
+            } else {
+                0.0
+            }
+        }
+        "cloze" => {
+            let answers = draft
+                .get("answers")
+                .and_then(Value::as_object)
+                .ok_or_else(invalid)?;
+            let blanks = key
+                .get("blanks")
+                .and_then(Value::as_array)
+                .filter(|blanks| !blanks.is_empty())
+                .ok_or_else(|| {
+                    StudyCommandError::invalid_state(
+                        "study.assessment.error.invalid_committed_answer_key",
+                    )
+                })?;
+            let payload: Value = serde_json::from_str(&question.payload_json).map_err(|_| {
+                StudyCommandError::invalid_state(
+                    "study.assessment.error.invalid_committed_answer_key",
+                )
+            })?;
+            let correct = blanks
+                .iter()
+                .filter(|blank| {
+                    let answer = string_field(blank, "id")
+                        .and_then(|id| answers.get(id))
+                        .and_then(Value::as_str)
+                        .unwrap_or("");
+                    let case_sensitive = payload
+                        .get("blanks")
+                        .and_then(Value::as_array)
+                        .and_then(|entries| {
+                            entries.iter().find(|entry| {
+                                string_field(entry, "id") == string_field(blank, "id")
+                            })
+                        })
+                        .and_then(|entry| entry.get("caseSensitive"))
+                        .and_then(Value::as_bool)
+                        .unwrap_or(false);
+                    accepted_match(blank.get("acceptedAnswers"), answer, case_sensitive)
+                })
+                .count();
+            correct as f64 / blanks.len() as f64
+        }
+        "short-answer" | "essay" => {
+            let answer = string_field(&draft, "text").ok_or_else(invalid)?;
+            if answer.trim().is_empty() {
+                grade.outcome = "unanswered".into();
+                return Ok(grade);
+            }
+            if question.kind == "short-answer"
+                && accepted_match(key.get("acceptedAnswers"), answer, false)
+            {
+                1.0
+            } else {
+                grade.origin = "ai".into();
+                grade.state = "needs-review".into();
+                grade.points = None;
+                grade.outcome = "pending".into();
+                return Ok(grade);
+            }
+        }
+        _ => return Err(invalid()),
+    };
+    grade.points = Some(fraction * max_points);
+    grade.outcome = (if fraction == 1.0 {
+        "correct"
+    } else if fraction > 0.0 {
+        "partial"
+    } else {
+        "incorrect"
+    })
+    .into();
+    Ok(grade)
+}
 
 #[derive(FromRow)]
 struct AttemptDbRow {
@@ -361,7 +779,7 @@ impl ExamSessionRepository {
             StudyCommandError::storage_failed(format!("Failed to query submissions: {}", e))
         })?;
 
-        let submissions = sub_rows
+        let submissions: Vec<ResponseSubmission> = sub_rows
             .into_iter()
             .map(|row| ResponseSubmission {
                 id: row.id,
@@ -413,11 +831,43 @@ impl ExamSessionRepository {
             })
             .collect();
 
+        // Load only the exact immutable revisions pinned by this attempt, in the
+        // persisted order. Full revision rows remain native-only until projected.
+        let blueprint = AssessmentBlueprintRepository::new(pool.clone())
+            .get_assessment_blueprint_revision(&attempt.blueprint_revision_id)
+            .await?;
+        let by_id: HashMap<String, AssessmentQuestionRevision> = blueprint
+            .questions
+            .into_iter()
+            .map(|question| (question.id.clone(), question))
+            .collect();
+        let checked_questions: std::collections::HashSet<&str> = submissions
+            .iter()
+            .map(|submission| submission.question_revision_id.as_str())
+            .collect();
+        let practice = attempt.mode == "practice";
+        let submitted = attempt.submitted_at.is_some();
+        let questions = attempt
+            .question_revision_ids
+            .iter()
+            .map(|revision_id| {
+                let question = by_id.get(revision_id).ok_or_else(|| {
+                    StudyCommandError::not_found(
+                        "study.assessment.error.question_revision_not_found",
+                    )
+                })?;
+                let reveal =
+                    submitted || (practice && checked_questions.contains(revision_id.as_str()));
+                Ok(project_attempt_question(question, reveal, practice))
+            })
+            .collect::<Result<Vec<_>, StudyCommandError>>()?;
+
         Ok(AttemptDetail {
             attempt,
             responses,
             submissions,
             current_grades,
+            questions,
         })
     }
 
@@ -584,13 +1034,26 @@ impl ExamSessionRepository {
             ));
         }
 
+        let question = sqlx::query_as::<_, ObjectiveQuestion>(
+            "SELECT kind, answer_key_json, payload_json, max_points FROM assessment_question_revisions WHERE id = ? AND committed_at IS NOT NULL",
+        )
+        .bind(&existing.2)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+        score_response(&question, &existing.2, &input.draft_json, &input.mark)?;
+
         let now = Utc::now().to_rfc3339();
         let new_revision = existing_revision + 1;
 
         let result = sqlx::query(
             "UPDATE exam_responses
              SET draft_json = ?, mark = ?, revision = ?, last_client_mutation_id = ?, updated_at = ?
-             WHERE id = ? AND revision = ?",
+             WHERE id = ? AND revision = ? AND EXISTS (
+                 SELECT 1 FROM exam_attempts a
+                 WHERE a.id = exam_responses.attempt_id AND a.status = 'in-progress'
+                   AND (a.deadline_at IS NULL OR julianday(a.deadline_at) > julianday('now'))
+             )",
         )
         .bind(&input.draft_json)
         .bind(&input.mark)
@@ -684,6 +1147,29 @@ impl ExamSessionRepository {
             StudyCommandError::storage_failed(format!("Failed to begin transaction: {}", e))
         })?;
 
+        // Acquire the write lock and recheck the attempt before taking the
+        // answer snapshot. A concurrent submit will observe the settled row.
+        let reserved = sqlx::query(
+            "UPDATE exam_attempts SET revision = revision WHERE id = ? AND revision = ? AND status = 'in-progress'",
+        )
+        .bind(&input.attempt_id)
+        .bind(revision)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+        if reserved.rows_affected() == 0 {
+            tx.rollback()
+                .await
+                .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+            let current = Self::get_exam_attempt(pool, &input.attempt_id).await?;
+            if current.attempt.status != "in-progress" {
+                return Ok(current);
+            }
+            return Err(StudyCommandError::stale_revision(
+                "study.assessment.error.stale_attempt_revision",
+            ));
+        }
+
         // 5. Query all responses
         let responses: Vec<(String, String, String, String)> = sqlx::query_as(
             "SELECT id, question_revision_id, draft_json, mark
@@ -701,11 +1187,22 @@ impl ExamSessionRepository {
 
         let now = Utc::now().to_rfc3339();
 
-        let grade_map: std::collections::HashMap<&str, &ObjectiveGradeOutput> = input
-            .objective_grades
-            .iter()
-            .map(|g| (g.question_revision_id.as_str(), g))
-            .collect();
+        // The committed answer keys stay on the native side. Older callers
+        // may still send legacy score fields, which are never authoritative.
+        let mut grade_map = HashMap::new();
+        for (_, revision_id, draft, mark) in &responses {
+            let question = sqlx::query_as::<_, ObjectiveQuestion>(
+                "SELECT kind, answer_key_json, payload_json, max_points FROM assessment_question_revisions WHERE id = ? AND committed_at IS NOT NULL",
+            )
+            .bind(revision_id)
+            .fetch_one(&mut *tx)
+            .await
+            .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+            grade_map.insert(
+                revision_id.as_str(),
+                score_response(&question, revision_id, draft, mark)?,
+            );
+        }
 
         let mut final_count = 0;
         let mut total_final_points = 0.0;
@@ -1047,48 +1544,61 @@ impl ExamSessionRepository {
             }
         };
 
-        // C7-T02: hint must be precommitted for this question revision.
-        let payload_json: Option<String> = sqlx::query_scalar(
-            "SELECT payload_json FROM assessment_question_revisions WHERE id = ?",
+        let question = sqlx::query_as::<_, ObjectiveQuestion>(
+            "SELECT kind, answer_key_json, payload_json, max_points FROM assessment_question_revisions WHERE id = ? AND committed_at IS NOT NULL",
         )
         .bind(&q_rev_id)
-        .fetch_optional(pool)
+        .fetch_one(pool)
         .await
-        .unwrap_or(None);
-        if let Some(payload) = payload_json {
-            let committed_hints = serde_json::from_str::<serde_json::Value>(&payload)
-                .ok()
-                .and_then(|v| {
-                    v.get("hints")
-                        .and_then(|h| h.as_array())
-                        .map(|a| a.len() as i64)
-                })
-                .unwrap_or(0);
-            if input.hint_level > committed_hints {
-                return Err(StudyCommandError::invalid_input(
-                    "study.assessment.error.hint_not_precommitted",
-                    vec![],
-                ));
-            }
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+        let committed_hints = serde_json::from_str::<Value>(&question.payload_json)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("hints")
+                    .and_then(Value::as_array)
+                    .map(|hints| hints.len() as i64)
+            })
+            .unwrap_or(0);
+        if input.hint_level > committed_hints {
+            return Err(StudyCommandError::invalid_input(
+                "study.assessment.error.hint_not_precommitted",
+                vec![],
+            ));
         }
+        let objective_grade = score_response(&question, &q_rev_id, &input.draft_json, &input.mark)?;
 
         let now = Utc::now().to_rfc3339();
         let mut tx = pool.begin().await.map_err(|e| {
             StudyCommandError::storage_failed(format!("Failed to begin transaction: {}", e))
         })?;
 
+        let reserved = sqlx::query(
+            "UPDATE exam_attempts SET revision = revision WHERE id = ? AND revision = ? AND status = 'in-progress'",
+        )
+        .bind(&input.attempt_id)
+        .bind(attempt_revision)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+        if reserved.rows_affected() == 0 {
+            return Err(StudyCommandError::stale_revision(
+                "study.assessment.error.stale_attempt_revision",
+            ));
+        }
+
         // 3. Update response draft with current check values
-        sqlx::query(
+        let response_revision: i64 = sqlx::query_scalar(
             "UPDATE exam_responses
              SET draft_json = ?, mark = ?, revision = revision + 1, last_client_mutation_id = ?, updated_at = ?
-             WHERE id = ?",
+             WHERE id = ? RETURNING revision",
         )
         .bind(&input.draft_json)
         .bind(&input.mark)
         .bind(&input.client_mutation_id)
         .bind(&now)
         .bind(&resp_id)
-        .execute(&mut *tx)
+        .fetch_one(&mut *tx)
         .await
         .map_err(|e| StudyCommandError::storage_failed(format!("Failed to flush response draft: {}", e)))?;
 
@@ -1139,9 +1649,9 @@ impl ExamSessionRepository {
             created_at: now.clone(),
         };
 
-        // 5. If objective grade provided, record it
-        let mut grade_res: Option<ExamGrade> = None;
-        if let Some(ref og) = input.objective_grade {
+        // 5. Persist the native grade or a pending written-answer grade.
+        let grade_res = {
+            let og = &objective_grade;
             // Unset prior is_current for this response's submissions
             sqlx::query(
                 "UPDATE exam_grades
@@ -1185,7 +1695,7 @@ impl ExamSessionRepository {
                 .await?;
             }
 
-            grade_res = Some(ExamGrade {
+            Some(ExamGrade {
                 id: grade_id,
                 response_submission_id: sub_id,
                 question_revision_id: q_rev_id,
@@ -1200,8 +1710,8 @@ impl ExamSessionRepository {
                 supersedes_grade_id: None,
                 is_current: true,
                 created_at: now.clone(),
-            });
-        }
+            })
+        };
 
         // 6. Bump attempt revision
         let new_attempt_revision = attempt_revision + 1;
@@ -1223,6 +1733,10 @@ impl ExamSessionRepository {
             submission,
             grade: grade_res,
             attempt_revision: new_attempt_revision,
+            response_revision,
+            explanation: serde_json::from_str::<Value>(&question.payload_json)
+                .ok()
+                .and_then(|value| string_field(&value, "explanation").map(str::to_owned)),
         })
     }
 
@@ -1421,7 +1935,7 @@ mod tests {
                 id, question_id, blueprint_revision_id, revision, slot_key, fingerprint,
                 kind, payload_json, answer_key_json, max_points, difficulty, validation, committed_at, created_at
             ) VALUES (?, ?, ?, 1, 'slot_0', 'fp_q1',
-                      'single-select', '{\"prompt\":\"Q1\",\"hints\":[\"h1\",\"h2\"]}', '{\"correctOptionId\":\"opt_a\"}', 2, 2, 'valid', '2026-11-10T12:00:00Z', '2026-11-10T12:00:00Z')"
+                      'single-select', '{\"schemaVersion\":1,\"kind\":\"single-select\",\"prompt\":\"Q1\",\"difficulty\":2,\"maxPoints\":2,\"applicationLevel\":\"recall\",\"options\":[{\"id\":\"opt_a\",\"text\":\"A\"},{\"id\":\"opt_b\",\"text\":\"B\"}],\"hints\":[\"SECRET_HINT\",\"SECOND_HINT\"],\"explanation\":\"SECRET_EXPLANATION\",\"sourceRefIds\":[\"source_secret\"]}', '{\"correctOptionId\":\"opt_a\"}', 2, 2, 'valid', '2026-11-10T12:00:00Z', '2026-11-10T12:00:00Z')"
         ).bind(&aqr1_id).bind(&q1_id).bind(rev_id).execute(pool).await.unwrap();
 
         // Question 2 (short-answer, 4 points)
@@ -1443,6 +1957,67 @@ mod tests {
             ) VALUES (?, ?, ?, 1, 'slot_1', 'fp_q2',
                       'short-answer', '{\"prompt\":\"Q2\"}', '{\"acceptedAnswers\":[\"ok\"]}', 4, 3, 'valid', '2026-11-10T12:00:00Z', '2026-11-10T12:00:00Z')"
         ).bind(&aqr2_id).bind(&q2_id).bind(rev_id).execute(pool).await.unwrap();
+    }
+
+    #[test]
+    fn scores_committed_question_formats_without_caller_grades() {
+        let score = |kind: &str, payload: &str, key: &str, draft: &str| {
+            score_response(
+                &ObjectiveQuestion {
+                    kind: kind.into(),
+                    payload_json: payload.into(),
+                    answer_key_json: key.into(),
+                    max_points: 4,
+                },
+                "revision",
+                draft,
+                "answered",
+            )
+        };
+        assert_eq!(
+            score(
+                "multi-select",
+                r#"{"options":[{"id":"a"},{"id":"b"},{"id":"c"}]}"#,
+                r#"{"correctOptionIds":["a","b"]}"#,
+                r#"{"kind":"multi-select","optionIds":["b","a"]}"#
+            )
+            .unwrap()
+            .points,
+            Some(4.0)
+        );
+        assert!(score(
+            "multi-select",
+            r#"{"options":[{"id":"a"}]}"#,
+            r#"{"correctOptionIds":["a"]}"#,
+            r#"{"kind":"multi-select","optionIds":["a","a"]}"#
+        )
+        .is_err());
+        let cloze = score("cloze", r#"{"blanks":[{"id":"x","caseSensitive":false},{"id":"y","caseSensitive":true}]}"#, r#"{"blanks":[{"id":"x","acceptedAnswers":["One"]},{"id":"y","caseSensitive":true,"acceptedAnswers":["YES"]}]}"#,
+            r#"{"kind":"cloze","answers":{"x":"  ｏｎｅ  ","y":"yes"}}"#).unwrap();
+        assert_eq!(cloze.points, Some(2.0));
+        assert_eq!(cloze.outcome, "partial");
+        assert_eq!(
+            score(
+                "short-answer",
+                "{}",
+                r#"{"acceptedAnswers":["Some text"]}"#,
+                r#"{"kind":"short-answer","text":"SOME   TEXT"}"#
+            )
+            .unwrap()
+            .points,
+            Some(4.0)
+        );
+        assert_eq!(
+            score(
+                "essay",
+                "{}",
+                "{}",
+                r#"{"kind":"essay","text":"A written answer"}"#
+            )
+            .unwrap()
+            .points,
+            None
+        );
     }
 
     #[tokio::test]
@@ -1485,6 +2060,36 @@ mod tests {
         assert_eq!(detail.responses.len(), 2);
         assert_eq!(detail.responses[0].mark, "unanswered");
         assert_eq!(detail.responses[1].mark, "unanswered");
+        assert_eq!(
+            detail.questions.len(),
+            detail.attempt.question_revision_ids.len()
+        );
+        assert_eq!(
+            detail.questions[0].id,
+            detail.attempt.question_revision_ids[0]
+        );
+        assert_eq!(
+            detail.questions[1].id,
+            detail.attempt.question_revision_ids[1]
+        );
+        let unsubmitted_json = serde_json::to_string(&detail).unwrap();
+        for private_value in [
+            "correctOptionId",
+            "acceptedAnswers",
+            "\\\"ok\\\"",
+            "SECRET_HINT",
+            "SECRET_EXPLANATION",
+            "answerKey",
+            "sourceRefIds",
+            "source_secret",
+            "explanation",
+            "hints",
+        ] {
+            assert!(
+                !unsubmitted_json.contains(private_value),
+                "unsubmitted attempt leaked {private_value}"
+            );
+        }
 
         // 3. Exact replay of client_start_key returns same attempt idempotently
         let replay_detail = ExamSessionRepository::start_exam_attempt(&pool, start_input)
@@ -1594,7 +2199,28 @@ mod tests {
         .await
         .unwrap();
 
-        // 1. Submit with all final grades -> status complete
+        let first = detail
+            .responses
+            .iter()
+            .find(|response| {
+                response.question_revision_id == detail.attempt.question_revision_ids[0]
+            })
+            .unwrap();
+        ExamSessionRepository::save_exam_response(
+            &pool,
+            SaveResponseInput {
+                attempt_id: detail.attempt.id.clone(),
+                response_id: first.id.clone(),
+                expected_response_revision: first.revision,
+                last_client_mutation_id: "native-correct".into(),
+                draft_json: r#"{"kind":"single-select","optionId":"opt_a"}"#.into(),
+                mark: "answered".into(),
+            },
+        )
+        .await
+        .unwrap();
+
+        // A forged full-score payload cannot award points to the blank written response.
         let sub_input = SubmitAttemptInput {
             attempt_id: detail.attempt.id.clone(),
             expected_attempt_revision: 1,
@@ -1627,10 +2253,16 @@ mod tests {
             .expect("Submit succeeds");
 
         assert_eq!(completed.attempt.status, "complete");
-        assert_eq!(completed.attempt.awarded_points, Some(6.0));
+        assert_eq!(completed.attempt.awarded_points, Some(2.0));
         assert!(completed.attempt.completed_at.is_some());
         assert_eq!(completed.submissions.len(), 2);
         assert_eq!(completed.current_grades.len(), 2);
+        assert_eq!(completed.questions[0].question["correctOptionId"], "opt_a");
+        assert_eq!(completed.questions[1].question["acceptedAnswers"][0], "ok");
+        assert_eq!(
+            completed.questions[0].question["sourceRefIds"][0],
+            "source_secret"
+        );
 
         // 2. Same submission key replay returns completed attempt idempotently
         let replay = ExamSessionRepository::submit_exam_attempt(&pool, sub_input)
@@ -1668,6 +2300,11 @@ mod tests {
         .await
         .unwrap();
 
+        let before_check_json = serde_json::to_string(&detail).unwrap();
+        assert!(!before_check_json.contains("correctOptionId"));
+        assert!(!before_check_json.contains("answerKey"));
+        assert_eq!(detail.questions[0].question["hints"][0], "SECRET_HINT");
+
         let resp_1 = &detail.responses[0];
 
         // 1. First practice check creates ordinal 1 submission
@@ -1699,6 +2336,14 @@ mod tests {
         assert_eq!(check_1.submission.hint_level, 1);
         assert!(check_1.grade.is_some());
         assert_eq!(check_1.attempt_revision, 2);
+        let after_check = ExamSessionRepository::get_exam_attempt(&pool, &detail.attempt.id)
+            .await
+            .expect("Checked practice attempt reloads");
+        assert_eq!(
+            after_check.questions[0].question["correctOptionId"],
+            "opt_a"
+        );
+        assert_eq!(after_check.questions[0].question["hints"][0], "SECRET_HINT");
 
         // 2. Second practice check on same response creates ordinal 2 submission
         let check_2 = ExamSessionRepository::check_practice_response(

@@ -8,7 +8,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
-import { MagnifyingGlass, FileText, CheckSquare, Square, Warning, ArrowClockwise } from '@phosphor-icons/react';
+import { MagnifyingGlass, FileText, Warning, ArrowClockwise } from '@phosphor-icons/react';
 import { getDocuments } from '../../api/documents';
 import type { Document } from '../../types/document';
 import type { SelectedSourceScope } from '../../types/studySource';
@@ -74,8 +74,8 @@ export const SourceScopePicker: React.FC<SourceScopePickerProps> = ({
   const isAtLimit = selectedCount >= maxDocuments;
 
   return (
-    <fieldset className="border border-surface-200 dark:border-surface-700/80 rounded-2xl p-5 bg-surface-50/50 dark:bg-surface-800/30">
-      <legend className="px-2 text-sm font-semibold text-surface-900 dark:text-surface-100">
+    <fieldset className="min-w-0 w-full border border-surface-200 dark:border-surface-700/80 rounded-2xl p-5 bg-surface-50/50 dark:bg-surface-800/30">
+      <legend className="max-w-full px-2 text-sm font-semibold text-surface-900 dark:text-surface-100">
         Source Material Scope (Optional)
       </legend>
 
@@ -93,6 +93,19 @@ export const SourceScopePicker: React.FC<SourceScopePickerProps> = ({
           {selectedCount} / {maxDocuments} documents
         </span>
       </div>
+
+      {selectedScope.extractIds.length > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+          <span>{selectedScope.extractIds.length} selected {selectedScope.extractIds.length === 1 ? 'extract' : 'extracts'}</span>
+          <button
+            type="button"
+            className="min-h-10 rounded-md px-2 text-primary focus-visible:ring-2 focus-visible:ring-primary"
+            onClick={() => onChange({ ...selectedScope, extractIds: [] })}
+          >
+            Clear extracts
+          </button>
+        </div>
+      )}
 
       {isAtLimit && (
         <div
@@ -149,12 +162,7 @@ export const SourceScopePicker: React.FC<SourceScopePickerProps> = ({
             />
           </div>
 
-          <div
-            role="listbox"
-            aria-multiselectable="true"
-            aria-label="Source documents list"
-            className="max-h-56 overflow-y-auto space-y-1 pr-1 focus:outline-none"
-          >
+          <div aria-label="Source documents list" className="max-h-56 overflow-y-auto space-y-1 pr-1">
             {filteredDocs.length === 0 ? (
               <div className="py-4 text-center text-xs text-surface-500">
                 No matching documents found.
@@ -165,18 +173,8 @@ export const SourceScopePicker: React.FC<SourceScopePickerProps> = ({
                 const disabled = !isSelected && isAtLimit;
 
                 return (
-                  <div
+                  <label
                     key={doc.id}
-                    role="option"
-                    aria-selected={isSelected}
-                    tabIndex={0}
-                    onClick={() => !disabled && handleToggleDoc(doc.id)}
-                    onKeyDown={(e) => {
-                      if (e.key === ' ' || e.key === 'Enter') {
-                        e.preventDefault();
-                        if (!disabled) handleToggleDoc(doc.id);
-                      }
-                    }}
                     className={`flex items-center justify-between p-2.5 rounded-xl text-xs transition-colors cursor-pointer select-none ${
                       isSelected
                         ? 'bg-primary-500/10 text-primary-900 dark:text-primary-100 border border-primary-500/30'
@@ -186,14 +184,18 @@ export const SourceScopePicker: React.FC<SourceScopePickerProps> = ({
                     }`}
                   >
                     <div className="flex items-center gap-2 min-w-0 pr-2">
-                      <FileText size={16} className="text-surface-400 flex-shrink-0" />
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        disabled={disabled}
+                        onChange={() => handleToggleDoc(doc.id)}
+                        aria-label={doc.title || 'Untitled Document'}
+                        className="rounded text-primary-600 focus:ring-primary-500"
+                      />
+                      <FileText size={16} aria-hidden="true" className="text-surface-400 flex-shrink-0" />
                       <span className="truncate font-medium">{doc.title || 'Untitled Document'}</span>
                     </div>
-
-                    <div className="flex-shrink-0 text-primary-600 dark:text-primary-400">
-                      {isSelected ? <CheckSquare size={18} weight="fill" /> : <Square size={18} />}
-                    </div>
-                  </div>
+                  </label>
                 );
               })
             )}

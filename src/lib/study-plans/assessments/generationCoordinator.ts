@@ -14,7 +14,7 @@ import {
   failStudyJobStep,
   startStudyGenerationJob,
 } from '../../../api/study-generation';
-import { StudyApiError } from '../../../api/study-plans';
+import { StudyApiError, getStudyPlan } from '../../../api/study-plans';
 import { resolveStudySourceRefs } from '../../../api/study-sources';
 import type {
   BlueprintDetail,
@@ -53,6 +53,9 @@ import {
 } from './generationMerge';
 import { encodeQuestionRevision } from './questionCodec';
 import { planQuotaSlots } from './quotaPlanner';
+import { refreshCurriculumScope } from '../generation/curriculumPreflight';
+import { performStudyAiPreflight, validatePreflightUnchanged } from '../generation/preflight';
+import type { AITaskRoute } from '../../ai/tasks/router';
 
 export interface AssessmentGenerationRequest {
   blueprintRevisionId: string;
@@ -71,6 +74,9 @@ export interface AssessmentCoordinatorDependencies {
   failStepFn?: typeof failStudyJobStep;
   cancelJobFn?: typeof cancelStudyGenerationJob;
   resolveSourceRefsFn?: typeof resolveStudySourceRefs;
+  getStudyPlanFn?: typeof getStudyPlan;
+  refreshScopeFn?: typeof refreshCurriculumScope;
+  preflightFn?: typeof performStudyAiPreflight;
   runPinnedTaskFn?: typeof runPinnedStudyTask;
 }
 
@@ -96,17 +102,33 @@ export interface AssessmentCoordinatorResult {
  */
 export async function verifyAssessmentSourceRevisions(
   sourceScope: StudySourceScopeV1,
-  resolveRefsFn = resolveStudySourceRefs
+  storedRefsOrResolver: Record<string, StudySourceResolution> | typeof resolveStudySourceRefs = {},
+  resolveRefsMaybe = resolveStudySourceRefs
 ): Promise<StudySourceRefV1[]> {
+  const storedRefs = typeof storedRefsOrResolver === 'function' ? {} : storedRefsOrResolver;
+  const resolveRefsFn = typeof storedRefsOrResolver === 'function' ? storedRefsOrResolver : resolveRefsMaybe;
   const docs = sourceScope.resolvedDocuments || [];
-  if (docs.length === 0) return [];
-
-  const testInputs: StudySourceRefInput[] = docs.map((d) => ({
-    documentId: d.documentId,
-    documentTitle: d.title,
-    sourceType: d.sourceType,
-    excerpt: `Source document: ${d.title}`,
-    revision: d.revision,
+  const inScope = new Map(docs.map((doc) => [doc.documentId, doc]));
+  const persisted = Object.entries(storedRefs).filter(([, resolution]) => {
+    const doc = inScope.get(resolution.ref.documentId);
+    return resolution.status === 'current' && !!doc && resolution.ref.revision === doc.revision &&
+      resolution.ref.revisionKind !== 'unknown' &&
+      (sourceScope.selected.documentIds.includes(doc.documentId) ||
+        !!resolution.ref.extractId && doc.extractIds.includes(resolution.ref.extractId));
+  });
+  if (!persisted.length) return [];
+  const testInputs: StudySourceRefInput[] = persisted.map(([, resolution]) => ({
+    documentId: resolution.ref.documentId,
+    extractId: resolution.ref.extractId,
+    documentTitle: resolution.ref.documentTitle,
+    sourceType: resolution.ref.sourceType,
+    excerpt: resolution.ref.excerpt,
+    excerptSha256: resolution.ref.excerptSha256,
+    revision: resolution.ref.revision,
+    revisionKind: resolution.ref.revisionKind,
+    jump: resolution.ref.jump,
+    chunk: resolution.ref.chunk,
+    sectionLabel: resolution.ref.sectionLabel,
   }));
 
   let resolutions: StudySourceResolution[] = [];
@@ -119,27 +141,34 @@ export async function verifyAssessmentSourceRevisions(
       retryable: false,
     });
   }
+  if (resolutions.length !== persisted.length) {
+    throw new StudyApiError({ code: 'missing_source', messageKey: 'study_generation.error.source_missing', retryable: false });
+  }
 
   const verifiedRefs: StudySourceRefV1[] = [];
 
   for (let i = 0; i < resolutions.length; i++) {
     const res = resolutions[i];
-    const expected = docs[i];
-    if (res.status === 'missing') {
+    const expected = inScope.get(res.ref.documentId);
+    if (!expected) {
+      throw new StudyApiError({ code: 'missing_source', messageKey: 'study_generation.error.source_missing', retryable: false });
+    }
+    if (!res?.ref || res.status !== 'current') {
+      const stale = res.status === 'stale';
       throw new StudyApiError({
-        code: 'missing_source',
-        messageKey: 'study_generation.error.source_missing',
+        code: stale ? 'stale_source' : 'missing_source',
+        messageKey: stale ? 'study_generation.error.source_changed' : 'study_generation.error.source_missing',
         retryable: false,
       });
     }
-    if (res.status === 'stale' || (res.ref.revision && res.ref.revision !== expected.revision)) {
+    if (res.ref.revision && res.ref.revision !== expected.revision) {
       throw new StudyApiError({
         code: 'stale_source',
         messageKey: 'study_generation.error.source_changed',
         retryable: false,
       });
     }
-    verifiedRefs.push(res.ref);
+    verifiedRefs.push({ ...res.ref, id: persisted[i][0] });
   }
 
   return verifiedRefs;
@@ -162,6 +191,9 @@ export async function runAssessmentGenerationCoordinator(
   const completeStep = deps.completeStepFn || completeStudyJobStep;
   const failStep = deps.failStepFn || failStudyJobStep;
   const resolveSourceRefs = deps.resolveSourceRefsFn || resolveStudySourceRefs;
+  const getPlan = deps.getStudyPlanFn || getStudyPlan;
+  const refreshScope = deps.refreshScopeFn || refreshCurriculumScope;
+  const preflightFn = deps.preflightFn || performStudyAiPreflight;
   const runPinned = deps.runPinnedTaskFn || runPinnedStudyTask;
 
   const leaseOwner =
@@ -180,6 +212,9 @@ export async function runAssessmentGenerationCoordinator(
 
   // 1. Fetch blueprint revision
   let detail = await getRevision(request.blueprintRevisionId);
+  if (detail.blueprint.revision !== request.expectedRevision) {
+    throw new StudyApiError({ code: 'stale_revision', messageKey: 'study_plan.error.stale_revision', retryable: true });
+  }
   if (detail.revision.state === 'ready') {
     throw new StudyApiError({
       code: 'invalid_state',
@@ -189,10 +224,33 @@ export async function runAssessmentGenerationCoordinator(
   }
 
   // 2. Verify source revisions
+  const planDetail = detail.blueprint.planId && detail.revision.planVersionId
+    ? await getPlan(detail.blueprint.planId, detail.revision.planVersionId)
+    : null;
+  if (planDetail) {
+    if (planDetail.version.id !== detail.revision.planVersionId) {
+      throw new StudyApiError({ code: 'stale_source', messageKey: 'study_generation.error.source_changed', retryable: false });
+    }
+    const planDocs = planDetail.version.sourceScope.resolvedDocuments;
+    const blueprintDocs = detail.revision.sourceScope.resolvedDocuments;
+    const sameFrozenScope = planDocs.length === blueprintDocs.length && planDocs.every((doc, index) => {
+      const blueprintDoc = blueprintDocs[index];
+      return doc.documentId === blueprintDoc.documentId && doc.revision === blueprintDoc.revision &&
+        JSON.stringify([...doc.extractIds].sort()) === JSON.stringify([...blueprintDoc.extractIds].sort());
+    });
+    if (!sameFrozenScope) {
+      throw new StudyApiError({ code: 'stale_source', messageKey: 'study_generation.error.source_changed', retryable: false });
+    }
+    await refreshScope(planDetail.version.sourceScope);
+  }
   const verifiedSources = await verifyAssessmentSourceRevisions(
     detail.revision.sourceScope,
+    planDetail?.sourceRefs || {},
     resolveSourceRefs
   );
+  if (detail.revision.config.knowledgePolicy === 'source-only' && verifiedSources.length === 0) {
+    throw new StudyApiError({ code: 'missing_source', messageKey: 'study_generation.error.source_missing', retryable: false });
+  }
 
   // 3. Quota allocation & slots construction
   const config = detail.revision.config;
@@ -209,6 +267,9 @@ export async function runAssessmentGenerationCoordinator(
   });
 
   const modelCallBudget = calculateModelCallBudget(slots.length, batchSize);
+  if (modelCallBudget > preflight.maximumModelCalls) {
+    throw new StudyApiError({ code: 'invalid_input', messageKey: 'study_generation.error.model_call_budget_exceeded', retryable: false });
+  }
 
   // 5. Start native job
   const requestHash = sha256(
@@ -220,10 +281,19 @@ export async function runAssessmentGenerationCoordinator(
     })
   );
 
+  const taskInputs = plannedBatches.map((batch) => ({
+    jobId: 'pending',
+    stepKey: batch.stepKey,
+    slots: batch.slots,
+    sources: batch.sources,
+    topicEvidence: batch.topicEvidence,
+    knowledgePolicy: config.knowledgePolicy,
+    excludedFingerprints: config.excludedQuestionFingerprints,
+  } satisfies StudyQuestionTaskInput));
   const steps: CreateStudyStepInput[] = plannedBatches.map((b, idx) => ({
     stepKey: b.stepKey,
     ordinal: idx + 1,
-    inputHash: sha256(JSON.stringify({ stepKey: b.stepKey, requestHash })),
+    inputHash: sha256(JSON.stringify({ ...taskInputs[idx], jobId: undefined })),
   }));
 
   const startInput: StartStudyJobInput = {
@@ -237,6 +307,10 @@ export async function runAssessmentGenerationCoordinator(
   };
 
   const job = await startJob(startInput);
+  if (job.creationKey !== creationKey) {
+    throw new StudyApiError({ code: 'invalid_state', messageKey: 'study_generation.error.target_job_active', retryable: true });
+  }
+  const authorizedPreflight = { ...preflight };
 
   // Track state across steps
   const existingFingerprints = new Set<string>();
@@ -305,6 +379,23 @@ export async function runAssessmentGenerationCoordinator(
     };
 
     try {
+      if (!planDetail) throw new StudyApiError({ code: 'missing_source', messageKey: 'study_generation.error.source_missing', retryable: false });
+      const liveScope = await refreshScope(planDetail.version.sourceScope);
+      const authorization = await preflightFn({
+        primaryTask: studyQuestionTask,
+        documents: liveScope.resolvedDocuments.map((doc) => ({ id: doc.documentId, isAiExcluded: doc.isAiExcluded, isLocalOnly: doc.isLocalOnly })),
+        sourceExcerptCount: batch.sources.length,
+        plannedModelSteps: plannedBatches.length,
+        cloudDisclosureAccepted: authorizedPreflight.cloudDisclosureAccepted,
+        costConsentAccepted: authorizedPreflight.costConsentAccepted,
+        inspectOnly: false,
+        selectedConfigId: authorizedPreflight.model?.configId,
+      });
+      validatePreflightUnchanged(authorizedPreflight, authorization.route);
+      const preflightRoute: AITaskRoute = authorization.route;
+      if (authorization.preflight.maximumModelCalls < modelCallBudget || callsMade + 2 > authorizedPreflight.maximumModelCalls) {
+        throw new StudyApiError({ code: 'invalid_input', messageKey: 'study_generation.error.model_call_budget_exceeded', retryable: false });
+      }
       callsMade++;
       const taskResult = await runPinned(
         studyQuestionTask,
@@ -312,15 +403,19 @@ export async function runAssessmentGenerationCoordinator(
         {
           signal,
           targetId: `${job.id}:${batch.stepKey}`,
+          preflightRoute,
         },
         preflight
       );
 
+      signal?.throwIfAborted();
+      await refreshScope(planDetail.version.sourceScope);
       const batchOutput = taskResult.output;
       const provenance: GenerationProvenance = {
         taskId: taskResult.taskId,
         providerId: taskResult.providerId,
-        endpointLocality: taskResult.providerKind === 'ondevice' ? 'device' : 'remote',
+        endpointLocality: typeof authorization.preflight.generationDestination === 'object'
+          ? authorization.preflight.generationDestination.locality : 'unknown',
         requestedModelClass: taskResult.requestedModelClass,
         servedModelClass: taskResult.servedModelClass,
         fallbackPath: taskResult.fallbackPath,
@@ -375,7 +470,7 @@ export async function runAssessmentGenerationCoordinator(
         stepKey: batch.stepKey,
         leaseOwner,
         cancellationEpoch: job.cancellationEpoch,
-        inputHash: sha256(JSON.stringify(taskInput)),
+        inputHash: sha256(JSON.stringify({ ...taskInput, jobId: undefined })),
         outputRefId: null,
         nextStepIndex: idx + 1,
         progress: {

@@ -75,7 +75,7 @@ impl StudySourceRepository {
             let normalized_excerpt = input.excerpt.replace("\r\n", "\n");
             if normalized_excerpt.trim().is_empty()
                 || normalized_excerpt.len() < EXCERPT_MIN_CHARS
-                || normalized_excerpt.len() > EXCERPT_MAX_CHARS
+                || normalized_excerpt.chars().count() > EXCERPT_MAX_CHARS
             {
                 return Err(StudyCommandError::invalid_input(
                     "study_source.error.invalid_excerpt_length",
@@ -181,7 +181,11 @@ impl StudySourceRepository {
 
             // Validate excerpt in extract or document content
             let mut status = StudySourceStatus::Current;
-            let mut navigation = StudySourceNavigation::Exact;
+            let mut navigation = if input.jump.is_some() {
+                StudySourceNavigation::Exact
+            } else {
+                StudySourceNavigation::Coarse
+            };
             let mut reason_key: Option<String> = None;
 
             if let Some(ref ext_id) = input.extract_id {
@@ -237,6 +241,40 @@ impl StudySourceRepository {
                     status = StudySourceStatus::Ambiguous;
                     navigation = StudySourceNavigation::Coarse;
                     reason_key = Some("study_source.ambiguous.multiple_matches".to_string());
+                }
+            }
+
+            if input.extract_id.is_none()
+                && doc_content
+                    .as_deref()
+                    .is_none_or(|text| text.trim().is_empty())
+            {
+                let indexed_text: Option<String> = if let Some(chunk) = &input.chunk {
+                    sqlx::query_scalar(
+                        "SELECT c.text FROM semantic_chunks c
+                         JOIN ai_index_state i ON i.document_id = c.document_id
+                         JOIN documents d ON d.id = c.document_id
+                         WHERE c.id = ?1 AND c.document_id = ?2 AND c.ordinal = ?3
+                           AND c.source_type = 'document' AND i.state = 'indexed'
+                           AND datetime(i.updated_at) >= datetime(d.date_modified)",
+                    )
+                    .bind(&chunk.chunk_id)
+                    .bind(&input.document_id)
+                    .bind(chunk.ordinal)
+                    .fetch_optional(&self.pool)
+                    .await
+                    .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?
+                } else {
+                    None
+                };
+                if !indexed_text.is_some_and(|text| {
+                    text.trim()
+                        .replace("\r\n", "\n")
+                        .starts_with(&normalized_excerpt)
+                }) {
+                    status = StudySourceStatus::Stale;
+                    navigation = StudySourceNavigation::Coarse;
+                    reason_key = Some("study_source.stale.excerpt_not_in_document".to_string());
                 }
             }
 
@@ -590,7 +628,7 @@ mod tests {
 
         // Extract ref
         assert_eq!(results[1].status, StudySourceStatus::Current);
-        assert_eq!(results[1].navigation, StudySourceNavigation::Exact);
+        assert_eq!(results[1].navigation, StudySourceNavigation::Coarse);
         assert_eq!(results[1].ref_item.extract_id.as_deref(), Some("ext_1"));
     }
 

@@ -115,8 +115,8 @@ function buildDecomposeInput(input: CurriculumDecomposeTaskInput) {
   lines.push('', 'Available Source Material:');
   for (const src of input.sources) {
     lines.push(
-      `Source Handle [${src.handle}] - Document: ${src.title}:`,
-      wrapUntrustedBlock(`src-${src.handle}`, src.excerpt),
+      `Source Handle [${src.handle}]:`,
+      wrapUntrustedBlock(`src-${src.handle}`, `Document: ${src.title}\n${src.excerpt}`),
       ''
     );
   }
@@ -208,8 +208,8 @@ function buildPrerequisiteInput(input: CurriculumPrerequisiteTaskInput) {
     lines.push('Grounding Sources (Context):');
     for (const src of input.sources) {
       lines.push(
-        `Source [${src.handle}] ${src.title}:`,
-        wrapUntrustedBlock(`source-${src.handle}`, src.excerpt),
+        `Source [${src.handle}]:`,
+        wrapUntrustedBlock(`source-${src.handle}`, `Document: ${src.title}\n${src.excerpt}`),
         ''
       );
     }
@@ -241,7 +241,7 @@ function curriculumPrerequisiteTaskDefinition(
       return validatePrerequisiteOutputForTask(
         output,
         knownTopicHandles,
-        allowedSourceHandles.length > 0 ? allowedSourceHandles : undefined
+        allowedSourceHandles
       );
     },
     maxOutputTokens: CURRICULUM_PREREQUISITE_MAX_TOKENS,

@@ -22,7 +22,6 @@ import type {
   AssessmentQuestionRevision,
   AssessmentResponse,
 } from '../../../types/assessmentQuestions';
-import { gradeQuestionObjective } from './objectiveGrading';
 import { deriveAttemptRecoveryState } from './attemptRecovery';
 import {
   saveExamResponse,
@@ -205,6 +204,23 @@ export class AttemptController {
     if (!Number.isInteger(level) || level < 0 || level > 3) return;
     const prev = this.practiceHintLevels[questionRevisionId] ?? 0;
     this.practiceHintLevels[questionRevisionId] = Math.max(prev, level);
+    this.notify();
+  }
+
+  public acknowledgePracticeCheck(result: PracticeCheckResult): void {
+    if (this.attempt.mode !== 'practice' || result.attemptRevision <= this.attempt.revision) return;
+    this.attempt = { ...this.attempt, revision: result.attemptRevision };
+    const slot = this.slots[result.submission.questionRevisionId];
+    if (slot && result.responseRevision != null && result.responseRevision > slot.revision) {
+      const sameDraft = JSON.stringify(slot.draft) === JSON.stringify(result.submission.response) &&
+        slot.mark === result.submission.mark;
+      slot.revision = result.responseRevision;
+      slot.lastSavedRevision = result.responseRevision;
+      if (sameDraft) {
+        slot.isDirty = false;
+        slot.error = null;
+      }
+    }
     this.notify();
   }
 
@@ -451,28 +467,17 @@ export class AttemptController {
     this.notify();
 
     try {
-      // 1. Flush all dirty responses
-      const flushed = await this.flushAll();
-      if (!flushed) {
-        throw new Error('Cannot submit: pending unsaved responses could not be saved');
+      // On a deadline, native submission uses the last acknowledged responses.
+      if (reason === 'user' && !await this.flushAll()) {
+        throw new Error('Could not submit because some responses are still unsaved.');
       }
-
-      // 2. Compute objective grades for all questions
-      const objectiveGrades = this.questions.map((q) => {
-        const slot = this.slots[q.id];
-        const draft = slot ? slot.draft : this.createDefaultDraft(q);
-        const mark = slot ? slot.mark : 'unanswered';
-        return gradeQuestionObjective(q.question, draft, mark, q.id);
-      });
-
-      // 3. Dispatch submit command
       const submissionKey = `sub_${this.attempt.id}_${Date.now()}`;
       const completed = await this.adapter.submitAttempt({
         attemptId: this.attempt.id,
         expectedAttemptRevision: this.attempt.revision,
         submissionKey,
         submissionReason: reason,
-        objectiveGrades,
+        objectiveGrades: [],
       });
 
       this.attempt = completed.attempt;

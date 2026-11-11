@@ -242,6 +242,36 @@ impl EmbeddingBackend {
         }
     }
 
+    /// Resolve only the disclosed configuration, independent of the indexer's
+    /// mutable settings. Disallow redirects and environment proxy routing.
+    pub fn from_isolated_config(
+        config: Option<&EmbeddingConfigInput>,
+    ) -> crate::error::Result<Self> {
+        let Some(config) = config else {
+            return Ok(Self::on_device_default());
+        };
+        let client = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .build()
+            .map_err(|_| {
+                crate::error::PlethoraError::InvalidInput(
+                    "Could not initialize embedding connection".into(),
+                )
+            })?;
+        let provider =
+            crate::ai::embedding_config::build_provider_with_client(config, Some(client))?;
+        Ok(Self::Provider {
+            kind: if config.provider == crate::ai::embeddings::EmbeddingProviderType::Ollama {
+                EmbeddingBackendKind::Ollama
+            } else {
+                EmbeddingBackendKind::Cloud
+            },
+            model: crate::ai::embedding_config::model_name(config),
+            provider: Arc::from(provider),
+        })
+    }
+
     /// The on-device backend for the current process: live when a plugin
     /// bridge is installed, stub otherwise.
     fn on_device_default() -> Self {

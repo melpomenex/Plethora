@@ -16,7 +16,7 @@ use crate::models::study_plan::{
 };
 use crate::models::study_source::{
     FieldIssue, RevisionKind, StudyCommandError, StudyCommandErrorDetails, StudyErrorCode,
-    StudySourceNavigation, StudySourceResolution, StudySourceStatus,
+    StudySourceRefInput, StudySourceStatus,
 };
 use chrono::Utc;
 use sqlx::{Pool, Row, Sqlite};
@@ -30,6 +30,83 @@ pub const MAX_NODE_TITLE_CHARS: usize = 160;
 pub const MAX_NODE_SUMMARY_CHARS: usize = 1000;
 pub const MAX_OBJECTIVES_COUNT: usize = 6;
 pub const MAX_OBJECTIVE_CHARS: usize = 240;
+
+fn validate_publishable_plan(detail: &StudyPlanDetail) -> Result<(), StudyCommandError> {
+    let version = &detail.version;
+    let mut indegree = HashMap::new();
+    for node in version.nodes.iter().filter(|node| node.included) {
+        if node.title.trim().is_empty()
+            || node.title.chars().count() > MAX_NODE_TITLE_CHARS
+            || node.summary.chars().count() > MAX_NODE_SUMMARY_CHARS
+            || node.learning_objectives.is_empty()
+            || node.learning_objectives.len() > MAX_OBJECTIVES_COUNT
+            || node.learning_objectives.iter().any(|objective| {
+                objective.trim().is_empty() || objective.chars().count() > MAX_OBJECTIVE_CHARS
+            })
+        {
+            return Err(StudyCommandError::invalid_input(
+                "study_plan.error.invalid_topic",
+                vec![],
+            ));
+        }
+        if node.material_support == MaterialSupport::Grounded
+            && (node.source_ref_ids.is_empty()
+                || node.source_ref_ids.iter().any(|id| {
+                    !detail
+                        .source_refs
+                        .get(id)
+                        .is_some_and(|source| source.status == StudySourceStatus::Current)
+                }))
+        {
+            return Err(StudyCommandError::new(
+                StudyErrorCode::InvalidSource,
+                "study_plan.error.unverified_topic_source",
+                false,
+            ));
+        }
+        indegree.insert(node.node_id.as_str(), 0usize);
+    }
+
+    let mut dependents = HashMap::<&str, Vec<&str>>::new();
+    for edge in &version.prerequisites {
+        let from = edge.prerequisite_node_id.as_str();
+        let to = edge.dependent_node_id.as_str();
+        if !indegree.contains_key(from) || !indegree.contains_key(to) {
+            return Err(StudyCommandError::new(
+                StudyErrorCode::DanglingPrerequisite,
+                "study_plan.error.dangling_prerequisite",
+                false,
+            ));
+        }
+        *indegree.get_mut(to).expect("dependent was validated") += 1;
+        dependents.entry(from).or_default().push(to);
+    }
+
+    let mut ready = indegree
+        .iter()
+        .filter_map(|(node, count)| (*count == 0).then_some(*node))
+        .collect::<Vec<_>>();
+    let mut visited = 0;
+    while let Some(node) = ready.pop() {
+        visited += 1;
+        for &dependent in dependents.get(node).into_iter().flatten() {
+            if let Some(count) = indegree.get_mut(dependent) {
+                *count -= 1;
+                if *count == 0 {
+                    ready.push(dependent);
+                }
+            }
+        }
+    }
+    if visited != indegree.len() {
+        return Err(StudyCommandError::new(
+            StudyErrorCode::DependencyCycle,
+            "study_plan.error.dependency_cycle",
+            false,
+        ));
+    }
+    Ok(())
+}
 
 #[derive(Clone)]
 pub struct StudyPlanRepository {
@@ -541,18 +618,36 @@ impl StudyPlanRepository {
             .source_repo
             .get_source_refs_batch(&all_source_ref_ids)
             .await?;
-        let mut source_resolutions = HashMap::with_capacity(source_refs_map.len());
-        for (ref_id, ref_item) in source_refs_map {
-            source_resolutions.insert(
-                ref_id,
-                StudySourceResolution {
-                    ref_item,
-                    status: StudySourceStatus::Current,
-                    navigation: StudySourceNavigation::Exact,
-                    reason_key: None,
-                },
-            );
-        }
+        let stored_refs = source_refs_map.into_values().collect::<Vec<_>>();
+        let ref_inputs = stored_refs
+            .iter()
+            .map(|reference| StudySourceRefInput {
+                document_id: reference.document_id.clone(),
+                extract_id: reference.extract_id.clone(),
+                excerpt: reference.excerpt.clone(),
+                excerpt_sha256: None,
+                revision: Some(reference.revision.clone()),
+                revision_kind: Some(reference.revision_kind),
+                document_title: Some(reference.document_title.clone()),
+                source_type: Some(reference.source_type.clone()),
+                jump: reference.jump.clone(),
+                chunk: reference.chunk.clone(),
+                section_label: reference.section_label.clone(),
+            })
+            .collect::<Vec<_>>();
+        let live_resolutions = self
+            .source_repo
+            .resolve_study_source_refs(&ref_inputs)
+            .await?;
+        let source_resolutions = stored_refs
+            .into_iter()
+            .zip(live_resolutions)
+            .map(|(stored, mut live)| {
+                // Keep the original excerpt and revision in the historical plan.
+                live.ref_item = stored;
+                (live.ref_item.id.clone(), live)
+            })
+            .collect();
 
         let version = StudyPlanVersion {
             id: version_row.get("id"),
@@ -630,12 +725,58 @@ impl StudyPlanRepository {
             ));
         }
 
+        if input.source_refs.len() > 96 {
+            return Err(StudyCommandError::invalid_input(
+                "study_source.error.too_many_refs",
+                vec![],
+            ));
+        }
+        let resolutions = self
+            .source_repo
+            .resolve_study_source_refs(&input.source_refs.values().cloned().collect::<Vec<_>>())
+            .await?;
+
         let now = Utc::now().to_rfc3339();
         let mut tx = self
             .pool
             .begin()
             .await
             .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+
+        let updated = sqlx::query(
+            "UPDATE study_plans SET revision = revision + 1, updated_at = ?1
+             WHERE id = ?2 AND revision = ?3 AND draft_version_id = ?4",
+        )
+        .bind(&now)
+        .bind(&input.plan_id)
+        .bind(input.expected_draft_revision)
+        .bind(&draft_version_id)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+        if updated.rows_affected() == 0 {
+            return Err(StudyCommandError::new(
+                StudyErrorCode::StaleRevision,
+                "study_plan.error.stale_revision",
+                true,
+            ));
+        }
+
+        let mut canonical_refs = HashMap::new();
+        for (provisional_id, resolution) in input.source_refs.keys().zip(resolutions) {
+            if resolution.status != StudySourceStatus::Current {
+                return Err(StudyCommandError::new(
+                    StudyErrorCode::StaleSource,
+                    "study_generation.error.source_changed",
+                    false,
+                ));
+            }
+            let id = self
+                .source_repo
+                .upsert_source_ref_in_tx(&mut tx, &resolution.ref_item)
+                .await?;
+            canonical_refs.insert(provisional_id, id);
+        }
 
         // 1. Delete prior draft contents in reverse dependency order
         sqlx::query("DELETE FROM study_plan_node_sources WHERE version_id = ?1")
@@ -725,7 +866,7 @@ impl StudyPlanRepository {
                 )
                 .bind(&draft_version_id)
                 .bind(&node_id)
-                .bind(ref_id)
+                .bind(canonical_refs.get(ref_id).unwrap_or(ref_id))
                 .bind(ord as i32)
                 .execute(&mut *tx)
                 .await
@@ -769,7 +910,7 @@ impl StudyPlanRepository {
                 .bind(&draft_version_id)
                 .bind(&prereq.prerequisite_node_id)
                 .bind(&prereq.dependent_node_id)
-                .bind(ref_id)
+                .bind(canonical_refs.get(ref_id).unwrap_or(ref_id))
                 .bind(ord as i32)
                 .execute(&mut *tx)
                 .await
@@ -786,16 +927,6 @@ impl StudyPlanRepository {
                 .await
                 .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
         }
-
-        // Increment CAS revision
-        sqlx::query(
-            "UPDATE study_plans SET revision = revision + 1, updated_at = ?1 WHERE id = ?2",
-        )
-        .bind(&now)
-        .bind(&input.plan_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
 
         tx.commit()
             .await
@@ -850,13 +981,9 @@ impl StudyPlanRepository {
             ));
         }
 
-        // Fetch draft version number
-        let draft_ver_num: i64 =
-            sqlx::query_scalar("SELECT version FROM study_plan_versions WHERE id = ?1 LIMIT 1")
-                .bind(draft_version_id)
-                .fetch_one(&self.pool)
-                .await
-                .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+        let draft = self.get_study_plan(plan_id, Some(draft_version_id)).await?;
+        validate_publishable_plan(&draft)?;
+        let draft_ver_num = draft.version.version;
 
         let now = Utc::now().to_rfc3339();
         let mut tx = self
@@ -864,6 +991,30 @@ impl StudyPlanRepository {
             .begin()
             .await
             .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+
+        // Reserve the head change under CAS before updating the version rows.
+        let updated = sqlx::query(
+            "UPDATE study_plans
+             SET current_version_id = ?1, current_version = ?2, draft_version_id = NULL,
+                 revision = revision + 1, updated_at = ?3
+             WHERE id = ?4 AND revision = ?5 AND draft_version_id = ?1",
+        )
+        .bind(draft_version_id)
+        .bind(draft_ver_num)
+        .bind(&now)
+        .bind(plan_id)
+        .bind(expected_plan_revision)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+
+        if updated.rows_affected() == 0 {
+            return Err(StudyCommandError::new(
+                StudyErrorCode::StaleRevision,
+                "study_plan.error.stale_revision",
+                true,
+            ));
+        }
 
         // 1. Supersede old published version if present
         if let Some(ref old_id) = old_published_id {
@@ -882,21 +1033,6 @@ impl StudyPlanRepository {
         )
         .bind(&now)
         .bind(draft_version_id)
-        .execute(&mut *tx)
-        .await
-        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
-
-        // 3. Update study_plans: head pointer moves to published version, draft cleared, revision bumped
-        sqlx::query(
-            "UPDATE study_plans
-             SET current_version_id = ?1, current_version = ?2, draft_version_id = NULL,
-                 revision = revision + 1, updated_at = ?3
-             WHERE id = ?4",
-        )
-        .bind(draft_version_id)
-        .bind(draft_ver_num)
-        .bind(&now)
-        .bind(plan_id)
         .execute(&mut *tx)
         .await
         .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
@@ -1435,7 +1571,10 @@ mod tests {
     #[tokio::test]
     async fn test_save_draft_publish_and_cas_revisions() {
         let pool = create_test_db().await;
-        let repo = StudyPlanRepository::new(pool);
+        let repo = StudyPlanRepository::new(pool.clone());
+        sqlx::query("INSERT INTO documents (id, title, file_path, file_type, content, content_hash, date_added, date_modified)
+            VALUES ('raft_doc', 'Raft', '/raft.md', 'markdown', 'Term numbers are monotonic.', 'rev1', '2026-11-11T00:00:00Z', '2026-11-11T00:00:00Z')")
+            .execute(&pool).await.unwrap();
 
         let input = CreateStudyPlanInput {
             title: "Distributed Databases".to_string(),
@@ -1456,6 +1595,23 @@ mod tests {
             plan_id: plan_id.clone(),
             expected_draft_revision: 1,
             source_scope: None,
+            source_refs: [(
+                "provisional_ref".into(),
+                StudySourceRefInput {
+                    document_id: "raft_doc".into(),
+                    extract_id: None,
+                    excerpt: "Term numbers are monotonic.".into(),
+                    excerpt_sha256: None,
+                    revision: Some("rev1".into()),
+                    revision_kind: None,
+                    document_title: None,
+                    source_type: None,
+                    jump: None,
+                    chunk: None,
+                    section_label: None,
+                },
+            )]
+            .into(),
             nodes: vec![StudyPlanVersionNode {
                 node_id: "spn_node1".to_string(),
                 title: "Raft".to_string(),
@@ -1468,9 +1624,9 @@ mod tests {
                 locked: false,
                 user_added: true,
                 user_modified: true,
-                material_support: MaterialSupport::NotValidated,
+                material_support: MaterialSupport::Grounded,
                 why_here: None,
-                source_ref_ids: vec![],
+                source_ref_ids: vec!["provisional_ref".into()],
             }],
             prerequisites: vec![],
         };
@@ -1478,12 +1634,24 @@ mod tests {
         let saved = repo.save_study_plan_draft(save_input).await.unwrap();
         assert_eq!(saved.plan.revision, 2);
         assert_eq!(saved.version.nodes.len(), 1);
+        let canonical_ref_id = &saved.version.nodes[0].source_ref_ids[0];
+        assert!(canonical_ref_id.starts_with("ssr_"));
+        assert_eq!(
+            saved.source_refs[canonical_ref_id].status,
+            StudySourceStatus::Current
+        );
+        let reopened = repo.get_study_plan(&plan_id, None).await.unwrap();
+        assert_eq!(
+            reopened.source_refs[canonical_ref_id].ref_item.excerpt,
+            "Term numbers are monotonic."
+        );
 
         // 2. Stale CAS save draft (using stale revision 1) must fail with StaleRevision
         let stale_save = SaveStudyPlanDraftInput {
             plan_id: plan_id.clone(),
             expected_draft_revision: 1, // Stale!
             source_scope: None,
+            source_refs: Default::default(),
             nodes: vec![],
             prerequisites: vec![],
         };

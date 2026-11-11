@@ -145,6 +145,19 @@ pub struct StudyJobProgress {
     pub completed: i64,
     pub total: i64,
     pub label_key: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution: Option<CurriculumExecutionStats>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CurriculumExecutionStats {
+    pub model_calls: u32,
+    pub corrections: u32,
+    pub reported_input_tokens: u64,
+    pub reported_output_tokens: u64,
+    pub responses_with_usage: u32,
+    pub duration_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

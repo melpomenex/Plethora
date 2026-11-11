@@ -13,7 +13,7 @@ import type {
   CurriculumPrerequisiteOutput,
   CurriculumTopicProposal,
 } from './types';
-import { EVIDENCE_LIMITS, planEvidenceBatches } from './planEvidence';
+import { EVIDENCE_LIMITS } from './planEvidence';
 
 export interface ConfirmedConceptSeed {
   conceptId: string;
@@ -48,20 +48,6 @@ export function generateRulesOnlyCurriculumOutline(
   options: RulesOutlineOptions
 ): RulesOutlineResult {
   const depthCap = EVIDENCE_LIMITS.DEPTH_CAPS[options.depth] || 16;
-  const { allHandles, handleMap } = planEvidenceBatches({
-    sourceScope: options.sourceScope,
-    depth: options.depth,
-  });
-
-  // Map documentId to its first source handle
-  const docToHandleMap = new Map<string, string>();
-  for (const h of allHandles) {
-    if (!docToHandleMap.has(h.documentId)) {
-      docToHandleMap.set(h.documentId, h.handle);
-    }
-  }
-
-  const defaultFirstHandle = allHandles[0]?.handle || 'src_h0';
   const topicProposals: CurriculumTopicProposal[] = [];
   const conceptIdToHandle = new Map<string, string>();
 
@@ -73,23 +59,17 @@ export function generateRulesOnlyCurriculumOutline(
     const handle = `h_${topicProposals.length}`;
     conceptIdToHandle.set(c.conceptId, handle);
 
-    const docHandle = c.documentId ? docToHandleMap.get(c.documentId) : undefined;
-    const assignedSources = docHandle ? [docHandle] : [defaultFirstHandle];
-
     const conceptName = c.conceptName || (c as any).name || 'Topic';
 
     topicProposals.push({
       handle,
       title: conceptName,
-      summary: `Structured review of ${conceptName} grounded in library material.`,
-      learningObjectives: [
-        `Understand foundational definitions of ${conceptName}`,
-        `Apply core principles of ${conceptName} in context`,
-      ],
+      summary: `Confirmed concept graph entry for ${conceptName}; no passage-level evidence was inspected.`,
+      learningObjectives: [`Review the confirmed concept label ${conceptName} for this plan.`],
       conceptName,
-      materialSupport: 'grounded',
-      sourceHandles: assignedSources,
-      whyHere: 'Confirmed library concept',
+      materialSupport: 'unsupported',
+      sourceHandles: [],
+      whyHere: 'Confirmed concept metadata; no passage citation available',
     });
   }
 
@@ -105,41 +85,16 @@ export function generateRulesOnlyCurriculumOutline(
     }
 
     const handle = `h_${topicProposals.length}`;
-    const docHandle = docToHandleMap.get(doc.documentId) || defaultFirstHandle;
-
     topicProposals.push({
       handle,
       title: doc.title,
-      summary: `Comprehensive study of topics in ${doc.title}.`,
-      learningObjectives: [
-        `Analyze the core arguments and material in ${doc.title}`,
-        `Synthesize key takeaways and conclusions`,
-      ],
-      conceptName: doc.title,
-      materialSupport: 'grounded',
-      sourceHandles: [docHandle],
-      whyHere: 'Library source material',
+      summary: `Coarse inventory entry for ${doc.title}; document contents were not inspected.`,
+      learningObjectives: [`Review the title of ${doc.title} for relevance to this plan.`],
+      conceptName: undefined,
+      materialSupport: 'unsupported',
+      sourceHandles: [],
+      whyHere: 'Inferred from the selected document inventory only',
     });
-  }
-
-  // Ensure at least 3 topics (MIN_TOPICS_PER_BATCH)
-  let fallbackIdx = 1;
-  while (topicProposals.length < 3) {
-    const handle = `h_${topicProposals.length}`;
-    topicProposals.push({
-      handle,
-      title: `Core Study Unit ${fallbackIdx}`,
-      summary: 'Grounded unit covering foundational source material.',
-      learningObjectives: [
-        `Master foundational concepts in unit ${fallbackIdx}`,
-        `Apply methods to practical problems`,
-      ],
-      conceptName: `Unit ${fallbackIdx}`,
-      materialSupport: 'grounded',
-      sourceHandles: [defaultFirstHandle],
-      whyHere: 'Foundational topic sequence',
-    });
-    fallbackIdx++;
   }
 
   // 3. Build confirmed prerequisite edges
@@ -161,25 +116,9 @@ export function generateRulesOnlyCurriculumOutline(
     }
   }
 
-  // If no confirmed links, synthesize sequential forward dependencies across units
-  if (edgeProposals.length === 0 && topicProposals.length > 1) {
-    for (let i = 0; i < topicProposals.length - 1; i++) {
-      edgeProposals.push({
-        prerequisiteHandle: topicProposals[i].handle,
-        dependentHandle: topicProposals[i + 1].handle,
-        rationale: 'Sequential curriculum progression through library material.',
-        sourceHandles: [],
-        support: 'inferred',
-      });
-    }
-  }
 
   // Create handle to source ref map (for downstream merge)
   const sourceHandleMap = new Map<string, string>();
-  for (const [h, item] of handleMap.entries()) {
-    sourceHandleMap.set(h, `ssr_${item.documentId}`);
-  }
-
   return {
     decomposeBatch: {
       schemaVersion: 1,

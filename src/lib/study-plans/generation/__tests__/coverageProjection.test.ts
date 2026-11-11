@@ -127,8 +127,8 @@ describe('computePlanCoverageProjection (C2-T08)', () => {
     expect(result.indexCompleteness).toBe('complete');
     expect(result.nodes.length).toBe(2);
 
-    // Node 0: content coverage is solid, while user activity is completed
-    expect(result.nodes[0].contentCoverage).toBe('solid');
+    // Node 0: content coverage is supported, while user activity is completed
+    expect(result.nodes[0].contentCoverage).toBe('supported');
     expect(result.nodes[0].activity).toBe('completed');
 
     // Node 1: content coverage is partial, while user activity is in-progress
@@ -137,7 +137,7 @@ describe('computePlanCoverageProjection (C2-T08)', () => {
 
     // Coverage is mapped by concept ID
     expect(result.coverageByConceptId['c_0']).toBeDefined();
-    expect(result.coverageByConceptId['c_0'].evidenceCoverage).toBe('solid');
+    expect(result.coverageByConceptId['c_0'].evidenceCoverage).toBe('supported');
   });
 
   it('processes plans with >12 concepts in sequential batches of at most 12', async () => {
@@ -151,7 +151,7 @@ describe('computePlanCoverageProjection (C2-T08)', () => {
         concepts: input.concepts.map((c: any) => ({
           conceptKey: c.conceptKey || c.name,
           conceptName: c.name,
-          evidenceCoverage: 'solid',
+          evidenceCoverage: 'supported',
           activity: 'unseen',
           indexCompleteness: 'complete',
           evidenceRefs: [],

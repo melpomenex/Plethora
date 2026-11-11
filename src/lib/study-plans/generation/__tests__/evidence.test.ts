@@ -70,6 +70,23 @@ describe('hydrateCurriculumEvidence', () => {
     expect(res.conceptSeeds).toEqual([]);
   });
 
+  it('does not retrieve extract-only scope until extracts have a supported retrieval path', async () => {
+    const retrieveFn = vi.fn();
+    const res = await hydrateCurriculumEvidence({
+      goal: 'Study this extract',
+      sourceScope: {
+        ...dummyScope,
+        selected: { documentIds: [], extractIds: ['ext_1'], collectionIds: [], tagIds: [] },
+        resolvedDocuments: [],
+      },
+      depth: 'survey',
+      retrieveFn,
+    });
+    expect(retrieveFn).not.toHaveBeenCalled();
+    expect(res.allHandles).toEqual([]);
+    expect(res.batches).toEqual([]);
+  });
+
   it('strictly filters out-of-scope retrieval hits and limits goal query to k=24', async () => {
     const retrieveFn = vi.fn().mockImplementation(async (query: string, opts) => {
       expect(opts?.filters?.documentIds).toEqual(['doc_1', 'doc_2']);
@@ -159,6 +176,36 @@ describe('hydrateCurriculumEvidence', () => {
     expect(res.allHandles.length).toBe(1);
     expect(res.allHandles[0].handle).toBe('src_h0');
     expect(res.handleToSourceRefIdMap.get('src_h0')).toBe('ssr_0');
+  });
+
+  it('drops stale hydrated references while preserving stable exact reference mapping', async () => {
+    const retrieveFn = vi.fn().mockResolvedValue({
+      mode: 'semantic', candidatesScanned: 2,
+      results: [
+        { chunkId: 'hit-current', documentId: 'doc_1', documentTitle: 'OS PDF', sourceType: 'pdf', ordinal: 0,
+          text: 'current verified passage', headingPath: [], location: { sourceType: 'pdf', documentId: 'doc_1', ordinal: 0, startOffset: 0, endOffset: 20 },
+          contentHash: 'a', tokenCount: 4, score: 0.9, mode: 'semantic' },
+        { chunkId: 'hit-stale', documentId: 'doc_2', documentTitle: 'Systems EPUB', sourceType: 'epub', ordinal: 0,
+          text: 'stale passage', headingPath: [], location: { sourceType: 'epub', documentId: 'doc_2', ordinal: 0, startOffset: 0, endOffset: 13 },
+          contentHash: 'b', tokenCount: 3, score: 0.8, mode: 'semantic' },
+      ],
+    } as RetrievalResponse);
+    const resolveSourceRefsFn = vi.fn().mockImplementation(async (inputs: StudySourceRefInput[]) => inputs.map((input, index) => ({
+      ref: {
+        schemaVersion: 1, id: index === 0 ? 'stable_ref_17' : 'stale_ref_99', documentId: input.documentId,
+        excerpt: input.excerpt, revision: index === 0 ? 'rev_1' : 'old-revision', revisionKind: 'content-hash',
+        excerptSha256: `hash_${index}`, documentTitle: input.documentTitle || 'Doc', sourceType: input.sourceType || 'pdf',
+        capturedAt: '2026-11-10T00:00:00Z',
+      },
+      status: index === 0 ? 'current' : 'stale', navigation: index === 0 ? 'exact' : 'unavailable',
+    })));
+
+    const res = await hydrateCurriculumEvidence({
+      goal: 'systems', sourceScope: dummyScope, depth: 'survey', retrieveFn, resolveSourceRefsFn,
+      listConfirmedConceptLinksFn: vi.fn().mockResolvedValue([]),
+    });
+    expect(res.allHandles.map((item) => item.documentId)).toEqual(['doc_1']);
+    expect(res.handleToSourceRefIdMap).toEqual(new Map([['src_h0', 'stable_ref_17']]));
   });
 
   it('selects confirmed concept seeds, queries them concurrently, and caps at 96 hits', async () => {
@@ -286,7 +333,7 @@ describe('hydrateCurriculumEvidence', () => {
     expect(res.allHandles.length).toBe(3);
   });
 
-  it('falls back to coarse resolved documents when retrieval returns 0 hits', async () => {
+  it('does not fabricate evidence when retrieval returns 0 hits', async () => {
     const retrieveFn = vi.fn().mockResolvedValue({
       mode: 'lexicalOnly',
       candidatesScanned: 0,
@@ -324,10 +371,9 @@ describe('hydrateCurriculumEvidence', () => {
     });
 
     expect(res.uniqueHits.length).toBe(0);
-    expect(res.allHandles.length).toBe(2);
-    expect(res.allHandles[0].documentId).toBe('doc_1');
-    expect(res.allHandles[1].documentId).toBe('doc_2');
-    expect(res.handleToSourceRefIdMap.get('src_h0')).toBe('ssr_coarse_0');
-    expect(res.handleToSourceRefIdMap.get('src_h1')).toBe('ssr_coarse_1');
+    expect(res.allHandles).toEqual([]);
+    expect(res.batches).toEqual([]);
+    expect(res.handleToSourceRefIdMap.size).toBe(0);
+    expect(resolveSourceRefsFn).not.toHaveBeenCalled();
   });
 });

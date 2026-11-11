@@ -16,6 +16,7 @@ import {
   type CoordinatorDependencies,
 } from '../coordinator';
 import { StudyJobController } from '../jobController';
+import { computeRequestHash, sha256 } from '../requestHash';
 import type {
   CurriculumDecomposeBatchOutput,
   CurriculumGenerationRequest,
@@ -96,6 +97,28 @@ describe('Curriculum Coordinator and Job Controller', () => {
     knowledgePolicy: 'source-only',
     rulesOnly: false,
   };
+
+  // Keep coordinator orchestration real while isolating the test from live
+  // platform source resolution and provider/settings state.
+  function testPreflightDeps() {
+    const provider = {
+      id: 'ollama:llama3',
+      kind: 'ondevice',
+      getCapabilities: vi.fn().mockResolvedValue({ textGeneration: true, reasoning: true }),
+    };
+    return {
+      preparePreflightFn: vi.fn().mockResolvedValue({
+        route: { provider },
+        preflight: {
+          ...dummyPreflight,
+          embedding: { provider: 'Ollama', model: 'nomic-embed-text', endpointHash: 'embed-endpoint', maximumQueries: 13 },
+        },
+        sourceScope: dummyScope,
+        embeddingConfig: undefined,
+      }),
+      refreshScopeFn: vi.fn().mockResolvedValue(dummyScope),
+    };
+  }
 
   function createMockPlanDetail(revision = 1, draftVersionId = 'spv_draft_1'): StudyPlanDetail {
     return {
@@ -365,15 +388,15 @@ describe('Curriculum Coordinator and Job Controller', () => {
           schemaVersion: 1,
           edges: [
             {
-              prerequisiteHandle: 't_0',
-              dependentHandle: 't_1',
+              prerequisiteHandle: 'b0_t_0',
+              dependentHandle: 'b0_t_1',
               support: 'inferred',
               rationale: 'Process context required for memory translation',
               sourceHandles: ['src_h0'],
             },
             {
-              prerequisiteHandle: 't_1',
-              dependentHandle: 't_2',
+              prerequisiteHandle: 'b0_t_1',
+              dependentHandle: 'b0_t_2',
               support: 'inferred',
               rationale: 'Address translation required for page faults',
               sourceHandles: ['src_h1'],
@@ -394,6 +417,7 @@ describe('Curriculum Coordinator and Job Controller', () => {
     });
 
     const deps: CoordinatorDependencies = {
+      ...testPreflightDeps(),
       startJobFn: mockStartJob,
       claimStepFn: mockClaimStep,
       completeStepFn: mockCompleteStep,
@@ -437,7 +461,7 @@ describe('Curriculum Coordinator and Job Controller', () => {
       ]),
     };
 
-    const result = await runCurriculumCoordinator(dummyRequest, dummyPreflight, { deps });
+    const result = await runCurriculumCoordinator(dummyRequest, dummyPreflight, { deps, creationKey: 'ck_1' });
 
     expect(result.jobId).toBe('job_gen_1');
     expect(completedSteps).toEqual(['decompose:0000', 'prerequisites:0001']);
@@ -506,6 +530,7 @@ describe('Curriculum Coordinator and Job Controller', () => {
     });
 
     const deps: CoordinatorDependencies = {
+      ...testPreflightDeps(),
       startJobFn: mockStartJob,
       claimStepFn: mockClaimStep,
       failStepFn: vi.fn().mockResolvedValue({}),
@@ -520,6 +545,7 @@ describe('Curriculum Coordinator and Job Controller', () => {
       runCurriculumCoordinator(dummyRequest, dummyPreflight, {
         signal: abortController.signal,
         deps,
+        creationKey: 'ck_abort',
       })
     ).rejects.toThrow();
 
@@ -656,10 +682,12 @@ describe('Curriculum Coordinator and Job Controller', () => {
 
     // Start job 1
     const job1Promise = controller.startCurriculumJob(
-      { ...dummyRequest, planId: 'plan_1' },
+      { ...dummyRequest, planId: 'plan_1', baseVersionId: 'spv_draft_1' },
       dummyPreflight,
       {
+        creationKey: 'ck_job_1',
         deps: {
+          ...testPreflightDeps(),
           getPlanFn: vi.fn().mockResolvedValue(planDetail1),
           startJobFn: mockStartJob('job_1', 'plan_1'),
           claimStepFn: vi.fn().mockImplementation(() => blockingStepPromise1),
@@ -688,10 +716,12 @@ describe('Curriculum Coordinator and Job Controller', () => {
 
     // Start job 2 for different target
     const job2Promise = controller.startCurriculumJob(
-      { ...dummyRequest, planId: 'plan_2' },
+      { ...dummyRequest, planId: 'plan_2', baseVersionId: 'spv_draft_2' },
       dummyPreflight,
       {
+        creationKey: 'ck_job_2',
         deps: {
+          ...testPreflightDeps(),
           getPlanFn: vi.fn().mockResolvedValue(planDetail2),
           startJobFn: mockStartJob('job_2', 'plan_2'),
           claimStepFn: vi.fn().mockImplementation(() => blockingStepPromise2),
@@ -710,7 +740,7 @@ describe('Curriculum Coordinator and Job Controller', () => {
 
     // Attempt starting a 3rd concurrent job -> should reject due to global cap of 2
     await expect(
-      controller.startCurriculumJob({ ...dummyRequest, planId: 'plan_3' }, dummyPreflight, {
+      controller.startCurriculumJob({ ...dummyRequest, planId: 'plan_3', baseVersionId: 'spv_draft_3' }, dummyPreflight, {
         deps: {
           getPlanFn: vi.fn().mockResolvedValue(planDetail3),
         },
@@ -729,7 +759,7 @@ describe('Curriculum Coordinator and Job Controller', () => {
     expect(controller.activeJobCount).toBe(0);
   });
 
-  it('resumes from nextStepIndex without repeating completed steps or duplicating draft nodes', async () => {
+  it.each([false, true])('resumes only when checkpoint evidence matches (changed evidence: %s)', async (changedEvidence) => {
     // Simulate draft plan that already has 3 nodes saved from step 0 (decompose)
     let mockPlanDetail = createMockPlanDetail(2);
     mockPlanDetail.version.nodes = [
@@ -769,12 +799,30 @@ describe('Curriculum Coordinator and Job Controller', () => {
 
     const claimedSteps: string[] = [];
 
-    const mockStartJob = vi.fn().mockResolvedValue({
+    const resumedPreflight: StudyAiPreflight = {
+      ...dummyPreflight,
+      embedding: { provider: 'Ollama', model: 'nomic-embed-text', endpointHash: 'embed-endpoint', maximumQueries: 13 },
+    };
+    const evidenceItem = {
+      handle: 'src_h0', documentId: 'doc_os_1', documentTitle: 'Operating Systems PDF', sourceType: 'pdf',
+      revision: 'rev_os_1', excerpt: changedEvidence ? 'changed verified text' : 'verified text', excerptSha256: changedEvidence ? 'changed-sha' : 'stable-sha',
+    };
+    const requestHash = sha256(JSON.stringify({
+      request: computeRequestHash({ ...dummyRequest, sourceScope: dummyScope }),
+      goal: dummyRequest.goal,
+      targetRevision: 2,
+      providerId: resumedPreflight.providerId,
+      creationKey: 'ck_resume',
+      modelId: resumedPreflight.model?.id,
+      endpoint: resumedPreflight.model?.endpointHash,
+      evidence: [[[evidenceItem.documentId, undefined, evidenceItem.revision, changedEvidence ? 'stable-sha' : 'stable-sha']]],
+    }));
+    const resumeFrom = {
       id: 'job_resumed',
       kind: 'curriculum',
       targetId: 'spv_draft_1',
       targetRevision: 2,
-      requestHash: 'hash',
+      requestHash,
       creationKey: 'ck_resume',
       status: 'running',
       nextStepIndex: 1, // Resuming directly at step 1 (prerequisites)
@@ -782,12 +830,14 @@ describe('Curriculum Coordinator and Job Controller', () => {
       leaseExpiresAt: '2026-11-10T00:02:00Z',
       cancellationEpoch: 0,
       attemptCount: 2,
-      preflight: dummyPreflight,
+      preflight: resumedPreflight,
       progress: { completed: 1, total: 2, labelKey: 'resumed' },
       lastError: null,
       createdAt: '2026-11-10T00:00:00Z',
       updatedAt: '2026-11-10T00:00:00Z',
-    } as StudyGenerationJob);
+    } as StudyGenerationJob;
+    const resumeJobFn = vi.fn().mockResolvedValue(resumeFrom);
+    const startJobFn = vi.fn();
 
     const mockClaimStep = vi.fn().mockImplementation((jobId, stepKey) => {
       claimedSteps.push(stepKey);
@@ -817,11 +867,11 @@ describe('Curriculum Coordinator and Job Controller', () => {
     });
 
     const mockHydrateEvidence = vi.fn().mockResolvedValue({
-      batches: [{ batchIndex: 0, handles: [], totalChars: 0 }],
-      allHandles: [],
-      handleMap: new Map(),
-      handleToSourceRefIdMap: new Map(),
-      resolutions: [],
+      batches: [{ batchIndex: 0, handles: [evidenceItem], totalChars: evidenceItem.excerpt.length }],
+      allHandles: [evidenceItem],
+      handleMap: new Map([['src_h0', evidenceItem]]),
+      handleToSourceRefIdMap: new Map([['src_h0', 'ssr_1']]),
+      resolutions: [{ status: 'current', navigation: 'exact', ref: { id: 'ssr_1', documentId: 'doc_os_1' } }],
       uniqueHits: [],
       conceptSeeds: [],
     });
@@ -849,7 +899,9 @@ describe('Curriculum Coordinator and Job Controller', () => {
     });
 
     const deps: CoordinatorDependencies = {
-      startJobFn: mockStartJob,
+      ...testPreflightDeps(),
+      startJobFn,
+      resumeJobFn,
       claimStepFn: mockClaimStep,
       completeStepFn: vi.fn().mockResolvedValue({} as any),
       saveDraftFn: mockSaveDraft,
@@ -859,9 +911,22 @@ describe('Curriculum Coordinator and Job Controller', () => {
       resolveSourceRefsFn: vi.fn().mockResolvedValue([]),
     };
 
-    const result = await runCurriculumCoordinator(dummyRequest, dummyPreflight, { deps });
+    if (changedEvidence) {
+      await expect(runCurriculumCoordinator(dummyRequest, dummyPreflight, { deps, resumeFrom })).rejects.toMatchObject({
+        code: 'stale_source', messageKey: 'study_generation.error.checkpoint_evidence_changed',
+      });
+      expect(resumeJobFn).not.toHaveBeenCalled();
+      expect(startJobFn).not.toHaveBeenCalled();
+      expect(mockRunPinnedTask).not.toHaveBeenCalled();
+      return;
+    }
+
+    const result = await runCurriculumCoordinator(dummyRequest, dummyPreflight, { deps, resumeFrom });
 
     // Step 0 was skipped; only step 1 (prerequisites:0001) was claimed
+    expect(resumeJobFn).toHaveBeenCalledWith('job_resumed', expect.objectContaining({ embedding: resumedPreflight.embedding }));
+    expect(startJobFn).not.toHaveBeenCalled();
+    expect(mockRunPinnedTask).toHaveBeenCalledTimes(1);
     expect(claimedSteps).toEqual(['prerequisites:0001']);
     expect(result.planDetail.version.prerequisites.length).toBe(1);
     expect(result.planDetail.version.nodes.length).toBe(2);
@@ -900,6 +965,7 @@ describe('Curriculum Coordinator and Job Controller', () => {
     });
 
     const deps: CoordinatorDependencies = {
+      ...testPreflightDeps(),
       startJobFn: mockStartJob,
       claimStepFn: vi.fn(),
       getPlanFn: mockGetPlan,
@@ -916,7 +982,7 @@ describe('Curriculum Coordinator and Job Controller', () => {
     };
 
     await expect(
-      runCurriculumCoordinator(dummyRequest, dummyPreflight, { deps })
+      runCurriculumCoordinator(dummyRequest, dummyPreflight, { deps, creationKey: 'ck_stale' })
     ).rejects.toMatchObject({
       code: 'stale_revision',
     });

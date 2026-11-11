@@ -249,6 +249,8 @@ export interface PracticeCheckResult {
   submission: ResponseSubmission;
   grade: GradeRecord | null;
   attemptRevision: number;
+  responseRevision?: number;
+  explanation?: string | null;
 }
 
 export interface AttemptHistoryFilter {

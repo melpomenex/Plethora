@@ -23,6 +23,7 @@ import {
   claimStudyJobStep,
   completeStudyJobStep,
   failStudyJobStep,
+  resumeStudyGenerationJob,
   startStudyGenerationJob,
 } from '../../../api/study-generation';
 import {
@@ -45,19 +46,28 @@ import {
   type HydratedEvidenceResult,
 } from './evidence';
 import { mergeCurriculumProposals, type MergeCurriculumResult } from './merge';
+import { EVIDENCE_LIMITS } from './planEvidence';
 import { runPinnedStudyTask } from './pinnedTask';
 import { computeRequestHash, sha256 } from './requestHash';
+import { prepareCurriculumPreflight, refreshCurriculumScope } from './curriculumPreflight';
+import { evaluateStudyPrivacy } from './privacy';
+import { classifyRouteDestination, validatePreflightUnchanged } from './preflight';
+import { resolveTaskRoute } from '../../ai/tasks/router';
+import type { AITaskResult } from '../../ai/tasks/types';
 import type {
   CreateStudyStepInput,
   CurriculumGenerationRequest,
+  CurriculumExecutionStats,
   CurriculumTopicProposal,
   StartStudyJobInput,
   StudyAiPreflight,
   StudyJobProgress,
+  StudyGenerationJob,
 } from './types';
 
 export interface CoordinatorDependencies {
   startJobFn?: typeof startStudyGenerationJob;
+  resumeJobFn?: typeof resumeStudyGenerationJob;
   claimStepFn?: typeof claimStudyJobStep;
   completeStepFn?: typeof completeStudyJobStep;
   failStepFn?: typeof failStudyJobStep;
@@ -67,14 +77,18 @@ export interface CoordinatorDependencies {
   resolveSourceRefsFn?: typeof resolveStudySourceRefs;
   hydrateEvidenceFn?: typeof hydrateCurriculumEvidence;
   runPinnedTaskFn?: typeof runPinnedStudyTask;
+  preparePreflightFn?: typeof prepareCurriculumPreflight;
+  refreshScopeFn?: typeof refreshCurriculumScope;
   now?: () => number;
 }
 
 export interface CoordinatorRunOptions {
   leaseOwner?: string;
   creationKey?: string;
+  resumeFrom?: StudyGenerationJob;
   signal?: AbortSignal;
   onProgress?: (progress: StudyJobProgress) => void;
+  onJobStarted?: (jobId: string) => void;
   deps?: CoordinatorDependencies;
 }
 
@@ -82,6 +96,8 @@ export interface CoordinatorRunResult {
   jobId: string;
   planDetail: StudyPlanDetail;
   mergeResult: MergeCurriculumResult;
+  retrieval?: HydratedEvidenceResult['retrieval'];
+  execution?: CurriculumExecutionStats;
 }
 
 /**
@@ -159,12 +175,30 @@ export async function runCurriculumCoordinator(
   const runPinned = deps.runPinnedTaskFn || runPinnedStudyTask;
 
   const leaseOwner = options.leaseOwner || `lease_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const creationKey = options.creationKey || `key_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const resumeFrom = options.resumeFrom;
+  const creationKey = resumeFrom?.creationKey || options.creationKey || `key_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const signal = options.signal;
+  const now = deps.now ?? Date.now;
+  const startedAt = now();
+  const execution: CurriculumExecutionStats = {
+    modelCalls: 0, corrections: 0, reportedInputTokens: 0, reportedOutputTokens: 0,
+    responsesWithUsage: 0, durationMs: 0,
+  };
+  const recordModelResult = (result: AITaskResult) => {
+    const repaired = result.validationOutcome === 'repaired';
+    execution.modelCalls += repaired ? 2 : 1;
+    execution.corrections += Number(repaired);
+    if (result.usage?.inputTokens != null && result.usage?.outputTokens != null) {
+      execution.responsesWithUsage++;
+      execution.reportedInputTokens += result.usage.inputTokens;
+      execution.reportedOutputTokens += result.usage.outputTokens;
+    }
+    execution.durationMs = now() - startedAt;
+  };
 
   // 1. Check initial plan existence and draft
   let planDetail = await getPlan(request.planId);
-  if (!planDetail.plan.draftVersionId) {
+  if (!planDetail.plan.draftVersionId || planDetail.plan.draftVersionId !== request.baseVersionId) {
     throw new StudyApiError({
       code: 'invalid_state',
       messageKey: 'study_generation.error.no_active_draft',
@@ -173,26 +207,72 @@ export async function runCurriculumCoordinator(
   }
   const draftVersionId = planDetail.plan.draftVersionId;
   let currentRevision = planDetail.plan.revision;
-  const effectiveGoal = request.goal || planDetail.plan.goal;
+  const effectiveGoal = planDetail.plan.goal;
 
-  // 2. Hydrate evidence
+  signal?.throwIfAborted();
+  const prepare = deps.preparePreflightFn ?? prepareCurriculumPreflight;
+  const authorized = await prepare(planDetail.version.sourceScope, preflight.modelSelection || undefined, preflight);
+  if (resumeFrom) {
+    const previous = resumeFrom.preflight as StudyAiPreflight;
+    if (resumeFrom.kind !== 'curriculum' || resumeFrom.targetId !== draftVersionId ||
+        previous.reasoningFallback !== authorized.preflight.reasoningFallback ||
+        !previous.embedding || JSON.stringify(previous.embedding) !== JSON.stringify(authorized.preflight.embedding)) {
+      throw new StudyApiError({ code: 'invalid_state', messageKey: 'study_generation.error.provider_changed_on_resume', retryable: false });
+    }
+    validatePreflightUnchanged(previous, authorized.route);
+  }
+  const refreshScope = deps.refreshScopeFn ?? refreshCurriculumScope;
+  const verifyPrivacy = async () => {
+    const live = await refreshScope(authorized.sourceScope);
+    evaluateStudyPrivacy({
+      documents: live.resolvedDocuments.map((doc) => ({
+        id: doc.documentId, isAiExcluded: doc.isAiExcluded, isLocalOnly: doc.isLocalOnly,
+      })),
+      generationDestination: classifyRouteDestination(authorized.route),
+      embeddingDestination: typeof authorized.preflight.embeddingDestination === 'object'
+        ? authorized.preflight.embeddingDestination : null,
+      cloudDisclosureAccepted: preflight.cloudDisclosureAccepted,
+      costConsentAccepted: preflight.costConsentAccepted,
+    });
+    signal?.throwIfAborted();
+  };
+
+  const prerequisiteRoute = await resolveTaskRoute(curriculumPrerequisiteTask, {
+    providers: [authorized.route.provider],
+  });
+  if (!prerequisiteRoute) {
+    throw new StudyApiError({ code: 'provider_unavailable', messageKey: 'study_generation.error.no_provider_available', retryable: true });
+  }
+  signal?.throwIfAborted();
   const evidence: HydratedEvidenceResult = await hydrateEvidence({
     goal: effectiveGoal,
-    sourceScope: request.sourceScope,
+    sourceScope: authorized.sourceScope,
     depth: request.depth,
+    embeddingConfig: authorized.embeddingConfig,
     resolveSourceRefsFn: resolveSourceRefs,
+    signal,
+    beforeQuery: verifyPrivacy,
   });
+  signal?.throwIfAborted();
+  if (evidence.batches.length === 0) {
+    throw new StudyApiError({ code: 'missing_source', messageKey: 'study_generation.error.no_evidence', retryable: true });
+  }
+  const batches = evidence.batches;
+  if (2 * (batches.length + 1) > preflight.maximumModelCalls) {
+    throw new StudyApiError({ code: 'invalid_state', messageKey: 'study_generation.error.call_budget_exceeded', retryable: false });
+  }
 
-  // 3. Plan steps
-  const requestHash = computeRequestHash(request);
+  const requestHash = sha256(JSON.stringify({
+    request: computeRequestHash({ ...request, sourceScope: authorized.sourceScope }),
+    goal: effectiveGoal,
+    targetRevision: resumeFrom?.targetRevision ?? currentRevision,
+    providerId: authorized.preflight.providerId,
+    creationKey,
+    modelId: authorized.preflight.model?.id,
+    endpoint: authorized.preflight.model?.endpointHash,
+    evidence: batches.map((batch) => batch.handles.map((item) => [item.documentId, item.extractId, item.revision, item.excerptSha256])),
+  }));
   const plannedSteps: CreateStudyStepInput[] = [];
-  const batches = evidence.batches.length > 0 ? evidence.batches : [
-    {
-      batchIndex: 0,
-      handles: evidence.allHandles,
-      totalChars: evidence.allHandles.reduce((sum, h) => sum + h.excerpt.length, 0),
-    },
-  ];
 
   for (let b = 0; b < batches.length; b++) {
     const stepKey = `decompose:${String(b).padStart(4, '0')}`;
@@ -217,11 +297,37 @@ export async function runCurriculumCoordinator(
     targetId: draftVersionId,
     targetRevision: currentRevision,
     requestHash,
-    preflight,
+    preflight: {
+      ...authorized.preflight,
+      sourceExcerptCount: evidence.allHandles.length,
+      retrieval: evidence.retrieval,
+    },
     steps: plannedSteps,
   };
 
-  const job = await startJob(startInput);
+  if (resumeFrom && resumeFrom.requestHash !== requestHash) {
+    throw new StudyApiError({
+      code: 'stale_source', messageKey: 'study_generation.error.checkpoint_evidence_changed', retryable: false,
+    });
+  }
+  signal?.throwIfAborted();
+  const job = resumeFrom
+    ? await (deps.resumeJobFn ?? resumeStudyGenerationJob)(resumeFrom.id, startInput.preflight)
+    : await startJob(startInput);
+  if (job.creationKey !== creationKey) {
+    throw new StudyApiError({ code: 'invalid_state', messageKey: 'study_generation.error.target_job_active', retryable: true });
+  }
+  options.onJobStarted?.(job.id);
+  const sourceRefs = new Map(evidence.resolutions
+    .filter(({ status }) => status === 'current')
+    .map(({ ref }) => [ref.id, ref]));
+  const sourceInputsForDraft = (merge: MergeCurriculumResult) => Object.fromEntries(
+    [...new Set([...merge.nodes, ...merge.prerequisites].flatMap((item) => item.sourceRefIds))]
+      .flatMap((id) => {
+        const ref = sourceRefs.get(id);
+        return ref ? [[id, ref]] : [];
+      }),
+  );
 
   // 5. Execution loop
   const accumulatedTopics: CurriculumTopicProposal[] = [];
@@ -240,22 +346,19 @@ export async function runCurriculumCoordinator(
     droppedEdgesCount: 0,
   };
 
+  let activeStepKey: string | undefined;
   try {
     for (let stepIdx = job.nextStepIndex; stepIdx < plannedSteps.length; stepIdx++) {
       const plannedStep = plannedSteps[stepIdx];
 
       // Fail-closed abort check before claiming
       if (signal?.aborted) {
-        await cancelJob(job.id, job.cancellationEpoch);
         throw new StudyApiError({
           code: 'cancelled',
           messageKey: 'study_generation.error.cancelled',
           retryable: false,
         });
       }
-
-      // Recheck source revisions before each step
-      await verifySourceRevisions(request.sourceScope, resolveSourceRefs);
 
       // Recheck draft revision before claiming
       planDetail = await getPlan(request.planId);
@@ -269,6 +372,9 @@ export async function runCurriculumCoordinator(
 
       // Claim step
       const step = await claimStep(job.id, plannedStep.stepKey, leaseOwner, job.cancellationEpoch);
+      if (step.status === 'completed') continue;
+      activeStepKey = step.stepKey;
+      await verifyPrivacy();
 
       if (step.stepKey.startsWith('decompose:')) {
         const batchIndex = parseInt(step.stepKey.split(':')[1], 10) || 0;
@@ -289,44 +395,18 @@ export async function runCurriculumCoordinator(
           priorEvidenceSummary: request.priorEvidence ? JSON.stringify(request.priorEvidence) : undefined,
         };
 
-        let taskResult;
-        try {
-          taskResult = await runPinned(
-            curriculumDecomposeTask,
-            taskInput,
-            { signal, targetId: `${job.id}:${step.stepKey}` },
-            preflight
-          );
-        } catch (err: unknown) {
-          await failStep({
-            jobId: job.id,
-            stepKey: step.stepKey,
-            leaseOwner,
-            cancellationEpoch: job.cancellationEpoch,
-            error: {
-              code: 'provider_unavailable',
-              messageKey: 'study_generation.error.provider_failed',
-              retryable: true,
-            },
-          });
-          throw err;
-        }
+        const taskResult = await runPinned(
+          curriculumDecomposeTask,
+          taskInput,
+          { signal, targetId: `${job.id}:${step.stepKey}`, preflightRoute: authorized.route },
+          authorized.preflight
+        );
 
+        recordModelResult(taskResult);
         // Validate output
         const allowedHandles = batch.handles.map((h) => h.handle);
         const valResult = validateDecomposeOutputForTask(taskResult.output, allowedHandles);
         if (!valResult.ok) {
-          await failStep({
-            jobId: job.id,
-            stepKey: step.stepKey,
-            leaseOwner,
-            cancellationEpoch: job.cancellationEpoch,
-            error: {
-              code: 'invalid_model_output',
-              messageKey: 'study_generation.error.malformed_output',
-              retryable: true,
-            },
-          });
           throw new StudyApiError({
             code: 'invalid_model_output',
             messageKey: 'study_generation.error.malformed_output',
@@ -334,12 +414,17 @@ export async function runCurriculumCoordinator(
           });
         }
 
-        accumulatedTopics.push(...taskResult.output.topics);
+        signal?.throwIfAborted();
+        const topics = taskResult.output.topics.map((topic) => ({
+          ...topic,
+          handle: `b${batchIndex}_${topic.handle}`,
+        }));
+        accumulatedTopics.push(...topics);
 
         // Reconcile and checkpoint draft
         latestMergeResult = mergeCurriculumProposals({
           baseVersion: planDetail.version,
-          proposedTopics: accumulatedTopics,
+          proposedTopics: topics,
           proposedEdges: [],
           depth: request.depth,
           handleToSourceRefIdMap: evidence.handleToSourceRefIdMap,
@@ -349,8 +434,11 @@ export async function runCurriculumCoordinator(
           planId: request.planId,
           expectedDraftRevision: currentRevision,
           nodes: latestMergeResult.nodes,
-          prerequisites: [],
+          prerequisites: latestMergeResult.prerequisites,
+          sourceScope: authorized.sourceScope,
+          sourceRefs: sourceInputsForDraft(latestMergeResult),
         };
+        await verifyPrivacy();
         planDetail = await saveDraft(saveInput);
         currentRevision = planDetail.plan.revision;
 
@@ -368,87 +456,83 @@ export async function runCurriculumCoordinator(
             completed: stepIdx + 1,
             total: plannedSteps.length,
             labelKey: 'study_generation.progress.decomposing_complete',
+            execution: { ...execution },
           },
           status: isFinal ? 'awaiting-review' : 'running',
         });
+        activeStepKey = undefined;
         options.onProgress?.(progress);
 
       } else if (step.stepKey.startsWith('prerequisites:')) {
-        // Build topic items from accumulated topics or fallback to draft nodes
-        let topicItems: TopicEvidenceItem[] = [];
-        if (accumulatedTopics.length > 0) {
-          topicItems = accumulatedTopics.map((t) => ({
-            handle: t.handle,
-            title: t.title,
-            conceptName: t.conceptName,
-            objectives: t.learningObjectives,
-            sourceHandles: t.sourceHandles,
-          }));
-        } else {
-          topicItems = planDetail.version.nodes.map((n) => ({
-            handle: `t_${n.position}`,
-            title: n.title,
-            conceptName: n.conceptLabel,
-            objectives: n.learningObjectives,
-            sourceHandles: [],
-          }));
+        const uniqueTopics = new Map<string, CurriculumTopicProposal>();
+        for (const topic of accumulatedTopics) {
+          const key = (topic.conceptName || topic.title).toLowerCase().trim();
+          if (!uniqueTopics.has(key)) uniqueTopics.set(key, topic);
         }
-
+        const proposedTopics = [...uniqueTopics.values()].slice(0, EVIDENCE_LIMITS.DEPTH_CAPS[request.depth]);
+        const topicItems: TopicEvidenceItem[] = proposedTopics.map((topic) => ({
+          handle: topic.handle,
+          title: topic.title,
+          conceptName: topic.conceptName,
+          objectives: topic.learningObjectives,
+          sourceHandles: topic.sourceHandles,
+        }));
+        if (!topicItems.length) {
+          // A checkpoint can contain draft topics from an earlier run.
+          for (const node of planDetail.version.nodes.filter((item) => item.included)) {
+            topicItems.push({
+              handle: `t_${node.position}`,
+              title: node.title,
+              conceptName: node.conceptLabel,
+              objectives: node.learningObjectives,
+              sourceHandles: [],
+            });
+          }
+        }
+        const referencedHandles = new Set(topicItems.flatMap((topic) => topic.sourceHandles));
+        const candidateSources = evidence.allHandles.filter((item) => referencedHandles.has(item.handle));
+        // The final request shares the per-batch context limit. Keep original handles.
+        const boundedSources = [];
+        let sourceChars = 0;
+        for (const item of candidateSources) {
+          if (boundedSources.length >= EVIDENCE_LIMITS.MAX_HANDLES_PER_BATCH ||
+              sourceChars + item.excerpt.length > EVIDENCE_LIMITS.MAX_CHARS_PER_BATCH) break;
+          boundedSources.push(item);
+          sourceChars += item.excerpt.length;
+        }
+        const suppliedSourceHandles = new Set(boundedSources.map((item) => item.handle));
         const taskInput: CurriculumPrerequisiteTaskInput = {
           jobId: job.id,
           stepKey: step.stepKey,
-          topics: topicItems,
-          sources: evidence.allHandles.map((h) => ({
-            handle: h.handle,
-            title: h.documentTitle,
-            excerpt: h.excerpt,
+          topics: topicItems.map((topic) => ({
+            ...topic,
+            sourceHandles: topic.sourceHandles.filter((id) => suppliedSourceHandles.has(id)),
+          })),
+          sources: boundedSources.map((item) => ({
+            handle: item.handle,
+            title: item.documentTitle,
+            excerpt: item.excerpt,
           })),
         };
 
-        let taskResult;
-        try {
-          taskResult = await runPinned(
-            curriculumPrerequisiteTask,
-            taskInput,
-            { signal, targetId: `${job.id}:${step.stepKey}` },
-            preflight
-          );
-        } catch (err: unknown) {
-          await failStep({
-            jobId: job.id,
-            stepKey: step.stepKey,
-            leaseOwner,
-            cancellationEpoch: job.cancellationEpoch,
-            error: {
-              code: 'provider_unavailable',
-              messageKey: 'study_generation.error.provider_failed',
-              retryable: true,
-            },
-          });
-          throw err;
-        }
+        const taskResult = await runPinned(
+          curriculumPrerequisiteTask,
+          taskInput,
+          { signal, targetId: `${job.id}:${step.stepKey}`, preflightRoute: prerequisiteRoute },
+          authorized.preflight
+        );
 
+        recordModelResult(taskResult);
         // Validate output
         const knownTopicHandles = topicItems.map((t) => t.handle);
-        const allowedSourceHandles = evidence.allHandles.map((h) => h.handle);
+        const allowedSourceHandles = boundedSources.map((item) => item.handle);
         const valResult = validatePrerequisiteOutputForTask(
           taskResult.output,
           knownTopicHandles,
-          allowedSourceHandles.length > 0 ? allowedSourceHandles : undefined
+          allowedSourceHandles
         );
 
         if (!valResult.ok) {
-          await failStep({
-            jobId: job.id,
-            stepKey: step.stepKey,
-            leaseOwner,
-            cancellationEpoch: job.cancellationEpoch,
-            error: {
-              code: 'invalid_model_output',
-              messageKey: 'study_generation.error.malformed_output',
-              retryable: true,
-            },
-          });
           throw new StudyApiError({
             code: 'invalid_model_output',
             messageKey: 'study_generation.error.malformed_output',
@@ -465,7 +549,7 @@ export async function runCurriculumCoordinator(
                 summary: n.summary,
                 learningObjectives: n.learningObjectives,
                 conceptName: n.conceptLabel,
-                materialSupport: (n.materialSupport === 'unsupported' ? 'unsupported' : 'grounded') as 'grounded' | 'unsupported',
+                materialSupport: n.materialSupport === 'grounded' ? 'grounded' : 'unsupported',
                 sourceHandles: n.sourceRefIds,
                 whyHere: n.whyHere,
               }));
@@ -484,7 +568,9 @@ export async function runCurriculumCoordinator(
           expectedDraftRevision: currentRevision,
           nodes: latestMergeResult.nodes,
           prerequisites: latestMergeResult.prerequisites,
+          sourceRefs: sourceInputsForDraft(latestMergeResult),
         };
+        await verifyPrivacy();
         planDetail = await saveDraft(saveInput);
         currentRevision = planDetail.plan.revision;
 
@@ -501,9 +587,11 @@ export async function runCurriculumCoordinator(
             completed: plannedSteps.length,
             total: plannedSteps.length,
             labelKey: 'study_generation.progress.prerequisites_complete',
+            execution: { ...execution },
           },
           status: 'awaiting-review',
         });
+        activeStepKey = undefined;
         options.onProgress?.(progress);
       }
     }
@@ -512,6 +600,8 @@ export async function runCurriculumCoordinator(
       jobId: job.id,
       planDetail,
       mergeResult: latestMergeResult,
+      retrieval: evidence.retrieval,
+      execution,
     };
   } catch (err) {
     if (signal?.aborted) {
@@ -520,6 +610,19 @@ export async function runCurriculumCoordinator(
       } catch {
         // ignore secondary cancellation error
       }
+    } else if (activeStepKey) {
+      const invalidOutput = err instanceof StudyApiError && err.code === 'invalid_model_output';
+      await failStep({
+        jobId: job.id,
+        stepKey: activeStepKey,
+        leaseOwner,
+        cancellationEpoch: job.cancellationEpoch,
+        error: {
+          code: invalidOutput ? 'invalid_model_output' : 'invalid_state',
+          messageKey: invalidOutput ? 'study_generation.error.malformed_output' : 'study_generation.error.step_stopped',
+          retryable: true,
+        },
+      }).catch(() => undefined);
     }
     throw err;
   }

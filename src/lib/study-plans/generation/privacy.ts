@@ -23,6 +23,7 @@ export interface StudyPrivacyEvaluationParams {
   strictLocalOnly?: boolean;
   cloudDisclosureAccepted?: boolean;
   costConsentAccepted?: boolean;
+  inspectOnly?: boolean;
 }
 
 export interface StudyPrivacyEvaluationResult {
@@ -47,6 +48,7 @@ export function evaluateStudyPrivacy(
     strictLocalOnly = false,
     cloudDisclosureAccepted = false,
     costConsentAccepted = false,
+    inspectOnly = false,
   } = params;
 
   // 1. Any document excluded from AI entirely
@@ -117,7 +119,7 @@ export function evaluateStudyPrivacy(
   const requiresDisclosure =
     generationDestination.requiresDisclosure ||
     (embeddingDestination?.requiresDisclosure ?? false);
-  if (requiresDisclosure && !cloudDisclosureAccepted) {
+  if (requiresDisclosure && !cloudDisclosureAccepted && !inspectOnly) {
     throw new StudyApiError({
       code: 'privacy_denied',
       messageKey: 'study_plan.error.cloud_disclosure_required',
@@ -129,7 +131,7 @@ export function evaluateStudyPrivacy(
   const requiresCostConsent =
     generationDestination.requiresCostConsent ||
     (embeddingDestination?.requiresCostConsent ?? false);
-  if (requiresCostConsent && !costConsentAccepted) {
+  if (requiresCostConsent && !costConsentAccepted && !inspectOnly) {
     throw new StudyApiError({
       code: 'cost_consent_required',
       messageKey: 'study_plan.error.cost_consent_required',
@@ -138,7 +140,7 @@ export function evaluateStudyPrivacy(
   }
 
   return {
-    allowed: true,
+    allowed: (!requiresDisclosure || cloudDisclosureAccepted) && (!requiresCostConsent || costConsentAccepted),
     sendsOffDevice,
     billable,
   };

@@ -69,6 +69,7 @@ export interface LLMRequest {
   policy?: LlmRequestPolicy;
   /** The task runner owns the single corrective attempt. Disable hidden transport recovery. */
   taskManagedRecovery?: boolean;
+  pinEndpoint?: boolean;
 }
 
 export interface LLMResponse {
@@ -126,6 +127,7 @@ export async function chatWithLLM(request: LLMRequest): Promise<LLMResponse> {
     baseUrl: request.baseUrl,
     policy: request.policy,
     taskManagedRecovery: request.taskManagedRecovery,
+    pinEndpoint: request.pinEndpoint,
   }));
 }
 
@@ -357,6 +359,7 @@ export interface ModelInfo {
   id: string;
   name: string;
   context_length?: number;
+  reasoning?: boolean;
   pricing?: ModelPricing;
 }
 

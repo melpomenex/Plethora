@@ -20,6 +20,8 @@ import { validateSessionGoal, normalizeSessionGoal } from '../../lib/daqe/sessio
 import { useLearningPathsStore } from '../../stores/learningPathsStore';
 import type { CreateStudyPlanInput, StudyDepth, StudyPlanDetail } from '../../types/learningPaths';
 import type { SelectedSourceScope } from '../../types/studySource';
+import { resolveStudySourceScope } from '../../api/study-sources';
+import { studyErrorMessage } from '../../lib/study-plans/studyErrorMessage';
 import { SourceScopePicker } from './SourceScopePicker';
 import { CurriculumGenerator } from './CurriculumGenerator';
 import { Button } from '../md3/Button';
@@ -31,6 +33,10 @@ export interface StudyPlanCreateFormProps {
     title?: string;
     goal?: string;
     documentIds?: string[];
+    extractIds?: string[];
+    collectionIds?: string[];
+    tagIds?: string[];
+    conceptLabel?: string;
   };
   /** C7-T03 optional diagnostic host slot (Take/Skip UI injected by caller). */
   diagnosticSlot?: React.ReactNode;
@@ -47,14 +53,14 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
   const createPlanAction = useLearningPathsStore((s) => s.createStudyPlan);
 
   const [title, setTitle] = useState(initialPrefill?.title || '');
-  const [goal, setGoal] = useState(initialPrefill?.goal || '');
+  const [goal, setGoal] = useState(initialPrefill?.goal || initialPrefill?.conceptLabel || '');
   const [depth, setDepth] = useState<StudyDepth>('foundational');
   const [creationMethod, setCreationMethod] = useState<CreationMethod>('manual');
   const [sourceScope, setSourceScope] = useState<SelectedSourceScope>({
     documentIds: initialPrefill?.documentIds || [],
-    extractIds: [],
-    collectionIds: [],
-    tagIds: [],
+    extractIds: initialPrefill?.extractIds ?? [],
+    collectionIds: initialPrefill?.collectionIds ?? [],
+    tagIds: initialPrefill?.tagIds ?? [],
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -69,6 +75,8 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
   const goalValidation = validateSessionGoal(goal);
 
   const canSubmit = isTitleValid && goalValidation.ok && !isSubmitting;
+  const needsSources = creationMethod !== 'manual';
+  const hasSelectedSources = sourceScope.documentIds.length + sourceScope.extractIds.length + sourceScope.collectionIds.length + sourceScope.tagIds.length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -80,20 +88,18 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
     setIsSubmitting(true);
     setError(null);
 
-    const input: CreateStudyPlanInput = {
-      title: trimmedTitle,
-      goal: normalizedGoal,
-      depth,
-      sourceScope: {
-        schemaVersion: 1,
-        selected: sourceScope,
-        resolvedDocuments: [],
-        frozenAt: new Date().toISOString(),
-        indexCompleteness: 'complete',
-      },
-    };
-
     try {
+      if (needsSources && !hasSelectedSources) {
+        setError('Select at least one source document to continue.');
+        return;
+      }
+      const resolvedSourceScope = await resolveStudySourceScope(sourceScope);
+      const input: CreateStudyPlanInput = {
+        title: trimmedTitle,
+        goal: normalizedGoal,
+        depth,
+        sourceScope: resolvedSourceScope,
+      };
       const detail = await createPlanAction(input);
 
       if (creationMethod === 'manual') {
@@ -103,8 +109,8 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
         setGeneratorPlanDetail(detail);
         setIsGeneratorOpen(true);
       }
-    } catch (err: any) {
-      setError(err?.messageKey || err?.message || 'Failed to create study plan');
+    } catch (err: unknown) {
+      setError(studyErrorMessage(err, 'Failed to create study plan'));
     } finally {
       setIsSubmitting(false);
     }
@@ -115,7 +121,7 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
       <form
         onSubmit={handleSubmit}
         aria-label="Create study plan form"
-        className="max-w-2xl mx-auto p-6 space-y-6"
+        className="w-full max-w-2xl mx-auto p-4 sm:p-6 space-y-6"
       >
         <div className="flex items-center gap-3 pb-4 border-b border-surface-200 dark:border-surface-700">
           <Button
@@ -264,7 +270,7 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
               {
                 id: 'rules-only' as const,
                 label: 'Source Outline (No AI)',
-                desc: 'Extract confirmed concepts and table of contents deterministically.',
+                desc: 'Build an outline from confirmed concepts and document titles.',
                 icon: ShieldCheck,
               },
             ].map((m) => {
@@ -305,7 +311,7 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
         {diagnosticSlot}
 
         {/* Form Buttons */}
-        <div className="flex items-center justify-end gap-3 pt-4 border-t border-surface-200 dark:border-surface-700">
+        <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-3 pt-4 border-t border-surface-200 dark:border-surface-700">
           <Button type="button" variant="text" onClick={onCancel} disabled={isSubmitting}>
             Cancel
           </Button>
@@ -333,6 +339,7 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
         <CurriculumGenerator
           planDetail={generatorPlanDetail}
           isOpen={isGeneratorOpen}
+          initialMode={creationMethod === 'rules-only' ? 'rules-only' : 'ai'}
           onClose={() => {
             setIsGeneratorOpen(false);
             onSuccess(generatorPlanDetail);

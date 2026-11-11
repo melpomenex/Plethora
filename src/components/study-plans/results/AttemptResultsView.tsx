@@ -12,6 +12,8 @@ import { Button } from '../../md3/Button';
 import { getExamAttempt } from '../../../api/exam-sessions';
 import type { AttemptDetail } from '../../../types/assessmentSessions';
 import { AttemptResults } from './AttemptResults';
+import { RubricGradingControls } from '../grading/RubricGradingControls';
+import { studyErrorMessage } from '../../../lib/study-plans/studyErrorMessage';
 import type { ReassessmentReturnContext } from '../remediation/returnContext';
 
 export interface AttemptResultsViewProps {
@@ -47,7 +49,7 @@ export const AttemptResultsView: React.FC<AttemptResultsViewProps> = ({
         }
       } catch (err: any) {
         if (active) {
-          setError(err?.messageKey || err?.message || 'Failed to load examination results');
+          setError(studyErrorMessage(err, 'Could not load examination results.'));
         }
       } finally {
         if (active) {
@@ -97,7 +99,11 @@ export const AttemptResultsView: React.FC<AttemptResultsViewProps> = ({
         onBack={onBack}
         onRetake={onRetake}
         className={className}
+        onGradeRecorded={() => {
+          void getExamAttempt(attemptId).then(setDetail, () => setError('Could not reload examination results.'));
+        }}
       />
+      <RubricGradingControls key={attemptId} detail={detail} onUpdate={setDetail} />
     </div>
   );
 };

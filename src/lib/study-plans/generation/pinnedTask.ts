@@ -14,7 +14,8 @@ import type {
   AITaskRunOptions,
 } from '../../ai/tasks/types';
 import type { StudyAiPreflight } from './types';
-import { validatePreflightUnchanged } from './preflight';
+import { classifyRouteDestination, resolveStudyTaskRoute, validatePreflightUnchanged } from './preflight';
+import { evaluateStudyPrivacy } from './privacy';
 import { StudyApiError } from '../../../api/study-plans';
 
 export interface RunPinnedStudyTaskOptions extends AITaskRunOptions {
@@ -44,7 +45,9 @@ export async function runPinnedStudyTask<I, O>(
     });
   }
 
-  const resolveRoute = options.resolveRouteFn ?? resolveTaskRoute;
+  const resolveRoute = options.resolveRouteFn ?? (frozenPreflight.model
+    ? (task: AITaskDefinition<never, unknown>) => resolveStudyTaskRoute(task, frozenPreflight.model?.configId)
+    : resolveTaskRoute);
   const route: AITaskRoute | null =
     options.preflightRoute ?? (await resolveRoute(primaryTask as unknown as AITaskDefinition<never, unknown>));
 
@@ -58,6 +61,15 @@ export async function runPinnedStudyTask<I, O>(
 
   // Validate that the resolved provider matches the frozen preflight
   validatePreflightUnchanged(frozenPreflight, route);
+  if (frozenPreflight.model || !options.resolveRouteFn) {
+    evaluateStudyPrivacy({
+      documents: [],
+      generationDestination: classifyRouteDestination(route),
+      embeddingDestination: typeof frozenPreflight.embeddingDestination === 'object' ? frozenPreflight.embeddingDestination : null,
+      cloudDisclosureAccepted: frozenPreflight.cloudDisclosureAccepted,
+      costConsentAccepted: frozenPreflight.costConsentAccepted,
+    });
+  }
 
   // Execute the pre-resolved task (which may be a reasoning twin) on the pinned provider
   // Passing options.provider explicitly suppresses runTask's internal fallback loop
@@ -67,6 +79,7 @@ export async function runPinnedStudyTask<I, O>(
     {
       ...options,
       provider: route.provider,
+      ...(frozenPreflight.model && { streaming: false }),
     }
   );
 

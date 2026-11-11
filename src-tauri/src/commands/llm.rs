@@ -502,8 +502,17 @@ pub async fn llm_chat(
     base_url: Option<String>,
     policy: Option<LlmRequestPolicy>,
     task_managed_recovery: Option<bool>,
+    pin_endpoint: Option<bool>,
 ) -> Result<LLMResponse, String> {
-    let client = Client::new();
+    let client = if pin_endpoint == Some(true) {
+        Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .build()
+            .map_err(|_| "Could not initialize pinned model connection".to_string())?
+    } else {
+        Client::new()
+    };
     let model = normalize_model(model, &provider);
     let policy = policy_or_default(&provider, max_tokens, policy);
     let max_tokens = policy.max_output_tokens;
@@ -532,7 +541,7 @@ pub async fn llm_chat(
                 &base_url,
                 task_managed_recovery.unwrap_or(false),
             )
-            .await?
+            .await
         }
         "anthropic" => {
             call_anthropic_with_key(
@@ -544,10 +553,10 @@ pub async fn llm_chat(
                 &api_key.expect("anthropic API key required"),
                 &base_url,
             )
-            .await?
+            .await
         }
         "ollama" => {
-            call_ollama_with_url(&client, &model, messages, temperature, &policy, &base_url).await?
+            call_ollama_with_url(&client, &model, messages, temperature, &policy, &base_url).await
         }
         "openrouter" => {
             call_openrouter_with_key(
@@ -559,12 +568,24 @@ pub async fn llm_chat(
                 &api_key.expect("openrouter API key required"),
                 &base_url,
             )
-            .await?
+            .await
         }
-        _ => return Err(format!("Unknown provider: {}", provider)),
+        _ => Err(format!("Unknown provider: {}", provider)),
     };
 
-    Ok(result)
+    if pin_endpoint == Some(true) {
+        result.map_err(|error| {
+            // Provider error bodies can echo the original request. Keep only
+            // a fixed diagnostic before crossing IPC into the shared logger.
+            if error.to_ascii_lowercase().contains("timed out") {
+                "Model request timed out".to_string()
+            } else {
+                "Pinned model request failed".to_string()
+            }
+        })
+    } else {
+        result
+    }
 }
 
 #[tauri::command]
@@ -651,6 +672,7 @@ pub async fn llm_chat_with_context(
             api_key.clone(),
             base_url.clone(),
             Some(policy),
+            None,
             None,
         )
     };
@@ -1238,6 +1260,7 @@ pub async fn llm_get_models(
             let fallback_models = || {
                 Ok(vec![
                     ModelInfo {
+                        reasoning: None,
                         id: "deepseek-chat".to_string(),
                         name: "DeepSeek Chat (V3)".to_string(),
                         context_length: Some(64000),
@@ -1252,6 +1275,7 @@ pub async fn llm_get_models(
                         }),
                     },
                     ModelInfo {
+                        reasoning: None,
                         id: "deepseek-reasoner".to_string(),
                         name: "DeepSeek Reasoner (R1)".to_string(),
                         context_length: Some(64000),
@@ -1295,6 +1319,7 @@ pub async fn llm_get_models(
                     Ok(models) => Ok(models),
                     Err(_) if normalized_api_key.is_none() => Ok(vec![
                         ModelInfo {
+                            reasoning: None,
                             id: "gpt-4o".to_string(),
                             name: "GPT-4o".to_string(),
                             context_length: Some(128000),
@@ -1309,6 +1334,7 @@ pub async fn llm_get_models(
                             }),
                         },
                         ModelInfo {
+                            reasoning: None,
                             id: "gpt-4o-mini".to_string(),
                             name: "GPT-4o Mini".to_string(),
                             context_length: Some(128000),
@@ -1323,6 +1349,7 @@ pub async fn llm_get_models(
                             }),
                         },
                         ModelInfo {
+                            reasoning: None,
                             id: "gpt-4-turbo".to_string(),
                             name: "GPT-4 Turbo".to_string(),
                             context_length: Some(128000),
@@ -1337,6 +1364,7 @@ pub async fn llm_get_models(
                             }),
                         },
                         ModelInfo {
+                            reasoning: None,
                             id: "gpt-3.5-turbo".to_string(),
                             name: "GPT-3.5 Turbo".to_string(),
                             context_length: Some(16385),
@@ -1356,6 +1384,7 @@ pub async fn llm_get_models(
             } else {
                 Ok(vec![
                     ModelInfo {
+                        reasoning: None,
                         id: "gpt-4o".to_string(),
                         name: "GPT-4o".to_string(),
                         context_length: Some(128000),
@@ -1370,6 +1399,7 @@ pub async fn llm_get_models(
                         }),
                     },
                     ModelInfo {
+                        reasoning: None,
                         id: "gpt-4o-mini".to_string(),
                         name: "GPT-4o Mini".to_string(),
                         context_length: Some(128000),
@@ -1384,6 +1414,7 @@ pub async fn llm_get_models(
                         }),
                     },
                     ModelInfo {
+                        reasoning: None,
                         id: "gpt-4-turbo".to_string(),
                         name: "GPT-4 Turbo".to_string(),
                         context_length: Some(128000),
@@ -1398,6 +1429,7 @@ pub async fn llm_get_models(
                         }),
                     },
                     ModelInfo {
+                        reasoning: None,
                         id: "gpt-3.5-turbo".to_string(),
                         name: "GPT-3.5 Turbo".to_string(),
                         context_length: Some(16385),
@@ -1423,6 +1455,7 @@ pub async fn llm_get_models(
                     Ok(models) => Ok(models),
                     Err(_) => Ok(vec![
                         ModelInfo {
+                            reasoning: None,
                             id: "claude-3-5-sonnet-20241022".to_string(),
                             name: "Claude 3.5 Sonnet".to_string(),
                             context_length: Some(200000),
@@ -1437,6 +1470,7 @@ pub async fn llm_get_models(
                             }),
                         },
                         ModelInfo {
+                            reasoning: None,
                             id: "claude-3-5-haiku-20241022".to_string(),
                             name: "Claude 3.5 Haiku".to_string(),
                             context_length: Some(200000),
@@ -1451,6 +1485,7 @@ pub async fn llm_get_models(
                             }),
                         },
                         ModelInfo {
+                            reasoning: None,
                             id: "claude-3-opus-20240229".to_string(),
                             name: "Claude 3 Opus".to_string(),
                             context_length: Some(200000),
@@ -1469,6 +1504,7 @@ pub async fn llm_get_models(
             } else {
                 Ok(vec![
                     ModelInfo {
+                        reasoning: None,
                         id: "claude-3-5-sonnet-20241022".to_string(),
                         name: "Claude 3.5 Sonnet".to_string(),
                         context_length: Some(200000),
@@ -1483,6 +1519,7 @@ pub async fn llm_get_models(
                         }),
                     },
                     ModelInfo {
+                        reasoning: None,
                         id: "claude-3-5-haiku-20241022".to_string(),
                         name: "Claude 3.5 Haiku".to_string(),
                         context_length: Some(200000),
@@ -1497,6 +1534,7 @@ pub async fn llm_get_models(
                         }),
                     },
                     ModelInfo {
+                        reasoning: None,
                         id: "claude-3-opus-20240229".to_string(),
                         name: "Claude 3 Opus".to_string(),
                         context_length: Some(200000),
@@ -1528,6 +1566,7 @@ pub async fn llm_get_models(
             // Fallback to default list with approximate pricing
             Ok(vec![
                 ModelInfo {
+                    reasoning: None,
                     id: "anthropic/claude-3.5-sonnet".to_string(),
                     name: "Claude 3.5 Sonnet".to_string(),
                     context_length: Some(200000),
@@ -1542,6 +1581,7 @@ pub async fn llm_get_models(
                     }),
                 },
                 ModelInfo {
+                    reasoning: None,
                     id: "anthropic/claude-3.5-sonnet:beta".to_string(),
                     name: "Claude 3.5 Sonnet (Beta)".to_string(),
                     context_length: Some(200000),
@@ -1556,6 +1596,7 @@ pub async fn llm_get_models(
                     }),
                 },
                 ModelInfo {
+                    reasoning: None,
                     id: "anthropic/claude-3.5-haiku".to_string(),
                     name: "Claude 3.5 Haiku".to_string(),
                     context_length: Some(200000),
@@ -1570,6 +1611,7 @@ pub async fn llm_get_models(
                     }),
                 },
                 ModelInfo {
+                    reasoning: None,
                     id: "anthropic/claude-3-opus".to_string(),
                     name: "Claude 3 Opus".to_string(),
                     context_length: Some(200000),
@@ -1584,6 +1626,7 @@ pub async fn llm_get_models(
                     }),
                 },
                 ModelInfo {
+                    reasoning: None,
                     id: "openai/gpt-4o".to_string(),
                     name: "GPT-4o".to_string(),
                     context_length: Some(128000),
@@ -1598,6 +1641,7 @@ pub async fn llm_get_models(
                     }),
                 },
                 ModelInfo {
+                    reasoning: None,
                     id: "openai/gpt-4o-mini".to_string(),
                     name: "GPT-4o Mini".to_string(),
                     context_length: Some(128000),
@@ -1612,6 +1656,7 @@ pub async fn llm_get_models(
                     }),
                 },
                 ModelInfo {
+                    reasoning: None,
                     id: "openai/gpt-4-turbo".to_string(),
                     name: "GPT-4 Turbo".to_string(),
                     context_length: Some(128000),
@@ -1626,6 +1671,7 @@ pub async fn llm_get_models(
                     }),
                 },
                 ModelInfo {
+                    reasoning: None,
                     id: "google/gemini-pro-1.5".to_string(),
                     name: "Gemini Pro 1.5".to_string(),
                     context_length: Some(2000000),
@@ -1640,6 +1686,7 @@ pub async fn llm_get_models(
                     }),
                 },
                 ModelInfo {
+                    reasoning: None,
                     id: "meta-llama/llama-3.1-405b-instruct".to_string(),
                     name: "Llama 3.1 405B".to_string(),
                     context_length: Some(128000),
@@ -1654,6 +1701,7 @@ pub async fn llm_get_models(
                     }),
                 },
                 ModelInfo {
+                    reasoning: None,
                     id: "deepseek/deepseek-chat".to_string(),
                     name: "DeepSeek Chat".to_string(),
                     context_length: Some(64000),
@@ -2101,6 +2149,8 @@ pub struct ModelInfo {
     pub name: String,
     pub context_length: Option<usize>,
     pub pricing: Option<ModelPricing>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reasoning: Option<bool>,
 }
 
 /// Normalize a single OpenRouter pricing value into the app's USD-per-1K-tokens
@@ -2234,6 +2284,13 @@ async fn fetch_openrouter_models(
                 .map(map_openrouter_pricing);
 
             Some(ModelInfo {
+                reasoning: obj.get("supported_parameters").and_then(|parameters| {
+                    parameters.as_array().map(|parameters| {
+                        parameters.iter().any(|parameter| {
+                            matches!(parameter.as_str(), Some("reasoning" | "include_reasoning"))
+                        })
+                    })
+                }),
                 id,
                 name,
                 context_length,
@@ -2301,6 +2358,7 @@ async fn fetch_openai_compatible_models(
             }
 
             Some(ModelInfo {
+                reasoning: None,
                 name: id.clone(),
                 id,
                 context_length: None,
@@ -2368,6 +2426,7 @@ async fn fetch_anthropic_models(
                 .unwrap_or_else(|| id.clone());
 
             Some(ModelInfo {
+                reasoning: None,
                 id,
                 name: display_name,
                 context_length: None,
@@ -2461,6 +2520,7 @@ async fn fetch_ollama_models(client: &Client, base_url: &str) -> Result<Vec<Mode
             };
 
             Some(ModelInfo {
+                reasoning: None,
                 id: name,
                 name: display_name,
                 context_length: None,

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import type { NodeLearningProgress, PlanEvidenceSummary } from '../../../types/learningEvidence';
+import type { KnowledgeGapView, NodeLearningProgress, PlanEvidenceSummary } from '../../../types/learningEvidence';
 import { getStudyPlanEvidence } from '../../../api/learning-evidence';
 import { useKnowledgeGapsStore } from '../../../stores/knowledgeGapsStore';
 import { NodeLearningProgressView } from './NodeLearningProgress';
@@ -9,12 +9,14 @@ export interface StudyPlanProgressProps {
   planId: string;
   nodeTitles?: Record<string, string>;
   onOpenSource?: (sourceRefId: string | null) => void;
+  onPrepareAssessment?: (gap: KnowledgeGapView, mode: 'practice' | 'exam') => void;
 }
 
 export const StudyPlanProgress: React.FC<StudyPlanProgressProps> = ({
   planId,
   nodeTitles,
   onOpenSource,
+  onPrepareAssessment,
 }) => {
   const [summary, setSummary] = useState<PlanEvidenceSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -22,6 +24,7 @@ export const StudyPlanProgress: React.FC<StudyPlanProgressProps> = ({
   const gaps = useKnowledgeGapsStore((s) => s.gaps);
   const isRefreshing = useKnowledgeGapsStore((s) => s.isLoading);
   const refreshGaps = useKnowledgeGapsStore((s) => s.refreshGaps);
+  const dismissGapNative = useKnowledgeGapsStore((s) => s.dismissGapNative);
   const loadGaps = useKnowledgeGapsStore((s) => s.loadGaps);
 
   const load = useCallback(async () => {
@@ -72,7 +75,12 @@ export const StudyPlanProgress: React.FC<StudyPlanProgressProps> = ({
   }
 
   const nodes: NodeLearningProgress[] = summary?.nodes ?? [];
-  const planGaps = gaps.filter((g) => g.planId === null || g.planId === planId);
+  const planGaps = gaps.filter((g) => g.planId === planId);
+  const handleDismiss = (id: string) => {
+    const gap = planGaps.find((item) => item.id === id);
+    if (!gap) return;
+    void dismissGapNative(id, gap.evidenceCutoff).catch(() => setLoadError('Could not dismiss the gap.'));
+  };
 
   return (
     <div data-testid="plan-progress" className="space-y-4">
@@ -96,7 +104,8 @@ export const StudyPlanProgress: React.FC<StudyPlanProgressProps> = ({
           ))}
         </div>
       )}
-      <GapHistory gaps={planGaps} onRefresh={() => void handleRefresh()} isRefreshing={isRefreshing} />
+      <GapHistory gaps={planGaps} onDismiss={handleDismiss} onOpenSource={onOpenSource}
+        onPrepareAssessment={onPrepareAssessment} onRefresh={() => void handleRefresh()} isRefreshing={isRefreshing} />
     </div>
   );
 };

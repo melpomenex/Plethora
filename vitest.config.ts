@@ -40,6 +40,7 @@ export default defineConfig({
       "src/**/*.bench.tsx",
       // Playwright visual suites run via `npm run test:visual`, not vitest.
       "src/visual/**",
+      "src/e2e/**",
     ],
   },
   resolve: {

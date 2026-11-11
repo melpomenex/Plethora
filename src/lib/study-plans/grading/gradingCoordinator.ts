@@ -41,6 +41,8 @@ import type {
   StudyAiPreflight,
   StudyJobProgress,
 } from '../generation/types';
+import type { StudySourceRefV1 } from '../../../types/studySource';
+import type { AITaskRoute } from '../../ai/tasks/router';
 import type { StudyCommandError } from '../../../types/learningPaths';
 
 export interface GradingCoordinatorDependencies {
@@ -58,6 +60,9 @@ export interface RunGradingCoordinatorOptions {
   attemptDetail: AttemptDetail;
   questions: Map<string, AssessmentQuestionRevision> | AssessmentQuestionRevision[];
   preflight?: StudyAiPreflight | Record<string, unknown>;
+  preflightRoute?: AITaskRoute;
+  sourceRefs?: ReadonlyMap<string, StudySourceRefV1>;
+  revalidateSources?: () => Promise<void>;
   leaseOwner?: string;
   creationKey?: string;
   regrade?: boolean;
@@ -101,6 +106,7 @@ export async function runGradingCoordinator(
     attemptDetail: options.attemptDetail,
     questions: options.questions,
     preflight: options.preflight,
+    sourceHashes: Object.fromEntries(Array.from(options.sourceRefs ?? []).map(([id, ref]) => [id, ref.excerptSha256])),
     creationKey: options.creationKey,
     regrade: options.regrade,
   });
@@ -150,6 +156,8 @@ export async function runGradingCoordinator(
       });
     }
 
+    await options.revalidateSources?.();
+
     // Claim step
     const claimedStep = await claimStep(
       job.id,
@@ -166,13 +174,10 @@ export async function runGradingCoordinator(
         ? pendingItem.submission.response.text
         : '';
 
-    // Build source snippets from question source refs if available
-    const sources: SourceEvidenceSnippet[] = (question.sourceRefIds || []).map(
-      (refId, idx) => ({
-        handle: `s_${idx}`,
-        excerpt: `Source material for ${refId}`,
-      })
-    );
+    const sources: SourceEvidenceSnippet[] = (question.sourceRefIds || []).flatMap((refId) => {
+      const reference = options.sourceRefs?.get(refId);
+      return reference ? [{ handle: refId, excerpt: reference.excerpt, documentTitle: reference.documentTitle }] : [];
+    });
 
     const taskInput = {
       jobId: job.id,
@@ -192,6 +197,7 @@ export async function runGradingCoordinator(
         {
           signal: options.signal,
           targetId: `${job.id}:${claimedStep.stepKey}`,
+          preflightRoute: options.preflightRoute,
         },
         job.preflight as StudyAiPreflight
       );
@@ -236,7 +242,12 @@ export async function runGradingCoordinator(
     }
 
     // Task succeeded: evaluate proposal and compute deterministic points
-    const proposal = taskResult.output;
+    const proposal = taskResult.fallbackPath === 'reasoning-fallback' && question.kind === 'essay'
+      ? {
+          ...taskResult.output,
+          limitations: [...new Set([...taskResult.output.limitations, 'non-reasoning-fallback' as const])],
+        }
+      : taskResult.output;
     const aggregate = aggregateRubric(question.rubric, proposal.criteria, question.maxPoints);
     const consistency = checkGradingConsistency(
       proposal,
@@ -277,6 +288,7 @@ export async function runGradingCoordinator(
 
     const limitationsMerged = Array.from(new Set([...(proposal.limitations || [])]));
 
+    const destination = (job.preflight as StudyAiPreflight).generationDestination;
     const settlementOutcome = await recordGrade({
       attemptId: currentAttemptDetail.attempt.id,
       responseSubmissionId: pendingItem.submission.id,
@@ -288,7 +300,17 @@ export async function runGradingCoordinator(
       normalizedScore: aggregate.normalized,
       assessmentJson: JSON.stringify(proposal.assessment),
       criteria: criteriaInputs,
-      provenanceJson: JSON.stringify(taskResult.provenance),
+      provenanceJson: JSON.stringify({
+        taskId: taskResult.taskId,
+        providerId: taskResult.providerId,
+        endpointLocality: typeof destination === 'object' ? destination.locality : undefined,
+        requestedModelClass: taskResult.requestedModelClass,
+        servedModelClass: taskResult.servedModelClass,
+        fallbackPath: taskResult.fallbackPath,
+        validationOutcome: taskResult.validationOutcome,
+        baseModelName: taskResult.baseModelName,
+        usage: taskResult.usage,
+      }),
       limitationsJson: JSON.stringify(limitationsMerged),
       jobId: job.id,
       stepKey: claimedStep.stepKey,

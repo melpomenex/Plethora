@@ -46,9 +46,8 @@ export const RulesOnlyNotice: React.FC<RulesOnlyNoticeProps> = ({
       </div>
 
       <p className="text-[11px] leading-relaxed text-blue-800 dark:text-blue-200">
-        This curriculum was constructed deterministically from your library's confirmed concept links
-        and document table of contents. No AI model calls were made, and no synthetic topics or
-        unsupported prerequisite relationships were invented.
+        This outline uses confirmed library concepts and document titles. Document entries are a coarse
+        inventory. The outline uses no AI, document passage search, or table-of-contents parsing.
       </p>
 
       {/* Metrics chips */}
@@ -63,7 +62,7 @@ export const RulesOnlyNotice: React.FC<RulesOnlyNoticeProps> = ({
         </div>
         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-blue-500/15 border border-blue-500/20 text-blue-900 dark:text-blue-100">
           <Sparkle size={14} className="text-blue-500" />
-          <span>{sourceCount} Grounded Sources</span>
+          <span>{sourceCount} Source Documents</span>
         </div>
       </div>
     </div>
