@@ -17,10 +17,13 @@ import {
 import type {
   AssessmentQuestionRevision,
   AssessmentResponse,
+  ShortAnswerQuestion,
+  EssayQuestion,
 } from '../../../types/assessmentQuestions';
 import type { GradeRecord, ResponseMark } from '../../../types/assessmentSessions';
 import type { StudySourceRefV1 } from '../../../types/studySource';
 import { AttemptSourceAction } from './AttemptSourceAction';
+import { RubricResult } from '../grading/RubricResult';
 
 export interface QuestionResultCardProps {
   questionNumber: number;
@@ -28,6 +31,8 @@ export interface QuestionResultCardProps {
   responseDraft: AssessmentResponse;
   responseMark: ResponseMark;
   grade?: GradeRecord | null;
+  history?: GradeRecord[];
+  onManualReviewClick?: () => void;
   sourceRefs?: StudySourceRefV1[];
   className?: string;
 }
@@ -38,6 +43,8 @@ export const QuestionResultCard: React.FC<QuestionResultCardProps> = ({
   responseDraft,
   responseMark,
   grade,
+  history = [],
+  onManualReviewClick,
   sourceRefs = [],
   className = '',
 }) => {
@@ -225,6 +232,16 @@ export const QuestionResultCard: React.FC<QuestionResultCardProps> = ({
             {qData.explanation}
           </p>
         </div>
+      )}
+
+      {/* Rubric Assessment Result for Subjective Questions */}
+      {(qData.kind === 'short-answer' || qData.kind === 'essay') && grade && (
+        <RubricResult
+          question={qData as ShortAnswerQuestion | EssayQuestion}
+          grade={grade}
+          history={history}
+          onManualReviewClick={onManualReviewClick}
+        />
       )}
 
       {/* Grounding Source Citations */}

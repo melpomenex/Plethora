@@ -221,4 +221,25 @@ describe('AttemptResults Component', () => {
       expect(onRetake).toHaveBeenCalledWith(freshAttemptDetail);
     });
   });
+
+  it('opens ManualGradeReview modal when Manual Review button is clicked on subjective question', () => {
+    (mockDetail.questions![1].question as any).rubric.criteria = [
+      {
+        id: 'crit-eq',
+        title: 'Equilibrium Concept',
+        weight: 1,
+        descriptors: { 0: 'None', 1: 'Poor', 2: 'Fair', 3: 'Good', 4: 'Excellent' },
+      },
+    ];
+
+    render(<AttemptResults detail={mockDetail} onBack={vi.fn()} />);
+
+    const manualReviewBtn = screen.getByRole('button', { name: /Manual Review/i });
+    expect(manualReviewBtn).toBeInTheDocument();
+
+    fireEvent.click(manualReviewBtn);
+
+    expect(screen.getByTestId('manual-grade-review-modal')).toBeInTheDocument();
+    expect(screen.getByText('Manual Grade Review & Override')).toBeInTheDocument();
+  });
 });

@@ -1,5 +1,8 @@
 /** Task definitions for the Phase-0 refactored adapters (design D4/D30). */
 export * from "./passageTasks";
+export * from "./curriculumTasks";
+export * from "./studyQuestionTasks";
+export * from "./rubricGradingTask";
 export * from "./extractTasks";
 export * from "./flashcardGenerationTask";
 export * from "./studioTasks";

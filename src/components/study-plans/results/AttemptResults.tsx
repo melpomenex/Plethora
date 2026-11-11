@@ -15,14 +15,20 @@ import {
 import { Button } from '../../md3/Button';
 import type { AttemptDetail } from '../../../types/assessmentSessions';
 import { calculateAttemptScoreSummary } from '../../../lib/study-plans/attempts/attemptScoring';
+import { checkGradingRecoveryStatus } from '../../../lib/study-plans/grading/gradingRecovery';
 import { startExamAttempt } from '../../../api/exam-sessions';
 import { ObjectiveScoreSummary } from './ObjectiveScoreSummary';
 import { QuestionResultCard } from './QuestionResultCard';
+import { GradingRecoveryPanel } from '../grading/GradingRecoveryPanel';
+import { ManualGradeReview } from '../grading/ManualGradeReview';
+import type { AssessmentQuestionRevision } from '../../../types/assessmentQuestions';
+import type { GradeRecord, GradeSettlementOutcome } from '../../../types/assessmentSessions';
 
 export interface AttemptResultsProps {
   detail: AttemptDetail;
   onBack: () => void;
   onRetake?: (newAttemptDetail: AttemptDetail) => void;
+  onGradeRecorded?: (outcome: GradeSettlementOutcome) => void;
   className?: string;
 }
 
@@ -32,16 +38,28 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
   detail,
   onBack,
   onRetake,
+  onGradeRecorded,
   className = '',
 }) => {
   const [filter, setFilter] = useState<ResultFilter>('all');
   const [isRetaking, setIsRetaking] = useState(false);
+  const [reviewingItem, setReviewingItem] = useState<{
+    question: AssessmentQuestionRevision;
+    submissionId: string;
+    studentResponse: string;
+    grade: GradeRecord | null;
+  } | null>(null);
 
-  const { attempt, responses, currentGrades, questions = [] } = detail;
+  const { attempt, responses, submissions = [], currentGrades, questions = [] } = detail;
 
   const scoreSummary = useMemo(
     () => calculateAttemptScoreSummary(attempt.id, questions, currentGrades),
     [attempt.id, questions, currentGrades]
+  );
+
+  const recoveryStatus = useMemo(
+    () => checkGradingRecoveryStatus(detail),
+    [detail]
   );
 
   // Pair each question with its response slot and current grade
@@ -139,6 +157,9 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
         completedAt={attempt.completedAt}
       />
 
+      {/* Subjective Grading Recovery & Review Banner */}
+      <GradingRecoveryPanel status={recoveryStatus} />
+
       {/* Filter Tabs */}
       <div className="flex flex-wrap gap-2 border-b border-outline-variant/30 pb-2">
         <Button
@@ -187,18 +208,56 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
             No questions match the selected filter.
           </div>
         ) : (
-          filteredResults.map((item) => (
-            <QuestionResultCard
-              key={item.question.id}
-              questionNumber={item.number}
-              questionRevision={item.question}
-              responseDraft={item.responseDraft}
-              responseMark={item.responseMark}
-              grade={item.grade}
-            />
-          ))
+          filteredResults.map((item) => {
+            const submission = submissions.find((s) => s.questionRevisionId === item.question.id);
+            const submissionId = submission?.id || item.grade?.responseSubmissionId || '';
+            const draft = item.responseDraft;
+            const studentResponse = (draft as any)?.text || (draft as any)?.content || (typeof draft === 'string' ? draft : '');
+
+            return (
+              <QuestionResultCard
+                key={item.question.id}
+                questionNumber={item.number}
+                questionRevision={item.question}
+                responseDraft={item.responseDraft}
+                responseMark={item.responseMark}
+                grade={item.grade}
+                onManualReviewClick={
+                  submissionId
+                    ? () =>
+                        setReviewingItem({
+                          question: item.question,
+                          submissionId,
+                          studentResponse,
+                          grade: item.grade,
+                        })
+                    : undefined
+                }
+              />
+            );
+          })
         )}
       </div>
+
+      {/* Manual Grade Review Modal */}
+      {reviewingItem && (
+        <ManualGradeReview
+          isOpen={true}
+          attemptId={attempt.id}
+          responseSubmissionId={reviewingItem.submissionId}
+          expectedAttemptRevision={attempt.revision}
+          questionRevision={reviewingItem.question}
+          studentResponse={reviewingItem.studentResponse}
+          existingGrade={reviewingItem.grade}
+          onClose={() => setReviewingItem(null)}
+          onGradeRecorded={(outcome) => {
+            setReviewingItem(null);
+            if (onGradeRecorded) {
+              onGradeRecorded(outcome);
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

@@ -2671,6 +2671,9 @@ pub fn run() {
             commands::check_practice_response,
             commands::cancel_exam_attempt,
             commands::delete_exam_history,
+            commands::record_rubric_grade,
+            commands::record_manual_grade,
+            commands::get_response_grade_history,
             audio_lifecycle::get_audio_lifecycle_capabilities,
         ])
         .build({

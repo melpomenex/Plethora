@@ -2,39 +2,51 @@
 
 pub mod ai_conversation_repository;
 pub mod ai_provenance_repository;
+pub mod assessment_blueprint_repository;
 pub mod audio_edition_repository;
 pub mod capture_repository;
 pub mod concept_repository;
 pub mod connection;
-pub mod document_privacy;
 pub mod daqe_model_cache_repository;
+pub mod document_privacy;
 pub mod element_tree_repository;
+pub mod exam_grading_repository;
+pub mod exam_session_repository;
 pub mod item_activity_repository;
 pub mod item_stats_repository;
-pub mod language_profile_repository;
-pub mod language_lexicon_repository;
 pub mod language_knowledge_repository;
+pub mod language_lexicon_repository;
 pub mod language_practice_repository;
-pub mod learning_object_source_repository;
+pub mod language_profile_repository;
 pub mod learning_item_source;
-pub mod migrations;
+pub mod learning_object_source_repository;
 pub mod media_compat_repository;
+pub mod migrations;
 pub mod neural_queue_repository;
-pub mod podcast_transcript_repository;
 pub mod podcast_ad_repository;
+pub mod podcast_transcript_repository;
 pub mod priority_rank;
 pub mod recording_session_repository;
 pub mod repository;
-pub mod video_extract_repository;
 pub mod saved_queue_repository;
 pub mod session_analysis_repository;
+pub mod study_generation_repository;
+pub mod study_plan_repository;
+pub mod study_source_repository;
+pub mod video_extract_repository;
 
+pub use assessment_blueprint_repository::AssessmentBlueprintRepository;
+pub use exam_grading_repository::ExamGradingRepository;
+pub use exam_session_repository::ExamSessionRepository;
 pub use learning_object_source_repository::{LearningObjectSource, LearningObjectSourceRepository};
 pub use session_analysis_repository::SessionAnalysisRepository;
+pub use study_generation_repository::StudyGenerationRepository;
+pub use study_plan_repository::StudyPlanRepository;
+pub use study_source_repository::StudySourceRepository;
 
 pub use ai_conversation_repository::{
-    AiConversationRepository, ConversationSummary, ImportJournalEntry, ListOptions,
-    StoredAttempt, StoredConversationRecord, StoredDraft, StoredMessage, StoredTurn,
+    AiConversationRepository, ConversationSummary, ImportJournalEntry, ListOptions, StoredAttempt,
+    StoredConversationRecord, StoredDraft, StoredMessage, StoredTurn,
 };
 pub use ai_provenance_repository::{AiProvenance, AiProvenanceRepository};
 pub use audio_edition_repository::AudioEditionRepository;

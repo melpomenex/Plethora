@@ -17,7 +17,12 @@ import type {
   RubricLevel,
 } from './assessmentQuestions';
 
-export type { LearnerConfidence, ResponseMark };
+export type {
+  LearnerConfidence,
+  ResponseMark,
+  AssessmentResponse,
+  AssessmentQuestionRevision,
+};
 
 // ============================================================================
 // 1. Session and Attempt Types (§7)
@@ -107,6 +112,19 @@ export type CriterionResult =
       level: RubricLevel;
       rationale: string | null;
     };
+
+export type RubricLimitation =
+  | 'ambiguous-answer'
+  | 'insufficient-source'
+  | 'model-capability'
+  | 'non-reasoning-fallback';
+
+export interface RubricGradeProposal {
+  schemaVersion: 1;
+  criteria: CriterionJudgment[];
+  assessment: import('../lib/ai/schemas/answerAssessment').AnswerAssessment;
+  limitations: RubricLimitation[];
+}
 
 export interface GradeRecord {
   id: string;
@@ -238,4 +256,58 @@ export interface AttemptHistoryFilter {
   blueprintId?: string;
   mode?: AssessmentMode;
   status?: AttemptStatus;
+}
+
+export interface CriterionJudgmentInput {
+  criterionId: string;
+  status: 'assessed' | 'not-assessable';
+  level?: number | null;
+  answerEvidence?: string | null;
+  rationale?: string | null;
+  missingConceptsJson?: string | null;
+  misconception?: string | null;
+  sourceRefIdsJson?: string | null;
+  notAssessableReason?: string | null;
+}
+
+export interface RecordRubricGradeInput {
+  attemptId: string;
+  responseSubmissionId: string;
+  questionRevisionId: string;
+  expectedAttemptRevision: number;
+  state: 'final' | 'needs-review' | 'failed';
+  points: number | null;
+  maxPoints: number;
+  normalizedScore: number | null;
+  assessmentJson?: string | null;
+  criteria: CriterionJudgmentInput[];
+  provenanceJson?: string | null;
+  limitationsJson?: string | null;
+  jobId?: string | null;
+  stepKey?: string | null;
+}
+
+export interface ManualCriterionGradeItem {
+  criterionId: string;
+  level: number;
+  rationale?: string | null;
+}
+
+export interface RecordManualGradeInput {
+  attemptId: string;
+  responseSubmissionId: string;
+  questionRevisionId: string;
+  expectedAttemptRevision: number;
+  manualReason: string;
+  criteria: ManualCriterionGradeItem[];
+  feedback?: string | null;
+}
+
+export interface GradeSettlementOutcome {
+  gradeId: string;
+  isCurrent: boolean;
+  supersedesGradeId: string | null;
+  attemptStatus: AttemptStatus;
+  attemptAwardedPoints: number | null;
+  attemptRevision: number;
 }
