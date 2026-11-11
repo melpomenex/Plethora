@@ -59,6 +59,7 @@ export const AttemptHistory: React.FC<AttemptHistoryProps> = ({
 
     return {
       attempt: att,
+      priorAttempt,
       deltaText,
       deltaPositive,
     };
@@ -71,10 +72,15 @@ export const AttemptHistory: React.FC<AttemptHistoryProps> = ({
         <Info size={16} className="text-primary dark:text-primary-dark shrink-0" />
         <span>Retakes on the same examination paper may include memory or familiarization effects.</span>
       </div>
+      <p data-testid="history-final-only-note" className="text-xs text-on-surface-variant">
+        History lists Final official scores only. Same-revision rows are same-paper comparisons with
+        possible memory effects; different revisions are descriptive cross-paper history, not
+        equivalent measures.
+      </p>
 
       {/* List of attempts */}
       <div className="space-y-3">
-        {attemptsWithDelta.map(({ attempt, deltaText, deltaPositive }) => {
+        {attemptsWithDelta.map(({ attempt, priorAttempt, deltaText, deltaPositive }) => {
           const isComplete = attempt.status === 'complete';
           const isInProgress = attempt.status === 'in-progress';
           const dateFormatted = new Date(attempt.startedAt).toLocaleDateString([], {
@@ -111,11 +117,14 @@ export const AttemptHistory: React.FC<AttemptHistoryProps> = ({
                   )}
                   {deltaText && (
                     <span
+                      data-testid={
+                        priorAttempt ? 'history-same-paper-delta' : 'history-cross-paper-delta'
+                      }
                       className={`font-semibold ${
                         deltaPositive ? 'text-emerald-600 dark:text-emerald-400' : 'text-error'
                       }`}
                     >
-                      ({deltaText})
+                      ({deltaText}){priorAttempt ? ' · same-paper' : ' · cross-paper'}
                     </span>
                   )}
                 </div>

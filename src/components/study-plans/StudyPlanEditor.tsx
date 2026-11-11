@@ -42,6 +42,7 @@ import { PlanVersionDiff } from './PlanVersionDiff';
 import { PlanVersionHistory, type PlanVersionSummary } from './PlanVersionHistory';
 import { CurriculumGenerator } from './CurriculumGenerator';
 import { StudyJobRecoveryList } from './StudyJobRecoveryList';
+import { StudyPlanProgress } from './evidence/StudyPlanProgress';
 import { orderStudyPlan } from '../../lib/study-plans/topology';
 import { Button } from '../md3/Button';
 import { ConfirmDialog } from '../common/ConfirmDialog';
@@ -53,7 +54,7 @@ export interface StudyPlanEditorProps {
   onOpenAssessmentBuilder?: (planId: string, versionId: string) => void;
 }
 
-type EditorTab = 'outline' | 'sources' | 'diff' | 'history';
+type EditorTab = 'outline' | 'sources' | 'diff' | 'history' | 'progress';
 
 export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
   planDetail,
@@ -466,6 +467,20 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
           <Clock size={16} />
           <span>Version History</span>
         </button>
+
+        <button
+          role="tab"
+          aria-selected={activeTab === 'progress'}
+          onClick={() => setActiveTab('progress')}
+          className={`flex items-center gap-1.5 px-4 py-2 border-b-2 transition-colors ${
+            activeTab === 'progress'
+              ? 'border-primary-500 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-surface-500 hover:text-surface-800 dark:hover:text-surface-200'
+          }`}
+        >
+          <CheckCircle size={16} />
+          <span>Evidence &amp; Gaps</span>
+        </button>
     </div>
 
       {/* Main Tab Panels */}
@@ -550,6 +565,21 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
             activeVersionId={planDetail.version.id}
             onSelectVersion={() => {}}
             canCreateDraft={!isDraft}
+          />
+      </div>
+      )}
+
+      {activeTab === 'progress' && (
+        <div className="max-w-3xl space-y-4">
+          <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100">
+            Demonstrated Evidence &amp; Gaps
+          </h3>
+          <StudyPlanProgress
+            planId={planDetail.plan.id}
+            nodeTitles={Object.fromEntries(nodes.map((n) => [n.nodeId, n.title]))}
+            onOpenSource={(refId) => {
+              if (refId) onOpenSource?.(refId);
+            }}
           />
       </div>
       )}

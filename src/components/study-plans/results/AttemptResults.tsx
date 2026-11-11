@@ -157,6 +157,15 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
         completedAt={attempt.completedAt}
       />
 
+      <div
+        data-testid="results-evidence-note"
+        className="text-xs text-on-surface-variant dark:text-on-surface-variant-dark rounded-xl border border-outline-variant/30 p-3"
+      >
+        Official totals include Final grades only. Demonstrated evidence, coverage and activity are
+        shown separately in the plan Evidence &amp; Gaps tab — no score here is a mastery
+        probability.
+      </div>
+
       {/* Subjective Grading Recovery & Review Banner */}
       <GradingRecoveryPanel status={recoveryStatus} />
 
