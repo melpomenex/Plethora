@@ -44,6 +44,7 @@ import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../commo
 import { useSurfaceMenu } from "../../hooks/useSurfaceMenu";
 import { deckMenuItemIds, deckTagMenuItemIds } from "../../lib/contextMenus";
 import { exportDeckAsApkg } from "../../api/learning-items";
+import { requestDestinationAction } from "../../commandPalette/destinationActions";
 
 interface ReviewHomeProps {
   onStartReview: () => Promise<void>;
@@ -477,6 +478,7 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
               { id: "view-decks", label: t("reviewHome.viewDecks"), icon: <Stack className="h-4 w-4" />, onSelect: () => setIsDecksModalOpen(true) },
               { id: "refresh", label: t("common.refresh"), icon: <ArrowsClockwise className="h-4 w-4" />, onSelect: () => { void loadStats(); void loadDeckStats(); } },
               { id: "create-flashcards", label: t("extracts.createFlashcards"), icon: <Sparkle className="h-4 w-4" />, onSelect: () => setIsFlashcardStudioOpen(true) },
+              { id: "study-plans", label: "Open Study Plans", icon: <Compass className="h-4 w-4" />, onSelect: () => void requestDestinationAction({ destination: "study-plans", action: "home" }) },
               { id: "import-deck", label: isAnkiImporting ? t("review.importing") : t("review.importDeck"), icon: <Upload className="h-4 w-4" />, onSelect: handleImportDeck, disabled: isAnkiImporting },
               ...(onOpenDeckManager ? [{ id: "deck-manager", label: t("review.deckManager.title"), icon: <FolderPlus className="h-4 w-4" />, onSelect: onOpenDeckManager }] : []),
               { id: "review-preview", label: t("review.preview"), icon: <Lightning className="h-4 w-4" />, onSelect: () => setIsReviewPreviewOpen(true), disabled: isLoading },

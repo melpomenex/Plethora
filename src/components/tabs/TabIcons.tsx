@@ -17,6 +17,7 @@ import {
   Brain,
   ChartBar,
   ChatCircle,
+  Compass,
   Desktop,
   Files,
   Gear,
@@ -69,6 +70,7 @@ export const TAB_TYPE_ICONS: Record<TabType, Icon> = {
   audiobook: Headphones,
   extracts: Scissors,
   "import-needs-review": Stack,
+  "study-plans": Compass,
 };
 
 /**
@@ -106,6 +108,7 @@ export {
   Brain,
   ChartBar,
   ChatCircle,
+  Compass,
   Desktop,
   Files,
   Gear,

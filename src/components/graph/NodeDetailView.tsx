@@ -8,6 +8,7 @@ import {
   ArrowSquareOut,
   Brain,
   CaretRight,
+  Compass,
   DotsThree,
   Folder,
   Hash,
@@ -23,6 +24,7 @@ import {
 } from "@phosphor-icons/react";
 import { GraphNode, GraphEdge, GraphNodeType } from "./KnowledgeGraph";
 import { useI18n } from "../../lib/i18n";
+import { requestDestinationAction } from "../../commandPalette/destinationActions";
 
 export interface NodeDetailViewProps {
   node: GraphNode;
@@ -312,6 +314,29 @@ export function NodeDetailView({
                 {t("graph.edit")}
               </button>
             )}
+            <button
+              onClick={() => {
+                setShowActions(false);
+                const isConcept = node.type === GraphNodeType.Concept;
+                const isDoc = node.type === GraphNodeType.Document;
+                const isExtract = node.type === GraphNodeType.Extract;
+                void requestDestinationAction({
+                  destination: "study-plans",
+                  action: "create",
+                  prefill: {
+                    title: node.label,
+                    conceptId: isConcept ? node.id : undefined,
+                    conceptLabel: isConcept ? node.label : undefined,
+                    documentIds: isDoc ? [node.id] : [],
+                    extractIds: isExtract ? [node.id] : [],
+                  },
+                });
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted rounded-lg transition-colors"
+            >
+              <Compass className="w-4 h-4" />
+              Create Study Plan
+            </button>
             <button
               onClick={() => {
                 setShowActions(false);

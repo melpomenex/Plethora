@@ -30,6 +30,7 @@ import { openExternal } from "../../lib/tauri";
 import { validCaptureUrl } from "../../utils/captureSource";
 import { useToast } from "../common/Toast";
 import { CaptureActivityCard } from "../analytics/CaptureActivityCard";
+import { StudyPlansDashboardCard } from "../study-plans/StudyPlansDashboardCard";
 import { QuickReviewWidget } from "../review/QuickReviewWidget";
 import { ActionButton, FocusPanel, SummarySection } from "../common/UI";
 import { AdaptiveContentHeader, SafeScrollContainer } from "../adaptive";
@@ -488,6 +489,11 @@ export function DashboardTab() {
             captureShelf={{ ...captures, source: captureSource, onRetry: captures.reload, onOpen: document => void openCapture(document), onOpenOriginal: document => void openCaptureOriginal(document), onViewAll: openCaptureLibrary }}
             onOpenNeedsReview={openImportNeedsReview}
           />
+        </div>
+
+        {/* Study Plans Section */}
+        <div className="mb-6 md:mb-8">
+          <StudyPlansDashboardCard />
         </div>
 
         {/* Stats Section */}

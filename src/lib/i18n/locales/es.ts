@@ -6620,4 +6620,8 @@ export const es: Dict = {
 
   "itemDetails.type.videoextract": "Video extract",
 
+  "palette.destination.studyPlans": "Planes de estudio",
+  "palette.destination.studyPlansDesc": "Rutas de aprendizaje estructuradas, esquemas curriculares y evaluaciones",
+  "studyPlans.title": "Planes de estudio",
+  "studyPlans.navLabel": "Planes de estudio",
 };

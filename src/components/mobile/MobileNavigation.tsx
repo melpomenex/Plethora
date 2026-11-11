@@ -18,6 +18,7 @@ import {
   Brain,
   ChartBar,
   ChatCircleDots,
+  Compass,
   Download,
   Gear,
   Headphones,
@@ -56,6 +57,7 @@ import {
   ImageRegistryTab,
   ExtractsTab,
   DocumentQATab,
+  StudyPlansTab,
 } from "../tabs/TabRegistry";
 import {
   getPlatformCapability,
@@ -258,6 +260,16 @@ export const allNavItems: NavItem[] = [
     tabContent: KnowledgeSphereTab,
     closable: true,
     capabilityId: "tab_knowledge_sphere",
+  },
+  {
+    id: "study-plans",
+    label: "studyPlans.title",
+    icon: Compass,
+    tabType: "study-plans",
+    tabTitle: "studyPlans.title",
+    tabIcon: "🧭",
+    tabContent: StudyPlansTab,
+    closable: true,
   },
 ];
 

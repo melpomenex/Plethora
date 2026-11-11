@@ -250,6 +250,7 @@ const DESTINATION_ICONS: Record<string, ReactNode> = {
   extracts: <Scissors className="w-4 h-4" />,
   "import-needs-review": <Tag className="w-4 h-4" />,
   "web-browser": <Globe className="w-4 h-4" />,
+  "study-plans": <Compass className="w-4 h-4" />,
 };
 
 /** Dispatch the app's canonical navigate event (resolved by MainLayout). */
@@ -573,6 +574,17 @@ export function buildDefaultCommands(
       category: CommandCategory.Review,
       action: () => requestDestinationAction({ destination: "queue", action: "new" }),
       keywords: ["saved", "queue", "new", "create"],
+    }),
+    createCommand({
+      id: "create-study-plan",
+      intentId: "action:create-study-plan",
+      label: "Create Study Plan",
+      description: "Start a structured curriculum or topic plan",
+      icon: <Plus className="w-4 h-4" />,
+      category: CommandCategory.Navigation,
+      action: () => requestDestinationAction({ destination: "study-plans", action: "create" }),
+      keywords: ["study", "plan", "curriculum", "new", "create"],
+      aliases: ["new study plan", "create plan", "create curriculum"],
     }),
     ...queues.map((sq) =>
       createCommand({

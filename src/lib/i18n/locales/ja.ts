@@ -6535,4 +6535,8 @@ export const ja: Dict = {
 
   "itemDetails.type.videoextract": "Video extract",
 
+  "palette.destination.studyPlans": "学習プラン",
+  "palette.destination.studyPlansDesc": "構造化された学習パス、カリキュラムの概要、およびトピックの評価",
+  "studyPlans.title": "学習プラン",
+  "studyPlans.navLabel": "学習プラン",
 };

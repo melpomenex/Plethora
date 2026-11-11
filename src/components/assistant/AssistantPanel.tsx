@@ -39,6 +39,7 @@ import {
   Check,
   CircleNotch,
   Code,
+  Compass,
   Copy,
   Gear,
   Images,
@@ -74,6 +75,7 @@ import { useI18n } from "../../lib/i18n";
 import { useContextMenu, ContextMenu, ContextMenuItem, ContextMenuItemType } from "../common/ContextMenu";
 import { useToast } from "../common/Toast";
 import { createExtract, patchDocumentExtractCount } from "../../api/extracts";
+import { requestDestinationAction } from "../../commandPalette/destinationActions";
 import { SELECTION_PRECEDENCE_INSTRUCTION, type ResolvedAssistantContext } from "../../utils/assistantContext";
 import {
   createSelectionAskSnapshot,
@@ -4516,16 +4518,38 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 <p className="text-[11px] font-medium text-foreground">
                   {t("assistant.agent.sourcesTitle")}
                 </p>
-                <button
-                  type="button"
-                  className="md-state rounded-full border border-border bg-background px-2 py-0.5 text-[11px] text-foreground"
-                  aria-haspopup="dialog"
-                  aria-expanded={isAgentSourcePickerOpen}
-                  onClick={() => setIsAgentSourcePickerOpen(true)}
-                  disabled={isLoading}
-                >
-                  + {t("assistant.agent.addSource")}
-                </button>
+                <div className="flex items-center gap-1.5">
+                  {collectAgentDocuments().length > 0 && (
+                    <button
+                      type="button"
+                      className="md-state rounded-full border border-primary/40 bg-primary/10 px-2 py-0.5 text-[11px] text-primary hover:bg-primary/20"
+                      onClick={() => {
+                        const docs = collectAgentDocuments();
+                        void requestDestinationAction({
+                          destination: "study-plans",
+                          action: "create",
+                          prefill: {
+                            documentIds: docs.map((d) => d.id),
+                          },
+                        });
+                      }}
+                      title="Create Study Plan from this scope"
+                    >
+                      <Compass className="inline w-3 h-3 mr-1" />
+                      Plan
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="md-state rounded-full border border-border bg-background px-2 py-0.5 text-[11px] text-foreground"
+                    aria-haspopup="dialog"
+                    aria-expanded={isAgentSourcePickerOpen}
+                    onClick={() => setIsAgentSourcePickerOpen(true)}
+                    disabled={isLoading}
+                  >
+                    + {t("assistant.agent.addSource")}
+                  </button>
+                </div>
               </div>
               <div className="flex flex-wrap gap-1">
                 {collectAgentDocuments().map((document) => (

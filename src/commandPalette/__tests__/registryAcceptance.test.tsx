@@ -98,6 +98,18 @@ describe("action acceptance: representative operations execute their real workfl
     settlePending();
   });
 
+  it("'create study plan' delivers the study-plans create destination action", () => {
+    const commands = buildCommandRegistry(makeDeps());
+    const match = matchFirst(commands, "create study plan");
+    expect(match.command.id).toBe("create-study-plan");
+    void match.command.action();
+    expect(useDestinationActionStore.getState().pending).toMatchObject({
+      destination: "study-plans",
+      action: "create",
+    });
+    settlePending();
+  });
+
   it("'import document' delivers the documents import destination action", () => {
     const commands = buildCommandRegistry(makeDeps());
     const match = matchFirst(commands, "import document");

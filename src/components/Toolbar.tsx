@@ -467,6 +467,10 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
     addTab(createCanonicalTab("dashboard"));
   };
 
+  const handleStudyPlans = () => {
+    addTab(createCanonicalTab("study-plans"));
+  };
+
   const handleContinueReading = () => {
     addTab({
       title: "Continue Reading",
@@ -767,6 +771,14 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       backgroundAction: handleStartReviewBackground,
       group: 1,
     },
+    {
+      id: "study-plans",
+      icon: Compass,
+      label: t("studyPlans.title"),
+      shortcut: "",
+      action: handleStudyPlans,
+      group: 1,
+    },
     // Group 2: RSS
     {
       id: "rss",
@@ -923,6 +935,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   const activeButtonTypes: Record<string, string[]> = {
     dashboard: ["dashboard"],
     "start-review": ["review"],
+    "study-plans": ["study-plans"],
     "continue-reading": ["continue-reading"],
     settings: ["settings"],
     documents: ["documents"],

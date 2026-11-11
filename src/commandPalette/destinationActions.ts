@@ -4,6 +4,7 @@ import { create } from "zustand";
 import { useTabsStore } from "../stores/tabsStore";
 import { useIsActiveTab, usePaneId, useTabId } from "../components/common/Tabs/TabContent";
 import { t } from "../lib/i18n";
+import type { StudySourceRefInput } from "../types/studySource";
 
 export type DestinationAction =
   | { destination: "queue"; action: "manage" | "new" }
@@ -11,7 +12,26 @@ export type DestinationAction =
   | { destination: "documents"; action: "import" }
   | { destination: "review"; action: "create-card" }
   | { destination: "settings"; action: "section"; section: string }
-  | { destination: "rss"; action: "refresh" };
+  | { destination: "rss"; action: "refresh" }
+  | { destination: "study-plans"; action: "home" }
+  | {
+      destination: "study-plans";
+      action: "create";
+      prefill?: {
+        title?: string;
+        goal?: string;
+        documentIds?: string[];
+        extractIds?: string[];
+        collectionIds?: string[];
+        tagIds?: string[];
+        conceptId?: string;
+        conceptLabel?: string;
+        pendingSource?: StudySourceRefInput;
+      };
+    }
+  | { destination: "study-plans"; action: "open-plan"; planId: string; nodeId?: string }
+  | { destination: "study-plans"; action: "open-blueprint"; blueprintId: string }
+  | { destination: "study-plans"; action: "resume-attempt"; attemptId: string };
 
 export type DestinationRequest = DestinationAction & {
   id: number;

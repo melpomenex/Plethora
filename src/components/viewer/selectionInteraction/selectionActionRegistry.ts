@@ -14,6 +14,7 @@
 import type { Icon } from "@phosphor-icons/react";
 import {
   ChalkboardTeacher,
+  Compass,
   Copy,
   GraduationCap,
   Graph,
@@ -46,6 +47,7 @@ export type SelectionActionId =
   | "dictionary"
   | "flashcard"
   | "learnThis"
+  | "studyPlan"
   | "askLibrary"
   | "socraticTutor"
   | "prerequisites"
@@ -160,6 +162,14 @@ export const SELECTION_ACTIONS: readonly SelectionActionDescriptor[] = [
     // Bar: the host-wired proposal UI must exist. Menu/sheet: feature flag.
     isAvailable: (surface, a) =>
       aiActions(surface, a) && (surface === "bar" ? Boolean(a.learnThisHandlerAvailable) : Boolean(a.learnThisEnabled)),
+  },
+  {
+    id: "studyPlan",
+    icon: Compass,
+    labelKeys: { bar: "studyPlans.title", menu: "studyPlans.title", sheet: "studyPlans.title" },
+    order: { menu: 12, sheet: 9 },
+    menuGroup: 4,
+    isAvailable: always,
   },
   {
     id: "ask",

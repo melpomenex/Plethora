@@ -6514,4 +6514,8 @@ export const zh: Dict = {
 
   "itemDetails.type.videoextract": "Video extract",
 
+  "palette.destination.studyPlans": "学习计划",
+  "palette.destination.studyPlansDesc": "结构化学习路径、课程大纲和主题评估",
+  "studyPlans.title": "学习计划",
+  "studyPlans.navLabel": "学习计划",
 };

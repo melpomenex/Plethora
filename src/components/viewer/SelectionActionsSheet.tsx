@@ -77,6 +77,7 @@ import {
 } from "../../lib/ai/passageAI";
 import { LearnThisProposalSheet } from "../learn/LearnThisProposalSheet";
 import { TutorSheet } from "../tutor/TutorSheet";
+import { requestDestinationAction } from "../../commandPalette/destinationActions";
 import { openLibrarySource } from "../../utils/openLibrarySource";
 import { renderMarkdown } from "../../utils/markdown";
 import type { Extract } from "../../api/extracts";
@@ -1072,6 +1073,43 @@ export function SelectionActionsSheet({
               <Icon className="w-5 h-5" />
             </span>
             {label}
+          </button>
+        );
+      case "studyPlan":
+        return (
+          <button
+            key={action.id}
+            className={mobileSheetItemClass}
+            onClick={track(() => {
+              const docId = learnThis?.documentId;
+              const title = learnThis?.documentTitle;
+              const extractId = learnThis?.extractId;
+              const excerpt = text.length <= 1600 ? text : undefined;
+              void requestDestinationAction({
+                destination: "study-plans",
+                action: "create",
+                prefill: {
+                  documentIds: docId ? [docId] : [],
+                  extractIds: extractId ? [extractId] : [],
+                  title,
+                  pendingSource:
+                    docId && excerpt
+                      ? {
+                          documentId: docId,
+                          extractId,
+                          excerpt,
+                          documentTitle: title,
+                        }
+                      : undefined,
+                },
+              });
+              onClose();
+            })}
+          >
+            <span aria-hidden="true">
+              <Icon className="w-5 h-5" />
+            </span>
+            {label || "Create Study Plan"}
           </button>
         );
       case "askLibrary":

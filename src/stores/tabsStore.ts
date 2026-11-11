@@ -33,7 +33,8 @@ export type TabType =
   | "extract-reader"
   | "document-extracts"
   | "extracts"
-  | "import-needs-review";
+  | "import-needs-review"
+  | "study-plans";
 
 export interface Tab {
   id: string;

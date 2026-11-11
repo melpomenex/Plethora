@@ -687,6 +687,7 @@ export function MainLayout() {
       "tour-open-tab-analytics",
       "tour-open-tab-knowledge-sphere",
       "tour-open-tab-settings",
+      "tour-open-tab-study-plans",
       "plethora:open-tab",
     ];
     for (const name of eventNames) window.addEventListener(name, handler);

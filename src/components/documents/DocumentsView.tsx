@@ -14,6 +14,7 @@ import {
   CircleNotch,
   Clock,
   Columns,
+  Compass,
   DotsThree,
   Download,
   TextT as FileTextIcon,
@@ -73,6 +74,7 @@ import { DragDropUpload } from "../common/DragDropUpload";
 import { CompactTagEditor } from "../common/CompactTagEditor";
 import { ItemTagEditor } from "../common/ItemTagEditor";
 import { ResponsiveBulkActionBar, type BulkActionItem } from "../common/ResponsiveBulkActionBar";
+import { requestDestinationAction } from "../../commandPalette/destinationActions";
 import { cn } from "../../utils/cn";
 import type { MarkdownBundle } from "../../utils/markdownBundleImport";
 import { useMarkdownBundleImport } from "../../hooks/useMarkdownBundleImport";
@@ -1700,6 +1702,23 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
               onClick: handleBulkMoveCollection,
             },
             {
+              id: "study-plan",
+              label: "Create Study Plan",
+              icon: <Compass className="w-3.5 h-3.5" />,
+              onClick: () => {
+                const ids = Array.from(selectedIds);
+                if (ids.length > 24) {
+                  toast.error("Selection exceeds 24 documents limit for study plan");
+                  return;
+                }
+                void requestDestinationAction({
+                  destination: "study-plans",
+                  action: "create",
+                  prefill: { documentIds: ids },
+                });
+              },
+            },
+            {
               id: "reprioritize",
               label: t("documentsView.reprioritize"),
               icon: <Flag className="w-3.5 h-3.5" />,
@@ -2055,6 +2074,21 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                     {t("documentsView.viewExtracts")}
                   </button>
                 )}
+                <button
+                  className="flex items-center gap-2.5 w-full text-left px-3 py-1.5 text-sm hover:bg-muted text-foreground"
+                  onClick={() => {
+                    const doc = listCtxDoc.doc;
+                    setListCtxDoc(null);
+                    void requestDestinationAction({
+                      destination: "study-plans",
+                      action: "create",
+                      prefill: { documentIds: [doc.id], title: doc.title },
+                    });
+                  }}
+                >
+                  <Compass className="h-3.5 w-3.5 text-muted-foreground" />
+                  Create Study Plan
+                </button>
                 {/* Library-side category editing (the second surface the
                     reporter expected): preset chips + free text + clear. */}
                 <div className="border-t border-border my-1" />
@@ -4123,6 +4157,17 @@ function LibraryCard({
       icon: <BookmarkSimple className="h-3.5 w-3.5 text-muted-foreground" />,
       action: () => { setCtxPos(null); onViewExtracts(); },
     } as { label: string; icon: React.ReactNode; color?: string; divider?: boolean; action: () => void }] : []),
+    {
+      label: "Create Study Plan",
+      icon: <Compass className="h-3.5 w-3.5 text-muted-foreground" />,
+      action: () => {
+        void requestDestinationAction({
+          destination: "study-plans",
+          action: "create",
+          prefill: { documentIds: [doc.id], title: doc.title },
+        });
+      },
+    },
     ...(bestCompanion ? [{
       label: doc.fileType === "audio"
         ? `Read Along with ${bestCompanion.doc.title}`

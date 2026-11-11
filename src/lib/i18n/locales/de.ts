@@ -6676,4 +6676,8 @@ export const de: Dict = {
 
   "itemDetails.type.videoextract": "Video extract",
 
+  "palette.destination.studyPlans": "Lernpläne",
+  "palette.destination.studyPlansDesc": "Strukturierte Lernpfade, Lehrpläne und Themenbewertungen",
+  "studyPlans.title": "Lernpläne",
+  "studyPlans.navLabel": "Lernpläne",
 };
