@@ -48,6 +48,8 @@ export interface CurriculumGeneratorProps {
   onClose: () => void;
   onSuccess: (updatedDetail: StudyPlanDetail) => void;
   jobController?: StudyJobController;
+  /** C7-T03 optional diagnostic host slot rendered in preview step. */
+  diagnosticSlot?: React.ReactNode;
 }
 
 type GeneratorMode = 'ai' | 'rules-only';
@@ -59,6 +61,7 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
   onClose,
   onSuccess,
   jobController = studyJobController,
+  diagnosticSlot,
 }) => {
   const publishVersionAction = useLearningPathsStore((s) => s.publishVersion);
   const discardDraftAction = useLearningPathsStore((s) => s.discardDraft);
@@ -489,17 +492,20 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
 
         {/* Step 3: Preview & Acceptance */}
         {step === 'preview' && (
-          <CurriculumDraftPreview
-            planDetail={currentPlanDetail}
-            mergeResult={mergeResult}
-            isRulesOnly={mode === 'rules-only'}
-            onAccept={handleAcceptPublish}
-            onDiscard={handleDiscard}
-            onEditInEditor={handleEditInEditor}
-            isAccepting={isAccepting}
-            isDiscarding={isDiscarding}
-            error={executionError}
-          />
+          <>
+            {diagnosticSlot}
+            <CurriculumDraftPreview
+              planDetail={currentPlanDetail}
+              mergeResult={mergeResult}
+              isRulesOnly={mode === 'rules-only'}
+              onAccept={handleAcceptPublish}
+              onDiscard={handleDiscard}
+              onEditInEditor={handleEditInEditor}
+              isAccepting={isAccepting}
+              isDiscarding={isDiscarding}
+              error={executionError}
+            />
+          </>
         )}
       </div>
     </div>

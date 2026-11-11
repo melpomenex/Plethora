@@ -22,6 +22,7 @@ import {
   TutorSession,
   type TutorTranscriptTurn,
 } from "../../lib/ai/tutor/session";
+import { retrieveFromLibrary } from "../../api/ai-learning";
 import {
   deriveTopicFromMaterial,
   extractStreamingTutorContent,
@@ -50,6 +51,17 @@ export interface TutorSheetProps {
   onLanguageModeChange?: (mode: TutorMode) => void;
   onWritingPractice?: (prompt: string) => void;
   onClose: () => void;
+  /**
+   * C7-T04 optional Study context. When present, retrieval is scoped to
+   * `studyContext.sourceDocumentIds` and empty/invalid ids refuse Start
+   * instead of falling back to global retrieval.
+   */
+  studyContext?: import("../../types/learningEvidence").StudyTutorContext | null;
+  /** Injectable retrieve for tests (Study scoping assertions). */
+  retrieveImpl?: (
+    query: string,
+    options: { k?: number; filters?: { documentIds?: string[] } },
+  ) => Promise<import("../../api/ai-learning").RetrievalResponse>;
 }
 
 export function TutorSheet({
@@ -65,6 +77,8 @@ export function TutorSheet({
   onLanguageModeChange,
   onWritingPractice,
   onClose,
+  studyContext = null,
+  retrieveImpl,
 }: TutorSheetProps) {
   const { t } = useI18n();
   const ai = useAiAvailability("prompt");
@@ -121,15 +135,16 @@ export function TutorSheet({
   }, []);
 
   const sessionKeyRef = useRef<string | null>(null);
+  const studyScopeKey = studyContext ? studyContext.sourceDocumentIds.join(',') : '';
   useEffect(() => {
     if (!open) {
       sessionKeyRef.current = null;
       return;
     }
-    const key = `${sessionTopic}\u001f${sessionMaterial}`;
+    const key = `${sessionTopic}\u001f${sessionMaterial}\u001f${studyScopeKey}`;
     if (sessionKeyRef.current && sessionKeyRef.current !== key) reset();
     sessionKeyRef.current = key;
-  }, [open, reset, sessionMaterial, sessionTopic]);
+  }, [open, reset, sessionMaterial, sessionTopic, studyScopeKey]);
 
   useEffect(() => {
     if (!open) {
@@ -145,9 +160,27 @@ export function TutorSheet({
     setStarting(true);
     setError(null);
 
+    // C7-T04: Study scoping. Empty/invalid ids refuse instead of global fallback.
+    if (studyContext) {
+      if (!studyContext.sourceDocumentIds || studyContext.sourceDocumentIds.length === 0) {
+        setStarting(false);
+        setError('study.tutor.error.missing_source_context');
+        return;
+      }
+    }
+    const scopedRetrieve = studyContext
+      ? (query: string, options: { k?: number } = {}) => {
+          const impl = retrieveImpl ?? retrieveFromLibrary;
+          return impl(query, {
+            k: options.k,
+            filters: { documentIds: [...studyContext.sourceDocumentIds] },
+          });
+        }
+      : undefined;
+
     TutorSession.start(
       { topic: sessionTopic, material: sessionMaterial },
-      {},
+      scopedRetrieve ? { retrieve: scopedRetrieve } : {},
       {
         signal: controller.signal,
         onChunk: (chunk) => {
@@ -171,7 +204,7 @@ export function TutorSheet({
       .finally(() => {
         if (!controller.signal.aborted) setStarting(false);
       });
-  }, [cloudBlocked, open, reset, sessionMaterial, sessionTopic]);
+  }, [cloudBlocked, open, reset, sessionMaterial, sessionTopic, studyContext, retrieveImpl]);
 
   // Abort whatever is in flight when the sheet unmounts.
   useEffect(() => () => abortRef.current?.abort(), []);

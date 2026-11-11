@@ -126,6 +126,10 @@ export const AssessmentPreview: React.FC<AssessmentPreviewProps> = ({
         </div>
 
         {/* Paper Statistics Grid */}
+        <p data-testid="preview-hint-policy" className="text-xs text-surface-500">
+          Committed hints are authored per question and revealed only in Practice mode, one at a time.
+          Exam/Diagnostic previews never expose hints or correctness before submission.
+        </p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
           <div className="p-2.5 rounded-lg bg-surface-100 dark:bg-surface-700/50">
             <span className="text-surface-400 block text-[10px]">Paper Mode</span>

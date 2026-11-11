@@ -28,12 +28,19 @@ import { ClozeInput } from './ClozeInput';
 import { FreeResponseInput } from './FreeResponseInput';
 import { SubmitAttemptPanel } from './SubmitAttemptPanel';
 import { PracticeCheckPanel } from './PracticeCheckPanel';
+import { PracticeHintControl } from '../practice/PracticeHintControl';
+import { PracticeGuidancePanel } from '../practice/PracticeGuidancePanel';
+import { PracticeContextReturn, type PracticeReturnContext } from '../practice/PracticeContextReturn';
 
 export interface AttemptRunnerProps {
   detail: AttemptDetail;
   onComplete: (detail: AttemptDetail) => void;
   onExit: () => void;
   className?: string;
+  /** C7-T05 optional return context + tutor hook (practice-only UI). */
+  returnContext?: PracticeReturnContext | null;
+  onOpenTutor?: () => void;
+  onReturnToPlan?: () => void;
 }
 
 export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
@@ -41,8 +48,12 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
   onComplete,
   onExit,
   className = '',
+  returnContext = null,
+  onOpenTutor,
+  onReturnToPlan,
 }) => {
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [hintLevels, setHintLevels] = useState<Record<string, number>>({});
 
   const {
     state,
@@ -75,6 +86,8 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
   const currentSlot = currentQuestion ? slots[currentQuestion.id] : undefined;
 
   const isExam = attempt.mode === 'exam';
+  const isPractice = attempt.mode === 'practice';
+  const currentHintLevel = currentQuestion ? (hintLevels[currentQuestion.id] ?? 0) : 0;
 
   const handleFinalSubmit = async () => {
     try {
@@ -280,13 +293,27 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
 
         {/* Practice Mode Instant Check Panel (Concealed during Exam) */}
         {!isExam && currentSlot && (
-          <PracticeCheckPanel
-            questionRevision={currentQuestion}
-            attemptId={attempt.id}
-            attemptRevision={attempt.revision}
-            slot={currentSlot}
-            disabled={isReadOnly}
-          />
+          <>
+            {isPractice && (
+              <>
+                <PracticeHintControl
+                  hints={qData.hints ?? []}
+                  revealed={currentHintLevel}
+                  mode={attempt.mode}
+                  onReveal={(next) => setHintLevels((prev) => ({ ...prev, [currentQuestion.id]: next }))}
+                />
+                <PracticeGuidancePanel mode={attempt.mode} onOpenTutor={onOpenTutor} />
+              </>
+            )}
+            <PracticeCheckPanel
+              questionRevision={currentQuestion}
+              attemptId={attempt.id}
+              attemptRevision={attempt.revision}
+              slot={currentSlot}
+              hintLevel={currentHintLevel}
+              disabled={isReadOnly}
+            />
+          </>
         )}
       </div>
 
@@ -297,6 +324,8 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
         selectedIndex={selectedIndex}
         onSelectIndex={selectQuestion}
       />
+
+      <PracticeContextReturn context={returnContext} onReturn={onReturnToPlan} />
 
       {/* Submit Confirmation Dialog Modal */}
       {showSubmitModal && (

@@ -38,6 +38,8 @@ export interface CurriculumDraftPreviewProps {
   isAccepting?: boolean;
   isDiscarding?: boolean;
   error?: string | null;
+  /** C7-T03 optional diagnostic host slot. */
+  diagnosticSlot?: React.ReactNode;
 }
 
 type PreviewTab = 'outline' | 'diff';
@@ -52,6 +54,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
   isAccepting = false,
   isDiscarding = false,
   error = null,
+  diagnosticSlot,
 }) => {
   const [activeTab, setActiveTab] = useState<PreviewTab>('outline');
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
@@ -78,6 +81,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
       aria-label="Curriculum draft preview container"
       className="max-w-5xl mx-auto p-6 space-y-6"
     >
+      {diagnosticSlot}
       {/* Header bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-surface-200 dark:border-surface-700">
         <div>

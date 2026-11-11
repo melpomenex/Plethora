@@ -41,6 +41,12 @@ export interface AssessmentBuilderProps {
   onOpenQuestionEditor?: (revisionId: string, questionId?: string) => void;
   onStartAssessment?: (attemptId: string) => void;
   isMobile?: boolean;
+  /** C7-T03 diagnostic host callbacks: prefill mode/config without new destination. */
+  initialMode?: AssessmentConfigV1['mode'];
+  initialConfig?: Partial<AssessmentConfigV1>;
+  onStartedAttempt?: (attemptId: string) => void;
+  /** C7-T07 return context banner (no auto-start, plan unchanged). */
+  returnContext?: import('../remediation/returnContext').ReassessmentReturnContext | null;
 }
 
 export type BuilderState = 'loading' | 'idle' | 'generating' | 'needs-review' | 'ready' | 'error';
@@ -53,6 +59,10 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   onOpenQuestionEditor,
   onStartAssessment,
   isMobile = false,
+  initialMode,
+  initialConfig,
+  onStartedAttempt,
+  returnContext = null,
 }) => {
   const [detail, setDetail] = useState<BlueprintDetail | null>(null);
   const [title, setTitle] = useState('');
@@ -101,28 +111,29 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
         // Initialize new draft blueprint
         const planTitle = planDetail?.plan.title || 'General';
         const defaultTitle = `${planTitle} Examination`;
+        const configOverride = initialConfig;
 
-        const initialConfig: AssessmentConfigV1 = {
+        const baseConfig: AssessmentConfigV1 = {
           schemaVersion: 1,
-          mode: 'exam',
-          requestedCount: 10,
-          typeWeights: {
+          mode: initialMode ?? 'exam',
+          requestedCount: configOverride?.requestedCount ?? 10,
+          typeWeights: configOverride?.typeWeights ?? {
             'single-select': 4,
             'multi-select': 2,
             cloze: 2,
             'short-answer': 2,
             essay: 1,
           },
-          difficultyWeights: { 1: 1, 2: 3, 3: 4, 4: 2, 5: 1 },
-          topicTargets: (planDetail?.version.nodes || []).map((n) => ({
+          difficultyWeights: configOverride?.difficultyWeights ?? { 1: 1, 2: 3, 3: 4, 4: 2, 5: 1 },
+          topicTargets: configOverride?.topicTargets ?? (planDetail?.version.nodes || []).map((n) => ({
             nodeId: n.nodeId,
             conceptId: n.conceptId || null,
             weight: 1,
           })),
-          timeLimitSeconds: 1800,
-          knowledgePolicy: 'source-only',
-          excludedQuestionFingerprints: [],
-          pointsByKind: {
+          timeLimitSeconds: configOverride?.timeLimitSeconds ?? 1800,
+          knowledgePolicy: configOverride?.knowledgePolicy ?? 'source-only',
+          excludedQuestionFingerprints: configOverride?.excludedQuestionFingerprints ?? [],
+          pointsByKind: configOverride?.pointsByKind ?? {
             'single-select': 1,
             'multi-select': 1,
             cloze: 1,
@@ -135,7 +146,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
           planId: planDetail?.plan.id ?? null,
           planVersionId: planDetail?.version.id ?? null,
           title: defaultTitle,
-          config: initialConfig,
+          config: baseConfig,
           sourceScope: planDetail?.version.sourceScope || {
             schemaVersion: 1,
             selected: { documentIds: [], extractIds: [], collectionIds: [], tagIds: [] },
@@ -150,8 +161,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
         setDetail(created);
         setTitle(created.blueprint.title);
         setConfig(created.revision.config);
-        setState('idle');
-      }
+        setState('idle');      }
     } catch (err: any) {
       setErrorBanner(err?.messageKey || err?.message || 'Failed to initialize assessment');
       setState('error');
@@ -259,6 +269,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
         clientStartKey,
       });
       onStartAssessment?.(attemptDetail.attempt.id);
+      onStartedAttempt?.(attemptDetail.attempt.id);
     } catch (err: any) {
       setErrorBanner(err?.messageKey || err?.message || 'Failed to start assessment');
     }
@@ -266,6 +277,12 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
   return (
     <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
+      {returnContext && (
+        <p data-testid="builder-return-context" className="text-xs text-on-surface-variant">
+          Follow-up context: plan {returnContext.planId ?? '—'} · gap {returnContext.gapId ?? '—'}. No
+          automatic Start; published plan stays unchanged.
+        </p>
+      )}
       {/* Header Row */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-surface-200 dark:border-surface-700">
         <div className="flex items-center gap-3">

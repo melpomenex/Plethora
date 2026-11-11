@@ -32,6 +32,8 @@ export interface StudyPlanCreateFormProps {
     goal?: string;
     documentIds?: string[];
   };
+  /** C7-T03 optional diagnostic host slot (Take/Skip UI injected by caller). */
+  diagnosticSlot?: React.ReactNode;
 }
 
 export type CreationMethod = 'manual' | 'ai' | 'rules-only';
@@ -40,6 +42,7 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
   onSuccess,
   onCancel,
   initialPrefill,
+  diagnosticSlot,
 }) => {
   const createPlanAction = useLearningPathsStore((s) => s.createStudyPlan);
 
@@ -298,6 +301,8 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
 
         {/* Material Scope */}
         <SourceScopePicker selectedScope={sourceScope} onChange={setSourceScope} maxDocuments={24} />
+
+        {diagnosticSlot}
 
         {/* Form Buttons */}
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-surface-200 dark:border-surface-700">
