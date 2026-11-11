@@ -71,13 +71,17 @@ impl LearningEvidenceRepository {
         let submission_id: String = row.get("response_submission_id");
         let question_revision_id: String = row.get("question_revision_id");
         let grader_origin: String = row.get("origin");
-        let points: Option<f64> = row.try_get("points").or_else(|_| {
-            row.try_get::<Option<i64>, _>("points")
-                .map(|opt| opt.map(|i| i as f64))
-        }).unwrap_or(None);
-        let max_points: f64 = row.try_get("max_points").or_else(|_| {
-            row.try_get::<i64, _>("max_points").map(|i| i as f64)
-        }).unwrap_or(1.0);
+        let points: Option<f64> = row
+            .try_get("points")
+            .or_else(|_| {
+                row.try_get::<Option<i64>, _>("points")
+                    .map(|opt| opt.map(|i| i as f64))
+            })
+            .unwrap_or(None);
+        let max_points: f64 = row
+            .try_get("max_points")
+            .or_else(|_| row.try_get::<i64, _>("max_points").map(|i| i as f64))
+            .unwrap_or(1.0);
         let assessment_json: Option<String> = row.get("assessment_json");
         let attempt_id: String = row.get("attempt_id");
         let submission_kind: String = row.get("submission_kind");
@@ -178,7 +182,10 @@ impl LearningEvidenceRepository {
                 Some(ref id) if !id.trim().is_empty() => id.clone(),
                 _ => {
                     if !concept_label.trim().is_empty() {
-                        format!("concept:{}", concept_label.trim().to_lowercase().replace(' ', "_"))
+                        format!(
+                            "concept:{}",
+                            concept_label.trim().to_lowercase().replace(' ', "_")
+                        )
                     } else {
                         continue;
                     }
@@ -264,7 +271,10 @@ impl LearningEvidenceRepository {
             .fetch_all(&mut **tx)
             .await
             .map_err(|e| {
-                StudyCommandError::storage_failed(format!("Failed to fetch evidence for recompute: {}", e))
+                StudyCommandError::storage_failed(format!(
+                    "Failed to fetch evidence for recompute: {}",
+                    e
+                ))
             })?;
 
             if evidence_rows.is_empty() {
@@ -324,17 +334,25 @@ impl LearningEvidenceRepository {
                 let group_id: String = r.get("evidence_group_id");
                 let occurred_at: String = r.get("occurred_at");
                 let utc_date = occurred_at.chars().take(10).collect::<String>();
-                let score: Option<f64> = r.try_get("observed_score").or_else(|_| {
-                    r.try_get::<Option<i64>, _>("observed_score").map(|opt| opt.map(|i| i as f64))
-                }).unwrap_or(None);
+                let score: Option<f64> = r
+                    .try_get("observed_score")
+                    .or_else(|_| {
+                        r.try_get::<Option<i64>, _>("observed_score")
+                            .map(|opt| opt.map(|i| i as f64))
+                    })
+                    .unwrap_or(None);
                 let kind: String = r.get("source_kind");
                 let hint_level: i64 = r.get("hint_level");
                 let origin: String = r.get("grader_origin");
                 let fp: Option<String> = r.get("question_fingerprint");
                 let misc: Option<String> = r.get("misconception");
-                let conf: Option<f64> = r.try_get("learner_confidence").or_else(|_| {
-                    r.try_get::<Option<i64>, _>("learner_confidence").map(|opt| opt.map(|i| i as f64))
-                }).unwrap_or(None);
+                let conf: Option<f64> = r
+                    .try_get("learner_confidence")
+                    .or_else(|_| {
+                        r.try_get::<Option<i64>, _>("learner_confidence")
+                            .map(|opt| opt.map(|i| i as f64))
+                    })
+                    .unwrap_or(None);
 
                 all_evidence_ids.push(ev_id);
                 distinct_sessions.insert(group_id.clone());
@@ -358,7 +376,10 @@ impl LearningEvidenceRepository {
                     }
                 }
 
-                if latest_evidence_at.as_ref().map_or(true, |lat| &occurred_at > lat) {
+                if latest_evidence_at
+                    .as_ref()
+                    .map_or(true, |lat| &occurred_at > lat)
+                {
                     latest_evidence_at = Some(occurred_at.clone());
                 }
 
@@ -407,7 +428,10 @@ impl LearningEvidenceRepository {
                 group_misconceptions.push(!grp.misconceptions.is_empty());
 
                 // Base weight
-                let has_exam = grp.kinds.iter().any(|k| k == "exam-final" || k == "diagnostic-final");
+                let has_exam = grp
+                    .kinds
+                    .iter()
+                    .any(|k| k == "exam-final" || k == "diagnostic-final");
                 let base_weight = if has_exam {
                     1.0
                 } else if grp.hint_levels.iter().all(|&h| h == 0) {
@@ -421,7 +445,11 @@ impl LearningEvidenceRepository {
                     any_ai = true;
                     0.75
                 } else {
-                    if grp.origins.iter().any(|o| o == "deterministic" || o == "manual") {
+                    if grp
+                        .origins
+                        .iter()
+                        .any(|o| o == "deterministic" || o == "manual")
+                    {
                         has_deterministic_or_manual = true;
                     }
                     1.0
@@ -451,7 +479,8 @@ impl LearningEvidenceRepository {
                     seen_fingerprints_before.insert(f.clone());
                 }
 
-                let final_group_weight = base_weight * ai_multiplier * recency_multiplier * repeat_multiplier;
+                let final_group_weight =
+                    base_weight * ai_multiplier * recency_multiplier * repeat_multiplier;
                 weighted_score_sum += group_mean * final_group_weight;
                 weight_sum += final_group_weight;
             }
@@ -482,16 +511,23 @@ impl LearningEvidenceRepository {
 
             let latest_three_succeeding = if group_scores.len() >= 3 {
                 let len = group_scores.len();
-                group_scores[len - 1] >= 0.8 && group_scores[len - 2] >= 0.8 && group_scores[len - 3] >= 0.8
+                group_scores[len - 1] >= 0.8
+                    && group_scores[len - 2] >= 0.8
+                    && group_scores[len - 3] >= 0.8
             } else {
                 false
             };
 
-            let unresolved_latest_misconception = group_misconceptions.last().copied().unwrap_or(false);
+            let unresolved_latest_misconception =
+                group_misconceptions.last().copied().unwrap_or(false);
 
-            let level = if independent_sessions < 2 || weight_sum == 0.0 || observed_mean.is_none() {
+            let level = if independent_sessions < 2 || weight_sum == 0.0 || observed_mean.is_none()
+            {
                 "insufficient-evidence"
-            } else if latest_two_failing || unresolved_latest_misconception || observed_mean.unwrap_or(0.0) < 0.6 {
+            } else if latest_two_failing
+                || unresolved_latest_misconception
+                || observed_mean.unwrap_or(0.0) < 0.6
+            {
                 "needs-attention"
             } else if independent_sessions >= 3
                 && distinct_days_count >= 2
@@ -553,7 +589,9 @@ impl LearningEvidenceRepository {
             });
             let stats_json = serde_json::to_string(&stats_val).unwrap_or_default();
             let evidence_ids_json = serde_json::to_string(&all_evidence_ids).unwrap_or_default();
-            let evidence_cutoff = latest_evidence_at.clone().unwrap_or_else(|| now_iso.clone());
+            let evidence_cutoff = latest_evidence_at
+                .clone()
+                .unwrap_or_else(|| now_iso.clone());
 
             // Upsert concept summary
             sqlx::query(
@@ -579,7 +617,10 @@ impl LearningEvidenceRepository {
             .execute(&mut **tx)
             .await
             .map_err(|e| {
-                StudyCommandError::storage_failed(format!("Failed to upsert concept summary: {}", e))
+                StudyCommandError::storage_failed(format!(
+                    "Failed to upsert concept summary: {}",
+                    e
+                ))
             })?;
 
             // Evaluate Gap Rules
@@ -716,7 +757,10 @@ impl LearningEvidenceRepository {
         let limit = batch_limit.clamp(1, 100);
 
         let mut tx = self.pool.begin().await.map_err(|e| {
-            StudyCommandError::storage_failed(format!("Failed to begin reconcile transaction: {}", e))
+            StudyCommandError::storage_failed(format!(
+                "Failed to begin reconcile transaction: {}",
+                e
+            ))
         })?;
 
         let candidate_grades = sqlx::query(
@@ -731,7 +775,10 @@ impl LearningEvidenceRepository {
         .fetch_all(&mut *tx)
         .await
         .map_err(|e| {
-            StudyCommandError::storage_failed(format!("Failed to fetch grades for reconcile: {}", e))
+            StudyCommandError::storage_failed(format!(
+                "Failed to fetch grades for reconcile: {}",
+                e
+            ))
         })?;
 
         let has_more = candidate_grades.len() as i64 > limit;
@@ -785,27 +832,45 @@ impl LearningEvidenceRepository {
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| {
-            StudyCommandError::storage_failed(format!("Failed to fetch concept mastery summary: {}", e))
+            StudyCommandError::storage_failed(format!(
+                "Failed to fetch concept mastery summary: {}",
+                e
+            ))
         })?;
 
         match row {
             Some(r) => {
                 let stats_json: String = r.get("stats_json");
-                let stats: serde_json::Value = serde_json::from_str(&stats_json).unwrap_or_default();
+                let stats: serde_json::Value =
+                    serde_json::from_str(&stats_json).unwrap_or_default();
                 let evidence_ids_json: String = r.get("evidence_ids_json");
-                let evidence_ids: Vec<String> = serde_json::from_str(&evidence_ids_json).unwrap_or_default();
+                let evidence_ids: Vec<String> =
+                    serde_json::from_str(&evidence_ids_json).unwrap_or_default();
 
                 Ok(ConceptMasterySummary {
                     concept_id: r.get("concept_id"),
                     level: r.get("level"),
                     observed_mean: stats.get("observedMean").and_then(|v| v.as_f64()),
-                    evidence_weight: stats.get("evidenceWeight").and_then(|v| v.as_f64()).unwrap_or(0.0),
-                    independent_sessions: stats.get("independentSessions").and_then(|v| v.as_i64()).unwrap_or(0),
-                    distinct_days: stats.get("distinctDays").and_then(|v| v.as_i64()).unwrap_or(0),
+                    evidence_weight: stats
+                        .get("evidenceWeight")
+                        .and_then(|v| v.as_f64())
+                        .unwrap_or(0.0),
+                    independent_sessions: stats
+                        .get("independentSessions")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0),
+                    distinct_days: stats
+                        .get("distinctDays")
+                        .and_then(|v| v.as_i64())
+                        .unwrap_or(0),
                     minimum_observed: stats.get("minimumObserved").and_then(|v| v.as_f64()),
                     maximum_observed: stats.get("maximumObserved").and_then(|v| v.as_f64()),
-                    latest_evidence_at: stats.get("latestEvidenceAt").and_then(|v| v.as_str()).map(String::from),
-                    uncertainty: stats.get("uncertainty")
+                    latest_evidence_at: stats
+                        .get("latestEvidenceAt")
+                        .and_then(|v| v.as_str())
+                        .map(String::from),
+                    uncertainty: stats
+                        .get("uncertainty")
                         .and_then(|v| serde_json::from_value(v.clone()).ok())
                         .unwrap_or_default(),
                     evidence_ids,
@@ -834,13 +899,12 @@ impl LearningEvidenceRepository {
         &self,
         plan_id: &str,
     ) -> Result<PlanEvidenceSummary, StudyCommandError> {
-        let version_id: Option<String> = sqlx::query_scalar(
-            "SELECT current_version_id FROM study_plans WHERE id = ?1",
-        )
-        .bind(plan_id)
-        .fetch_optional(&self.pool)
-        .await
-        .unwrap_or(None);
+        let version_id: Option<String> =
+            sqlx::query_scalar("SELECT current_version_id FROM study_plans WHERE id = ?1")
+                .bind(plan_id)
+                .fetch_optional(&self.pool)
+                .await
+                .unwrap_or(None);
 
         let version_id = version_id.unwrap_or_default();
 
@@ -901,7 +965,7 @@ impl LearningEvidenceRepository {
                     status, first_detected_at, last_detected_at, evidence_cutoff
              FROM learning_gaps
              WHERE (?1 IS NULL OR plan_id = ?1)
-               AND (?2 = 1 OR status != 'dismissed')
+               AND (?2 = 1 OR status = 'active')
              ORDER BY last_detected_at DESC",
         )
         .bind(plan_id)
@@ -927,17 +991,20 @@ impl LearningEvidenceRepository {
             .await
             .unwrap_or_default();
 
-            let evidence = ev_rows.into_iter().map(|r| {
-                let payload_json: String = r.get("payload_json");
-                GapEvidenceRecord {
-                    record_id: r.get("record_id"),
-                    kind: r.get("kind"),
-                    description: r.get("description"),
-                    learning_evidence_id: r.get("evidence_id"),
-                    source_ref_id: r.get("source_ref_id"),
-                    payload: serde_json::from_str(&payload_json).unwrap_or_default(),
-                }
-            }).collect();
+            let evidence = ev_rows
+                .into_iter()
+                .map(|r| {
+                    let payload_json: String = r.get("payload_json");
+                    GapEvidenceRecord {
+                        record_id: r.get("record_id"),
+                        kind: r.get("kind"),
+                        description: r.get("description"),
+                        learning_evidence_id: r.get("evidence_id"),
+                        source_ref_id: r.get("source_ref_id"),
+                        payload: serde_json::from_str(&payload_json).unwrap_or_default(),
+                    }
+                })
+                .collect();
 
             let demonstrated = self.get_concept_mastery_summary(&cid).await.ok();
 
@@ -983,7 +1050,10 @@ impl LearningEvidenceRepository {
         })?;
 
         if res.rows_affected() == 0 {
-            return Err(StudyCommandError::not_found(format!("Gap '{}' not found", gap_id)));
+            return Err(StudyCommandError::not_found(format!(
+                "Gap '{}' not found",
+                gap_id
+            )));
         }
 
         Ok(())
@@ -1019,10 +1089,51 @@ impl LearningEvidenceRepository {
     }
 
     /// Gets prior evidence for a diagnostic attempt (Change 7 integration).
+    /// Strict read-only adapter: asserts mode=diagnostic, status complete,
+    /// all official items final. No writes, no migration.
     pub async fn get_diagnostic_prior_evidence(
         &self,
         attempt_id: &str,
     ) -> Result<CurriculumPriorEvidence, StudyCommandError> {
+        let attempt_row = sqlx::query(
+            "SELECT id, mode, status, blueprint_revision_id FROM exam_attempts WHERE id = ?1",
+        )
+        .bind(attempt_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| {
+            StudyCommandError::storage_failed(format!("Failed to query diagnostic attempt: {}", e))
+        })?;
+        let row = attempt_row.ok_or_else(|| {
+            StudyCommandError::not_found(format!("Diagnostic attempt '{}' not found", attempt_id))
+        })?;
+        let mode: String = row.get("mode");
+        let status: String = row.get("status");
+        if mode != "diagnostic" {
+            return Err(StudyCommandError::invalid_state(
+                "study.diagnostic.error.invalid_mode",
+            ));
+        }
+        if status != "complete" {
+            return Err(StudyCommandError::invalid_state(
+                "study.diagnostic.error.incomplete_attempt",
+            ));
+        }
+        // All official items must be final with non-null points.
+        let non_final: (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM exam_grades g
+             JOIN exam_response_submissions s ON s.id = g.response_submission_id
+             WHERE s.attempt_id = ?1 AND g.is_current = 1 AND (g.state != 'final' OR g.points IS NULL)",
+        )
+        .bind(attempt_id)
+        .fetch_one(&self.pool)
+        .await
+        .unwrap_or((1,));
+        if non_final.0 > 0 {
+            return Err(StudyCommandError::invalid_state(
+                "study.diagnostic.error.missing_final_grades",
+            ));
+        }
         let concepts: Vec<(String,)> = sqlx::query_as(
             "SELECT DISTINCT concept_id FROM learning_evidence
              WHERE source_kind = 'diagnostic-final'
@@ -1032,6 +1143,11 @@ impl LearningEvidenceRepository {
         .fetch_all(&self.pool)
         .await
         .unwrap_or_default();
+        if concepts.is_empty() {
+            return Err(StudyCommandError::invalid_state(
+                "study.diagnostic.error.no_evidence",
+            ));
+        }
 
         let mut concept_list = Vec::new();
         for (cid,) in concepts {
@@ -1058,10 +1174,7 @@ impl LearningEvidenceRepository {
         status: &str,
     ) -> Result<RemediationRecommendation, StudyCommandError> {
         if !["suggested", "accepted", "dismissed", "completed"].contains(&status) {
-            return Err(StudyCommandError::invalid_input(
-                "invalid_status",
-                vec![],
-            ));
+            return Err(StudyCommandError::invalid_input("invalid_status", vec![]));
         }
 
         let now = Utc::now().to_rfc3339();
@@ -1203,7 +1316,12 @@ mod tests {
         .await
         .expect("insert question target");
 
-        ("bp_ev".to_string(), "bpr_ev".to_string(), "aqr_ev1".to_string(), "c_photosynthesis".to_string())
+        (
+            "bp_ev".to_string(),
+            "bpr_ev".to_string(),
+            "aqr_ev1".to_string(),
+            "c_photosynthesis".to_string(),
+        )
     }
 
     async fn create_attempt_and_submission(
@@ -1269,27 +1387,37 @@ mod tests {
         let evidence_repo = LearningEvidenceRepository::new(pool.clone());
 
         // 1. Create attempt 1 and grade it (Final, points = 4/4 => 1.0 score)
-        let (_resp_1, sub_1) = create_attempt_and_submission(&pool, &bpr_id, &q_rev_id, "att_1", "2026-11-10T12:00:00Z").await;
-        let grade_res_1 = grading_repo.record_rubric_grade(RecordRubricGradeInput {
-            attempt_id: "att_1".to_string(),
-            response_submission_id: sub_1,
-            question_revision_id: q_rev_id.clone(),
-            expected_attempt_revision: 1,
-            origin: "ai".to_string(),
-            state: "final".to_string(),
-            points: Some(4.0),
-            max_points: 4.0,
-            outcome: Some("correct".to_string()),
-            assessment_json: None,
-            criteria_json: "[]".to_string(),
-            provenance_json: None,
-            manual_reason: None,
-            job_id: None,
-            step_key: None,
-            lease_owner: None,
-            cancellation_epoch: None,
-            input_hash: None,
-        }).await.expect("grade 1 succeeds");
+        let (_resp_1, sub_1) = create_attempt_and_submission(
+            &pool,
+            &bpr_id,
+            &q_rev_id,
+            "att_1",
+            "2026-11-10T12:00:00Z",
+        )
+        .await;
+        let grade_res_1 = grading_repo
+            .record_rubric_grade(RecordRubricGradeInput {
+                attempt_id: "att_1".to_string(),
+                response_submission_id: sub_1,
+                question_revision_id: q_rev_id.clone(),
+                expected_attempt_revision: 1,
+                origin: "ai".to_string(),
+                state: "final".to_string(),
+                points: Some(4.0),
+                max_points: 4.0,
+                outcome: Some("correct".to_string()),
+                assessment_json: None,
+                criteria_json: "[]".to_string(),
+                provenance_json: None,
+                manual_reason: None,
+                job_id: None,
+                step_key: None,
+                lease_owner: None,
+                cancellation_epoch: None,
+                input_hash: None,
+            })
+            .await
+            .expect("grade 1 succeeds");
 
         assert_eq!(grade_res_1.grade.state, "final");
 
@@ -1307,51 +1435,71 @@ mod tests {
         assert_eq!(ev_rows[0].2, "correct");
 
         // Verify concept mastery summary: 1 session => insufficient-evidence
-        let summary = evidence_repo.get_concept_mastery_summary(&concept_id).await.unwrap();
+        let summary = evidence_repo
+            .get_concept_mastery_summary(&concept_id)
+            .await
+            .unwrap();
         assert_eq!(summary.level, "insufficient-evidence");
         assert_eq!(summary.independent_sessions, 1);
         assert!(summary.observed_mean.is_some());
 
         // 2. Create attempt 2 and grade it (Final, points = 4/4)
-        let (_resp_2, sub_2) = create_attempt_and_submission(&pool, &bpr_id, &q_rev_id, "att_2", "2026-11-11T12:00:00Z").await;
-        let _ = grading_repo.record_rubric_grade(RecordRubricGradeInput {
-            attempt_id: "att_2".to_string(),
-            response_submission_id: sub_2,
-            question_revision_id: q_rev_id.clone(),
-            expected_attempt_revision: 1,
-            origin: "deterministic".to_string(),
-            state: "final".to_string(),
-            points: Some(4.0),
-            max_points: 4.0,
-            outcome: Some("correct".to_string()),
-            assessment_json: None,
-            criteria_json: "[]".to_string(),
-            provenance_json: None,
-            manual_reason: None,
-            job_id: None,
-            step_key: None,
-            lease_owner: None,
-            cancellation_epoch: None,
-            input_hash: None,
-        }).await.expect("grade 2 succeeds");
+        let (_resp_2, sub_2) = create_attempt_and_submission(
+            &pool,
+            &bpr_id,
+            &q_rev_id,
+            "att_2",
+            "2026-11-11T12:00:00Z",
+        )
+        .await;
+        let _ = grading_repo
+            .record_rubric_grade(RecordRubricGradeInput {
+                attempt_id: "att_2".to_string(),
+                response_submission_id: sub_2,
+                question_revision_id: q_rev_id.clone(),
+                expected_attempt_revision: 1,
+                origin: "deterministic".to_string(),
+                state: "final".to_string(),
+                points: Some(4.0),
+                max_points: 4.0,
+                outcome: Some("correct".to_string()),
+                assessment_json: None,
+                criteria_json: "[]".to_string(),
+                provenance_json: None,
+                manual_reason: None,
+                job_id: None,
+                step_key: None,
+                lease_owner: None,
+                cancellation_epoch: None,
+                input_hash: None,
+            })
+            .await
+            .expect("grade 2 succeeds");
 
-        let summary_2 = evidence_repo.get_concept_mastery_summary(&concept_id).await.unwrap();
+        let summary_2 = evidence_repo
+            .get_concept_mastery_summary(&concept_id)
+            .await
+            .unwrap();
         assert_eq!(summary_2.independent_sessions, 2);
 
         // 3. Delete attempt 1 -> cascades evidence, recomputes summary
-        ExamSessionRepository::delete_exam_history(&pool, "att_1").await.expect("delete succeeds");
+        ExamSessionRepository::delete_exam_history(&pool, "att_1")
+            .await
+            .expect("delete succeeds");
 
-        let remaining_ev: Vec<(String,)> = sqlx::query_as(
-            "SELECT id FROM learning_evidence WHERE concept_id = ?1",
-        )
-        .bind(&concept_id)
-        .fetch_all(&pool)
-        .await
-        .unwrap();
+        let remaining_ev: Vec<(String,)> =
+            sqlx::query_as("SELECT id FROM learning_evidence WHERE concept_id = ?1")
+                .bind(&concept_id)
+                .fetch_all(&pool)
+                .await
+                .unwrap();
 
         assert_eq!(remaining_ev.len(), 1, "Evidence for att_1 must be gone");
 
-        let summary_after_delete = evidence_repo.get_concept_mastery_summary(&concept_id).await.unwrap();
+        let summary_after_delete = evidence_repo
+            .get_concept_mastery_summary(&concept_id)
+            .await
+            .unwrap();
         assert_eq!(summary_after_delete.independent_sessions, 1);
     }
 
@@ -1363,54 +1511,74 @@ mod tests {
         let evidence_repo = LearningEvidenceRepository::new(pool.clone());
 
         // Attempt 1: Low score 0/4 (0.0)
-        let (_resp_1, sub_1) = create_attempt_and_submission(&pool, &bpr_id, &q_rev_id, "att_f1", "2026-11-10T12:00:00Z").await;
-        grading_repo.record_rubric_grade(RecordRubricGradeInput {
-            attempt_id: "att_f1".to_string(),
-            response_submission_id: sub_1,
-            question_revision_id: q_rev_id.clone(),
-            expected_attempt_revision: 1,
-            origin: "ai".to_string(),
-            state: "final".to_string(),
-            points: Some(0.0),
-            max_points: 4.0,
-            outcome: Some("incorrect".to_string()),
-            assessment_json: None,
-            criteria_json: "[]".to_string(),
-            provenance_json: None,
-            manual_reason: None,
-            job_id: None,
-            step_key: None,
-            lease_owner: None,
-            cancellation_epoch: None,
-            input_hash: None,
-        }).await.unwrap();
+        let (_resp_1, sub_1) = create_attempt_and_submission(
+            &pool,
+            &bpr_id,
+            &q_rev_id,
+            "att_f1",
+            "2026-11-10T12:00:00Z",
+        )
+        .await;
+        grading_repo
+            .record_rubric_grade(RecordRubricGradeInput {
+                attempt_id: "att_f1".to_string(),
+                response_submission_id: sub_1,
+                question_revision_id: q_rev_id.clone(),
+                expected_attempt_revision: 1,
+                origin: "ai".to_string(),
+                state: "final".to_string(),
+                points: Some(0.0),
+                max_points: 4.0,
+                outcome: Some("incorrect".to_string()),
+                assessment_json: None,
+                criteria_json: "[]".to_string(),
+                provenance_json: None,
+                manual_reason: None,
+                job_id: None,
+                step_key: None,
+                lease_owner: None,
+                cancellation_epoch: None,
+                input_hash: None,
+            })
+            .await
+            .unwrap();
 
         // 1 failure alone does not create repeated failure gap
         let gaps_1 = evidence_repo.list_learning_gaps(None, false).await.unwrap();
         assert_eq!(gaps_1.len(), 0);
 
         // Attempt 2: Low score 1/4 (0.25) -> triggers assessment-repeated-failure-v1!
-        let (_resp_2, sub_2) = create_attempt_and_submission(&pool, &bpr_id, &q_rev_id, "att_f2", "2026-11-11T12:00:00Z").await;
-        grading_repo.record_rubric_grade(RecordRubricGradeInput {
-            attempt_id: "att_f2".to_string(),
-            response_submission_id: sub_2,
-            question_revision_id: q_rev_id.clone(),
-            expected_attempt_revision: 1,
-            origin: "ai".to_string(),
-            state: "final".to_string(),
-            points: Some(1.0),
-            max_points: 4.0,
-            outcome: Some("incorrect".to_string()),
-            assessment_json: None,
-            criteria_json: "[]".to_string(),
-            provenance_json: None,
-            manual_reason: None,
-            job_id: None,
-            step_key: None,
-            lease_owner: None,
-            cancellation_epoch: None,
-            input_hash: None,
-        }).await.unwrap();
+        let (_resp_2, sub_2) = create_attempt_and_submission(
+            &pool,
+            &bpr_id,
+            &q_rev_id,
+            "att_f2",
+            "2026-11-11T12:00:00Z",
+        )
+        .await;
+        grading_repo
+            .record_rubric_grade(RecordRubricGradeInput {
+                attempt_id: "att_f2".to_string(),
+                response_submission_id: sub_2,
+                question_revision_id: q_rev_id.clone(),
+                expected_attempt_revision: 1,
+                origin: "ai".to_string(),
+                state: "final".to_string(),
+                points: Some(1.0),
+                max_points: 4.0,
+                outcome: Some("incorrect".to_string()),
+                assessment_json: None,
+                criteria_json: "[]".to_string(),
+                provenance_json: None,
+                manual_reason: None,
+                job_id: None,
+                step_key: None,
+                lease_owner: None,
+                cancellation_epoch: None,
+                input_hash: None,
+            })
+            .await
+            .unwrap();
 
         let gaps_2 = evidence_repo.list_learning_gaps(None, false).await.unwrap();
         assert_eq!(gaps_2.len(), 1);
@@ -1419,57 +1587,81 @@ mod tests {
         assert!(!gaps_2[0].evidence.is_empty());
 
         // Verify remediations were created
-        let rem_count: (i64,) = sqlx::query_as("SELECT count(*) FROM learning_remediations WHERE gap_id = ?1")
-            .bind(&gaps_2[0].id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert!(rem_count.0 >= 3, "Expected at least 3 remediations suggested");
+        let rem_count: (i64,) =
+            sqlx::query_as("SELECT count(*) FROM learning_remediations WHERE gap_id = ?1")
+                .bind(&gaps_2[0].id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert!(
+            rem_count.0 >= 3,
+            "Expected at least 3 remediations suggested"
+        );
 
         // Attempt 3 & 4: Success (>= 0.8) -> resolves repeated failure gap
-        let (_resp_3, sub_3) = create_attempt_and_submission(&pool, &bpr_id, &q_rev_id, "att_s3", "2026-11-12T12:00:00Z").await;
-        grading_repo.record_rubric_grade(RecordRubricGradeInput {
-            attempt_id: "att_s3".to_string(),
-            response_submission_id: sub_3,
-            question_revision_id: q_rev_id.clone(),
-            expected_attempt_revision: 1,
-            origin: "ai".to_string(),
-            state: "final".to_string(),
-            points: Some(4.0),
-            max_points: 4.0,
-            outcome: Some("correct".to_string()),
-            assessment_json: None,
-            criteria_json: "[]".to_string(),
-            provenance_json: None,
-            manual_reason: None,
-            job_id: None,
-            step_key: None,
-            lease_owner: None,
-            cancellation_epoch: None,
-            input_hash: None,
-        }).await.unwrap();
+        let (_resp_3, sub_3) = create_attempt_and_submission(
+            &pool,
+            &bpr_id,
+            &q_rev_id,
+            "att_s3",
+            "2026-11-12T12:00:00Z",
+        )
+        .await;
+        grading_repo
+            .record_rubric_grade(RecordRubricGradeInput {
+                attempt_id: "att_s3".to_string(),
+                response_submission_id: sub_3,
+                question_revision_id: q_rev_id.clone(),
+                expected_attempt_revision: 1,
+                origin: "ai".to_string(),
+                state: "final".to_string(),
+                points: Some(4.0),
+                max_points: 4.0,
+                outcome: Some("correct".to_string()),
+                assessment_json: None,
+                criteria_json: "[]".to_string(),
+                provenance_json: None,
+                manual_reason: None,
+                job_id: None,
+                step_key: None,
+                lease_owner: None,
+                cancellation_epoch: None,
+                input_hash: None,
+            })
+            .await
+            .unwrap();
 
-        let (_resp_4, sub_4) = create_attempt_and_submission(&pool, &bpr_id, &q_rev_id, "att_s4", "2026-11-13T12:00:00Z").await;
-        grading_repo.record_rubric_grade(RecordRubricGradeInput {
-            attempt_id: "att_s4".to_string(),
-            response_submission_id: sub_4,
-            question_revision_id: q_rev_id.clone(),
-            expected_attempt_revision: 1,
-            origin: "ai".to_string(),
-            state: "final".to_string(),
-            points: Some(4.0),
-            max_points: 4.0,
-            outcome: Some("correct".to_string()),
-            assessment_json: None,
-            criteria_json: "[]".to_string(),
-            provenance_json: None,
-            manual_reason: None,
-            job_id: None,
-            step_key: None,
-            lease_owner: None,
-            cancellation_epoch: None,
-            input_hash: None,
-        }).await.unwrap();
+        let (_resp_4, sub_4) = create_attempt_and_submission(
+            &pool,
+            &bpr_id,
+            &q_rev_id,
+            "att_s4",
+            "2026-11-13T12:00:00Z",
+        )
+        .await;
+        grading_repo
+            .record_rubric_grade(RecordRubricGradeInput {
+                attempt_id: "att_s4".to_string(),
+                response_submission_id: sub_4,
+                question_revision_id: q_rev_id.clone(),
+                expected_attempt_revision: 1,
+                origin: "ai".to_string(),
+                state: "final".to_string(),
+                points: Some(4.0),
+                max_points: 4.0,
+                outcome: Some("correct".to_string()),
+                assessment_json: None,
+                criteria_json: "[]".to_string(),
+                provenance_json: None,
+                manual_reason: None,
+                job_id: None,
+                step_key: None,
+                lease_owner: None,
+                cancellation_epoch: None,
+                input_hash: None,
+            })
+            .await
+            .unwrap();
 
         let active_gaps = evidence_repo.list_learning_gaps(None, false).await.unwrap();
         assert_eq!(active_gaps.len(), 0, "Gap should be resolved");
@@ -1489,42 +1681,136 @@ mod tests {
         for i in 1..=3 {
             let att_id = format!("att_rec_{}", i);
             let date = format!("2026-11-1{}T12:00:00Z", i);
-            let (_r, sub) = create_attempt_and_submission(&pool, &bpr_id, &q_rev_id, &att_id, &date).await;
-            grading_repo.record_rubric_grade(RecordRubricGradeInput {
-                attempt_id: att_id,
-                response_submission_id: sub,
-                question_revision_id: q_rev_id.clone(),
-                expected_attempt_revision: 1,
-                origin: "deterministic".to_string(),
-                state: "final".to_string(),
-                points: Some(4.0),
-                max_points: 4.0,
-                outcome: Some("correct".to_string()),
-                assessment_json: None,
-                criteria_json: "[]".to_string(),
-                provenance_json: None,
-                manual_reason: None,
-                job_id: None,
-                step_key: None,
-                lease_owner: None,
-                cancellation_epoch: None,
-                input_hash: None,
-            }).await.unwrap();
+            let (_r, sub) =
+                create_attempt_and_submission(&pool, &bpr_id, &q_rev_id, &att_id, &date).await;
+            grading_repo
+                .record_rubric_grade(RecordRubricGradeInput {
+                    attempt_id: att_id,
+                    response_submission_id: sub,
+                    question_revision_id: q_rev_id.clone(),
+                    expected_attempt_revision: 1,
+                    origin: "deterministic".to_string(),
+                    state: "final".to_string(),
+                    points: Some(4.0),
+                    max_points: 4.0,
+                    outcome: Some("correct".to_string()),
+                    assessment_json: None,
+                    criteria_json: "[]".to_string(),
+                    provenance_json: None,
+                    manual_reason: None,
+                    job_id: None,
+                    step_key: None,
+                    lease_owner: None,
+                    cancellation_epoch: None,
+                    input_hash: None,
+                })
+                .await
+                .unwrap();
         }
 
         // Test reconcile with batch_limit = 2
-        let res_1 = evidence_repo.reconcile_learning_evidence(None, 2).await.unwrap();
+        let res_1 = evidence_repo
+            .reconcile_learning_evidence(None, 2)
+            .await
+            .unwrap();
         assert_eq!(res_1.processed, 2);
         assert_eq!(res_1.remaining, 1);
         assert!(!res_1.completed);
         assert!(res_1.next_after_grade_id.is_some());
 
         // Second batch
-        let res_2 = evidence_repo.reconcile_learning_evidence(res_1.next_after_grade_id.as_deref(), 2).await.unwrap();
+        let res_2 = evidence_repo
+            .reconcile_learning_evidence(res_1.next_after_grade_id.as_deref(), 2)
+            .await
+            .unwrap();
         assert_eq!(res_2.processed, 1);
         assert_eq!(res_2.remaining, 0);
         assert!(res_2.completed);
         assert!(res_2.next_after_grade_id.is_none());
     }
-}
 
+    #[tokio::test]
+    async fn test_diagnostic_prior_evidence_adapter() {
+        let pool = test_pool().await;
+        let (_bp_id, bpr_id, q_rev_id, _concept_id) = seed_test_exam(&pool).await;
+        // Mark blueprint revision diagnostic by inserting a diagnostic attempt directly.
+        sqlx::query(
+            "INSERT INTO exam_attempts (
+                id, blueprint_revision_id, client_start_key, mode, status,
+                question_revision_ids_json, revision, started_at, maximum_points, created_at, updated_at
+            ) VALUES ('att_diag_1', ?1, 'start_diag_1', 'diagnostic', 'complete', ?2, 1, '2026-11-10T12:00:00Z', 4.0, '2026-11-10T12:00:00Z', '2026-11-10T12:00:00Z')",
+        )
+        .bind(&bpr_id)
+        .bind(serde_json::to_string(&vec![q_rev_id.clone()]).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO exam_responses (
+                id, attempt_id, question_revision_id, draft_json, mark, revision, last_client_mutation_id, updated_at
+            ) VALUES ('resp_diag_1', 'att_diag_1', ?1, '{\"text\":\"Answer\"}', 'answered', 1, 'mut_1', '2026-11-10T12:00:00Z')",
+        )
+        .bind(&q_rev_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let sub_id = "sub_diag_1";
+        sqlx::query(
+            "INSERT INTO exam_response_submissions (
+                id, response_id, attempt_id, question_revision_id, ordinal, kind,
+                response_json, mark, hint_level, created_at
+            ) VALUES (?1, 'resp_diag_1', 'att_diag_1', ?2, 1, 'exam-final', '{\"text\":\"Answer\"}', 'answered', 0, '2026-11-10T12:00:00Z')",
+        )
+        .bind(sub_id)
+        .bind(&q_rev_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+        // Seed diagnostic-final evidence row directly (bypasses grading hook mode mapping).
+        sqlx::query(
+            "INSERT INTO learning_evidence (
+                id, concept_id, concept_label, plan_id, node_id, source_kind, source_id, grade_id,
+                evidence_group_id, question_fingerprint, observed_score, outcome, misconception,
+                learner_confidence, hint_level, grader_origin, occurred_at, policy_version, created_at, updated_at
+            ) VALUES (
+                'ev_diag_1', 'c_photosynthesis', 'Photosynthesis', 'plan_ev', 'node_photo',
+                'diagnostic-final', ?1, NULL, 'att_diag_1:c_photosynthesis', 'fp_ev1',
+                1.0, 'correct', NULL, NULL, 0, 'deterministic', '2026-11-10T12:00:00Z', 'evidence-v1',
+                '2026-11-10T12:00:00Z', '2026-11-10T12:00:00Z'
+            )",
+        )
+        .bind(sub_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let evidence_repo = LearningEvidenceRepository::new(pool.clone());
+        let prior = evidence_repo
+            .get_diagnostic_prior_evidence("att_diag_1")
+            .await
+            .expect("diagnostic adapter succeeds");
+        assert_eq!(prior.diagnostic_attempt_id, "att_diag_1");
+        assert_eq!(prior.concepts.len(), 1);
+        assert_eq!(
+            prior.concepts[0].evidence_group_ids,
+            vec!["att_diag_1:c_photosynthesis".to_string()]
+        );
+
+        // Exam-mode attempt with same evidence shape must be rejected.
+        sqlx::query(
+            "INSERT INTO exam_attempts (
+                id, blueprint_revision_id, client_start_key, mode, status,
+                question_revision_ids_json, revision, started_at, maximum_points, created_at, updated_at
+            ) VALUES ('att_exam_x', ?1, 'start_exam_x', 'exam', 'complete', ?2, 1, '2026-11-10T12:00:00Z', 4.0, '2026-11-10T12:00:00Z', '2026-11-10T12:00:00Z')",
+        )
+        .bind(&bpr_id)
+        .bind(serde_json::to_string(&vec![q_rev_id.clone()]).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
+        let rejected = evidence_repo
+            .get_diagnostic_prior_evidence("att_exam_x")
+            .await;
+        assert!(rejected.is_err());
+    }
+}

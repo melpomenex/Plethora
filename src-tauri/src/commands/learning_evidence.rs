@@ -5,7 +5,6 @@
  * - openspec/planning/study-plans-assessments-program/02-SHARED-CONTRACTS.md §§8, 9, 11
  * - openspec/changes/derive-study-gaps-from-exam-evidence/ (C6-T04)
  */
-
 use crate::database::LearningEvidenceRepository;
 use crate::error::Result;
 use crate::models::learning_evidence::{

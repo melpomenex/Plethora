@@ -6,7 +6,6 @@
  * - openspec/planning/study-plans-assessments-program/04-DATA-AND-MIGRATION-PLAN.md §7
  * - openspec/changes/derive-study-gaps-from-exam-evidence/ (C6-T04)
  */
-
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

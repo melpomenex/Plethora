@@ -629,8 +629,8 @@ impl ExamSessionRepository {
         input: SubmitAttemptInput,
     ) -> Result<AttemptDetail, StudyCommandError> {
         // 1. Fetch current attempt row
-        let attempt_row: Option<(String, i64, Option<String>, f64, String)> = sqlx::query_as(
-            "SELECT status, revision, submission_key, maximum_points, question_revision_ids_json
+        let attempt_row: Option<(String, i64, Option<String>, f64, String, String)> = sqlx::query_as(
+            "SELECT status, revision, submission_key, maximum_points, question_revision_ids_json, mode
              FROM exam_attempts WHERE id = ?",
         )
         .bind(&input.attempt_id)
@@ -640,14 +640,15 @@ impl ExamSessionRepository {
             StudyCommandError::storage_failed(format!("Failed to query attempt: {}", e))
         })?;
 
-        let (status, revision, existing_sub_key, maximum_points, q_ids_json) = match attempt_row {
-            Some(r) => r,
-            None => {
-                return Err(StudyCommandError::not_found(
-                    "study.assessment.error.attempt_not_found",
-                ))
-            }
-        };
+        let (status, revision, existing_sub_key, maximum_points, q_ids_json, mode) =
+            match attempt_row {
+                Some(r) => r,
+                None => {
+                    return Err(StudyCommandError::not_found(
+                        "study.assessment.error.attempt_not_found",
+                    ))
+                }
+            };
 
         // 2. Check if already submitted
         if status != "in-progress" {
@@ -711,19 +712,175 @@ impl ExamSessionRepository {
         let mut has_failed = false;
 
         for (resp_id, q_rev_id, draft_json, mark) in &responses {
+            // C7-T02 Practice Finish: reuse latest practice-check on identical
+            // payload/mark/hintLevel, otherwise ordinal append. No duplicate evidence.
+            if mode == "practice" {
+                let latest: Option<(String, String, String, i64, i64)> = sqlx::query_as(
+                    "SELECT id, response_json, mark, hint_level, ordinal
+                     FROM exam_response_submissions
+                     WHERE response_id = ? AND kind = 'practice-check'
+                     ORDER BY ordinal DESC LIMIT 1",
+                )
+                .bind(resp_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .unwrap_or(None);
+                if let Some((latest_id, latest_json, latest_mark, latest_hint, _ord)) = latest {
+                    if &latest_json == draft_json && &latest_mark == mark {
+                        // Reuse: settle evidence once via existing grade path below.
+                        // Find current grade for latest submission, if any, and count it.
+                        let existing_grade: Option<(String, String, Option<f64>, f64)> =
+                            sqlx::query_as(
+                                "SELECT id, state, points, max_points FROM exam_grades
+                             WHERE response_submission_id = ? AND is_current = 1",
+                            )
+                            .bind(&latest_id)
+                            .fetch_optional(&mut *tx)
+                            .await
+                            .unwrap_or(None);
+                        if let Some((_gid, state, points, max_points)) = existing_grade {
+                            if state == "failed" {
+                                has_failed = true;
+                            }
+                            if state == "final" && points.is_some() {
+                                final_count += 1;
+                                total_final_points += points.unwrap_or(0.0);
+                                let _ = max_points;
+                            }
+                        } else if let Some(grade) = grade_map.get(q_rev_id.as_str()) {
+                            // No grade yet on latest check: record one now against reused submission.
+                            if grade.state == "failed" {
+                                has_failed = true;
+                            }
+                            if grade.state == "final" && grade.points.is_some() {
+                                final_count += 1;
+                                total_final_points += grade.points.unwrap();
+                            }
+                            let grade_id = format!("grd_{}", Uuid::new_v4().simple());
+                            sqlx::query(
+                                "INSERT INTO exam_grades (
+                                    id, response_submission_id, question_revision_id, origin, state,
+                                    points, max_points, criteria_json, is_current, created_at
+                                ) VALUES (?, ?, ?, ?, ?, ?, ?, '[]', 1, ?)",
+                            )
+                            .bind(&grade_id)
+                            .bind(&latest_id)
+                            .bind(q_rev_id)
+                            .bind(&grade.origin)
+                            .bind(&grade.state)
+                            .bind(grade.points)
+                            .bind(grade.max_points)
+                            .bind(&now)
+                            .execute(&mut *tx)
+                            .await
+                            .map_err(|e| {
+                                StudyCommandError::storage_failed(format!(
+                                    "Failed to insert grade: {}",
+                                    e
+                                ))
+                            })?;
+                            if grade.state == "final" {
+                                crate::database::LearningEvidenceRepository::record_evidence_for_grade_tx(
+                                    &mut tx, &grade_id,
+                                )
+                                .await?;
+                            }
+                        }
+                        continue;
+                    }
+                    // Changed since latest check: append next ordinal with latest hint level.
+                    let next_ord: i64 = sqlx::query_scalar(
+                        "SELECT COALESCE(MAX(ordinal), 0) + 1 FROM exam_response_submissions WHERE response_id = ?",
+                    )
+                    .bind(resp_id)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .unwrap_or(1);
+                    let sub_id = format!("sub_{}", Uuid::new_v4().simple());
+                    sqlx::query(
+                        "INSERT INTO exam_response_submissions (
+                            id, response_id, attempt_id, question_revision_id, ordinal,
+                            kind, response_json, mark, hint_level, created_at
+                        ) VALUES (?, ?, ?, ?, ?, 'practice-check', ?, ?, ?, ?)",
+                    )
+                    .bind(&sub_id)
+                    .bind(resp_id)
+                    .bind(&input.attempt_id)
+                    .bind(q_rev_id)
+                    .bind(next_ord)
+                    .bind(draft_json)
+                    .bind(mark)
+                    .bind(latest_hint)
+                    .bind(&now)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        StudyCommandError::storage_failed(format!(
+                            "Failed to insert finish submission: {}",
+                            e
+                        ))
+                    })?;
+                    if let Some(grade) = grade_map.get(q_rev_id.as_str()) {
+                        if grade.state == "failed" {
+                            has_failed = true;
+                        }
+                        if grade.state == "final" && grade.points.is_some() {
+                            final_count += 1;
+                            total_final_points += grade.points.unwrap();
+                        }
+                        let grade_id = format!("grd_{}", Uuid::new_v4().simple());
+                        sqlx::query(
+                            "INSERT INTO exam_grades (
+                                id, response_submission_id, question_revision_id, origin, state,
+                                points, max_points, criteria_json, is_current, created_at
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, '[]', 1, ?)",
+                        )
+                        .bind(&grade_id)
+                        .bind(&sub_id)
+                        .bind(q_rev_id)
+                        .bind(&grade.origin)
+                        .bind(&grade.state)
+                        .bind(grade.points)
+                        .bind(grade.max_points)
+                        .bind(&now)
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| {
+                            StudyCommandError::storage_failed(format!(
+                                "Failed to insert grade: {}",
+                                e
+                            ))
+                        })?;
+                        if grade.state == "final" {
+                            crate::database::LearningEvidenceRepository::record_evidence_for_grade_tx(
+                                &mut tx, &grade_id,
+                            )
+                            .await?;
+                        }
+                    }
+                    continue;
+                }
+            }
             let sub_id = format!("sub_{}", Uuid::new_v4().simple());
+            let (kind, hint_level): (&str, i64) = if mode == "practice" {
+                ("practice-check", 0)
+            } else {
+                ("exam-final", 0)
+            };
             sqlx::query(
                 "INSERT INTO exam_response_submissions (
                     id, response_id, attempt_id, question_revision_id, ordinal,
                     kind, response_json, mark, hint_level, created_at
-                ) VALUES (?, ?, ?, ?, 1, 'exam-final', ?, ?, 0, ?)",
+                ) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
             )
             .bind(&sub_id)
             .bind(resp_id)
             .bind(&input.attempt_id)
             .bind(q_rev_id)
+            .bind(kind)
             .bind(draft_json)
             .bind(mark)
+            .bind(hint_level)
             .bind(&now)
             .execute(&mut *tx)
             .await
@@ -766,8 +923,7 @@ impl ExamSessionRepository {
 
                 if grade.state == "final" {
                     crate::database::LearningEvidenceRepository::record_evidence_for_grade_tx(
-                        &mut tx,
-                        &grade_id,
+                        &mut tx, &grade_id,
                     )
                     .await?;
                 }
@@ -862,6 +1018,14 @@ impl ExamSessionRepository {
             ));
         }
 
+        // C7-T02: hint level bounds 0..3; must not exceed committed hints.
+        if input.hint_level < 0 || input.hint_level > 3 {
+            return Err(StudyCommandError::invalid_input(
+                "study.assessment.error.invalid_hint_level",
+                vec![],
+            ));
+        }
+
         // 2. Fetch response
         let resp_row: Option<(String, String)> = sqlx::query_as(
             "SELECT id, question_revision_id FROM exam_responses WHERE id = ? AND attempt_id = ?",
@@ -882,6 +1046,31 @@ impl ExamSessionRepository {
                 ))
             }
         };
+
+        // C7-T02: hint must be precommitted for this question revision.
+        let payload_json: Option<String> = sqlx::query_scalar(
+            "SELECT payload_json FROM assessment_question_revisions WHERE id = ?",
+        )
+        .bind(&q_rev_id)
+        .fetch_optional(pool)
+        .await
+        .unwrap_or(None);
+        if let Some(payload) = payload_json {
+            let committed_hints = serde_json::from_str::<serde_json::Value>(&payload)
+                .ok()
+                .and_then(|v| {
+                    v.get("hints")
+                        .and_then(|h| h.as_array())
+                        .map(|a| a.len() as i64)
+                })
+                .unwrap_or(0);
+            if input.hint_level > committed_hints {
+                return Err(StudyCommandError::invalid_input(
+                    "study.assessment.error.hint_not_precommitted",
+                    vec![],
+                ));
+            }
+        }
 
         let now = Utc::now().to_rfc3339();
         let mut tx = pool.begin().await.map_err(|e| {
@@ -991,8 +1180,7 @@ impl ExamSessionRepository {
 
             if og.state == "final" {
                 crate::database::LearningEvidenceRepository::record_evidence_for_grade_tx(
-                    &mut tx,
-                    &grade_id,
+                    &mut tx, &grade_id,
                 )
                 .await?;
             }
@@ -1233,7 +1421,7 @@ mod tests {
                 id, question_id, blueprint_revision_id, revision, slot_key, fingerprint,
                 kind, payload_json, answer_key_json, max_points, difficulty, validation, committed_at, created_at
             ) VALUES (?, ?, ?, 1, 'slot_0', 'fp_q1',
-                      'single-select', '{\"prompt\":\"Q1\"}', '{\"correctOptionId\":\"opt_a\"}', 2, 2, 'valid', '2026-11-10T12:00:00Z', '2026-11-10T12:00:00Z')"
+                      'single-select', '{\"prompt\":\"Q1\",\"hints\":[\"h1\",\"h2\"]}', '{\"correctOptionId\":\"opt_a\"}', 2, 2, 'valid', '2026-11-10T12:00:00Z', '2026-11-10T12:00:00Z')"
         ).bind(&aqr1_id).bind(&q1_id).bind(rev_id).execute(pool).await.unwrap();
 
         // Question 2 (short-answer, 4 points)
@@ -1586,5 +1774,120 @@ mod tests {
 
         let fetch = ExamSessionRepository::get_exam_attempt(&pool, &detail.attempt.id).await;
         assert!(fetch.is_err(), "Attempt must no longer exist after delete");
+    }
+
+    #[tokio::test]
+    async fn test_practice_hint_bounds_and_finish_dedup() {
+        let pool = test_pool().await;
+        seed_test_blueprint(&pool, "bp_hint", "bpr_hint_1", "ready", "practice", None).await;
+        let detail = ExamSessionRepository::start_exam_attempt(
+            &pool,
+            StartAttemptInput {
+                blueprint_revision_id: "bpr_hint_1".to_string(),
+                client_start_key: "start_hint_key".to_string(),
+            },
+        )
+        .await
+        .unwrap();
+        let resp_1 = &detail.responses[0];
+
+        // hint_level 4 rejected (exceed3)
+        let bad = ExamSessionRepository::check_practice_response(
+            &pool,
+            CheckPracticeInput {
+                attempt_id: detail.attempt.id.clone(),
+                response_id: resp_1.id.clone(),
+                expected_attempt_revision: 1,
+                client_mutation_id: "mut_bad".to_string(),
+                hint_level: 4,
+                draft_json: resp_1.draft_json.clone(),
+                mark: resp_1.mark.clone(),
+                objective_grade: None,
+            },
+        )
+        .await;
+        assert!(bad.is_err());
+
+        // hint_level 3 exceeds committed 2 hints: rejected (not precommitted)
+        let uncommitted = ExamSessionRepository::check_practice_response(
+            &pool,
+            CheckPracticeInput {
+                attempt_id: detail.attempt.id.clone(),
+                response_id: resp_1.id.clone(),
+                expected_attempt_revision: 1,
+                client_mutation_id: "mut_uncomm".to_string(),
+                hint_level: 3,
+                draft_json: resp_1.draft_json.clone(),
+                mark: resp_1.mark.clone(),
+                objective_grade: None,
+            },
+        )
+        .await;
+        assert!(uncommitted.is_err());
+
+        // Valid check with hint 1
+        let check = ExamSessionRepository::check_practice_response(
+            &pool,
+            CheckPracticeInput {
+                attempt_id: detail.attempt.id.clone(),
+                response_id: resp_1.id.clone(),
+                expected_attempt_revision: 1,
+                client_mutation_id: "mut_hint_1".to_string(),
+                hint_level: 1,
+                draft_json: r#"{"kind":"single-select","optionId":"opt_b"}"#.to_string(),
+                mark: "answered".to_string(),
+                objective_grade: Some(ObjectiveGradeOutput {
+                    question_revision_id: resp_1.question_revision_id.clone(),
+                    origin: "deterministic".to_string(),
+                    state: "final".to_string(),
+                    points: Some(0.0),
+                    max_points: 2.0,
+                    outcome: "incorrect".to_string(),
+                    details: None,
+                }),
+            },
+        )
+        .await
+        .expect("hint check succeeds");
+
+        // Practice Finish with identical payload reuses latest check (no new submission)
+        let before: (i64,) =
+            sqlx::query_as("SELECT count(*) FROM exam_response_submissions WHERE response_id = ?")
+                .bind(&resp_1.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let finished = ExamSessionRepository::submit_exam_attempt(
+            &pool,
+            SubmitAttemptInput {
+                attempt_id: detail.attempt.id.clone(),
+                expected_attempt_revision: check.attempt_revision,
+                submission_key: "finish_key_1".to_string(),
+                submission_reason: "user".to_string(),
+                objective_grades: vec![ObjectiveGradeOutput {
+                    question_revision_id: resp_1.question_revision_id.clone(),
+                    origin: "deterministic".to_string(),
+                    state: "final".to_string(),
+                    points: Some(0.0),
+                    max_points: 2.0,
+                    outcome: "incorrect".to_string(),
+                    details: None,
+                }],
+            },
+        )
+        .await
+        .expect("practice finish succeeds");
+        let after: (i64,) =
+            sqlx::query_as("SELECT count(*) FROM exam_response_submissions WHERE response_id = ?")
+                .bind(&resp_1.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        // Reused latest check for the checked response; only the unchecked second
+        // response appends, so total grows by exactly 1.
+        assert_eq!(after.0, before.0);
+        assert!(
+            finished.attempt.status == "complete" || finished.attempt.status == "partially-graded"
+        );
     }
 }
