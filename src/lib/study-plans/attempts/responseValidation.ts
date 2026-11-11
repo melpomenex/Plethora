@@ -257,3 +257,30 @@ export function createEmptyResponse(question: AssessmentQuestion): AssessmentRes
       return { kind: 'essay', text: '' };
   }
 }
+
+export const MIN_HINT_LEVEL = 0;
+export const MAX_HINT_LEVEL = 3;
+
+/** Shared hint-level bounds (C7-T02): integer 0..3. */
+export function isValidHintLevel(level: unknown): boolean {
+  return typeof level === 'number' && Number.isInteger(level) && level >= MIN_HINT_LEVEL && level <= MAX_HINT_LEVEL;
+}
+
+/**
+ * Validates a practice hint request against committed hints.
+ * Rejects: not precommitted (level > hints.length), out-of-order reveal,
+ * exceeding 3, or exam/diagnostic mode leak.
+ */
+export function validatePracticeHintRequest(
+  question: AssessmentQuestion,
+  requestedLevel: number,
+  currentlyRevealed: number,
+  mode: 'exam' | 'practice' | 'diagnostic',
+): { valid: boolean; reason?: string } {
+  if (mode !== 'practice') return { valid: false, reason: 'exam_hint_leak' };
+  if (!isValidHintLevel(requestedLevel)) return { valid: false, reason: 'exceed3' };
+  const committed = Array.isArray(question.hints) ? question.hints.length : 0;
+  if (requestedLevel > committed) return { valid: false, reason: 'not_precommitted' };
+  if (requestedLevel > currentlyRevealed + 1) return { valid: false, reason: 'out_of_order' };
+  return { valid: true };
+}

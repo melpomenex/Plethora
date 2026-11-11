@@ -17,6 +17,57 @@ use sqlx::{Pool, Row, Sqlite};
 use uuid::Uuid;
 
 pub const MAX_BLUEPRINT_TITLE_CHARS: usize = 160;
+pub const DIAGNOSTIC_MIN_COUNT: i64 = 4;
+pub const DIAGNOSTIC_MAX_COUNT: i64 = 12;
+
+/// C7-T01 narrow validation: diagnostic counts 4-12, essay rejected, timer null;
+/// practice timer null. Enforced on create/save/publish even without UI.
+fn validate_mode_config(config: &serde_json::Value) -> Result<(), StudyCommandError> {
+    let mode = config
+        .get("mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or("exam");
+    let invalid = |path: &str, code: &str| {
+        StudyCommandError::invalid_input(
+            "study.assessment.error.invalid_config",
+            vec![FieldIssue {
+                path: path.to_string(),
+                code: code.to_string(),
+                message_key: "study.assessment.error.invalid_config".to_string(),
+            }],
+        )
+    };
+    if mode == "diagnostic" {
+        let count = config
+            .get("requestedCount")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(6);
+        if !(DIAGNOSTIC_MIN_COUNT..=DIAGNOSTIC_MAX_COUNT).contains(&count) {
+            return Err(invalid("requestedCount", "invalid_count"));
+        }
+        if let Some(weights) = config.get("typeWeights").and_then(|v| v.as_object()) {
+            for (kind, w) in weights {
+                let weight = w.as_i64().unwrap_or(0);
+                if weight > 0 && kind == "essay" {
+                    return Err(invalid("typeWeights.essay", "essay_rejected"));
+                }
+            }
+        }
+        if let Some(t) = config.get("timeLimitSeconds") {
+            if !t.is_null() {
+                return Err(invalid("timeLimitSeconds", "timer_rejected"));
+            }
+        }
+    }
+    if mode == "practice" {
+        if let Some(t) = config.get("timeLimitSeconds") {
+            if !t.is_null() {
+                return Err(invalid("timeLimitSeconds", "timer_rejected"));
+            }
+        }
+    }
+    Ok(())
+}
 
 fn storage_err(msg: &str, err: impl std::fmt::Display) -> StudyCommandError {
     StudyCommandError::storage_failed(format!("{}: {}", msg, err))
@@ -97,6 +148,7 @@ impl AssessmentBlueprintRepository {
         .map_err(|e| storage_err("Failed to insert blueprint", e))?;
 
         // Extract requested count from config
+        validate_mode_config(&input.config)?;
         let requested_count = input
             .config
             .get("requestedCount")
@@ -469,6 +521,7 @@ impl AssessmentBlueprintRepository {
 
         // Update revision fields
         if let Some(config) = &input.config {
+            validate_mode_config(config)?;
             sqlx::query("UPDATE assessment_blueprint_revisions SET config_json = ?, quota_json = ? WHERE id = ?")
                 .bind(serde_json::to_string(config).unwrap())
                 .bind(serde_json::to_string(&quota_val).unwrap())
@@ -731,6 +784,7 @@ impl AssessmentBlueprintRepository {
         let config: serde_json::Value =
             serde_json::from_str(&rev_row.get::<String, _>("config_json"))
                 .unwrap_or(serde_json::Value::Null);
+        validate_mode_config(&config)?;
         let requested_count = config
             .get("requestedCount")
             .and_then(|v| v.as_i64())
@@ -1237,5 +1291,117 @@ mod tests {
             .await;
         assert!(missing.is_err());
         assert_eq!(missing.unwrap_err().code, StudyErrorCode::NotFound);
+    }
+
+    #[tokio::test]
+    async fn test_diagnostic_and_practice_config_validation() {
+        let pool = create_test_pool().await;
+        let repo = AssessmentBlueprintRepository::new(pool);
+
+        // Diagnostic count below 4 rejected on create
+        let bad_low = repo
+            .create_assessment_blueprint(CreateBlueprintInput {
+                plan_id: None,
+                title: "Diag low".to_string(),
+                plan_version_id: None,
+                config: serde_json::json!({
+                    "mode": "diagnostic",
+                    "requestedCount": 3,
+                    "typeWeights": { "single-select": 1 },
+                    "timeLimitSeconds": null,
+                }),
+                source_scope: serde_json::json!({}),
+                source_snapshot_hash: "sha256:s".to_string(),
+            })
+            .await;
+        assert!(bad_low.is_err());
+
+        // Diagnostic essay weight rejected
+        let bad_essay = repo
+            .create_assessment_blueprint(CreateBlueprintInput {
+                plan_id: None,
+                title: "Diag essay".to_string(),
+                plan_version_id: None,
+                config: serde_json::json!({
+                    "mode": "diagnostic",
+                    "requestedCount": 6,
+                    "typeWeights": { "essay": 1 },
+                    "timeLimitSeconds": null,
+                }),
+                source_scope: serde_json::json!({}),
+                source_snapshot_hash: "sha256:s".to_string(),
+            })
+            .await;
+        assert!(bad_essay.is_err());
+
+        // Diagnostic timer rejected
+        let bad_timer = repo
+            .create_assessment_blueprint(CreateBlueprintInput {
+                plan_id: None,
+                title: "Diag timer".to_string(),
+                plan_version_id: None,
+                config: serde_json::json!({
+                    "mode": "diagnostic",
+                    "requestedCount": 6,
+                    "typeWeights": { "single-select": 1 },
+                    "timeLimitSeconds": 600,
+                }),
+                source_scope: serde_json::json!({}),
+                source_snapshot_hash: "sha256:s".to_string(),
+            })
+            .await;
+        assert!(bad_timer.is_err());
+
+        // Practice timer rejected
+        let bad_practice = repo
+            .create_assessment_blueprint(CreateBlueprintInput {
+                plan_id: None,
+                title: "Practice timer".to_string(),
+                plan_version_id: None,
+                config: serde_json::json!({
+                    "mode": "practice",
+                    "requestedCount": 1,
+                    "timeLimitSeconds": 600,
+                }),
+                source_scope: serde_json::json!({}),
+                source_snapshot_hash: "sha256:s".to_string(),
+            })
+            .await;
+        assert!(bad_practice.is_err());
+
+        // Valid diagnostic accepted
+        let good = repo
+            .create_assessment_blueprint(CreateBlueprintInput {
+                plan_id: None,
+                title: "Diag ok".to_string(),
+                plan_version_id: None,
+                config: serde_json::json!({
+                    "mode": "diagnostic",
+                    "requestedCount": 6,
+                    "typeWeights": { "single-select": 1 },
+                    "timeLimitSeconds": null,
+                }),
+                source_scope: serde_json::json!({}),
+                source_snapshot_hash: "sha256:s".to_string(),
+            })
+            .await
+            .expect("valid diagnostic accepted");
+
+        // Save with invalid diagnostic count rejected
+        let bad_save = repo
+            .save_assessment_blueprint_draft(SaveBlueprintDraftInput {
+                revision_id: good.revision.id.clone(),
+                expected_revision: 1,
+                title: None,
+                config: Some(serde_json::json!({
+                    "mode": "diagnostic",
+                    "requestedCount": 13,
+                    "timeLimitSeconds": null,
+                })),
+                source_scope: None,
+                source_snapshot_hash: None,
+            })
+            .await;
+        assert!(bad_save.is_err());
     }
 }

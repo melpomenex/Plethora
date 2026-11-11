@@ -105,3 +105,19 @@ export function isValidAttemptTransition(
       return false;
   }
 }
+
+/**
+ * Practice Finish dedup (C7-T02): reuse latest practice-check only when
+ * canonical payload, mark and hintLevel are identical; otherwise ordinal append.
+ */
+export function shouldReusePracticeCheck(
+  current: { payloadJson: string; mark: string; hintLevel: number },
+  latest: { payloadJson: string; mark: string; hintLevel: number } | null,
+): boolean {
+  if (!latest) return false;
+  return (
+    current.payloadJson === latest.payloadJson &&
+    current.mark === latest.mark &&
+    current.hintLevel === latest.hintLevel
+  );
+}

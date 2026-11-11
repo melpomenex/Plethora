@@ -29,6 +29,7 @@ export interface PracticeCheckPanelProps {
   attemptId: string;
   attemptRevision: number;
   slot: ResponseSlotState;
+  hintLevel?: number;
   onCheckSuccess?: (result: PracticeCheckResult) => void;
   disabled?: boolean;
   className?: string;
@@ -39,6 +40,7 @@ export const PracticeCheckPanel: React.FC<PracticeCheckPanelProps> = ({
   attemptId,
   attemptRevision,
   slot,
+  hintLevel = 0,
   onCheckSuccess,
   disabled = false,
   className = '',
@@ -63,14 +65,15 @@ export const PracticeCheckPanel: React.FC<PracticeCheckPanelProps> = ({
         questionRevision.id
       );
 
-      // 2. Dispatch check_practice_response
+      // 2. Dispatch check_practice_response (C7-T02: record highest used hint 0..3)
       const clientMutationId = `mut_prac_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const safeHintLevel = Number.isInteger(hintLevel) && hintLevel >= 0 && hintLevel <= 3 ? hintLevel : 0;
       const result = await checkPracticeResponse({
         attemptId,
         responseId: slot.responseId,
         expectedAttemptRevision: attemptRevision,
         clientMutationId,
-        hintLevel: 0,
+        hintLevel: safeHintLevel,
         draft: slot.draft,
         mark: slot.mark,
         objectiveGrade,

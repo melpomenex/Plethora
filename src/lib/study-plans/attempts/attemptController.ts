@@ -78,6 +78,7 @@ export class AttemptController {
   private attempt: ExamAttempt;
   private questions: AssessmentQuestionRevision[];
   private slots: Record<string, ResponseSlotState> = {};
+  private practiceHintLevels: Record<string, number> = {};
   private selectedIndex: number = 0;
   private isSubmitting: boolean = false;
   private submitError: string | null = null;
@@ -193,6 +194,23 @@ export class AttemptController {
       this.isReadOnly = true;
     }
     this.notify();
+  }
+
+  /**
+   * C7-T02 shared hint level: practice-only 0..3, highest used per question.
+   * Exam/Diagnostic never record hints (always 0).
+   */
+  public setPracticeHintLevel(questionRevisionId: string, level: number): void {
+    if (this.attempt.mode !== 'practice') return;
+    if (!Number.isInteger(level) || level < 0 || level > 3) return;
+    const prev = this.practiceHintLevels[questionRevisionId] ?? 0;
+    this.practiceHintLevels[questionRevisionId] = Math.max(prev, level);
+    this.notify();
+  }
+
+  public getPracticeHintLevel(questionRevisionId: string): number {
+    if (this.attempt.mode !== 'practice') return 0;
+    return this.practiceHintLevels[questionRevisionId] ?? 0;
   }
 
   /**

@@ -82,9 +82,9 @@ export function toPublicQuestion(
   const isPracticeRevealed = policy.mode === 'practice' && Boolean(policy.practiceCheckRevealed);
   const shouldRevealAnswers = isPostSubmission || isPracticeRevealed;
 
-  // In Exam and Diagnostic modes, hints are strictly withheld before submission.
-  // In Practice mode, hints may be viewed during practice.
-  const shouldRevealHints = isPostSubmission || policy.mode === 'practice';
+  // C7-T02: Exam/Diagnostic public output always excludes hints, even post-submission.
+  // Only Practice may reveal committed hints (one-at-a-time in UI).
+  const shouldRevealHints = policy.mode === 'practice';
 
   const base: PublicQuestionBase = {
     schemaVersion: 1,
