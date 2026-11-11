@@ -38,6 +38,7 @@ import { createClozeFromExtract } from "../../api/extract-review";
 import { recordAiProvenance } from "../../api/ai-provenance";
 import { fnv1aHash } from "../../lib/ai/providers/types";
 import type { LearningCardCandidate } from "../../lib/ai/schemas/learningMaterial";
+import { candidateSignature } from "../../lib/ai/tasks/definitions/learnThisValidation";
 import { LEARN_THIS_TASK_ID } from "../../lib/ai/tasks/definitions/learnThisTask";
 
 export interface AcceptLearnThisSourceRef {
@@ -82,6 +83,12 @@ export interface AcceptLearnThisContext {
   acceptanceId?: string;
   proposalId?: string;
   /**
+   * C7-T06 per-candidate proposal ids keyed by local candidate signature.
+   * When present, each candidate's create uses its own id; collisions or
+   * unknown candidates fail closed. Absent for legacy callers.
+   */
+  perCandidateProposalIds?: Record<string, string>;
+  /**
    * Legacy Learn-this clozes historically bypassed duplicate detection. The
    * agent path sets false so text proposals are checked before creation.
    */
@@ -95,6 +102,14 @@ export interface AcceptLearnThisResult {
 }
 
 /** Non-cloze card types map onto front/back learning items. */
+function proposalIdFor(candidate: LearningCardCandidate, ctx: AcceptLearnThisContext): string | undefined {
+  const per = ctx.perCandidateProposalIds?.[candidateSignature(candidate)];
+  if (ctx.perCandidateProposalIds && !per) {
+    throw new Error("study.cards.error.unknown_candidate");
+  }
+  return per ?? ctx.proposalId;
+}
+
 function toBatchEntry(
   candidate: LearningCardCandidate,
   ctx: AcceptLearnThisContext
@@ -111,7 +126,7 @@ function toBatchEntry(
     tags: candidate.tags?.length ? candidate.tags : undefined,
     source_reference: ctx.extractId ? undefined : ctx.sourceReference,
     acceptance_id: ctx.acceptanceId,
-    proposal_id: ctx.proposalId,
+    proposal_id: proposalIdFor(candidate, ctx),
   };
 }
 
@@ -225,12 +240,13 @@ export async function acceptLearnThisCandidates(
 
   for (const candidate of clozeCandidates) {
     const clozeText = candidate.clozeText ?? candidate.question;
+    const perCandidateProposalId = proposalIdFor(candidate, ctx);
     let item: LearningItem;
     if (ctx.extractId) {
       const { cleanText, ranges } = clozeToCleanTextAndRanges(clozeText);
       item = await createClozeFromExtract(ctx.extractId, cleanText, ranges, {
         acceptanceId: ctx.acceptanceId,
-        proposalId: ctx.proposalId,
+        proposalId: perCandidateProposalId,
       });
     } else {
       // No forced extract creation: cloze text keeps its {{c1::...}} markers
@@ -248,7 +264,7 @@ export async function acceptLearnThisCandidates(
         // duplicate check by editing into a cloze.
         allow_duplicate: ctx.allowClozeDuplicate ?? true,
         acceptance_id: ctx.acceptanceId,
-        proposal_id: ctx.proposalId,
+        proposal_id: perCandidateProposalId,
       });
     }
     created.push(item);

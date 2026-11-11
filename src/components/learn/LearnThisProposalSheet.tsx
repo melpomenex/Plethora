@@ -20,6 +20,7 @@ import { AIError } from "../../lib/ai/errors";
 import {
   runLearnThis,
   checkCandidateGrounding,
+  candidateSignature,
   type LearnThisRun,
   type ValidatedLearnCandidate,
 } from "../../lib/ai/tasks/definitions/learnThisValidation";
@@ -47,6 +48,9 @@ export interface LearnThisStaticCandidate {
   cardType?: LearningCardType;
   conceptKeys?: string[];
   tags?: string[];
+  /** Optional cloze seed (non-cloze + cloze paths pass through). */
+  clozeText?: string;
+  clozeRanges?: Array<[number, number]>;
 }
 
 export interface LearnThisProposalSheetProps {
@@ -69,6 +73,12 @@ export interface LearnThisProposalSheetProps {
   staticCandidates?: LearnThisStaticCandidate[];
   /** Provenance labels for the static path (no run exists to read them from). */
   staticProvenance?: { provider: string; model?: string; modelClass: string };
+  /**
+   * C7-T06 optional remediation acceptance metadata. acceptanceId maps to the
+   * remediation id; perCandidateProposalIds maps local candidate signature to
+   * a sha256 per-candidate proposal id. Absent for legacy callers.
+   */
+  acceptance?: { acceptanceId?: string; perCandidateProposalIds?: Record<string, string> };
   onClose: () => void;
 }
 
@@ -118,6 +128,7 @@ export function LearnThisProposalSheet({
   selectionContext,
   staticCandidates,
   staticProvenance,
+  acceptance,
   onClose,
 }: LearnThisProposalSheetProps) {
   const { t } = useI18n();
@@ -152,6 +163,8 @@ export function LearnThisProposalSheet({
             conceptKeys: candidate.conceptKeys ?? [],
             question: candidate.question,
             answer: candidate.answer,
+            clozeText: candidate.clozeText,
+            clozeRanges: candidate.clozeRanges,
             tags: candidate.tags,
           },
           validatedStatus: "valid",
@@ -241,6 +254,19 @@ export function LearnThisProposalSheet({
     // Static path has no run; provenance comes from `staticProvenance`.
     if (!run && !staticProvenance) return;
     setPhase("creating");
+    // C7-T06: per-candidate proposal ids ride alongside the shared acceptance id.
+    // Multi-card passes the full map; acceptLearnThisCandidates resolves each
+    // candidate's id and fails closed on unknown/collision.
+    const perCandidateProposalIds = acceptance?.perCandidateProposalIds;
+    if (perCandidateProposalIds) {
+      for (const row of acceptedRows) {
+        if (!perCandidateProposalIds[candidateSignature(row.candidate)]) {
+          setPhase("error");
+          setError("study.cards.error.unknown_candidate");
+          return;
+        }
+      }
+    }
     void acceptLearnThisCandidates(
       acceptedRows.map((r) => r.candidate),
       {
@@ -251,6 +277,12 @@ export function LearnThisProposalSheet({
         modelClass: run?.run.servedModelClass ?? staticProvenance?.modelClass ?? "full",
         passage: sourcePassage,
         selectionContext,
+        acceptanceId: acceptance?.acceptanceId,
+        proposalId:
+          acceptedRows.length === 1 && perCandidateProposalIds
+            ? perCandidateProposalIds[candidateSignature(acceptedRows[0].candidate)]
+            : undefined,
+        perCandidateProposalIds,
       }
     )
       .then((result) => {

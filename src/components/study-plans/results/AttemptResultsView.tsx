@@ -12,12 +12,15 @@ import { Button } from '../../md3/Button';
 import { getExamAttempt } from '../../../api/exam-sessions';
 import type { AttemptDetail } from '../../../types/assessmentSessions';
 import { AttemptResults } from './AttemptResults';
+import type { ReassessmentReturnContext } from '../remediation/returnContext';
 
 export interface AttemptResultsViewProps {
   attemptId: string;
   onBack: () => void;
   onRetake: (newDetail: AttemptDetail) => void;
   className?: string;
+  /** C7-T07 return context; results recompute C6 evidence/history on reassessment finish. */
+  returnContext?: ReassessmentReturnContext | null;
 }
 
 export const AttemptResultsView: React.FC<AttemptResultsViewProps> = ({
@@ -25,6 +28,7 @@ export const AttemptResultsView: React.FC<AttemptResultsViewProps> = ({
   onBack,
   onRetake,
   className = '',
+  returnContext = null,
 }) => {
   const [detail, setDetail] = useState<AttemptDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -81,11 +85,19 @@ export const AttemptResultsView: React.FC<AttemptResultsViewProps> = ({
   }
 
   return (
-    <AttemptResults
-      detail={detail}
-      onBack={onBack}
-      onRetake={onRetake}
-      className={className}
-    />
+    <div className="space-y-3">
+      {returnContext && (
+        <p data-testid="results-return-context" className="text-xs text-on-surface-variant">
+          Return context: plan {returnContext.planId ?? '—'} · node {returnContext.nodeId ?? '—'} · gap{' '}
+          {returnContext.gapId ?? '—'}. Reassessment recomputes C6 evidence/history; published plan unchanged.
+        </p>
+      )}
+      <AttemptResults
+        detail={detail}
+        onBack={onBack}
+        onRetake={onRetake}
+        className={className}
+      />
+    </div>
   );
 };

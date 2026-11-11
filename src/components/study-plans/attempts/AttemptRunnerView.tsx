@@ -12,12 +12,15 @@ import { Button } from '../../md3/Button';
 import { getExamAttempt } from '../../../api/exam-sessions';
 import type { AttemptDetail } from '../../../types/assessmentSessions';
 import { AttemptRunner } from './AttemptRunner';
+import type { ReassessmentReturnContext } from '../remediation/returnContext';
 
 export interface AttemptRunnerViewProps {
   attemptId: string;
   onComplete: (detail: AttemptDetail) => void;
   onExit: () => void;
   className?: string;
+  /** C7-T07 return context carried through runner → results → plan. */
+  returnContext?: ReassessmentReturnContext | null;
 }
 
 export const AttemptRunnerView: React.FC<AttemptRunnerViewProps> = ({
@@ -25,6 +28,7 @@ export const AttemptRunnerView: React.FC<AttemptRunnerViewProps> = ({
   onComplete,
   onExit,
   className = '',
+  returnContext = null,
 }) => {
   const [detail, setDetail] = useState<AttemptDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -86,6 +90,8 @@ export const AttemptRunnerView: React.FC<AttemptRunnerViewProps> = ({
       onComplete={onComplete}
       onExit={onExit}
       className={className}
+      returnContext={returnContext}
+      onReturnToPlan={undefined}
     />
   );
 };

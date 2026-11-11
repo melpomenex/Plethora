@@ -19,6 +19,7 @@ import { useLearningPathsStore } from '../../stores/learningPathsStore';
 import { useDestinationAction, settleDestinationAction } from '../../commandPalette/destinationActions';
 import type { StudyPlanDetail } from '../../types/learningPaths';
 import type { StudySourceRefInput } from '../../types/studySource';
+import type { ReassessmentReturnContext } from './remediation/returnContext';
 
 export type StudyPlansView =
   | { name: 'home' }
@@ -37,9 +38,9 @@ export type StudyPlansView =
       };
     }
   | { name: 'plan'; planId: string; versionId?: string }
-  | { name: 'assessment-builder'; planId?: string; versionId?: string; blueprintRevisionId?: string }
-  | { name: 'attempt-runner'; attemptId: string; planId?: string }
-  | { name: 'attempt-results'; attemptId: string; planId?: string };
+  | { name: 'assessment-builder'; planId?: string; versionId?: string; blueprintRevisionId?: string; returnContext?: ReassessmentReturnContext | null }
+  | { name: 'attempt-runner'; attemptId: string; planId?: string; returnContext?: ReassessmentReturnContext | null }
+  | { name: 'attempt-results'; attemptId: string; planId?: string; returnContext?: ReassessmentReturnContext | null };
 
 export interface StudyPlansTabProps {
   initialView?: StudyPlansView;
@@ -106,8 +107,9 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({ initialView, onOpe
     return (
       <AttemptRunnerView
         attemptId={view.attemptId}
+        returnContext={view.returnContext ?? null}
         onComplete={(completed) =>
-          setView({ name: 'attempt-results', attemptId: completed.attempt.id, planId: view.planId })
+          setView({ name: 'attempt-results', attemptId: completed.attempt.id, planId: view.planId, returnContext: view.returnContext ?? null })
         }
         onExit={() =>
           setView(view.planId ? { name: 'plan', planId: view.planId } : { name: 'home' })
@@ -120,11 +122,12 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({ initialView, onOpe
     return (
       <AttemptResultsView
         attemptId={view.attemptId}
+        returnContext={view.returnContext ?? null}
         onBack={() =>
           setView(view.planId ? { name: 'plan', planId: view.planId } : { name: 'home' })
         }
         onRetake={(newDetail) =>
-          setView({ name: 'attempt-runner', attemptId: newDetail.attempt.id, planId: view.planId })
+          setView({ name: 'attempt-runner', attemptId: newDetail.attempt.id, planId: view.planId, returnContext: view.returnContext ?? null })
         }
       />
     );
@@ -135,8 +138,9 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({ initialView, onOpe
       <AssessmentBuilder
         planDetail={activePlanDetail}
         blueprintRevisionId={view.blueprintRevisionId}
+        returnContext={view.returnContext ?? null}
         onClose={() => setView(view.planId ? { name: 'plan', planId: view.planId } : { name: 'home' })}
-        onStartAssessment={(attemptId) => setView({ name: 'attempt-runner', attemptId, planId: view.planId })}
+        onStartAssessment={(attemptId) => setView({ name: 'attempt-runner', attemptId, planId: view.planId, returnContext: view.returnContext ?? null })}
       />
     );
   }

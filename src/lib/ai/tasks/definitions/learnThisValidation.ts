@@ -80,7 +80,7 @@ function containsVerbatim(source: string, needle: string): boolean {
 }
 
 /** Signature used by `deduplicateOnDeviceCards` (question+answer per type). */
-function candidateSignature(candidate: LearningCardCandidate): string {
+export function candidateSignature(candidate: LearningCardCandidate): string {
   return `${candidate.cardType === "cloze" ? "cloze" : "qa"}:${normalizeText(
     candidate.question
   )}:${normalizeText(candidate.answer)}`;
