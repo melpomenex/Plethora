@@ -333,11 +333,7 @@ pub struct MediaInspection {
 pub fn is_bitmap_subtitle(codec: &str) -> bool {
     matches!(
         codec.to_ascii_lowercase().as_str(),
-        "hdmv_pgs_subtitle"
-            | "dvd_subtitle"
-            | "dvb_subtitle"
-            | "xsub"
-            | "dvb_teletext"
+        "hdmv_pgs_subtitle" | "dvd_subtitle" | "dvb_subtitle" | "xsub" | "dvb_teletext"
     )
 }
 

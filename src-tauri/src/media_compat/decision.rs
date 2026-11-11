@@ -8,10 +8,10 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use super::types::{
-    AudioStreamInfo, CapabilityLevel, CachedArtifact, CompatibilityMode, ConversionQuality,
-    ConversionEstimate, DeclaredCodecSupport, HdrInfo, HdrKind, MediaFailureCode, MediaInspection,
-    MediaPlaybackPlan, MediaProcessingPolicy, OutputProfile, PlanConfidence, PlaybackRecoveryContext,
-    PlaybackStrategy, PlatformKind, SubtitlePolicy, VideoStreamInfo,
+    AudioStreamInfo, CachedArtifact, CapabilityLevel, CompatibilityMode, ConversionEstimate,
+    ConversionQuality, DeclaredCodecSupport, HdrInfo, HdrKind, MediaFailureCode, MediaInspection,
+    MediaPlaybackPlan, MediaProcessingPolicy, OutputProfile, PlanConfidence, PlatformKind,
+    PlaybackRecoveryContext, PlaybackStrategy, SubtitlePolicy, VideoStreamInfo,
 };
 
 fn merge_level(a: CapabilityLevel, b: CapabilityLevel) -> CapabilityLevel {
@@ -31,9 +31,17 @@ fn codec_support(
     audio: bool,
 ) -> CapabilityLevel {
     let runtime = if audio {
-        capabilities.decoders.get(codec).copied().unwrap_or(CapabilityLevel::Unknown)
+        capabilities
+            .decoders
+            .get(codec)
+            .copied()
+            .unwrap_or(CapabilityLevel::Unknown)
     } else {
-        capabilities.decoders.get(codec).copied().unwrap_or(CapabilityLevel::Unknown)
+        capabilities
+            .decoders
+            .get(codec)
+            .copied()
+            .unwrap_or(CapabilityLevel::Unknown)
     };
     let declared_level = match codec {
         "h264" => declared.h264,
@@ -112,7 +120,12 @@ pub fn select_video(inspection: &MediaInspection) -> Option<&VideoStreamInfo> {
         .video_streams
         .iter()
         .find(|stream| !stream.is_attached_pic && stream.is_default)
-        .or_else(|| inspection.video_streams.iter().find(|stream| !stream.is_attached_pic))
+        .or_else(|| {
+            inspection
+                .video_streams
+                .iter()
+                .find(|stream| !stream.is_attached_pic)
+        })
 }
 
 pub fn select_audio(inspection: &MediaInspection) -> Option<&AudioStreamInfo> {
@@ -176,7 +189,11 @@ fn choose_container(
 ) -> Option<String> {
     if let Some(source) = source_container {
         if source_supported && container_can_hold(source, video, audio) {
-            return Some(if is_matroska(source) { "mkv".to_string() } else { source.to_string() });
+            return Some(if is_matroska(source) {
+                "mkv".to_string()
+            } else {
+                source.to_string()
+            });
         }
     }
     if video == "copy" {
@@ -191,7 +208,11 @@ fn choose_container(
     if source_supported {
         if let Some(source) = source_container {
             if container_can_hold(source, video, audio) {
-                return Some(if is_matroska(source) { "mkv".to_string() } else { source.to_string() });
+                return Some(if is_matroska(source) {
+                    "mkv".to_string()
+                } else {
+                    source.to_string()
+                });
             }
         }
     }
@@ -226,7 +247,9 @@ fn estimate_output_floor(
         PlaybackStrategy::Remux | PlaybackStrategy::AudioTranscode => source_bytes.max(1),
         PlaybackStrategy::VideoTranscode => {
             let duration = inspection.duration_seconds.unwrap_or(0.0).max(1.0);
-            let height = selected_video.and_then(|video| video.height).unwrap_or(1080);
+            let height = selected_video
+                .and_then(|video| video.height)
+                .unwrap_or(1080);
             ((duration * target_bitrate(height, quality) as f64 / 8.0) * 1.15) as u64
                 + 256 * 1024 * 1024
         }
@@ -253,15 +276,17 @@ fn plan_limitations(
     if hdr.dolby_vision.is_some() && strategy != PlaybackStrategy::Native {
         limitations.push("dolby_vision_signalling_not_preserved".to_string());
     }
-    if matches!(strategy, PlaybackStrategy::VideoTranscode | PlaybackStrategy::AudioTranscode)
-        && inspection
-            .audio_streams
-            .iter()
-            .find(|stream| stream.is_default)
-            .or_else(|| inspection.audio_streams.first())
-            .and_then(|stream| stream.channels)
-            .map(|channels| channels > 6)
-            .unwrap_or(false)
+    if matches!(
+        strategy,
+        PlaybackStrategy::VideoTranscode | PlaybackStrategy::AudioTranscode
+    ) && inspection
+        .audio_streams
+        .iter()
+        .find(|stream| stream.is_default)
+        .or_else(|| inspection.audio_streams.first())
+        .and_then(|stream| stream.channels)
+        .map(|channels| channels > 6)
+        .unwrap_or(false)
     {
         limitations.push("audio_downmixed_to_5_1".to_string());
     }
@@ -322,8 +347,12 @@ pub fn plan(
     let hdr = selected_video.map(hdr_of).unwrap_or_default();
     let source_container = inspection.container.as_deref();
     let container_level = container_support(capabilities, declared, source_container);
-    let video_codec = selected_video.map(|video| video.codec.as_str()).unwrap_or("");
-    let audio_codec = selected_audio.map(|audio| audio.codec.as_str()).unwrap_or("");
+    let video_codec = selected_video
+        .map(|video| video.codec.as_str())
+        .unwrap_or("");
+    let audio_codec = selected_audio
+        .map(|audio| audio.codec.as_str())
+        .unwrap_or("");
     let video_level = selected_video
         .map(|video| codec_support(capabilities, declared, &video.codec, false))
         .unwrap_or(CapabilityLevel::Unknown);
@@ -361,14 +390,22 @@ pub fn plan(
         );
     }
 
-    let linux_bitmap = capabilities.platform == PlatformKind::Linux && has_bitmap_subtitles(inspection);
+    let linux_bitmap =
+        capabilities.platform == PlatformKind::Linux && has_bitmap_subtitles(inspection);
     if linux_bitmap {
         reasons.push("bitmap_subtitles_present".to_string());
     }
-    if inspection.video_streams.iter().any(|stream| stream.is_attached_pic) {
+    if inspection
+        .video_streams
+        .iter()
+        .any(|stream| stream.is_attached_pic)
+    {
         reasons.push("attached_picture_ignored".to_string());
     }
-    if selected_audio.map(|audio| audio.is_default).unwrap_or(false) {
+    if selected_audio
+        .map(|audio| audio.is_default)
+        .unwrap_or(false)
+    {
         reasons.push("multi_audio_default_selected".to_string());
     }
     if selected_audio.is_none() {
@@ -472,7 +509,8 @@ pub fn plan(
     }
 
     let mut output: Option<OutputProfile> = None;
-    let mut can_convert = strategy != PlaybackStrategy::Native && strategy != PlaybackStrategy::Unavailable;
+    let mut can_convert =
+        strategy != PlaybackStrategy::Native && strategy != PlaybackStrategy::Unavailable;
 
     if can_convert {
         let (target_audio, target_container) = match strategy {
@@ -494,19 +532,20 @@ pub fn plan(
                     .unwrap_or(false)
             {
                 source_container
-                    .map(|source| if is_matroska(source) { "mkv".to_string() } else { source.to_string() })
+                    .map(|source| {
+                        if is_matroska(source) {
+                            "mkv".to_string()
+                        } else {
+                            source.to_string()
+                        }
+                    })
                     .unwrap_or_else(|| "mp4".to_string())
             } else {
                 "mp4".to_string()
             }
         } else if strategy == PlaybackStrategy::AudioTranscode {
-            choose_container(
-                source_container,
-                source_supported,
-                video_codec,
-                &audio,
-            )
-            .unwrap_or_else(|| target_container.to_string())
+            choose_container(source_container, source_supported, video_codec, &audio)
+                .unwrap_or_else(|| target_container.to_string())
         } else {
             choose_container(source_container, source_supported, video_codec, audio_codec)
                 .unwrap_or_else(|| target_container.to_string())
@@ -572,7 +611,9 @@ pub fn plan(
             None
         };
 
-        let height = selected_video.and_then(|video| video.height).unwrap_or(1080);
+        let height = selected_video
+            .and_then(|video| video.height)
+            .unwrap_or(1080);
         let scale = if strategy == PlaybackStrategy::VideoTranscode
             && policy.quality == ConversionQuality::Balanced
             && height > 1080
@@ -596,10 +637,18 @@ pub fn plan(
             scale,
             tone_map,
             video_crf: (strategy == PlaybackStrategy::VideoTranscode).then(|| {
-                if policy.quality == ConversionQuality::Quality { 18 } else { 20 }
+                if policy.quality == ConversionQuality::Quality {
+                    18
+                } else {
+                    20
+                }
             }),
             video_preset: (strategy == PlaybackStrategy::VideoTranscode).then(|| {
-                if policy.quality == ConversionQuality::Quality { "medium".to_string() } else { "veryfast".to_string() }
+                if policy.quality == ConversionQuality::Quality {
+                    "medium".to_string()
+                } else {
+                    "veryfast".to_string()
+                }
             }),
             audio_bitrate_kbps: Some(match channels.unwrap_or(2) {
                 1 => 128,
@@ -664,7 +713,12 @@ pub fn plan(
             free_space_required_bytes: Some(floor.saturating_add(1024 * 1024 * 1024)),
             cache_fits: Some(floor <= cache_limit),
         };
-        limitations.extend(plan_limitations(inspection, strategy, &hdr, output.as_ref()));
+        limitations.extend(plan_limitations(
+            inspection,
+            strategy,
+            &hdr,
+            output.as_ref(),
+        ));
         limitations.sort();
         limitations.dedup();
         consent_reasons.sort();
@@ -698,7 +752,11 @@ pub fn plan(
     }
 
     if strategy == PlaybackStrategy::Native {
-        if inspection.subtitle_streams.iter().all(|stream| stream.kind != super::types::SubtitleKind::Bitmap) {
+        if inspection
+            .subtitle_streams
+            .iter()
+            .all(|stream| stream.kind != super::types::SubtitleKind::Bitmap)
+        {
             limitations.extend(plan_limitations(inspection, strategy, &hdr, None));
         }
         return MediaPlaybackPlan {
@@ -729,7 +787,9 @@ pub fn plan(
         inspection,
         policy,
         reasons,
-        unavailable_reason.as_deref().unwrap_or("platform_unsupported"),
+        unavailable_reason
+            .as_deref()
+            .unwrap_or("platform_unsupported"),
         selected_video,
         selected_audio,
         cached_artifact,
@@ -810,7 +870,10 @@ mod tests {
                 codec: video_codec.into(),
                 is_attached_pic: false,
                 is_default: true,
-                hdr: HdrInfo { kind: HdrKind::Sdr, ..Default::default() },
+                hdr: HdrInfo {
+                    kind: HdrKind::Sdr,
+                    ..Default::default()
+                },
                 ..Default::default()
             }],
             audio_streams: vec![AudioStreamInfo {
@@ -831,7 +894,11 @@ mod tests {
             } else {
                 Vec::new()
             },
-            tool: MediaToolReport { ffprobe_available: true, ffmpeg_available: true, ..Default::default() },
+            tool: MediaToolReport {
+                ffprobe_available: true,
+                ffmpeg_available: true,
+                ..Default::default()
+            },
             ..Default::default()
         }
     }
@@ -840,7 +907,11 @@ mod tests {
         MediaRuntimeCapabilities {
             schema_version: 1,
             platform,
-            engine: if platform == PlatformKind::Linux { EngineKind::Webkitgtk } else { EngineKind::AndroidWebview },
+            engine: if platform == PlatformKind::Linux {
+                EngineKind::Webkitgtk
+            } else {
+                EngineKind::AndroidWebview
+            },
             evidence: vec!["gstreamer_registry".into()],
             runtime_fingerprint: "rt".into(),
             checked_at: "now".into(),
@@ -849,8 +920,15 @@ mod tests {
                 ("h264".to_string(), CapabilityLevel::Supported),
                 ("dts".to_string(), CapabilityLevel::Supported),
                 ("aac".to_string(), CapabilityLevel::Supported),
-            ].into_iter().collect(),
-            demuxers: [("matroska".to_string(), CapabilityLevel::Supported), ("mp4".to_string(), CapabilityLevel::Supported)].into_iter().collect(),
+            ]
+            .into_iter()
+            .collect(),
+            demuxers: [
+                ("matroska".to_string(), CapabilityLevel::Supported),
+                ("mp4".to_string(), CapabilityLevel::Supported),
+            ]
+            .into_iter()
+            .collect(),
             ffmpeg: FfmpegCapabilities {
                 available: true,
                 ffprobe_available: true,
@@ -860,7 +938,10 @@ mod tests {
                 has_tonemap: true,
                 ..Default::default()
             },
-            gstreamer: Some(GStreamerReport { inspect_available: true, ..Default::default() }),
+            gstreamer: Some(GStreamerReport {
+                inspect_available: true,
+                ..Default::default()
+            }),
             ..Default::default()
         }
     }
@@ -874,18 +955,33 @@ mod tests {
             containers: [
                 ("matroska".to_string(), CapabilityLevel::Supported),
                 ("mp4".to_string(), CapabilityLevel::Supported),
-            ].into_iter().collect(),
+            ]
+            .into_iter()
+            .collect(),
             ..Default::default()
         }
     }
 
     fn policy() -> MediaProcessingPolicy {
-        MediaProcessingPolicy { mode: CompatibilityMode::AutomaticInexpensive, quality: ConversionQuality::Balanced, hardware_acceleration: super::super::types::HardwareAcceleration::Off, cache_limit_gb: 25 }
+        MediaProcessingPolicy {
+            mode: CompatibilityMode::AutomaticInexpensive,
+            quality: ConversionQuality::Balanced,
+            hardware_acceleration: super::super::types::HardwareAcceleration::Off,
+            cache_limit_gb: 25,
+        }
     }
 
     #[test]
     fn reported_shape_selects_lossless_subtitle_strip_remux() {
-        let plan = plan("doc", &inspection("hevc", "dts", true), &capabilities(PlatformKind::Linux), &declared(), policy(), None, None);
+        let plan = plan(
+            "doc",
+            &inspection("hevc", "dts", true),
+            &capabilities(PlatformKind::Linux),
+            &declared(),
+            policy(),
+            None,
+            None,
+        );
         assert_eq!(plan.strategy, PlaybackStrategy::Remux);
         assert_eq!(plan.subtitle_policy, SubtitlePolicy::StripAll);
         assert!(plan.can_convert);
@@ -897,8 +993,17 @@ mod tests {
     #[test]
     fn unsupported_audio_preserves_video() {
         let mut caps = capabilities(PlatformKind::Linux);
-        caps.decoders.insert("dts".into(), CapabilityLevel::Unsupported);
-        let plan = plan("doc", &inspection("hevc", "dts", false), &caps, &declared(), policy(), None, None);
+        caps.decoders
+            .insert("dts".into(), CapabilityLevel::Unsupported);
+        let plan = plan(
+            "doc",
+            &inspection("hevc", "dts", false),
+            &caps,
+            &declared(),
+            policy(),
+            None,
+            None,
+        );
         assert_eq!(plan.strategy, PlaybackStrategy::AudioTranscode);
         assert_eq!(plan.output.as_ref().unwrap().video, "copy");
         assert_eq!(plan.output.as_ref().unwrap().audio, "aac");
@@ -907,8 +1012,17 @@ mod tests {
     #[test]
     fn unsupported_video_selects_full_transcode() {
         let mut caps = capabilities(PlatformKind::Linux);
-        caps.decoders.insert("hevc".into(), CapabilityLevel::Unsupported);
-        let plan = plan("doc", &inspection("hevc", "aac", false), &caps, &declared(), policy(), None, None);
+        caps.decoders
+            .insert("hevc".into(), CapabilityLevel::Unsupported);
+        let plan = plan(
+            "doc",
+            &inspection("hevc", "aac", false),
+            &caps,
+            &declared(),
+            policy(),
+            None,
+            None,
+        );
         assert_eq!(plan.strategy, PlaybackStrategy::VideoTranscode);
         assert_eq!(plan.output.as_ref().unwrap().video, "h264");
     }
@@ -916,9 +1030,18 @@ mod tests {
     #[test]
     fn bitmap_on_android_does_not_preempt_native() {
         let mut caps = capabilities(PlatformKind::Android);
-        caps.decoders.insert("hevc".into(), CapabilityLevel::Unknown);
+        caps.decoders
+            .insert("hevc".into(), CapabilityLevel::Unknown);
         caps.decoders.insert("dts".into(), CapabilityLevel::Unknown);
-        let plan = plan("doc", &inspection("hevc", "dts", true), &caps, &declared(), policy(), None, None);
+        let plan = plan(
+            "doc",
+            &inspection("hevc", "dts", true),
+            &caps,
+            &declared(),
+            policy(),
+            None,
+            None,
+        );
         assert_eq!(plan.strategy, PlaybackStrategy::Native);
     }
 }

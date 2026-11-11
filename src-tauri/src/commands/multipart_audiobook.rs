@@ -13,7 +13,9 @@ use crate::database::{AudioEditionRepository, Repository};
 use crate::error::{PlethoraError, Result};
 use crate::models::audio_edition::{AudioEdition, AudioEditionSection};
 use crate::models::{Document, DocumentMetadata, FileType};
-use crate::processor::audio::{extract_audio_cover_data_url, probe_audio_metadata, AudioMetadataProbe};
+use crate::processor::audio::{
+    extract_audio_cover_data_url, probe_audio_metadata, AudioMetadataProbe,
+};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
@@ -88,9 +90,7 @@ fn natural_cmp(a: &str, b: &str) -> std::cmp::Ordering {
                         ib.next();
                     }
                 } else {
-                    let ord = ca
-                        .to_ascii_lowercase()
-                        .cmp(&cb.to_ascii_lowercase());
+                    let ord = ca.to_ascii_lowercase().cmp(&cb.to_ascii_lowercase());
                     if ord != std::cmp::Ordering::Equal {
                         return ord;
                     }
@@ -349,9 +349,7 @@ pub async fn import_multipart_audiobook(
                         .unwrap_or(0)
                         .cmp(&b.probe.track_number.unwrap_or(0)),
                 )
-                .then_with(|| {
-                    natural_cmp(&display_name(&a.input), &display_name(&b.input))
-                })
+                .then_with(|| natural_cmp(&display_name(&a.input), &display_name(&b.input)))
         });
     }
 
@@ -568,8 +566,7 @@ fn build_edition(
         voice: String::new(),
         quality_preset: None,
         generation_settings: Some(
-            serde_json::json!({ "fingerprint": fingerprint, "partCount": part_count })
-                .to_string(),
+            serde_json::json!({ "fingerprint": fingerprint, "partCount": part_count }).to_string(),
         ),
         total_duration_sec: total_duration,
         status: "ready".to_string(),
@@ -578,7 +575,11 @@ fn build_edition(
     }
 }
 
-fn build_sections(edition_id: &str, planned: &[PlannedPart], fingerprint: &str) -> Vec<AudioEditionSection> {
+fn build_sections(
+    edition_id: &str,
+    planned: &[PlannedPart],
+    fingerprint: &str,
+) -> Vec<AudioEditionSection> {
     let now = chrono::Utc::now().timestamp_millis();
     planned
         .iter()
@@ -590,12 +591,7 @@ fn build_sections(edition_id: &str, planned: &[PlannedPart], fingerprint: &str) 
                 .title
                 .clone()
                 .filter(|t| !t.trim().is_empty())
-                .or_else(|| {
-                    part.probe
-                        .title
-                        .clone()
-                        .filter(|t| !t.trim().is_empty())
-                })
+                .or_else(|| part.probe.title.clone().filter(|t| !t.trim().is_empty()))
                 .unwrap_or_else(|| {
                     let derived = chapter_title_from_file_name(&name);
                     if derived.is_empty() {
@@ -648,13 +644,22 @@ mod tests {
     fn natural_cmp_handles_disc_layouts() {
         let mut names = vec!["Disc 10/01.mp3", "Disc 2/01.mp3", "Disc 1/02.mp3"];
         names.sort_by(|a, b| natural_cmp(a, b));
-        assert_eq!(names, vec!["Disc 1/02.mp3", "Disc 2/01.mp3", "Disc 10/01.mp3"]);
+        assert_eq!(
+            names,
+            vec!["Disc 1/02.mp3", "Disc 2/01.mp3", "Disc 10/01.mp3"]
+        );
     }
 
     #[test]
     fn chapter_titles_strip_numbering() {
-        assert_eq!(chapter_title_from_file_name("004 - The Troll.mp3"), "The Troll");
-        assert_eq!(chapter_title_from_file_name("01 An Unexpected Party.mp3"), "An Unexpected Party");
+        assert_eq!(
+            chapter_title_from_file_name("004 - The Troll.mp3"),
+            "The Troll"
+        );
+        assert_eq!(
+            chapter_title_from_file_name("01 An Unexpected Party.mp3"),
+            "An Unexpected Party"
+        );
         assert_eq!(chapter_title_from_file_name("Title - 03.mp3"), "Title");
         // Bare trailing numbers are titles, not track numbers.
         assert_eq!(chapter_title_from_file_name("Catch 22.mp3"), "Catch 22");

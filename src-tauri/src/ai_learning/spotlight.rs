@@ -61,10 +61,7 @@ pub struct SpotlightItem {
 static DONATE: Mutex<Option<Arc<SpotlightDonateFn>>> = Mutex::new(None);
 static DELETE: Mutex<Option<Arc<SpotlightDeleteFn>>> = Mutex::new(None);
 
-pub fn install_spotlight_projector(
-    donate: Arc<SpotlightDonateFn>,
-    delete: Arc<SpotlightDeleteFn>,
-) {
+pub fn install_spotlight_projector(donate: Arc<SpotlightDonateFn>, delete: Arc<SpotlightDeleteFn>) {
     *DONATE.lock().expect("spotlight donate lock") = Some(donate);
     *DELETE.lock().expect("spotlight delete lock") = Some(delete);
 }
@@ -85,7 +82,11 @@ pub fn delete_identifiers(ids: &[String]) {
     }
 }
 
-pub fn donate_document_chunks(document_id: &str, title: &str, chunk_ids_and_text: &[(String, String)]) {
+pub fn donate_document_chunks(
+    document_id: &str,
+    title: &str,
+    chunk_ids_and_text: &[(String, String)],
+) {
     let mut items = vec![SpotlightItem {
         identifier: format_uri(SpotlightKind::Document, document_id),
         domain: "plethora".into(),

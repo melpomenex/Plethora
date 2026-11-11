@@ -637,9 +637,8 @@ pub async fn ocr_pdf_file(request: OCRPdfRequest) -> Result<OCRPdfResponse> {
         // All pages failed or nothing extractable: report failure with the
         // first real error rather than success with empty text.
         if combined_text.trim().is_empty() {
-            let error = first_error.unwrap_or_else(|| {
-                "OCR produced no text for this PDF".to_string()
-            });
+            let error =
+                first_error.unwrap_or_else(|| "OCR produced no text for this PDF".to_string());
             return Ok(OCRPdfResponse {
                 pages,
                 combined_text,
@@ -1070,7 +1069,10 @@ mod tests {
             None,
         );
         let guidance = provider_preflight_error(&provider);
-        assert!(guidance.is_some(), "missing Tesseract must produce guidance");
+        assert!(
+            guidance.is_some(),
+            "missing Tesseract must produce guidance"
+        );
         let message = guidance.unwrap();
         assert!(
             message.contains("Tesseract is not installed"),
@@ -1118,7 +1120,9 @@ mod tests {
         );
 
         // Restore a neutral processor for any test that runs after this one.
-        init_ocr(OCRConfig::default()).await.expect("reset processor");
+        init_ocr(OCRConfig::default())
+            .await
+            .expect("reset processor");
     }
 
     #[test]

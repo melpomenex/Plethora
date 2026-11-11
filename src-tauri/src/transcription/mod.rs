@@ -4,9 +4,9 @@ pub mod engine;
 pub mod gpu_runtime;
 pub mod idle_scanner;
 pub mod job_queue;
+pub mod manager;
 pub mod model_manager;
 pub mod nemotron;
-pub mod manager;
 
 use crate::database::Repository;
 use crate::error::Result;
@@ -99,11 +99,7 @@ pub async fn get_transcription_profiles(
         NEMOTRON_ASR_REPO_ID,
         NEMOTRON_ASR_REVISION,
     );
-    let whistle_hf_id = model_id_for(
-        HfRuntime::WhistleStt,
-        WHISTLE_REPO_ID,
-        WHISTLE_REVISION,
-    );
+    let whistle_hf_id = model_id_for(HfRuntime::WhistleStt, WHISTLE_REPO_ID, WHISTLE_REVISION);
     let hf_profiles = hf_stt_profiles(repo.pool())
         .await
         .into_iter()
@@ -119,21 +115,17 @@ pub async fn download_transcription_model(
     repo: State<'_, Repository>,
     id: String,
 ) -> Result<()> {
+    use crate::models::hf::adapters::HfRuntime;
     use crate::models::hf::commands::active_try_register;
     use crate::models::hf::manager::{
         install_pinned_nemotron_asr, install_pinned_whistle, is_pinned_nemotron_repo,
         is_pinned_whistle_repo, model_id_for, NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID,
         NEMOTRON_ASR_REVISION, WHISTLE_LOGICAL_KEY, WHISTLE_REPO_ID, WHISTLE_REVISION,
     };
-    use crate::models::hf::adapters::HfRuntime;
 
     if is_pinned_whistle_repo(&id) {
         let cancel = CancellationToken::new();
-        let hf_id = model_id_for(
-            HfRuntime::WhistleStt,
-            WHISTLE_REPO_ID,
-            WHISTLE_REVISION,
-        );
+        let hf_id = model_id_for(HfRuntime::WhistleStt, WHISTLE_REPO_ID, WHISTLE_REVISION);
         let _guard = active_try_register(&app_handle, &hf_id, cancel.clone()).map_err(|e| {
             crate::error::PlethoraError::Internal(e.to_string().replace(&hf_id, "Cactus Whistle"))
         })?;
@@ -201,16 +193,12 @@ pub async fn delete_transcription_model(
     use crate::models::hf::adapters::HfRuntime;
     use crate::models::hf::manager::{
         is_pinned_nemotron_repo, is_pinned_whistle_repo, model_id_for, uninstall,
-        NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_REVISION,
-        WHISTLE_LOGICAL_KEY, WHISTLE_REPO_ID, WHISTLE_REVISION,
+        NEMOTRON_ASR_LOGICAL_KEY, NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_REVISION, WHISTLE_LOGICAL_KEY,
+        WHISTLE_REPO_ID, WHISTLE_REVISION,
     };
 
     if is_pinned_whistle_repo(&id) {
-        let hf_id = model_id_for(
-            HfRuntime::WhistleStt,
-            WHISTLE_REPO_ID,
-            WHISTLE_REVISION,
-        );
+        let hf_id = model_id_for(HfRuntime::WhistleStt, WHISTLE_REPO_ID, WHISTLE_REVISION);
         return uninstall(&app_handle, &repo, &hf_id)
             .await
             .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()));
@@ -262,7 +250,9 @@ pub async fn get_transcript(
     book_id: String,
     chapter_id: String,
 ) -> Result<Option<TranscriptResponse>> {
-    let transcript = repo.resolve_document_transcript_id(&book_id, &chapter_id).await?;
+    let transcript = repo
+        .resolve_document_transcript_id(&book_id, &chapter_id)
+        .await?;
 
     if let Some((id, status)) = transcript {
         // Legacy players consume timed segments only. Missing confidence is a
@@ -759,11 +749,13 @@ pub async fn is_local_nemotron_installed(
     app_handle: AppHandle,
     repo: State<'_, Repository>,
 ) -> Result<bool> {
-    Ok(crate::models::hf::manager::is_nemotron_asr_installed(repo.pool()).await
-        && crate::transcription::engine::TranscriptionEngine::sidecar_usable(
-            &app_handle,
-            "sherpa-online",
-        ))
+    Ok(
+        crate::models::hf::manager::is_nemotron_asr_installed(repo.pool()).await
+            && crate::transcription::engine::TranscriptionEngine::sidecar_usable(
+                &app_handle,
+                "sherpa-online",
+            ),
+    )
 }
 
 #[command]
@@ -830,10 +822,10 @@ pub async fn transcribe_local_nemotron(
         .prepare_audio(Path::new(&audio_path))
         .await
         .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
-    let segments: Vec<engine::TranscriptSegment> =
-        engine.transcribe_route_collect(&prepared, &install_dir, &route, &language)
-            .await
-            .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
+    let segments: Vec<engine::TranscriptSegment> = engine
+        .transcribe_route_collect(&prepared, &install_dir, &route, &language)
+        .await
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
     let _ = std::fs::remove_file(&prepared);
 
     Ok(TranscriptResponse {
@@ -848,11 +840,13 @@ pub async fn is_local_whistle_installed(
     app_handle: AppHandle,
     repo: State<'_, Repository>,
 ) -> Result<bool> {
-    Ok(crate::models::hf::manager::is_whistle_installed(repo.pool()).await
-        && crate::transcription::engine::TranscriptionEngine::sidecar_usable(
-            &app_handle,
-            "needle",
-        ))
+    Ok(
+        crate::models::hf::manager::is_whistle_installed(repo.pool()).await
+            && crate::transcription::engine::TranscriptionEngine::sidecar_usable(
+                &app_handle,
+                "needle",
+            ),
+    )
 }
 
 #[command]
@@ -895,9 +889,7 @@ pub async fn transcribe_local_whistle(
 
     let route = match contract {
         crate::models::hf::adapters::RunContract::Whistle { model_file } => {
-            SttEngineRoute::Whistle {
-                model: model_file,
-            }
+            SttEngineRoute::Whistle { model: model_file }
         }
         _ => {
             return Err(crate::error::PlethoraError::InvalidInput(
@@ -911,10 +903,10 @@ pub async fn transcribe_local_whistle(
         .prepare_audio(Path::new(&audio_path))
         .await
         .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
-    let segments: Vec<engine::TranscriptSegment> =
-        engine.transcribe_route_collect(&prepared, &install_dir, &route, &language)
-            .await
-            .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
+    let segments: Vec<engine::TranscriptSegment> = engine
+        .transcribe_route_collect(&prepared, &install_dir, &route, &language)
+        .await
+        .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
     let _ = std::fs::remove_file(&prepared);
 
     Ok(TranscriptResponse {
@@ -1029,9 +1021,7 @@ pub async fn transcription_compute_diagnostics(
 
 /// Current GPU runtime state for the settings card. Pure read.
 #[command]
-pub async fn gpu_runtime_status(
-    app_handle: AppHandle,
-) -> Result<gpu_runtime::GpuRuntimeStatus> {
+pub async fn gpu_runtime_status(app_handle: AppHandle) -> Result<gpu_runtime::GpuRuntimeStatus> {
     Ok(gpu_runtime::evaluate(&app_handle))
 }
 
@@ -1059,4 +1049,3 @@ pub async fn gpu_runtime_uninstall(app_handle: AppHandle) -> Result<()> {
     gpu_runtime::uninstall(&app_handle)
         .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))
 }
-

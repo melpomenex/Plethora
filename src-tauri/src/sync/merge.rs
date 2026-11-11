@@ -1509,7 +1509,10 @@ mod tests {
         );
     }
 
-    fn provenance_test_item(id: &str, source_reference: Option<String>) -> crate::models::LearningItem {
+    fn provenance_test_item(
+        id: &str,
+        source_reference: Option<String>,
+    ) -> crate::models::LearningItem {
         let mut item = crate::models::LearningItem::new(
             crate::models::ItemType::Flashcard,
             "What does the hippocampus do?".into(),
@@ -1529,8 +1532,7 @@ mod tests {
         let item = provenance_test_item("item-src", Some(reference.clone()));
 
         let payload = super::super::payload::learning_item_payload(&item).expect("payload");
-        let value: serde_json::Value =
-            serde_json::from_slice(&payload).expect("payload json");
+        let value: serde_json::Value = serde_json::from_slice(&payload).expect("payload json");
         assert_eq!(
             value.get("source_reference").and_then(|v| v.as_str()),
             Some(reference.as_str()),
@@ -1539,7 +1541,10 @@ mod tests {
 
         let decoded: crate::models::LearningItem =
             serde_json::from_slice(&payload).expect("decode");
-        assert_eq!(decoded.source_reference.as_deref(), Some(reference.as_str()));
+        assert_eq!(
+            decoded.source_reference.as_deref(),
+            Some(reference.as_str())
+        );
     }
 
     #[test]
@@ -1548,8 +1553,7 @@ mod tests {
         // must decode it cleanly so remote applies never reject it.
         let item = provenance_test_item("item-legacy", None);
         let payload = super::super::payload::learning_item_payload(&item).expect("payload");
-        let mut value: serde_json::Value =
-            serde_json::from_slice(&payload).expect("payload json");
+        let mut value: serde_json::Value = serde_json::from_slice(&payload).expect("payload json");
         value
             .as_object_mut()
             .expect("object")

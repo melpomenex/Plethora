@@ -83,7 +83,7 @@ pub fn resolve_chatterbox_model_dir(app_handle: &AppHandle) -> Result<PathBuf> {
 pub fn verify_chatterbox_assets(model_dir: &Path) -> bool {
     let config_path = model_dir.join("config.json");
     let model_path = model_dir.join("model.safetensors");
-    
+
     // Check files exist and are not empty
     if !config_path.exists() || !model_path.exists() {
         return false;
@@ -157,8 +157,18 @@ pub fn resolve_daemon_path(app_handle: &AppHandle) -> Result<PathBuf> {
     let dev_candidates = [
         manifest_dir.join("bin").join("plethora-tts-daemon"),
         manifest_dir.join("daemon").join("plethora_tts_daemon.py"),
-        manifest_dir.parent().map(|p| p.join("src-tauri").join("daemon").join("plethora_tts_daemon.py")).unwrap_or_default(),
-        manifest_dir.parent().map(|p| p.join("src-tauri").join("bin").join("plethora-tts-daemon")).unwrap_or_default(),
+        manifest_dir
+            .parent()
+            .map(|p| {
+                p.join("src-tauri")
+                    .join("daemon")
+                    .join("plethora_tts_daemon.py")
+            })
+            .unwrap_or_default(),
+        manifest_dir
+            .parent()
+            .map(|p| p.join("src-tauri").join("bin").join("plethora-tts-daemon"))
+            .unwrap_or_default(),
         PathBuf::from("daemon/plethora_tts_daemon.py"),
         PathBuf::from("bin/plethora-tts-daemon"),
         PathBuf::from("src-tauri/daemon/plethora_tts_daemon.py"),
@@ -189,7 +199,9 @@ pub fn resolve_daemon_path(app_handle: &AppHandle) -> Result<PathBuf> {
         }
     }
 
-    Err(anyhow!("Could not locate plethora_tts_daemon script or binary"))
+    Err(anyhow!(
+        "Could not locate plethora_tts_daemon script or binary"
+    ))
 }
 
 pub struct SupervisorInner {
@@ -235,7 +247,9 @@ impl ChatterboxSupervisor {
                         .map(|lines| lines.join("\n"))
                         .filter(|s| !s.trim().is_empty());
                     inner.last_error = Some(match stderr_recent {
-                        Some(err) => format!("Daemon exited with code: {:?} - {}", status.code(), err),
+                        Some(err) => {
+                            format!("Daemon exited with code: {:?} - {}", status.code(), err)
+                        }
                         None => format!("Daemon exited with code: {:?}", status.code()),
                     });
                     inner.child = None;
@@ -254,7 +268,8 @@ impl ChatterboxSupervisor {
             inner.backend = probe_host_backend();
         }
 
-        let model_dir = resolve_chatterbox_model_dir(app_handle).unwrap_or_else(|_| PathBuf::from(""));
+        let model_dir =
+            resolve_chatterbox_model_dir(app_handle).unwrap_or_else(|_| PathBuf::from(""));
         let models_ready = verify_chatterbox_assets(&model_dir);
 
         let base_url = inner.port.map(|p| format!("http://127.0.0.1:{}", p));
@@ -297,10 +312,12 @@ impl ChatterboxSupervisor {
             Command::new(&daemon_path)
         };
 
-        cmd.arg("--port").arg("0")
-           .arg("--voices-dir").arg(&voices_dir)
-           .stdout(Stdio::piped())
-           .stderr(Stdio::piped());
+        cmd.arg("--port")
+            .arg("0")
+            .arg("--voices-dir")
+            .arg(&voices_dir)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
 
         // The AppImage launcher exports `PYTHONHOME`/`PYTHONPATH` for a Python
         // it does not bundle. Inheriting them makes the daemon's `python3`
@@ -308,9 +325,17 @@ impl ChatterboxSupervisor {
         // Removed here so the removal wins over the inherited environment.
         crate::utils::python_env::sanitize_python_env(&mut cmd);
 
-        let mut child = cmd.spawn().with_context(|| format!("Failed to spawn daemon at {:?}", daemon_path))?;
-        let stdout = child.stdout.take().context("Failed to capture daemon stdout")?;
-        let stderr = child.stderr.take().context("Failed to capture daemon stderr")?;
+        let mut child = cmd
+            .spawn()
+            .with_context(|| format!("Failed to spawn daemon at {:?}", daemon_path))?;
+        let stdout = child
+            .stdout
+            .take()
+            .context("Failed to capture daemon stdout")?;
+        let stderr = child
+            .stderr
+            .take()
+            .context("Failed to capture daemon stderr")?;
 
         let (stdout_tx, stdout_rx) = std::sync::mpsc::channel();
         std::thread::spawn(move || {
@@ -352,11 +377,22 @@ impl ChatterboxSupervisor {
         while start_time.elapsed() < timeout {
             // Check if child exited prematurely
             if let Ok(Some(status)) = child.try_wait() {
-                let err_detail = stderr_log.lock().ok().map(|lines| lines.join("\n")).unwrap_or_default();
+                let err_detail = stderr_log
+                    .lock()
+                    .ok()
+                    .map(|lines| lines.join("\n"))
+                    .unwrap_or_default();
                 let msg = if !err_detail.trim().is_empty() {
-                    format!("Daemon failed to start (exit status {:?}): {}", status, err_detail.trim())
+                    format!(
+                        "Daemon failed to start (exit status {:?}): {}",
+                        status,
+                        err_detail.trim()
+                    )
                 } else {
-                    format!("Daemon process exited prematurely with status: {:?}", status)
+                    format!(
+                        "Daemon process exited prematurely with status: {:?}",
+                        status
+                    )
                 };
                 inner.last_error = Some(msg.clone());
                 return Err(anyhow!(msg));
@@ -381,9 +417,17 @@ impl ChatterboxSupervisor {
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
                     // Stdout stream closed, process may have exited
                     if let Ok(Some(status)) = child.try_wait() {
-                        let err_detail = stderr_log.lock().ok().map(|lines| lines.join("\n")).unwrap_or_default();
+                        let err_detail = stderr_log
+                            .lock()
+                            .ok()
+                            .map(|lines| lines.join("\n"))
+                            .unwrap_or_default();
                         let msg = if !err_detail.trim().is_empty() {
-                            format!("Daemon exited unexpectedly (status {:?}): {}", status, err_detail.trim())
+                            format!(
+                                "Daemon exited unexpectedly (status {:?}): {}",
+                                status,
+                                err_detail.trim()
+                            )
                         } else {
                             format!("Daemon exited unexpectedly with status {:?}", status)
                         };
@@ -400,9 +444,16 @@ impl ChatterboxSupervisor {
             None => {
                 let _ = child.kill();
                 let _ = child.wait();
-                let err_detail = stderr_log.lock().ok().map(|lines| lines.join("\n")).unwrap_or_default();
+                let err_detail = stderr_log
+                    .lock()
+                    .ok()
+                    .map(|lines| lines.join("\n"))
+                    .unwrap_or_default();
                 let msg = if !err_detail.trim().is_empty() {
-                    format!("Daemon failed to report listening port within 10s: {}", err_detail.trim())
+                    format!(
+                        "Daemon failed to report listening port within 10s: {}",
+                        err_detail.trim()
+                    )
                 } else {
                     "Daemon failed to report listening port within 10s".to_string()
                 };
@@ -501,7 +552,11 @@ pub async fn chatterbox_download_model(
             let _ = app_clone.emit(
                 PROGRESS_EVENT,
                 ChatterboxDownloadProgress {
-                    phase: if i < 15 { "Downloading weights...".to_string() } else { "Verifying SHA-256...".to_string() },
+                    phase: if i < 15 {
+                        "Downloading weights...".to_string()
+                    } else {
+                        "Verifying SHA-256...".to_string()
+                    },
                     bytes_downloaded: downloaded,
                     total_bytes,
                     percentage: pct,
@@ -512,7 +567,10 @@ pub async fn chatterbox_download_model(
         // Write model files to mark verified
         let config_file = model_dir.join("config.json");
         let model_file = model_dir.join("model.safetensors");
-        let _ = fs::write(&config_file, b"{\"model\": \"chatterbox\", \"version\": \"1.0\"}");
+        let _ = fs::write(
+            &config_file,
+            b"{\"model\": \"chatterbox\", \"version\": \"1.0\"}",
+        );
         let _ = fs::write(&model_file, b"MOCK_CHATTERBOX_WEIGHTS_VALIDATED");
 
         downloading.store(false, Ordering::SeqCst);
@@ -520,7 +578,8 @@ pub async fn chatterbox_download_model(
             FINISHED_EVENT,
             ChatterboxDownloadFinished {
                 success: true,
-                message: "Chatterbox model assets downloaded and verified successfully.".to_string(),
+                message: "Chatterbox model assets downloaded and verified successfully."
+                    .to_string(),
             },
         );
     });
@@ -548,7 +607,9 @@ pub async fn chatterbox_delete_model(app: AppHandle) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub async fn chatterbox_list_voice_profiles(app: AppHandle) -> Result<Vec<ChatterboxVoiceProfile>, String> {
+pub async fn chatterbox_list_voice_profiles(
+    app: AppHandle,
+) -> Result<Vec<ChatterboxVoiceProfile>, String> {
     let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
     let db_path = app_dir.join(crate::database::connection::DB_FILE_NAME);
     if !db_path.exists() {
@@ -600,7 +661,8 @@ pub async fn chatterbox_create_voice_profile(
     let db_path = app_dir.join(crate::database::connection::DB_FILE_NAME);
     let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
 
-    let types_json = serde_json::to_string(&profile.preferred_content_types).unwrap_or_else(|_| "[]".to_string());
+    let types_json = serde_json::to_string(&profile.preferred_content_types)
+        .unwrap_or_else(|_| "[]".to_string());
     let now = chrono::Utc::now().timestamp();
 
     conn.execute(
@@ -633,8 +695,11 @@ pub async fn chatterbox_delete_voice_profile(app: AppHandle, id: String) -> Resu
     let db_path = app_dir.join(crate::database::connection::DB_FILE_NAME);
     let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
 
-    conn.execute("DELETE FROM chatterbox_voice_profiles WHERE id = ?1", rusqlite::params![id])
-        .map_err(|e| e.to_string())?;
+    conn.execute(
+        "DELETE FROM chatterbox_voice_profiles WHERE id = ?1",
+        rusqlite::params![id],
+    )
+    .map_err(|e| e.to_string())?;
     Ok(())
 }
 
@@ -683,10 +748,18 @@ pub async fn chatterbox_clone_voice(
         .timeout(Duration::from_secs(30))
         .send()
         .await
-        .map_err(|e| format!("Failed to communicate with local TTS daemon on port {}: {}", port, e))?;
+        .map_err(|e| {
+            format!(
+                "Failed to communicate with local TTS daemon on port {}: {}",
+                port, e
+            )
+        })?;
 
     if !resp.status().is_success() {
-        let err_text = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+        let err_text = resp
+            .text()
+            .await
+            .unwrap_or_else(|_| "Unknown error".to_string());
         return Err(format!("Daemon voice cloning failed: {}", err_text));
     }
 
@@ -790,4 +863,3 @@ mod tests {
         assert!(verify_chatterbox_assets(temp_dir.path()));
     }
 }
-

@@ -40,10 +40,7 @@ impl Default for KeyframeSamplingConfig {
 }
 
 /// Resizes raw image bytes to target dimension and returns standard PNG bytes.
-pub fn resize_frame_to_target(
-    raw_image_bytes: &[u8],
-    target_dim: u32,
-) -> Result<Vec<u8>, String> {
+pub fn resize_frame_to_target(raw_image_bytes: &[u8], target_dim: u32) -> Result<Vec<u8>, String> {
     let img = image::load_from_memory(raw_image_bytes)
         .map_err(|e| format!("failed to decode image frame: {e}"))?;
     let resized = img.resize_exact(
@@ -67,7 +64,10 @@ pub async fn extract_keyframes(
     config: KeyframeSamplingConfig,
 ) -> Result<Vec<VideoKeyframe>, String> {
     if !video_path.exists() {
-        return Err(format!("video file does not exist: {}", video_path.display()));
+        return Err(format!(
+            "video file does not exist: {}",
+            video_path.display()
+        ));
     }
 
     let interval = config.interval_ms.max(1_000);
@@ -150,7 +150,9 @@ mod tests {
             interval_ms: 10_000,
             target_dimension: 224,
         };
-        let frames = extract_keyframes(&video_path, 35_000, config).await.unwrap();
+        let frames = extract_keyframes(&video_path, 35_000, config)
+            .await
+            .unwrap();
         assert_eq!(frames.len(), 4); // 0ms, 10000ms, 20000ms, 30000ms
         assert_eq!(frames[0].timestamp_ms, 0);
         assert_eq!(frames[1].timestamp_ms, 10_000);

@@ -427,9 +427,7 @@ pub async fn recompute_all_intelligence_scores(repo: State<'_, Repository>) -> R
     )
     .fetch_all(repo.pool())
     .await
-    .map_err(|e| {
-        crate::error::PlethoraError::Internal(format!("Failed to get articles: {}", e))
-    })?;
+    .map_err(|e| crate::error::PlethoraError::Internal(format!("Failed to get articles: {}", e)))?;
 
     let mut count = 0;
     for article_id in article_ids {
@@ -901,9 +899,7 @@ pub async fn get_rss_article_clusters(
     }
     .fetch_all(repo.pool())
     .await
-    .map_err(|e| {
-        crate::error::PlethoraError::Internal(format!("Failed to get clusters: {}", e))
-    })?;
+    .map_err(|e| crate::error::PlethoraError::Internal(format!("Failed to get clusters: {}", e)))?;
 
     let clusters = rows
         .iter()
@@ -1229,10 +1225,7 @@ pub async fn get_article_annotations(
             .fetch_all(repo.pool())
             .await
             .map_err(|e| {
-                crate::error::PlethoraError::Internal(format!(
-                    "Failed to get annotations: {}",
-                    e
-                ))
+                crate::error::PlethoraError::Internal(format!("Failed to get annotations: {}", e))
             })?;
 
     let annotations = rows
@@ -1911,10 +1904,7 @@ pub async fn delete_rss_reading_list(id: String, repo: State<'_, Repository>) ->
         .execute(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::PlethoraError::Internal(format!(
-                "Failed to delete reading list: {}",
-                e
-            ))
+            crate::error::PlethoraError::Internal(format!("Failed to delete reading list: {}", e))
         })?;
     Ok(())
 }
@@ -2114,10 +2104,7 @@ pub async fn get_feed_statistics(
             .fetch_optional(repo.pool())
             .await
             .map_err(|e| {
-                crate::error::PlethoraError::Internal(format!(
-                    "Failed to get last_fetched: {}",
-                    e
-                ))
+                crate::error::PlethoraError::Internal(format!("Failed to get last_fetched: {}", e))
             })?
             .flatten();
 
@@ -2178,10 +2165,7 @@ pub async fn set_feed_view_preferences(
     query = query.bind(&feed_id);
 
     query.execute(repo.pool()).await.map_err(|e| {
-        crate::error::PlethoraError::Internal(format!(
-            "Failed to update feed preferences: {}",
-            e
-        ))
+        crate::error::PlethoraError::Internal(format!("Failed to update feed preferences: {}", e))
     })?;
 
     Ok(())
@@ -2539,10 +2523,7 @@ pub async fn delete_rss_reading_list_http(id: &str, repo: &Repository) -> Result
         .execute(repo.pool())
         .await
         .map_err(|e| {
-            crate::error::PlethoraError::Internal(format!(
-                "Failed to delete reading list: {}",
-                e
-            ))
+            crate::error::PlethoraError::Internal(format!("Failed to delete reading list: {}", e))
         })?;
     Ok(())
 }

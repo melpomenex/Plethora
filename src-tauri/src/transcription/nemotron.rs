@@ -75,10 +75,7 @@ pub fn parse_online_segments(raw: &str, offset_ms: i64) -> Vec<TranscriptSegment
         // fall back to a single segment for this JSON line.
         if result.tokens.is_empty() || result.tokens.len() != result.timestamps.len() {
             let (first, last) = match (result.timestamps.first(), result.timestamps.last()) {
-                (Some(f), Some(l)) => (
-                    (f * 1000.0).round() as i64,
-                    (l * 1000.0).round() as i64,
-                ),
+                (Some(f), Some(l)) => ((f * 1000.0).round() as i64, (l * 1000.0).round() as i64),
                 _ => (0, 0),
             };
             segments.push(TranscriptSegment {
@@ -131,10 +128,7 @@ pub fn parse_online_segments(raw: &str, offset_ms: i64) -> Vec<TranscriptSegment
 
         if words.is_empty() {
             let (first, last) = match (result.timestamps.first(), result.timestamps.last()) {
-                (Some(f), Some(l)) => (
-                    (f * 1000.0).round() as i64,
-                    (l * 1000.0).round() as i64,
-                ),
+                (Some(f), Some(l)) => ((f * 1000.0).round() as i64, (l * 1000.0).round() as i64),
                 _ => (0, 0),
             };
             segments.push(TranscriptSegment {
@@ -150,7 +144,8 @@ pub fn parse_online_segments(raw: &str, offset_ms: i64) -> Vec<TranscriptSegment
         // Slice words into segments based on sentence-ending punctuation or max duration
         let mut cur_seg_words: Vec<NemotronWordTiming> = Vec::new();
 
-        let flush_segment = |seg_words: &[NemotronWordTiming], segs: &mut Vec<TranscriptSegment>| {
+        let flush_segment = |seg_words: &[NemotronWordTiming],
+                             segs: &mut Vec<TranscriptSegment>| {
             if seg_words.is_empty() {
                 return;
             }
@@ -192,8 +187,8 @@ pub fn parse_online_segments(raw: &str, offset_ms: i64) -> Vec<TranscriptSegment
                 || w.word.ends_with(';')
                 || w.word.ends_with('；');
 
-            let too_long = !cur_seg_words.is_empty()
-                && (w.end_ms - cur_seg_words[0].start_ms) >= 12_000;
+            let too_long =
+                !cur_seg_words.is_empty() && (w.end_ms - cur_seg_words[0].start_ms) >= 12_000;
 
             cur_seg_words.push(w);
 

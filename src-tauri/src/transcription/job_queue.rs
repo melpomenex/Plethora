@@ -105,15 +105,13 @@ impl JobQueue {
 
         // 3. Get model path. HF-installed models resolve from the registry;
         //    pinned catalog models use the legacy get_model_path.
-        let model_path = match crate::models::hf::manager::resolve_installed_path(
-            repo.pool(),
-            &job.model_id,
-        )
-        .await
-        {
-            Some(p) => p,
-            None => model_manager.get_model_path(&job.model_id),
-        };
+        let model_path =
+            match crate::models::hf::manager::resolve_installed_path(repo.pool(), &job.model_id)
+                .await
+            {
+                Some(p) => p,
+                None => model_manager.get_model_path(&job.model_id),
+            };
 
         // 4. Transcribe
         //
@@ -133,8 +131,8 @@ impl JobQueue {
         // Route to the right engine based on the model family. HF-installed
         // models carry their run contract in the registry; pinned catalog models
         // use the id-prefix convention (parakeet-*, sense-voice-*).
-        let route = crate::models::hf::manager::stt_route_for_model(repo.pool(), &job.model_id)
-            .await;
+        let route =
+            crate::models::hf::manager::stt_route_for_model(repo.pool(), &job.model_id).await;
 
         // Unbounded channel: the per-segment callback is a sync `Fn` that cannot
         // await, so it must never block. Unbounded matches the old fire-and-forget

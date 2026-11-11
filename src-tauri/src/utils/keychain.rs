@@ -34,7 +34,8 @@ pub fn env_or_legacy(name: &str) -> Option<String> {
 /// without mutating process environment variables (which would race other
 /// parallel tests).
 #[cfg(test)]
-static TEST_FORCE_KEYRING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static TEST_FORCE_KEYRING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// Returns `true` only when the user has explicitly opted into OS keychain use
 /// via `PLETHORA_USE_KEYCHAIN=1` (legacy `INCREMENTUM_USE_KEYCHAIN=1`
@@ -107,10 +108,10 @@ pub mod testing {
         }
 
         pub fn seed(&self, service: &str, username: &str, value: &str) {
-            self.entries
-                .lock()
-                .unwrap()
-                .insert((service.to_string(), username.to_string()), value.to_string());
+            self.entries.lock().unwrap().insert(
+                (service.to_string(), username.to_string()),
+                value.to_string(),
+            );
         }
 
         pub fn contains(&self, service: &str, username: &str) -> bool {
@@ -123,10 +124,10 @@ pub mod testing {
 
     impl KeyringIo for MemoryKeyring {
         fn set(&self, service: &str, username: &str, value: &str) -> Result<(), String> {
-            self.entries
-                .lock()
-                .unwrap()
-                .insert((service.to_string(), username.to_string()), value.to_string());
+            self.entries.lock().unwrap().insert(
+                (service.to_string(), username.to_string()),
+                value.to_string(),
+            );
             Ok(())
         }
 

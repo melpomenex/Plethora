@@ -204,15 +204,13 @@ impl AutoTranscriptionQueue {
         let engine = TranscriptionEngine::new(app.clone());
         let model_manager = ModelManager::new(app)?;
 
-        let model_path = match crate::models::hf::manager::resolve_installed_path(
-            repo.pool(),
-            &entry.model_id,
-        )
-        .await
-        {
-            Some(p) => p,
-            None => model_manager.get_model_path(&entry.model_id),
-        };
+        let model_path =
+            match crate::models::hf::manager::resolve_installed_path(repo.pool(), &entry.model_id)
+                .await
+            {
+                Some(p) => p,
+                None => model_manager.get_model_path(&entry.model_id),
+            };
         if !model_path.exists() {
             return Err(anyhow::anyhow!(
                 "Transcription model not found: {}",
@@ -270,7 +268,7 @@ impl AutoTranscriptionQueue {
             Some(resume_start_ms),
             Some(total_duration_ms),
         )
-            .await?;
+        .await?;
 
         let repo_clone = repo.clone();
         let app_clone = app.clone();
@@ -326,8 +324,8 @@ impl AutoTranscriptionQueue {
         // Route to the right engine based on the model family. HF-installed
         // models carry their run contract in the registry; pinned catalog models
         // use the id-prefix convention (parakeet-*, sense-voice-*).
-        let route = crate::models::hf::manager::stt_route_for_model(repo.pool(), &entry.model_id)
-            .await;
+        let route =
+            crate::models::hf::manager::stt_route_for_model(repo.pool(), &entry.model_id).await;
 
         // Batched per-segment persistence (Finding G, Part 2). The per-segment
         // callback is a cheap `tx.send(seg)` into an mpsc channel; a SINGLE
@@ -391,10 +389,10 @@ impl AutoTranscriptionQueue {
         }
         let mut completion = repo.pool().begin().await?;
         sqlx::query("UPDATE documents SET content = ? WHERE id = ?")
-                .bind(&full_text)
-                .bind(&entry.document_id)
-                .execute(&mut *completion)
-                .await?;
+            .bind(&full_text)
+            .bind(&entry.document_id)
+            .execute(&mut *completion)
+            .await?;
 
         // Mark transcript as completed
         sqlx::query("UPDATE transcripts SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?")
@@ -445,20 +443,38 @@ fn ensure_local_provider(provider: &str) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        checkpoint_progress, ensure_local_provider, map_remaining_progress, offset_segment, persist_segment_batch,
+        checkpoint_progress, ensure_local_provider, map_remaining_progress, offset_segment,
+        persist_segment_batch,
     };
     use crate::transcription::engine::TranscriptSegment;
 
     #[tokio::test]
     async fn segment_persistence_errors_prevent_successful_flush() {
-        let pool = sqlx::sqlite::SqlitePoolOptions::new().max_connections(1).connect("sqlite::memory:").await.unwrap();
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
         let repo = crate::database::Repository::new(pool);
-        let segment = TranscriptSegment { start_ms: 0, end_ms: 1000, text: "Saved text".into(), confidence: 1.0, words_json: None };
-        assert!(persist_segment_batch(&repo, 1, std::slice::from_ref(&segment)).await.is_err());
+        let segment = TranscriptSegment {
+            start_ms: 0,
+            end_ms: 1000,
+            text: "Saved text".into(),
+            confidence: 1.0,
+            words_json: None,
+        };
+        assert!(
+            persist_segment_batch(&repo, 1, std::slice::from_ref(&segment))
+                .await
+                .is_err()
+        );
         sqlx::query("CREATE TABLE transcript_segments (transcript_id INTEGER, start_ms INTEGER, end_ms INTEGER, text TEXT, confidence REAL, words_json TEXT)")
             .execute(repo.pool()).await.unwrap();
         persist_segment_batch(&repo, 1, &[segment]).await.unwrap();
-        let text: String = sqlx::query_scalar("SELECT text FROM transcript_segments").fetch_one(repo.pool()).await.unwrap();
+        let text: String = sqlx::query_scalar("SELECT text FROM transcript_segments")
+            .fetch_one(repo.pool())
+            .await
+            .unwrap();
         assert_eq!(text, "Saved text");
     }
 

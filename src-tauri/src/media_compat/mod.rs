@@ -3,8 +3,8 @@
 //! The byte-serving path remains [`crate::media_server`]; this module owns the
 //! metadata/capability/recovery layer around it.
 
-pub mod capabilities;
 pub mod cache;
+pub mod capabilities;
 pub mod commands;
 pub mod decision;
 pub mod ffmpeg;

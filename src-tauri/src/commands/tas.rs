@@ -168,9 +168,8 @@ pub async fn compute_tag_centroids(repo: State<'_, Repository>) -> Result<usize>
 #[tauri::command]
 pub async fn get_tas_config(repo: State<'_, Repository>) -> Result<TASConfig> {
     match repo.get_setting("tas_config").await? {
-        Some(json) => serde_json::from_str::<TASConfig>(&json).map_err(|e| {
-            PlethoraError::Internal(format!("Failed to deserialize TAS config: {e}"))
-        }),
+        Some(json) => serde_json::from_str::<TASConfig>(&json)
+            .map_err(|e| PlethoraError::Internal(format!("Failed to deserialize TAS config: {e}"))),
         None => Ok(TASConfig::default()),
     }
 }

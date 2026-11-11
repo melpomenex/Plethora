@@ -1,8 +1,8 @@
 //! Tauri commands for recording sessions.
 
-use tauri::State;
 use crate::database::Repository;
 use crate::models::recording_session::*;
+use tauri::State;
 
 #[tauri::command]
 pub async fn create_recording_session(
@@ -134,11 +134,9 @@ pub async fn get_recording_media_path(
     if !candidate.is_file() {
         if let Ok(root) = crate::recording::managed_recording_root(&data_dir, &session_id) {
             if let Ok(Some(manifest)) = crate::recording::read_manifest(&root) {
-                if let Ok(Some(media)) = crate::recording::consolidate_capture_media(
-                    &data_dir,
-                    &session_id,
-                    &manifest,
-                ) {
+                if let Ok(Some(media)) =
+                    crate::recording::consolidate_capture_media(&data_dir, &session_id, &manifest)
+                {
                     let clean = manifest
                         .parts
                         .iter()
@@ -162,8 +160,8 @@ pub async fn get_recording_media_path(
         }
     }
 
-    let canonical =
-        std::fs::canonicalize(&candidate).map_err(|_| SessionOperationError::source_unavailable())?;
+    let canonical = std::fs::canonicalize(&candidate)
+        .map_err(|_| SessionOperationError::source_unavailable())?;
     let root = std::fs::canonicalize(&data_dir)
         .map_err(|_| SessionOperationError::source_unavailable())?;
     if !canonical.starts_with(&root) || !canonical.is_file() {
@@ -215,13 +213,8 @@ pub async fn finalize_recording_session(
         .path()
         .app_data_dir()
         .map_err(|_| SessionOperationError::source_unavailable())?;
-    crate::recording::finalize_recording_session(
-        &data_dir,
-        repo.pool(),
-        &id,
-        expected_version,
-    )
-    .await
+    crate::recording::finalize_recording_session(&data_dir, repo.pool(), &id, expected_version)
+        .await
 }
 
 #[tauri::command]
@@ -325,7 +318,8 @@ pub async fn create_session_marker(
     note: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<RecordingSessionMarker, SessionOperationError> {
-    repo.create_or_extend_session_marker(&session_id, kind, media_ms, window_ms, note).await
+    repo.create_or_extend_session_marker(&session_id, kind, media_ms, window_ms, note)
+        .await
 }
 
 #[tauri::command]
@@ -444,7 +438,8 @@ pub async fn reject_session_learning_drafts(
     draft_ids: Vec<String>,
     repo: State<'_, Repository>,
 ) -> Result<i64, SessionOperationError> {
-    repo.reject_session_learning_drafts(&session_id, &draft_ids).await
+    repo.reject_session_learning_drafts(&session_id, &draft_ids)
+        .await
 }
 
 #[tauri::command]
@@ -467,7 +462,8 @@ pub async fn delete_session_media(
         .path()
         .app_data_dir()
         .map_err(|_| SessionOperationError::source_unavailable())?;
-    repo.delete_session_media(&data_dir, &session_id, expected_version).await
+    repo.delete_session_media(&data_dir, &session_id, expected_version)
+        .await
 }
 
 #[tauri::command]
@@ -512,7 +508,8 @@ pub async fn update_session_speaker(
     to_speaker_id: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<usize, SessionOperationError> {
-    repo.update_session_speaker(&session_id, &from_speaker_id, to_speaker_id.as_deref()).await
+    repo.update_session_speaker(&session_id, &from_speaker_id, to_speaker_id.as_deref())
+        .await
 }
 
 #[tauri::command]
@@ -529,7 +526,8 @@ pub async fn associate_session_document(
     document_id: String,
     repo: State<'_, Repository>,
 ) -> Result<Vec<SessionRelatedDocument>, SessionOperationError> {
-    repo.associate_session_document(&session_id, &document_id).await
+    repo.associate_session_document(&session_id, &document_id)
+        .await
 }
 
 #[tauri::command]
@@ -538,7 +536,8 @@ pub async fn disassociate_session_document(
     document_id: String,
     repo: State<'_, Repository>,
 ) -> Result<Vec<SessionRelatedDocument>, SessionOperationError> {
-    repo.disassociate_session_document(&session_id, &document_id).await
+    repo.disassociate_session_document(&session_id, &document_id)
+        .await
 }
 
 #[tauri::command]

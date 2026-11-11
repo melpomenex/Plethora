@@ -226,11 +226,29 @@ mod tests {
     async fn a_second_rubric_version_is_a_different_key() {
         let pool = migrated_pool().await;
         let repo = DaqeModelCacheRepository::new(pool.clone());
-        repo.put("hash-1", 1, Some(0.5), None, None).await.expect("v1");
-        repo.put("hash-1", 2, Some(0.9), None, None).await.expect("v2");
+        repo.put("hash-1", 1, Some(0.5), None, None)
+            .await
+            .expect("v1");
+        repo.put("hash-1", 2, Some(0.9), None, None)
+            .await
+            .expect("v2");
 
-        assert_eq!(repo.get("hash-1", 1).await.expect("read").expect("hit").score, Some(0.5));
-        assert_eq!(repo.get("hash-1", 2).await.expect("read").expect("hit").score, Some(0.9));
+        assert_eq!(
+            repo.get("hash-1", 1)
+                .await
+                .expect("read")
+                .expect("hit")
+                .score,
+            Some(0.5)
+        );
+        assert_eq!(
+            repo.get("hash-1", 2)
+                .await
+                .expect("read")
+                .expect("hit")
+                .score,
+            Some(0.9)
+        );
         // Both coexist, so a ranking pass mid-rubric-change never sees a half
         // swapped cache.
         assert_eq!(repo.count().await.expect("count"), 2);
@@ -239,11 +257,19 @@ mod tests {
     #[tokio::test]
     async fn writing_the_same_key_supersedes_rather_than_accumulating() {
         let repo = DaqeModelCacheRepository::new(migrated_pool().await);
-        repo.put("hash-1", 1, Some(0.2), None, None).await.expect("first");
-        repo.put("hash-1", 1, Some(0.8), None, None).await.expect("second");
+        repo.put("hash-1", 1, Some(0.2), None, None)
+            .await
+            .expect("first");
+        repo.put("hash-1", 1, Some(0.8), None, None)
+            .await
+            .expect("second");
         assert_eq!(repo.count().await.expect("count"), 1);
         assert_eq!(
-            repo.get("hash-1", 1).await.expect("read").expect("hit").score,
+            repo.get("hash-1", 1)
+                .await
+                .expect("read")
+                .expect("hit")
+                .score,
             Some(0.8)
         );
     }
@@ -268,21 +294,32 @@ mod tests {
     async fn invalidation_removes_every_rubric_version_for_one_content_hash() {
         let pool = migrated_pool().await;
         let repo = DaqeModelCacheRepository::new(pool.clone());
-        repo.put("hash-1", 1, Some(0.5), None, None).await.expect("v1");
-        repo.put("hash-1", 2, Some(0.5), None, None).await.expect("v2");
-        repo.put("hash-2", 1, Some(0.5), None, None).await.expect("other");
+        repo.put("hash-1", 1, Some(0.5), None, None)
+            .await
+            .expect("v1");
+        repo.put("hash-1", 2, Some(0.5), None, None)
+            .await
+            .expect("v2");
+        repo.put("hash-2", 1, Some(0.5), None, None)
+            .await
+            .expect("other");
 
         assert_eq!(repo.invalidate("hash-1").await.expect("invalidate"), 2);
         assert!(repo.get("hash-1", 1).await.expect("read").is_none());
         assert!(repo.get("hash-1", 2).await.expect("read").is_none());
-        assert!(repo.get("hash-2", 1).await.expect("read").is_some(), "unrelated survives");
+        assert!(
+            repo.get("hash-2", 1).await.expect("read").is_some(),
+            "unrelated survives"
+        );
     }
 
     #[tokio::test]
     async fn pruning_leaves_recent_entries_alone() {
         let pool = migrated_pool().await;
         let repo = DaqeModelCacheRepository::new(pool.clone());
-        repo.put("fresh", 1, Some(0.5), None, None).await.expect("fresh");
+        repo.put("fresh", 1, Some(0.5), None, None)
+            .await
+            .expect("fresh");
         sqlx::query(
             "INSERT INTO daqe_model_cache (content_hash, rubric_version, score, computed_at)
              VALUES ('ancient:1', 1, 0.5, '2020-01-01T00:00:00Z')",
@@ -304,23 +341,44 @@ mod tests {
 
         let reordered = content_hash_for(
             "document",
-            &["2 Model Architecture".to_string(), "1 Introduction".to_string()],
+            &[
+                "2 Model Architecture".to_string(),
+                "1 Introduction".to_string(),
+            ],
             1000,
         );
         assert_ne!(a, reordered, "reordering headings is a structural change");
 
         let cased = content_hash_for(
             "document",
-            &["1 introduction".to_string(), "2 model architecture".to_string()],
+            &[
+                "1 introduction".to_string(),
+                "2 model architecture".to_string(),
+            ],
             1000,
         );
         assert_eq!(a, cased, "heading case is not a structural change");
 
-        assert_ne!(a, content_hash_for("document", &outline(), 1001), "length matters");
-        assert_ne!(a, content_hash_for("extract", &outline(), 1000), "type matters");
         assert_ne!(
             a,
-            content_hash_for("document", &outline().into_iter().chain(["3 Results".to_string()]).collect::<Vec<_>>(), 1000),
+            content_hash_for("document", &outline(), 1001),
+            "length matters"
+        );
+        assert_ne!(
+            a,
+            content_hash_for("extract", &outline(), 1000),
+            "type matters"
+        );
+        assert_ne!(
+            a,
+            content_hash_for(
+                "document",
+                &outline()
+                    .into_iter()
+                    .chain(["3 Results".to_string()])
+                    .collect::<Vec<_>>(),
+                1000
+            ),
             "adding a heading matters"
         );
     }

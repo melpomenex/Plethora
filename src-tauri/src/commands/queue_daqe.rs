@@ -28,7 +28,7 @@
 //! An empty pool means an empty library, not an error.
 
 use crate::algorithms::daqe::ranker::{rank, rank_with_top_n};
-use crate::algorithms::daqe::{ItemSignals, RankContext, RecentItem, local_goal_alignment};
+use crate::algorithms::daqe::{local_goal_alignment, ItemSignals, RankContext, RecentItem};
 use crate::database::repository::Repository;
 use crate::error::{PlethoraError, Result};
 use crate::models::daqe::{DaqeKnobs, QueueSnapshot};
@@ -300,7 +300,10 @@ mod tests {
 
     #[test]
     fn an_out_of_range_knob_is_rejected_rather_than_coerced() {
-        let bad = DaqeKnobs { srs_decay_weight: 1.4, ..DaqeKnobs::default() };
+        let bad = DaqeKnobs {
+            srs_decay_weight: 1.4,
+            ..DaqeKnobs::default()
+        };
         assert!(bad.validated().is_err());
         let good = DaqeKnobs::default();
         assert!(good.validated().is_ok());
@@ -350,10 +353,8 @@ mod goal_tests {
 
     #[test]
     fn a_goal_alignment_verdict_round_trips() {
-        let input: ModelInput = serde_json::from_str(
-            r#"{"itemId":"item-1","goalAlignment":0.82}"#,
-        )
-        .expect("a model verdict must decode");
+        let input: ModelInput = serde_json::from_str(r#"{"itemId":"item-1","goalAlignment":0.82}"#)
+            .expect("a model verdict must decode");
         assert_eq!(input.goal_alignment, Some(0.82));
     }
 
@@ -363,6 +364,9 @@ mod goal_tests {
         // as input would let the UI assert a ranking term it does not own.
         let json = r#"{"itemId":"item-1","localGoalAlignment":0.9}"#;
         let rejected = serde_json::from_str::<ModelInput>(json);
-        assert!(rejected.is_err(), "an unknown field must not be silently accepted");
+        assert!(
+            rejected.is_err(),
+            "an unknown field must not be silently accepted"
+        );
     }
 }

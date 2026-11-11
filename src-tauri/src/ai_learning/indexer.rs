@@ -489,8 +489,8 @@ async fn build_document_chunks(
             if !rows.is_empty() {
                 let segments = rows
                     .into_iter()
-                    .map(|r| {
-                        crate::ai_learning::chunker::SessionTranscriptChunkSegment {
+                    .map(
+                        |r| crate::ai_learning::chunker::SessionTranscriptChunkSegment {
                             segment_key: r.try_get("segment_key").unwrap_or_default(),
                             ordinal: r.try_get("ordinal").unwrap_or(0),
                             text: r.try_get("text").unwrap_or_default(),
@@ -498,8 +498,8 @@ async fn build_document_chunks(
                             start_ms: r.try_get("start_ms").ok().flatten(),
                             end_ms: r.try_get("end_ms").ok().flatten(),
                             speaker_id: r.try_get("speaker_id").ok().flatten(),
-                        }
-                    })
+                        },
+                    )
                     .collect::<Vec<_>>();
 
                 let ctx = ChunkContext {
@@ -773,7 +773,11 @@ async fn build_card_chunks(repo: &Repository, document_id: &str) -> Vec<ChunkMod
     let location_type = document_location_type(repo, document_id).await;
     let mut out = Vec::new();
     for (ordinal, item) in items.iter().enumerate() {
-        if !repo.card_source_index_allowed(&item.id, document_id).await.unwrap_or(false) {
+        if !repo
+            .card_source_index_allowed(&item.id, document_id)
+            .await
+            .unwrap_or(false)
+        {
             continue;
         }
         let question = item
@@ -967,11 +971,14 @@ async fn embed_chunks(
         }
         // Only on-device and deterministic mocks prove local execution.
         // A configured Ollama URL may point to a remote machine.
-        let remote = !matches!(backend.kind(),
-            crate::ai_learning::embeddings_backend::EmbeddingBackendKind::OnDevice |
-            crate::ai_learning::embeddings_backend::EmbeddingBackendKind::Mock);
+        let remote = !matches!(
+            backend.kind(),
+            crate::ai_learning::embeddings_backend::EmbeddingBackendKind::OnDevice
+                | crate::ai_learning::embeddings_backend::EmbeddingBackendKind::Mock
+        );
         repo.ensure_document_ai_allowed(document_id, remote).await?;
-        repo.ensure_index_batch_sources_allowed(batch, document_id).await?;
+        repo.ensure_index_batch_sources_allowed(batch, document_id)
+            .await?;
         let vectors: Vec<Vec<f32>> = match backend.embed_texts(&texts).await {
             Ok(v) => v,
             Err(EmbeddingUnavailable { reason }) => {

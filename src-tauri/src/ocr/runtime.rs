@@ -62,9 +62,10 @@ fn get_state() -> &'static TokioMutex<GLMRuntimeState> {
 }
 
 fn runtime_root(app_handle: &AppHandle) -> Result<PathBuf> {
-    let app_dir = app_handle.path().app_data_dir().map_err(|e| {
-        PlethoraError::Internal(format!("Failed to resolve app data dir: {}", e))
-    })?;
+    let app_dir = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| PlethoraError::Internal(format!("Failed to resolve app data dir: {}", e)))?;
     Ok(app_dir.join("ocr").join("glm-runtime"))
 }
 
@@ -72,9 +73,8 @@ fn runtime_dirs(app_handle: &AppHandle) -> Result<(PathBuf, PathBuf)> {
     let root = runtime_root(app_handle)?;
     let installers = root.join("installers");
     let models = root.join("models");
-    std::fs::create_dir_all(&installers).map_err(|e| {
-        PlethoraError::Internal(format!("Failed to create installers dir: {}", e))
-    })?;
+    std::fs::create_dir_all(&installers)
+        .map_err(|e| PlethoraError::Internal(format!("Failed to create installers dir: {}", e)))?;
     std::fs::create_dir_all(&models)
         .map_err(|e| PlethoraError::Internal(format!("Failed to create models dir: {}", e)))?;
     Ok((installers, models))
@@ -200,10 +200,11 @@ pub async fn download_ollama_installer(app_handle: AppHandle) -> Result<String> 
     let temp_path = dest_path.with_extension("download");
 
     let client = reqwest::Client::new();
-    let response =
-        client.get(url).send().await.map_err(|e| {
-            PlethoraError::Internal(format!("Failed to download installer: {}", e))
-        })?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("Failed to download installer: {}", e)))?;
 
     if !response.status().is_success() {
         return Err(PlethoraError::Internal(format!(
@@ -214,14 +215,13 @@ pub async fn download_ollama_installer(app_handle: AppHandle) -> Result<String> 
 
     let total_size = response.content_length().unwrap_or(0);
     let mut downloaded: u64 = 0;
-    let mut file = tokio::fs::File::create(&temp_path).await.map_err(|e| {
-        PlethoraError::Internal(format!("Failed to create installer file: {}", e))
-    })?;
+    let mut file = tokio::fs::File::create(&temp_path)
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("Failed to create installer file: {}", e)))?;
 
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
-        let chunk =
-            chunk.map_err(|e| PlethoraError::Internal(format!("Download error: {}", e)))?;
+        let chunk = chunk.map_err(|e| PlethoraError::Internal(format!("Download error: {}", e)))?;
         file.write_all(&chunk)
             .await
             .map_err(|e| PlethoraError::Internal(format!("Write error: {}", e)))?;
@@ -269,9 +269,7 @@ pub async fn download_ollama_installer(_app_handle: AppHandle) -> Result<String>
 pub async fn open_installer(path: String) -> Result<()> {
     let installer_path = PathBuf::from(path);
     if !installer_path.exists() {
-        return Err(PlethoraError::Internal(
-            "Installer not found".to_string(),
-        ));
+        return Err(PlethoraError::Internal("Installer not found".to_string()));
     }
 
     #[cfg(target_os = "windows")]
@@ -393,9 +391,7 @@ pub async fn pull_ollama_model(
         }))
         .send()
         .await
-        .map_err(|e| {
-            PlethoraError::Internal(format!("Failed to call Ollama pull API: {}", e))
-        })?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to call Ollama pull API: {}", e)))?;
 
     if !response.status().is_success() {
         let status = response.status();

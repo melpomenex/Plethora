@@ -150,7 +150,12 @@ where
     event
 }
 
-fn ready_event(job_id: &str, document_id: &str, cache_key: &str, artifact: super::types::CachedArtifact) -> MediaCompatibilityJobEvent {
+fn ready_event(
+    job_id: &str,
+    document_id: &str,
+    cache_key: &str,
+    artifact: super::types::CachedArtifact,
+) -> MediaCompatibilityJobEvent {
     let now = event_timestamp();
     MediaCompatibilityJobEvent {
         schema_version: super::types::MEDIA_COMPAT_SCHEMA_VERSION,
@@ -183,12 +188,20 @@ fn cleanup_staging(root: &std::path::Path, job_id: &str) {
 
 fn finish_active(state: &MediaCompatState, job_id: &str, cache_key: &str, document_id: &str) {
     if let Ok(mut active) = state.active_by_key.lock() {
-        if active.get(cache_key).map(|id| id == job_id).unwrap_or(false) {
+        if active
+            .get(cache_key)
+            .map(|id| id == job_id)
+            .unwrap_or(false)
+        {
             active.remove(cache_key);
         }
     }
     if let Ok(mut active) = state.active_by_document.lock() {
-        if active.get(document_id).map(|id| id == job_id).unwrap_or(false) {
+        if active
+            .get(document_id)
+            .map(|id| id == job_id)
+            .unwrap_or(false)
+        {
             active.remove(document_id);
         }
     }
@@ -203,13 +216,8 @@ pub async fn start(
     repo: crate::database::Repository,
     request: StartMediaCompatibilityJobRequest,
 ) -> Result<MediaCompatibilityJobEvent, MediaCompatError> {
-    let canonical = authorized_document_path(
-        &app,
-        &repo,
-        &request.document_id,
-        &request.file_path,
-    )
-    .await?;
+    let canonical =
+        authorized_document_path(&app, &repo, &request.document_id, &request.file_path).await?;
     let inspection = inspect_authorized(&canonical, Some(&request.document_id), &repo).await?;
     let capabilities = capabilities::detect(false).await;
     let plan = decision::plan(
@@ -233,7 +241,9 @@ pub async fn start(
     }
     if !plan.can_convert {
         return Err(failure_for_reason(
-            plan.unavailable_reason.as_deref().unwrap_or("conversion_unavailable"),
+            plan.unavailable_reason
+                .as_deref()
+                .unwrap_or("conversion_unavailable"),
         ));
     }
     if plan.requires_consent && !request.consent_granted {
@@ -270,7 +280,12 @@ pub async fn start(
             .await;
         }
         let _ = crate::database::media_compat_repository::touch_artifact(&repo, &cache_key).await;
-        return Ok(ready_event(&format!("cache-{cache_key}"), &request.document_id, &cache_key, artifact));
+        return Ok(ready_event(
+            &format!("cache-{cache_key}"),
+            &request.document_id,
+            &cache_key,
+            artifact,
+        ));
     }
 
     if let Ok(active) = state.active_by_key.lock() {
@@ -311,7 +326,10 @@ pub async fn start(
         created_at: now.clone(),
         updated_at: now,
     };
-    let record = Arc::new(Mutex::new(JobRecord { event: event.clone(), cancel }));
+    let record = Arc::new(Mutex::new(JobRecord {
+        event: event.clone(),
+        cancel,
+    }));
     if let Ok(mut jobs) = state.jobs.lock() {
         jobs.insert(job_id.clone(), record.clone());
     }
@@ -346,7 +364,12 @@ pub async fn start(
                 event.state = MediaCompatibilityJobState::Cancelled;
                 event.phase = MediaCompatibilityJobPhase::Failed;
             });
-            finish_active(&task_state, &task_job_id, &task_cache_key, &task_document_id);
+            finish_active(
+                &task_state,
+                &task_job_id,
+                &task_cache_key,
+                &task_document_id,
+            );
             return;
         };
         if *cancel_rx.borrow() {
@@ -354,7 +377,12 @@ pub async fn start(
                 event.state = MediaCompatibilityJobState::Cancelled;
                 event.phase = MediaCompatibilityJobPhase::Failed;
             });
-            finish_active(&task_state, &task_job_id, &task_cache_key, &task_document_id);
+            finish_active(
+                &task_state,
+                &task_job_id,
+                &task_cache_key,
+                &task_document_id,
+            );
             return;
         }
 
@@ -374,11 +402,20 @@ pub async fn start(
                 event.phase = MediaCompatibilityJobPhase::Failed;
                 event.error = Some(failure.clone());
             });
-            finish_active(&task_state, &task_job_id, &task_cache_key, &task_document_id);
+            finish_active(
+                &task_state,
+                &task_job_id,
+                &task_cache_key,
+                &task_document_id,
+            );
             return;
         }
 
-        let container = task_plan.output.as_ref().map(|output| output.container.clone()).unwrap_or_else(|| "mkv".to_string());
+        let container = task_plan
+            .output
+            .as_ref()
+            .map(|output| output.container.clone())
+            .unwrap_or_else(|| "mkv".to_string());
         let output_file = format!("output.{}", cache::output_extension(&container));
         let output_path = staging.join(&output_file);
         let args = ffmpeg::build_args(&task_plan, &task_inspection, &canonical, &output_path);
@@ -420,7 +457,12 @@ pub async fn start(
                     event.phase = MediaCompatibilityJobPhase::Failed;
                     event.error = Some(error.clone());
                 });
-                finish_active(&task_state, &task_job_id, &task_cache_key, &task_document_id);
+                finish_active(
+                    &task_state,
+                    &task_job_id,
+                    &task_cache_key,
+                    &task_document_id,
+                );
                 return;
             }
         };
@@ -431,7 +473,12 @@ pub async fn start(
                 event.state = MediaCompatibilityJobState::Cancelled;
                 event.phase = MediaCompatibilityJobPhase::Failed;
             });
-            finish_active(&task_state, &task_job_id, &task_cache_key, &task_document_id);
+            finish_active(
+                &task_state,
+                &task_job_id,
+                &task_cache_key,
+                &task_document_id,
+            );
             return;
         }
         if run_result.exit_code != Some(0) {
@@ -446,7 +493,12 @@ pub async fn start(
                 event.phase = MediaCompatibilityJobPhase::Failed;
                 event.error = Some(error.clone());
             });
-            finish_active(&task_state, &task_job_id, &task_cache_key, &task_document_id);
+            finish_active(
+                &task_state,
+                &task_job_id,
+                &task_cache_key,
+                &task_document_id,
+            );
             return;
         }
 
@@ -463,11 +515,18 @@ pub async fn start(
                     event.phase = MediaCompatibilityJobPhase::Failed;
                     event.error = Some(error.clone());
                 });
-                finish_active(&task_state, &task_job_id, &task_cache_key, &task_document_id);
+                finish_active(
+                    &task_state,
+                    &task_job_id,
+                    &task_cache_key,
+                    &task_document_id,
+                );
                 return;
             }
         };
-        let size_bytes = std::fs::metadata(&output_path).map(|metadata| metadata.len()).unwrap_or(0);
+        let size_bytes = std::fs::metadata(&output_path)
+            .map(|metadata| metadata.len())
+            .unwrap_or(0);
         update_event(&record, &task_app, |event| {
             event.phase = MediaCompatibilityJobPhase::Publishing;
         });
@@ -497,7 +556,12 @@ pub async fn start(
                     event.phase = MediaCompatibilityJobPhase::Failed;
                     event.error = Some(error.clone());
                 });
-                finish_active(&task_state, &task_job_id, &task_cache_key, &task_document_id);
+                finish_active(
+                    &task_state,
+                    &task_job_id,
+                    &task_cache_key,
+                    &task_document_id,
+                );
                 return;
             }
         };
@@ -529,7 +593,12 @@ pub async fn start(
                 timeline_offset_seconds: 0.0,
             });
         });
-        finish_active(&task_state, &task_job_id, &task_cache_key, &task_document_id);
+        finish_active(
+            &task_state,
+            &task_job_id,
+            &task_cache_key,
+            &task_document_id,
+        );
     });
 
     Ok(event)
@@ -551,7 +620,10 @@ pub fn cache_usage(app: &tauri::AppHandle) -> Result<MediaCacheUsage, MediaCompa
     Ok(cache::usage(&root))
 }
 
-pub fn prune_cache(app: &tauri::AppHandle, limit_gb: u32) -> Result<MediaCacheUsage, MediaCompatError> {
+pub fn prune_cache(
+    app: &tauri::AppHandle,
+    limit_gb: u32,
+) -> Result<MediaCacheUsage, MediaCompatError> {
     let root = cache::cache_root(app)?;
     let limit = u64::from(limit_gb.clamp(5, 500)) * 1024 * 1024 * 1024;
     cache::prune(&root, limit)
@@ -565,7 +637,10 @@ pub async fn clear_cache(
     let root = cache::cache_root(app)?;
     let before = cache::usage(&root);
     for artifact in before.artifacts {
-        if document_id.map(|id| id != artifact.document_id).unwrap_or(false) {
+        if document_id
+            .map(|id| id != artifact.document_id)
+            .unwrap_or(false)
+        {
             continue;
         }
         let _ = crate::database::media_compat_repository::delete_artifact_record(
@@ -587,11 +662,17 @@ pub async fn artifact_url_path(
     let row = crate::database::media_compat_repository::get_artifact(repo, cache_key)
         .await
         .map_err(|error| {
-            MediaCompatError::new(MediaFailureCode::SourceNotFound, "The cached artifact is unavailable.")
-                .with_detail(error.to_string())
+            MediaCompatError::new(
+                MediaFailureCode::SourceNotFound,
+                "The cached artifact is unavailable.",
+            )
+            .with_detail(error.to_string())
         })?
         .ok_or_else(|| {
-            MediaCompatError::new(MediaFailureCode::SourceNotFound, "The cached artifact is unavailable.")
+            MediaCompatError::new(
+                MediaFailureCode::SourceNotFound,
+                "The cached artifact is unavailable.",
+            )
         })?;
     if row.document_id != document_id || row.state != "ready" {
         return Err(MediaCompatError::new(
@@ -601,11 +682,17 @@ pub async fn artifact_url_path(
     }
     let path = PathBuf::from(&row.output_path);
     let canonical_root = std::fs::canonicalize(&root).map_err(|error| {
-        MediaCompatError::new(MediaFailureCode::SourceNotFound, "The cache root is unavailable.")
-            .with_detail(error.to_string())
+        MediaCompatError::new(
+            MediaFailureCode::SourceNotFound,
+            "The cache root is unavailable.",
+        )
+        .with_detail(error.to_string())
     })?;
     let canonical = std::fs::canonicalize(&path).map_err(|_| {
-        MediaCompatError::new(MediaFailureCode::SourceNotFound, "The cached artifact is missing.")
+        MediaCompatError::new(
+            MediaFailureCode::SourceNotFound,
+            "The cached artifact is missing.",
+        )
     })?;
     if !canonical.starts_with(&canonical_root) {
         return Err(MediaCompatError::new(

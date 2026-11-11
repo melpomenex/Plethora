@@ -66,14 +66,11 @@ fn content_type_from_str(value: &str) -> Result<ContentType> {
 }
 
 fn profile_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<LanguageProfile> {
-    let preferences: ProfilePreferences = serde_json::from_str(
-        &row.try_get::<String, _>("preferences_json")?,
-    )
-    .unwrap_or_default();
-    let processing_config: ProcessingConfig = serde_json::from_str(
-        &row.try_get::<String, _>("processing_config_json")?,
-    )
-    .unwrap_or_default();
+    let preferences: ProfilePreferences =
+        serde_json::from_str(&row.try_get::<String, _>("preferences_json")?).unwrap_or_default();
+    let processing_config: ProcessingConfig =
+        serde_json::from_str(&row.try_get::<String, _>("processing_config_json")?)
+            .unwrap_or_default();
     Ok(LanguageProfile {
         id: row.try_get("id")?,
         account_id: row.try_get("account_id")?,
@@ -112,15 +109,23 @@ fn association_from_row(row: &sqlx::sqlite::SqliteRow) -> Result<LanguageProfile
 }
 
 fn language_matches(profile_language: &str, detected_language: &str) -> bool {
-    let profile_primary = profile_language.split('-').next().unwrap_or(profile_language);
-    let detected_primary = detected_language.split('-').next().unwrap_or(detected_language);
+    let profile_primary = profile_language
+        .split('-')
+        .next()
+        .unwrap_or(profile_language);
+    let detected_primary = detected_language
+        .split('-')
+        .next()
+        .unwrap_or(detected_language);
     profile_language.eq_ignore_ascii_case(detected_language)
         || profile_primary.eq_ignore_ascii_case(detected_primary)
 }
 
 fn ensure_nonempty(value: &str, label: &str) -> Result<()> {
     if value.trim().is_empty() {
-        return Err(PlethoraError::InvalidInput(format!("{label} cannot be empty")));
+        return Err(PlethoraError::InvalidInput(format!(
+            "{label} cannot be empty"
+        )));
     }
     Ok(())
 }
@@ -137,13 +142,11 @@ impl Repository {
             input.workspace_id.as_deref().or(workspace_id),
         );
         ensure_nonempty(&input.name, "Profile name")?;
-        let target_language = validate_bcp47(&input.target_language)
-            .map_err(PlethoraError::InvalidInput)?;
-        let base_language = validate_bcp47(&input.base_language)
-            .map_err(PlethoraError::InvalidInput)?;
-        let id = input
-            .id
-            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let target_language =
+            validate_bcp47(&input.target_language).map_err(PlethoraError::InvalidInput)?;
+        let base_language =
+            validate_bcp47(&input.base_language).map_err(PlethoraError::InvalidInput)?;
+        let id = input.id.unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let now = Utc::now().to_rfc3339();
         let preferences = serde_json::to_string(&input.preferences)?;
         let processing_config = serde_json::to_string(&input.processing_config)?;
@@ -173,7 +176,9 @@ impl Repository {
         })?;
         self.get_language_profile(&id, Some(&scope.account_id), Some(&scope.workspace_id))
             .await?
-            .ok_or_else(|| PlethoraError::Internal("Created profile could not be loaded".to_string()))
+            .ok_or_else(|| {
+                PlethoraError::Internal("Created profile could not be loaded".to_string())
+            })
     }
 
     pub async fn get_language_profiles(
@@ -248,7 +253,9 @@ impl Repository {
         .bind(target_language)
         .bind(base_language)
         .bind(input.proficiency.or(current.proficiency))
-        .bind(serde_json::to_string(&input.preferences.unwrap_or(current.preferences))?)
+        .bind(serde_json::to_string(
+            &input.preferences.unwrap_or(current.preferences),
+        )?)
         .bind(serde_json::to_string(
             &input.processing_config.unwrap_or(current.processing_config),
         )?)
@@ -411,7 +418,11 @@ impl Repository {
         let scope = normalize_scope(account_id, workspace_id);
         if let Some(profile_id) = profile_id {
             let profile = self
-                .get_language_profile(profile_id, Some(&scope.account_id), Some(&scope.workspace_id))
+                .get_language_profile(
+                    profile_id,
+                    Some(&scope.account_id),
+                    Some(&scope.workspace_id),
+                )
                 .await?
                 .ok_or_else(|| PlethoraError::NotFound(format!("Language profile {profile_id}")))?;
             if profile.lifecycle != ProfileLifecycle::Active {
@@ -451,14 +462,20 @@ impl Repository {
             query.push_str(" AND content_type = ?3");
         }
         if content_id.is_some() {
-            query.push_str(if content_type.is_some() { " AND content_id = ?4" } else { " AND content_id = ?3" });
+            query.push_str(if content_type.is_some() {
+                " AND content_id = ?4"
+            } else {
+                " AND content_id = ?3"
+            });
         }
         if profile_id.is_some() {
             let index = 3 + content_type.is_some() as usize + content_id.is_some() as usize;
             query.push_str(&format!(" AND profile_id = ?{index}"));
         }
         query.push_str(" ORDER BY updated_at DESC");
-        let mut request = sqlx::query(&query).bind(&scope.account_id).bind(&scope.workspace_id);
+        let mut request = sqlx::query(&query)
+            .bind(&scope.account_id)
+            .bind(&scope.workspace_id);
         if let Some(value) = content_type {
             ContentType::try_from(value).map_err(PlethoraError::InvalidInput)?;
             request = request.bind(value);
@@ -486,14 +503,23 @@ impl Repository {
         ensure_nonempty(&input.profile_id, "Profile ID")?;
         ensure_nonempty(&input.content_id, "Content ID")?;
         let profile = self
-            .get_language_profile(&input.profile_id, Some(&scope.account_id), Some(&scope.workspace_id))
+            .get_language_profile(
+                &input.profile_id,
+                Some(&scope.account_id),
+                Some(&scope.workspace_id),
+            )
             .await?
-            .ok_or_else(|| PlethoraError::NotFound(format!("Language profile {}", input.profile_id)))?;
+            .ok_or_else(|| {
+                PlethoraError::NotFound(format!("Language profile {}", input.profile_id))
+            })?;
         if profile.lifecycle == ProfileLifecycle::Deleted {
-            return Err(PlethoraError::InvalidInput("Deleted profile cannot be associated".to_string()));
+            return Err(PlethoraError::InvalidInput(
+                "Deleted profile cannot be associated".to_string(),
+            ));
         }
         let evidence = if let Some(mut evidence) = input.detection_evidence.clone() {
-            evidence.language = validate_bcp47(&evidence.language).map_err(PlethoraError::InvalidInput)?;
+            evidence.language =
+                validate_bcp47(&evidence.language).map_err(PlethoraError::InvalidInput)?;
             Some(evidence)
         } else {
             None
@@ -511,7 +537,10 @@ impl Repository {
             .next();
         let mode = match existing.as_ref().map(|association| &association.mode) {
             Some(AssociationMode::Enabled | AssociationMode::Disabled)
-                if matches!(input.mode, AssociationMode::Auto) => existing.as_ref().unwrap().mode.clone(),
+                if matches!(input.mode, AssociationMode::Auto) =>
+            {
+                existing.as_ref().unwrap().mode.clone()
+            }
             _ => input.mode.clone(),
         };
         let id = existing
@@ -541,7 +570,13 @@ impl Repository {
         .bind(&input.content_id)
         .bind(mode_to_str(&mode))
         .bind(evidence.as_ref().map(serde_json::to_string).transpose()?)
-        .bind(if input.suggestion_dismissed || matches!(mode, AssociationMode::Disabled) { 1i64 } else { 0 })
+        .bind(
+            if input.suggestion_dismissed || matches!(mode, AssociationMode::Disabled) {
+                1i64
+            } else {
+                0
+            },
+        )
         .bind(&created_at)
         .bind(&now)
         .execute(self.pool())
@@ -567,9 +602,11 @@ impl Repository {
         account_id: Option<&str>,
         workspace_id: Option<&str>,
     ) -> Result<Option<LanguageProfileSuggestion>> {
-        let content_type = ContentType::try_from(content_type).map_err(PlethoraError::InvalidInput)?;
+        let content_type =
+            ContentType::try_from(content_type).map_err(PlethoraError::InvalidInput)?;
         ensure_nonempty(content_id, "Content ID")?;
-        evidence.language = validate_bcp47(&evidence.language).map_err(PlethoraError::InvalidInput)?;
+        evidence.language =
+            validate_bcp47(&evidence.language).map_err(PlethoraError::InvalidInput)?;
         let scope = normalize_scope(account_id, workspace_id);
         let profiles = self
             .get_language_profiles(Some(&scope.account_id), Some(&scope.workspace_id))
@@ -592,8 +629,10 @@ impl Repository {
                 .into_iter()
                 .next();
             if association.is_some_and(|value| {
-                matches!(value.mode, AssociationMode::Enabled | AssociationMode::Disabled)
-                    || value.suggestion_dismissed
+                matches!(
+                    value.mode,
+                    AssociationMode::Enabled | AssociationMode::Disabled
+                ) || value.suggestion_dismissed
             }) {
                 continue;
             }
@@ -640,11 +679,16 @@ impl Repository {
         account_id: Option<&str>,
         workspace_id: Option<&str>,
     ) -> Result<Option<ResolvedLanguageProfileContext>> {
-        let content_type = ContentType::try_from(content_type).map_err(PlethoraError::InvalidInput)?;
+        let content_type =
+            ContentType::try_from(content_type).map_err(PlethoraError::InvalidInput)?;
         let scope = normalize_scope(account_id, workspace_id);
         if let Some(profile_id) = explicit_profile_id {
             let Some(profile) = self
-                .get_language_profile(profile_id, Some(&scope.account_id), Some(&scope.workspace_id))
+                .get_language_profile(
+                    profile_id,
+                    Some(&scope.account_id),
+                    Some(&scope.workspace_id),
+                )
                 .await?
             else {
                 return Ok(None);
@@ -723,14 +767,16 @@ impl Repository {
         workspace_id: Option<&str>,
     ) -> Result<LanguageProfileExport> {
         let scope = normalize_scope(account_id, workspace_id);
-        let profiles = sqlx::query("SELECT * FROM language_profiles WHERE account_id = ?1 AND workspace_id = ?2")
-            .bind(&scope.account_id)
-            .bind(&scope.workspace_id)
-            .fetch_all(self.pool())
-            .await?
-            .iter()
-            .map(profile_from_row)
-            .collect::<Result<Vec<_>>>()?;
+        let profiles = sqlx::query(
+            "SELECT * FROM language_profiles WHERE account_id = ?1 AND workspace_id = ?2",
+        )
+        .bind(&scope.account_id)
+        .bind(&scope.workspace_id)
+        .fetch_all(self.pool())
+        .await?
+        .iter()
+        .map(profile_from_row)
+        .collect::<Result<Vec<_>>>()?;
         let associations = self
             .get_language_profile_associations(
                 None,
@@ -766,23 +812,39 @@ impl Repository {
         workspace_id: Option<&str>,
     ) -> Result<LanguageProfileExport> {
         let scope = normalize_scope(account_id, workspace_id);
-        if export.scope.account_id != scope.account_id || export.scope.workspace_id != scope.workspace_id {
+        if export.scope.account_id != scope.account_id
+            || export.scope.workspace_id != scope.workspace_id
+        {
             return Err(PlethoraError::InvalidInput(
-                "Language profile import scope does not match the current account/workspace".to_string(),
+                "Language profile import scope does not match the current account/workspace"
+                    .to_string(),
             ));
         }
         if conflict == "replace" {
             sqlx::query("DELETE FROM language_profile_associations WHERE account_id = ?1 AND workspace_id = ?2")
                 .bind(&scope.account_id).bind(&scope.workspace_id).execute(self.pool()).await?;
-            sqlx::query("DELETE FROM language_profiles WHERE account_id = ?1 AND workspace_id = ?2")
-                .bind(&scope.account_id).bind(&scope.workspace_id).execute(self.pool()).await?;
+            sqlx::query(
+                "DELETE FROM language_profiles WHERE account_id = ?1 AND workspace_id = ?2",
+            )
+            .bind(&scope.account_id)
+            .bind(&scope.workspace_id)
+            .execute(self.pool())
+            .await?;
         } else if conflict != "merge" {
-            return Err(PlethoraError::InvalidInput("Conflict must be merge or replace".to_string()));
+            return Err(PlethoraError::InvalidInput(
+                "Conflict must be merge or replace".to_string(),
+            ));
         }
         for profile in export.profiles {
             validate_bcp47(&profile.target_language).map_err(PlethoraError::InvalidInput)?;
             validate_bcp47(&profile.base_language).map_err(PlethoraError::InvalidInput)?;
-            let existing = self.get_language_profile(&profile.id, Some(&scope.account_id), Some(&scope.workspace_id)).await?;
+            let existing = self
+                .get_language_profile(
+                    &profile.id,
+                    Some(&scope.account_id),
+                    Some(&scope.workspace_id),
+                )
+                .await?;
             if existing.is_some_and(|value| value.updated_at > profile.updated_at) {
                 continue;
             }
@@ -802,17 +864,34 @@ impl Repository {
             .execute(self.pool()).await?;
         }
         for association in export.associations {
-            let existing = self.get_language_profile_associations(
-                Some(association.content_type.as_str()), Some(&association.content_id), Some(&association.profile_id),
-                Some(&scope.account_id), Some(&scope.workspace_id),
-            ).await?.into_iter().next();
-            if existing.as_ref().is_some_and(|value| value.updated_at > association.updated_at) {
+            let existing = self
+                .get_language_profile_associations(
+                    Some(association.content_type.as_str()),
+                    Some(&association.content_id),
+                    Some(&association.profile_id),
+                    Some(&scope.account_id),
+                    Some(&scope.workspace_id),
+                )
+                .await?
+                .into_iter()
+                .next();
+            if existing
+                .as_ref()
+                .is_some_and(|value| value.updated_at > association.updated_at)
+            {
                 continue;
             }
-            let mode = if existing.as_ref().is_some_and(|value| matches!(value.mode, AssociationMode::Enabled | AssociationMode::Disabled))
-                && matches!(association.mode, AssociationMode::Auto) {
+            let mode = if existing.as_ref().is_some_and(|value| {
+                matches!(
+                    value.mode,
+                    AssociationMode::Enabled | AssociationMode::Disabled
+                )
+            }) && matches!(association.mode, AssociationMode::Auto)
+            {
                 existing.unwrap().mode
-            } else { association.mode.clone() };
+            } else {
+                association.mode.clone()
+            };
             sqlx::query(
                 "INSERT INTO language_profile_associations (id, account_id, workspace_id, profile_id, content_type, content_id,
                  mode, detection_evidence_json, suggestion_dismissed, created_at, updated_at, version)
@@ -829,13 +908,32 @@ impl Repository {
             .execute(self.pool()).await?;
         }
         if let Some(active_profile_id) = export.active_profile_id.as_deref() {
-            if self.get_language_profile(active_profile_id, Some(&scope.account_id), Some(&scope.workspace_id)).await?.is_some() {
-                self.set_active_language_profile(Some(active_profile_id), Some(&scope.account_id), Some(&scope.workspace_id)).await?;
+            if self
+                .get_language_profile(
+                    active_profile_id,
+                    Some(&scope.account_id),
+                    Some(&scope.workspace_id),
+                )
+                .await?
+                .is_some()
+            {
+                self.set_active_language_profile(
+                    Some(active_profile_id),
+                    Some(&scope.account_id),
+                    Some(&scope.workspace_id),
+                )
+                .await?;
             }
         } else if conflict == "replace" {
-            self.set_active_language_profile(None, Some(&scope.account_id), Some(&scope.workspace_id)).await?;
+            self.set_active_language_profile(
+                None,
+                Some(&scope.account_id),
+                Some(&scope.workspace_id),
+            )
+            .await?;
         }
-        self.export_language_profiles(Some(&scope.account_id), Some(&scope.workspace_id)).await
+        self.export_language_profiles(Some(&scope.account_id), Some(&scope.workspace_id))
+            .await
     }
 
     pub async fn serialize_language_profiles_for_sync(
@@ -843,7 +941,9 @@ impl Repository {
         account_id: Option<&str>,
         workspace_id: Option<&str>,
     ) -> Result<LanguageProfileSyncEnvelope> {
-        let export = self.export_language_profiles(account_id, workspace_id).await?;
+        let export = self
+            .export_language_profiles(account_id, workspace_id)
+            .await?;
         Ok(LanguageProfileSyncEnvelope {
             schema_version: export.schema_version,
             scope: export.scope,
@@ -869,7 +969,14 @@ impl Repository {
             profiles: envelope.profiles,
             associations: envelope.associations,
         };
-        let result = self.import_language_profiles(export, "merge", Some(&scope.account_id), Some(&scope.workspace_id)).await?;
+        let result = self
+            .import_language_profiles(
+                export,
+                "merge",
+                Some(&scope.account_id),
+                Some(&scope.workspace_id),
+            )
+            .await?;
         Ok(LanguageProfileSyncEnvelope {
             schema_version: result.schema_version,
             scope: result.scope,
@@ -888,7 +995,9 @@ mod tests {
     use std::path::PathBuf;
 
     async fn repository() -> Repository {
-        let database = Database::new(PathBuf::from(":memory:")).await.expect("database");
+        let database = Database::new(PathBuf::from(":memory:"))
+            .await
+            .expect("database");
         database.migrate().await.expect("migrations");
         Repository::new(database.pool().clone())
     }
@@ -905,16 +1014,30 @@ mod tests {
     #[tokio::test]
     async fn profile_and_association_round_trip_preserves_explicit_mode() {
         let repo = repository().await;
-        let profile = repo.create_language_profile(profile("Spanish", "es"), None, None).await.unwrap();
-        let association = repo.upsert_language_profile_association(LanguageProfileAssociationInput {
-            profile_id: profile.id.clone(),
-            content_type: ContentType::Document,
-            content_id: "doc-1".to_string(),
-            mode: AssociationMode::Enabled,
-            ..Default::default()
-        }, None, None).await.unwrap();
+        let profile = repo
+            .create_language_profile(profile("Spanish", "es"), None, None)
+            .await
+            .unwrap();
+        let association = repo
+            .upsert_language_profile_association(
+                LanguageProfileAssociationInput {
+                    profile_id: profile.id.clone(),
+                    content_type: ContentType::Document,
+                    content_id: "doc-1".to_string(),
+                    mode: AssociationMode::Enabled,
+                    ..Default::default()
+                },
+                None,
+                None,
+            )
+            .await
+            .unwrap();
         assert_eq!(association.mode, AssociationMode::Enabled);
-        assert!(repo.resolve_language_profile_context("document", "doc-1", None, None, None).await.unwrap().is_some());
+        assert!(repo
+            .resolve_language_profile_context("document", "doc-1", None, None, None)
+            .await
+            .unwrap()
+            .is_some());
     }
 
     #[tokio::test]
@@ -922,13 +1045,46 @@ mod tests {
         let repo = repository().await;
         sqlx::query("INSERT INTO documents (id, title, file_path, file_type, date_added, date_modified) VALUES ('doc-1', 'Doc', '/tmp/doc', 'html', '2026-01-01', '2026-01-01')").execute(repo.pool()).await.unwrap();
         sqlx::query("INSERT INTO learning_items (id, document_id, item_type, question, due_date, date_created, date_modified) VALUES ('item-1', 'doc-1', 'basic', 'q', '2026-01-01', '2026-01-01', '2026-01-01')").execute(repo.pool()).await.unwrap();
-        let profile = repo.create_language_profile(profile("Spanish", "es"), None, None).await.unwrap();
-        repo.upsert_language_profile_association(LanguageProfileAssociationInput { profile_id: profile.id.clone(), content_type: ContentType::Document, content_id: "doc-1".into(), mode: AssociationMode::Enabled, ..Default::default() }, None, None).await.unwrap();
-        let report = repo.delete_language_profile(&profile.id, None, None).await.unwrap();
+        let profile = repo
+            .create_language_profile(profile("Spanish", "es"), None, None)
+            .await
+            .unwrap();
+        repo.upsert_language_profile_association(
+            LanguageProfileAssociationInput {
+                profile_id: profile.id.clone(),
+                content_type: ContentType::Document,
+                content_id: "doc-1".into(),
+                mode: AssociationMode::Enabled,
+                ..Default::default()
+            },
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+        let report = repo
+            .delete_language_profile(&profile.id, None, None)
+            .await
+            .unwrap();
         assert_eq!(report.removed_associations, 1);
         assert_eq!(report.retained_documents, 1);
         assert_eq!(report.retained_learning_items, 1);
-        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM documents WHERE id = 'doc-1'").fetch_one(repo.pool()).await.unwrap(), 1);
-        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM language_profile_associations WHERE profile_id = ?1").bind(&profile.id).fetch_one(repo.pool()).await.unwrap(), 0);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM documents WHERE id = 'doc-1'")
+                .fetch_one(repo.pool())
+                .await
+                .unwrap(),
+            1
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM language_profile_associations WHERE profile_id = ?1"
+            )
+            .bind(&profile.id)
+            .fetch_one(repo.pool())
+            .await
+            .unwrap(),
+            0
+        );
     }
 }

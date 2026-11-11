@@ -202,7 +202,13 @@ pub fn usage(root: &Path) -> MediaCacheUsage {
     if let Ok(entries) = std::fs::read_dir(root) {
         for entry in entries.flatten() {
             let path = entry.path();
-            if !path.is_dir() || path.file_name().and_then(|name| name.to_str()).map(|name| name.starts_with('.')).unwrap_or(true) {
+            if !path.is_dir()
+                || path
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .map(|name| name.starts_with('.'))
+                    .unwrap_or(true)
+            {
                 continue;
             }
             let Some(key) = path.file_name().and_then(|name| name.to_str()) else {
@@ -212,7 +218,9 @@ pub fn usage(root: &Path) -> MediaCacheUsage {
                 continue;
             };
             let output = path.join(&manifest.output_file);
-            let size = std::fs::metadata(&output).map(|metadata| metadata.len()).unwrap_or(0);
+            let size = std::fs::metadata(&output)
+                .map(|metadata| metadata.len())
+                .unwrap_or(0);
             if size == 0 {
                 continue;
             }
@@ -248,7 +256,10 @@ pub fn clear(root: &Path, document_id: Option<&str>) -> Result<MediaCacheUsage, 
             let Some(manifest) = read_manifest(root, key) else {
                 continue;
             };
-            if document_id.map(|id| id != manifest.document_id).unwrap_or(false) {
+            if document_id
+                .map(|id| id != manifest.document_id)
+                .unwrap_or(false)
+            {
                 continue;
             }
             let _ = std::fs::remove_dir_all(&path);

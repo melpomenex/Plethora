@@ -312,10 +312,7 @@ pub(crate) fn media_error_response(
         header::CONTENT_TYPE,
         HeaderValue::from_static("application/json"),
     );
-    headers.insert(
-        MEDIA_ERROR_HEADER,
-        HeaderValue::from_static(code),
-    );
+    headers.insert(MEDIA_ERROR_HEADER, HeaderValue::from_static(code));
     if let Some(content_range) = content_range {
         if let Ok(value) = HeaderValue::from_str(&content_range) {
             headers.insert(header::CONTENT_RANGE, value);
@@ -1016,8 +1013,7 @@ mod tests {
     #[tokio::test]
     async fn granted_path_outside_app_roots_streams() {
         let bytes = b"granted-audiobook-bytes";
-        let allowed_root =
-            std::env::temp_dir().join(format!("plethora-media-{}", Uuid::new_v4()));
+        let allowed_root = std::env::temp_dir().join(format!("plethora-media-{}", Uuid::new_v4()));
         fs::create_dir_all(&allowed_root).expect("create allowed root");
         // The file lives in a sibling directory that is NOT under the allowed
         // root — this is the desktop "imported in place" case.
@@ -1054,8 +1050,7 @@ mod tests {
 
     #[tokio::test]
     async fn ungranted_path_outside_app_roots_is_refused_with_403() {
-        let allowed_root =
-            std::env::temp_dir().join(format!("plethora-media-{}", Uuid::new_v4()));
+        let allowed_root = std::env::temp_dir().join(format!("plethora-media-{}", Uuid::new_v4()));
         fs::create_dir_all(&allowed_root).expect("create allowed root");
         let library_root =
             std::env::temp_dir().join(format!("plethora-library-{}", Uuid::new_v4()));
@@ -1200,8 +1195,7 @@ mod tests {
 
     #[tokio::test]
     async fn unauthorized_request_has_machine_readable_code() {
-        let allowed_root =
-            std::env::temp_dir().join(format!("plethora-media-{}", Uuid::new_v4()));
+        let allowed_root = std::env::temp_dir().join(format!("plethora-media-{}", Uuid::new_v4()));
         fs::create_dir_all(&allowed_root).expect("create allowed root");
         let library_root =
             std::env::temp_dir().join(format!("plethora-library-{}", Uuid::new_v4()));
@@ -1224,10 +1218,7 @@ mod tests {
             .await
             .expect("response");
         assert_eq!(response.status(), StatusCode::FORBIDDEN);
-        assert_eq!(
-            response.headers()[&MEDIA_ERROR_HEADER],
-            "media_forbidden"
-        );
+        assert_eq!(response.headers()[&MEDIA_ERROR_HEADER], "media_forbidden");
         fs::remove_dir_all(allowed_root).expect("cleanup allowed root");
         fs::remove_dir_all(library_root).expect("cleanup library root");
     }

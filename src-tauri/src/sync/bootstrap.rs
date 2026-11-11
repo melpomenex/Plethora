@@ -157,8 +157,8 @@ pub async fn bootstrap_upload_scan(pool: &Pool<Sqlite>) -> Result<BootstrapProgr
             };
             // Append-only histories (review results) must stage as appends;
             // everything else re-stages as a whole-entity update.
-            let staging_op = super::registry::staging_operation(entity_type)
-                .unwrap_or(SyncOperation::Update);
+            let staging_op =
+                super::registry::staging_operation(entity_type).unwrap_or(SyncOperation::Update);
             journal_entity(
                 &mut tx,
                 entity_type,
@@ -447,10 +447,12 @@ mod tests {
         seed_review_environment(&pool).await;
 
         // Bind 7 (not 7.0) so SQLite stores the INTEGER storage class.
-        let storage: String = sqlx::query_scalar("SELECT typeof(new_interval) FROM review_results WHERE id = 'rev-1'")
-            .fetch_one(&pool)
-            .await
-            .expect("storage class");
+        let storage: String = sqlx::query_scalar(
+            "SELECT typeof(new_interval) FROM review_results WHERE id = 'rev-1'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("storage class");
         assert_eq!(storage, "integer");
 
         let mut tx = pool.begin().await.expect("begin");

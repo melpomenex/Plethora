@@ -14,12 +14,16 @@ fn from_row(row: &SqliteRow) -> Result<LanguagePracticeAttempt> {
         status: row.try_get("status")?,
         source_type: row.try_get("source_type")?,
         source_id: row.try_get("source_id")?,
-        source_anchor: row.try_get::<Option<String>, _>("source_anchor_json")?.and_then(|value| serde_json::from_str(&value).ok()),
+        source_anchor: row
+            .try_get::<Option<String>, _>("source_anchor_json")?
+            .and_then(|value| serde_json::from_str(&value).ok()),
         source_fingerprint: row.try_get("source_fingerprint")?,
         prompt_text: row.try_get("prompt_text")?,
         raw_response: row.try_get("raw_response")?,
         normalized_response: row.try_get("normalized_response")?,
-        comparison: row.try_get::<Option<String>, _>("comparison_json")?.and_then(|value| serde_json::from_str(&value).ok()),
+        comparison: row
+            .try_get::<Option<String>, _>("comparison_json")?
+            .and_then(|value| serde_json::from_str(&value).ok()),
         provider_id: row.try_get("provider_id")?,
         provider_version: row.try_get("provider_version")?,
         privacy_mode: row.try_get("privacy_mode")?,
@@ -35,13 +39,22 @@ fn from_row(row: &SqliteRow) -> Result<LanguagePracticeAttempt> {
 }
 
 fn json(value: &Option<serde_json::Value>) -> Result<Option<String>> {
-    value.as_ref().map(serde_json::to_string).transpose().map_err(Into::into)
+    value
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(Into::into)
 }
 
 impl Repository {
-    pub async fn upsert_language_practice_attempt(&self, mut attempt: LanguagePracticeAttempt) -> Result<LanguagePracticeAttempt> {
+    pub async fn upsert_language_practice_attempt(
+        &self,
+        mut attempt: LanguagePracticeAttempt,
+    ) -> Result<LanguagePracticeAttempt> {
         let now = Utc::now().timestamp();
-        if attempt.created_at <= 0 { attempt.created_at = now; }
+        if attempt.created_at <= 0 {
+            attempt.created_at = now;
+        }
         attempt.updated_at = now;
         sqlx::query(
             "INSERT INTO language_practice_attempts
@@ -65,16 +78,31 @@ impl Repository {
         .bind(attempt.retention_expires_at).bind(if attempt.active_evidence_accepted { 1i64 } else { 0 })
         .bind(if attempt.revealed { 1i64 } else { 0 }).bind(&attempt.media_id).bind(attempt.start_ms).bind(attempt.end_ms)
         .bind(attempt.created_at).bind(attempt.updated_at).execute(self.pool()).await?;
-        self.get_language_practice_attempt(&attempt.profile_id, &attempt.id).await
+        self.get_language_practice_attempt(&attempt.profile_id, &attempt.id)
+            .await
     }
 
-    pub async fn get_language_practice_attempt(&self, profile_id: &str, id: &str) -> Result<LanguagePracticeAttempt> {
-        let row = sqlx::query("SELECT * FROM language_practice_attempts WHERE profile_id = ?1 AND id = ?2")
-            .bind(profile_id).bind(id).fetch_one(self.pool()).await?;
+    pub async fn get_language_practice_attempt(
+        &self,
+        profile_id: &str,
+        id: &str,
+    ) -> Result<LanguagePracticeAttempt> {
+        let row = sqlx::query(
+            "SELECT * FROM language_practice_attempts WHERE profile_id = ?1 AND id = ?2",
+        )
+        .bind(profile_id)
+        .bind(id)
+        .fetch_one(self.pool())
+        .await?;
         from_row(&row)
     }
 
-    pub async fn list_language_practice_attempts(&self, profile_id: &str, source_id: Option<&str>, limit: i64) -> Result<Vec<LanguagePracticeAttempt>> {
+    pub async fn list_language_practice_attempts(
+        &self,
+        profile_id: &str,
+        source_id: Option<&str>,
+        limit: i64,
+    ) -> Result<Vec<LanguagePracticeAttempt>> {
         let rows = if let Some(source_id) = source_id {
             sqlx::query("SELECT * FROM language_practice_attempts WHERE profile_id = ?1 AND source_id = ?2 ORDER BY created_at DESC LIMIT ?3")
                 .bind(profile_id).bind(source_id).bind(limit.clamp(1, 200)).fetch_all(self.pool()).await?
@@ -85,19 +113,34 @@ impl Repository {
         rows.iter().map(from_row).collect()
     }
 
-    pub async fn delete_language_practice_attempt(&self, profile_id: &str, id: &str) -> Result<bool> {
-        let result = sqlx::query("DELETE FROM language_practice_attempts WHERE profile_id = ?1 AND id = ?2")
-            .bind(profile_id).bind(id).execute(self.pool()).await?;
+    pub async fn delete_language_practice_attempt(
+        &self,
+        profile_id: &str,
+        id: &str,
+    ) -> Result<bool> {
+        let result =
+            sqlx::query("DELETE FROM language_practice_attempts WHERE profile_id = ?1 AND id = ?2")
+                .bind(profile_id)
+                .bind(id)
+                .execute(self.pool())
+                .await?;
         Ok(result.rows_affected() > 0)
     }
 
-    pub async fn purge_expired_language_practice_attempts(&self, profile_id: &str, now: i64) -> Result<i64> {
+    pub async fn purge_expired_language_practice_attempts(
+        &self,
+        profile_id: &str,
+        now: i64,
+    ) -> Result<i64> {
         let result = sqlx::query("DELETE FROM language_practice_attempts WHERE profile_id = ?1 AND retention_expires_at IS NOT NULL AND retention_expires_at <= ?2")
             .bind(profile_id).bind(now).execute(self.pool()).await?;
         Ok(result.rows_affected() as i64)
     }
 
-    pub async fn export_language_practice_attempts(&self, profile_id: &str) -> Result<Vec<LanguagePracticeAttempt>> {
+    pub async fn export_language_practice_attempts(
+        &self,
+        profile_id: &str,
+    ) -> Result<Vec<LanguagePracticeAttempt>> {
         let rows = sqlx::query("SELECT * FROM language_practice_attempts WHERE profile_id = ?1 ORDER BY created_at ASC")
             .bind(profile_id).fetch_all(self.pool()).await?;
         rows.iter().map(from_row).collect()
@@ -112,7 +155,9 @@ mod tests {
     use std::path::PathBuf;
 
     async fn repository() -> Repository {
-        let database = Database::new(PathBuf::from(":memory:")).await.expect("database");
+        let database = Database::new(PathBuf::from(":memory:"))
+            .await
+            .expect("database");
         database.migrate().await.expect("migrations");
         Repository::new(database.pool().clone())
     }
@@ -156,27 +201,53 @@ mod tests {
         let repo = repository().await;
         let profile_id = create_profile_id(&repo).await;
         let attempt = sample_attempt(&profile_id, "attempt-1", "doc-1");
-        let saved = repo.upsert_language_practice_attempt(attempt).await.unwrap();
+        let saved = repo
+            .upsert_language_practice_attempt(attempt)
+            .await
+            .unwrap();
         assert_eq!(saved.id, "attempt-1");
         assert_eq!(saved.raw_response.as_deref(), Some("hola"));
-        let loaded = repo.get_language_practice_attempt(&profile_id, "attempt-1").await.unwrap();
+        let loaded = repo
+            .get_language_practice_attempt(&profile_id, "attempt-1")
+            .await
+            .unwrap();
         assert_eq!(loaded.prompt_text, "Hola");
-        assert_eq!(loaded.comparison.as_ref().and_then(|value| value.get("exact")).and_then(|value| value.as_bool()), Some(true));
+        assert_eq!(
+            loaded
+                .comparison
+                .as_ref()
+                .and_then(|value| value.get("exact"))
+                .and_then(|value| value.as_bool()),
+            Some(true)
+        );
     }
 
     #[tokio::test]
     async fn list_filters_by_source_and_delete_removes_attempt() {
         let repo = repository().await;
         let profile_id = create_profile_id(&repo).await;
-        repo.upsert_language_practice_attempt(sample_attempt(&profile_id, "attempt-1", "doc-1")).await.unwrap();
-        repo.upsert_language_practice_attempt(sample_attempt(&profile_id, "attempt-2", "doc-2")).await.unwrap();
+        repo.upsert_language_practice_attempt(sample_attempt(&profile_id, "attempt-1", "doc-1"))
+            .await
+            .unwrap();
+        repo.upsert_language_practice_attempt(sample_attempt(&profile_id, "attempt-2", "doc-2"))
+            .await
+            .unwrap();
 
-        let filtered = repo.list_language_practice_attempts(&profile_id, Some("doc-1"), 10).await.unwrap();
+        let filtered = repo
+            .list_language_practice_attempts(&profile_id, Some("doc-1"), 10)
+            .await
+            .unwrap();
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].id, "attempt-1");
 
-        assert!(repo.delete_language_practice_attempt(&profile_id, "attempt-1").await.unwrap());
-        let remaining = repo.list_language_practice_attempts(&profile_id, None, 10).await.unwrap();
+        assert!(repo
+            .delete_language_practice_attempt(&profile_id, "attempt-1")
+            .await
+            .unwrap());
+        let remaining = repo
+            .list_language_practice_attempts(&profile_id, None, 10)
+            .await
+            .unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].id, "attempt-2");
     }
@@ -189,12 +260,20 @@ mod tests {
         expired.retention_expires_at = Some(100);
         let mut fresh = sample_attempt(&profile_id, "fresh", "doc-1");
         fresh.retention_expires_at = Some(9_999);
-        repo.upsert_language_practice_attempt(expired).await.unwrap();
+        repo.upsert_language_practice_attempt(expired)
+            .await
+            .unwrap();
         repo.upsert_language_practice_attempt(fresh).await.unwrap();
 
-        let removed = repo.purge_expired_language_practice_attempts(&profile_id, 500).await.unwrap();
+        let removed = repo
+            .purge_expired_language_practice_attempts(&profile_id, 500)
+            .await
+            .unwrap();
         assert_eq!(removed, 1);
-        let exported = repo.export_language_practice_attempts(&profile_id).await.unwrap();
+        let exported = repo
+            .export_language_practice_attempts(&profile_id)
+            .await
+            .unwrap();
         assert_eq!(exported.len(), 1);
         assert_eq!(exported[0].id, "fresh");
     }

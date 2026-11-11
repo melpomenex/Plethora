@@ -97,7 +97,8 @@ mod convergence {
             created_at: 1,
             sync_status: super::super::types::SyncOutboxStatus::Pending,
         };
-        let wire_a = outbox_entry_to_wire(&entry_a, "device-a", "acct", Some(&TEST_MASTER_KEY), 1).expect("wire");
+        let wire_a = outbox_entry_to_wire(&entry_a, "device-a", "acct", Some(&TEST_MASTER_KEY), 1)
+            .expect("wire");
         let (accepted_a, _) = server.push(vec![wire_a]);
         assert_eq!(accepted_a, 1);
 
@@ -106,7 +107,8 @@ mod convergence {
         entry_b.hlc = "1001:0".to_string();
         entry_b.payload = br#"{"id":"rev-2","item_id":"item-1","collection_id":"col-1","rating":2,"time_taken":4,"new_due_date":"2026-01-02T00:00:00Z","new_interval":0.5,"new_ease_factor":2.3,"reviewed_at_ms":2000,"device_id":"device-b","session_id":null}"#.to_vec();
         entry_b.entity_id = "rev-2".to_string();
-        let wire_b = outbox_entry_to_wire(&entry_b, "device-b", "acct", Some(&TEST_MASTER_KEY), 1).expect("wire");
+        let wire_b = outbox_entry_to_wire(&entry_b, "device-b", "acct", Some(&TEST_MASTER_KEY), 1)
+            .expect("wire");
         let (accepted_b, latest) = server.push(vec![wire_b]);
         assert_eq!(accepted_b, 1);
 
@@ -117,7 +119,9 @@ mod convergence {
 
         let decoded: Vec<_> = page
             .into_iter()
-            .map(|(wire, seq)| decode_remote_record(&wire, seq, "acct", Some(&TEST_MASTER_KEY), 1).expect("decode"))
+            .map(|(wire, seq)| {
+                decode_remote_record(&wire, seq, "acct", Some(&TEST_MASTER_KEY), 1).expect("decode")
+            })
             .collect();
         assert_eq!(decoded.len(), 2);
         assert!(decoded.iter().any(|record| record.device_id == "device-a"));
@@ -138,7 +142,8 @@ mod convergence {
             created_at: 1,
             sync_status: super::super::types::SyncOutboxStatus::Pending,
         };
-        let wire = outbox_entry_to_wire(&entry, "device-a", "acct", Some(&TEST_MASTER_KEY), 1).expect("wire");
+        let wire = outbox_entry_to_wire(&entry, "device-a", "acct", Some(&TEST_MASTER_KEY), 1)
+            .expect("wire");
         let (first, _) = server.push(vec![wire.clone()]);
         let (second, _) = server.push(vec![wire]);
         assert_eq!(first, 1);
@@ -160,12 +165,14 @@ mod convergence {
             created_at: 1,
             sync_status: super::super::types::SyncOutboxStatus::Pending,
         };
-        let wire = outbox_entry_to_wire(&entry, "device-a", "acct", Some(&TEST_MASTER_KEY), 1).expect("wire");
+        let wire = outbox_entry_to_wire(&entry, "device-a", "acct", Some(&TEST_MASTER_KEY), 1)
+            .expect("wire");
         let (accepted, _) = server.push(vec![wire]);
         assert_eq!(accepted, 1);
         let (page, _, _) = server.pull(0);
         assert_eq!(page.len(), 1);
-        let remote = decode_remote_record(&page[0].0, page[0].1, "acct", Some(&TEST_MASTER_KEY), 1).expect("decode");
+        let remote = decode_remote_record(&page[0].0, page[0].1, "acct", Some(&TEST_MASTER_KEY), 1)
+            .expect("decode");
         assert_eq!(remote.operation, Some(SyncOperation::Delete));
     }
 
@@ -179,8 +186,8 @@ mod convergence {
         let mut server = MockSyncServer::new();
 
         let payload = br#"{"schema_version":1,"entity_type":"learning_item","id":"item-1","collection_id":"col-1","question":"Q","answer":"A","due_date":"2026-01-01T00:00:00Z","algorithm_type":"fsrs","updated_at":null}"#;
-        let make_entry = |change_id: &str, entity_id: &str, hlc: &str| {
-            super::super::types::OutboxEntry {
+        let make_entry =
+            |change_id: &str, entity_id: &str, hlc: &str| super::super::types::OutboxEntry {
                 change_id: change_id.to_string(),
                 entity_type: EntityType::LearningItem,
                 entity_id: entity_id.to_string(),
@@ -190,8 +197,7 @@ mod convergence {
                 hlc: hlc.to_string(),
                 created_at: 1,
                 sync_status: super::super::types::SyncOutboxStatus::Pending,
-            }
-        };
+            };
 
         let good = outbox_entry_to_wire(
             &make_entry("change-good", "item-good", "4000:0"),

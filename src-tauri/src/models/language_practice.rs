@@ -35,12 +35,29 @@ pub struct LanguagePracticeAttempt {
 impl Default for LanguagePracticeAttempt {
     fn default() -> Self {
         Self {
-            id: String::new(), profile_id: String::new(), mode: "dictation".into(), status: "prompted".into(),
-            source_type: None, source_id: None, source_anchor: None, source_fingerprint: None,
-            prompt_text: String::new(), raw_response: None, normalized_response: None,
-            comparison: None, provider_id: None, provider_version: None,
-            privacy_mode: "local-only".into(), retention_expires_at: None,
-            active_evidence_accepted: false, revealed: false, media_id: None, start_ms: None, end_ms: None, created_at: 0, updated_at: 0,
+            id: String::new(),
+            profile_id: String::new(),
+            mode: "dictation".into(),
+            status: "prompted".into(),
+            source_type: None,
+            source_id: None,
+            source_anchor: None,
+            source_fingerprint: None,
+            prompt_text: String::new(),
+            raw_response: None,
+            normalized_response: None,
+            comparison: None,
+            provider_id: None,
+            provider_version: None,
+            privacy_mode: "local-only".into(),
+            retention_expires_at: None,
+            active_evidence_accepted: false,
+            revealed: false,
+            media_id: None,
+            start_ms: None,
+            end_ms: None,
+            created_at: 0,
+            updated_at: 0,
         }
     }
 }

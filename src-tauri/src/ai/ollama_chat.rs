@@ -239,7 +239,12 @@ pub fn sanitize_ollama_error(
 }
 
 /// Privacy-safe debug log fields for an Ollama send boundary.
-pub fn log_ollama_send(provider: &str, model: &str, policy: &LlmRequestPolicy, estimated_prompt: usize) {
+pub fn log_ollama_send(
+    provider: &str,
+    model: &str,
+    policy: &LlmRequestPolicy,
+    estimated_prompt: usize,
+) {
     tracing::debug!(
         provider,
         model,
@@ -268,7 +273,11 @@ pub fn parse_ollama_show_details(payload: &Value) -> OllamaModelDetails {
         for line in parameters.lines() {
             let line = line.trim();
             let mut parts = line.split_whitespace();
-            if parts.next().map(|k| k.eq_ignore_ascii_case("num_ctx")).unwrap_or(false) {
+            if parts
+                .next()
+                .map(|k| k.eq_ignore_ascii_case("num_ctx"))
+                .unwrap_or(false)
+            {
                 if let Some(value) = parts.next().and_then(|v| v.parse::<usize>().ok()) {
                     details.default_num_ctx = Some(value);
                 }
@@ -362,7 +371,9 @@ mod tests {
     #[test]
     fn classify_context_overflow_vs_oom() {
         assert_eq!(
-            classify_ollama_error("request (8581 tokens) exceeds the available context size (4096 tokens)"),
+            classify_ollama_error(
+                "request (8581 tokens) exceeds the available context size (4096 tokens)"
+            ),
             OllamaErrorKind::ContextOverflow
         );
         assert_eq!(

@@ -198,9 +198,7 @@ fn resolve_url(request: &DaqeHttpRequest) -> Result<String> {
 /// provider added to one path cannot be missing from the other.
 pub(crate) fn resolve_provider_url(config: &DecisionConfig) -> Result<String> {
     let provider = config.provider.ok_or_else(|| {
-        crate::error::PlethoraError::InvalidInput(
-            "No decision provider is configured".to_string(),
-        )
+        crate::error::PlethoraError::InvalidInput("No decision provider is configured".to_string())
     })?;
     resolve_endpoint(&ProviderEndpoint {
         provider,
@@ -232,7 +230,10 @@ fn resolve_endpoint(endpoint: &ProviderEndpoint<'_>) -> Result<String> {
         }
         DecisionProvider::Jev => Ok(format!(
             "{}/v1/systemone",
-            endpoint.base_url.unwrap_or("https://jevmodel.org").trim_end_matches('/')
+            endpoint
+                .base_url
+                .unwrap_or("https://jevmodel.org")
+                .trim_end_matches('/')
         )),
         DecisionProvider::OpenRouterDecisions => {
             let base = endpoint
@@ -274,7 +275,9 @@ fn resolve_endpoint(endpoint: &ProviderEndpoint<'_>) -> Result<String> {
 pub(crate) fn unwrap_envelope(value: serde_json::Value) -> serde_json::Value {
     if let serde_json::Value::Object(ref map) = value {
         if let Some(result) = map.get("result") {
-            if result.is_object() && (result.get("answers").is_some() || map.get("answers").is_none()) {
+            if result.is_object()
+                && (result.get("answers").is_some() || map.get("answers").is_none())
+            {
                 return result.clone();
             }
         }
@@ -343,9 +346,7 @@ pub async fn daqe_decision_request(
         .timeout(std::time::Duration::from_millis(timeout))
         .user_agent("Plethora/3 (decision-model)")
         .build()
-        .map_err(|error| {
-            crate::error::PlethoraError::Internal(format!("http client: {error}"))
-        })?;
+        .map_err(|error| crate::error::PlethoraError::Internal(format!("http client: {error}")))?;
 
     let mut builder = client.post(&url).json(&build_body(&request));
     if let Some(key) = api_key {
@@ -445,10 +446,7 @@ pub enum TransportFailure {
 /// the same `Load failed`. Saying which one it was is the difference between
 /// "check the account id" and "check your connection", so the classification is
 /// a pure function over the three signals rather than a formatting of the error.
-fn classify_transport(
-    failure: TransportFailure,
-    url: Option<&str>,
-) -> (TransportFailure, String) {
+fn classify_transport(failure: TransportFailure, url: Option<&str>) -> (TransportFailure, String) {
     let message = match failure {
         TransportFailure::Timeout => {
             "No answer in time. The endpoint may be overloaded or blocked.".to_string()
@@ -470,7 +468,13 @@ fn first_line(text: &str, status: u16) -> String {
     if trimmed.is_empty() {
         return format!("HTTP {status}");
     }
-    trimmed.lines().next().unwrap_or(trimmed).chars().take(300).collect()
+    trimmed
+        .lines()
+        .next()
+        .unwrap_or(trimmed)
+        .chars()
+        .take(300)
+        .collect()
 }
 
 #[cfg(test)]
@@ -505,17 +509,26 @@ pub(crate) mod tests {
     #[test]
     fn clef_requires_an_account_id() {
         let request = base(DecisionProvider::Clef);
-        assert!(resolve_url(&request).is_err(), "no account id must not produce a URL");
+        assert!(
+            resolve_url(&request).is_err(),
+            "no account id must not produce a URL"
+        );
     }
 
     #[test]
     fn a_fully_specified_clef_override_is_respected_not_doubled() {
         let mut request = base(DecisionProvider::Clef);
         request.cloudflare_account_id = Some("acct-1".to_string());
-        request.base_url =
-            Some("https://api.cloudflare.com/client/v4/accounts/acct-1/ai/run/@cf/cloudflare/clef".to_string());
+        request.base_url = Some(
+            "https://api.cloudflare.com/client/v4/accounts/acct-1/ai/run/@cf/cloudflare/clef"
+                .to_string(),
+        );
         let url = resolve_url(&request).expect("resolves");
-        assert_eq!(url.matches("/ai/run/").count(), 1, "the path must not be appended twice");
+        assert_eq!(
+            url.matches("/ai/run/").count(),
+            1,
+            "the path must not be appended twice"
+        );
     }
 
     #[test]
@@ -541,7 +554,10 @@ pub(crate) mod tests {
     #[test]
     fn openai_decisions_body_defaults_to_gpt_6_luna() {
         let request = base(DecisionProvider::OpenAiDecisions);
-        assert_eq!(build_body(&request)["model"], serde_json::json!("gpt-6-luna"));
+        assert_eq!(
+            build_body(&request)["model"],
+            serde_json::json!("gpt-6-luna")
+        );
     }
 
     #[test]
@@ -558,7 +574,10 @@ pub(crate) mod tests {
         });
         let unwrapped = unwrap_envelope(enveloped);
         assert_eq!(unwrapped["model"], serde_json::json!("@cf/cloudflare/clef"));
-        assert_eq!(unwrapped["answers"]["action"]["choice"], serde_json::json!("submitted"));
+        assert_eq!(
+            unwrapped["answers"]["action"]["choice"],
+            serde_json::json!("submitted")
+        );
         assert_eq!(unwrapped["usage"]["input_tokens"], serde_json::json!(15));
     }
 
@@ -610,7 +629,10 @@ pub(crate) mod tests {
     #[test]
     fn jev_defaults_to_the_published_alias() {
         let request = base(DecisionProvider::Jev);
-        assert_eq!(build_body(&request)["model"], serde_json::json!("jev-latest"));
+        assert_eq!(
+            build_body(&request)["model"],
+            serde_json::json!("jev-latest")
+        );
     }
 
     #[test]
@@ -620,7 +642,10 @@ pub(crate) mod tests {
         request.questions = serde_json::json!({ "q": { "type": "noul" } });
         let body = build_body(&request);
         assert_eq!(body["state"], serde_json::json!({ "outline": ["1 Intro"] }));
-        assert_eq!(body["questions"], serde_json::json!({ "q": { "type": "noul" } }));
+        assert_eq!(
+            body["questions"],
+            serde_json::json!({ "q": { "type": "noul" } })
+        );
     }
 
     #[test]
@@ -643,8 +668,7 @@ pub(crate) mod tests {
         assert_eq!(kind, TransportFailure::Timeout);
         assert!(timeout.contains("No answer in time"), "got: {timeout}");
 
-        let (kind, connect) =
-            classify_transport(TransportFailure::Connect, Some("https://x"));
+        let (kind, connect) = classify_transport(TransportFailure::Connect, Some("https://x"));
         assert_eq!(kind, TransportFailure::Connect);
         assert!(
             !connect.contains("No answer in time"),
@@ -664,7 +688,10 @@ pub(crate) mod tests {
     #[test]
     fn a_connect_failure_without_a_url_still_gives_usable_advice() {
         let (_, message) = classify_transport(TransportFailure::Connect, None);
-        assert!(message.contains("Check the endpoint address"), "got: {message}");
+        assert!(
+            message.contains("Check the endpoint address"),
+            "got: {message}"
+        );
     }
 
     #[test]
@@ -677,14 +704,20 @@ pub(crate) mod tests {
             error: Some("Authentication error [10000]".to_string()),
             reason: Some("unauthorized".to_string()),
         };
-        assert_eq!(response.error.as_deref(), Some("Authentication error [10000]"));
+        assert_eq!(
+            response.error.as_deref(),
+            Some("Authentication error [10000]")
+        );
     }
 
     #[test]
     fn a_key_slot_exists_for_every_provider_that_needs_one() {
         assert_eq!(key_slot(DecisionProvider::Jev), Some("jev"));
         assert_eq!(key_slot(DecisionProvider::Clef), Some("clef"));
-        assert_eq!(key_slot(DecisionProvider::OpenRouterDecisions), Some("openrouter"));
+        assert_eq!(
+            key_slot(DecisionProvider::OpenRouterDecisions),
+            Some("openrouter")
+        );
         assert_eq!(key_slot(DecisionProvider::OpenAiDecisions), Some("openai"));
         // A local server needs no credential.
         assert_eq!(key_slot(DecisionProvider::SystemOne), None);
@@ -695,7 +728,10 @@ pub(crate) mod tests {
         for (provider, wire) in [
             (DecisionProvider::Jev, "jev"),
             (DecisionProvider::Clef, "clef"),
-            (DecisionProvider::OpenRouterDecisions, "openrouter-decisions"),
+            (
+                DecisionProvider::OpenRouterDecisions,
+                "openrouter-decisions",
+            ),
             (DecisionProvider::OpenAiDecisions, "openai-decisions"),
             (DecisionProvider::SystemOne, "system-one"),
         ] {
@@ -713,11 +749,14 @@ pub(crate) mod tests {
 /// apart, so most of these assert the two agree rather than asserting a URL twice.
 #[cfg(test)]
 mod ranking_transport_tests {
-    use super::*;
     use super::tests::base;
+    use super::*;
 
     fn config(provider: DecisionProvider) -> DecisionConfig {
-        DecisionConfig { provider: Some(provider), ..Default::default() }
+        DecisionConfig {
+            provider: Some(provider),
+            ..Default::default()
+        }
     }
 
     #[test]
@@ -742,10 +781,12 @@ mod ranking_transport_tests {
         // The credential comes from `AIKeyStore` via `key_slot` at call time. A field
         // here would put a metered key on the wire, and therefore in localStorage,
         // which is the mistake `daqeApiKeyStorage.test.ts` guards against.
-        let rejected = serde_json::from_str::<DecisionConfig>(
-            r#"{"provider":"jev","apiKey":"sk-secret"}"#,
+        let rejected =
+            serde_json::from_str::<DecisionConfig>(r#"{"provider":"jev","apiKey":"sk-secret"}"#);
+        assert!(
+            rejected.is_err(),
+            "an unknown field must not be silently accepted"
         );
-        assert!(rejected.is_err(), "an unknown field must not be silently accepted");
     }
 
     #[test]
@@ -755,7 +796,10 @@ mod ranking_transport_tests {
         // only one that puts the model in the URL path.
         for (provider, probe_overrides) in [
             (DecisionProvider::Jev, vec![]),
-            (DecisionProvider::Clef, vec![("cloudflare_account_id", "acct-1".to_string())]),
+            (
+                DecisionProvider::Clef,
+                vec![("cloudflare_account_id", "acct-1".to_string())],
+            ),
             (DecisionProvider::OpenRouterDecisions, vec![]),
             (DecisionProvider::OpenAiDecisions, vec![]),
         ] {
@@ -782,7 +826,8 @@ mod ranking_transport_tests {
         cfg.cloudflare_account_id = Some("acct-1".to_string());
         let url = resolve_provider_url(&cfg).expect("resolves");
         assert_eq!(
-            url, "https://api.cloudflare.com/client/v4/accounts/acct-1/ai/run/@cf/cloudflare/clef",
+            url,
+            "https://api.cloudflare.com/client/v4/accounts/acct-1/ai/run/@cf/cloudflare/clef",
         );
         assert!(!url.contains("/v1/systemone"));
     }
@@ -790,13 +835,19 @@ mod ranking_transport_tests {
     #[test]
     fn a_clef_ranking_config_still_requires_an_account_id() {
         let cfg = config(DecisionProvider::Clef);
-        assert!(resolve_provider_url(&cfg).is_err(), "no account id must not produce a URL");
+        assert!(
+            resolve_provider_url(&cfg).is_err(),
+            "no account id must not produce a URL"
+        );
     }
 
     #[test]
     fn no_configured_provider_resolves_to_no_url() {
         let cfg = DecisionConfig::default();
-        assert!(resolve_provider_url(&cfg).is_err(), "nothing configured, nothing to call");
+        assert!(
+            resolve_provider_url(&cfg).is_err(),
+            "nothing configured, nothing to call"
+        );
     }
 
     #[test]
@@ -816,7 +867,9 @@ mod ranking_transport_tests {
         let mut cfg = config(DecisionProvider::Clef);
         cfg.cloudflare_account_id = Some("acct-1".to_string());
         cfg.model = Some("@cf/cloudflare/clef-flash".to_string());
-        assert!(resolve_provider_url(&cfg).expect("resolves").ends_with("clef-flash"));
+        assert!(resolve_provider_url(&cfg)
+            .expect("resolves")
+            .ends_with("clef-flash"));
     }
 
     #[test]

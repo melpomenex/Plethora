@@ -472,7 +472,9 @@ mod tests {
         let text = extract_text_from_html(html);
 
         // Smart punctuation must be preserved verbatim (no â mojibake)
-        assert!(text.contains("‘Single’ and “double” quotation marks, em—dash, en–dash, and ellipsis…"));
+        assert!(
+            text.contains("‘Single’ and “double” quotation marks, em—dash, en–dash, and ellipsis…")
+        );
         assert!(!text.contains('â'));
 
         // Accents
@@ -491,7 +493,8 @@ mod tests {
         // accumulated buffer per char (O(N²)), hanging imports on books with
         // large embedded stylesheets (e.g. a 13 MB Victory Belt epub with
         // ~100 KB CSS blocks). 400 KB of CSS must finish near-instantly.
-        let css: String = "p { margin: 0; text-indent: 1.5em; font-family: Athelas; }\n".repeat(6_500);
+        let css: String =
+            "p { margin: 0; text-indent: 1.5em; font-family: Athelas; }\n".repeat(6_500);
         let html = format!(
             "<html><head><style type=\"text/css\">{}</style></head>\
              <body><p>before</p><p>after</p></body></html>",

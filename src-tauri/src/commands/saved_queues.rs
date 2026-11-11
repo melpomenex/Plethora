@@ -56,10 +56,7 @@ pub async fn update_saved_queue(
 }
 
 #[tauri::command]
-pub async fn delete_saved_queue(
-    id: String,
-    repo: State<'_, Repository>,
-) -> Result<(), String> {
+pub async fn delete_saved_queue(id: String, repo: State<'_, Repository>) -> Result<(), String> {
     let saved_queue_repo = SavedQueueRepository::new(repo.pool().clone());
     saved_queue_repo
         .delete_saved_queue(&id)

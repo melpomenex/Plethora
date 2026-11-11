@@ -37,7 +37,6 @@ pub async fn next_hlc(tx: &mut Transaction<'_, Sqlite>) -> Result<String> {
     Ok(format!("{next_physical}:{next_logical}"))
 }
 
-
 /// Observe a remote HLC before committing its mutation so the next local clock
 /// is causally after every record this device has applied.
 pub async fn observe_hlc(tx: &mut Transaction<'_, Sqlite>, remote_hlc: &str) -> Result<()> {

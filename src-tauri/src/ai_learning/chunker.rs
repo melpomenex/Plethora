@@ -205,7 +205,11 @@ fn chunk_session_transcript(
             .iter()
             .map(|s| {
                 let is_timed = s.timing_kind != "none" && s.start_ms.is_some();
-                let spk_prefix = s.speaker_id.as_deref().map(|spk| format!("{spk}: ")).unwrap_or_default();
+                let spk_prefix = s
+                    .speaker_id
+                    .as_deref()
+                    .map(|spk| format!("{spk}: "))
+                    .unwrap_or_default();
                 if is_timed {
                     let s_sec = (s.start_ms.unwrap() as f64) / 1000.0;
                     format!("[{}] {}{}", transcript_timestamp(s_sec), spk_prefix, s.text)
@@ -218,17 +222,13 @@ fn chunk_session_transcript(
             .collect::<Vec<_>>();
         let text = lines.join("\n");
 
-        if let Some(mut chunk) = single_chunk(
-            &session_ctx,
-            &text,
-            chunks.len() as i64,
-            None,
-            start,
-            end,
-        ) {
+        if let Some(mut chunk) =
+            single_chunk(&session_ctx, &text, chunks.len() as i64, None, start, end)
+        {
             let first = &segments[start];
             let last = &segments[end - 1];
-            let is_timed = first.timing_kind != "none" && first.start_ms.is_some() && last.end_ms.is_some();
+            let is_timed =
+                first.timing_kind != "none" && first.start_ms.is_some() && last.end_ms.is_some();
 
             let heading = if is_timed {
                 format!(
@@ -1722,7 +1722,8 @@ mod tests {
             SessionTranscriptChunkSegment {
                 segment_key: "seg-2".into(),
                 ordinal: 1,
-                text: "Consensus algorithms provide fault-tolerant state machine replication.".into(),
+                text: "Consensus algorithms provide fault-tolerant state machine replication."
+                    .into(),
                 timing_kind: "measured".into(),
                 start_ms: Some(25_000),
                 end_ms: Some(40_000),

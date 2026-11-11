@@ -152,11 +152,10 @@ impl SavedQueueRepository {
         }
 
         // Get max sort_order
-        let max_order: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(MAX(sort_order), 0) + 1 FROM saved_queues",
-        )
-        .fetch_one(&mut *tx)
-        .await?;
+        let max_order: i64 =
+            sqlx::query_scalar("SELECT COALESCE(MAX(sort_order), 0) + 1 FROM saved_queues")
+                .fetch_one(&mut *tx)
+                .await?;
 
         sqlx::query(
             r#"
@@ -327,8 +326,8 @@ impl SavedQueueRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sqlx::Pool;
     use crate::models::saved_queue::{CreateSavedQueueInput, UpdateSavedQueueInput};
+    use sqlx::Pool;
 
     async fn migrated_pool() -> Pool<Sqlite> {
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
@@ -392,4 +391,3 @@ mod tests {
         assert!(updated.is_default);
     }
 }
-

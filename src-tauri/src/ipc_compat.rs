@@ -11,7 +11,9 @@ pub async fn get_sm20_arena_stats(repo: State<'_, Repository>) -> Result<review:
 }
 
 #[tauri::command]
-pub async fn optimize_sm20_fsrs(repo: State<'_, Repository>) -> Result<review::FsrsOptimizeSummary> {
+pub async fn optimize_sm20_fsrs(
+    repo: State<'_, Repository>,
+) -> Result<review::FsrsOptimizeSummary> {
     review::optimize_arena_fsrs(repo).await
 }
 

@@ -386,7 +386,10 @@ fn resolve_extract_key(row: &PopulationRow) -> ResolvedOrderKey {
         };
     }
     if row.priority_explicitly_set {
-        return ResolvedOrderKey::Valid { key: 0.0, defaulted: false };
+        return ResolvedOrderKey::Valid {
+            key: 0.0,
+            defaulted: false,
+        };
     }
     let parent_explicit = row.parent_explicitly_set.unwrap_or(false);
     let parent_score = row.parent_priority_score.unwrap_or(0.0);
@@ -439,7 +442,8 @@ pub fn positional_priority_from_sorted_keys(sorted_keys: &[f64], key: f64) -> f6
     if !key.is_finite() || sorted_keys.len() <= 1 {
         return 0.5;
     }
-    let strictly_below = sorted_keys.partition_point(|&candidate| candidate.total_cmp(&key).is_lt());
+    let strictly_below =
+        sorted_keys.partition_point(|&candidate| candidate.total_cmp(&key).is_lt());
     ((strictly_below as f64) / ((sorted_keys.len() - 1) as f64)).clamp(0.0, 1.0)
 }
 
@@ -488,9 +492,18 @@ impl PriorityPopulationSnapshot {
                     .try_get::<i64, _>("priority_explicitly_set")
                     .unwrap_or(0)
                     != 0,
-                parent_priority_score: row.try_get::<Option<f64>, _>("parent_priority_score").ok().flatten(),
-                parent_priority_slider: row.try_get::<Option<i32>, _>("parent_priority_slider").ok().flatten(),
-                parent_priority_rating: row.try_get::<Option<i32>, _>("parent_priority_rating").ok().flatten(),
+                parent_priority_score: row
+                    .try_get::<Option<f64>, _>("parent_priority_score")
+                    .ok()
+                    .flatten(),
+                parent_priority_slider: row
+                    .try_get::<Option<i32>, _>("parent_priority_slider")
+                    .ok()
+                    .flatten(),
+                parent_priority_rating: row
+                    .try_get::<Option<i32>, _>("parent_priority_rating")
+                    .ok()
+                    .flatten(),
                 parent_explicitly_set: row
                     .try_get::<Option<i64>, _>("parent_explicitly_set")
                     .ok()
@@ -529,9 +542,7 @@ impl PriorityPopulationSnapshot {
         let mut by_element = HashMap::with_capacity(resolved.len());
         let mut by_document = HashMap::new();
         let mut by_element_slider = HashMap::with_capacity(resolved.len());
-        for ((kind, id, outcome), display_slider) in
-            resolved.into_iter().zip(display_sliders)
-        {
+        for ((kind, id, outcome), display_slider) in resolved.into_iter().zip(display_sliders) {
             let signal = match outcome {
                 ResolvedOrderKey::Valid { key, defaulted } => {
                     let value = positional_priority_from_sorted_keys(&sorted_keys, key);
@@ -583,9 +594,7 @@ impl PriorityPopulationSnapshot {
 
     /// Authoritative 0-100 slider readback for a presentable element.
     pub fn display_slider_for(&self, kind: PriorityEntityKind, id: &str) -> Option<i32> {
-        self.by_element_slider
-            .get(&(kind, id.to_string()))
-            .copied()
+        self.by_element_slider.get(&(kind, id.to_string())).copied()
     }
 
     pub fn document_display_slider(&self, doc_id: &str) -> Option<i32> {
@@ -669,7 +678,10 @@ mod tests {
         let pool = seeded_pool(&[10.0, 20.0, 30.0, 40.0, 50.0]).await;
         let first = key_for_slider(&pool, 72).await.unwrap();
         let second = key_for_slider(&pool, 73).await.unwrap();
-        assert_eq!(first, second, "different slider values can select the same gap");
+        assert_eq!(
+            first, second,
+            "different slider values can select the same gap"
+        );
         assert_ne!(first, 72.0, "the stored key is not the slider value");
     }
 
@@ -846,7 +858,9 @@ mod tests {
             parent_priority_rating: Some(4),
             parent_explicitly_set: Some(true),
         };
-        assert!(matches!(resolve_extract_key(&row), ResolvedOrderKey::Valid { key, defaulted: false } if key == 0.0));
+        assert!(
+            matches!(resolve_extract_key(&row), ResolvedOrderKey::Valid { key, defaulted: false } if key == 0.0)
+        );
     }
 
     #[test]
@@ -886,14 +900,54 @@ mod tests {
     #[test]
     fn snapshot_readback_uses_the_slider_not_the_rank_key() {
         let snapshot = PriorityPopulationSnapshot::from_rows(vec![
-            display_row(PriorityEntityKind::Document, "doc", 87.125, 73, 4, true, None),
+            display_row(
+                PriorityEntityKind::Document,
+                "doc",
+                87.125,
+                73,
+                4,
+                true,
+                None,
+            ),
             // Inherits the parent's display slider while its rank key matches.
-            display_row(PriorityEntityKind::Extract, "inherited", 87.125, 0, 0, false, Some((87.125, 73, 4, true))),
+            display_row(
+                PriorityEntityKind::Extract,
+                "inherited",
+                87.125,
+                0,
+                0,
+                false,
+                Some((87.125, 73, 4, true)),
+            ),
             // Explicit zero stops inheritance even with a matching parent key.
-            display_row(PriorityEntityKind::Extract, "own-zero", 87.125, 0, 0, true, Some((87.125, 73, 4, true))),
+            display_row(
+                PriorityEntityKind::Extract,
+                "own-zero",
+                87.125,
+                0,
+                0,
+                true,
+                Some((87.125, 73, 4, true)),
+            ),
             // A pre-slider legacy override has no recorded slider and is neutral.
-            display_row(PriorityEntityKind::Extract, "legacy", 12.375, 0, 0, false, Some((87.125, 73, 4, true))),
-            display_row(PriorityEntityKind::LearningItem, "card", 0.0, 0, 0, true, None),
+            display_row(
+                PriorityEntityKind::Extract,
+                "legacy",
+                12.375,
+                0,
+                0,
+                false,
+                Some((87.125, 73, 4, true)),
+            ),
+            display_row(
+                PriorityEntityKind::LearningItem,
+                "card",
+                0.0,
+                0,
+                0,
+                true,
+                None,
+            ),
         ]);
 
         assert_eq!(snapshot.document_display_slider("doc"), Some(73));

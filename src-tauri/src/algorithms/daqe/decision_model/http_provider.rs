@@ -26,7 +26,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::commands::daqe_probe::{DecisionProvider, unwrap_envelope};
+use crate::commands::daqe_probe::{unwrap_envelope, DecisionProvider};
 use crate::models::daqe::DecisionModelTier;
 
 use super::{
@@ -234,7 +234,12 @@ impl HttpDecisionProvider {
             .and_then(Value::as_f64)
             .map(|noul| noul >= 0.5);
 
-        ItemDecision { goal_alignment, tier, complexity: None, gate }
+        ItemDecision {
+            goal_alignment,
+            tier,
+            complexity: None,
+            gate,
+        }
     }
 
     /// Ask the provider about one item, memoised per item id for this pass.
@@ -283,13 +288,15 @@ impl HttpDecisionProvider {
             builder = builder.bearer_auth(key);
         }
 
-        let response = builder.send().await.map_err(|error| {
-            ProviderFailure::Unreachable(describe(&error, self.timeout_ms))
-        })?;
+        let response = builder
+            .send()
+            .await
+            .map_err(|error| ProviderFailure::Unreachable(describe(&error, self.timeout_ms)))?;
         let status = response.status();
-        let text = response.text().await.map_err(|error| {
-            ProviderFailure::Unreachable(describe(&error, self.timeout_ms))
-        })?;
+        let text = response
+            .text()
+            .await
+            .map_err(|error| ProviderFailure::Unreachable(describe(&error, self.timeout_ms)))?;
         if !status.is_success() {
             return Err(ProviderFailure::Unreachable(format!(
                 "endpoint answered {status}: {}",
@@ -350,7 +357,7 @@ impl DecisionModelProvider for HttpDecisionProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::algorithms::daqe::decision_model::{ProviderRegistry, ProviderRecord};
+    use crate::algorithms::daqe::decision_model::{ProviderRecord, ProviderRegistry};
 
     fn request() -> DecisionRequest {
         DecisionRequest {
@@ -363,7 +370,10 @@ mod tests {
     }
 
     fn goal() -> GoalContext<'static> {
-        GoalContext { statement: "Exam Review & CS Foundations", focus_tags: &[] }
+        GoalContext {
+            statement: "Exam Review & CS Foundations",
+            focus_tags: &[],
+        }
     }
 
     fn answers(body: Value) -> Value {
@@ -438,7 +448,10 @@ mod tests {
     #[test]
     fn a_response_with_no_answers_is_empty_not_zeroes() {
         let decision = HttpDecisionProvider::read_decision(&json!({}));
-        assert!(decision.is_empty(), "nothing came back, so nothing is claimed");
+        assert!(
+            decision.is_empty(),
+            "nothing came back, so nothing is claimed"
+        );
     }
 
     #[test]
@@ -486,7 +499,10 @@ mod tests {
         // `DecisionRequest` has no title, body or tags, so the sanitization gate is
         // structural rather than a rule that has to be remembered at the call site.
         for banned in ["title", "body", "tags", "content", "text"] {
-            assert!(state.get(banned).is_none(), "{banned} must not be in the state");
+            assert!(
+                state.get(banned).is_none(),
+                "{banned} must not be in the state"
+            );
         }
     }
 
@@ -580,7 +596,11 @@ mod tests {
     #[tokio::test]
     async fn a_missing_answer_is_an_invalid_output_not_a_zero() {
         let provider = Arc::new(provider_with(record()));
-        provider.memo.lock().unwrap().insert("item-1".to_string(), ItemDecision::default());
+        provider
+            .memo
+            .lock()
+            .unwrap()
+            .insert("item-1".to_string(), ItemDecision::default());
         assert!(matches!(
             provider.evaluate_score(&request(), None).await,
             Err(ProviderFailure::InvalidOutput(_))
@@ -591,7 +611,10 @@ mod tests {
     fn the_registry_gates_a_remote_provider_behind_the_opt_in() {
         let mut registry = ProviderRegistry::new();
         registry.register(Arc::new(provider_with(record())));
-        assert!(registry.is_contactable("jev", false).is_err(), "never contacted");
+        assert!(
+            registry.is_contactable("jev", false).is_err(),
+            "never contacted"
+        );
         assert!(registry.is_contactable("jev", true).is_ok());
     }
 }

@@ -91,7 +91,10 @@ pub trait EmbeddingProvider: Send + Sync + std::fmt::Debug {
     fn dimension(&self) -> usize;
 
     /// Generate embedding for a single image (base64-encoded bytes or data URL)
-    async fn generate_image_embedding(&self, _image_base64: &str) -> Result<EmbeddingResponse, String> {
+    async fn generate_image_embedding(
+        &self,
+        _image_base64: &str,
+    ) -> Result<EmbeddingResponse, String> {
         Err(format!(
             "Image embeddings are not supported by {:?}",
             self.provider_type()
@@ -111,7 +114,10 @@ pub trait EmbeddingProvider: Send + Sync + std::fmt::Debug {
     }
 
     /// Generate embedding for a single audio chunk (base64-encoded PCM/WAV/MP3 bytes)
-    async fn generate_audio_embedding(&self, _audio_base64: &str) -> Result<EmbeddingResponse, String> {
+    async fn generate_audio_embedding(
+        &self,
+        _audio_base64: &str,
+    ) -> Result<EmbeddingResponse, String> {
         Err(format!(
             "Audio embeddings are not supported by {:?}",
             self.provider_type()
@@ -1004,7 +1010,10 @@ impl EmbeddingProvider for OllamaEmbeddingProvider {
         self.dimension
     }
 
-    async fn generate_image_embedding(&self, image_base64: &str) -> Result<EmbeddingResponse, String> {
+    async fn generate_image_embedding(
+        &self,
+        image_base64: &str,
+    ) -> Result<EmbeddingResponse, String> {
         let url = format!("{}/api/embeddings", self.base_url);
         let body = json!({
             "model": self.model,
@@ -1058,7 +1067,10 @@ impl EmbeddingProvider for OllamaEmbeddingProvider {
         })
     }
 
-    async fn generate_audio_embedding(&self, audio_base64: &str) -> Result<EmbeddingResponse, String> {
+    async fn generate_audio_embedding(
+        &self,
+        audio_base64: &str,
+    ) -> Result<EmbeddingResponse, String> {
         let url = format!("{}/api/embeddings", self.base_url);
         let body = json!({
             "model": self.model,
@@ -1119,13 +1131,34 @@ mod tests {
 
     #[test]
     fn test_ollama_infer_dimension_embeddinggemma_2() {
-        assert_eq!(OllamaEmbeddingProvider::infer_dimension("embeddinggemma-2"), 768);
-        assert_eq!(OllamaEmbeddingProvider::infer_dimension("embeddinggemma-2:270m"), 768);
-        assert_eq!(OllamaEmbeddingProvider::infer_dimension("embeddinggemma-2:440m"), 768);
-        assert_eq!(OllamaEmbeddingProvider::infer_dimension("embeddinggemma-2:740m"), 768);
-        assert_eq!(OllamaEmbeddingProvider::infer_dimension("embeddinggemma-2-text-vision-440m"), 768);
-        assert_eq!(OllamaEmbeddingProvider::infer_dimension("nomic-embed-text"), 768);
-        assert_eq!(OllamaEmbeddingProvider::infer_dimension("mxbai-embed-large"), 1024);
+        assert_eq!(
+            OllamaEmbeddingProvider::infer_dimension("embeddinggemma-2"),
+            768
+        );
+        assert_eq!(
+            OllamaEmbeddingProvider::infer_dimension("embeddinggemma-2:270m"),
+            768
+        );
+        assert_eq!(
+            OllamaEmbeddingProvider::infer_dimension("embeddinggemma-2:440m"),
+            768
+        );
+        assert_eq!(
+            OllamaEmbeddingProvider::infer_dimension("embeddinggemma-2:740m"),
+            768
+        );
+        assert_eq!(
+            OllamaEmbeddingProvider::infer_dimension("embeddinggemma-2-text-vision-440m"),
+            768
+        );
+        assert_eq!(
+            OllamaEmbeddingProvider::infer_dimension("nomic-embed-text"),
+            768
+        );
+        assert_eq!(
+            OllamaEmbeddingProvider::infer_dimension("mxbai-embed-large"),
+            1024
+        );
         assert_eq!(OllamaEmbeddingProvider::infer_dimension("all-minilm"), 384);
     }
 

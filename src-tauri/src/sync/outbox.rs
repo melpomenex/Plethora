@@ -149,14 +149,13 @@ pub async fn acknowledge_changes(pool: &Pool<Sqlite>, change_ids: &[String]) -> 
 
     let mut updated = 0usize;
     for change_id in change_ids {
-        let rows = sqlx::query(
-            "UPDATE sync_outbox SET sync_status = 'acknowledged' WHERE change_id = ?1",
-        )
-        .bind(change_id)
-        .execute(pool)
-        .await
-        .map_err(|e| PlethoraError::Internal(format!("Failed to ack outbox row: {e}")))?
-        .rows_affected();
+        let rows =
+            sqlx::query("UPDATE sync_outbox SET sync_status = 'acknowledged' WHERE change_id = ?1")
+                .bind(change_id)
+                .execute(pool)
+                .await
+                .map_err(|e| PlethoraError::Internal(format!("Failed to ack outbox row: {e}")))?
+                .rows_affected();
         updated += rows as usize;
     }
     Ok(updated)
@@ -168,7 +167,20 @@ pub async fn drain_pending_batch(
 ) -> Result<Vec<OutboxEntry>> {
     sqlx::query("DELETE FROM sync_outbox WHERE sync_status != 'acknowledged' AND (EXISTS (SELECT 1 FROM private_sync_ownership p WHERE p.entity_type = sync_outbox.entity_type AND p.entity_id = sync_outbox.entity_id) OR EXISTS (SELECT 1 FROM document_sync_ownership o JOIN documents d ON d.id = o.document_id WHERE o.entity_type = sync_outbox.entity_type AND o.entity_id = sync_outbox.entity_id AND d.is_local_only = 1))")
         .execute(pool).await?;
-    let rows = sqlx::query_as::<_, (String, String, String, String, Option<i64>, Vec<u8>, String, i64, String)>(
+    let rows = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            String,
+            String,
+            Option<i64>,
+            Vec<u8>,
+            String,
+            i64,
+            String,
+        ),
+    >(
         r#"
         SELECT change_id, entity_type, entity_id, operation, base_revision,
                payload, hlc, created_at, sync_status
@@ -280,12 +292,11 @@ mod tests {
         assert_eq!(entry.entity_id, "item-1");
         assert_eq!(entry.sync_status, SyncOutboxStatus::Pending);
 
-        let pending: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM sync_outbox WHERE sync_status = 'pending'",
-        )
-        .fetch_one(&pool)
-        .await
-        .expect("count");
+        let pending: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM sync_outbox WHERE sync_status = 'pending'")
+                .fetch_one(&pool)
+                .await
+                .expect("count");
         assert_eq!(pending, 1);
     }
 
@@ -359,13 +370,12 @@ mod tests {
             .expect("ack");
         assert_eq!(updated, 1);
 
-        let status: String = sqlx::query_scalar(
-            "SELECT sync_status FROM sync_outbox WHERE change_id = ?1",
-        )
-        .bind(&entry.change_id)
-        .fetch_one(&pool)
-        .await
-        .expect("status");
+        let status: String =
+            sqlx::query_scalar("SELECT sync_status FROM sync_outbox WHERE change_id = ?1")
+                .bind(&entry.change_id)
+                .fetch_one(&pool)
+                .await
+                .expect("status");
         assert_eq!(status, "acknowledged");
 
         let pending = count_pending(&pool).await.expect("pending");

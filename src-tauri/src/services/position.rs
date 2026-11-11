@@ -24,9 +24,8 @@ impl PositionService {
         document_id: &str,
         position: &DocumentPosition,
     ) -> Result<()> {
-        let position_json = serde_json::to_string(position).map_err(|e| {
-            PlethoraError::Internal(format!("Failed to serialize position: {}", e))
-        })?;
+        let position_json = serde_json::to_string(position)
+            .map_err(|e| PlethoraError::Internal(format!("Failed to serialize position: {}", e)))?;
 
         // Try to get progress from position, or calculate from document's total_pages
         let progress = if let Some(p) = position.progress_percent() {
@@ -167,9 +166,8 @@ impl PositionService {
         position: &DocumentPosition,
     ) -> Result<Bookmark> {
         let id = Uuid::new_v4().to_string();
-        let position_json = serde_json::to_string(position).map_err(|e| {
-            PlethoraError::Internal(format!("Failed to serialize position: {}", e))
-        })?;
+        let position_json = serde_json::to_string(position)
+            .map_err(|e| PlethoraError::Internal(format!("Failed to serialize position: {}", e)))?;
         let position_type = position.type_name().to_string();
         let created_at = chrono::Utc::now().to_rfc3339();
 
@@ -300,9 +298,8 @@ impl PositionService {
             let duration_seconds = if last_heartbeat_at.is_some() {
                 accrued_seconds.max(0) as u32
             } else {
-                let start = chrono::DateTime::parse_from_rfc3339(&started_at).map_err(|e| {
-                    PlethoraError::Internal(format!("Failed to parse date: {}", e))
-                })?;
+                let start = chrono::DateTime::parse_from_rfc3339(&started_at)
+                    .map_err(|e| PlethoraError::Internal(format!("Failed to parse date: {}", e)))?;
                 let end = chrono::Utc::now();
                 let duration = end.signed_duration_since(start.with_timezone(&chrono::Utc));
                 duration.num_seconds().max(0) as u32
@@ -508,7 +505,12 @@ impl PositionService {
         let mut all_rows: Vec<(String, u32, u32)> = Vec::new();
         match reading_rows {
             Ok(rows) => all_rows.extend(rows),
-            Err(e) => return Err(PlethoraError::Internal(format!("Failed to get daily stats: {}", e))),
+            Err(e) => {
+                return Err(PlethoraError::Internal(format!(
+                    "Failed to get daily stats: {}",
+                    e
+                )))
+            }
         }
         if let Ok(rows) = listening_rows {
             all_rows.extend(rows);
@@ -519,8 +521,10 @@ impl PositionService {
             entry.1 = entry.1.saturating_add(documents_read);
         }
 
-        let mut result: Vec<(String, u32, u32)> =
-            merged.into_iter().map(|(date, (secs, docs))| (date, secs, docs)).collect();
+        let mut result: Vec<(String, u32, u32)> = merged
+            .into_iter()
+            .map(|(date, (secs, docs))| (date, secs, docs))
+            .collect();
         result.sort_by(|a, b| b.0.cmp(&a.0));
         Ok(result)
     }

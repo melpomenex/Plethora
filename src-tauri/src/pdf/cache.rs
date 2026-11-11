@@ -226,9 +226,7 @@ impl PdfReflowCache {
             enforce_limit_blocking(&root, PDF_REFLOW_V2_CACHE_LIMIT_BYTES)
         })
         .await
-        .map_err(|error| {
-            PlethoraError::Internal(format!("PDF cache cleanup failed: {error}"))
-        })??;
+        .map_err(|error| PlethoraError::Internal(format!("PDF cache cleanup failed: {error}")))??;
         Ok(())
     }
 }

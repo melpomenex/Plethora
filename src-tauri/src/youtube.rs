@@ -40,7 +40,11 @@ pub fn get_custom_cookies_path() -> Option<PathBuf> {
         }
     }
 
-    for env_var in &["PLETHORA_YOUTUBE_COOKIES", "YOUTUBE_COOKIES_FILE", "YOUTUBE_COOKIES_PATH"] {
+    for env_var in &[
+        "PLETHORA_YOUTUBE_COOKIES",
+        "YOUTUBE_COOKIES_FILE",
+        "YOUTUBE_COOKIES_PATH",
+    ] {
         if let Ok(val) = std::env::var(env_var) {
             let p = PathBuf::from(val);
             if p.exists() {
@@ -671,10 +675,7 @@ pub fn try_with_cookies(
     if let Some(cookie_path) = resolved_cookie_path {
         if cookie_path.exists() {
             let cookie_output = ytdlp_command().and_then(|mut cmd| {
-                cmd.args(args)
-                    .arg("--cookies")
-                    .arg(&cookie_path)
-                    .arg(url);
+                cmd.args(args).arg("--cookies").arg(&cookie_path).arg(url);
                 cmd.output()
                     .map_err(|e| format!("Failed to run yt-dlp with custom cookies: {}", e))
             });
@@ -2227,11 +2228,12 @@ mod canonical_transcript_tests {
         .await
         .unwrap();
 
-        let stored_json: String =
-            sqlx::query_scalar("SELECT segments_json FROM youtube_transcripts WHERE video_id='longvideo123'")
-                .fetch_one(repo.pool())
-                .await
-                .unwrap();
+        let stored_json: String = sqlx::query_scalar(
+            "SELECT segments_json FROM youtube_transcripts WHERE video_id='longvideo123'",
+        )
+        .fetch_one(repo.pool())
+        .await
+        .unwrap();
         let roundtripped: Vec<TranscriptSegment> = serde_json::from_str(&stored_json).unwrap();
         assert_eq!(roundtripped.len(), segments.len());
         for (stored, original) in roundtripped.iter().zip(segments.iter()) {
@@ -2249,11 +2251,12 @@ mod canonical_transcript_tests {
             })
             .collect::<Vec<_>>()
             .join("\n");
-        let stored_text: String =
-            sqlx::query_scalar("SELECT transcript FROM youtube_transcripts WHERE video_id='longvideo123'")
-                .fetch_one(repo.pool())
-                .await
-                .unwrap();
+        let stored_text: String = sqlx::query_scalar(
+            "SELECT transcript FROM youtube_transcripts WHERE video_id='longvideo123'",
+        )
+        .fetch_one(repo.pool())
+        .await
+        .unwrap();
         assert_eq!(stored_text, expected);
         assert!(stored_text.ends_with("[166:30] last sentinel"));
         let document_content: String =

@@ -139,32 +139,59 @@ mod tests {
 
     #[test]
     fn a_matching_tag_raises_the_score() {
-        let matched = local_goal_alignment("linear algebra", Some("Notes"), &tags(&["linear algebra"]), None);
-        let unmatched = local_goal_alignment("linear algebra", Some("Notes"), &tags(&["cooking"]), None);
+        let matched = local_goal_alignment(
+            "linear algebra",
+            Some("Notes"),
+            &tags(&["linear algebra"]),
+            None,
+        );
+        let unmatched =
+            local_goal_alignment("linear algebra", Some("Notes"), &tags(&["cooking"]), None);
         assert!(matched.unwrap() > unmatched.unwrap_or(0.0));
     }
 
     #[test]
     fn tags_outweigh_the_title_which_outweighs_the_body() {
-        let via_tag = local_goal_alignment("eigenvalues", Some("Unrelated"), &tags(&["eigenvalues"]), None);
+        let via_tag = local_goal_alignment(
+            "eigenvalues",
+            Some("Unrelated"),
+            &tags(&["eigenvalues"]),
+            None,
+        );
         let via_title = local_goal_alignment("eigenvalues", Some("Eigenvalues"), &[], None);
-        let via_body = local_goal_alignment("eigenvalues", Some("Unrelated"), &[], Some("eigenvalues"));
+        let via_body =
+            local_goal_alignment("eigenvalues", Some("Unrelated"), &[], Some("eigenvalues"));
         assert!(via_tag.unwrap() > via_title.unwrap());
         assert!(via_title.unwrap() > via_body.unwrap());
     }
 
     #[test]
     fn identical_input_gives_an_identical_score() {
-        let first = local_goal_alignment("exam review", Some("CS 101"), &tags(&["exam"]), Some("review notes"));
-        let second = local_goal_alignment("exam review", Some("CS 101"), &tags(&["exam"]), Some("review notes"));
+        let first = local_goal_alignment(
+            "exam review",
+            Some("CS 101"),
+            &tags(&["exam"]),
+            Some("review notes"),
+        );
+        let second = local_goal_alignment(
+            "exam review",
+            Some("CS 101"),
+            &tags(&["exam"]),
+            Some("review notes"),
+        );
         assert_eq!(first, second);
     }
 
     #[test]
     fn the_result_is_always_within_zero_and_one() {
-        for goal in ["linear algebra", "eigenvalues", "exam review and cs foundations"] {
+        for goal in [
+            "linear algebra",
+            "eigenvalues",
+            "exam review and cs foundations",
+        ] {
             for title in [None, Some("Linear Algebra"), Some("unrelated")] {
-                let value = local_goal_alignment(goal, title, &tags(&["a", "b"]), Some("some body text"));
+                let value =
+                    local_goal_alignment(goal, title, &tags(&["a", "b"]), Some("some body text"));
                 if let Some(score) = value {
                     assert!((0.0..=1.0).contains(&score), "{goal} produced {score}");
                 }
@@ -175,28 +202,46 @@ mod tests {
     #[test]
     fn matching_more_of_the_goal_scores_higher() {
         let one = local_goal_alignment("linear algebra", Some("Notes"), &tags(&["linear"]), None);
-        let two = local_goal_alignment("linear algebra", Some("Notes"), &tags(&["linear", "algebra"]), None);
+        let two = local_goal_alignment(
+            "linear algebra",
+            Some("Notes"),
+            &tags(&["linear", "algebra"]),
+            None,
+        );
         assert!(one.is_some() && two.is_some());
         assert!(two.unwrap() > one.unwrap());
     }
 
     #[test]
     fn matching_is_case_insensitive() {
-        let lower = local_goal_alignment("eigenvalues", Some("Notes"), &tags(&["eigenvalues"]), None);
-        let upper = local_goal_alignment("EigenValues", Some("Notes"), &tags(&["EIGENVALUES"]), None);
+        let lower =
+            local_goal_alignment("eigenvalues", Some("Notes"), &tags(&["eigenvalues"]), None);
+        let upper =
+            local_goal_alignment("EigenValues", Some("Notes"), &tags(&["EIGENVALUES"]), None);
         assert_eq!(lower, upper);
     }
 
     #[test]
     fn a_repeated_goal_word_counts_once() {
-        let repeated = local_goal_alignment("algebra algebra algebra", Some("Notes"), &tags(&["algebra"]), None);
+        let repeated = local_goal_alignment(
+            "algebra algebra algebra",
+            Some("Notes"),
+            &tags(&["algebra"]),
+            None,
+        );
         let single = local_goal_alignment("algebra", Some("Notes"), &tags(&["algebra"]), None);
         assert_eq!(repeated, single);
     }
 
     #[test]
     fn a_non_matching_goal_scores_nothing_at_all() {
-        assert!(local_goal_alignment("topology", Some("Notes"), &tags(&["cooking"]), Some("pasta")).is_none());
+        assert!(local_goal_alignment(
+            "topology",
+            Some("Notes"),
+            &tags(&["cooking"]),
+            Some("pasta")
+        )
+        .is_none());
     }
 
     #[test]

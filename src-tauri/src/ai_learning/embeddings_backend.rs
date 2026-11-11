@@ -472,7 +472,10 @@ mod tests {
         let a = embedding_version_for("on-device", "embeddinggemma-2-270m");
         let b = embedding_version_for("on-device", "embeddinggemma-2-270m");
         assert_eq!(a, b, "same identity must yield the same version");
-        assert_ne!(a, legacy, "switching to embeddinggemma-2-270m must bump the version");
+        assert_ne!(
+            a, legacy,
+            "switching to embeddinggemma-2-270m must bump the version"
+        );
         let c = embedding_version_for("on-device", "other-model");
         assert_ne!(a, c, "model change must bump the version");
         let d = embedding_version_for("cloud", "embeddinggemma-2-270m");

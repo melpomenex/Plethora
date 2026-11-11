@@ -26,9 +26,8 @@ const DEEP_LINK_SCHEME: &str = "plethora";
 
 /// Extensions Plethora can import (subset of documentStore / folder-import).
 const SUPPORTED_EXTENSIONS: &[&str] = &[
-    "pdf", "epub", "md", "markdown", "html", "htm", "txt", "json", "apkg",
-    "mp3", "wav", "m4a", "m4b", "aac", "ogg", "flac", "opus", "wma",
-    "mp4", "webm", "mov", "mkv", "avi", "m4v",
+    "pdf", "epub", "md", "markdown", "html", "htm", "txt", "json", "apkg", "mp3", "wav", "m4a",
+    "m4b", "aac", "ogg", "flac", "opus", "wma", "mp4", "webm", "mov", "mkv", "avi", "m4v",
     // Plethora backup / archive exports
     "db", "sqlite",
 ];
@@ -170,7 +169,11 @@ pub fn queue_startup_args(app: &AppHandle) {
         return;
     }
     if let Some(pending) = app.try_state::<PendingExternalOpens>() {
-        pending.0.lock().expect("pending external opens poisoned").extend(payloads);
+        pending
+            .0
+            .lock()
+            .expect("pending external opens poisoned")
+            .extend(payloads);
     }
 }
 

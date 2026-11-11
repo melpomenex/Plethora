@@ -34,8 +34,8 @@ mod tests {
     fn jwt_with_exp(exp: i64) -> String {
         let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(r#"{"alg":"none","typ":"JWT"}"#);
-        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(format!(r#"{{"exp":{exp}}}"#));
+        let payload =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(format!(r#"{{"exp":{exp}}}"#));
         format!("{header}.{payload}.sig")
     }
 

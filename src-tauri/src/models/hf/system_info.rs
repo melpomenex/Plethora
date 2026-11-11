@@ -109,10 +109,7 @@ fn nvidia_smi() -> Option<GpuInfo> {
             "/usr/local/bin/nvidia-smi",
             "/usr/bin/nvidia-smi.bin",
         ],
-        &[
-            "--query-gpu=memory.total",
-            "--format=csv,noheader,nounits",
-        ],
+        &["--query-gpu=memory.total", "--format=csv,noheader,nounits"],
     )
     .and_then(|v| {
         v.lines()
@@ -171,7 +168,11 @@ fn linux_gpu_probe() -> Option<GpuInfo> {
             } else {
                 "unknown"
             };
-            let name = line.split(':').nth(1).map(|s| s.trim().to_string()).unwrap_or(line);
+            let name = line
+                .split(':')
+                .nth(1)
+                .map(|s| s.trim().to_string())
+                .unwrap_or(line);
             return Some(GpuInfo {
                 name,
                 vram_bytes: None,
@@ -298,10 +299,7 @@ pub fn detect_system_info(models_dir: &Path) -> SystemInfo {
         gpu = macos_gpu_probe();
     }
 
-    let cuda_available = gpu
-        .as_ref()
-        .map(|g| g.vendor == "nvidia")
-        .unwrap_or(false);
+    let cuda_available = gpu.as_ref().map(|g| g.vendor == "nvidia").unwrap_or(false);
 
     let volume = volume_space(models_dir);
     let disk_free_bytes = volume.map(|(free, _)| free);

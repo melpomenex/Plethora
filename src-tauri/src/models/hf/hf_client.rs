@@ -74,9 +74,9 @@ pub fn parse_repo_input(input: &str) -> Result<RepoInput> {
         let repo_id = format!("{}/{}", owner, model);
         // Optional trailing `tree/<rev>` / `resolve/<rev>` carries the revision.
         let revision = match (segments.first().map(|s| s.as_str()), segments.get(1)) {
-            (Some("tree"), Some(rev)) | (Some("resolve"), Some(rev)) | (Some("blob"), Some(rev)) => {
-                Some(rev.clone())
-            }
+            (Some("tree"), Some(rev))
+            | (Some("resolve"), Some(rev))
+            | (Some("blob"), Some(rev)) => Some(rev.clone()),
             _ => None,
         }
         .or_else(|| {
@@ -419,7 +419,10 @@ pub fn safe_dir_name(repo_id: &str, revision: &str) -> String {
     let rev = if revision.is_empty() || revision == "main" {
         String::new()
     } else {
-        format!("@{}", revision.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|', ' '], "_"))
+        format!(
+            "@{}",
+            revision.replace(['/', '\\', ':', '*', '?', '"', '<', '>', '|', ' '], "_")
+        )
     };
     format!("{}{}", base, rev)
 }
@@ -444,23 +447,14 @@ pub fn params_millions(info: &HfRepoInfo) -> Option<u64> {
         .safetensors
         .as_ref()
         .and_then(|s| s.parameters.as_ref())
-        .map(|p| {
-            p.F32.unwrap_or(0)
-                + p.F16.unwrap_or(0)
-                + p.BF16.unwrap_or(0)
-                + p.I8.unwrap_or(0)
-        });
+        .map(|p| p.F32.unwrap_or(0) + p.F16.unwrap_or(0) + p.BF16.unwrap_or(0) + p.I8.unwrap_or(0));
     sum.filter(|s| *s > 0)
         .map(|s| (s as f64 / 1_000_000.0).round() as u64)
 }
 
 /// Extract a human-friendly model name from a repo id (last path segment).
 pub fn repo_display_name(repo_id: &str) -> String {
-    repo_id
-        .rsplit('/')
-        .next()
-        .unwrap_or(repo_id)
-        .to_string()
+    repo_id.rsplit('/').next().unwrap_or(repo_id).to_string()
 }
 
 /// Compute the total download size of a file set from LFS/siblings metadata,
@@ -503,10 +497,12 @@ pub struct FileIndex {
 
 impl FileIndex {
     pub fn size_of(&self, path: &str) -> Option<u64> {
-        self.metadata
-            .get(path)
-            .and_then(|m| m.size)
-            .or_else(|| self.files.iter().find(|f| f.rfilename == path).and_then(file_size_for))
+        self.metadata.get(path).and_then(|m| m.size).or_else(|| {
+            self.files
+                .iter()
+                .find(|f| f.rfilename == path)
+                .and_then(file_size_for)
+        })
     }
 
     pub fn sha_of(&self, path: &str) -> Option<String> {
@@ -662,7 +658,10 @@ mod tests {
 
     #[test]
     fn safe_dir_name_sanitizes() {
-        assert_eq!(safe_dir_name("ggerganov/whisper.cpp", "main"), "ggerganov_whisper.cpp");
+        assert_eq!(
+            safe_dir_name("ggerganov/whisper.cpp", "main"),
+            "ggerganov_whisper.cpp"
+        );
         assert!(safe_dir_name("a/b", "feature/x").contains('@'));
     }
 
@@ -676,8 +675,14 @@ mod tests {
     fn resolve_download_url_encodes_revision_and_path() {
         // A hostile `#../..`-style revision must be encoded, never raw.
         let url = resolve_download_url("owner/model", "../..", "model.onnx");
-        assert!(!url.contains("resolve/../.."), "raw traversal leaked: {url}");
-        assert!(url.contains("resolve/%2E%2E%2F%2E%2E/") || url.contains("resolve/..%2F../"), "{url}");
+        assert!(
+            !url.contains("resolve/../.."),
+            "raw traversal leaked: {url}"
+        );
+        assert!(
+            url.contains("resolve/%2E%2E%2F%2E%2E/") || url.contains("resolve/..%2F../"),
+            "{url}"
+        );
 
         // Legit subdirectory paths keep `/` as separators after encoding.
         let url = resolve_download_url("owner/model", "main", "ggml/ggml-base.bin");
@@ -694,7 +699,10 @@ mod tests {
         // Repo id segments are percent-encoded so a hostile `../..` in the id
         // can never escape the URL path (defense in depth).
         let url = resolve_download_url("../evil/model", "main", "model.onnx");
-        assert!(!url.contains("/../"), "raw traversal leaked via repo id: {url}");
+        assert!(
+            !url.contains("/../"),
+            "raw traversal leaked via repo id: {url}"
+        );
         assert!(url.contains("/%2E%2E/evil/model/"), "{url}");
     }
 
@@ -797,14 +805,37 @@ mod tests {
     }
     #[tokio::test]
     async fn repo_revision_uses_the_revision_endpoint_and_refuses_missing_refs() {
-        let server = TestServerBuilder::new(|n| if n == 1 { (200, br#"{"id":"owner/model","sha":"pinned"}"#.to_vec()) } else { (404, vec![]) }).spawn().await;
-        let info = fetch_repo_info_from_base(&Client::new(), &server.url, "owner/model", Some("branch-name")).await.unwrap();
+        let server = TestServerBuilder::new(|n| {
+            if n == 1 {
+                (200, br#"{"id":"owner/model","sha":"pinned"}"#.to_vec())
+            } else {
+                (404, vec![])
+            }
+        })
+        .spawn()
+        .await;
+        let info = fetch_repo_info_from_base(
+            &Client::new(),
+            &server.url,
+            "owner/model",
+            Some("branch-name"),
+        )
+        .await
+        .unwrap();
         assert_eq!(info.sha.as_deref(), Some("pinned"));
-        assert!(fetch_repo_info_from_base(&Client::new(), &server.url, "owner/model", Some("missing")).await.is_err());
+        assert!(fetch_repo_info_from_base(
+            &Client::new(),
+            &server.url,
+            "owner/model",
+            Some("missing")
+        )
+        .await
+        .is_err());
         let requests = server.requests().await;
-        assert!(requests[0].head.contains("/owner/model/revision/branch-name"));
+        assert!(requests[0]
+            .head
+            .contains("/owner/model/revision/branch-name"));
         assert!(!requests[0].head.contains("?revision="));
         server.stop();
     }
-
 }

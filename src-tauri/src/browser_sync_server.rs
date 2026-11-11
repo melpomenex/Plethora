@@ -904,7 +904,9 @@ async fn handle_extension_request(
                 title: Some(payload.title.clone()),
                 alt: None,
                 caption: None,
-                domain: Url::parse(&payload.url).ok().and_then(|u| u.host_str().map(str::to_string)),
+                domain: Url::parse(&payload.url)
+                    .ok()
+                    .and_then(|u| u.host_str().map(str::to_string)),
                 tags: payload.tags.clone(),
                 capture_context: payload.capture_context.clone(),
                 extension_version: payload.extension_version.clone(),
@@ -1111,66 +1113,166 @@ fn normalize_browser_capture_context(payload: &ExtensionRequest) -> Option<serde
         .and_then(|value| value.as_object())
         .cloned()
         .unwrap_or_default();
-    let source_url = bounded_context_string(&object, &["sourceUrl", "source_url"], 2048)
-        .or_else(|| (!payload.url.trim().is_empty()).then(|| payload.url.trim().chars().take(2048).collect()));
+    let source_url =
+        bounded_context_string(&object, &["sourceUrl", "source_url"], 2048).or_else(|| {
+            (!payload.url.trim().is_empty())
+                .then(|| payload.url.trim().chars().take(2048).collect())
+        });
     let mut context = serde_json::Map::new();
     context.insert("version".to_string(), json!(BROWSER_CONTEXT_VERSION));
     if let Some(value) = source_url.clone() {
         context.insert("sourceUrl".to_string(), json!(value));
         if let Ok(url) = Url::parse(&value) {
             if let Some(host) = url.host_str() {
-                context.insert("domain".to_string(), json!(host.trim_start_matches("www.").chars().take(160).collect::<String>()));
+                context.insert(
+                    "domain".to_string(),
+                    json!(host
+                        .trim_start_matches("www.")
+                        .chars()
+                        .take(160)
+                        .collect::<String>()),
+                );
             }
         }
     }
-    if let Some(value) = bounded_context_string(&object, &["domain"], 160) { context.insert("domain".to_string(), json!(value)); }
-    if let Some(value) = bounded_context_string(&object, &["pageTitle", "page_title"], 240)
-        .or_else(|| (!payload.title.trim().is_empty()).then(|| payload.title.trim().chars().take(240).collect()))
-    { context.insert("pageTitle".to_string(), json!(value)); }
+    if let Some(value) = bounded_context_string(&object, &["domain"], 160) {
+        context.insert("domain".to_string(), json!(value));
+    }
+    if let Some(value) =
+        bounded_context_string(&object, &["pageTitle", "page_title"], 240).or_else(|| {
+            (!payload.title.trim().is_empty())
+                .then(|| payload.title.trim().chars().take(240).collect())
+        })
+    {
+        context.insert("pageTitle".to_string(), json!(value));
+    }
     for (name, keys, max) in [
         ("author", &["author"][..], 180),
-        ("nearbyText", &["nearbyText", "nearby_text", "context"][..], 1800),
-        ("captionAltText", &["captionAltText", "caption_alt_text", "caption", "alt"][..], 1200),
+        (
+            "nearbyText",
+            &["nearbyText", "nearby_text", "context"][..],
+            1800,
+        ),
+        (
+            "captionAltText",
+            &["captionAltText", "caption_alt_text", "caption", "alt"][..],
+            1200,
+        ),
         ("contentKind", &["contentKind", "content_kind"][..], 80),
-        ("sourceDocumentId", &["sourceDocumentId", "source_document_id"][..], 120),
+        (
+            "sourceDocumentId",
+            &["sourceDocumentId", "source_document_id"][..],
+            120,
+        ),
         ("selector", &["selector"][..], 240),
-        ("extensionVersion", &["extensionVersion", "extension_version"][..], 80),
+        (
+            "extensionVersion",
+            &["extensionVersion", "extension_version"][..],
+            80,
+        ),
     ] {
-        if let Some(value) = bounded_context_string(&object, keys, max) { context.insert(name.to_string(), json!(value)); }
+        if let Some(value) = bounded_context_string(&object, keys, max) {
+            context.insert(name.to_string(), json!(value));
+        }
     }
     if context.get("nearbyText").is_none() {
-        if let Some(value) = payload.context.as_deref().map(|value| value.trim().chars().take(1800).collect::<String>()).filter(|value| !value.is_empty()) {
+        if let Some(value) = payload
+            .context
+            .as_deref()
+            .map(|value| value.trim().chars().take(1800).collect::<String>())
+            .filter(|value| !value.is_empty())
+        {
             context.insert("nearbyText".to_string(), json!(value));
         }
     }
-    if let Some(values) = bounded_context_list(&object, &["headingPath", "heading_path", "headings"], 12, 180) { context.insert("headingPath".to_string(), json!(values)); }
-    if let Some(values) = bounded_context_list(&object, &["sourceTags", "source_tags"], 24, 80) { context.insert("sourceTags".to_string(), json!(values)); }
-    if object.get("reduced").and_then(|value| value.as_bool()).unwrap_or(false) { context.insert("reduced".to_string(), json!(true)); }
+    if let Some(values) = bounded_context_list(
+        &object,
+        &["headingPath", "heading_path", "headings"],
+        12,
+        180,
+    ) {
+        context.insert("headingPath".to_string(), json!(values));
+    }
+    if let Some(values) = bounded_context_list(&object, &["sourceTags", "source_tags"], 24, 80) {
+        context.insert("sourceTags".to_string(), json!(values));
+    }
+    if object
+        .get("reduced")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+    {
+        context.insert("reduced".to_string(), json!(true));
+    }
 
     let mut value = serde_json::Value::Object(context);
-    while serde_json::to_vec(&value).map(|bytes| bytes.len()).unwrap_or(usize::MAX) > BROWSER_CONTEXT_TOTAL_BYTES {
-        let Some(map) = value.as_object_mut() else { break };
-        if let Some(text) = map.get("captionAltText").and_then(|value| value.as_str()).map(str::to_string) {
-            map.insert("captionAltText".to_string(), json!(text.chars().take(text.len().saturating_sub(200)).collect::<String>()));
-        } else if let Some(text) = map.get("nearbyText").and_then(|value| value.as_str()).map(str::to_string) {
-            map.insert("nearbyText".to_string(), json!(text.chars().take(text.len().saturating_sub(300)).collect::<String>()));
-        } else if let Some(values) = map.get_mut("sourceTags").and_then(|value| value.as_array_mut()) {
+    while serde_json::to_vec(&value)
+        .map(|bytes| bytes.len())
+        .unwrap_or(usize::MAX)
+        > BROWSER_CONTEXT_TOTAL_BYTES
+    {
+        let Some(map) = value.as_object_mut() else {
+            break;
+        };
+        if let Some(text) = map
+            .get("captionAltText")
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+        {
+            map.insert(
+                "captionAltText".to_string(),
+                json!(text
+                    .chars()
+                    .take(text.len().saturating_sub(200))
+                    .collect::<String>()),
+            );
+        } else if let Some(text) = map
+            .get("nearbyText")
+            .and_then(|value| value.as_str())
+            .map(str::to_string)
+        {
+            map.insert(
+                "nearbyText".to_string(),
+                json!(text
+                    .chars()
+                    .take(text.len().saturating_sub(300))
+                    .collect::<String>()),
+            );
+        } else if let Some(values) = map
+            .get_mut("sourceTags")
+            .and_then(|value| value.as_array_mut())
+        {
             values.pop();
-        } else if let Some(values) = map.get_mut("headingPath").and_then(|value| value.as_array_mut()) {
+        } else if let Some(values) = map
+            .get_mut("headingPath")
+            .and_then(|value| value.as_array_mut())
+        {
             values.pop();
-        } else { break; }
+        } else {
+            break;
+        }
         map.insert("reduced".to_string(), json!(true));
     }
     Some(value)
 }
 
-fn browser_capture_fingerprint(item_type: &str, content: &str, context: &Option<serde_json::Value>, tags: &[String]) -> String {
+fn browser_capture_fingerprint(
+    item_type: &str,
+    content: &str,
+    context: &Option<serde_json::Value>,
+    tags: &[String],
+) -> String {
     let mut hasher = Sha256::new();
     hasher.update(item_type.as_bytes());
     hasher.update(content.as_bytes());
-    if let Some(context) = context { hasher.update(serde_json::to_vec(context).unwrap_or_default()); }
+    if let Some(context) = context {
+        hasher.update(serde_json::to_vec(context).unwrap_or_default());
+    }
     hasher.update(serde_json::to_vec(tags).unwrap_or_default());
-    format!("browser-org-v{}-{:x}", BROWSER_CONTEXT_VERSION, hasher.finalize())
+    format!(
+        "browser-org-v{}-{:x}",
+        BROWSER_CONTEXT_VERSION,
+        hasher.finalize()
+    )
 }
 
 fn queued_browser_organization(
@@ -1180,7 +1282,9 @@ fn queued_browser_organization(
     tags: &[String],
     source_document_id: Option<&str>,
 ) -> (Option<serde_json::Value>, Option<serde_json::Value>) {
-    if context.is_none() && source_document_id.is_none() { return (None, None); }
+    if context.is_none() && source_document_id.is_none() {
+        return (None, None);
+    }
     let captured_at = chrono::Utc::now().to_rfc3339();
     let fingerprint = browser_capture_fingerprint(item_type, content, context, tags);
     let provenance = json!({
@@ -1332,7 +1436,11 @@ async fn resolve_browser_import_content(payload: &ExtensionRequest) -> BrowserIm
             images: supplied_images,
             mode: if supplied_is_navigation_heavy {
                 "low-confidence"
-            } else if payload.html_content.as_ref().is_some_and(|html| !html.trim().is_empty()) {
+            } else if payload
+                .html_content
+                .as_ref()
+                .is_some_and(|html| !html.trim().is_empty())
+            {
                 "rich-preview"
             } else {
                 "text-editor"
@@ -1404,7 +1512,7 @@ fn build_browser_import_metadata(payload: &ExtensionRequest) -> crate::models::D
                     src: image.src.clone(),
                     alt: image.alt.clone(),
                 })
-            .collect()
+                .collect()
         }),
         browser_capture_context: capture_context,
         capture_provenance,
@@ -1984,7 +2092,9 @@ async fn capture_x_thread_document<F, Fut>(
 ) -> Result<Document, XThreadCaptureError>
 where
     F: FnOnce(String) -> Fut,
-    Fut: std::future::Future<Output = Result<crate::twitter::TwitterThread, crate::threadreader::ThreadError>>,
+    Fut: std::future::Future<
+        Output = Result<crate::twitter::TwitterThread, crate::threadreader::ThreadError>,
+    >,
 {
     let thread = resolve(url.to_string())
         .await
@@ -2284,7 +2394,10 @@ async fn handle_extract_request(
     })
 }
 
-fn build_extension_selection_context(payload: &ExtensionRequest, document_id: &str) -> Option<serde_json::Value> {
+fn build_extension_selection_context(
+    payload: &ExtensionRequest,
+    document_id: &str,
+) -> Option<serde_json::Value> {
     let mut map = serde_json::Map::new();
 
     if let Some(context) = payload.context.as_ref() {
@@ -2745,7 +2858,10 @@ fn decode_image_data_url(data_url: &str) -> crate::error::Result<(String, Vec<u8
     let metadata = metadata.strip_prefix("data:").ok_or_else(|| {
         crate::error::PlethoraError::InvalidInput("Invalid image data URL".to_string())
     })?;
-    if !metadata.split(';').any(|part| part.eq_ignore_ascii_case("base64")) {
+    if !metadata
+        .split(';')
+        .any(|part| part.eq_ignore_ascii_case("base64"))
+    {
         return Err(crate::error::PlethoraError::InvalidInput(
             "Image data URL must use base64 encoding".to_string(),
         ));
@@ -2771,19 +2887,39 @@ fn image_capture_context(payload: &ImageRegistryIngestPayload) -> Option<serde_j
         .and_then(|value| value.as_object())
         .cloned()
         .unwrap_or_default();
-    if let Some(value) = payload.source_url.as_deref().filter(|value| !value.trim().is_empty()) {
+    if let Some(value) = payload
+        .source_url
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         object.insert("sourceUrl".to_string(), json!(value));
     }
-    if let Some(value) = payload.title.as_deref().filter(|value| !value.trim().is_empty()) {
+    if let Some(value) = payload
+        .title
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         object.insert("pageTitle".to_string(), json!(value));
     }
-    if let Some(value) = payload.domain.as_deref().filter(|value| !value.trim().is_empty()) {
+    if let Some(value) = payload
+        .domain
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         object.insert("domain".to_string(), json!(value));
     }
-    if let Some(value) = payload.alt.as_deref().filter(|value| !value.trim().is_empty()) {
+    if let Some(value) = payload
+        .alt
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         object.insert("alt".to_string(), json!(value));
     }
-    if let Some(value) = payload.caption.as_deref().filter(|value| !value.trim().is_empty()) {
+    if let Some(value) = payload
+        .caption
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
         object.insert("caption".to_string(), json!(value));
     }
     if let Some(value) = payload
@@ -2793,7 +2929,11 @@ fn image_capture_context(payload: &ImageRegistryIngestPayload) -> Option<serde_j
     {
         object.insert("extensionVersion".to_string(), json!(value));
     }
-    let url = payload.source_url.as_deref().unwrap_or_default().to_string();
+    let url = payload
+        .source_url
+        .as_deref()
+        .unwrap_or_default()
+        .to_string();
     let synthetic = ExtensionRequest {
         url,
         title: payload.title.clone().unwrap_or_default(),
@@ -2819,10 +2959,14 @@ async fn handle_image_registry_ingest_internal(
     state: &ServerState,
     payload: ImageRegistryIngestPayload,
 ) -> Response {
-    let (asset_result, effective_mime) = if let Some(base64_data) = payload.image_base64.as_deref() {
+    let (asset_result, effective_mime) = if let Some(base64_data) = payload.image_base64.as_deref()
+    {
         let decoded_size = decoded_base64_size(base64_data);
         if decoded_size == 0 || decoded_size > IMAGE_OCCLUSION_DECODED_MAX_BYTES {
-            return error_response(StatusCode::PAYLOAD_TOO_LARGE, "Image must be between 1 byte and 7 MB");
+            return error_response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "Image must be between 1 byte and 7 MB",
+            );
         }
         (
             crate::commands::image_registry::ingest_image_asset_from_base64_with_status(
@@ -2840,7 +2984,10 @@ async fn handle_image_registry_ingest_internal(
             Err(error) => return error_response(StatusCode::BAD_REQUEST, &error.to_string()),
         };
         if bytes.is_empty() || bytes.len() > IMAGE_OCCLUSION_DECODED_MAX_BYTES {
-            return error_response(StatusCode::PAYLOAD_TOO_LARGE, "Image must be between 1 byte and 7 MB");
+            return error_response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "Image must be between 1 byte and 7 MB",
+            );
         }
         let encoded = general_purpose::STANDARD.encode(bytes);
         (
@@ -2860,7 +3007,10 @@ async fn handle_image_registry_ingest_internal(
                 Err(error) => return error_response(StatusCode::BAD_REQUEST, &error.to_string()),
             };
             if bytes.is_empty() || bytes.len() > IMAGE_OCCLUSION_DECODED_MAX_BYTES {
-                return error_response(StatusCode::PAYLOAD_TOO_LARGE, "Image must be between 1 byte and 7 MB");
+                return error_response(
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "Image must be between 1 byte and 7 MB",
+                );
             }
             let encoded = general_purpose::STANDARD.encode(bytes);
             (
@@ -2920,13 +3070,8 @@ async fn handle_image_registry_ingest_internal(
     } else {
         content
     };
-    let (capture_provenance, organization) = queued_browser_organization(
-        "image-registry",
-        &content,
-        &capture_context,
-        &tags,
-        None,
-    );
+    let (capture_provenance, organization) =
+        queued_browser_organization("image-registry", &content, &capture_context, &tags, None);
 
     // Persist bounded capture evidence + smart-organization state on the asset
     // so the desktop app's tagging queue can pick it up later.
@@ -2936,7 +3081,10 @@ async fn handle_image_registry_ingest_internal(
         "organization": organization,
     });
     if let Ok(serialized) = serde_json::to_string(&metadata) {
-        let _ = state.repo.update_image_asset_metadata(&asset.id, &serialized).await;
+        let _ = state
+            .repo
+            .update_image_asset_metadata(&asset.id, &serialized)
+            .await;
     }
 
     let deep_link = format!(
@@ -3410,7 +3558,11 @@ async fn handle_ai_request(
                                 item.cloze_text = Some(card.question.clone());
                             }
                             item.tags = Vec::new();
-                            let browser_item_type = if item_type == ItemType::Cloze { "cloze" } else { "qa" };
+                            let browser_item_type = if item_type == ItemType::Cloze {
+                                "cloze"
+                            } else {
+                                "qa"
+                            };
                             let (capture_provenance, organization) = queued_browser_organization(
                                 browser_item_type,
                                 &format!("{}\n{}", card.question, card.answer),
@@ -4033,7 +4185,8 @@ mod rss_customization_http_tests {
     #[tokio::test]
     async fn rss_customization_http_effective_roundtrip() {
         let db = crate::database::Database::new(std::path::PathBuf::from(":memory:"))
-            .await.unwrap();
+            .await
+            .unwrap();
         db.migrate().await.unwrap();
         let repo = Repository::new(db.pool().clone());
         let expected = serde_json::json!({
@@ -4045,24 +4198,52 @@ mod rss_customization_http_tests {
             "sort_by":"reading_time", "sort_order":"asc", "font_family":"monospace",
             "font_size":24, "line_height":1.7, "content_width":80, "text_align":"justify"
         });
-        repo.set_rss_user_preferences(None, None, serde_json::from_value(expected.clone()).unwrap())
-            .await.unwrap();
-        let response = effective_rss_preferences(&repo, Some("feed"), None).await.unwrap();
+        repo.set_rss_user_preferences(
+            None,
+            None,
+            serde_json::from_value(expected.clone()).unwrap(),
+        )
+        .await
+        .unwrap();
+        let response = effective_rss_preferences(&repo, Some("feed"), None)
+            .await
+            .unwrap();
         for (key, value) in expected.as_object().unwrap() {
             assert_eq!(&response[key], value, "HTTP effective field {key}");
         }
-        repo.set_rss_user_preferences(Some("feed"), None,
-            serde_json::from_value(serde_json::json!({"font_size":30,"keyword_include":""})).unwrap())
-            .await.unwrap();
-        let response = effective_rss_preferences(&repo, Some("feed"), None).await.unwrap();
+        repo.set_rss_user_preferences(
+            Some("feed"),
+            None,
+            serde_json::from_value(serde_json::json!({"font_size":30,"keyword_include":""}))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+        let response = effective_rss_preferences(&repo, Some("feed"), None)
+            .await
+            .unwrap();
         assert_eq!(response["font_size"], 30);
         assert_eq!(response["line_height"], 1.7);
         assert_eq!(response["keyword_include"], "");
-        repo.set_rss_user_preferences(Some("feed"), None,
-            serde_json::from_value(serde_json::json!({"font_size":null})).unwrap())
-            .await.unwrap();
-        assert_eq!(effective_rss_preferences(&repo, Some("feed"), None).await.unwrap()["font_size"], 24);
-        assert_eq!(effective_rss_preferences(&repo, Some("other"), None).await.unwrap()["keyword_include"], "science");
+        repo.set_rss_user_preferences(
+            Some("feed"),
+            None,
+            serde_json::from_value(serde_json::json!({"font_size":null})).unwrap(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            effective_rss_preferences(&repo, Some("feed"), None)
+                .await
+                .unwrap()["font_size"],
+            24
+        );
+        assert_eq!(
+            effective_rss_preferences(&repo, Some("other"), None)
+                .await
+                .unwrap()["keyword_include"],
+            "science"
+        );
     }
 }
 
@@ -6165,7 +6346,9 @@ mod browser_import_persistence_tests {
         assert!(looks_like_navigation_heavy_text(&shell));
 
         let prose = (0..80)
-            .map(|index| format!("Paragraph {index} contains a complete sentence about the article topic."))
+            .map(|index| {
+                format!("Paragraph {index} contains a complete sentence about the article topic.")
+            })
             .collect::<Vec<_>>()
             .join("\n\n");
         assert!(!looks_like_navigation_heavy_text(&prose));
@@ -6404,11 +6587,12 @@ mod x_thread_capture_tests {
     async fn x_thread_capture_persists_a_thread_document_like_an_import() {
         let repo = setup_repo().await;
         let thread = thread_fixture();
-        let doc = capture_x_thread_document(&repo, "https://x.com/janeresearch/status/1001", |_| async {
-            Ok(thread.clone())
-        })
-        .await
-        .expect("capture persists");
+        let doc =
+            capture_x_thread_document(&repo, "https://x.com/janeresearch/status/1001", |_| async {
+                Ok(thread.clone())
+            })
+            .await
+            .expect("capture persists");
 
         assert_eq!(doc.category.as_deref(), Some("X Threads"));
         assert_eq!(doc.tags, vec!["x", "twitter", "thread"]);
@@ -6416,7 +6600,10 @@ mod x_thread_capture_tests {
         // Canonical (root) URL is the dedupe key, same as import_twitter_thread.
         assert_eq!(doc.file_path, "https://x.com/janeresearch/status/1001");
         let metadata = doc.metadata.expect("metadata present");
-        assert_eq!(metadata.article_html.as_deref(), Some("<div class=\"x-thread-container\">html</div>"));
+        assert_eq!(
+            metadata.article_html.as_deref(),
+            Some("<div class=\"x-thread-container\">html</div>")
+        );
         assert!(metadata.structured_content.is_some());
         assert_eq!(metadata.site_name.as_deref(), Some("X"));
         assert_eq!(metadata.author.as_deref(), Some("Jane Researcher"));
@@ -6426,11 +6613,12 @@ mod x_thread_capture_tests {
     async fn duplicate_x_thread_capture_dedupes_by_canonical_url() {
         let repo = setup_repo().await;
         let thread = thread_fixture();
-        let first = capture_x_thread_document(&repo, "https://x.com/janeresearch/status/1001", |_| async {
-            Ok(thread.clone())
-        })
-        .await
-        .expect("first capture");
+        let first =
+            capture_x_thread_document(&repo, "https://x.com/janeresearch/status/1001", |_| async {
+                Ok(thread.clone())
+            })
+            .await
+            .expect("first capture");
         // Second capture arrives with a query string and a twitter.com host —
         // the resolved root URL is identical, so no second document.
         let second = capture_x_thread_document(
@@ -6441,26 +6629,29 @@ mod x_thread_capture_tests {
         .await
         .expect("second capture");
         assert_eq!(first.id, second.id);
-        assert!(
-            repo.find_document_by_url("https://x.com/janeresearch/status/1001")
-                .await
-                .expect("lookup")
-                .is_some()
-        );
+        assert!(repo
+            .find_document_by_url("https://x.com/janeresearch/status/1001")
+            .await
+            .expect("lookup")
+            .is_some());
     }
 
     #[tokio::test]
     async fn x_thread_retrieval_failure_is_typed_not_a_generic_500() {
         let repo = setup_repo().await;
-        let result = capture_x_thread_document(&repo, "https://x.com/user/status/1234567890", |_| async {
-            Err(ThreadError::RateLimited(
-                "ThreadReaderApp rate-limited (HTTP 429) for thread 1234567890".to_string(),
-            ))
-        })
-        .await;
+        let result =
+            capture_x_thread_document(&repo, "https://x.com/user/status/1234567890", |_| async {
+                Err(ThreadError::RateLimited(
+                    "ThreadReaderApp rate-limited (HTTP 429) for thread 1234567890".to_string(),
+                ))
+            })
+            .await;
         match result {
             Err(XThreadCaptureError::Retrieval(ThreadError::RateLimited(_))) => {}
-            other => panic!("expected typed RateLimited retrieval error, got {:?}", other),
+            other => panic!(
+                "expected typed RateLimited retrieval error, got {:?}",
+                other
+            ),
         }
 
         // The HTTP mapping carries the typed kind + a reason the extension
@@ -6497,7 +6688,9 @@ mod tests {
         let at_limit: usize = 7 * 1024 * 1024;
         let base64_len = at_limit.div_ceil(3) * 4;
         assert!(decoded_base64_size(&"A".repeat(base64_len)) >= at_limit);
-        assert!(decoded_base64_size(&"A".repeat(base64_len + 4)) > IMAGE_OCCLUSION_DECODED_MAX_BYTES);
+        assert!(
+            decoded_base64_size(&"A".repeat(base64_len + 4)) > IMAGE_OCCLUSION_DECODED_MAX_BYTES
+        );
     }
 
     #[test]
@@ -6577,13 +6770,8 @@ mod tests {
 
     #[test]
     fn queued_browser_organization_is_empty_without_context() {
-        let (provenance, organization) = queued_browser_organization(
-            "image-registry",
-            "content",
-            &None,
-            &[],
-            None,
-        );
+        let (provenance, organization) =
+            queued_browser_organization("image-registry", "content", &None, &[], None);
         assert!(provenance.is_none());
         assert!(organization.is_none());
     }

@@ -17,12 +17,10 @@ where
     match op(token).await {
         Ok(value) => Ok(value),
         Err(PlethoraError::IntegrationAuthError(code)) if code == "token_expired" => {
-            auth.force_refresh_tokens()
-                .await
-                .map_err(|e| {
-                    auth.handle_refresh_failure(e.clone());
-                    PlethoraError::Internal(e.to_string())
-                })?;
+            auth.force_refresh_tokens().await.map_err(|e| {
+                auth.handle_refresh_failure(e.clone());
+                PlethoraError::Internal(e.to_string())
+            })?;
             let rotated = auth
                 .get_access_token()
                 .ok_or_else(|| PlethoraError::Internal("No access token after refresh".into()))?;
@@ -35,8 +33,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base64::Engine;
     use crate::plethora_auth::{AccountTokens, AuthManager, UserProfile};
+    use base64::Engine;
 
     #[tokio::test]
     async fn passes_owned_bearer_to_operation() {
@@ -44,8 +42,8 @@ mod tests {
         let exp = chrono::Utc::now().timestamp() + 600;
         let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(r#"{"alg":"none","typ":"JWT"}"#);
-        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(format!(r#"{{"exp":{exp}}}"#));
+        let payload =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(format!(r#"{{"exp":{exp}}}"#));
         let fresh = format!("{header}.{payload}.sig");
 
         auth.set_signed_in(

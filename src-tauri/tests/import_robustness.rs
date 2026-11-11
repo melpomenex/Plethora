@@ -2,10 +2,10 @@
 //! Verifies that malformed, corrupted, empty, or exotic document files
 //! never panic or crash the process and return structured typed errors.
 
-use std::path::PathBuf;
 use plethora_tauri_lib::error::{ImportErrorCode, PlethoraError};
 use plethora_tauri_lib::models::FileType;
 use plethora_tauri_lib::processor;
+use std::path::PathBuf;
 
 fn fixture_path(subpath: &str) -> PathBuf {
     let mut path = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
@@ -94,13 +94,13 @@ async fn test_unicode_emojis_markdown_imports_cleanly() {
     let p = fixture_path("text/unicode_emojis.md");
     assert!(p.exists(), "unicode_emojis.md fixture missing");
 
-    let result = processor::extract_content(
-        p.to_str().unwrap(),
-        FileType::Markdown,
-    )
-    .await;
+    let result = processor::extract_content(p.to_str().unwrap(), FileType::Markdown).await;
 
-    assert!(result.is_ok(), "Failed to extract unicode markdown: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to extract unicode markdown: {:?}",
+        result.err()
+    );
     let extracted = result.unwrap();
     assert!(extracted.text.contains("日本語のテキスト"));
     assert!(extracted.text.contains("🦄"));
@@ -111,13 +111,16 @@ async fn test_unclosed_tags_html_does_not_panic() {
     let p = fixture_path("html/unclosed_tags.html");
     assert!(p.exists(), "unclosed_tags.html fixture missing");
 
-    let result = processor::extract_content(
-        p.to_str().unwrap(),
-        FileType::Html,
-    )
-    .await;
+    let result = processor::extract_content(p.to_str().unwrap(), FileType::Html).await;
 
-    assert!(result.is_ok(), "Failed to parse unclosed HTML: {:?}", result.err());
+    assert!(
+        result.is_ok(),
+        "Failed to parse unclosed HTML: {:?}",
+        result.err()
+    );
     let extracted = result.unwrap();
-    assert!(!extracted.text.is_empty(), "Extracted text should not be empty");
+    assert!(
+        !extracted.text.is_empty(),
+        "Extracted text should not be empty"
+    );
 }

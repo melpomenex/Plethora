@@ -217,8 +217,14 @@ impl AiConversationRepository {
                 deleted_at_ms: row
                     .get::<Option<String>, _>("deleted_at")
                     .and_then(|value| value.parse::<i64>().ok()),
-                legacy_aliases: parse_aliases(row.get::<Option<String>, _>("legacy_aliases").as_deref()),
-                context_policy: parse_json_or(row.get::<Option<String>, _>("context_policy_json").as_deref(), Value::Object(Default::default())),
+                legacy_aliases: parse_aliases(
+                    row.get::<Option<String>, _>("legacy_aliases").as_deref(),
+                ),
+                context_policy: parse_json_or(
+                    row.get::<Option<String>, _>("context_policy_json")
+                        .as_deref(),
+                    Value::Object(Default::default()),
+                ),
             })
             .collect())
     }
@@ -257,8 +263,14 @@ impl AiConversationRepository {
             deleted_at_ms: row
                 .get::<Option<String>, _>("deleted_at")
                 .and_then(|value| value.parse::<i64>().ok()),
-            legacy_aliases: parse_aliases(row.get::<Option<String>, _>("legacy_aliases").as_deref()),
-            context_policy: parse_json_or(row.get::<Option<String>, _>("context_policy_json").as_deref(), Value::Object(Default::default())),
+            legacy_aliases: parse_aliases(
+                row.get::<Option<String>, _>("legacy_aliases").as_deref(),
+            ),
+            context_policy: parse_json_or(
+                row.get::<Option<String>, _>("context_policy_json")
+                    .as_deref(),
+                Value::Object(Default::default()),
+            ),
         };
 
         let message_rows = sqlx::query(
@@ -500,12 +512,20 @@ impl AiConversationRepository {
             "#,
         )
         .bind(&id)
-        .bind(if title.trim().is_empty() { "New conversation" } else { title.trim() })
+        .bind(if title.trim().is_empty() {
+            "New conversation"
+        } else {
+            title.trim()
+        })
         .bind(UNASSIGNED_SENTINEL)
         .bind(&iso)
         .bind(owner_profile_id)
         .bind(collection_id)
-        .bind(if sync_policy == "eligible" { "eligible" } else { "device-local" })
+        .bind(if sync_policy == "eligible" {
+            "eligible"
+        } else {
+            "device-local"
+        })
         .bind(&aliases)
         .bind(&context_policy_json)
         .bind(timestamp)
@@ -599,7 +619,11 @@ impl AiConversationRepository {
         .bind(conversation_id)
         .bind(owner_profile_id)
         .bind(title)
-        .bind(if collection_id.is_some() { 1_i64 } else { 0_i64 })
+        .bind(if collection_id.is_some() {
+            1_i64
+        } else {
+            0_i64
+        })
         .bind(collection_id.flatten())
         .bind(context_policy_json)
         .bind(sync_policy)
@@ -950,7 +974,10 @@ impl AiConversationRepository {
         .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(|| PlethoraError::NotFound(turn_id.to_string()))?;
-        if turn.get::<Option<String>, _>("accepted_attempt_id").is_some() {
+        if turn
+            .get::<Option<String>, _>("accepted_attempt_id")
+            .is_some()
+        {
             return Err(PlethoraError::InvalidInput(
                 "turn already has an accepted result; start a new turn instead".into(),
             ));
@@ -1008,9 +1035,24 @@ impl AiConversationRepository {
             .bind(conversation_id)
             .bind(attachment_id)
             .bind(source.get("libraryId").and_then(Value::as_str))
-            .bind(source.get("kind").and_then(Value::as_str).unwrap_or("document"))
-            .bind(source.get("role").and_then(Value::as_str).unwrap_or("optional"))
-            .bind(source.get("origin").and_then(Value::as_str).unwrap_or("history"))
+            .bind(
+                source
+                    .get("kind")
+                    .and_then(Value::as_str)
+                    .unwrap_or("document"),
+            )
+            .bind(
+                source
+                    .get("role")
+                    .and_then(Value::as_str)
+                    .unwrap_or("optional"),
+            )
+            .bind(
+                source
+                    .get("origin")
+                    .and_then(Value::as_str)
+                    .unwrap_or("history"),
+            )
             .bind(source.get("title").and_then(Value::as_str).unwrap_or(""))
             .bind(source.get("contentVersion").and_then(Value::as_str))
             .bind(source.get("locator").map(|value| value.to_string()))
@@ -1135,13 +1177,20 @@ impl AiConversationRepository {
         owner_profile_id: &str,
         conversation_id: &str,
     ) -> Result<Option<ConversationSummary>> {
-        let list = self.list_conversations(owner_profile_id, &ListOptions {
-            include_deleted: Some(true),
-            limit: Some(1),
-            cursor: None,
-            search: None,
-        }).await?;
-        Ok(list.into_iter().find(|summary| summary.id == conversation_id))
+        let list = self
+            .list_conversations(
+                owner_profile_id,
+                &ListOptions {
+                    include_deleted: Some(true),
+                    limit: Some(1),
+                    cursor: None,
+                    search: None,
+                },
+            )
+            .await?;
+        Ok(list
+            .into_iter()
+            .find(|summary| summary.id == conversation_id))
     }
 
     async fn get_conversation_tx(
@@ -1162,16 +1211,26 @@ impl AiConversationRepository {
             owner_profile_id: row.get("owner_profile_id"),
             collection_id: row.get("collection_id"),
             title: row.get("title"),
-            created_at_ms: row.get::<Option<i64>, _>("created_at_ms").unwrap_or_default(),
-            updated_at_ms: row.get::<Option<i64>, _>("updated_at_ms").unwrap_or_default(),
+            created_at_ms: row
+                .get::<Option<i64>, _>("created_at_ms")
+                .unwrap_or_default(),
+            updated_at_ms: row
+                .get::<Option<i64>, _>("updated_at_ms")
+                .unwrap_or_default(),
             revision: row.get("revision"),
             record_version: row.get("record_version"),
             sync_policy: row.get("sync_policy"),
             deleted_at_ms: row
                 .get::<Option<String>, _>("deleted_at")
                 .and_then(|value| value.parse::<i64>().ok()),
-            legacy_aliases: parse_aliases(row.get::<Option<String>, _>("legacy_aliases").as_deref()),
-            context_policy: parse_json_or(row.get::<Option<String>, _>("context_policy_json").as_deref(), Value::Object(Default::default())),
+            legacy_aliases: parse_aliases(
+                row.get::<Option<String>, _>("legacy_aliases").as_deref(),
+            ),
+            context_policy: parse_json_or(
+                row.get::<Option<String>, _>("context_policy_json")
+                    .as_deref(),
+                Value::Object(Default::default()),
+            ),
         }))
     }
 }
@@ -1318,7 +1377,10 @@ mod tests {
                 vec![],
             )
             .await;
-        assert!(matches!(cross_partition, Err(PlethoraError::InvalidInput(_))));
+        assert!(matches!(
+            cross_partition,
+            Err(PlethoraError::InvalidInput(_))
+        ));
         repo.create_conversation(
             "local:device-b",
             Some("conv-2"),
@@ -1373,11 +1435,18 @@ mod tests {
             .await
             .expect("get")
             .expect("exists");
-        assert_eq!(record.messages.len(), 1, "no partial write from the stale append");
+        assert_eq!(
+            record.messages.len(),
+            1,
+            "no partial write from the stale append"
+        );
         assert_eq!(record.turns.len(), 1);
         assert_eq!(record.turns[0].status, "queued");
         assert_eq!(record.turns[0].attempts.len(), 1);
-        assert!(record.draft.is_some(), "draft checkpoint committed atomically");
+        assert!(
+            record.draft.is_some(),
+            "draft checkpoint committed atomically"
+        );
     }
 
     #[tokio::test]
@@ -1474,7 +1543,11 @@ mod tests {
             .find(|message| message.role == "assistant")
             .expect("assistant message persisted");
         assert_eq!(assistant.content, "The answer.");
-        assert_eq!(assistant.source_snapshot.len(), 1, "source snapshot persisted");
+        assert_eq!(
+            assistant.source_snapshot.len(),
+            1,
+            "source snapshot persisted"
+        );
         assert_eq!(
             assistant
                 .evidence

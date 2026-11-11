@@ -304,7 +304,6 @@ pub struct ToolCallResultResponse {
     pub is_error: Option<bool>,
 }
 
-
 // ── deprecated legacy command aliases (rebrand task 3.10) ─────────────────
 // Kept for one release so external MCP integrations calling the pre-rebrand
 // command names keep working. They log once per process and delegate.
@@ -318,7 +317,8 @@ fn warn_legacy_mcp_alias(name: &str) {
         tracing::warn!(
             "MCP command `{}` is deprecated; use `{}` (removed after one release)",
             name,
-            name.trim_start_matches("mcp_get_incrementum").trim_start_matches("mcp_call_incrementum")
+            name.trim_start_matches("mcp_get_incrementum")
+                .trim_start_matches("mcp_call_incrementum")
         );
     }
 }

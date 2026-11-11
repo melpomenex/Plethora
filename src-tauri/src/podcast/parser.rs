@@ -176,7 +176,8 @@ fn parse_podcast_feed_inner(xml: &str) -> Result<ParsedPodcastFeed, String> {
                 // Check for <podcast:chapters url="..." type="..." />
                 if in_item
                     && (raw_name_lower == "podcast:chapters"
-                        || (raw_name_lower.ends_with(":chapters") && !raw_name_lower.starts_with("psc:"))
+                        || (raw_name_lower.ends_with(":chapters")
+                            && !raw_name_lower.starts_with("psc:"))
                         || (name_lower == "chapters" && !raw_name_lower.starts_with("psc:")))
                 {
                     for attr in e.attributes().flatten() {
@@ -344,7 +345,8 @@ fn parse_podcast_feed_inner(xml: &str) -> Result<ParsedPodcastFeed, String> {
                 // Check for self-closing <podcast:chapters url="..." type="..." />
                 if in_item
                     && (raw_name_lower == "podcast:chapters"
-                        || (raw_name_lower.ends_with(":chapters") && !raw_name_lower.starts_with("psc:"))
+                        || (raw_name_lower.ends_with(":chapters")
+                            && !raw_name_lower.starts_with("psc:"))
                         || (name_lower == "chapters" && !raw_name_lower.starts_with("psc:")))
                 {
                     for attr in e.attributes().flatten() {
@@ -514,14 +516,16 @@ fn parse_podcast_feed_inner(xml: &str) -> Result<ParsedPodcastFeed, String> {
                             item_raw_chapters
                                 .sort_by_key(|c| parse_timestamp_to_ms(&c.start).unwrap_or(0));
 
-                            let ep_id = item_guid
-                                .as_deref()
-                                .unwrap_or(if !title.is_empty() { &title } else { "episode" });
+                            let ep_id = item_guid.as_deref().unwrap_or(if !title.is_empty() {
+                                &title
+                            } else {
+                                "episode"
+                            });
 
                             let num_chaps = item_raw_chapters.len();
                             for idx in 0..num_chaps {
-                                let start_ms =
-                                    parse_timestamp_to_ms(&item_raw_chapters[idx].start).unwrap_or(0);
+                                let start_ms = parse_timestamp_to_ms(&item_raw_chapters[idx].start)
+                                    .unwrap_or(0);
                                 let next_start = if idx + 1 < num_chaps {
                                     parse_timestamp_to_ms(&item_raw_chapters[idx + 1].start)
                                 } else {
@@ -884,7 +888,10 @@ mod tests {
         assert_eq!(c1.start_ms, 0);
         assert_eq!(c1.end_ms, 300000);
         assert_eq!(c1.link_url.as_deref(), Some("https://example.com/intro"));
-        assert_eq!(c1.image_url.as_deref(), Some("https://example.com/intro.png"));
+        assert_eq!(
+            c1.image_url.as_deref(),
+            Some("https://example.com/intro.png")
+        );
         assert!(!c1.is_advertisement);
 
         let c2 = &ep.inline_chapters[1];
@@ -900,4 +907,3 @@ mod tests {
         assert!(!c3.is_advertisement);
     }
 }
-

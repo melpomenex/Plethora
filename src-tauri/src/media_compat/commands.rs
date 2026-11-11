@@ -6,9 +6,9 @@ use super::jobs::{self, MediaCompatState};
 use super::probe;
 use super::transport;
 use super::types::{
-    CachedArtifact, MediaCacheUsage, MediaCompatError, MediaCompatibilityJobEvent, MediaFailureCode,
-    MediaInspection, MediaPlaybackPlan, MediaPlaybackPlanRequest, MediaRuntimeCapabilities,
-    MediaTransportProbe, StartMediaCompatibilityJobRequest,
+    CachedArtifact, MediaCacheUsage, MediaCompatError, MediaCompatibilityJobEvent,
+    MediaFailureCode, MediaInspection, MediaPlaybackPlan, MediaPlaybackPlanRequest,
+    MediaRuntimeCapabilities, MediaTransportProbe, StartMediaCompatibilityJobRequest,
 };
 
 fn source_error(message: String) -> MediaCompatError {
@@ -142,13 +142,9 @@ pub async fn plan_media_playback(
     repo: tauri::State<'_, crate::database::Repository>,
     request: MediaPlaybackPlanRequest,
 ) -> Result<MediaPlaybackPlan, MediaCompatError> {
-    let canonical = authorized_document_path(
-        &app_handle,
-        &repo,
-        &request.document_id,
-        &request.file_path,
-    )
-    .await?;
+    let canonical =
+        authorized_document_path(&app_handle, &repo, &request.document_id, &request.file_path)
+            .await?;
     let inspection = inspect_authorized(&canonical, Some(&request.document_id), &repo).await?;
     if inspection.source.fingerprint != request.inspection_fingerprint
         && !request.inspection_fingerprint.is_empty()
@@ -189,7 +185,13 @@ pub async fn start_media_compatibility_job(
     state: tauri::State<'_, MediaCompatState>,
     request: StartMediaCompatibilityJobRequest,
 ) -> Result<MediaCompatibilityJobEvent, MediaCompatError> {
-    jobs::start(state.inner().clone(), app_handle, repo.inner().clone(), request).await
+    jobs::start(
+        state.inner().clone(),
+        app_handle,
+        repo.inner().clone(),
+        request,
+    )
+    .await
 }
 
 #[tauri::command]

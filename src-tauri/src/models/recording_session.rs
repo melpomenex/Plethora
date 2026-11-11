@@ -562,7 +562,6 @@ pub struct SessionRelatedDocument {
 
 impl std::error::Error for SessionOperationError {}
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

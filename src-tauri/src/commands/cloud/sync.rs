@@ -105,13 +105,9 @@ pub async fn cloud_sync_resolve_conflicts(
         .await
         .map_err(|e| e.to_string())?;
     for (issue, resolution) in issues.iter().zip(resolutions.iter()) {
-        issues::apply_resolution_to_outbox(
-            repo.pool(),
-            &issue.id,
-            map_resolution(*resolution),
-        )
-        .await
-        .map_err(|e| e.to_string())?;
+        issues::apply_resolution_to_outbox(repo.pool(), &issue.id, map_resolution(*resolution))
+            .await
+            .map_err(|e| e.to_string())?;
     }
     Ok(())
 }

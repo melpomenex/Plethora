@@ -296,7 +296,12 @@ mod platform {
                 "Desktop Linux shares PipeWire/PulseAudio output without cooperative per-app audio focus.".to_string(),
             ],
         };
-        state.install_handle(Box::new(LinuxObserverHandle { stop_tx: Some(stop_tx) }), initial_caps);
+        state.install_handle(
+            Box::new(LinuxObserverHandle {
+                stop_tx: Some(stop_tx),
+            }),
+            initial_caps,
+        );
 
         let handle = app.clone();
         tauri::async_runtime::spawn(async move {
@@ -304,7 +309,9 @@ mod platform {
                 Ok(conn) => conn,
                 Err(err) => {
                     if let Ok(mut caps) = caps_ref.lock() {
-                        caps.notes.push(format!("System D-Bus unavailable for lifecycle observer: {err}"));
+                        caps.notes.push(format!(
+                            "System D-Bus unavailable for lifecycle observer: {err}"
+                        ));
                     }
                     return;
                 }
@@ -326,11 +333,15 @@ mod platform {
                 .map(|b| b.build());
 
             let mut login1_stream = match login1_rule {
-                Some(rule) => zbus::MessageStream::for_match_rule(rule, &connection, Some(16)).await.ok(),
+                Some(rule) => zbus::MessageStream::for_match_rule(rule, &connection, Some(16))
+                    .await
+                    .ok(),
                 None => None,
             };
             let mut bluez_stream = match bluez_rule {
-                Some(rule) => zbus::MessageStream::for_match_rule(rule, &connection, Some(32)).await.ok(),
+                Some(rule) => zbus::MessageStream::for_match_rule(rule, &connection, Some(32))
+                    .await
+                    .ok(),
                 None => None,
             };
 
@@ -338,7 +349,10 @@ mod platform {
                 caps.suspend_observer_active = login1_stream.is_some();
                 caps.output_interruption_observer_active = bluez_stream.is_some();
                 if login1_stream.is_none() {
-                    caps.notes.push("org.freedesktop.login1 PrepareForSleep signal subscription unavailable.".to_string());
+                    caps.notes.push(
+                        "org.freedesktop.login1 PrepareForSleep signal subscription unavailable."
+                            .to_string(),
+                    );
                 }
             }
 
@@ -565,10 +579,7 @@ mod platform {
                     sel!(handleWillSleep:),
                     on_will_sleep as extern "C" fn(_, _, _),
                 );
-                builder.add_method(
-                    sel!(handleDidWake:),
-                    on_did_wake as extern "C" fn(_, _, _),
-                );
+                builder.add_method(sel!(handleDidWake:), on_did_wake as extern "C" fn(_, _, _));
             }
             builder.register()
         })
@@ -669,7 +680,10 @@ mod platform {
     }
 
     pub fn register(_app: &AppHandle, state: &AudioLifecycleState) {
-        state.install_handle(Box::new(NoopObserver), AudioLifecycleCapabilities::default());
+        state.install_handle(
+            Box::new(NoopObserver),
+            AudioLifecycleCapabilities::default(),
+        );
     }
 }
 
@@ -690,8 +704,14 @@ mod tests {
 
     #[test]
     fn maps_platform_suspend_wake_and_bluetooth_disconnect_truthfully() {
-        assert_eq!(map_login1_prepare_for_sleep(true), AudioLifecycleKind::Suspend);
-        assert_eq!(map_login1_prepare_for_sleep(false), AudioLifecycleKind::Wake);
+        assert_eq!(
+            map_login1_prepare_for_sleep(true),
+            AudioLifecycleKind::Suspend
+        );
+        assert_eq!(
+            map_login1_prepare_for_sleep(false),
+            AudioLifecycleKind::Wake
+        );
 
         // BlueZ: disconnect on audio sink interrupts; reconnect never auto-resumes or interrupts.
         let a2dp = vec!["0000110b-0000-1000-8000-00805f9b34fb".to_string()];
@@ -709,9 +729,18 @@ mod tests {
         );
 
         // Windows power broadcasts
-        assert_eq!(map_windows_power_broadcast(0x0004), Some(AudioLifecycleKind::Suspend));
-        assert_eq!(map_windows_power_broadcast(0x0012), Some(AudioLifecycleKind::Wake));
-        assert_eq!(map_windows_power_broadcast(0x0007), Some(AudioLifecycleKind::Wake));
+        assert_eq!(
+            map_windows_power_broadcast(0x0004),
+            Some(AudioLifecycleKind::Suspend)
+        );
+        assert_eq!(
+            map_windows_power_broadcast(0x0012),
+            Some(AudioLifecycleKind::Wake)
+        );
+        assert_eq!(
+            map_windows_power_broadcast(0x0007),
+            Some(AudioLifecycleKind::Wake)
+        );
         assert_eq!(map_windows_power_broadcast(0x000A), None);
 
         // macOS NSWorkspace sleep/wake notifications
@@ -731,8 +760,14 @@ mod tests {
 
     #[test]
     fn window_minimize_and_blur_never_emit_pause_lifecycle_events() {
-        assert_eq!(classify_window_event_for_audio(&WindowEvent::Focused(false)), None);
-        assert_eq!(classify_window_event_for_audio(&WindowEvent::Focused(true)), None);
+        assert_eq!(
+            classify_window_event_for_audio(&WindowEvent::Focused(false)),
+            None
+        );
+        assert_eq!(
+            classify_window_event_for_audio(&WindowEvent::Focused(true)),
+            None
+        );
         assert_eq!(
             classify_window_event_for_audio(&WindowEvent::Resized(tauri::PhysicalSize::new(0, 0))),
             None

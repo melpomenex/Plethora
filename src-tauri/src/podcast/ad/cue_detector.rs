@@ -3,10 +3,10 @@
 //! Scans podcast transcript segments for sponsor intros, promo codes,
 //! landing pages, and transition phrases to identify candidate ad intervals.
 
-use regex::Regex;
-use std::sync::OnceLock;
-use serde::{Deserialize, Serialize};
 use crate::transcription::engine::TranscriptSegment;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 
 static INTRO_REGEX: OnceLock<Regex> = OnceLock::new();
 static PROMO_REGEX: OnceLock<Regex> = OnceLock::new();
@@ -30,8 +30,10 @@ fn promo_regex() -> &'static Regex {
 
 fn url_regex() -> &'static Regex {
     URL_REGEX.get_or_init(|| {
-        Regex::new(r"(?i)\b(?:(?:dot\s+com\s+slash|\.com/|https?://[^\s]+|\.org/|\.co/)[a-zA-Z0-9_\-]+)\b")
-            .expect("Valid URL regex")
+        Regex::new(
+            r"(?i)\b(?:(?:dot\s+com\s+slash|\.com/|https?://[^\s]+|\.org/|\.co/)[a-zA-Z0-9_\-]+)\b",
+        )
+        .expect("Valid URL regex")
     })
 }
 
@@ -88,10 +90,18 @@ pub fn detect_cue_spans(segments: &[TranscriptSegment]) -> Vec<CueSpan> {
             let mut end_ms = seg.end_ms;
             let mut total_score: f32 = initial_score;
             let mut matched_cues = Vec::new();
-            if has_intro { matched_cues.push("intro".into()); }
-            if has_promo { matched_cues.push("promo_code".into()); }
-            if has_url { matched_cues.push("landing_url".into()); }
-            if has_self { matched_cues.push("self_promo".into()); }
+            if has_intro {
+                matched_cues.push("intro".into());
+            }
+            if has_promo {
+                matched_cues.push("promo_code".into());
+            }
+            if has_url {
+                matched_cues.push("landing_url".into());
+            }
+            if has_self {
+                matched_cues.push("self_promo".into());
+            }
 
             let category = if has_self && !has_intro && !has_promo {
                 "host_self_promo"
@@ -175,10 +185,30 @@ mod tests {
     fn detects_sponsor_and_promo_cues() {
         let segments = vec![
             seg(1, 0, 10_000, "Welcome everyone to today's episode."),
-            seg(2, 10_000, 25_000, "This episode is brought to you by Athletic Greens!"),
-            seg(3, 25_000, 45_000, "Go to athleticgreens.com/show and use promo code SHOW at checkout for 20% off."),
-            seg(4, 45_000, 60_000, "Now back to the show and our conversation with Jane."),
-            seg(5, 60_000, 90_000, "Jane, tell us how you began your career."),
+            seg(
+                2,
+                10_000,
+                25_000,
+                "This episode is brought to you by Athletic Greens!",
+            ),
+            seg(
+                3,
+                25_000,
+                45_000,
+                "Go to athleticgreens.com/show and use promo code SHOW at checkout for 20% off.",
+            ),
+            seg(
+                4,
+                45_000,
+                60_000,
+                "Now back to the show and our conversation with Jane.",
+            ),
+            seg(
+                5,
+                60_000,
+                90_000,
+                "Jane, tell us how you began your career.",
+            ),
         ];
 
         let spans = detect_cue_spans(&segments);
@@ -235,16 +265,28 @@ mod tests {
         for (idx, ep_segments) in transcripts.iter().enumerate() {
             let spans = detect_cue_spans(ep_segments);
             if idx % 2 == 1 {
-                assert!(!spans.is_empty(), "Episode {} should have detected an ad", idx);
+                assert!(
+                    !spans.is_empty(),
+                    "Episode {} should have detected an ad",
+                    idx
+                );
                 total_ads_found += spans.len();
             } else {
-                assert!(spans.is_empty(), "Episode {} should not have false positives", idx);
+                assert!(
+                    spans.is_empty(),
+                    "Episode {} should not have false positives",
+                    idx
+                );
             }
         }
 
         let elapsed = start_time.elapsed();
         assert_eq!(total_ads_found, 7);
         // Verify regex matching speed is under 50ms across all 15 episodes
-        assert!(elapsed.as_millis() < 50, "Matching took too long: {:?}", elapsed);
+        assert!(
+            elapsed.as_millis() < 50,
+            "Matching took too long: {:?}",
+            elapsed
+        );
     }
 }

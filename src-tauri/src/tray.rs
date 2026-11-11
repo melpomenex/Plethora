@@ -111,12 +111,7 @@ fn build_menu(app: &AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let quit = MenuItem::with_id(app, MENU_QUIT, "Quit Plethora", true, None::<&str>)?;
     Menu::with_items(
         app,
-        &[
-            &show,
-            &hide,
-            &PredefinedMenuItem::separator(app)?,
-            &quit,
-        ],
+        &[&show, &hide, &PredefinedMenuItem::separator(app)?, &quit],
     )
 }
 

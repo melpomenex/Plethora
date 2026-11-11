@@ -3,9 +3,9 @@
 //! Merges overlapping and closely spaced ad intervals (<3.0s gap), filters micro-intervals (<10s),
 //! and validates episode sanity limits (>50% ad duration guard).
 
+use crate::models::podcast_ad::PodcastAdInterval;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use crate::models::podcast_ad::PodcastAdInterval;
 
 /// Result of interval processing and sanity checks
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -57,7 +57,11 @@ pub fn merge_and_filter_intervals(
     }
 
     // 3. Filter out micro-intervals shorter than min_ad_duration_ms (default 10,000ms)
-    let min_dur = if min_ad_duration_ms > 0 { min_ad_duration_ms } else { 10_000 };
+    let min_dur = if min_ad_duration_ms > 0 {
+        min_ad_duration_ms
+    } else {
+        10_000
+    };
     let filtered: Vec<PodcastAdInterval> = merged
         .into_iter()
         .filter(|inv| (inv.end_ms - inv.start_ms) >= min_dur)

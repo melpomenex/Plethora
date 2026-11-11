@@ -222,7 +222,12 @@ pub fn extract_tweet_id(input: &str) -> Result<String, String> {
     let trimmed = input
         .trim()
         .trim_start_matches(|c: char| matches!(c, '<' | '(' | '[' | '{' | '\'' | '"'))
-        .trim_end_matches(|c: char| matches!(c, '>' | ')' | ']' | '}' | '\'' | '"' | '.' | ',' | ';' | ':' | '!' | '?'));
+        .trim_end_matches(|c: char| {
+            matches!(
+                c,
+                '>' | ')' | ']' | '}' | '\'' | '"' | '.' | ',' | ';' | ':' | '!' | '?'
+            )
+        });
     let no_query = trimmed.split(['?', '#']).next().unwrap_or(trimmed);
     let parts: Vec<&str> = no_query.trim_end_matches('/').split('/').collect();
     let idx = parts
@@ -322,7 +327,10 @@ async fn fetch_tweet_graphql(tweet_id: &str) -> Result<serde_json::Value, String
     let status = resp.status();
     if !status.is_success() {
         let body = resp.text().await.unwrap_or_default();
-        return Err(format!("GraphQL request failed: HTTP {} — {}", status, body));
+        return Err(format!(
+            "GraphQL request failed: HTTP {} — {}",
+            status, body
+        ));
     }
 
     let json: serde_json::Value = resp
@@ -674,7 +682,11 @@ pub fn parse_media(val: &serde_json::Value) -> Vec<TwitterMedia> {
                     let bitrate = v.get("bitrate").and_then(|b| b.as_i64()).unwrap_or(0);
                     if bitrate >= best_bitrate {
                         best_bitrate = bitrate;
-                        if let Some(src) = v.get("src").or_else(|| v.get("url")).and_then(|u| u.as_str()) {
+                        if let Some(src) = v
+                            .get("src")
+                            .or_else(|| v.get("url"))
+                            .and_then(|u| u.as_str())
+                        {
                             video_url = src.to_string();
                         }
                     }
@@ -850,7 +862,10 @@ fn parse_entities(val: &serde_json::Value) -> (Vec<String>, Vec<TwitterMention>,
                     .and_then(|x| x.as_str())
                     .unwrap_or(url)
                     .to_string(),
-                display_url: u.get("display_url").and_then(|d| d.as_str()).map(str::to_string),
+                display_url: u
+                    .get("display_url")
+                    .and_then(|d| d.as_str())
+                    .map(str::to_string),
             });
         }
     }
@@ -1137,14 +1152,15 @@ impl TweetResultSource for LiveTweetSource {
 }
 
 /// Build a `TwitterThread` from normalized posts (shared by all paths).
-fn build_thread(author: &TwitterAuthor, mut posts: Vec<TwitterPost>, source_kind: &str) -> TwitterThread {
+fn build_thread(
+    author: &TwitterAuthor,
+    mut posts: Vec<TwitterPost>,
+    source_kind: &str,
+) -> TwitterThread {
     for (i, p) in posts.iter_mut().enumerate() {
         p.post_index = i + 1;
     }
-    let root_id = posts
-        .first()
-        .map(|p| p.id.clone())
-        .unwrap_or_default();
+    let root_id = posts.first().map(|p| p.id.clone()).unwrap_or_default();
     let root_url = build_status_url(&author.screen_name, &root_id);
 
     let first_text = posts.first().map(|p| p.text.as_str()).unwrap_or("X Thread");
@@ -1153,7 +1169,10 @@ fn build_thread(author: &TwitterAuthor, mut posts: Vec<TwitterPost>, source_kind
     } else {
         first_text.to_string()
     };
-    let title = format!("{} (@{}) on X: \"{}\"", author.name, author.screen_name, excerpt);
+    let title = format!(
+        "{} (@{}) on X: \"{}\"",
+        author.name, author.screen_name, excerpt
+    );
 
     let html_content = build_thread_html(author, &posts);
     let structured_text = build_thread_structured_text(author, &posts);
@@ -1185,10 +1204,17 @@ pub fn extract_screen_name_from_url(input: &str) -> Option<String> {
     let trimmed = input
         .trim()
         .trim_start_matches(|c: char| matches!(c, '<' | '(' | '[' | '{' | '\'' | '"'))
-        .trim_end_matches(|c: char| matches!(c, '>' | ')' | ']' | '}' | '\'' | '"' | '.' | ',' | ';' | ':' | '!' | '?'));
+        .trim_end_matches(|c: char| {
+            matches!(
+                c,
+                '>' | ')' | ']' | '}' | '\'' | '"' | '.' | ',' | ';' | ':' | '!' | '?'
+            )
+        });
     let no_query = trimmed.split(['?', '#']).next().unwrap_or(trimmed);
     let parts: Vec<&str> = no_query.trim_end_matches('/').split('/').collect();
-    let idx = parts.iter().position(|p| p.eq_ignore_ascii_case("status"))?;
+    let idx = parts
+        .iter()
+        .position(|p| p.eq_ignore_ascii_case("status"))?;
     let handle = parts.get(idx.wrapping_sub(1))?;
     // Reject path segments that are not real handles: the bare host
     // (`x.com/status/…`) and the generic `/i/status/…` redirect format.
@@ -1197,7 +1223,9 @@ pub fn extract_screen_name_from_url(input: &str) -> Option<String> {
         || handle.eq_ignore_ascii_case("twitter.com")
         || handle.is_empty()
         || handle.len() > 64
-        || !handle.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        || !handle
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
     {
         return None;
     }
@@ -1286,9 +1314,10 @@ fn build_tra_thread(
                     .refs
                     .iter()
                     .filter_map(|r| {
-                        r.screen_name
-                            .clone()
-                            .map(|screen_name| TwitterPostRef { id: r.id.clone(), screen_name })
+                        r.screen_name.clone().map(|screen_name| TwitterPostRef {
+                            id: r.id.clone(),
+                            screen_name,
+                        })
                     })
                     .collect(),
                 // Entity fields are filled by enrichment (parse_entities) —
@@ -1319,13 +1348,19 @@ fn classify_single_fetch_error(e: &str) -> ThreadError {
         ThreadError::RateLimited(e.to_string())
     } else if lower.contains("not found") || lower.contains("restricted") || lower.contains("404") {
         ThreadError::ThreadUnavailable(e.to_string())
-    } else if lower.contains("401") || lower.contains("403")
-        || lower.contains("unauthorized") || lower.contains("guest token")
-        || lower.contains("session is invalid") || lower.contains("credentials")
+    } else if lower.contains("401")
+        || lower.contains("403")
+        || lower.contains("unauthorized")
+        || lower.contains("guest token")
+        || lower.contains("session is invalid")
+        || lower.contains("credentials")
     {
         ThreadError::Auth(e.to_string())
-    } else if lower.contains("failed to fetch") || lower.contains("failed to request")
-        || lower.contains("timeout") || lower.contains("tls") || lower.contains("dns")
+    } else if lower.contains("failed to fetch")
+        || lower.contains("failed to request")
+        || lower.contains("timeout")
+        || lower.contains("tls")
+        || lower.contains("dns")
         || lower.contains("connect")
     {
         ThreadError::NetworkError(e.to_string())
@@ -1411,9 +1446,12 @@ pub async fn resolve_twitter_thread_with(
 
     // 2. Unroll (JSON compat probe first, then the HTML page).
     match fetch_unrolled_thread_with_header(http, &root_id).await {
-        Ok((posts, header)) if !posts.is_empty() => {
-            Ok(build_tra_thread(&root_id, posts, &header, url_handle.as_deref()))
-        }
+        Ok((posts, header)) if !posts.is_empty() => Ok(build_tra_thread(
+            &root_id,
+            posts,
+            &header,
+            url_handle.as_deref(),
+        )),
         Ok(_) => {
             // No unrolled thread → direct single-post path (common for
             // ordinary non-thread posts; must not look like an error).
@@ -1422,7 +1460,12 @@ pub async fn resolve_twitter_thread_with(
                 root_id
             );
             match source.fetch(&tweet_id).await {
-                Ok(val) => Ok(build_single_post_thread(&val, &tweet_id, "single", url_handle.as_deref())),
+                Ok(val) => Ok(build_single_post_thread(
+                    &val,
+                    &tweet_id,
+                    "single",
+                    url_handle.as_deref(),
+                )),
                 Err(e) => Err(classify_single_fetch_error(&e)),
             }
         }
@@ -1434,7 +1477,12 @@ pub async fn resolve_twitter_thread_with(
                 tra_err
             );
             match source.fetch(&tweet_id).await {
-                Ok(val) => Ok(build_single_post_thread(&val, &tweet_id, "single", url_handle.as_deref())),
+                Ok(val) => Ok(build_single_post_thread(
+                    &val,
+                    &tweet_id,
+                    "single",
+                    url_handle.as_deref(),
+                )),
                 Err(single_err) => Err(combine_failures(tra_err, single_err)),
             }
         }
@@ -1571,12 +1619,9 @@ pub async fn enrich_twitter_thread_with(
     }
 
     // Phase 2: resolve quoted posts (deduped, bounded at 4 concurrent).
-    let quotes: Vec<(String, Option<TwitterQuotedPost>)> = futures::stream::iter(
-        quote_queue
-            .iter()
-            .cloned()
-            .map(|(rid, _)| rid)
-            .map(|rid| async move {
+    let quotes: Vec<(String, Option<TwitterQuotedPost>)> =
+        futures::stream::iter(quote_queue.iter().cloned().map(|(rid, _)| rid).map(
+            |rid| async move {
                 match source.fetch(&rid).await {
                     Ok(val) => {
                         let parsed = parse_quoted_post(&val);
@@ -1604,14 +1649,14 @@ pub async fn enrich_twitter_thread_with(
                         None
                     }
                 }
-            }),
-    )
-    .buffered(4)
-    .collect::<Vec<Option<(String, Option<TwitterQuotedPost>)>>>()
-    .await
-    .into_iter()
-    .flatten()
-    .collect();
+            },
+        ))
+        .buffered(4)
+        .collect::<Vec<Option<(String, Option<TwitterQuotedPost>)>>>()
+        .await
+        .into_iter()
+        .flatten()
+        .collect();
 
     for (rid, post_index) in &quote_queue {
         if let Some((_, Some(qp))) = quotes.iter().find(|(id, _)| id == rid) {
@@ -1898,7 +1943,12 @@ pub fn build_twitter_thread_document(
     doc.priority_score = 6.0;
     doc.current_page = Some(0);
 
-    if let Some(first_img) = thread.posts.iter().flat_map(|p| &p.media).find(|m| m.kind == "photo") {
+    if let Some(first_img) = thread
+        .posts
+        .iter()
+        .flat_map(|p| &p.media)
+        .find(|m| m.kind == "photo")
+    {
         doc.cover_image_url = Some(first_img.media_url.clone());
         doc.cover_image_source = Some("twitter".to_string());
     } else if let Some(avatar) = &thread.author.avatar_url {
@@ -1990,7 +2040,10 @@ mod tests {
         let cases = vec![
             // www / mobile subdomains, either host, optional scheme.
             ("https://www.x.com/user/status/1234567890", "1234567890"),
-            ("http://mobile.twitter.com/user/status/9876543210", "9876543210"),
+            (
+                "http://mobile.twitter.com/user/status/9876543210",
+                "9876543210",
+            ),
             ("mobile.x.com/Some_User/status/5555", "5555"),
             // Generic /i/status/ redirect format.
             ("https://x.com/i/status/111222333", "111222333"),
@@ -2002,9 +2055,18 @@ mod tests {
             // Uppercase path segment.
             ("https://x.com/u/STATUS/99", "99"),
             // Trailing punctuation, parentheses, brackets, or quotes.
-            ("https://x.com/karpathy/status/2109361546505966046.", "2109361546505966046"),
-            ("(https://x.com/karpathy/status/2109361546505966046)", "2109361546505966046"),
-            ("\"https://x.com/karpathy/status/2109361546505966046\"", "2109361546505966046"),
+            (
+                "https://x.com/karpathy/status/2109361546505966046.",
+                "2109361546505966046",
+            ),
+            (
+                "(https://x.com/karpathy/status/2109361546505966046)",
+                "2109361546505966046",
+            ),
+            (
+                "\"https://x.com/karpathy/status/2109361546505966046\"",
+                "2109361546505966046",
+            ),
         ];
         for (url, expected) in cases {
             assert_eq!(
@@ -2030,7 +2092,8 @@ mod tests {
     #[test]
     fn extracts_screen_name_across_url_variants() {
         assert_eq!(
-            extract_screen_name_from_url("http://mobile.twitter.com/Some_User/status/42?s=20").as_deref(),
+            extract_screen_name_from_url("http://mobile.twitter.com/Some_User/status/42?s=20")
+                .as_deref(),
             Some("Some_User")
         );
         assert_eq!(
@@ -2038,8 +2101,14 @@ mod tests {
             Some("Handle")
         );
         // /i/status/ carries no real handle; bare-host status links neither.
-        assert_eq!(extract_screen_name_from_url("https://x.com/i/status/42"), None);
-        assert_eq!(extract_screen_name_from_url("https://x.com/status/42"), None);
+        assert_eq!(
+            extract_screen_name_from_url("https://x.com/i/status/42"),
+            None
+        );
+        assert_eq!(
+            extract_screen_name_from_url("https://x.com/status/42"),
+            None
+        );
     }
 
     #[test]
@@ -2100,8 +2169,14 @@ mod tests {
         assert_eq!(post.mentions[0].name.as_deref(), Some("Jane Researcher"));
         assert_eq!(post.expanded_urls.len(), 1);
         assert_eq!(post.expanded_urls[0].url, "https://t.co/abc");
-        assert_eq!(post.expanded_urls[0].expanded_url, "https://example.com/deep-link");
-        assert_eq!(post.expanded_urls[0].display_url.as_deref(), Some("example.com/deep-link"));
+        assert_eq!(
+            post.expanded_urls[0].expanded_url,
+            "https://example.com/deep-link"
+        );
+        assert_eq!(
+            post.expanded_urls[0].display_url.as_deref(),
+            Some("example.com/deep-link")
+        );
     }
 
     #[test]
@@ -2120,7 +2195,10 @@ mod tests {
         let post = parse_post(&result, "1011");
         assert_eq!(post.hashtags, vec!["verified"]);
         assert_eq!(post.mentions[0].screen_name, "quoteauthor");
-        assert_eq!(post.expanded_urls[0].expanded_url, "https://news.example.com");
+        assert_eq!(
+            post.expanded_urls[0].expanded_url,
+            "https://news.example.com"
+        );
     }
 
     #[test]
@@ -2182,7 +2260,10 @@ mod tests {
         assert_eq!(post.full_text, "Hello X world!");
         assert_eq!(post.media.len(), 1);
         assert_eq!(post.media[0].kind, "photo");
-        assert_eq!(post.media[0].media_url, "https://pbs.twimg.com/media/pic1.jpg");
+        assert_eq!(
+            post.media[0].media_url,
+            "https://pbs.twimg.com/media/pic1.jpg"
+        );
         assert_eq!(post.media[0].aspect_ratio, Some(1.5));
     }
 
@@ -2469,7 +2550,10 @@ mod tests {
     impl TweetResultSource for MockTweetSource {
         async fn fetch(&self, tweet_id: &str) -> Result<serde_json::Value, String> {
             if self.failures.iter().any(|f| f == tweet_id) {
-                return Err(format!("Failed to fetch tweet via GraphQL and Syndication for {}", tweet_id));
+                return Err(format!(
+                    "Failed to fetch tweet via GraphQL and Syndication for {}",
+                    tweet_id
+                ));
             }
             self.payloads
                 .get(tweet_id)
@@ -2591,7 +2675,10 @@ Third post text.
             200,
             r#"{"code":404,"message":"Thread not found"}"#,
         )]);
-        let source = MockTweetSource::new(vec![("2000", tweet_payload("2000", "janeresearch", "Single post."))]);
+        let source = MockTweetSource::new(vec![(
+            "2000",
+            tweet_payload("2000", "janeresearch", "Single post."),
+        )]);
         let thread = resolve_twitter_thread_with(&http, &source, "https://x.com/u/status/2000")
             .await
             .unwrap();
@@ -2612,9 +2699,16 @@ Third post text.
                 r#"{"code":200,"pong":"2001"}"#,
             ),
             (&tra_json_url("2001"), 404, "Not Found"),
-            (&tra_html_url("2001"), 200, "<html><body>garbage</body></html>"),
+            (
+                &tra_html_url("2001"),
+                200,
+                "<html><body>garbage</body></html>",
+            ),
         ]);
-        let source = MockTweetSource::new(vec![("2001", tweet_payload("2001", "janeresearch", "Alone."))]);
+        let source = MockTweetSource::new(vec![(
+            "2001",
+            tweet_payload("2001", "janeresearch", "Alone."),
+        )]);
         let thread = resolve_twitter_thread_with(&http, &source, "https://x.com/u/status/2001")
             .await
             .unwrap();
@@ -2679,7 +2773,10 @@ Third post text.
         let thread = resolve_twitter_thread_with(&http, &source, "https://x.com/u/status/1001")
             .await
             .unwrap();
-        assert_eq!(thread.posts[0].ref_ids, vec!["9999999999999999999".to_string()]);
+        assert_eq!(
+            thread.posts[0].ref_ids,
+            vec!["9999999999999999999".to_string()]
+        );
         assert_eq!(
             thread.posts[0].ref_handles,
             vec![TwitterPostRef {
@@ -2823,8 +2920,14 @@ Third post text.
     #[tokio::test]
     async fn enrichment_merges_by_id_with_video_and_engagement() {
         let source = MockTweetSource::new(vec![
-            ("1001", tweet_payload("1001", "janeresearch", "First paragraph.")),
-            ("1002", video_payload("1002", "janeresearch", "Second post with quote link.")),
+            (
+                "1001",
+                tweet_payload("1001", "janeresearch", "First paragraph."),
+            ),
+            (
+                "1002",
+                video_payload("1002", "janeresearch", "Second post with quote link."),
+            ),
         ]);
         let thread = tra_thread_fixture();
         let enriched = enrich_twitter_thread_with(&source, thread).await.unwrap();
@@ -2838,20 +2941,31 @@ Third post text.
         assert!(enriched.posts[1].created_at.is_some());
         // Video mp4 upgrade.
         assert_eq!(enriched.posts[1].media[0].kind, "video");
-        assert_eq!(enriched.posts[1].media[0].media_url, "https://x.com/720p.mp4");
+        assert_eq!(
+            enriched.posts[1].media[0].media_url,
+            "https://x.com/720p.mp4"
+        );
         // Author upgraded (avatar + verified).
         assert!(enriched.author.verified);
         assert!(enriched.author.avatar_url.is_some());
         // Thread derived content rebuilt.
         assert!(enriched.html_content.contains("Post 1 of 2"));
-        assert!(enriched.structured_text.contains("[Post 1 by @janeresearch]"));
+        assert!(enriched
+            .structured_text
+            .contains("[Post 1 by @janeresearch]"));
     }
 
     #[tokio::test]
     async fn enrichment_resolves_quote_refs() {
         let source = MockTweetSource::new(vec![
-            ("1001", tweet_payload("1001", "janeresearch", "First paragraph.")),
-            ("1002", tweet_payload("1002", "janeresearch", "Second post with quote link.")),
+            (
+                "1001",
+                tweet_payload("1001", "janeresearch", "First paragraph."),
+            ),
+            (
+                "1002",
+                tweet_payload("1002", "janeresearch", "Second post with quote link."),
+            ),
             (
                 "9999999999999999999",
                 tweet_payload("9999999999999999999", "quotedauthor", "The original quote."),
@@ -2859,7 +2973,10 @@ Third post text.
         ]);
         let thread = tra_thread_fixture();
         let enriched = enrich_twitter_thread_with(&source, thread).await.unwrap();
-        let q = enriched.posts[1].quoted_post.as_ref().expect("quote resolved");
+        let q = enriched.posts[1]
+            .quoted_post
+            .as_ref()
+            .expect("quote resolved");
         assert_eq!(q.id, "9999999999999999999");
         assert_eq!(q.author.screen_name, "quotedauthor");
         assert_eq!(q.text, "The original quote.");
@@ -2911,8 +3028,14 @@ Third post text.
             "reason": "This Tweet is unavailable."
         });
         let source = MockTweetSource::new(vec![
-            ("1001", tweet_payload("1001", "janeresearch", "First paragraph.")),
-            ("1002", tweet_payload("1002", "janeresearch", "Second post with quote link.")),
+            (
+                "1001",
+                tweet_payload("1001", "janeresearch", "First paragraph."),
+            ),
+            (
+                "1002",
+                tweet_payload("1002", "janeresearch", "Second post with quote link."),
+            ),
             ("9999999999999999999", restricted_quote),
         ]);
         let mut thread = tra_thread_fixture();
@@ -2921,11 +3044,17 @@ Third post text.
             screen_name: "quotedauthor".to_string(),
         }];
         let enriched = enrich_twitter_thread_with(&source, thread).await.unwrap();
-        let q = enriched.posts[1].quoted_post.as_ref().expect("quote resolved");
+        let q = enriched.posts[1]
+            .quoted_post
+            .as_ref()
+            .expect("quote resolved");
         assert_eq!(q.author.screen_name, "quotedauthor");
         assert_eq!(q.author.name, "quotedauthor");
         assert_eq!(q.author.profile_url, "https://x.com/quotedauthor");
-        assert_eq!(q.url, "https://x.com/quotedauthor/status/9999999999999999999");
+        assert_eq!(
+            q.url,
+            "https://x.com/quotedauthor/status/9999999999999999999"
+        );
         // URL-derived handles survive into the enriched (persisted) posts.
         assert_eq!(
             enriched.posts[1].ref_handles,
@@ -2941,11 +3070,21 @@ Third post text.
     #[tokio::test]
     async fn quote_ref_handle_never_overrides_a_parseable_quote_author() {
         let source = MockTweetSource::new(vec![
-            ("1001", tweet_payload("1001", "janeresearch", "First paragraph.")),
-            ("1002", tweet_payload("1002", "janeresearch", "Second post with quote link.")),
+            (
+                "1001",
+                tweet_payload("1001", "janeresearch", "First paragraph."),
+            ),
+            (
+                "1002",
+                tweet_payload("1002", "janeresearch", "Second post with quote link."),
+            ),
             (
                 "9999999999999999999",
-                tweet_payload("9999999999999999999", "payloadauthor", "The original quote."),
+                tweet_payload(
+                    "9999999999999999999",
+                    "payloadauthor",
+                    "The original quote.",
+                ),
             ),
         ]);
         let mut thread = tra_thread_fixture();
@@ -2954,12 +3093,18 @@ Third post text.
             screen_name: "urlhandle".to_string(),
         }];
         let enriched = enrich_twitter_thread_with(&source, thread).await.unwrap();
-        let q = enriched.posts[1].quoted_post.as_ref().expect("quote resolved");
+        let q = enriched.posts[1]
+            .quoted_post
+            .as_ref()
+            .expect("quote resolved");
         assert_eq!(q.author.screen_name, "payloadauthor");
         assert_eq!(q.author.name, "Jane Researcher");
         assert!(q.author.avatar_url.is_some());
         assert!(q.author.verified);
-        assert_eq!(q.url, "https://x.com/payloadauthor/status/9999999999999999999");
+        assert_eq!(
+            q.url,
+            "https://x.com/payloadauthor/status/9999999999999999999"
+        );
     }
 
     /// No URL-derived handle for the quote id → the Unknown fallback is
@@ -2972,15 +3117,24 @@ Third post text.
             "reason": "This Tweet is unavailable."
         });
         let source = MockTweetSource::new(vec![
-            ("1001", tweet_payload("1001", "janeresearch", "First paragraph.")),
-            ("1002", tweet_payload("1002", "janeresearch", "Second post with quote link.")),
+            (
+                "1001",
+                tweet_payload("1001", "janeresearch", "First paragraph."),
+            ),
+            (
+                "1002",
+                tweet_payload("1002", "janeresearch", "Second post with quote link."),
+            ),
             ("9999999999999999999", restricted_quote),
         ]);
         // ref_ids present, ref_handles empty (legacy shape / link carried no
         // usable <user> segment).
         let thread = tra_thread_fixture();
         let enriched = enrich_twitter_thread_with(&source, thread).await.unwrap();
-        let q = enriched.posts[1].quoted_post.as_ref().expect("quote resolved");
+        let q = enriched.posts[1]
+            .quoted_post
+            .as_ref()
+            .expect("quote resolved");
         assert!(is_unknown_author(&q.author));
     }
 
@@ -3013,7 +3167,10 @@ Third post text.
             }
         });
         let source = MockTweetSource::new(vec![
-            ("1001", tweet_payload("1001", "janeresearch", "First paragraph.")),
+            (
+                "1001",
+                tweet_payload("1001", "janeresearch", "First paragraph."),
+            ),
             ("1002", quoting_post),
         ]);
         let mut thread = tra_thread_fixture();
@@ -3025,17 +3182,25 @@ Third post text.
             screen_name: "embeddedquote".to_string(),
         }];
         let enriched = enrich_twitter_thread_with(&source, thread).await.unwrap();
-        let q = enriched.posts[1].quoted_post.as_ref().expect("embedded quote parsed");
+        let q = enriched.posts[1]
+            .quoted_post
+            .as_ref()
+            .expect("embedded quote parsed");
         assert_eq!(q.id, "9999999999999999999");
         assert_eq!(q.author.screen_name, "embeddedquote");
-        assert_eq!(q.url, "https://x.com/embeddedquote/status/9999999999999999999");
+        assert_eq!(
+            q.url,
+            "https://x.com/embeddedquote/status/9999999999999999999"
+        );
     }
 
     #[tokio::test]
     async fn enrichment_failure_isolation_keeps_thread_intact() {
         let source = MockTweetSource::new(vec![]).failing(vec!["1001", "1002"]);
         let thread = tra_thread_fixture();
-        let enriched = enrich_twitter_thread_with(&source, thread.clone()).await.unwrap();
+        let enriched = enrich_twitter_thread_with(&source, thread.clone())
+            .await
+            .unwrap();
         assert_eq!(enriched.posts.len(), 2);
         assert_eq!(enriched.posts[0].id, "1001");
         assert_eq!(enriched.posts[0].full_text, "First paragraph.");
@@ -3057,8 +3222,14 @@ Third post text.
             aspect_ratio: None,
         }];
         let source = MockTweetSource::new(vec![
-            ("1001", tweet_payload("1001", "janeresearch", "First paragraph.")),
-            ("1002", tweet_payload("1002", "janeresearch", "Second post with quote link.")),
+            (
+                "1001",
+                tweet_payload("1001", "janeresearch", "First paragraph."),
+            ),
+            (
+                "1002",
+                tweet_payload("1002", "janeresearch", "Second post with quote link."),
+            ),
         ]);
         let enriched = enrich_twitter_thread_with(&source, thread).await.unwrap();
         assert_eq!(
@@ -3077,10 +3248,7 @@ Third post text.
             "__typename": "TweetUnavailable",
             "reason": "This Tweet is unavailable."
         });
-        let source = MockTweetSource::new(vec![
-            ("1001", restricted.clone()),
-            ("1002", restricted),
-        ]);
+        let source = MockTweetSource::new(vec![("1001", restricted.clone()), ("1002", restricted)]);
         let thread = tra_thread_fixture();
         let enriched = enrich_twitter_thread_with(&source, thread).await.unwrap();
         // Thread author (header) keeps the TRA handle.
@@ -3102,12 +3270,18 @@ Third post text.
             extract_screen_name_from_url("https://twitter.com/Some_User/status/42").as_deref(),
             Some("Some_User")
         );
-        assert_eq!(extract_screen_name_from_url("https://x.com/status/42"), None);
+        assert_eq!(
+            extract_screen_name_from_url("https://x.com/status/42"),
+            None
+        );
         assert_eq!(
             extract_screen_name_from_url("https://x.com/i/status/42"),
             None
         );
-        assert_eq!(extract_screen_name_from_url("https://x.com/u/status/42/"), Some("u".to_string()));
+        assert_eq!(
+            extract_screen_name_from_url("https://x.com/u/status/42/"),
+            Some("u".to_string())
+        );
         assert_eq!(extract_screen_name_from_url("not a url"), None);
     }
 
@@ -3127,17 +3301,13 @@ Third post text.
             "reason": "This Tweet is unavailable."
         });
         let source = MockTweetSource::new(vec![("5000", no_user)]);
-        let thread = resolve_twitter_thread_with(
-            &http,
-            &source,
-            "https://x.com/realscholar/status/5000",
-        )
-        .await
-        .unwrap();
+        let thread =
+            resolve_twitter_thread_with(&http, &source, "https://x.com/realscholar/status/5000")
+                .await
+                .unwrap();
         assert_eq!(thread.author.screen_name, "realscholar");
         assert_eq!(thread.author.name, "realscholar");
         assert_eq!(thread.root_url, "https://x.com/realscholar/status/5000");
         assert_eq!(thread.posts[0].author.screen_name, "realscholar");
     }
 }
-

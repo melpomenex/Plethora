@@ -364,7 +364,10 @@ mod tests {
             .create_learning_item(&raw_namespace_card)
             .await
             .expect_err("UI extract namespace must be rejected before persistence");
-        assert!(matches!(guarded, crate::error::PlethoraError::InvalidInput(_)));
+        assert!(matches!(
+            guarded,
+            crate::error::PlethoraError::InvalidInput(_)
+        ));
         // Keep the original database failure as evidence, below the repaired
         // repository guard. The failed statement cannot alter the source row.
         let err = sqlx::query("UPDATE learning_items SET document_id = ? WHERE id = ?")

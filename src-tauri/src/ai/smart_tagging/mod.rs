@@ -40,7 +40,8 @@ pub fn classify_document_baseline(
     let salient_terms = salience::extract_salient_terms(&parts, 30);
 
     // 2. Check composite multi-term domain signatures
-    let domain_matches = domain_signatures::match_domain_signatures(title, headings, &salient_terms);
+    let domain_matches =
+        domain_signatures::match_domain_signatures(title, headings, &salient_terms);
 
     // 3. Rank candidate tags from user's existing taxonomy
     let candidate_tags = candidate_retrieval::rank_candidate_tags(
@@ -52,7 +53,10 @@ pub fn classify_document_baseline(
     );
 
     // 4. Extract existing tag names
-    let existing_names: Vec<String> = existing_library_tags.iter().map(|(n, _)| n.clone()).collect();
+    let existing_names: Vec<String> = existing_library_tags
+        .iter()
+        .map(|(n, _)| n.clone())
+        .collect();
 
     // 5. Evaluate and filter according to policy (threshold >= 0.70, max tags, duplicate prevention)
     policy::evaluate_and_filter_tags(

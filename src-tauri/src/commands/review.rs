@@ -326,9 +326,7 @@ pub async fn submit_review(
     arena_selection: Option<ArenaSelection>,
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
-    let precision_pure_kernel = precision_pure_kernel
-        .or(sm20_pure_m4)
-        .unwrap_or(false);
+    let precision_pure_kernel = precision_pure_kernel.or(sm20_pure_m4).unwrap_or(false);
     tracing::info!(
         item_id = %item_id,
         rating,
@@ -1178,8 +1176,7 @@ async fn apply_precision_review(
             0.0,
         );
         let result = &preview_results[grade as usize];
-        let authoritative_preview =
-            build_arena_preview(item, &collection, &preview_results, now)?;
+        let authoritative_preview = build_arena_preview(item, &collection, &preview_results, now)?;
         let grade_preview = authoritative_preview.grades[grade as usize].clone();
 
         let chosen_interval = match selection.source {
@@ -1201,12 +1198,10 @@ async fn apply_precision_review(
                 let bounds = &grade_preview.custom_bounds;
                 if !interval.is_finite() || interval < bounds.min_days || interval > bounds.max_days
                 {
-                    return Err(crate::error::PlethoraError::ArenaInvalidInterval(
-                        format!(
-                            "interval must be between {} and {} days",
-                            bounds.min_days, bounds.max_days
-                        ),
-                    ));
+                    return Err(crate::error::PlethoraError::ArenaInvalidInterval(format!(
+                        "interval must be between {} and {} days",
+                        bounds.min_days, bounds.max_days
+                    )));
                 }
                 interval
             }
@@ -1445,9 +1440,7 @@ pub async fn preview_review_intervals(
     sm20_pure_m4: Option<bool>,
     repo: State<'_, Repository>,
 ) -> Result<PreviewIntervals> {
-    let precision_pure_kernel = precision_pure_kernel
-        .or(sm20_pure_m4)
-        .unwrap_or(false);
+    let precision_pure_kernel = precision_pure_kernel.or(sm20_pure_m4).unwrap_or(false);
     let raw_algo = algorithm.as_deref().unwrap_or("fsrs");
     let normalized = normalize_algorithm_type(raw_algo);
 
@@ -2089,7 +2082,9 @@ mod tests {
     }
 
     async fn preview_item_arena(repo: &Repository, item: &LearningItem) -> ArenaPreviewSet {
-        let collection = load_precision_collection(repo).await.expect("Precision collection");
+        let collection = load_precision_collection(repo)
+            .await
+            .expect("Precision collection");
         let state = parse_precision_state(item);
         let now = Utc::now();
         let results = precision::preview_grade_results(
@@ -2120,7 +2115,13 @@ mod tests {
     #[test]
     fn test_algorithm_type_roundtrip() {
         for name in &[
-            "fsrs", "classic", "classic_5", "classic_8", "classic_15", "adaptive", "precision",
+            "fsrs",
+            "classic",
+            "classic_5",
+            "classic_8",
+            "classic_15",
+            "adaptive",
+            "precision",
         ] {
             let algo = AlgorithmType::from_str_lossy(name);
             assert_eq!(algo.as_str(), *name);
@@ -2384,10 +2385,7 @@ mod tests {
                     result,
                     Err(PlethoraError::ArenaInvalidInterval(_))
                 )),
-                _ => assert!(matches!(
-                    result,
-                    Err(PlethoraError::ArenaPreviewStale(_))
-                )),
+                _ => assert!(matches!(result, Err(PlethoraError::ArenaPreviewStale(_)))),
             }
             assert_eq!(
                 repo.get_learning_item_by_id(&item.id)

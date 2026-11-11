@@ -58,7 +58,12 @@ pub fn replay_fsrs7_from_history(
 
     let fsrs = create_fsrs7()?;
     let memory = fsrs
-        .memory_state(FSRSItem { reviews: fsrs_reviews }, None)
+        .memory_state(
+            FSRSItem {
+                reviews: fsrs_reviews,
+            },
+            None,
+        )
         .map_err(|e| PlethoraError::Internal(format!("FSRS-7 replay failed: {e}")))?;
 
     Ok(Some(MemoryState {
@@ -75,9 +80,7 @@ fn review_sort_key(review: &HistoryReview) -> i64 {
 }
 
 fn review_timestamp_ms(timestamp: Option<DateTime<Utc>>) -> i64 {
-    timestamp
-        .map(|ts| ts.timestamp_millis())
-        .unwrap_or(0)
+    timestamp.map(|ts| ts.timestamp_millis()).unwrap_or(0)
 }
 
 fn build_fsrs_reviews(sorted_reviews: &[&HistoryReview]) -> Result<Vec<FSRSReview>> {
@@ -140,12 +143,11 @@ pub async fn run_fsrs7_migration(pool: &Pool<Sqlite>) -> Result<()> {
 }
 
 async fn migration_already_completed(pool: &Pool<Sqlite>) -> Result<bool> {
-    let completed: Option<i64> = sqlx::query_scalar(
-        "SELECT 1 FROM fsrs7_migration_runs WHERE status = 'completed' LIMIT 1",
-    )
-    .fetch_optional(pool)
-    .await
-    .map_err(db_err)?;
+    let completed: Option<i64> =
+        sqlx::query_scalar("SELECT 1 FROM fsrs7_migration_runs WHERE status = 'completed' LIMIT 1")
+            .fetch_optional(pool)
+            .await
+            .map_err(db_err)?;
 
     Ok(completed.is_some())
 }
@@ -196,13 +198,11 @@ async fn count_pending_items(pool: &Pool<Sqlite>) -> Result<usize> {
 }
 
 async fn load_resume_cursor(pool: &Pool<Sqlite>, run_id: &str) -> Result<Option<String>> {
-    sqlx::query_scalar(
-        "SELECT last_item_id FROM fsrs7_migration_runs WHERE id = ?1",
-    )
-    .bind(run_id)
-    .fetch_optional(pool)
-    .await
-    .map_err(db_err)
+    sqlx::query_scalar("SELECT last_item_id FROM fsrs7_migration_runs WHERE id = ?1")
+        .bind(run_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(db_err)
 }
 
 async fn load_items_migrated(pool: &Pool<Sqlite>, run_id: &str) -> Result<i64> {
@@ -256,12 +256,11 @@ async fn mark_run_completed(pool: &Pool<Sqlite>, run_id: &str, items_migrated: i
 }
 
 async fn load_desired_retention(pool: &Pool<Sqlite>) -> Result<f32> {
-    let value: Option<String> = sqlx::query_scalar(
-        "SELECT value FROM settings WHERE key = 'desired_retention' LIMIT 1",
-    )
-    .fetch_optional(pool)
-    .await
-    .map_err(db_err)?;
+    let value: Option<String> =
+        sqlx::query_scalar("SELECT value FROM settings WHERE key = 'desired_retention' LIMIT 1")
+            .fetch_optional(pool)
+            .await
+            .map_err(db_err)?;
 
     Ok(value
         .and_then(|raw| raw.parse::<f32>().ok())
@@ -322,21 +321,17 @@ async fn migrate_single_item(
     let reviews = load_item_reviews(pool, item_id).await?;
     let memory_state = replay_fsrs7_from_history(item_id, &reviews, desired_retention)?;
 
-    let (algorithm_type, algorithm_state): (String, Option<String>) = sqlx::query_as(
-        "SELECT algorithm_type, algorithm_state FROM learning_items WHERE id = ?1",
-    )
-    .bind(item_id)
-    .fetch_one(pool)
-    .await
-    .map_err(db_err)?;
+    let (algorithm_type, algorithm_state): (String, Option<String>) =
+        sqlx::query_as("SELECT algorithm_type, algorithm_state FROM learning_items WHERE id = ?1")
+            .bind(item_id)
+            .fetch_one(pool)
+            .await
+            .map_err(db_err)?;
 
     let (legacy_algorithm_type, legacy_algorithm_state) = if algorithm_type == "fsrs" {
         (None::<String>, None::<String>)
     } else {
-        (
-            Some(algorithm_type.clone()),
-            algorithm_state.clone(),
-        )
+        (Some(algorithm_type.clone()), algorithm_state.clone())
     };
 
     if let Some(state) = memory_state {
@@ -489,14 +484,7 @@ mod tests {
     #[tokio::test]
     async fn new_user_with_zero_reviews_is_marked_without_rescheduling() {
         let pool = test_pool().await;
-        insert_learning_item(
-            &pool,
-            "item-new",
-            "fsrs",
-            None,
-            "2026-09-10T12:00:00Z",
-        )
-        .await;
+        insert_learning_item(&pool, "item-new", "fsrs", None, "2026-09-10T12:00:00Z").await;
 
         run_fsrs7_migration(&pool).await.expect("migration");
 
@@ -514,10 +502,7 @@ mod tests {
             row.get::<String, _>("fsrs_implementation_version"),
             FSRS7_IMPLEMENTATION_VERSION
         );
-        assert_eq!(
-            row.get::<String, _>("due_date"),
-            "2026-09-10T12:00:00Z"
-        );
+        assert_eq!(row.get::<String, _>("due_date"), "2026-09-10T12:00:00Z");
         let stability: Option<f64> = row.get("memory_state_stability");
         assert!(stability.is_none());
     }
@@ -525,14 +510,7 @@ mod tests {
     #[tokio::test]
     async fn light_user_history_replays_to_finite_memory_state() {
         let pool = test_pool().await;
-        insert_learning_item(
-            &pool,
-            "item-light",
-            "fsrs",
-            None,
-            "2026-09-10T12:00:00Z",
-        )
-        .await;
+        insert_learning_item(&pool, "item-light", "fsrs", None, "2026-09-10T12:00:00Z").await;
 
         let base = Utc.with_ymd_and_hms(2026, 1, 1, 8, 0, 0).unwrap();
         for index in 0..50 {
@@ -650,9 +628,6 @@ mod tests {
             row.get::<String, _>("legacy_algorithm_state"),
             r#"{"matrix":"m3"}"#
         );
-        assert_eq!(
-            row.get::<String, _>("due_date"),
-            "2026-09-10T12:00:00Z"
-        );
+        assert_eq!(row.get::<String, _>("due_date"), "2026-09-10T12:00:00Z");
     }
 }

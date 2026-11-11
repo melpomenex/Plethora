@@ -191,7 +191,8 @@ mod tests {
         assert!(json.contains("\"startMs\":0"));
         assert!(json.contains("\"endMs\":120000"));
 
-        let deserialized: PodcastChapter = serde_json::from_str(&json).expect("deserialize chapter");
+        let deserialized: PodcastChapter =
+            serde_json::from_str(&json).expect("deserialize chapter");
         assert_eq!(chapter, deserialized);
     }
 
@@ -214,7 +215,8 @@ mod tests {
         assert!(json.contains("\"mediaRevision\":\"rev-hash\""));
         assert!(json.contains("\"category\":\"external_ad\""));
 
-        let deserialized: PodcastAdInterval = serde_json::from_str(&json).expect("deserialize interval");
+        let deserialized: PodcastAdInterval =
+            serde_json::from_str(&json).expect("deserialize interval");
         assert_eq!(interval, deserialized);
     }
 
@@ -226,7 +228,8 @@ mod tests {
         assert!(json.contains("\"minAdDurationSeconds\":10"));
         assert!(json.contains("\"mobileChargingOnly\":true"));
 
-        let deserialized: PodcastAdSettings = serde_json::from_str(&json).expect("deserialize settings");
+        let deserialized: PodcastAdSettings =
+            serde_json::from_str(&json).expect("deserialize settings");
         assert_eq!(settings, deserialized);
     }
 
@@ -235,10 +238,16 @@ mod tests {
         assert_eq!(ChapterSource::Podcast20Json.as_str(), "podcast20_json");
         assert_eq!(ChapterSource::PodloveXml.as_str(), "podlove_xml");
         assert_eq!(ChapterSource::Id3Chap.as_str(), "id3_chap");
-        assert_eq!(ChapterSource::DescriptionTimestamp.as_str(), "description_timestamp");
+        assert_eq!(
+            ChapterSource::DescriptionTimestamp.as_str(),
+            "description_timestamp"
+        );
         assert_eq!(ChapterSource::Generated.as_str(), "generated");
 
-        assert_eq!(AdDetectionMethod::MetadataChapter.as_str(), "metadata_chapter");
+        assert_eq!(
+            AdDetectionMethod::MetadataChapter.as_str(),
+            "metadata_chapter"
+        );
         assert_eq!(AdDetectionMethod::ClassifierLlm.as_str(), "classifier_llm");
         assert_eq!(AdDetectionMethod::ManualUser.as_str(), "manual_user");
 

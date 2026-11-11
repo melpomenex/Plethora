@@ -147,18 +147,13 @@ mod tests {
 
     #[test]
     fn snaps_boundary_to_center_of_silence_pause() {
-        let tokens = vec![
-            token("before", 1000, 1500),
-            token("after", 2500, 3000),
-        ];
+        let tokens = vec![token("before", 1000, 1500), token("after", 2500, 3000)];
 
         // 1000ms silence gap between 1500ms and 2500ms
-        let pauses = vec![
-            SilenceGap {
-                start_ms: 1500,
-                end_ms: 2500,
-            },
-        ];
+        let pauses = vec![SilenceGap {
+            start_ms: 1500,
+            end_ms: 2500,
+        }];
 
         let refined = refine_boundary(&tokens, &pauses, 1600, true);
         // Center of 1500..2500 is 2000
@@ -167,18 +162,13 @@ mod tests {
 
     #[test]
     fn ignores_micro_pauses_under_250ms() {
-        let tokens = vec![
-            token("quick", 1000, 1400),
-            token("words", 1550, 2000),
-        ];
+        let tokens = vec![token("quick", 1000, 1400), token("words", 1550, 2000)];
 
         // 150ms gap is < 250ms
-        let micro_pause = vec![
-            SilenceGap {
-                start_ms: 1400,
-                end_ms: 1550,
-            },
-        ];
+        let micro_pause = vec![SilenceGap {
+            start_ms: 1400,
+            end_ms: 1550,
+        }];
 
         let refined = refine_boundary(&tokens, &micro_pause, 1420, true);
         // Should NOT snap to micro pause center, but stay at word boundary

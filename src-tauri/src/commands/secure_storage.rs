@@ -84,9 +84,7 @@ pub async fn secure_storage_clear(service: String, account: String) -> Result<()
         }
     })
     .await
-    .map_err(|e| {
-        PlethoraError::Internal(format!("secure_storage_clear: task join error: {e}"))
-    })?
+    .map_err(|e| PlethoraError::Internal(format!("secure_storage_clear: task join error: {e}")))?
 }
 
 fn keyring_err(ctx: &str, e: keyring::Error) -> PlethoraError {

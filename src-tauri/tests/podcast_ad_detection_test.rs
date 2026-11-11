@@ -4,7 +4,9 @@
 use plethora_tauri_lib::battery::BatteryState;
 use plethora_tauri_lib::mobile::scheduler::{DeferralReason, MobileScheduler};
 use plethora_tauri_lib::models::podcast_ad::{PodcastAdInterval, PodcastAdSettings};
-use plethora_tauri_lib::podcast::ad::boundary_refiner::{snap_to_silence_window, snap_to_word_boundary, SilenceGap};
+use plethora_tauri_lib::podcast::ad::boundary_refiner::{
+    snap_to_silence_window, snap_to_word_boundary, SilenceGap,
+};
 use plethora_tauri_lib::podcast::ad::cue_detector::detect_cue_spans;
 use plethora_tauri_lib::podcast::ad::interval_merger::merge_and_filter_intervals;
 use plethora_tauri_lib::podcast::ad::thermal_governor::{ThermalDecision, ThermalGovernor};
@@ -33,8 +35,8 @@ fn test_integration_podcast20_json_chapters_parsing() {
         ]
     }"#;
 
-    let chapters = parse_chapters_json(json_payload, "ep-integration-1", Some(1800))
-        .expect("parsed chapters");
+    let chapters =
+        parse_chapters_json(json_payload, "ep-integration-1", Some(1800)).expect("parsed chapters");
 
     assert_eq!(chapters.len(), 3);
     assert_eq!(chapters[0].title, "Welcome and Cold Open");
@@ -98,8 +100,14 @@ fn test_integration_cue_detection_and_boundary_snapping() {
     assert_eq!(snapped_start, 10_000);
 
     let silence_gaps = vec![
-        SilenceGap { start_ms: 9_700, end_ms: 10_050 },
-        SilenceGap { start_ms: 45_000, end_ms: 45_600 },
+        SilenceGap {
+            start_ms: 9_700,
+            end_ms: 10_050,
+        },
+        SilenceGap {
+            start_ms: 45_000,
+            end_ms: 45_600,
+        },
     ];
     let acoustic_snapped = snap_to_silence_window(9_900, &silence_gaps, 500);
     assert_eq!(acoustic_snapped, 9_875); // Center of silence window

@@ -14,7 +14,7 @@
 //! [`DetectionConfidence`] is `Heuristic` and the UI labels the match as an
 //! estimate.
 
-use super::hf_client::{FileIndex, HfRepoInfo, file_name};
+use super::hf_client::{file_name, FileIndex, HfRepoInfo};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -134,7 +134,9 @@ pub enum RunContract {
     /// served by a `laya-serve` the user runs. Carrying no engine-relative paths
     /// is deliberate — `paths_contained()` has nothing to check, which is the
     /// safe outcome rather than an unchecked one.
-    ExternalEndpoint { endpoint_kind: String },
+    ExternalEndpoint {
+        endpoint_kind: String,
+    },
     Whisper {
         model_file: String,
     },
@@ -206,7 +208,11 @@ impl RunContract {
     /// Inference happens in this one place; it never mutates stored rows.
     pub fn effective_tts_family(&self) -> Option<SherpaTtsFamily> {
         match self {
-            RunContract::SherpaTts { family, voices_file, .. } => Some(match family {
+            RunContract::SherpaTts {
+                family,
+                voices_file,
+                ..
+            } => Some(match family {
                 Some(f) => *f,
                 None if voices_file.is_some() => SherpaTtsFamily::Kokoro,
                 None => SherpaTtsFamily::Vits,
@@ -275,10 +281,15 @@ impl RunContract {
                 decoder,
                 joiner,
                 tokens,
-            } => [encoder.as_str(), decoder.as_str(), joiner.as_str(), tokens.as_str()]
-                .into_iter()
-                .filter(|f| !f.is_empty())
-                .collect(),
+            } => [
+                encoder.as_str(),
+                decoder.as_str(),
+                joiner.as_str(),
+                tokens.as_str(),
+            ]
+            .into_iter()
+            .filter(|f| !f.is_empty())
+            .collect(),
             RunContract::Whistle { model_file } => vec![model_file.as_str()],
         }
     }
@@ -299,9 +310,7 @@ impl RunContract {
         match self {
             RunContract::ExternalEndpoint { endpoint_kind } => {
                 if endpoint_kind.is_empty() {
-                    return Err(
-                        "external endpoint contract has an empty endpoint_kind".to_string(),
-                    );
+                    return Err("external endpoint contract has an empty endpoint_kind".to_string());
                 }
                 Ok(())
             }
@@ -473,7 +482,11 @@ fn index_contains(index: &FileIndex, path: &str) -> bool {
 }
 
 fn repo_name_lower(info: &HfRepoInfo) -> String {
-    info.id.rsplit('/').next().unwrap_or(&info.id).to_lowercase()
+    info.id
+        .rsplit('/')
+        .next()
+        .unwrap_or(&info.id)
+        .to_lowercase()
 }
 
 fn repo_tags_contain(info: &HfRepoInfo, needle: &str) -> bool {
@@ -540,9 +553,7 @@ impl RuntimeAdapter for WhisperCppAdapter {
             label: "whisper.cpp ggml model".to_string(),
             files,
             download_size_bytes: size,
-            run_contract: RunContract::Whisper {
-                model_file: model,
-            },
+            run_contract: RunContract::Whisper { model_file: model },
             estimated_memory_bytes,
             confidence: DetectionConfidence::Exact,
             metadata: BTreeMap::new(),
@@ -578,10 +589,7 @@ impl SherpaOnnxSttAdapter {
     }
 
     fn preferred_model(&self, index: &FileIndex, names: &[&str]) -> Option<String> {
-        names
-            .iter()
-            .filter_map(|n| index.find_file_named(n))
-            .next()
+        names.iter().filter_map(|n| index.find_file_named(n)).next()
     }
 
     fn build_artifact(
@@ -650,7 +658,9 @@ impl RuntimeAdapter for SherpaOnnxSttAdapter {
         let name = repo_name_lower(info);
         let int8 = self.preferred_model(index, &["model.int8.onnx", "model.onnx"]);
         let fp16 = self.preferred_model(index, &["model.fp16.onnx"]);
-        let model = int8.or(fp16).or(self.preferred_model(index, &["model.onnx"]));
+        let model = int8
+            .or(fp16)
+            .or(self.preferred_model(index, &["model.onnx"]));
 
         // SenseVoice: name contains "sense" + int8/onnx model + tokens.
         if let Some(m) = model.clone() {
@@ -796,7 +806,11 @@ impl SherpaOnnxTtsAdapter {
                 format!("vocoder{suffix}.onnx"),
             ];
             let mut paths = Vec::with_capacity(7);
-            for name in onnx_names.iter().map(String::as_str).chain(SUPERTONIC_FIXED_FILES) {
+            for name in onnx_names
+                .iter()
+                .map(String::as_str)
+                .chain(SUPERTONIC_FIXED_FILES)
+            {
                 match index.find_file_named(name) {
                     Some(p) => paths.push(p),
                     // Any miss ⇒ not Supertonic for this suffix.
@@ -805,7 +819,14 @@ impl SherpaOnnxTtsAdapter {
             }
             if paths.len() == 7 {
                 let precision = suffix.trim_start_matches('.').to_string();
-                return Some((if precision.is_empty() { "fp32".to_string() } else { precision }, paths));
+                return Some((
+                    if precision.is_empty() {
+                        "fp32".to_string()
+                    } else {
+                        precision
+                    },
+                    paths,
+                ));
             }
         }
         None
@@ -1109,9 +1130,8 @@ impl RuntimeAdapter for LayaDecisionAdapter {
     /// hundreds of megabytes of the wrong artifact.
     fn detect_artifact(&self, info: &HfRepoInfo, index: &FileIndex) -> Option<Artifact> {
         let name = repo_name_lower(info);
-        let looks_like_laya = name == "laya"
-            || name.starts_with("laya-")
-            || repo_tags_contain(info, "laya");
+        let looks_like_laya =
+            name == "laya" || name.starts_with("laya-") || repo_tags_contain(info, "laya");
         if !looks_like_laya {
             return None;
         }
@@ -1124,7 +1144,11 @@ impl RuntimeAdapter for LayaDecisionAdapter {
 
         let mut files = vec![artifact_file(index, weights.to_string())];
         // Tokenizer files ship alongside the weights and are required to serve.
-        for optional in ["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"] {
+        for optional in [
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "special_tokens_map.json",
+        ] {
             if index_contains(index, optional) {
                 files.push(artifact_file(index, optional.to_string()));
             }
@@ -1215,9 +1239,7 @@ impl RuntimeAdapter for WhistleSttAdapter {
             label: "Cactus Whistle STT model (.cact)".to_string(),
             files,
             download_size_bytes: size,
-            run_contract: RunContract::Whistle {
-                model_file: model,
-            },
+            run_contract: RunContract::Whistle { model_file: model },
             estimated_memory_bytes,
             confidence,
             metadata: BTreeMap::new(),
@@ -1300,9 +1322,14 @@ mod tests {
     // ── 5.1: compatible whisper ggml ───────────────────────────────────────
     #[test]
     fn detects_whisper_ggml_artifact() {
-        let info = repo("ggerganov/whisper.cpp", &["whisper", "automatic-speech-recognition"]);
+        let info = repo(
+            "ggerganov/whisper.cpp",
+            &["whisper", "automatic-speech-recognition"],
+        );
         let idx = index(&[file("ggml-small.bin", 500_000_000)]);
-        let artifact = WhisperCppAdapter.detect_artifact(&info, &idx).expect("artifact");
+        let artifact = WhisperCppAdapter
+            .detect_artifact(&info, &idx)
+            .expect("artifact");
         assert_eq!(artifact.runtime, HfRuntime::WhisperCpp);
         assert_eq!(artifact.kind, "ggml-whisper");
         assert_eq!(artifact.confidence, DetectionConfidence::Exact);
@@ -1314,22 +1341,39 @@ mod tests {
     fn whisper_ggml_can_live_in_subdirectory() {
         let info = repo("somebody/whisper-model", &["whisper"]);
         let idx = index(&[file("ggml/ggml-base.en.bin", 150_000_000)]);
-        let artifact = WhisperCppAdapter.detect_artifact(&info, &idx).expect("artifact");
-        assert_eq!(artifact.run_contract, RunContract::Whisper {
-            model_file: "ggml/ggml-base.en.bin".to_string(),
-        });
+        let artifact = WhisperCppAdapter
+            .detect_artifact(&info, &idx)
+            .expect("artifact");
+        assert_eq!(
+            artifact.run_contract,
+            RunContract::Whisper {
+                model_file: "ggml/ggml-base.en.bin".to_string(),
+            }
+        );
     }
 
     // ── compatible sherpa ONNX (sense-voice / nemo / zipformer / paraformer)
     #[test]
     fn detects_sense_voice_onnx() {
-        let info = repo("csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue", &["automatic-speech-recognition"]);
-        let idx = index(&[file("model.int8.onnx", 160_000_000), file("tokens.txt", 100_000)]);
-        let artifact = SherpaOnnxSttAdapter.detect_artifact(&info, &idx).expect("artifact");
+        let info = repo(
+            "csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue",
+            &["automatic-speech-recognition"],
+        );
+        let idx = index(&[
+            file("model.int8.onnx", 160_000_000),
+            file("tokens.txt", 100_000),
+        ]);
+        let artifact = SherpaOnnxSttAdapter
+            .detect_artifact(&info, &idx)
+            .expect("artifact");
         assert_eq!(artifact.runtime, HfRuntime::SherpaOnnxStt);
         assert_eq!(artifact.kind, "sense-voice");
         match &artifact.run_contract {
-            RunContract::SherpaStt { family: SherpaSttFamily::SenseVoice, use_itn, .. } => {
+            RunContract::SherpaStt {
+                family: SherpaSttFamily::SenseVoice,
+                use_itn,
+                ..
+            } => {
                 assert!(*use_itn);
             }
             other => panic!("expected sense-voice contract, got {:?}", other),
@@ -1338,29 +1382,50 @@ mod tests {
 
     #[test]
     fn detects_nemo_parakeet_onnx() {
-        let info = repo("nvidia/parakeet-tdt-0.6b-v2", &["automatic-speech-recognition"]);
-        let idx = index(&[file("model.int8.onnx", 200_000_000), file("tokens.txt", 50_000)]);
-        let artifact = SherpaOnnxSttAdapter.detect_artifact(&info, &idx).expect("artifact");
+        let info = repo(
+            "nvidia/parakeet-tdt-0.6b-v2",
+            &["automatic-speech-recognition"],
+        );
+        let idx = index(&[
+            file("model.int8.onnx", 200_000_000),
+            file("tokens.txt", 50_000),
+        ]);
+        let artifact = SherpaOnnxSttAdapter
+            .detect_artifact(&info, &idx)
+            .expect("artifact");
         assert_eq!(artifact.kind, "nemo-ctc");
         match &artifact.run_contract {
-            RunContract::SherpaStt { family: SherpaSttFamily::NemoCtc, .. } => {}
+            RunContract::SherpaStt {
+                family: SherpaSttFamily::NemoCtc,
+                ..
+            } => {}
             other => panic!("expected nemo-ctc contract, got {:?}", other),
         }
     }
 
     #[test]
     fn detects_zipformer_split_encoder_decoder_joiner() {
-        let info = repo("csukuangfj/sherpa-onnx-zipformer-en-2023-06-26", &["automatic-speech-recognition"]);
+        let info = repo(
+            "csukuangfj/sherpa-onnx-zipformer-en-2023-06-26",
+            &["automatic-speech-recognition"],
+        );
         let idx = index(&[
             file("encoder.onnx", 100_000_000),
             file("decoder.onnx", 20_000_000),
             file("joiner.onnx", 1_000_000),
             file("tokens.txt", 50_000),
         ]);
-        let artifact = SherpaOnnxSttAdapter.detect_artifact(&info, &idx).expect("artifact");
+        let artifact = SherpaOnnxSttAdapter
+            .detect_artifact(&info, &idx)
+            .expect("artifact");
         assert_eq!(artifact.kind, "zipformer");
         match &artifact.run_contract {
-            RunContract::SherpaStt { family: SherpaSttFamily::Zipformer, decoder_file, joiner_file, .. } => {
+            RunContract::SherpaStt {
+                family: SherpaSttFamily::Zipformer,
+                decoder_file,
+                joiner_file,
+                ..
+            } => {
                 assert_eq!(decoder_file.as_deref(), Some("decoder.onnx"));
                 assert_eq!(joiner_file.as_deref(), Some("joiner.onnx"));
             }
@@ -1370,17 +1435,27 @@ mod tests {
 
     #[test]
     fn detects_zipformer_combined_model() {
-        let info = repo("csukuangfj/sherpa-onnx-zipformer-en-2023-06-26", &["automatic-speech-recognition"]);
+        let info = repo(
+            "csukuangfj/sherpa-onnx-zipformer-en-2023-06-26",
+            &["automatic-speech-recognition"],
+        );
         let idx = index(&[file("model.onnx", 300_000_000), file("tokens.txt", 50_000)]);
-        let artifact = SherpaOnnxSttAdapter.detect_artifact(&info, &idx).expect("artifact");
+        let artifact = SherpaOnnxSttAdapter
+            .detect_artifact(&info, &idx)
+            .expect("artifact");
         assert_eq!(artifact.kind, "zipformer");
     }
 
     #[test]
     fn detects_paraformer_onnx() {
-        let info = repo("csukuangfj/sherpa-onnx-paraformer-zh-2023-09-14", &["automatic-speech-recognition"]);
+        let info = repo(
+            "csukuangfj/sherpa-onnx-paraformer-zh-2023-09-14",
+            &["automatic-speech-recognition"],
+        );
         let idx = index(&[file("model.onnx", 400_000_000), file("tokens.txt", 50_000)]);
-        let artifact = SherpaOnnxSttAdapter.detect_artifact(&info, &idx).expect("artifact");
+        let artifact = SherpaOnnxSttAdapter
+            .detect_artifact(&info, &idx)
+            .expect("artifact");
         assert_eq!(artifact.kind, "paraformer");
     }
 
@@ -1389,7 +1464,9 @@ mod tests {
     fn detects_vits_tts_onnx() {
         let info = repo("csukuangfj/vits-ljs", &["text-to-speech"]);
         let idx = index(&[file("model.onnx", 90_000_000), file("tokens.txt", 10_000)]);
-        let artifact = SherpaOnnxTtsAdapter.detect_artifact(&info, &idx).expect("artifact");
+        let artifact = SherpaOnnxTtsAdapter
+            .detect_artifact(&info, &idx)
+            .expect("artifact");
         assert_eq!(artifact.runtime, HfRuntime::SherpaOnnxTts);
         assert_eq!(artifact.kind, "vits");
     }
@@ -1402,7 +1479,9 @@ mod tests {
             file("voices.bin", 5_000_000),
             file("tokens.txt", 10_000),
         ]);
-        let artifact = SherpaOnnxTtsAdapter.detect_artifact(&info, &idx).expect("artifact");
+        let artifact = SherpaOnnxTtsAdapter
+            .detect_artifact(&info, &idx)
+            .expect("artifact");
         assert_eq!(artifact.kind, "kokoro");
         match &artifact.run_contract {
             RunContract::SherpaTts { voices_file, .. } => {
@@ -1441,16 +1520,24 @@ mod tests {
     #[test]
     fn generic_sherpa_stt_repo_still_detected_as_stt() {
         // Non-TTS sherpa repo names must still hit the generic heuristic.
-        let info = repo("csukuangfj/sherpa-onnx-zipformer-small-en", &["automatic-speech-recognition"]);
+        let info = repo(
+            "csukuangfj/sherpa-onnx-zipformer-small-en",
+            &["automatic-speech-recognition"],
+        );
         let idx = index(&[file("model.onnx", 300_000_000), file("tokens.txt", 50_000)]);
-        let artifact = SherpaOnnxSttAdapter.detect_artifact(&info, &idx).expect("artifact");
+        let artifact = SherpaOnnxSttAdapter
+            .detect_artifact(&info, &idx)
+            .expect("artifact");
         assert_eq!(artifact.kind, "zipformer");
     }
 
     // ── 5.2: incompatible repo → None (unsupported runtime) ────────────────
     #[test]
     fn pytorch_only_repo_is_not_detected() {
-        let info = repo("openai/whisper-large-v3", &["automatic-speech-recognition", "whisper"]);
+        let info = repo(
+            "openai/whisper-large-v3",
+            &["automatic-speech-recognition", "whisper"],
+        );
         // Only pytorch/safetensors checkpoints — no ggml / ONNX.
         let idx = index(&[
             file("pytorch_model.bin", 3_000_000_000),
@@ -1506,15 +1593,16 @@ mod tests {
             &["text-to-speech"],
         );
         let idx = index(&supertonic_files());
-        let artifact = SherpaOnnxTtsAdapter.detect_artifact(&info, &idx).expect("artifact");
+        let artifact = SherpaOnnxTtsAdapter
+            .detect_artifact(&info, &idx)
+            .expect("artifact");
         assert_eq!(artifact.runtime, HfRuntime::SherpaOnnxTts);
         assert_eq!(artifact.kind, "supertonic");
         assert_eq!(artifact.label, "Supertonic 3 (sherpa-onnx TTS)");
         assert_eq!(artifact.confidence, DetectionConfidence::Exact);
         assert_eq!(artifact.files.len(), 7);
         assert_eq!(
-            artifact.download_size_bytes,
-            145_295_768,
+            artifact.download_size_bytes, 145_295_768,
             "size is the sum of all seven assets"
         );
         // Memory estimate ×1.15 (same factor as sherpa STT).
@@ -1522,8 +1610,14 @@ mod tests {
             artifact.estimated_memory_bytes,
             (145_295_768u64 as f64 * 1.15) as u64
         );
-        assert_eq!(artifact.metadata.get("precision").map(String::as_str), Some("int8"));
-        assert_eq!(artifact.metadata.get("family").map(String::as_str), Some("supertonic"));
+        assert_eq!(
+            artifact.metadata.get("precision").map(String::as_str),
+            Some("int8")
+        );
+        assert_eq!(
+            artifact.metadata.get("family").map(String::as_str),
+            Some("supertonic")
+        );
         match &artifact.run_contract {
             RunContract::SherpaTts {
                 family: Some(SherpaTtsFamily::Supertonic),
@@ -1573,7 +1667,11 @@ mod tests {
             "unicode_indexer.bin",
             "voice.bin",
         ] {
-            let files: Vec<HfFile> = all.iter().filter(|f| f.rfilename != dropped).cloned().collect();
+            let files: Vec<HfFile> = all
+                .iter()
+                .filter(|f| f.rfilename != dropped)
+                .cloned()
+                .collect();
             let idx = index(&files);
             assert!(
                 SherpaOnnxTtsAdapter.detect_artifact(&info, &idx).is_none(),
@@ -1600,7 +1698,10 @@ mod tests {
         // A split ASR-style encoder/decoder set plus a json/bin file or two
         // must never satisfy the Supertonic layout (it may legitimately match
         // the zipformer STT layout — that is a different adapter).
-        let info = repo("somebody/split-asr-pipeline", &["automatic-speech-recognition"]);
+        let info = repo(
+            "somebody/split-asr-pipeline",
+            &["automatic-speech-recognition"],
+        );
         let idx = index(&[
             file("encoder.onnx", 100_000_000),
             file("decoder.onnx", 20_000_000),
@@ -1624,7 +1725,10 @@ mod tests {
             file("voice.bin", 517_168),
         ]);
         let detected = detect_all(&info, &idx);
-        assert!(detected.is_empty(), "no supertonic/vits match for a near-miss repo");
+        assert!(
+            detected.is_empty(),
+            "no supertonic/vits match for a near-miss repo"
+        );
     }
 
     #[test]
@@ -1668,13 +1772,19 @@ mod tests {
             r#"{"type":"sherpa-tts","model_file":"model.onnx","tokens_file":"tokens.txt"}"#,
         )
         .expect("legacy vits row deserializes");
-        assert_eq!(legacy_vits.effective_tts_family(), Some(SherpaTtsFamily::Vits));
+        assert_eq!(
+            legacy_vits.effective_tts_family(),
+            Some(SherpaTtsFamily::Vits)
+        );
 
         let legacy_kokoro: RunContract = serde_json::from_str(
             r#"{"type":"sherpa-tts","model_file":"model.onnx","tokens_file":"tokens.txt","voices_file":"voices.bin"}"#,
         )
         .expect("legacy kokoro row deserializes");
-        assert_eq!(legacy_kokoro.effective_tts_family(), Some(SherpaTtsFamily::Kokoro));
+        assert_eq!(
+            legacy_kokoro.effective_tts_family(),
+            Some(SherpaTtsFamily::Kokoro)
+        );
     }
 
     #[test]
@@ -1697,7 +1807,10 @@ mod tests {
         assert!(json.contains("\"type\":\"sherpa-tts\""), "{json}");
         let back: RunContract = serde_json::from_str(&json).unwrap();
         assert_eq!(back, original);
-        assert_eq!(back.effective_tts_family(), Some(SherpaTtsFamily::Supertonic));
+        assert_eq!(
+            back.effective_tts_family(),
+            Some(SherpaTtsFamily::Supertonic)
+        );
     }
 
     #[test]
@@ -1813,9 +1926,14 @@ mod tests {
 
     #[test]
     fn detects_cactus_whistle_cact() {
-        let info = repo("Cactus-Compute/whistle", &["automatic-speech-recognition", "stt"]);
+        let info = repo(
+            "Cactus-Compute/whistle",
+            &["automatic-speech-recognition", "stt"],
+        );
         let idx = index(&[file("whistle.cact", 16_919_407)]);
-        let artifact = WhistleSttAdapter.detect_artifact(&info, &idx).expect("artifact");
+        let artifact = WhistleSttAdapter
+            .detect_artifact(&info, &idx)
+            .expect("artifact");
         assert_eq!(artifact.runtime, HfRuntime::WhistleStt);
         assert_eq!(artifact.kind, "cact-whistle");
         assert_eq!(artifact.confidence, DetectionConfidence::Exact);

@@ -155,10 +155,8 @@ pub async fn set_ai_config(
         );
         config.api_keys.brave =
             preserve_secret(config.api_keys.brave, current.api_keys.brave.clone());
-        config.api_keys.deepseek = preserve_secret(
-            config.api_keys.deepseek,
-            current.api_keys.deepseek.clone(),
-        );
+        config.api_keys.deepseek =
+            preserve_secret(config.api_keys.deepseek, current.api_keys.deepseek.clone());
     }
 
     *state_config = Some(config.clone());
@@ -860,9 +858,7 @@ pub async fn brave_web_search(
         .header("X-Subscription-Token", &api_key)
         .send()
         .await
-        .map_err(|e| {
-            PlethoraError::Internal(format!("Brave Search HTTP request failed: {}", e))
-        })?;
+        .map_err(|e| PlethoraError::Internal(format!("Brave Search HTTP request failed: {}", e)))?;
 
     if !response.status().is_success() {
         let status = response.status();

@@ -1,26 +1,26 @@
 //! Tauri commands for the HF speech-model manager (requirement #19).
 
-use super::adapters::{Artifact, DetectionConfidence, HfRuntime, detect_all};
+use super::adapters::{detect_all, Artifact, DetectionConfidence, HfRuntime};
 use super::downloader::PROGRESS_EVENT;
 use super::hf_client::{
-    HfFile, RepoInput, build_file_index, clean_revision, fetch_repo_info, hf_metadata_client,
-    params_millions, parse_repo_input, repo_display_name,
+    build_file_index, clean_revision, fetch_repo_info, hf_metadata_client, params_millions,
+    parse_repo_input, repo_display_name, HfFile, RepoInput,
 };
 use super::manager::{
-    InstallTarget, InstalledHfModel, app_data_dir, install, install_dir_for, is_pinned_nemotron_repo,
-    is_pinned_whistle_repo, model_id_for, registry_list, resolve_install_target,
-    resolve_pinned_nemotron_install_target, resolve_pinned_whistle_install_target,
-    uninstall, NEMOTRON_ASR_ENCODER_FILE, NEMOTRON_ASR_REVISION, NEMOTRON_ASR_SIZE_BYTES,
-    nemotron_asr_catalog_entry,
+    app_data_dir, install, install_dir_for, is_pinned_nemotron_repo, is_pinned_whistle_repo,
+    model_id_for, nemotron_asr_catalog_entry, registry_list, resolve_install_target,
+    resolve_pinned_nemotron_install_target, resolve_pinned_whistle_install_target, uninstall,
+    InstallTarget, InstalledHfModel, NEMOTRON_ASR_ENCODER_FILE, NEMOTRON_ASR_REVISION,
+    NEMOTRON_ASR_SIZE_BYTES,
 };
-use super::suitability::{Suitability, classify, disk_insufficient};
-use super::system_info::{SystemInfo, detect_system_info, models_root_dir};
+use super::suitability::{classify, disk_insufficient, Suitability};
+use super::system_info::{detect_system_info, models_root_dir, SystemInfo};
 use crate::database::Repository;
 use crate::error::{PlethoraError, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager, State, command};
+use tauri::{command, AppHandle, Manager, State};
 use tokio_util::sync::CancellationToken;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -48,7 +48,10 @@ impl ActiveHfDownloads {
     }
 
     pub fn unregister(&self, id: &str) {
-        self.map.lock().unwrap_or_else(|e| e.into_inner()).remove(id);
+        self.map
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(id);
     }
 
     pub fn cancel(&self, id: &str) -> bool {
@@ -224,17 +227,18 @@ async fn build_pinned_nemotron_inspection(
 }
 
 #[command]
-pub async fn hf_inspect_model(
-    app_handle: AppHandle,
-    repo_input: String,
-) -> Result<HfInspection> {
+pub async fn hf_inspect_model(app_handle: AppHandle, repo_input: String) -> Result<HfInspection> {
     let parsed: RepoInput = parse_repo_input(&repo_input)?;
     if is_pinned_nemotron_repo(&parsed.repo_id) {
         return build_pinned_nemotron_inspection(&app_handle).await;
     }
     let client = hf_metadata_client();
     let revision = clean_revision(parsed.revision.as_deref().unwrap_or("main"));
-    let revision = if revision.is_empty() { "main" } else { revision.as_str() };
+    let revision = if revision.is_empty() {
+        "main"
+    } else {
+        revision.as_str()
+    };
 
     let info = fetch_repo_info(&client, &parsed.repo_id, Some(revision))
         .await
@@ -244,7 +248,8 @@ pub async fn hf_inspect_model(
     let candidates = detect_all(&info, &index);
 
     let system_info = {
-        let app_data = app_data_dir(&app_handle).map_err(|e| PlethoraError::Internal(e.to_string()))?;
+        let app_data =
+            app_data_dir(&app_handle).map_err(|e| PlethoraError::Internal(e.to_string()))?;
         detect_system_info(&models_root_dir(&app_data))
     };
 
@@ -370,23 +375,20 @@ pub async fn hf_install_model(
     let parsed: RepoInput = parse_repo_input(&repo_input)?;
     let runtime = parse_runtime_arg(&runtime)?;
 
-    let target: InstallTarget = if is_pinned_nemotron_repo(&parsed.repo_id)
-        && runtime == HfRuntime::NemotronAsr
-    {
-        resolve_pinned_nemotron_install_target(&app_handle)
-            .await
-            .map_err(|e| PlethoraError::Internal(e.to_string()))?
-    } else if is_pinned_whistle_repo(&parsed.repo_id)
-        && runtime == HfRuntime::WhistleStt
-    {
-        resolve_pinned_whistle_install_target(&app_handle)
-            .await
-            .map_err(|e| PlethoraError::Internal(e.to_string()))?
-    } else {
-        resolve_install_target(&app_handle, &parsed, runtime, &artifact_kind)
-            .await
-            .map_err(|e| PlethoraError::Internal(e.to_string()))?
-    };
+    let target: InstallTarget =
+        if is_pinned_nemotron_repo(&parsed.repo_id) && runtime == HfRuntime::NemotronAsr {
+            resolve_pinned_nemotron_install_target(&app_handle)
+                .await
+                .map_err(|e| PlethoraError::Internal(e.to_string()))?
+        } else if is_pinned_whistle_repo(&parsed.repo_id) && runtime == HfRuntime::WhistleStt {
+            resolve_pinned_whistle_install_target(&app_handle)
+                .await
+                .map_err(|e| PlethoraError::Internal(e.to_string()))?
+        } else {
+            resolve_install_target(&app_handle, &parsed, runtime, &artifact_kind)
+                .await
+                .map_err(|e| PlethoraError::Internal(e.to_string()))?
+        };
 
     // Server-side hard gate: re-run the disk check so an artifact that no
     // longer fits (or a Not-Recommended override) can never install a model
@@ -423,12 +425,16 @@ pub async fn hf_uninstall_model(
     repo: State<'_, Repository>,
     id: String,
 ) -> Result<()> {
-    uninstall(&app_handle, &repo, &id).await.map_err(|e| PlethoraError::Internal(e.to_string()))
+    uninstall(&app_handle, &repo, &id)
+        .await
+        .map_err(|e| PlethoraError::Internal(e.to_string()))
 }
 
 #[command]
 pub async fn get_installed_hf_models(repo: State<'_, Repository>) -> Result<Vec<InstalledHfModel>> {
-    registry_list(repo.pool()).await.map_err(|e| PlethoraError::Internal(e.to_string()))
+    registry_list(repo.pool())
+        .await
+        .map_err(|e| PlethoraError::Internal(e.to_string()))
 }
 
 /// Pinned Nemotron ASR catalog metadata for Local Models → Speech-to-Text.

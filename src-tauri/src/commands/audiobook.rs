@@ -341,9 +341,8 @@ pub async fn import_podcast_audio_file(
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("incrementum")
         .join("audio");
-    std::fs::create_dir_all(&audio_dir).map_err(|e| {
-        PlethoraError::Internal(format!("Failed to create audio directory: {}", e))
-    })?;
+    std::fs::create_dir_all(&audio_dir)
+        .map_err(|e| PlethoraError::Internal(format!("Failed to create audio directory: {}", e)))?;
 
     let timestamp = chrono::Utc::now().timestamp();
     let original_filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("audio");

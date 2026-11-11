@@ -111,13 +111,7 @@ pub async fn browser_capture_documents(
     limit: Option<i64>,
     offset: Option<i64>,
 ) -> Result<BrowserCapturePage> {
-    let page = capture_documents(
-        pool,
-        "browser-extension",
-        limit,
-        offset,
-    )
-    .await?;
+    let page = capture_documents(pool, "browser-extension", limit, offset).await?;
     let items = page
         .items
         .into_iter()
@@ -310,28 +304,101 @@ mod tests {
         sqlx::query("CREATE TABLE documents (id TEXT, title TEXT, file_type TEXT, file_path TEXT, date_added TEXT, cover_image_url TEXT, cover_image_source TEXT, metadata TEXT, is_archived INTEGER, is_dismissed INTEGER, collection_id TEXT)")
             .execute(&pool).await.unwrap();
         for (id, path, date, metadata, archived, dismissed) in [
-            ("share-a", "/private/a.pdf", "2025-01-01T00:00:00Z", r#"{"shareProvenance":{"source":"share_extension"}}"#, 0, 0),
-            ("share-b", "/private/b.png", "2025-01-01T00:00:00Z", r#"{"captureProvenance":{"source":"android_share"}}"#, 0, 0),
-            ("share-text", "note://local", "2024-01-01T00:00:00Z", r#"{"shareProvenance":{}}"#, 0, 0),
-            ("bad-date", "/private/bad", "not-a-date", r#"{"source":"share_extension"}"#, 0, 0),
-            ("manual", "https://example.org/manual", "2026-01-01T00:00:00Z", r#"{"source":"manual","url":"https://example.org/manual"}"#, 0, 0),
-            ("archived", "/private/archived", "2026-02-01T00:00:00Z", r#"{"source":"share_extension"}"#, 1, 0),
-            ("dismissed", "/private/dismissed", "2026-03-01T00:00:00Z", r#"{"source":"android_share"}"#, 0, 1),
+            (
+                "share-a",
+                "/private/a.pdf",
+                "2025-01-01T00:00:00Z",
+                r#"{"shareProvenance":{"source":"share_extension"}}"#,
+                0,
+                0,
+            ),
+            (
+                "share-b",
+                "/private/b.png",
+                "2025-01-01T00:00:00Z",
+                r#"{"captureProvenance":{"source":"android_share"}}"#,
+                0,
+                0,
+            ),
+            (
+                "share-text",
+                "note://local",
+                "2024-01-01T00:00:00Z",
+                r#"{"shareProvenance":{}}"#,
+                0,
+                0,
+            ),
+            (
+                "bad-date",
+                "/private/bad",
+                "not-a-date",
+                r#"{"source":"share_extension"}"#,
+                0,
+                0,
+            ),
+            (
+                "manual",
+                "https://example.org/manual",
+                "2026-01-01T00:00:00Z",
+                r#"{"source":"manual","url":"https://example.org/manual"}"#,
+                0,
+                0,
+            ),
+            (
+                "archived",
+                "/private/archived",
+                "2026-02-01T00:00:00Z",
+                r#"{"source":"share_extension"}"#,
+                1,
+                0,
+            ),
+            (
+                "dismissed",
+                "/private/dismissed",
+                "2026-03-01T00:00:00Z",
+                r#"{"source":"android_share"}"#,
+                0,
+                1,
+            ),
         ] {
             sqlx::query("INSERT INTO documents VALUES (?, ?, 'pdf', ?, ?, NULL, NULL, ?, ?, ?, ?)")
-                .bind(id).bind(id).bind(path).bind(date).bind(metadata).bind(archived).bind(dismissed)
-                .bind(if id == "share-a" { "collection-a" } else { "collection-b" })
-                .execute(&pool).await.unwrap();
+                .bind(id)
+                .bind(id)
+                .bind(path)
+                .bind(date)
+                .bind(metadata)
+                .bind(archived)
+                .bind(dismissed)
+                .bind(if id == "share-a" {
+                    "collection-a"
+                } else {
+                    "collection-b"
+                })
+                .execute(&pool)
+                .await
+                .unwrap();
         }
 
-        let page = capture_documents(&pool, "share-target", Some(2), Some(0)).await.unwrap();
+        let page = capture_documents(&pool, "share-target", Some(2), Some(0))
+            .await
+            .unwrap();
         assert_eq!(page.total_count, 3);
-        assert_eq!(page.items.iter().map(|item| item.document_id.as_str()).collect::<Vec<_>>(), ["share-b", "share-a"]);
+        assert_eq!(
+            page.items
+                .iter()
+                .map(|item| item.document_id.as_str())
+                .collect::<Vec<_>>(),
+            ["share-b", "share-a"]
+        );
         assert!(page.items.iter().all(|item| item.source_url.is_none()));
-        let later = capture_documents(&pool, "share-target", Some(1), Some(1)).await.unwrap();
+        let later = capture_documents(&pool, "share-target", Some(1), Some(1))
+            .await
+            .unwrap();
         assert_eq!(later.total_count, 3);
         assert_eq!(later.items[0].document_id, "share-a");
-        assert!(capture_documents(&pool, "everything", None, None).await.is_err());
+        assert!(capture_documents(&pool, "everything", None, None)
+            .await
+            .is_err());
     }
     #[tokio::test]
     async fn filtered_library_uses_all_collections_and_omits_article_bodies() {
@@ -397,12 +464,10 @@ mod tests {
                 format!("https://example.org/{index}"),
                 crate::models::FileType::Html,
             );
-            doc.date_added = DateTime::parse_from_rfc3339(&format!(
-                "2025-01-{:02}T00:00:00Z",
-                index + 1
-            ))
-            .unwrap()
-            .with_timezone(&Utc);
+            doc.date_added =
+                DateTime::parse_from_rfc3339(&format!("2025-01-{:02}T00:00:00Z", index + 1))
+                    .unwrap()
+                    .with_timezone(&Utc);
             if index % 2 == 1 {
                 doc.collection_id = "other".into();
             }
@@ -426,14 +491,25 @@ mod tests {
             let found = repo.list_capture_summaries(source).await.unwrap();
             assert_eq!(
                 found.iter().map(|doc| doc.id.as_str()).collect::<Vec<_>>(),
-                expected.iter().map(|&i| ids[i].as_str()).collect::<Vec<_>>()
+                expected
+                    .iter()
+                    .map(|&i| ids[i].as_str())
+                    .collect::<Vec<_>>()
             );
             assert_eq!(
-                (found[0].is_local_only, found[0].is_ai_excluded, found[0].privacy_version),
+                (
+                    found[0].is_local_only,
+                    found[0].is_ai_excluded,
+                    found[0].privacy_version
+                ),
                 (true, true, 7)
             );
             assert_eq!(
-                (found[1].is_local_only, found[1].is_ai_excluded, found[1].privacy_version),
+                (
+                    found[1].is_local_only,
+                    found[1].is_ai_excluded,
+                    found[1].privacy_version
+                ),
                 (false, false, 1)
             );
             for doc in found {

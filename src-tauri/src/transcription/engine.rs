@@ -60,7 +60,11 @@ macro_rules! set_sidecar_env {
             {
                 let existing = std::env::var("LD_LIBRARY_PATH").unwrap_or_default();
                 // Include CUDA/cuDNN search paths if present on Linux systems
-                let cuda_paths = ["/usr/local/cuda/lib64", "/usr/local/cuda/targets/x86_64-linux/lib", "/usr/lib/x86_64-linux-gnu"];
+                let cuda_paths = [
+                    "/usr/local/cuda/lib64",
+                    "/usr/local/cuda/targets/x86_64-linux/lib",
+                    "/usr/lib/x86_64-linux-gnu",
+                ];
                 let mut extra_paths = vec![bin_str.to_string()];
                 for cp in cuda_paths {
                     if std::path::Path::new(cp).exists() {
@@ -124,10 +128,7 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
             .ok_or_else(|| anyhow!("The bundled DirectML runtime is missing or incomplete"))?;
             let path = runtime_dir.join(format!("{binary}.exe"));
             if !path.is_file() {
-                return Err(anyhow!(
-                    "DirectML sidecar is missing: {}",
-                    path.display()
-                ));
+                return Err(anyhow!("DirectML sidecar is missing: {}", path.display()));
             }
             return Ok(SherpaSpawnTarget {
                 path,
@@ -139,13 +140,12 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
             if let Some(bin) =
                 crate::transcription::gpu_runtime::runtime_bin(&self.app_handle, binary)
             {
-                let lib =
-                    crate::transcription::gpu_runtime::runtime_lib_dir(&self.app_handle)
-                        .unwrap_or_else(|| {
-                            bin.parent()
-                                .map(|p| p.join("lib"))
-                                .unwrap_or_else(|| bin.clone())
-                        });
+                let lib = crate::transcription::gpu_runtime::runtime_lib_dir(&self.app_handle)
+                    .unwrap_or_else(|| {
+                        bin.parent()
+                            .map(|p| p.join("lib"))
+                            .unwrap_or_else(|| bin.clone())
+                    });
                 tracing::debug!(
                     binary = %bin.display(),
                     lib = %lib.display(),
@@ -535,23 +535,20 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
 
             let hardware = compute::detect_hardware();
             let gpu = crate::transcription::gpu_runtime::evaluate(&self.app_handle);
-            let runtime = compute::probe_runtime_capabilities(
-                self.sidecar_bin_dir().as_deref(),
-                Some(&gpu),
-            );
+            let runtime =
+                compute::probe_runtime_capabilities(self.sidecar_bin_dir().as_deref(), Some(&gpu));
             let model = compute::ModelCapabilities {
                 model_id: "whisper-local".to_string(),
-                supported_backends: vec![compute::ComputeBackend::Vulkan, compute::ComputeBackend::Cpu],
+                supported_backends: vec![
+                    compute::ComputeBackend::Vulkan,
+                    compute::ComputeBackend::Cpu,
+                ],
                 min_vram_bytes: Some(1024 * 1024 * 1024),
             };
             let health = compute::get_health_cache();
             let (mode, _) = self.current_compute_preferences().await;
             let selection = compute::ComputeBackendSelector::select_backend(
-                mode,
-                &hardware,
-                &runtime,
-                &model,
-                &health,
+                mode, &hardware, &runtime, &model, &health,
                 // DXGI and ggml's Vulkan device indexes have separate
                 // enumeration orders. Let whisper.cpp select its default
                 // Vulkan device rather than applying a possibly wrong index.
@@ -714,9 +711,7 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
                     vulkan_sidecar.display()
                 ));
             }
-            self.app_handle
-                .shell()
-                .command(vulkan_sidecar.as_os_str())
+            self.app_handle.shell().command(vulkan_sidecar.as_os_str())
         } else {
             self.app_handle
                 .shell()
@@ -824,7 +819,8 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
             let stderr_clean = stderr_buf.trim();
             let stdout_clean = stdout_buf.trim();
             let msg = if !stderr_clean.is_empty() {
-                if stderr_clean.contains("libwhisper.so") || stderr_clean.contains("Shared library") {
+                if stderr_clean.contains("libwhisper.so") || stderr_clean.contains("Shared library")
+                {
                     format!("Whisper binary missing dependencies. Please run: ./fix-whisper.sh\nDetails: {}", stderr_clean)
                 } else {
                     format!("Whisper transcription failed: {}", stderr_clean)
@@ -1095,15 +1091,16 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
                 )
                 .await
             }
-            SttEngineRoute::Paraformer { model } => self
-                .transcribe_paraformer(
+            SttEngineRoute::Paraformer { model } => {
+                self.transcribe_paraformer(
                     audio_path,
                     model_path,
                     model_path.join(model),
                     on_segment,
                     on_progress,
                 )
-                .await,
+                .await
+            }
             SttEngineRoute::Nemotron {
                 encoder,
                 decoder,
@@ -1170,16 +1167,20 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
         let segments: Vec<TranscriptSegment> = Vec::new();
         let collected = std::sync::Arc::new(std::sync::Mutex::new(segments));
         let sink = std::sync::Arc::clone(&collected);
-        self.transcribe_route(audio_path, model_path, route, language, move |seg| {
-            if let Ok(mut guard) = sink.lock() {
-                guard.push(seg);
-            }
-        }, None)
+        self.transcribe_route(
+            audio_path,
+            model_path,
+            route,
+            language,
+            move |seg| {
+                if let Ok(mut guard) = sink.lock() {
+                    guard.push(seg);
+                }
+            },
+            None,
+        )
         .await?;
-        Ok(collected
-            .lock()
-            .map(|g| g.clone())
-            .unwrap_or_default())
+        Ok(collected.lock().map(|g| g.clone()).unwrap_or_default())
     }
 
     async fn current_compute_preferences(
@@ -1192,8 +1193,8 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
 
         match self.app_handle.try_state::<crate::database::Repository>() {
             Some(repo) => {
-                let config = crate::commands::transcription_config::read_transcription_config(&repo)
-                    .await;
+                let config =
+                    crate::commands::transcription_config::read_transcription_config(&repo).await;
                 (
                     config
                         .as_ref()
@@ -1239,7 +1240,9 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
         let total_duration_ms = get_wav_duration_ms(audio_path).unwrap_or(chunk_duration_ms);
 
         if total_duration_ms <= chunk_duration_ms {
-            let raw = self.run_needle_sidecar(model_path, audio_path, language).await?;
+            let raw = self
+                .run_needle_sidecar(model_path, audio_path, language)
+                .await?;
             if let Some(segment) = parse_whistle_output(&raw, 0, total_duration_ms) {
                 on_segment(segment);
             }
@@ -1249,9 +1252,12 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
             return Ok(());
         }
 
-        let wav_data = std::fs::read(audio_path).map_err(|e| anyhow!("Failed to read WAV file: {}", e))?;
+        let wav_data =
+            std::fs::read(audio_path).map_err(|e| anyhow!("Failed to read WAV file: {}", e))?;
         if wav_data.len() < 44 {
-            let raw = self.run_needle_sidecar(model_path, audio_path, language).await?;
+            let raw = self
+                .run_needle_sidecar(model_path, audio_path, language)
+                .await?;
             if let Some(segment) = parse_whistle_output(&raw, 0, total_duration_ms) {
                 on_segment(segment);
             }
@@ -1262,14 +1268,17 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
         }
 
         let channels = u16::from_le_bytes([wav_data[22], wav_data[23]]) as u64;
-        let sample_rate = u32::from_le_bytes([wav_data[24], wav_data[25], wav_data[26], wav_data[27]]) as u64;
+        let sample_rate =
+            u32::from_le_bytes([wav_data[24], wav_data[25], wav_data[26], wav_data[27]]) as u64;
         let bits_per_sample = u16::from_le_bytes([wav_data[34], wav_data[35]]) as u64;
         let bytes_per_sample = (bits_per_sample / 8).max(1);
 
         let (data_offset, data_size) = match find_wav_data_chunk(&wav_data) {
             Some(res) => res,
             None => {
-                let raw = self.run_needle_sidecar(model_path, audio_path, language).await?;
+                let raw = self
+                    .run_needle_sidecar(model_path, audio_path, language)
+                    .await?;
                 if let Some(segment) = parse_whistle_output(&raw, 0, total_duration_ms) {
                     on_segment(segment);
                 }
@@ -1313,12 +1322,16 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
             let chunk_start_ms = (start_sample * 1000) / sample_rate.max(1);
             let chunk_end_ms = (end_sample * 1000) / sample_rate.max(1);
 
-            let result = self.run_needle_sidecar(model_path, &chunk_path, language).await;
+            let result = self
+                .run_needle_sidecar(model_path, &chunk_path, language)
+                .await;
             let _ = std::fs::remove_file(&chunk_path);
 
             match result {
                 Ok(raw) => {
-                    if let Some(segment) = parse_whistle_output(&raw, chunk_start_ms as i64, chunk_end_ms as i64) {
+                    if let Some(segment) =
+                        parse_whistle_output(&raw, chunk_start_ms as i64, chunk_end_ms as i64)
+                    {
                         on_segment(segment);
                     }
                 }
@@ -1409,7 +1422,11 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
                 "Needle sidecar failed (exit code {:?}): {}{}",
                 output.status.code(),
                 stderr,
-                if stderr.is_empty() { stdout.as_ref() } else { "" }
+                if stderr.is_empty() {
+                    stdout.as_ref()
+                } else {
+                    ""
+                }
             ));
         }
 
@@ -1465,12 +1482,13 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
         };
         let hardware = compute::detect_hardware();
         let gpu = crate::transcription::gpu_runtime::evaluate(&self.app_handle);
-        let runtime = compute::probe_runtime_capabilities(
-            self.sidecar_bin_dir().as_deref(),
-            Some(&gpu),
-        );
+        let runtime =
+            compute::probe_runtime_capabilities(self.sidecar_bin_dir().as_deref(), Some(&gpu));
         let supported_backends = if cfg!(target_os = "windows") {
-            vec![compute::ComputeBackend::DirectMl, compute::ComputeBackend::Cpu]
+            vec![
+                compute::ComputeBackend::DirectMl,
+                compute::ComputeBackend::Cpu,
+            ]
         } else {
             vec![compute::ComputeBackend::Cpu]
         };
@@ -1534,11 +1552,7 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
                     error = %err,
                     "accelerator failed for offline Sherpa model; retrying the complete job on CPU"
                 );
-                health.mark_model_degraded(
-                    selection.primary.backend,
-                    model_id,
-                    err.to_string(),
-                );
+                health.mark_model_degraded(selection.primary.backend, model_id, err.to_string());
                 let _ = self.app_handle.emit(
                     "transcription://backend-fallback",
                     BackendFallbackPayload {
@@ -1593,22 +1607,15 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
         on_progress: Option<&(dyn Fn(i32) + Send + Sync)>,
     ) -> Result<Vec<TranscriptSegment>> {
         let mut segments = Vec::new();
-        let wav_data = std::fs::read(audio_path)
-            .map_err(|e| anyhow!("Failed to read WAV file: {}", e))?;
+        let wav_data =
+            std::fs::read(audio_path).map_err(|e| anyhow!("Failed to read WAV file: {}", e))?;
         let chunk_duration_ms: i64 = 30_000;
         let total_duration_ms = get_wav_duration_ms(audio_path).unwrap_or(chunk_duration_ms);
 
         if total_duration_ms <= chunk_duration_ms {
             let raw = self
                 .run_sherpa_sidecar(
-                    family,
-                    files,
-                    audio_path,
-                    language,
-                    provider,
-                    device_id,
-                    0,
-                    None,
+                    family, files, audio_path, language, provider, device_id, 0, None,
                 )
                 .await?;
             segments.extend(Self::segments_from_sidecar_output(
@@ -1621,7 +1628,9 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
         }
 
         if wav_data.len() < 44 {
-            return Err(anyhow!("Failed to parse WAV header for chunked Sherpa transcription"));
+            return Err(anyhow!(
+                "Failed to parse WAV header for chunked Sherpa transcription"
+            ));
         }
         let channels = u16::from_le_bytes([wav_data[22], wav_data[23]]) as u64;
         let sample_rate =
@@ -1767,10 +1776,8 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
 
         let hardware = compute::detect_hardware();
         let gpu = crate::transcription::gpu_runtime::evaluate(&self.app_handle);
-        let runtime = compute::probe_runtime_capabilities(
-            self.sidecar_bin_dir().as_deref(),
-            Some(&gpu),
-        );
+        let runtime =
+            compute::probe_runtime_capabilities(self.sidecar_bin_dir().as_deref(), Some(&gpu));
         let model = compute::ModelCapabilities {
             model_id: "nemotron-3.5-asr-0.6b".to_string(),
             supported_backends: vec![
@@ -1952,16 +1959,30 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
             return Err(anyhow!(
                 "Model file missing: {} (expected {} in {})",
                 files.model.display(),
-                files.model.file_name().unwrap_or_default().to_string_lossy(),
-                files.model.parent().map(|p| p.display().to_string()).unwrap_or_default()
+                files
+                    .model
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy(),
+                files
+                    .model
+                    .parent()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_default()
             ));
         }
         let tokens_file = match files.tokens.as_ref() {
             Some(t) if t.exists() => t.clone(),
-            _ => return Err(anyhow!(
-                "Tokens file missing in {} (expected tokens.txt)",
-                files.model.parent().map(|p| p.display().to_string()).unwrap_or_default()
-            )),
+            _ => {
+                return Err(anyhow!(
+                    "Tokens file missing in {} (expected tokens.txt)",
+                    files
+                        .model
+                        .parent()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default()
+                ))
+            }
         };
 
         // Resolve the run target up front (GPU runtime vs bundled CPU
@@ -1973,7 +1994,10 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
         let mut args = vec![format!("--tokens={}", tokens_file.to_string_lossy())];
         match family {
             SherpaFamily::Parakeet => {
-                args.push(format!("--nemo-ctc-model={}", files.model.to_string_lossy()));
+                args.push(format!(
+                    "--nemo-ctc-model={}",
+                    files.model.to_string_lossy()
+                ));
             }
             SherpaFamily::SenseVoice => {
                 args.push(format!(
@@ -2043,11 +2067,17 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
                     args.push(format!("--joiner={}", join.to_string_lossy()));
                 } else {
                     // Combined single-file zipformer.
-                    args.push(format!("--zipformer-model={}", files.model.to_string_lossy()));
+                    args.push(format!(
+                        "--zipformer-model={}",
+                        files.model.to_string_lossy()
+                    ));
                 }
             }
             SherpaFamily::Paraformer => {
-                args.push(format!("--paraformer-model={}", files.model.to_string_lossy()));
+                args.push(format!(
+                    "--paraformer-model={}",
+                    files.model.to_string_lossy()
+                ));
             }
         }
         if !matches!(family, SherpaFamily::NemotronTransducer) && provider != "cpu" {
@@ -2106,21 +2136,19 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
         progress_ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         let progress_tick_enabled =
             total_duration_ms > 0 && matches!(family, SherpaFamily::NemotronTransducer);
-        let report_progress = |p: i32,
-                               max_seen: &mut i32,
-                               on_progress: &Option<&(dyn Fn(i32) + Send + Sync)>| {
-            if p < *max_seen {
-                return;
-            }
-            *max_seen = p;
-            let _ = self.app_handle.emit(
-                "transcription://progress",
-                ProgressPayload { progress: p },
-            );
-            if let Some(cb) = on_progress {
-                cb(p);
-            }
-        };
+        let report_progress =
+            |p: i32, max_seen: &mut i32, on_progress: &Option<&(dyn Fn(i32) + Send + Sync)>| {
+                if p < *max_seen {
+                    return;
+                }
+                *max_seen = p;
+                let _ = self
+                    .app_handle
+                    .emit("transcription://progress", ProgressPayload { progress: p });
+                if let Some(cb) = on_progress {
+                    cb(p);
+                }
+            };
         loop {
             use tokio::io::AsyncBufReadExt;
             let n = tokio::select! {
@@ -2170,11 +2198,8 @@ impl<R: tauri::Runtime> TranscriptionEngine<R> {
                 // Real decoded positions from segment lines. In file mode
                 // these arrive as a burst at completion (still useful: they
                 // correct any interpolation overshoot before the final 100).
-                if total_duration_ms > 0
-                    && matches!(family, SherpaFamily::NemotronTransducer)
-                {
-                    if let Some(p) =
-                        streaming_progress_from_line(&complete_line, total_duration_ms)
+                if total_duration_ms > 0 && matches!(family, SherpaFamily::NemotronTransducer) {
+                    if let Some(p) = streaming_progress_from_line(&complete_line, total_duration_ms)
                     {
                         report_progress(p, &mut max_reported_progress, &on_progress);
                     }
@@ -2297,7 +2322,12 @@ pub struct NeedleOutput {
 }
 
 pub fn supported_whistle_language(lang: &str) -> Option<&'static str> {
-    let code = lang.split(['-', '_']).next().unwrap_or("").trim().to_lowercase();
+    let code = lang
+        .split(['-', '_'])
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
     match code.as_str() {
         "en" => Some("en"),
         "de" => Some("de"),
@@ -2374,8 +2404,14 @@ pub fn parse_whistle_output(
                 }
             })
             .collect();
-        let first_start = shifted_words.first().map(|w| w.start_ms).unwrap_or(chunk_start_ms);
-        let last_end = shifted_words.last().map(|w| w.end_ms).unwrap_or(chunk_end_ms);
+        let first_start = shifted_words
+            .first()
+            .map(|w| w.start_ms)
+            .unwrap_or(chunk_start_ms);
+        let last_end = shifted_words
+            .last()
+            .map(|w| w.end_ms)
+            .unwrap_or(chunk_end_ms);
         let json = serde_json::to_string(&shifted_words).ok();
         (first_start, last_end.max(first_start + 1), json)
     } else {
@@ -2663,7 +2699,15 @@ mod tests {
 
         let wav = std::env::temp_dir().join("gpu-engine-live-test.wav");
         let ff = tokio::process::Command::new("ffmpeg")
-            .args(["-y", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono", "-t", "2"])
+            .args([
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=r=16000:cl=mono",
+                "-t",
+                "2",
+            ])
             .arg(&wav)
             .output()
             .await
@@ -2887,10 +2931,19 @@ mod tests {
 
     #[test]
     fn streaming_progress_ignores_noise_lines() {
-        assert_eq!(super::streaming_progress_from_line("Number of threads: 4", 60_000), None);
-        assert_eq!(super::streaming_progress_from_line("not json at all", 60_000), None);
+        assert_eq!(
+            super::streaming_progress_from_line("Number of threads: 4", 60_000),
+            None
+        );
+        assert_eq!(
+            super::streaming_progress_from_line("not json at all", 60_000),
+            None
+        );
         // JSON without start_time (not a result line).
-        assert_eq!(super::streaming_progress_from_line(r#"{"text": "x"}"#, 60_000), None);
+        assert_eq!(
+            super::streaming_progress_from_line(r#"{"text": "x"}"#, 60_000),
+            None
+        );
         // Zero decoded position yields nothing rather than a fake 0%.
         let zero = r#"{"text": "", "timestamps": [], "start_time": 0.0}"#;
         assert_eq!(super::streaming_progress_from_line(zero, 60_000), None);
@@ -2922,24 +2975,35 @@ mod tests {
         let audio = Path::new("/audio/clip.wav");
 
         let args_en = super::build_needle_args(model, audio, "en-US", true);
-        let args_strings: Vec<String> = args_en.into_iter().map(|s| s.to_string_lossy().into_owned()).collect();
+        let args_strings: Vec<String> = args_en
+            .into_iter()
+            .map(|s| s.to_string_lossy().into_owned())
+            .collect();
         assert_eq!(
             args_strings,
             vec![
-                "--model", "/models/whistle.cact",
-                "--audio", "/audio/clip.wav",
-                "--audio-language", "en",
+                "--model",
+                "/models/whistle.cact",
+                "--audio",
+                "/audio/clip.wav",
+                "--audio-language",
+                "en",
                 "--audio-word-timestamps",
             ]
         );
 
         let args_auto = super::build_needle_args(model, audio, "auto", false);
-        let auto_strings: Vec<String> = args_auto.into_iter().map(|s| s.to_string_lossy().into_owned()).collect();
+        let auto_strings: Vec<String> = args_auto
+            .into_iter()
+            .map(|s| s.to_string_lossy().into_owned())
+            .collect();
         assert_eq!(
             auto_strings,
             vec![
-                "--model", "/models/whistle.cact",
-                "--audio", "/audio/clip.wav",
+                "--model",
+                "/models/whistle.cact",
+                "--audio",
+                "/audio/clip.wav",
             ]
         );
     }
@@ -2968,7 +3032,9 @@ mod tests {
 
     #[test]
     fn whistle_output_parsing_empty_or_malformed() {
-        assert!(super::parse_whistle_output("needle: could not read audio file", 0, 30_000).is_none());
+        assert!(
+            super::parse_whistle_output("needle: could not read audio file", 0, 30_000).is_none()
+        );
         assert!(super::parse_whistle_output(r#"{"text": "   "}"#, 0, 30_000).is_none());
     }
 

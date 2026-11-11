@@ -41,7 +41,9 @@ impl LanguageKnowledgeState {
 }
 
 impl Default for LanguageKnowledgeState {
-    fn default() -> Self { Self::New }
+    fn default() -> Self {
+        Self::New
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -67,7 +69,9 @@ impl KnowledgeStateSource {
 }
 
 impl Default for KnowledgeStateSource {
-    fn default() -> Self { Self::Manual }
+    fn default() -> Self {
+        Self::Manual
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -93,7 +97,9 @@ impl KnowledgeEvidenceKind {
 }
 
 impl Default for KnowledgeEvidenceKind {
-    fn default() -> Self { Self::Encounter }
+    fn default() -> Self {
+        Self::Encounter
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -115,9 +121,17 @@ pub struct LanguageKnowledgeStateSnapshot {
 impl Default for LanguageKnowledgeStateSnapshot {
     fn default() -> Self {
         Self {
-            profile_id: String::new(), lexical_entry_id: String::new(), state: LanguageKnowledgeState::New,
-            manual_override: false, override_actor: None, override_source: None,
-            passive_evidence: 0, active_evidence: 0, last_evidence_at: None, updated_at: 0, version: 0,
+            profile_id: String::new(),
+            lexical_entry_id: String::new(),
+            state: LanguageKnowledgeState::New,
+            manual_override: false,
+            override_actor: None,
+            override_source: None,
+            passive_evidence: 0,
+            active_evidence: 0,
+            last_evidence_at: None,
+            updated_at: 0,
+            version: 0,
         }
     }
 }
@@ -135,7 +149,14 @@ pub struct LanguageKnowledgeStateChange {
 
 impl Default for LanguageKnowledgeStateChange {
     fn default() -> Self {
-        Self { profile_id: String::new(), entry_id: String::new(), state: LanguageKnowledgeState::New, source: KnowledgeStateSource::Manual, actor_id: None, operation_id: None }
+        Self {
+            profile_id: String::new(),
+            entry_id: String::new(),
+            state: LanguageKnowledgeState::New,
+            source: KnowledgeStateSource::Manual,
+            actor_id: None,
+            operation_id: None,
+        }
     }
 }
 
@@ -153,7 +174,15 @@ pub struct LanguageKnowledgeEvidenceInput {
 
 impl Default for LanguageKnowledgeEvidenceInput {
     fn default() -> Self {
-        Self { profile_id: String::new(), entry_id: String::new(), kind: KnowledgeEvidenceKind::Encounter, confidence: None, source_id: None, metadata: Value::Object(Default::default()), occurred_at: None }
+        Self {
+            profile_id: String::new(),
+            entry_id: String::new(),
+            kind: KnowledgeEvidenceKind::Encounter,
+            confidence: None,
+            source_id: None,
+            metadata: Value::Object(Default::default()),
+            occurred_at: None,
+        }
     }
 }
 
@@ -196,7 +225,15 @@ pub struct LanguageMemorizationLinkInput {
 }
 
 impl Default for LanguageMemorizationLinkInput {
-    fn default() -> Self { Self { profile_id: String::new(), entry_id: String::new(), learning_item_id: String::new(), relation: "explicit".to_string(), actor_id: None } }
+    fn default() -> Self {
+        Self {
+            profile_id: String::new(),
+            entry_id: String::new(),
+            learning_item_id: String::new(),
+            relation: "explicit".to_string(),
+            actor_id: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

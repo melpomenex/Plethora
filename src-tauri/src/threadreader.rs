@@ -167,7 +167,10 @@ pub struct TraHeader {
 /// Returns `Ok(Some(root_id))` when a thread exists, `Ok(None)` when TRA has
 /// no unrolled thread for this id (ping `code: 404`), and a typed error for
 /// transport/server/rate-limit failures.
-pub async fn ping_thread(http: &dyn TraHttp, tweet_id: &str) -> Result<Option<String>, ThreadError> {
+pub async fn ping_thread(
+    http: &dyn TraHttp,
+    tweet_id: &str,
+) -> Result<Option<String>, ThreadError> {
     let url = format!("{}/api/v0/ping/{}.json", TRA_BASE, tweet_id);
     let resp = http
         .get(&url, &[])
@@ -206,10 +209,7 @@ pub async fn ping_thread(http: &dyn TraHttp, tweet_id: &str) -> Result<Option<St
 // ── unroll (JSON compat probe, then HTML page) ────────────────────────────
 
 /// Fetch the raw server-rendered unrolled thread page.
-pub async fn fetch_unrolled_html(
-    http: &dyn TraHttp,
-    root_id: &str,
-) -> Result<String, ThreadError> {
+pub async fn fetch_unrolled_html(http: &dyn TraHttp, root_id: &str) -> Result<String, ThreadError> {
     let url = format!("{}/thread/{}.html", TRA_BASE, root_id);
     let resp = http
         .get(&url, &[])
@@ -305,8 +305,23 @@ pub async fn fetch_unrolled_thread_with_header(
 fn is_break_tag(tag: &str) -> bool {
     matches!(
         tag,
-        "br" | "p" | "div" | "li" | "tr" | "blockquote" | "h1" | "h2" | "h3" | "h4" | "h5"
-            | "h6" | "section" | "article" | "ul" | "ol" | "table" | "pre"
+        "br" | "p"
+            | "div"
+            | "li"
+            | "tr"
+            | "blockquote"
+            | "h1"
+            | "h2"
+            | "h3"
+            | "h4"
+            | "h5"
+            | "h6"
+            | "section"
+            | "article"
+            | "ul"
+            | "ol"
+            | "table"
+            | "pre"
     )
 }
 
@@ -332,7 +347,9 @@ pub fn decode_html_entities(s: &str) -> String {
             Some(end) => {
                 let entity = &s[i + 1..end];
                 let decoded: Option<String> = if let Some(num) = entity.strip_prefix('#') {
-                    let code = if let Some(hex) = num.strip_prefix('x').or_else(|| num.strip_prefix('X')) {
+                    let code = if let Some(hex) =
+                        num.strip_prefix('x').or_else(|| num.strip_prefix('X'))
+                    {
                         u32::from_str_radix(hex, 16).ok()
                     } else {
                         num.parse::<u32>().ok()
@@ -531,13 +548,11 @@ fn next_content_tweet(html: &str, from: usize) -> Option<(usize, String)> {
         let tag_end = find_tag_end(html, tag_start)?;
         let tag = &html[tag_start..=tag_end];
         let tag_lower = &lower[tag_start..=tag_end];
-        let has_content_tweet = tag_lower
-            .split(|c: char| c == '"' || c == '\'')
-            .any(|seg| {
-                seg.trim()
-                    .split_whitespace()
-                    .any(|tok| tok == "content-tweet")
-            });
+        let has_content_tweet = tag_lower.split(|c: char| c == '"' || c == '\'').any(|seg| {
+            seg.trim()
+                .split_whitespace()
+                .any(|tok| tok == "content-tweet")
+        });
         if has_content_tweet && attr_value(tag, "data-tweet").is_some() {
             return Some((tag_end + 1, tag.to_string()));
         }
@@ -644,7 +659,14 @@ fn extract_media(inner: &str) -> Vec<String> {
     let mut seen = HashSet::new();
     let mut urls = Vec::new();
     let lower = inner.to_ascii_lowercase();
-    for needle in ["data-src=\"", "data-src='", "src=\"", "src='", "href=\"", "href='"] {
+    for needle in [
+        "data-src=\"",
+        "data-src='",
+        "src=\"",
+        "src='",
+        "href=\"",
+        "href='",
+    ] {
         let mut idx = 0;
         while let Some(rel) = lower[idx..].find(needle) {
             let start = idx + rel + needle.len();
@@ -793,14 +815,13 @@ pub fn parse_thread_json_content(json: &serde_json::Value, root_id: &str) -> Opt
             continue; // tolerate non-string items in the content array
         };
         // Prefer per-post ids embedded in the fragment (TRA-idiomatic).
-        let id = find_first_data_tweet_id(html)
-            .unwrap_or_else(|| {
-                if i == 0 {
-                    root_id.to_string()
-                } else {
-                    format!("{}_{}", root_id, i)
-                }
-            });
+        let id = find_first_data_tweet_id(html).unwrap_or_else(|| {
+            if i == 0 {
+                root_id.to_string()
+            } else {
+                format!("{}_{}", root_id, i)
+            }
+        });
         if !seen.insert(id.clone()) {
             continue;
         }
@@ -966,9 +987,10 @@ Second line.
   <sup class="tw-permalink"><i class="fas fa-link"></i></sup>
 </div>"#;
 
-    const MALFORMED_HTML: &str = "<html><body><p>No thread blocks here.</p><div class=\"other-card\">hi</div></body></html>";
+    const MALFORMED_HTML: &str =
+        "<html><body><p>No thread blocks here.</p><div class=\"other-card\">hi</div></body></html>";
 
-const REAL_PAGE_SAMPLE: &str = r#"<div class="prof-image">
+    const REAL_PAGE_SAMPLE: &str = r#"<div class="prof-image">
     <a href=/user/MXS_Nightmare><img class="mx-auto rounded-circle" src="https://pbs.twimg.com/profile_images/1147907785079701505/BnDVIRVC_bigger.jpg" alt="🇺🇲Miller🦅 🌡Show More Replies! ⭐Independent🌟 Profile picture" data-controller="twitter-profile" data-twtrid="799308922175655936" data-action="error->twitter-profile#error" ></a>
   </div>
   <div class="flex-grow-1" style="overflow:hidden">
@@ -1019,12 +1041,19 @@ Well, they changed scenario.🤣
         assert_eq!(posts[0].screen_name, "MXS_Nightmare");
         assert_eq!(posts[1].id, "2089858616614687166");
         // <br /> paragraph breaks preserved; emoji/unicode intact.
-        assert!(posts[0].text.contains("Mars to Table contest- \u{1F602}\u{1F4A8}"));
+        assert!(posts[0]
+            .text
+            .contains("Mars to Table contest- \u{1F602}\u{1F4A8}"));
         assert!(posts[0].text.contains("was \"5 YEARS\""));
-        assert!(posts[0].text.contains("On current portal it is now 500 sols.."));
+        assert!(posts[0]
+            .text
+            .contains("On current portal it is now 500 sols.."));
         // Header parsed from the real markup.
         let h = parse_thread_header(REAL_PAGE_SAMPLE);
-        assert!(h.avatar_url.unwrap_or_default().starts_with("https://pbs.twimg.com/profile_images/"));
+        assert!(h
+            .avatar_url
+            .unwrap_or_default()
+            .starts_with("https://pbs.twimg.com/profile_images/"));
         assert!(h.name.unwrap_or_default().contains("Miller"));
     }
 
@@ -1151,7 +1180,10 @@ AT&amp;T &lt;3 &#39;quotes&#39; &quot;double&quot; &nbsp; &#x1F600; &#8212; end.
         assert_eq!(posts.len(), 1);
         assert_eq!(posts[0].id, "9001");
         assert_eq!(posts[0].screen_name, "bob");
-        assert_eq!(posts[0].text, "Just a single ordinary post, no thread.\nSecond line.");
+        assert_eq!(
+            posts[0].text,
+            "Just a single ordinary post, no thread.\nSecond line."
+        );
     }
 
     #[test]
@@ -1216,10 +1248,7 @@ AT&amp;T &lt;3 &#39;quotes&#39; &quot;double&quot; &nbsp; &#x1F600; &#8212; end.
         assert_eq!(posts.len(), 2);
         assert_eq!(posts[0].id, "2001");
         assert_eq!(posts[0].screen_name, "alicescholar");
-        assert_eq!(
-            posts[0].text,
-            "First post text.\n\nSecond para. x"
-        );
+        assert_eq!(posts[0].text, "First post text.\n\nSecond para. x");
         assert_eq!(posts[0].media, vec!["https://pbs.twimg.com/media/aa.jpg"]);
         assert_eq!(posts[1].id, "2002");
         assert!(posts[1].refs.contains(&TraRef {
@@ -1232,12 +1261,19 @@ AT&amp;T &lt;3 &#39;quotes&#39; &quot;double&quot; &nbsp; &#x1F600; &#8212; end.
     fn json_contract_mismatch_returns_none() {
         assert!(parse_thread_json_content(&serde_json::json!({"code": 404}), "1").is_none());
         assert!(parse_thread_json_content(&serde_json::json!({"code": 200}), "1").is_none());
-        assert!(parse_thread_json_content(&serde_json::json!({"code": 200, "content": "nope"}), "1").is_none());
+        assert!(parse_thread_json_content(
+            &serde_json::json!({"code": 200, "content": "nope"}),
+            "1"
+        )
+        .is_none());
     }
 
     #[test]
     fn decodes_named_and_numeric_entities() {
-        assert_eq!(decode_html_entities("&amp; &lt; &gt; &quot; &apos; &#39; &nbsp;"), "& < > \" ' ' \u{00a0}");
+        assert_eq!(
+            decode_html_entities("&amp; &lt; &gt; &quot; &apos; &#39; &nbsp;"),
+            "& < > \" ' ' \u{00a0}"
+        );
         assert_eq!(decode_html_entities("&#x41;&#66;"), "AB");
         assert_eq!(decode_html_entities("no entities here"), "no entities here");
         assert_eq!(decode_html_entities("a & b & c"), "a & b & c");
@@ -1409,11 +1445,7 @@ AT&amp;T &lt;3 &#39;quotes&#39; &quot;double&quot; &nbsp; &#x1F600; &#8212; end.
                 404,
                 "Not Found",
             ),
-            (
-                &format!("{}/thread/2001.html", TRA_BASE),
-                404,
-                "Not Found",
-            ),
+            (&format!("{}/thread/2001.html", TRA_BASE), 404, "Not Found"),
         ]);
         match fetch_unrolled_thread(&http, "2001").await {
             Err(ThreadError::ThreadUnavailable(_)) => {}
@@ -1470,8 +1502,14 @@ AT&amp;T &lt;3 &#39;quotes&#39; &quot;double&quot; &nbsp; &#x1F600; &#8212; end.
     #[test]
     fn thread_error_serializes_as_snake_case_type_message() {
         let cases: Vec<(&str, ThreadError)> = vec![
-            ("thread_unavailable", ThreadError::ThreadUnavailable("gone".into())),
-            ("thread_reader_unavailable", ThreadError::ThreadReaderUnavailable("down".into())),
+            (
+                "thread_unavailable",
+                ThreadError::ThreadUnavailable("gone".into()),
+            ),
+            (
+                "thread_reader_unavailable",
+                ThreadError::ThreadReaderUnavailable("down".into()),
+            ),
             ("rate_limited", ThreadError::RateLimited("429".into())),
             ("network_error", ThreadError::NetworkError("reset".into())),
             ("invalid_url", ThreadError::InvalidUrl("bad".into())),

@@ -42,13 +42,7 @@ use super::helpers::clamp;
 pub const ARENA_DEFAULT_WEIGHTS: [f64; 5] = [6.0, 14.0, 45.0, 25.0, 10.0];
 
 /// Display names for the five competitors.
-pub const ARENA_MODEL_NAMES: [&str; 5] = [
-    "SM-2",
-    "SM-15",
-    "SM-19",
-    "SM-20",
-    "FSRS",
-];
+pub const ARENA_MODEL_NAMES: [&str; 5] = ["SM-2", "SM-15", "SM-19", "SM-20", "FSRS"];
 
 /// Learning rate multiplied into the clamped adjustment inside `exp()`.
 const ADAPT_LEARNING_RATE: f64 = 0.0317;
@@ -61,11 +55,11 @@ const ADAPT_TARGET_SUM: f64 = 100.0;
 
 /// Per-slot (lo, hi) weight clamps.
 pub const ADAPT_WEIGHT_CLAMPS: [(f64, f64); 5] = [
-    (0.1, 30.0), // M1: Classic
-    (2.0, 50.0), // M2: Classic 15
+    (0.1, 30.0),  // M1: Classic
+    (2.0, 50.0),  // M2: Classic 15
     (25.0, 99.9), // M3: Classic 19
     (15.0, 95.0), // M4: Precision
-    (0.1, 45.0), // M5: FSRS
+    (0.1, 45.0),  // M5: FSRS
 ];
 
 /// Exponential decay factor per review for rolling diagnostics.
@@ -262,8 +256,7 @@ impl ArenaState {
             return None;
         }
         Some(
-            (self.decayed_baseline_loss - self.decayed_blend_loss)
-                / self.decayed_baseline_loss
+            (self.decayed_baseline_loss - self.decayed_blend_loss) / self.decayed_baseline_loss
                 * 100.0,
         )
     }

@@ -126,9 +126,7 @@ impl<'a> ProgressTracker<'a> {
         self.max_percent = percent;
         let due = match self.last_emit {
             None => true,
-            Some(t) => {
-                t.elapsed() >= PROGRESS_EMIT_INTERVAL || percent - self.last_percent >= 1.0
-            }
+            Some(t) => t.elapsed() >= PROGRESS_EMIT_INTERVAL || percent - self.last_percent >= 1.0,
         };
         if due {
             self.emit(shown_received, percent);
@@ -369,7 +367,11 @@ pub async fn download_file_with_sink<'a>(
     // error with retry context (never a bare transport-library message).
     let _ = std::fs::remove_file(&part_path);
     let err = last_error.unwrap_or_else(|| anyhow!("Download failed"));
-    Err(anyhow!("{}; retried {} times without success", err, MAX_RETRIES))
+    Err(anyhow!(
+        "{}; retried {} times without success",
+        err,
+        MAX_RETRIES
+    ))
 }
 
 async fn retry_delay(attempt: u32) {
@@ -426,8 +428,10 @@ mod tests {
     use tempfile::tempdir;
 
     /// A progress sink that records every event.
-    fn recording_sink()
-    -> (Box<dyn FnMut(&InstallProgress) + Send>, Arc<Mutex<Vec<InstallProgress>>>) {
+    fn recording_sink() -> (
+        Box<dyn FnMut(&InstallProgress) + Send>,
+        Arc<Mutex<Vec<InstallProgress>>>,
+    ) {
         let events: Arc<Mutex<Vec<InstallProgress>>> = Arc::new(Mutex::new(Vec::new()));
         let sink_events = Arc::clone(&events);
         (
@@ -465,7 +469,10 @@ mod tests {
         server.stop();
 
         assert_eq!(std::fs::read(&dest).unwrap(), b"hello model bytes");
-        assert!(!part_path(&dest).exists(), "part file removed after success");
+        assert!(
+            !part_path(&dest).exists(),
+            "part file removed after success"
+        );
     }
 
     #[tokio::test]
@@ -615,7 +622,10 @@ mod tests {
         assert!(err.to_string().contains("HTTP 503"), "{}", err);
         assert!(err.to_string().contains("retried"), "{}", err);
         assert!(!dest.exists());
-        assert!(!part_path(&dest).exists(), "partial cleaned up after final failure");
+        assert!(
+            !part_path(&dest).exists(),
+            "partial cleaned up after final failure"
+        );
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -670,7 +680,11 @@ mod tests {
         );
 
         let requests = server.requests().await;
-        assert!(requests.len() >= 2, "expected a retry request, got {}", requests.len());
+        assert!(
+            requests.len() >= 2,
+            "expected a retry request, got {}",
+            requests.len()
+        );
         assert_eq!(
             requests[1].range_header().as_deref(),
             Some(format!("bytes={half}-").as_str()),
@@ -726,7 +740,10 @@ mod tests {
         assert_eq!(std::fs::read(&dest).unwrap().len(), expected_size as usize);
 
         let events = events.lock().unwrap();
-        assert!(events.len() >= 2, "need multiple events to check monotonicity");
+        assert!(
+            events.len() >= 2,
+            "need multiple events to check monotonicity"
+        );
         let mut max_percent = -1.0f32;
         let mut max_received = -1i64;
         for e in events.iter() {
@@ -836,12 +853,12 @@ mod tests {
             !msg.contains("error decoding response body"),
             "raw decode error leaked as the headline: {msg}"
         );
-        assert!(
-            msg.contains("retried"),
-            "retry context missing: {msg}"
-        );
+        assert!(msg.contains("retried"), "retry context missing: {msg}");
         assert!(!dest.exists());
-        assert!(!part_path(&dest).exists(), "partial cleaned up after final failure");
+        assert!(
+            !part_path(&dest).exists(),
+            "partial cleaned up after final failure"
+        );
     }
 
     #[tokio::test]

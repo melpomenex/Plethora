@@ -15,8 +15,13 @@ pub(crate) fn extract_from_row(row: &SqliteRow) -> Result<VideoExtract> {
             .try_get("collection_id")
             .unwrap_or_else(|_| crate::models::collection::DEFAULT_COLLECTION_ID.to_string()),
         queue_status: crate::models::video_extract::VideoExtractQueueStatus::from_db(
-            row.try_get::<Option<String>, _>("queue_status").ok().flatten().as_deref(),
-            row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("next_review_date").ok().flatten(),
+            row.try_get::<Option<String>, _>("queue_status")
+                .ok()
+                .flatten()
+                .as_deref(),
+            row.try_get::<Option<chrono::DateTime<chrono::Utc>>, _>("next_review_date")
+                .ok()
+                .flatten(),
         ),
         start_time: row.try_get("start_time")?,
         end_time: row.try_get("end_time")?,
@@ -43,7 +48,9 @@ pub(crate) fn extract_from_row(row: &SqliteRow) -> Result<VideoExtract> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::issue6_test_support::{issue6_repository, now, NEW_VIDEO_EXTRACT_ID, VIDEO_EXTRACT_ID, VIDEO_ID};
+    use crate::issue6_test_support::{
+        issue6_repository, now, NEW_VIDEO_EXTRACT_ID, VIDEO_EXTRACT_ID, VIDEO_ID,
+    };
 
     #[tokio::test]
     async fn video_seen_preserves_history_and_legacy_payloads() {
@@ -417,7 +424,10 @@ mod tests {
         assert_eq!(created.title, "New segment");
         assert!(created.queue_status.is_queued());
         assert_eq!(created.next_review_date, None);
-        assert_eq!(created.collection_id, crate::models::collection::DEFAULT_COLLECTION_ID);
+        assert_eq!(
+            created.collection_id,
+            crate::models::collection::DEFAULT_COLLECTION_ID
+        );
         assert_eq!(created.review_count, 0);
 
         let tomorrow = (now() + Duration::days(1)).date_naive();
@@ -431,7 +441,10 @@ mod tests {
             .await
             .unwrap();
         assert!(future.queue_status.is_queued());
-        assert_eq!(future.next_review_date, Some(tomorrow.and_hms_opt(0, 0, 0).unwrap().and_utc()));
+        assert_eq!(
+            future.next_review_date,
+            Some(tomorrow.and_hms_opt(0, 0, 0).unwrap().and_utc())
+        );
 
         assert!(repo
             .create_video_extract_with_intent(
@@ -760,22 +773,20 @@ pub(crate) async fn restore_video_lifecycle(
             } else {
                 crate::models::video_extract::VideoExtractQueueStatus::NotQueued
             };
-            if let Ok(Some(parent_collection)) = sqlx::query_scalar::<_, String>(
-                "SELECT collection_id FROM documents WHERE id = ?1",
-            )
-            .bind(&restored.document_id)
-            .fetch_optional(&mut **tx)
-            .await
+            if let Ok(Some(parent_collection)) =
+                sqlx::query_scalar::<_, String>("SELECT collection_id FROM documents WHERE id = ?1")
+                    .bind(&restored.document_id)
+                    .fetch_optional(&mut **tx)
+                    .await
             {
                 restored.collection_id = parent_collection;
             }
         } else if restored.collection_id.trim().is_empty() {
-            if let Ok(Some(parent_collection)) = sqlx::query_scalar::<_, String>(
-                "SELECT collection_id FROM documents WHERE id = ?1",
-            )
-            .bind(&restored.document_id)
-            .fetch_optional(&mut **tx)
-            .await
+            if let Ok(Some(parent_collection)) =
+                sqlx::query_scalar::<_, String>("SELECT collection_id FROM documents WHERE id = ?1")
+                    .bind(&restored.document_id)
+                    .fetch_optional(&mut **tx)
+                    .await
             {
                 restored.collection_id = parent_collection;
             }

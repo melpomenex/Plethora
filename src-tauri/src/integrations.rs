@@ -452,7 +452,6 @@ pub async fn sync_flashcard_to_anki_internal(
     Ok(flashcard_id.parse().unwrap_or(0))
 }
 
-
 /// Read a frontmatter key, preferring the current `plethora-*` spelling and
 /// falling back to the legacy `incrementum-*` value written by pre-rebrand
 /// exports (task 3.5 round-trip compatibility).
@@ -465,7 +464,9 @@ fn frontmatter_get<'a>(
         return Some(value);
     }
     let legacy_key = format!("incrementum-{key}");
-    frontmatter.get(&legacy_key).or_else(|| frontmatter.get(key))
+    frontmatter
+        .get(&legacy_key)
+        .or_else(|| frontmatter.get(key))
 }
 
 /// Import markdown from Obsidian
@@ -911,7 +912,8 @@ pub async fn sync_from_obsidian(
             }
 
             let is_extract = frontmatter.get("document-id").is_some()
-                || frontmatter_get(&frontmatter, "type").and_then(|v| v.as_str()) == Some("extract");
+                || frontmatter_get(&frontmatter, "type").and_then(|v| v.as_str())
+                    == Some("extract");
             if !is_extract {
                 continue;
             }
@@ -944,7 +946,6 @@ pub async fn sync_from_logseq(
 ) -> Result<SyncStats, AppError> {
     sync_from_obsidian(config, repo).await
 }
-
 
 /// Result of the opt-in Obsidian vault id migration.
 #[derive(Debug, Clone, Serialize)]
@@ -1217,7 +1218,8 @@ mod brand_migration_tests {
     /// `plethora-*` and must read-match BOTH.
     #[test]
     fn frontmatter_reads_new_keys_first_and_legacy_falls_back() {
-        let legacy_note = "---\ntitle: Old\nincrementum-type: document\nincrementum-id: doc-123\n---\n\nbody";
+        let legacy_note =
+            "---\ntitle: Old\nincrementum-type: document\nincrementum-id: doc-123\n---\n\nbody";
         let (frontmatter, body) = parse_frontmatter(legacy_note);
         assert_eq!(
             frontmatter_get(&frontmatter, "id").and_then(|v| v.as_str()),
@@ -1256,8 +1258,11 @@ mod brand_migration_tests {
     /// The writer emits the new key spellings.
     #[test]
     fn generated_markdown_uses_plethora_keys() {
-        let mut document =
-            crate::models::Document::new("Title".to_string(), "/tmp/x.md".to_string(), crate::models::FileType::Markdown);
+        let mut document = crate::models::Document::new(
+            "Title".to_string(),
+            "/tmp/x.md".to_string(),
+            crate::models::FileType::Markdown,
+        );
         document.id = "doc-1".to_string();
         document.content = Some("Body".to_string());
         let markdown = generate_obsidian_markdown(&document);

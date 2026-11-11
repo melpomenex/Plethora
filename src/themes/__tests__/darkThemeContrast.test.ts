@@ -1,7 +1,3 @@
-import { describe, it } from 'vitest';
-import { builtInThemes } from '../builtin';
-import { contrastRatio, parseColor } from '../color';
-
 import { describe, expect, it } from 'vitest';
 import {
   modernDarkTheme,

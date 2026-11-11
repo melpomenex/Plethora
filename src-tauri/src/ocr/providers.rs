@@ -1896,9 +1896,10 @@ pub fn create_provider(
             Ok(Box::new(GLMOCRProvider::new(glm_config.clone())))
         }
         OCRProviderType::Mistral => {
-            let mistral_config = config.mistral_ocr.as_ref().ok_or_else(|| {
-                PlethoraError::Internal("Mistral OCR config not set".to_string())
-            })?;
+            let mistral_config = config
+                .mistral_ocr
+                .as_ref()
+                .ok_or_else(|| PlethoraError::Internal("Mistral OCR config not set".to_string()))?;
             Ok(Box::new(MistralProvider::new(mistral_config.clone())))
         }
         OCRProviderType::WindowsSystem => Ok(Box::new(WindowsSystemOCRProvider::new())),

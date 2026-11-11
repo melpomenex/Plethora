@@ -61,11 +61,7 @@ impl EntitlementCache {
     /// given account, if the cache is empty. Called before any network
     /// attempt so a failed refresh can fall back to the persisted verified
     /// snapshot instead of manufacturing Free defaults.
-    pub async fn hydrate_from_storage(
-        &self,
-        repo: &crate::database::Repository,
-        account_id: &str,
-    ) {
+    pub async fn hydrate_from_storage(&self, repo: &crate::database::Repository, account_id: &str) {
         if self
             .cached_snapshot
             .read()
@@ -102,8 +98,9 @@ impl EntitlementCache {
             return;
         };
         let mut persisted = match repo.get_setting(SETTINGS_KEY).await {
-            Ok(Some(raw)) => serde_json::from_str::<PersistedEntitlements>(&raw)
-                .unwrap_or_default(),
+            Ok(Some(raw)) => {
+                serde_json::from_str::<PersistedEntitlements>(&raw).unwrap_or_default()
+            }
             _ => PersistedEntitlements::default(),
         };
         if persisted.version == 0 {
@@ -190,14 +187,15 @@ impl EntitlementCache {
             if !overrides.is_empty() {
                 base_snapshot.source = SnapshotSource::Override;
                 for (&id, &enabled) in overrides.iter() {
-                    let entry = base_snapshot
-                        .capabilities
-                        .entry(id)
-                        .or_insert_with(|| CapabilityState {
-                            enabled,
-                            reason: None,
-                            quota: None,
-                        });
+                    let entry =
+                        base_snapshot
+                            .capabilities
+                            .entry(id)
+                            .or_insert_with(|| CapabilityState {
+                                enabled,
+                                reason: None,
+                                quota: None,
+                            });
                     entry.enabled = enabled;
                     if enabled {
                         entry.reason = None;
@@ -329,7 +327,9 @@ impl std::fmt::Display for EntitlementFetchError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             EntitlementFetchError::Unauthorized => write!(f, "entitlements fetch: HTTP 401"),
-            EntitlementFetchError::Transport(detail) => write!(f, "entitlements fetch failed: {detail}"),
+            EntitlementFetchError::Transport(detail) => {
+                write!(f, "entitlements fetch failed: {detail}")
+            }
         }
     }
 }
@@ -347,24 +347,16 @@ impl std::fmt::Display for EntitlementFetchError {
 pub enum EntitlementRefreshOutcome {
     /// Server 200 with a valid snapshot: cached in memory AND persisted.
     #[serde(rename = "verified")]
-    Verified {
-        snapshot: EntitlementSnapshot,
-    },
+    Verified { snapshot: EntitlementSnapshot },
     /// Signed in, fetch failed: retained snapshot with provenance intact.
     #[serde(rename = "stale_cache")]
-    StaleCache {
-        snapshot: EntitlementSnapshot,
-    },
+    StaleCache { snapshot: EntitlementSnapshot },
     /// Server rejected the presented bearer (401): caller refreshes + retries.
     #[serde(rename = "auth_expired")]
-    AuthExpired {
-        snapshot: EntitlementSnapshot,
-    },
+    AuthExpired { snapshot: EntitlementSnapshot },
     /// No signed-in session: Free defaults, never cached or persisted.
     #[serde(rename = "anonymous")]
-    Anonymous {
-        snapshot: EntitlementSnapshot,
-    },
+    Anonymous { snapshot: EntitlementSnapshot },
 }
 
 /// GET /v1/entitlements with the account's bearer token.
@@ -381,7 +373,9 @@ pub async fn fetch_entitlements(
         ENTITLEMENTS_PATH.trim_start_matches('/')
     );
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(ENTITLEMENT_FETCH_TIMEOUT_SECS))
+        .timeout(std::time::Duration::from_secs(
+            ENTITLEMENT_FETCH_TIMEOUT_SECS,
+        ))
         .build()
         .map_err(|e| EntitlementFetchError::Transport(format!("client build failed: {e}")))?;
     let resp = client
@@ -498,8 +492,7 @@ pub fn entitlement_override_clear(
 ) -> Result<EntitlementSnapshot, String> {
     let id = match capability {
         Some(cap) => Some(
-            CapabilityId::from_str_opt(&cap)
-                .ok_or_else(|| format!("Unknown capability: {cap}"))?,
+            CapabilityId::from_str_opt(&cap).ok_or_else(|| format!("Unknown capability: {cap}"))?,
         ),
         None => None,
     };
@@ -550,7 +543,13 @@ mod tests {
         let snapshot = cache.resolve();
         assert_eq!(snapshot.source, SnapshotSource::Override);
         assert!(cache.is_enabled(CapabilityId::CloudSync));
-        assert!(snapshot.capabilities.get(&CapabilityId::CloudSync).unwrap().enabled);
+        assert!(
+            snapshot
+                .capabilities
+                .get(&CapabilityId::CloudSync)
+                .unwrap()
+                .enabled
+        );
 
         // Clear specific override
         cache.clear_override(Some(CapabilityId::CloudSync));
@@ -578,7 +577,13 @@ mod tests {
 
         let resolved = cache.resolve();
         assert_eq!(resolved.source, SnapshotSource::Grace);
-        assert!(resolved.capabilities.get(&CapabilityId::CloudSync).unwrap().enabled);
+        assert!(
+            resolved
+                .capabilities
+                .get(&CapabilityId::CloudSync)
+                .unwrap()
+                .enabled
+        );
 
         // Past grace period (e.g. 80h ago)
         let past_80h = (Utc::now() - Duration::hours(80)).to_rfc3339();
@@ -632,7 +637,13 @@ mod tests {
         assert_eq!(snapshot.plan, "pro");
         assert_eq!(snapshot.account_id.as_deref(), Some("user-1"));
         assert_eq!(snapshot.source, SnapshotSource::Server);
-        assert!(snapshot.capabilities.get(&CapabilityId::CloudSync).unwrap().enabled);
+        assert!(
+            snapshot
+                .capabilities
+                .get(&CapabilityId::CloudSync)
+                .unwrap()
+                .enabled
+        );
         let api_access = snapshot.capabilities.get(&CapabilityId::ApiAccess).unwrap();
         assert!(!api_access.enabled);
         assert_eq!(api_access.reason, Some(CapabilityReason::Plan));
@@ -665,10 +676,28 @@ mod tests {
         // rename_all slip here silently disables the 401→refresh→retry path.
         let snapshot = create_free_default_snapshot();
         let cases = [
-            (EntitlementRefreshOutcome::Verified { snapshot: snapshot.clone() }, "verified"),
-            (EntitlementRefreshOutcome::StaleCache { snapshot: snapshot.clone() }, "stale_cache"),
-            (EntitlementRefreshOutcome::AuthExpired { snapshot: snapshot.clone() }, "auth_expired"),
-            (EntitlementRefreshOutcome::Anonymous { snapshot }, "anonymous"),
+            (
+                EntitlementRefreshOutcome::Verified {
+                    snapshot: snapshot.clone(),
+                },
+                "verified",
+            ),
+            (
+                EntitlementRefreshOutcome::StaleCache {
+                    snapshot: snapshot.clone(),
+                },
+                "stale_cache",
+            ),
+            (
+                EntitlementRefreshOutcome::AuthExpired {
+                    snapshot: snapshot.clone(),
+                },
+                "auth_expired",
+            ),
+            (
+                EntitlementRefreshOutcome::Anonymous { snapshot },
+                "anonymous",
+            ),
         ];
         for (outcome, expected) in cases {
             let json = serde_json::to_value(&outcome).unwrap();

@@ -3,8 +3,8 @@
 //! Provides positional weighting (Title 5x, Headings 3x, Body 1x) and
 //! term salience scoring for Tier 1 Smart Tagging.
 
-use std::collections::HashMap;
 use super::tokenizer::{extract_candidate_phrases, tokenize_words};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ScoredTerm {
@@ -137,6 +137,8 @@ mod tests {
         let terms = extract_salient_terms(&parts, 10);
         assert!(!terms.is_empty());
         let top_terms: Vec<String> = terms.into_iter().map(|t| t.term).collect();
-        assert!(top_terms.iter().any(|t| t.contains("geometry") || t.contains("calculus") || t.contains("differential")));
+        assert!(top_terms.iter().any(|t| t.contains("geometry")
+            || t.contains("calculus")
+            || t.contains("differential")));
     }
 }

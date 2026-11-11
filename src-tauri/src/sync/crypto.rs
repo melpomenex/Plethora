@@ -65,7 +65,8 @@ impl SyncCrypto {
         entity_id: &str,
         change_id: &str,
     ) -> [u8; 32] {
-        let mut info = Vec::with_capacity(64 + entity_type.len() + entity_id.len() + change_id.len());
+        let mut info =
+            Vec::with_capacity(64 + entity_type.len() + entity_id.len() + change_id.len());
         info.extend_from_slice(b"plethora-sync-record-v1:");
         info.extend_from_slice(&epoch.to_be_bytes());
         info.extend_from_slice(entity_type.as_bytes());
@@ -108,7 +109,11 @@ impl SyncCrypto {
         Ok(base64::engine::general_purpose::STANDARD.encode(combined))
     }
 
-    pub fn decrypt_payload(key: &[u8; 32], ciphertext_b64: &str, aad: &str) -> Result<Vec<u8>, String> {
+    pub fn decrypt_payload(
+        key: &[u8; 32],
+        ciphertext_b64: &str,
+        aad: &str,
+    ) -> Result<Vec<u8>, String> {
         let combined = base64::engine::general_purpose::STANDARD
             .decode(ciphertext_b64)
             .map_err(|e| format!("Invalid base64: {}", e))?;
@@ -264,7 +269,10 @@ impl SyncCrypto {
     #[allow(dead_code)]
     pub fn pairing_code_from_public_key(public_key_b64: &str) -> String {
         let digest = Sha256::digest(public_key_b64.as_bytes());
-        format!("{:06}", u32::from_be_bytes([digest[0], digest[1], digest[2], digest[3]]) % 1_000_000)
+        format!(
+            "{:06}",
+            u32::from_be_bytes([digest[0], digest[1], digest[2], digest[3]]) % 1_000_000
+        )
     }
 }
 
@@ -276,11 +284,14 @@ mod tests {
     fn test_encryption_and_decryption_round_trip() {
         let recovery_key = SyncCrypto::generate_recovery_key();
         let key = SyncCrypto::derive_master_key(&recovery_key);
-        let record_key = SyncCrypto::derive_record_key(&key, 1, "learning_item", "item-1", "change-1");
+        let record_key =
+            SyncCrypto::derive_record_key(&key, 1, "learning_item", "item-1", "change-1");
         let message = b"{\"title\":\"Confidential Research Notes\",\"tags\":[\"ai\",\"srs\"]}";
         let aad = SyncCrypto::build_aad("acct", "learning_item", "item-1", "change-1", 1);
-        let encrypted = SyncCrypto::encrypt_payload(&record_key, message, &aad).expect("encryption");
-        let decrypted = SyncCrypto::decrypt_payload(&record_key, &encrypted, &aad).expect("decryption");
+        let encrypted =
+            SyncCrypto::encrypt_payload(&record_key, message, &aad).expect("encryption");
+        let decrypted =
+            SyncCrypto::decrypt_payload(&record_key, &encrypted, &aad).expect("decryption");
         assert_eq!(decrypted, message);
     }
 
@@ -304,7 +315,10 @@ mod tests {
         let (reference_b, encrypted_b) = SyncCrypto::encrypt_blob(&master, plaintext).unwrap();
 
         assert_eq!(reference_a, reference_b, "same account/content dedupes");
-        assert_ne!(encrypted_a, encrypted_b, "random nonces hide ciphertext equality");
+        assert_ne!(
+            encrypted_a, encrypted_b,
+            "random nonces hide ciphertext equality"
+        );
         assert!(!reference_a.contains(&hex::encode(Sha256::digest(plaintext))));
         assert_eq!(
             SyncCrypto::decrypt_blob(&master, &reference_a, &encrypted_a).unwrap(),
@@ -320,11 +334,14 @@ mod tests {
     fn pairing_wrap_unwrap_round_trip() {
         let local = StaticSecret::random_from_rng(OsRng);
         let peer = StaticSecret::random_from_rng(OsRng);
-        let local_public = base64::engine::general_purpose::STANDARD.encode(PublicKey::from(&local).as_bytes());
-        let peer_public = base64::engine::general_purpose::STANDARD.encode(PublicKey::from(&peer).as_bytes());
+        let local_public =
+            base64::engine::general_purpose::STANDARD.encode(PublicKey::from(&local).as_bytes());
+        let peer_public =
+            base64::engine::general_purpose::STANDARD.encode(PublicKey::from(&peer).as_bytes());
         let master = SyncCrypto::derive_master_key("pairing-test-key");
         let code = SyncCrypto::generate_pairing_code();
-        let wrapped = SyncCrypto::wrap_master_key_for_peer(&local, &peer_public, &master, &code).unwrap();
+        let wrapped =
+            SyncCrypto::wrap_master_key_for_peer(&local, &peer_public, &master, &code).unwrap();
         let restored =
             SyncCrypto::unwrap_master_key_from_peer(&peer, &local_public, &wrapped, &code).unwrap();
         assert_eq!(restored, master);

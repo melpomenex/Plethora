@@ -158,8 +158,12 @@ pub struct SherpaOnnxGeneratedAudio {
 /// NOTE (verified in the T1 spike): the Supertonic impl calls this once per
 /// `generate` call — after completion — so callback-abort does not provide
 /// mid-call cancellation. Cancellation granularity is per generate call.
-pub type ProgressCallbackWithArg =
-    unsafe extern "C" fn(samples: *const c_float, n: c_int32_t, progress: c_float, arg: *mut c_void) -> c_int32_t;
+pub type ProgressCallbackWithArg = unsafe extern "C" fn(
+    samples: *const c_float,
+    n: c_int32_t,
+    progress: c_float,
+    arg: *mut c_void,
+) -> c_int32_t;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Library discovery + loading
@@ -183,7 +187,10 @@ pub fn candidate_lib_dirs() -> Vec<PathBuf> {
     let mut dirs = Vec::new();
     // 1. Dev source bin/ (provisioned by download-sidecars.js).
     dirs.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bin"));
-    if let Some(exe) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf())) {
+    if let Some(exe) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|p| p.to_path_buf()))
+    {
         // 2. Next to the main executable (externalBin layout / dev target dir).
         dirs.push(exe.clone());
         // 3. Bundled resource bin/ (Linux `bin/*.so*` / macOS `bin/*.dylib`
@@ -229,8 +236,13 @@ pub struct SherpaCApi {
     pub(crate) destroy: unsafe extern "C" fn(*mut c_void),
     pub(crate) sample_rate: unsafe extern "C" fn(*const c_void) -> c_int32_t,
     pub(crate) num_speakers: unsafe extern "C" fn(*const c_void) -> c_int32_t,
-    pub(crate) generate:
-        unsafe extern "C" fn(*const c_void, *const c_char, *const SherpaOnnxGenerationConfig, Option<ProgressCallbackWithArg>, *mut c_void) -> *const SherpaOnnxGeneratedAudio,
+    pub(crate) generate: unsafe extern "C" fn(
+        *const c_void,
+        *const c_char,
+        *const SherpaOnnxGenerationConfig,
+        Option<ProgressCallbackWithArg>,
+        *mut c_void,
+    ) -> *const SherpaOnnxGeneratedAudio,
     pub(crate) destroy_audio: unsafe extern "C" fn(*const SherpaOnnxGeneratedAudio),
     pub version: String,
     pub path: PathBuf,
@@ -243,10 +255,12 @@ impl SherpaCApi {
         if let Some(parent) = path.parent() {
             add_dll_directory(parent);
         }
-        let lib = unsafe { Library::new(path) }.map_err(|e| format!("failed to load {}: {e}", path.display()))?;
+        let lib = unsafe { Library::new(path) }
+            .map_err(|e| format!("failed to load {}: {e}", path.display()))?;
         let api = unsafe {
-            let get_version: Symbol<unsafe extern "C" fn() -> *const c_char> =
-                lib.get(b"SherpaOnnxGetVersionStr").map_err(|e| format!("missing SherpaOnnxGetVersionStr: {e}"))?;
+            let get_version: Symbol<unsafe extern "C" fn() -> *const c_char> = lib
+                .get(b"SherpaOnnxGetVersionStr")
+                .map_err(|e| format!("missing SherpaOnnxGetVersionStr: {e}"))?;
             let version = CStr::from_ptr(get_version()).to_string_lossy().into_owned();
             if !version.starts_with(EXPECTED_SHERPA_VERSION_PREFIX) {
                 return Err(format!(
@@ -264,10 +278,14 @@ impl SherpaCApi {
                 .get::<unsafe extern "C" fn(*mut c_void)>(b"SherpaOnnxDestroyOfflineTts")
                 .map_err(|e| format!("missing SherpaOnnxDestroyOfflineTts: {e}"))?;
             let sample_rate = *lib
-                .get::<unsafe extern "C" fn(*const c_void) -> c_int32_t>(b"SherpaOnnxOfflineTtsSampleRate")
+                .get::<unsafe extern "C" fn(*const c_void) -> c_int32_t>(
+                    b"SherpaOnnxOfflineTtsSampleRate",
+                )
                 .map_err(|e| format!("missing SherpaOnnxOfflineTtsSampleRate: {e}"))?;
             let num_speakers = *lib
-                .get::<unsafe extern "C" fn(*const c_void) -> c_int32_t>(b"SherpaOnnxOfflineTtsNumSpeakers")
+                .get::<unsafe extern "C" fn(*const c_void) -> c_int32_t>(
+                    b"SherpaOnnxOfflineTtsNumSpeakers",
+                )
                 .map_err(|e| format!("missing SherpaOnnxOfflineTtsNumSpeakers: {e}"))?;
             let generate = *lib
                 .get::<unsafe extern "C" fn(
@@ -276,7 +294,9 @@ impl SherpaCApi {
                     *const SherpaOnnxGenerationConfig,
                     Option<ProgressCallbackWithArg>,
                     *mut c_void,
-                ) -> *const SherpaOnnxGeneratedAudio>(b"SherpaOnnxOfflineTtsGenerateWithConfig")
+                ) -> *const SherpaOnnxGeneratedAudio>(
+                    b"SherpaOnnxOfflineTtsGenerateWithConfig"
+                )
                 .map_err(|e| format!("missing SherpaOnnxOfflineTtsGenerateWithConfig: {e}"))?;
             let destroy_audio = *lib
                 .get::<unsafe extern "C" fn(*const SherpaOnnxGeneratedAudio)>(
@@ -355,7 +375,9 @@ pub fn build_supertonic_config(
     else {
         return Err("not a Supertonic sherpa TTS contract".to_string());
     };
-    contract_files.validate().map_err(|e| format!("invalid run contract: {e}"))?;
+    contract_files
+        .validate()
+        .map_err(|e| format!("invalid run contract: {e}"))?;
 
     let resolve = |rel: &Option<String>| -> Result<CString, String> {
         let rel = rel.as_deref().ok_or("missing Supertonic pipeline file")?;

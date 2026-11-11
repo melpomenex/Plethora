@@ -54,7 +54,12 @@ fn path_candidates(base: &str) -> Vec<PathBuf> {
     {
         for key in ["LOCALAPPDATA", "USERPROFILE", "ProgramData"] {
             if let Some(root) = std::env::var_os(key).map(PathBuf::from) {
-                candidates.push(root.join("Microsoft").join("WinGet").join("Links").join(&binary));
+                candidates.push(
+                    root.join("Microsoft")
+                        .join("WinGet")
+                        .join("Links")
+                        .join(&binary),
+                );
                 candidates.push(root.join("scoop").join("shims").join(&binary));
                 candidates.push(root.join("chocolatey").join("bin").join(&binary));
             }

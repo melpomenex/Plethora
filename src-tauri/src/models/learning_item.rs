@@ -63,7 +63,6 @@ pub struct CardVersionEntry {
     pub tags: Option<Vec<String>>,
 }
 
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LearningItem {
     pub id: String,

@@ -6,8 +6,7 @@ use uuid::Uuid;
 use super::Repository;
 use crate::error::{PlethoraError, Result};
 use crate::models::{
-    PodcastAdCorrection, PodcastAdInterval, PodcastAdSettings, PodcastChapter,
-    PodcastProcessingJob,
+    PodcastAdCorrection, PodcastAdInterval, PodcastAdSettings, PodcastChapter, PodcastProcessingJob,
 };
 
 impl Repository {
@@ -208,11 +207,7 @@ impl Repository {
     }
 
     /// Update the ad removal status and optional ad-free duration on an episode.
-    pub async fn update_episode_ad_status(
-        &self,
-        episode_id: &str,
-        status: &str,
-    ) -> Result<()> {
+    pub async fn update_episode_ad_status(&self, episode_id: &str, status: &str) -> Result<()> {
         sqlx::query("UPDATE podcast_episodes SET ad_removal_status = ? WHERE id = ?")
             .bind(status)
             .bind(episode_id)
@@ -302,10 +297,7 @@ impl Repository {
     }
 
     /// Record a user correction on an ad interval.
-    pub async fn save_podcast_ad_correction(
-        &self,
-        correction: &PodcastAdCorrection,
-    ) -> Result<()> {
+    pub async fn save_podcast_ad_correction(&self, correction: &PodcastAdCorrection) -> Result<()> {
         let id = if correction.id.trim().is_empty() {
             Uuid::new_v4().to_string()
         } else {
@@ -427,7 +419,9 @@ mod tests {
     use std::path::PathBuf;
 
     async fn create_test_db() -> (Database, String, String) {
-        let db = Database::new(PathBuf::from(":memory:")).await.expect("test db");
+        let db = Database::new(PathBuf::from(":memory:"))
+            .await
+            .expect("test db");
         db.migrate().await.expect("migrate");
 
         let feed_id = "feed-1";
@@ -487,8 +481,13 @@ mod tests {
             },
         ];
 
-        repo.upsert_podcast_chapters(&ep_id, &chapters).await.expect("upsert chapters");
-        let fetched = repo.get_podcast_chapters(&ep_id).await.expect("get chapters");
+        repo.upsert_podcast_chapters(&ep_id, &chapters)
+            .await
+            .expect("upsert chapters");
+        let fetched = repo
+            .get_podcast_chapters(&ep_id)
+            .await
+            .expect("get chapters");
 
         assert_eq!(fetched.len(), 2);
         assert_eq!(fetched[0].title, "Introduction");
@@ -501,21 +500,21 @@ mod tests {
         let (db, _, ep_id) = create_test_db().await;
         let repo = Repository::new(db.pool().clone());
 
-        let intervals = vec![
-            PodcastAdInterval {
-                id: "ad-1".to_string(),
-                episode_id: ep_id.clone(),
-                media_revision: "rev1".to_string(),
-                start_ms: 10_000,
-                end_ms: 40_000,
-                category: "external_ad".to_string(),
-                confidence: 0.9,
-                origin: "classifier_llm".to_string(),
-                metadata_json: None,
-            },
-        ];
+        let intervals = vec![PodcastAdInterval {
+            id: "ad-1".to_string(),
+            episode_id: ep_id.clone(),
+            media_revision: "rev1".to_string(),
+            start_ms: 10_000,
+            end_ms: 40_000,
+            category: "external_ad".to_string(),
+            confidence: 0.9,
+            origin: "classifier_llm".to_string(),
+            metadata_json: None,
+        }];
 
-        repo.upsert_ad_intervals(&ep_id, &intervals).await.expect("upsert intervals");
+        repo.upsert_ad_intervals(&ep_id, &intervals)
+            .await
+            .expect("upsert intervals");
         let fetched = repo.get_ad_intervals(&ep_id).await.expect("get intervals");
         assert_eq!(fetched.len(), 1);
         assert_eq!(fetched[0].id, "ad-1");
@@ -532,31 +531,41 @@ mod tests {
             origin: "manual_user".to_string(),
             metadata_json: None,
         };
-        repo.save_manual_ad_interval(&ep_id, &manual).await.expect("save manual");
+        repo.save_manual_ad_interval(&ep_id, &manual)
+            .await
+            .expect("save manual");
 
         // Re-upserting detected intervals must preserve manual overrides
-        let new_detected = vec![
-            PodcastAdInterval {
-                id: "ad-2".to_string(),
-                episode_id: ep_id.clone(),
-                media_revision: "rev1".to_string(),
-                start_ms: 15_000,
-                end_ms: 45_000,
-                category: "external_ad".to_string(),
-                confidence: 0.95,
-                origin: "classifier_llm".to_string(),
-                metadata_json: None,
-            },
-        ];
-        repo.upsert_ad_intervals(&ep_id, &new_detected).await.expect("re-upsert");
-        let all = repo.get_ad_intervals(&ep_id).await.expect("get all intervals");
+        let new_detected = vec![PodcastAdInterval {
+            id: "ad-2".to_string(),
+            episode_id: ep_id.clone(),
+            media_revision: "rev1".to_string(),
+            start_ms: 15_000,
+            end_ms: 45_000,
+            category: "external_ad".to_string(),
+            confidence: 0.95,
+            origin: "classifier_llm".to_string(),
+            metadata_json: None,
+        }];
+        repo.upsert_ad_intervals(&ep_id, &new_detected)
+            .await
+            .expect("re-upsert");
+        let all = repo
+            .get_ad_intervals(&ep_id)
+            .await
+            .expect("get all intervals");
         assert_eq!(all.len(), 2);
         assert!(all.iter().any(|i| i.id == "ad-2"));
         assert!(all.iter().any(|i| i.id == "manual-1"));
 
         // Delete interval
-        repo.delete_ad_interval("ad-2").await.expect("delete interval");
-        let after_delete = repo.get_ad_intervals(&ep_id).await.expect("get after delete");
+        repo.delete_ad_interval("ad-2")
+            .await
+            .expect("delete interval");
+        let after_delete = repo
+            .get_ad_intervals(&ep_id)
+            .await
+            .expect("get after delete");
         assert_eq!(after_delete.len(), 1);
         assert_eq!(after_delete[0].id, "manual-1");
     }
@@ -566,7 +575,10 @@ mod tests {
         let (db, _, ep_id) = create_test_db().await;
         let repo = Repository::new(db.pool().clone());
 
-        let settings = repo.get_podcast_ad_settings().await.expect("get default settings");
+        let settings = repo
+            .get_podcast_ad_settings()
+            .await
+            .expect("get default settings");
         assert!(settings.auto_detect_ads);
 
         let mut custom = settings.clone();
@@ -574,19 +586,27 @@ mod tests {
         custom.min_ad_duration_seconds = 15;
         custom.processing_mode = "battery_saver".to_string();
 
-        repo.update_podcast_ad_settings(&custom).await.expect("update settings");
-        let loaded = repo.get_podcast_ad_settings().await.expect("get updated settings");
+        repo.update_podcast_ad_settings(&custom)
+            .await
+            .expect("update settings");
+        let loaded = repo
+            .get_podcast_ad_settings()
+            .await
+            .expect("get updated settings");
         assert!(loaded.skip_self_promo);
         assert_eq!(loaded.min_ad_duration_seconds, 15);
         assert_eq!(loaded.processing_mode, "battery_saver");
 
         // Status update
-        repo.update_episode_ad_status(&ep_id, "ready").await.expect("update status");
-        let (status,): (String,) = sqlx::query_as("SELECT ad_removal_status FROM podcast_episodes WHERE id = ?")
-            .bind(&ep_id)
-            .fetch_one(db.pool())
+        repo.update_episode_ad_status(&ep_id, "ready")
             .await
-            .expect("check status");
+            .expect("update status");
+        let (status,): (String,) =
+            sqlx::query_as("SELECT ad_removal_status FROM podcast_episodes WHERE id = ?")
+                .bind(&ep_id)
+                .fetch_one(db.pool())
+                .await
+                .expect("check status");
         assert_eq!(status, "ready");
     }
 }

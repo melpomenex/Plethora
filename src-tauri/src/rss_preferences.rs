@@ -142,8 +142,7 @@ pub fn update_clusters(
 
     // Lazy-decay this sentiment's clusters to `now`.
     for cluster in clusters.iter_mut().filter(|c| c.sentiment == sentiment_str) {
-        let age_days =
-            (now_ms - cluster.last_updated).max(0) as f64 / (86_400_000.0);
+        let age_days = (now_ms - cluster.last_updated).max(0) as f64 / (86_400_000.0);
         let factor = decay_factor(age_days);
         cluster.weight *= factor;
         for v in cluster.sum.iter_mut() {
@@ -188,7 +187,10 @@ pub fn update_clusters(
             clusters.push(PreferenceCluster {
                 id: 0,
                 sentiment: sentiment_str.to_string(),
-                sum: vector.iter().map(|v| v * FEEDBACK_EVENT_WEIGHT as f32).collect(),
+                sum: vector
+                    .iter()
+                    .map(|v| v * FEEDBACK_EVENT_WEIGHT as f32)
+                    .collect(),
                 weight: FEEDBACK_EVENT_WEIGHT,
                 last_updated: now_ms,
                 exemplar_article_id: exemplar_article_id.to_string(),
@@ -325,19 +327,13 @@ pub async fn apply_feedback(
                 .get_rss_article_title(article_id)
                 .await
                 .unwrap_or_default();
-            repo.upsert_rss_article_feedback(article_id, s.as_str(), now).await?;
+            repo.upsert_rss_article_feedback(article_id, s.as_str(), now)
+                .await?;
             if let Some(vector) = embedding.filter(|v| !v.is_empty()) {
                 let clusters = repo.get_rss_preference_clusters(Some(s.as_str())).await?;
-                let updated = update_clusters(
-                    clusters,
-                    s,
-                    vector,
-                    article_id,
-                    &title,
-                    model,
-                    now,
-                );
-                repo.replace_rss_preference_clusters(s.as_str(), &updated).await?;
+                let updated = update_clusters(clusters, s, vector, article_id, &title, model, now);
+                repo.replace_rss_preference_clusters(s.as_str(), &updated)
+                    .await?;
             }
         }
         None => {
@@ -369,7 +365,11 @@ pub async fn rebuild(repo: &Repository) -> Result<()> {
         // Replay in chronological order with a synthetic clock so decay
         // between events is honored deterministically.
         let event_time = DateTime::from_timestamp_millis(created_at).unwrap_or(cursor);
-        let replay_time = if event_time > cursor { event_time } else { cursor };
+        let replay_time = if event_time > cursor {
+            event_time
+        } else {
+            cursor
+        };
         cursor = replay_time;
         if let Some(vector) = by_id.get(&article_id) {
             clusters = update_clusters(
@@ -383,18 +383,40 @@ pub async fn rebuild(repo: &Repository) -> Result<()> {
             );
         }
     }
-    repo.replace_rss_preference_clusters("like", &clusters.iter().filter(|c| c.sentiment == "like").cloned().collect::<Vec<_>>()).await?;
-    repo.replace_rss_preference_clusters("dislike", &clusters.iter().filter(|c| c.sentiment == "dislike").cloned().collect::<Vec<_>>()).await?;
+    repo.replace_rss_preference_clusters(
+        "like",
+        &clusters
+            .iter()
+            .filter(|c| c.sentiment == "like")
+            .cloned()
+            .collect::<Vec<_>>(),
+    )
+    .await?;
+    repo.replace_rss_preference_clusters(
+        "dislike",
+        &clusters
+            .iter()
+            .filter(|c| c.sentiment == "dislike")
+            .cloned()
+            .collect::<Vec<_>>(),
+    )
+    .await?;
     Ok(())
 }
 
 /// Current profile for UI gating/explainability.
 pub async fn profile(repo: &Repository) -> Result<PreferenceProfile> {
-    let clusters = repo
-        .get_rss_preference_clusters(None::<&str>)
-        .await?;
-    let positive_weight = clusters.iter().filter(|c| c.sentiment == "like").map(|c| c.weight).sum();
-    let negative_weight = clusters.iter().filter(|c| c.sentiment == "dislike").map(|c| c.weight).sum();
+    let clusters = repo.get_rss_preference_clusters(None::<&str>).await?;
+    let positive_weight = clusters
+        .iter()
+        .filter(|c| c.sentiment == "like")
+        .map(|c| c.weight)
+        .sum();
+    let negative_weight = clusters
+        .iter()
+        .filter(|c| c.sentiment == "dislike")
+        .map(|c| c.weight)
+        .sum();
     Ok(PreferenceProfile {
         positive_weight,
         negative_weight,
@@ -406,9 +428,7 @@ pub async fn profile(repo: &Repository) -> Result<PreferenceProfile> {
 /// Score a batch of queue items against the current profile (Rust-side cosine;
 /// vectors stay local).
 pub async fn score_items(repo: &Repository, item_ids: &[String]) -> Result<Vec<SemanticScore>> {
-    let clusters = repo
-        .get_rss_preference_clusters(None::<&str>)
-        .await?;
+    let clusters = repo.get_rss_preference_clusters(None::<&str>).await?;
     let embeddings = repo.get_embeddings_for_items(item_ids).await?;
     let by_id: std::collections::HashMap<String, Vec<f32>> = embeddings
         .into_iter()
@@ -417,24 +437,22 @@ pub async fn score_items(repo: &Repository, item_ids: &[String]) -> Result<Vec<S
     let now = Utc::now();
     Ok(item_ids
         .iter()
-        .map(|id| {
-            match by_id.get(id) {
-                Some(vector) => {
-                    let (score, driver) = score_vector(vector, &clusters, now);
-                    SemanticScore {
-                        item_id: id.clone(),
-                        score,
-                        driver_exemplar_title: driver.as_ref().map(|(t, _)| t.clone()),
-                        driver_sentiment: driver.map(|(_, s)| s),
-                    }
-                }
-                None => SemanticScore {
+        .map(|id| match by_id.get(id) {
+            Some(vector) => {
+                let (score, driver) = score_vector(vector, &clusters, now);
+                SemanticScore {
                     item_id: id.clone(),
-                    score: None,
-                    driver_exemplar_title: None,
-                    driver_sentiment: None,
-                },
+                    score,
+                    driver_exemplar_title: driver.as_ref().map(|(t, _)| t.clone()),
+                    driver_sentiment: driver.map(|(_, s)| s),
+                }
             }
+            None => SemanticScore {
+                item_id: id.clone(),
+                score: None,
+                driver_exemplar_title: None,
+                driver_sentiment: None,
+            },
         })
         .collect())
 }
@@ -462,8 +480,24 @@ mod tests {
     fn feedback_merges_into_nearest_cluster_and_grows_weight() {
         let a = unit(8, 0.0);
         let b = unit(8, 0.0); // identical direction → same cluster
-        let clusters = update_clusters(Vec::new(), FeedbackSentiment::Like, &a, "r1", "T1", "m", now());
-        let clusters = update_clusters(clusters, FeedbackSentiment::Like, &b, "r2", "T2", "m", now());
+        let clusters = update_clusters(
+            Vec::new(),
+            FeedbackSentiment::Like,
+            &a,
+            "r1",
+            "T1",
+            "m",
+            now(),
+        );
+        let clusters = update_clusters(
+            clusters,
+            FeedbackSentiment::Like,
+            &b,
+            "r2",
+            "T2",
+            "m",
+            now(),
+        );
         assert_eq!(clusters.len(), 1);
         assert!((clusters[0].weight - 2.0 * FEEDBACK_EVENT_WEIGHT).abs() < 1e-6);
         assert_eq!(clusters[0].exemplar_article_id, "r2");
@@ -473,16 +507,48 @@ mod tests {
     fn dissimilar_feedback_spawns_new_cluster() {
         let a = unit(8, 0.0);
         let b = unit(8, 3.1); // near-orthogonal
-        let clusters = update_clusters(Vec::new(), FeedbackSentiment::Like, &a, "r1", "T1", "m", now());
-        let clusters = update_clusters(clusters, FeedbackSentiment::Like, &b, "r2", "T2", "m", now());
+        let clusters = update_clusters(
+            Vec::new(),
+            FeedbackSentiment::Like,
+            &a,
+            "r1",
+            "T1",
+            "m",
+            now(),
+        );
+        let clusters = update_clusters(
+            clusters,
+            FeedbackSentiment::Like,
+            &b,
+            "r2",
+            "T2",
+            "m",
+            now(),
+        );
         assert_eq!(clusters.len(), 2);
     }
 
     #[test]
     fn sentiments_do_not_share_clusters() {
         let a = unit(8, 0.0);
-        let clusters = update_clusters(Vec::new(), FeedbackSentiment::Like, &a, "r1", "T1", "m", now());
-        let clusters = update_clusters(clusters, FeedbackSentiment::Dislike, &a, "r2", "T2", "m", now());
+        let clusters = update_clusters(
+            Vec::new(),
+            FeedbackSentiment::Like,
+            &a,
+            "r1",
+            "T1",
+            "m",
+            now(),
+        );
+        let clusters = update_clusters(
+            clusters,
+            FeedbackSentiment::Dislike,
+            &a,
+            "r2",
+            "T2",
+            "m",
+            now(),
+        );
         assert_eq!(clusters.len(), 2);
         assert!(clusters.iter().any(|c| c.sentiment == "dislike"));
     }
@@ -492,7 +558,15 @@ mod tests {
         let mut clusters = Vec::new();
         for i in 0..(MAX_CLUSTERS_PER_SENTIMENT + 4) {
             let v = unit(8, i as f32 * 0.9);
-            clusters = update_clusters(clusters, FeedbackSentiment::Like, &v, &format!("r{i}"), "T", "m", now());
+            clusters = update_clusters(
+                clusters,
+                FeedbackSentiment::Like,
+                &v,
+                &format!("r{i}"),
+                "T",
+                "m",
+                now(),
+            );
         }
         let count = clusters.iter().filter(|c| c.sentiment == "like").count();
         assert!(count <= MAX_CLUSTERS_PER_SENTIMENT, "got {count}");
@@ -502,17 +576,42 @@ mod tests {
     fn decay_reduces_old_influence() {
         let a = unit(8, 0.0);
         let old = now() - chrono::Duration::days(DECAY_HALF_LIFE_DAYS as i64);
-        let clusters = update_clusters(Vec::new(), FeedbackSentiment::Like, &a, "r1", "T1", "m", old);
+        let clusters = update_clusters(
+            Vec::new(),
+            FeedbackSentiment::Like,
+            &a,
+            "r1",
+            "T1",
+            "m",
+            old,
+        );
         // One half-life later the weight should be halved (± fresh-event math).
-        let clusters = update_clusters(clusters, FeedbackSentiment::Like, &a, "r2", "T2", "m", now());
-        let expected = decay_factor(DECAY_HALF_LIFE_DAYS) * FEEDBACK_EVENT_WEIGHT + FEEDBACK_EVENT_WEIGHT;
+        let clusters = update_clusters(
+            clusters,
+            FeedbackSentiment::Like,
+            &a,
+            "r2",
+            "T2",
+            "m",
+            now(),
+        );
+        let expected =
+            decay_factor(DECAY_HALF_LIFE_DAYS) * FEEDBACK_EVENT_WEIGHT + FEEDBACK_EVENT_WEIGHT;
         assert!((clusters[0].weight - expected).abs() < 1e-6);
     }
 
     #[test]
     fn scoring_is_cold_start_gated() {
         let v = unit(8, 0.0);
-        let clusters = update_clusters(Vec::new(), FeedbackSentiment::Like, &v, "r1", "T1", "m", now());
+        let clusters = update_clusters(
+            Vec::new(),
+            FeedbackSentiment::Like,
+            &v,
+            "r1",
+            "T1",
+            "m",
+            now(),
+        );
         let (score, _) = score_vector(&v, &clusters, now());
         assert!(score.is_none(), "single event must stay below cold start");
     }
@@ -523,22 +622,49 @@ mod tests {
         let other = unit(8, 3.1);
         let mut clusters = Vec::new();
         for i in 0..3 {
-            clusters = update_clusters(clusters, FeedbackSentiment::Like, &topic, &format!("l{i}"), "Liked", "m", now());
-            clusters = update_clusters(clusters, FeedbackSentiment::Dislike, &other, &format!("d{i}"), "Disliked", "m", now());
+            clusters = update_clusters(
+                clusters,
+                FeedbackSentiment::Like,
+                &topic,
+                &format!("l{i}"),
+                "Liked",
+                "m",
+                now(),
+            );
+            clusters = update_clusters(
+                clusters,
+                FeedbackSentiment::Dislike,
+                &other,
+                &format!("d{i}"),
+                "Disliked",
+                "m",
+                now(),
+            );
         }
         let (liked, driver) = score_vector(&topic, &clusters, now());
         let (disliked, _) = score_vector(&other, &clusters, now());
         let liked = liked.expect("above cold start");
         let disliked = disliked.expect("above cold start");
         assert!(liked > 0.6, "liked topic should score high, got {liked}");
-        assert!(disliked < 0.4, "disliked topic should score low, got {disliked}");
+        assert!(
+            disliked < 0.4,
+            "disliked topic should score low, got {disliked}"
+        );
         assert_eq!(driver.map(|(t, _)| t), Some("Liked".to_string()));
     }
 
     #[test]
     fn empty_vector_and_mismatched_dims_are_ignored() {
         let v = unit(8, 0.0);
-        let clusters = update_clusters(Vec::new(), FeedbackSentiment::Like, &v, "r1", "T1", "m", now());
+        let clusters = update_clusters(
+            Vec::new(),
+            FeedbackSentiment::Like,
+            &v,
+            "r1",
+            "T1",
+            "m",
+            now(),
+        );
         let (score, _) = score_vector(&[], &clusters, now());
         assert!(score.is_none());
         let (score, _) = score_vector(&unit(16, 0.0), &clusters, now());

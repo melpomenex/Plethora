@@ -3,8 +3,7 @@
 use crate::error::{PlethoraError, Result};
 use crate::models::audio_edition::{
     AudioEdition, AudioEditionAnchor, AudioEditionSection, AudioEditionWithSections,
-    ListeningSession, ListeningSessionItem, ListeningSessionItemUpdate,
-    ListeningSessionWithItems,
+    ListeningSession, ListeningSessionItem, ListeningSessionItemUpdate, ListeningSessionWithItems,
 };
 use sqlx::{Pool, Sqlite};
 
@@ -27,13 +26,14 @@ impl AudioEditionRepository {
         edition: &AudioEdition,
         sections: &[AudioEditionSection],
     ) -> Result<AudioEditionWithSections> {
-        let mut tx = self.pool.begin().await.map_err(|e| {
-            PlethoraError::Internal(format!("Failed to start transaction: {}", e))
-        })?;
+        let mut tx =
+            self.pool.begin().await.map_err(|e| {
+                PlethoraError::Internal(format!("Failed to start transaction: {}", e))
+            })?;
         let created = Self::create_audio_edition_tx(&mut tx, edition, sections).await?;
-        tx.commit().await.map_err(|e| {
-            PlethoraError::Internal(format!("Failed to commit transaction: {}", e))
-        })?;
+        tx.commit()
+            .await
+            .map_err(|e| PlethoraError::Internal(format!("Failed to commit transaction: {}", e)))?;
         Ok(created)
     }
 
@@ -45,7 +45,6 @@ impl AudioEditionRepository {
         edition: &AudioEdition,
         sections: &[AudioEditionSection],
     ) -> Result<AudioEditionWithSections> {
-
         let id = if edition.id.trim().is_empty() {
             uuid::Uuid::new_v4().to_string()
         } else {
@@ -229,7 +228,9 @@ impl AudioEditionRepository {
         .bind(document_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| PlethoraError::Internal(format!("Failed to fetch audio edition by doc: {}", e)))?;
+        .map_err(|e| {
+            PlethoraError::Internal(format!("Failed to fetch audio edition by doc: {}", e))
+        })?;
 
         let Some(edition) = edition else {
             return Ok(None);
@@ -313,7 +314,9 @@ impl AudioEditionRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| PlethoraError::Internal(format!("Failed to update audio edition: {}", e)))?;
+            .map_err(|e| {
+                PlethoraError::Internal(format!("Failed to update audio edition: {}", e))
+            })?;
         } else {
             sqlx::query(
                 r#"
@@ -327,7 +330,9 @@ impl AudioEditionRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| PlethoraError::Internal(format!("Failed to update audio edition: {}", e)))?;
+            .map_err(|e| {
+                PlethoraError::Internal(format!("Failed to update audio edition: {}", e))
+            })?;
         }
         Ok(())
     }
@@ -337,7 +342,9 @@ impl AudioEditionRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| PlethoraError::Internal(format!("Failed to delete audio edition: {}", e)))?;
+            .map_err(|e| {
+                PlethoraError::Internal(format!("Failed to delete audio edition: {}", e))
+            })?;
         Ok(())
     }
 
@@ -421,9 +428,10 @@ impl AudioEditionRepository {
         section_id: &str,
         anchors: &[AudioEditionAnchor],
     ) -> Result<()> {
-        let mut tx = self.pool.begin().await.map_err(|e| {
-            PlethoraError::Internal(format!("Failed to start transaction: {}", e))
-        })?;
+        let mut tx =
+            self.pool.begin().await.map_err(|e| {
+                PlethoraError::Internal(format!("Failed to start transaction: {}", e))
+            })?;
 
         // Clear existing anchors for this section
         sqlx::query("DELETE FROM audio_edition_anchors WHERE section_id = ?1")
@@ -569,7 +577,9 @@ impl AudioEditionRepository {
         .bind(source_anchor)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| PlethoraError::Internal(format!("Failed to lookup anchor by source: {}", e)))?;
+        .map_err(|e| {
+            PlethoraError::Internal(format!("Failed to lookup anchor by source: {}", e))
+        })?;
 
         Ok(anchor)
     }
@@ -608,7 +618,9 @@ impl AudioEditionRepository {
         .bind(session.is_reviewed)
         .execute(&self.pool)
         .await
-        .map_err(|e| PlethoraError::Internal(format!("Failed to insert listening session: {}", e)))?;
+        .map_err(|e| {
+            PlethoraError::Internal(format!("Failed to insert listening session: {}", e))
+        })?;
 
         Ok(ListeningSession {
             id,
@@ -621,7 +633,10 @@ impl AudioEditionRepository {
         })
     }
 
-    pub async fn get_listening_session(&self, id: &str) -> Result<Option<ListeningSessionWithItems>> {
+    pub async fn get_listening_session(
+        &self,
+        id: &str,
+    ) -> Result<Option<ListeningSessionWithItems>> {
         let session: Option<ListeningSession> = sqlx::query_as(
             r#"
             SELECT id, edition_id, started_at, ended_at, duration_seconds, extract_count, is_reviewed
@@ -722,7 +737,9 @@ impl AudioEditionRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| PlethoraError::Internal(format!("Failed to mark session reviewed: {}", e)))?;
+            .map_err(|e| {
+                PlethoraError::Internal(format!("Failed to mark session reviewed: {}", e))
+            })?;
         Ok(())
     }
 
@@ -817,7 +834,8 @@ impl AudioEditionRepository {
         if !Self::VALID_MARKER_TYPES.contains(&item.marker_type.as_str()) {
             return Err(PlethoraError::InvalidInput(format!(
                 "Invalid marker_type '{}'; expected one of {:?}",
-                item.marker_type, Self::VALID_MARKER_TYPES
+                item.marker_type,
+                Self::VALID_MARKER_TYPES
             )));
         }
 
@@ -911,7 +929,8 @@ impl AudioEditionRepository {
             if !Self::VALID_MARKER_TYPES.contains(&marker_type.as_str()) {
                 return Err(PlethoraError::InvalidInput(format!(
                     "Invalid marker_type '{}'; expected one of {:?}",
-                    marker_type, Self::VALID_MARKER_TYPES
+                    marker_type,
+                    Self::VALID_MARKER_TYPES
                 )));
             }
         }
@@ -955,7 +974,10 @@ impl AudioEditionRepository {
                 .snippet_text
                 .clone()
                 .unwrap_or_else(|| existing.snippet_text.clone()),
-            note: updates.note.clone().unwrap_or_else(|| existing.note.clone()),
+            note: updates
+                .note
+                .clone()
+                .unwrap_or_else(|| existing.note.clone()),
             created_at: existing.created_at,
         };
 
@@ -1016,7 +1038,9 @@ impl AudioEditionRepository {
             .bind(id)
             .execute(&self.pool)
             .await
-            .map_err(|e| PlethoraError::Internal(format!("Failed to delete session item: {}", e)))?;
+            .map_err(|e| {
+                PlethoraError::Internal(format!("Failed to delete session item: {}", e))
+            })?;
 
         if let Some((session_id, marker_type)) = existing {
             if marker_type == "extract" {

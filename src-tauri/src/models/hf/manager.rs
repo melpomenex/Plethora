@@ -16,14 +16,14 @@
 //! from a downloaded repo.
 
 use super::adapters::{
-    Artifact, ArtifactFile, DetectionConfidence, HfRuntime, RunContract, RuntimeAdapter,
-    SherpaOnnxSttAdapter, SherpaOnnxTtsAdapter, WhisperCppAdapter, NemotronAsrAdapter,
-    LayaDecisionAdapter, WhistleSttAdapter,
+    Artifact, ArtifactFile, DetectionConfidence, HfRuntime, LayaDecisionAdapter,
+    NemotronAsrAdapter, RunContract, RuntimeAdapter, SherpaOnnxSttAdapter, SherpaOnnxTtsAdapter,
+    WhisperCppAdapter, WhistleSttAdapter,
 };
-use super::downloader::{InstallFinished, FINISHED_EVENT, download_file};
+use super::downloader::{download_file, InstallFinished, FINISHED_EVENT};
 use super::hf_client::{
-    FileMetadata, RepoInput, build_file_index, clean_revision, fetch_file_metadata, fetch_repo_info,
-    hf_metadata_client, hf_download_client, resolve_download_url, safe_dir_name,
+    build_file_index, clean_revision, fetch_file_metadata, fetch_repo_info, hf_download_client,
+    hf_metadata_client, resolve_download_url, safe_dir_name, FileMetadata, RepoInput,
 };
 use crate::database::Repository;
 use anyhow::{anyhow, Result};
@@ -134,8 +134,7 @@ pub const WHISTLE_LOGICAL_KEY: &str = "cactus-whistle";
 pub const WHISTLE_REPO_ID: &str = "Cactus-Compute/whistle";
 pub const WHISTLE_REVISION: &str = "main";
 pub const WHISTLE_MODEL_FILE: &str = "whistle.cact";
-pub const WHISTLE_SHA256: &str =
-    "b6e02f048568ac5d01a2042556c658061e699acbc0aa2a1439f52f3d461dffeb";
+pub const WHISTLE_SHA256: &str = "b6e02f048568ac5d01a2042556c658061e699acbc0aa2a1439f52f3d461dffeb";
 pub const WHISTLE_SIZE_BYTES: u64 = 16_919_407;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,11 +176,7 @@ pub fn whistle_catalog_entry() -> PinnedWhistleCatalogEntry {
 
 /// True when the pinned Cactus Whistle model is registered and verified on disk.
 pub async fn is_whistle_installed(pool: &Pool<sqlx::Sqlite>) -> bool {
-    let id = model_id_for(
-        HfRuntime::WhistleStt,
-        WHISTLE_REPO_ID,
-        WHISTLE_REVISION,
-    );
+    let id = model_id_for(HfRuntime::WhistleStt, WHISTLE_REPO_ID, WHISTLE_REVISION);
     if let Some(model) = registry_get(pool, &id).await {
         if verify_on_disk(&model.install_dir, &model.artifact_files) {
             return true;
@@ -304,11 +299,7 @@ pub fn canonicalize_hf_model_id(id: &str) -> String {
         || trimmed.eq_ignore_ascii_case("cactus-compute/whistle")
         || trimmed == "whistle"
     {
-        return model_id_for(
-            HfRuntime::WhistleStt,
-            WHISTLE_REPO_ID,
-            WHISTLE_REVISION,
-        );
+        return model_id_for(HfRuntime::WhistleStt, WHISTLE_REPO_ID, WHISTLE_REVISION);
     }
     if trimmed == NEMOTRON_ASR_LOGICAL_KEY
         || trimmed == NEMOTRON_ASR_REPO_ID
@@ -373,14 +364,9 @@ pub async fn resolve_pinned_nemotron_install_target(app: &AppHandle) -> Result<I
     let mut artifact_files = Vec::with_capacity(pinned.len());
     let mut total: u64 = 0;
     for (path, fallback_sha, fallback_size) in pinned {
-        let meta = fetch_file_metadata(
-            &client,
-            NEMOTRON_ASR_REPO_ID,
-            NEMOTRON_ASR_REVISION,
-            path,
-        )
-        .await
-        .unwrap_or_default();
+        let meta = fetch_file_metadata(&client, NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_REVISION, path)
+            .await
+            .unwrap_or_default();
         let sha256 = meta
             .sha256
             .clone()
@@ -419,10 +405,8 @@ pub async fn resolve_pinned_nemotron_install_target(app: &AppHandle) -> Result<I
     };
 
     let app_data = app_data_dir(app)?;
-    let install_dir = install_dir_for(HfRuntime::NemotronAsr, &app_data).join(safe_dir_name(
-        NEMOTRON_ASR_REPO_ID,
-        NEMOTRON_ASR_REVISION,
-    ));
+    let install_dir = install_dir_for(HfRuntime::NemotronAsr, &app_data)
+        .join(safe_dir_name(NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_REVISION));
     let model_id = model_id_for(
         HfRuntime::NemotronAsr,
         NEMOTRON_ASR_REPO_ID,
@@ -503,15 +487,9 @@ pub async fn resolve_pinned_whistle_install_target(app: &AppHandle) -> Result<In
     };
 
     let app_data = app_data_dir(app)?;
-    let install_dir = install_dir_for(HfRuntime::WhistleStt, &app_data).join(safe_dir_name(
-        WHISTLE_REPO_ID,
-        WHISTLE_REVISION,
-    ));
-    let model_id = model_id_for(
-        HfRuntime::WhistleStt,
-        WHISTLE_REPO_ID,
-        WHISTLE_REVISION,
-    );
+    let install_dir = install_dir_for(HfRuntime::WhistleStt, &app_data)
+        .join(safe_dir_name(WHISTLE_REPO_ID, WHISTLE_REVISION));
+    let model_id = model_id_for(HfRuntime::WhistleStt, WHISTLE_REPO_ID, WHISTLE_REVISION);
 
     Ok(InstallTarget {
         repo_id: WHISTLE_REPO_ID.to_string(),
@@ -582,11 +560,7 @@ async fn registry_insert(pool: &Pool<sqlx::Sqlite>, model: &InstalledHfModel) ->
 fn with_inferred_tts_family(mut model: InstalledHfModel) -> InstalledHfModel {
     if let RunContract::SherpaTts { family: None, .. } = &model.run_contract {
         if let Some(family) = model.run_contract.effective_tts_family() {
-            if let RunContract::SherpaTts {
-                family: slot,
-                ..
-            } = &mut model.run_contract
-            {
+            if let RunContract::SherpaTts { family: slot, .. } = &mut model.run_contract {
                 *slot = Some(family);
             }
         }
@@ -595,35 +569,58 @@ fn with_inferred_tts_family(mut model: InstalledHfModel) -> InstalledHfModel {
 }
 
 async fn registry_get(pool: &Pool<sqlx::Sqlite>, id: &str) -> Option<InstalledHfModel> {
-    let row: Option<(String, String, String, String, String, String, i64, Option<String>, String, String)> =
-        sqlx::query_as(
-            "SELECT repo_id, revision, runtime, artifact_kind, install_dir, artifact_files,
+    let row: Option<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        i64,
+        Option<String>,
+        String,
+        String,
+    )> = sqlx::query_as(
+        "SELECT repo_id, revision, runtime, artifact_kind, install_dir, artifact_files,
                     download_size_bytes, license, run_contract, installed_at
              FROM hf_installed_models WHERE id = ?",
-        )
-        .bind(id)
-        .fetch_optional(pool)
-        .await
-        .ok()?;
-    row.and_then(|(repo_id, revision, runtime, artifact_kind, install_dir, files, size, license, contract, at)| {
-        let runtime = HfRuntime::from_tag(&runtime)?;
-        let artifact_files: Vec<InstalledModelFile> = serde_json::from_str(&files).ok()?;
-        let run_contract: RunContract = serde_json::from_str(&contract).ok()?;
-        Some(with_inferred_tts_family(InstalledHfModel {
-            id: id.to_string(),
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .ok()?;
+    row.and_then(
+        |(
             repo_id,
             revision,
             runtime,
             artifact_kind,
             install_dir,
-            artifact_files,
-            download_size_bytes: size as u64,
+            files,
+            size,
             license,
-            run_contract,
-            installed_at: at,
-            installed: false,
-        }))
-    })
+            contract,
+            at,
+        )| {
+            let runtime = HfRuntime::from_tag(&runtime)?;
+            let artifact_files: Vec<InstalledModelFile> = serde_json::from_str(&files).ok()?;
+            let run_contract: RunContract = serde_json::from_str(&contract).ok()?;
+            Some(with_inferred_tts_family(InstalledHfModel {
+                id: id.to_string(),
+                repo_id,
+                revision,
+                runtime,
+                artifact_kind,
+                install_dir,
+                artifact_files,
+                download_size_bytes: size as u64,
+                license,
+                run_contract,
+                installed_at: at,
+                installed: false,
+            }))
+        },
+    )
 }
 async fn registry_delete(pool: &Pool<sqlx::Sqlite>, id: &str) -> Result<()> {
     sqlx::query("DELETE FROM hf_installed_models WHERE id = ?")
@@ -655,19 +652,42 @@ pub async fn registry_is_installed(
 
 /// List all registry rows, re-verifying each against disk.
 pub async fn registry_list(pool: &Pool<sqlx::Sqlite>) -> Result<Vec<InstalledHfModel>> {
-    let rows: Vec<(String, String, String, String, String, String, String, i64, Option<String>, String, String)> =
-        sqlx::query_as(
-            "SELECT id, repo_id, revision, runtime, artifact_kind, install_dir, artifact_files,
+    let rows: Vec<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        i64,
+        Option<String>,
+        String,
+        String,
+    )> = sqlx::query_as(
+        "SELECT id, repo_id, revision, runtime, artifact_kind, install_dir, artifact_files,
                     download_size_bytes, license, run_contract, installed_at
              FROM hf_installed_models ORDER BY installed_at DESC",
-        )
-        .fetch_all(pool)
-        .await?;
+    )
+    .fetch_all(pool)
+    .await?;
 
     Ok(rows
         .into_iter()
         .filter_map(
-            |(id, repo_id, revision, runtime, artifact_kind, install_dir, files, size, license, contract, at)| {
+            |(
+                id,
+                repo_id,
+                revision,
+                runtime,
+                artifact_kind,
+                install_dir,
+                files,
+                size,
+                license,
+                contract,
+                at,
+            )| {
                 let runtime = HfRuntime::from_tag(&runtime)?;
                 let artifact_files: Vec<InstalledModelFile> = serde_json::from_str(&files).ok()?;
                 let run_contract: RunContract = serde_json::from_str(&contract).ok()?;
@@ -852,11 +872,7 @@ pub async fn resolve_installed_whistle(
             }
         }
     }
-    let default_id = model_id_for(
-        HfRuntime::WhistleStt,
-        WHISTLE_REPO_ID,
-        WHISTLE_REVISION,
-    );
+    let default_id = model_id_for(HfRuntime::WhistleStt, WHISTLE_REPO_ID, WHISTLE_REVISION);
     if let Some((runtime, contract)) = resolve_run_contract(pool, &default_id).await {
         if runtime == HfRuntime::WhistleStt && contract.validate().is_ok() {
             if let Some(model) = registry_get(pool, &default_id).await {
@@ -929,14 +945,12 @@ pub async fn stt_route_for_model(pool: &Pool<sqlx::Sqlite>, model_id: &str) -> S
                     decoder: decoder_file,
                     joiner: joiner_file,
                 },
-                super::adapters::SherpaSttFamily::Paraformer => SttEngineRoute::Paraformer {
-                    model: model_file,
-                },
+                super::adapters::SherpaSttFamily::Paraformer => {
+                    SttEngineRoute::Paraformer { model: model_file }
+                }
             },
             RunContract::SherpaTts { .. } => SttEngineRoute::NotTranscription,
-            RunContract::Whistle { model_file } => {
-                SttEngineRoute::Whistle { model: model_file }
-            }
+            RunContract::Whistle { model_file } => SttEngineRoute::Whistle { model: model_file },
             RunContract::NemotronAsr {
                 encoder,
                 decoder,
@@ -1020,7 +1034,11 @@ pub async fn resolve_install_target(
 ) -> Result<InstallTarget> {
     let client = hf_metadata_client();
     let revision = clean_revision(repo_input.revision.as_deref().unwrap_or("main"));
-    let revision = if revision.is_empty() { "main" } else { revision.as_str() };
+    let revision = if revision.is_empty() {
+        "main"
+    } else {
+        revision.as_str()
+    };
 
     let info = fetch_repo_info(&client, &repo_input.repo_id, Some(revision)).await?;
 
@@ -1043,10 +1061,8 @@ pub async fn resolve_install_target(
         })?;
 
     let app_data = app_data_dir(app)?;
-    let install_dir = install_dir_for(runtime, &app_data).join(safe_dir_name(
-        &repo_input.repo_id,
-        revision,
-    ));
+    let install_dir =
+        install_dir_for(runtime, &app_data).join(safe_dir_name(&repo_input.repo_id, revision));
     let model_id = model_id_for(runtime, &repo_input.repo_id, revision);
 
     Ok(InstallTarget {
@@ -1173,7 +1189,14 @@ pub async fn install(
     cancel: CancellationToken,
 ) -> Result<InstalledHfModel> {
     // Duplicate-install prevention (same repo id + revision + runtime).
-    if registry_is_installed(repo.pool(), &target.repo_id, &target.revision, target.runtime).await {
+    if registry_is_installed(
+        repo.pool(),
+        &target.repo_id,
+        &target.revision,
+        target.runtime,
+    )
+    .await
+    {
         return Err(anyhow!(
             "{} ({}) is already installed.",
             target.repo_id,
@@ -1242,7 +1265,10 @@ pub async fn install(
     };
     let installed_size: u64 = artifact_files.iter().map(|f| f.size).sum();
     // Verify the installed file set satisfies the run contract.
-    if !verify_on_disk(target.install_dir.to_string_lossy().as_ref(), &artifact_files) {
+    if !verify_on_disk(
+        target.install_dir.to_string_lossy().as_ref(),
+        &artifact_files,
+    ) {
         let _ = super::downloader::remove_dir_if_exists(&target.install_dir);
         let e = anyhow!("Model downloaded but installed files failed verification.");
         emit_install_finished(app, &install_failure_event(&progress_id, &e));
@@ -1403,7 +1429,11 @@ mod tests {
         let event = install_failure_event("nemotron-3.5-asr-0.6b", &err);
         assert_eq!(event.id, "nemotron-3.5-asr-0.6b");
         assert!(!event.ok);
-        assert!(event.message.contains("connection lost"), "{}", event.message);
+        assert!(
+            event.message.contains("connection lost"),
+            "{}",
+            event.message
+        );
         assert!(event.message.contains("retried"), "{}", event.message);
     }
 
@@ -1529,11 +1559,26 @@ mod tests {
     #[test]
     fn from_tag_accepts_exact_frontend_values() {
         // The frontend sends these serde kebab-case values to hf_install_model.
-        assert_eq!(HfRuntime::from_tag("whisper-cpp"), Some(HfRuntime::WhisperCpp));
-        assert_eq!(HfRuntime::from_tag("sherpa-onnx-stt"), Some(HfRuntime::SherpaOnnxStt));
-        assert_eq!(HfRuntime::from_tag("sherpa-onnx-tts"), Some(HfRuntime::SherpaOnnxTts));
-        assert_eq!(HfRuntime::from_tag("nemotron-asr"), Some(HfRuntime::NemotronAsr));
-        assert_eq!(HfRuntime::from_tag("whistle-stt"), Some(HfRuntime::WhistleStt));
+        assert_eq!(
+            HfRuntime::from_tag("whisper-cpp"),
+            Some(HfRuntime::WhisperCpp)
+        );
+        assert_eq!(
+            HfRuntime::from_tag("sherpa-onnx-stt"),
+            Some(HfRuntime::SherpaOnnxStt)
+        );
+        assert_eq!(
+            HfRuntime::from_tag("sherpa-onnx-tts"),
+            Some(HfRuntime::SherpaOnnxTts)
+        );
+        assert_eq!(
+            HfRuntime::from_tag("nemotron-asr"),
+            Some(HfRuntime::NemotronAsr)
+        );
+        assert_eq!(
+            HfRuntime::from_tag("whistle-stt"),
+            Some(HfRuntime::WhistleStt)
+        );
         assert_eq!(HfRuntime::from_tag("bogus"), None);
     }
 
@@ -1546,7 +1591,10 @@ mod tests {
         assert_eq!(sanitize_install_rel("a/../../evil.onnx"), None);
         assert_eq!(sanitize_install_rel("ggml/../evil.onnx"), None);
         // Absolute path collapses to a contained relative path.
-        assert_eq!(sanitize_install_rel("/etc/passwd"), Some("etc/passwd".to_string()));
+        assert_eq!(
+            sanitize_install_rel("/etc/passwd"),
+            Some("etc/passwd".to_string())
+        );
         assert_eq!(sanitize_install_rel("/"), None);
         // `.` / empty components.
         assert_eq!(sanitize_install_rel("."), None);
@@ -1557,13 +1605,21 @@ mod tests {
         assert_eq!(sanitize_install_rel("..\\evil.onnx"), None);
         assert_eq!(sanitize_install_rel("C:/evil.onnx"), None);
         // Legit subdirectories still allowed.
-        assert_eq!(sanitize_install_rel("ggml/ggml-base.bin"), Some("ggml/ggml-base.bin".to_string()));
+        assert_eq!(
+            sanitize_install_rel("ggml/ggml-base.bin"),
+            Some("ggml/ggml-base.bin".to_string())
+        );
     }
 
     #[test]
     fn install_rel_never_escapes_install_dir() {
         let install_dir = Path::new("/tmp/app/models/whisper/owner_model");
-        for hostile in ["../evil.onnx", "/etc/passwd", "a/../../evil.onnx", "C:/evil.onnx"] {
+        for hostile in [
+            "../evil.onnx",
+            "/etc/passwd",
+            "a/../../evil.onnx",
+            "C:/evil.onnx",
+        ] {
             if let Some(rel) = sanitize_install_rel(hostile) {
                 let joined = install_dir.join(&rel);
                 assert!(
@@ -1578,7 +1634,9 @@ mod tests {
     fn is_pinned_nemotron_repo_matches_catalog_id() {
         assert!(is_pinned_nemotron_repo(NEMOTRON_ASR_REPO_ID));
         assert!(is_pinned_nemotron_repo("NVIDIA/Nemotron-3.5-ASR-0.6B"));
-        assert!(is_pinned_nemotron_repo("handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf"));
+        assert!(is_pinned_nemotron_repo(
+            "handy-computer/nemotron-3.5-asr-streaming-0.6b-gguf"
+        ));
         assert!(is_pinned_nemotron_repo(NEMOTRON_ASR_LOGICAL_KEY));
     }
 
@@ -1627,7 +1685,10 @@ mod tests {
             };
             registry_insert(&pool, &model).await.unwrap();
             let resolved = resolve_installed_path(&pool, &model.id).await;
-            assert!(resolved.is_none(), "{hostile:?} must not resolve outside install dir");
+            assert!(
+                resolved.is_none(),
+                "{hostile:?} must not resolve outside install dir"
+            );
         }
     }
 
@@ -1690,14 +1751,23 @@ mod tests {
         write_model_files(&model);
         registry_insert(&pool, &model).await.unwrap();
 
-        assert!(registry_is_installed(&pool, "someone/whisper-tiny", "main", HfRuntime::WhisperCpp).await);
+        assert!(
+            registry_is_installed(&pool, "someone/whisper-tiny", "main", HfRuntime::WhisperCpp)
+                .await
+        );
         // Same repo but a different revision is a distinct install.
-        assert!(!registry_is_installed(&pool, "someone/whisper-tiny", "dev", HfRuntime::WhisperCpp).await);
+        assert!(
+            !registry_is_installed(&pool, "someone/whisper-tiny", "dev", HfRuntime::WhisperCpp)
+                .await
+        );
 
         model.revision = "dev".to_string();
         model.id = model_id_for(HfRuntime::WhisperCpp, "someone/whisper-tiny", "dev");
         registry_insert(&pool, &model).await.unwrap();
-        assert!(registry_is_installed(&pool, "someone/whisper-tiny", "dev", HfRuntime::WhisperCpp).await);
+        assert!(
+            registry_is_installed(&pool, "someone/whisper-tiny", "dev", HfRuntime::WhisperCpp)
+                .await
+        );
     }
 
     // ── 5.10: restart re-detection (files present vs removed) ──────────────
@@ -1711,13 +1781,19 @@ mod tests {
 
         // "After restart": files are present → installed.
         let listed = registry_list(&pool).await.unwrap();
-        let m = listed.iter().find(|m| m.id == model.id).expect("row listed");
+        let m = listed
+            .iter()
+            .find(|m| m.id == model.id)
+            .expect("row listed");
         assert!(m.installed, "model files on disk → installed");
 
         // User deletes the file externally (or a restart finds it gone).
         std::fs::remove_file(Path::new(&model.install_dir).join("ggml-tiny.bin")).unwrap();
         let listed = registry_list(&pool).await.unwrap();
-        let m = listed.iter().find(|m| m.id == model.id).expect("row still listed");
+        let m = listed
+            .iter()
+            .find(|m| m.id == model.id)
+            .expect("row still listed");
         assert!(!m.installed, "missing files → not installed");
 
         // And the STT profile merge must not surface it as selectable.
@@ -1734,12 +1810,18 @@ mod tests {
         registry_insert(&pool, &model).await.unwrap();
 
         let profiles = hf_stt_profiles(&pool).await;
-        assert_eq!(profiles.len(), 1, "installed HF whisper appears in STT picker");
+        assert_eq!(
+            profiles.len(),
+            1,
+            "installed HF whisper appears in STT picker"
+        );
         assert_eq!(profiles[0].id, model.id);
         assert!(profiles[0].installed);
 
         // Resolve the engine path for the STT engine.
-        let resolved = resolve_installed_path(&pool, &model.id).await.expect("path resolves");
+        let resolved = resolve_installed_path(&pool, &model.id)
+            .await
+            .expect("path resolves");
         assert!(resolved.ends_with("ggml-tiny.bin"));
     }
 
@@ -1777,10 +1859,15 @@ mod tests {
         write_model_files(&model);
         registry_insert(&pool, &model).await.unwrap();
 
-        let err = uninstall_with_app_data(&Repository::new(pool.clone()), &model.id, app_data.path())
-            .await
-            .expect_err("refuses unsafe path");
-        assert!(err.to_string().contains("managed models directory"), "{}", err);
+        let err =
+            uninstall_with_app_data(&Repository::new(pool.clone()), &model.id, app_data.path())
+                .await
+                .expect_err("refuses unsafe path");
+        assert!(
+            err.to_string().contains("managed models directory"),
+            "{}",
+            err
+        );
         assert!(Path::new(&model.install_dir).exists(), "file preserved");
     }
 
@@ -1832,7 +1919,13 @@ mod tests {
         .unwrap()
     }
 
-    async fn insert_raw_row(pool: &Pool<sqlx::Sqlite>, id: &str, dir: &str, contract: &str, files: &str) {
+    async fn insert_raw_row(
+        pool: &Pool<sqlx::Sqlite>,
+        id: &str,
+        dir: &str,
+        contract: &str,
+        files: &str,
+    ) {
         sqlx::query(
             "INSERT INTO hf_installed_models
              (id, repo_id, revision, runtime, artifact_kind, install_dir, artifact_files,
@@ -1869,7 +1962,10 @@ mod tests {
         .await;
 
         let listed = registry_list(&pool).await.unwrap();
-        let m = listed.iter().find(|m| m.id == "hf:sherpa-onnx-tts:someone/tts-model").unwrap();
+        let m = listed
+            .iter()
+            .find(|m| m.id == "hf:sherpa-onnx-tts:someone/tts-model")
+            .unwrap();
         assert_eq!(
             m.run_contract.effective_tts_family(),
             Some(crate::models::hf::adapters::SherpaTtsFamily::Kokoro),
@@ -1877,7 +1973,10 @@ mod tests {
         );
         assert!(matches!(
             m.run_contract,
-            RunContract::SherpaTts { family: Some(_), .. }
+            RunContract::SherpaTts {
+                family: Some(_),
+                ..
+            }
         ));
     }
 
@@ -1927,7 +2026,11 @@ mod tests {
         assert!(contract.validate().is_ok());
 
         // Unknown / non-TTS ids do not resolve.
-        assert!(resolve_installed_tts(&pool, "hf:sherpa-onnx-tts:someone/missing").await.is_none());
+        assert!(
+            resolve_installed_tts(&pool, "hf:sherpa-onnx-tts:someone/missing")
+                .await
+                .is_none()
+        );
         assert!(resolve_installed_tts(&pool, "not-an-hf-id").await.is_none());
     }
 
@@ -1973,20 +2076,30 @@ mod tests {
         // Catalog prefix fallbacks (no registry row).
         assert_eq!(
             stt_route_for_model(&pool, "parakeet-tdt-ctc-110m").await,
-            SttEngineRoute::Parakeet { model: "model.int8.onnx".to_string() }
+            SttEngineRoute::Parakeet {
+                model: "model.int8.onnx".to_string()
+            }
         );
         assert_eq!(
             stt_route_for_model(&pool, "sense-voice-small").await,
-            SttEngineRoute::SenseVoice { model: "model.int8.onnx".to_string() }
+            SttEngineRoute::SenseVoice {
+                model: "model.int8.onnx".to_string()
+            }
         );
-        assert_eq!(stt_route_for_model(&pool, "distil-small.en").await, SttEngineRoute::Whisper);
+        assert_eq!(
+            stt_route_for_model(&pool, "distil-small.en").await,
+            SttEngineRoute::Whisper
+        );
 
         // HF whisper model.
         let dir = tempfile::tempdir().unwrap();
         let model = whisper_model(dir.path().to_str().unwrap());
         write_model_files(&model);
         registry_insert(&pool, &model).await.unwrap();
-        assert_eq!(stt_route_for_model(&pool, &model.id).await, SttEngineRoute::Whisper);
+        assert_eq!(
+            stt_route_for_model(&pool, &model.id).await,
+            SttEngineRoute::Whisper
+        );
 
         // HF sherpa sense-voice model.
         let sense = InstalledHfModel {
@@ -1997,8 +2110,16 @@ mod tests {
             artifact_kind: "sense-voice".to_string(),
             install_dir: dir.path().to_str().unwrap().to_string(),
             artifact_files: vec![
-                InstalledModelFile { path: "model.int8.onnx".to_string(), size: 10, sha256: None },
-                InstalledModelFile { path: "tokens.txt".to_string(), size: 10, sha256: None },
+                InstalledModelFile {
+                    path: "model.int8.onnx".to_string(),
+                    size: 10,
+                    sha256: None,
+                },
+                InstalledModelFile {
+                    path: "tokens.txt".to_string(),
+                    size: 10,
+                    sha256: None,
+                },
             ],
             download_size_bytes: 20,
             license: None,
@@ -2017,7 +2138,9 @@ mod tests {
         registry_insert(&pool, &sense).await.unwrap();
         assert_eq!(
             stt_route_for_model(&pool, &sense.id).await,
-            SttEngineRoute::SenseVoice { model: "model.int8.onnx".to_string() }
+            SttEngineRoute::SenseVoice {
+                model: "model.int8.onnx".to_string()
+            }
         );
 
         // Nemotron alias resolution and routing. Before any registry row
@@ -2030,7 +2153,11 @@ mod tests {
         };
         assert_eq!(
             canonicalize_hf_model_id(NEMOTRON_ASR_LOGICAL_KEY),
-            model_id_for(HfRuntime::NemotronAsr, NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_REVISION)
+            model_id_for(
+                HfRuntime::NemotronAsr,
+                NEMOTRON_ASR_REPO_ID,
+                NEMOTRON_ASR_REVISION
+            )
         );
         assert_eq!(
             stt_route_for_model(&pool, NEMOTRON_ASR_LOGICAL_KEY).await,
@@ -2049,7 +2176,11 @@ mod tests {
             NEMOTRON_ASR_TOKENS_FILE,
         ];
         let nemotron = InstalledHfModel {
-            id: model_id_for(HfRuntime::NemotronAsr, NEMOTRON_ASR_REPO_ID, NEMOTRON_ASR_REVISION),
+            id: model_id_for(
+                HfRuntime::NemotronAsr,
+                NEMOTRON_ASR_REPO_ID,
+                NEMOTRON_ASR_REVISION,
+            ),
             repo_id: NEMOTRON_ASR_REPO_ID.to_string(),
             revision: NEMOTRON_ASR_REVISION.to_string(),
             runtime: HfRuntime::NemotronAsr,
@@ -2057,7 +2188,11 @@ mod tests {
             install_dir: dir.path().to_str().unwrap().to_string(),
             artifact_files: onnx_files
                 .iter()
-                .map(|f| InstalledModelFile { path: f.to_string(), size: 100, sha256: None })
+                .map(|f| InstalledModelFile {
+                    path: f.to_string(),
+                    size: 100,
+                    sha256: None,
+                })
                 .collect(),
             download_size_bytes: 400,
             license: None,

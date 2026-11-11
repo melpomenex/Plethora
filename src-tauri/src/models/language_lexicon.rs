@@ -562,12 +562,19 @@ pub fn stable_occurrence_key(input: &EncounterInput, normalized: &str) -> String
         "{}|{}|{}|{}|{}|{}|{}|{}|{}",
         input.profile_id,
         input.content_fingerprint.as_deref().unwrap_or_default(),
-        input.document_id.as_deref().or(input.media_id.as_deref()).unwrap_or_default(),
+        input
+            .document_id
+            .as_deref()
+            .or(input.media_id.as_deref())
+            .unwrap_or_default(),
         input.sentence_id.as_deref().unwrap_or_default(),
         input.token_id.as_deref().unwrap_or_default(),
         normalized,
         source,
         input.context_reference.as_deref().unwrap_or_default(),
-        input.audio_start_ms.map(|value| value.to_string()).unwrap_or_default(),
+        input
+            .audio_start_ms
+            .map(|value| value.to_string())
+            .unwrap_or_default(),
     )
 }

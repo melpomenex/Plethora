@@ -265,9 +265,7 @@ async fn merge_legacy_database(
     let legacy_docs = sqlx::query("SELECT * FROM documents")
         .fetch_all(legacy_pool)
         .await
-        .map_err(|e| {
-            PlethoraError::Internal(format!("Failed to read legacy documents: {}", e))
-        })?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to read legacy documents: {}", e)))?;
 
     for row in legacy_docs {
         let legacy_id: String = row.try_get("id")?;
@@ -302,9 +300,7 @@ async fn merge_legacy_database(
     let legacy_extracts = sqlx::query("SELECT * FROM extracts")
         .fetch_all(legacy_pool)
         .await
-        .map_err(|e| {
-            PlethoraError::Internal(format!("Failed to read legacy extracts: {}", e))
-        })?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to read legacy extracts: {}", e)))?;
 
     for row in legacy_extracts {
         let _legacy_id: String = row.try_get("id")?;

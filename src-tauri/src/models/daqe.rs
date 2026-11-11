@@ -88,8 +88,7 @@ impl DaqeKnobs {
                 COMPLEXITY_SCALE_MIN as i32, COMPLEXITY_SCALE_MAX as i32, self.energy_target
             ));
         }
-        if !(AFK_IDLE_TIMEOUT_MIN_MS..=AFK_IDLE_TIMEOUT_MAX_MS)
-            .contains(&self.afk_idle_timeout_ms)
+        if !(AFK_IDLE_TIMEOUT_MIN_MS..=AFK_IDLE_TIMEOUT_MAX_MS).contains(&self.afk_idle_timeout_ms)
         {
             return Err(format!(
                 "afkIdleTimeoutMs must be between {} and {}, got {}",
@@ -181,18 +180,30 @@ pub struct TermValue {
 impl TermValue {
     /// A measured value.
     pub fn measured(value: f64) -> Self {
-        Self { value: value.clamp(0.0, 1.0), available: true, defaulted: false }
+        Self {
+            value: value.clamp(0.0, 1.0),
+            available: true,
+            defaulted: false,
+        }
     }
 
     /// A deterministic local stand-in: a real number, but not a model verdict.
     pub fn defaulted(value: f64) -> Self {
-        Self { value: value.clamp(0.0, 1.0), available: true, defaulted: true }
+        Self {
+            value: value.clamp(0.0, 1.0),
+            available: true,
+            defaulted: true,
+        }
     }
 
     /// No input signal was available. `value` is the documented neutral term and
     /// MUST NOT be presented as measured.
     pub fn unavailable() -> Self {
-        Self { value: 0.0, available: false, defaulted: false }
+        Self {
+            value: 0.0,
+            available: false,
+            defaulted: false,
+        }
     }
 
     /// The value as it enters the score. An unavailable term contributes its
@@ -340,8 +351,7 @@ mod tests {
         assert_eq!(DecisionModelTier::DeepFoundational.complexity(), 5.0);
         for tier in DecisionModelTier::all() {
             assert!(
-                (COMPLEXITY_SCALE_MIN..=COMPLEXITY_SCALE_MAX)
-                    .contains(&tier.complexity()),
+                (COMPLEXITY_SCALE_MIN..=COMPLEXITY_SCALE_MAX).contains(&tier.complexity()),
                 "{tier:?} must sit on the energy target's own scale"
             );
         }
@@ -377,39 +387,102 @@ mod tests {
     fn validation_rejects_each_knob_outside_its_range_without_mutating() {
         let base = DaqeKnobs::default();
 
-        let bad_weight = DaqeKnobs { srs_decay_weight: 1.4, ..base };
-        assert!(bad_weight.validated().unwrap_err().contains("srsDecayWeight"));
+        let bad_weight = DaqeKnobs {
+            srs_decay_weight: 1.4,
+            ..base
+        };
+        assert!(bad_weight
+            .validated()
+            .unwrap_err()
+            .contains("srsDecayWeight"));
 
-        let bad_goal = DaqeKnobs { goal_relevance: -0.1, ..base };
+        let bad_goal = DaqeKnobs {
+            goal_relevance: -0.1,
+            ..base
+        };
         assert!(bad_goal.validated().is_err());
 
-        let bad_interleave = DaqeKnobs { interleaving_diversity: 2.0, ..base };
+        let bad_interleave = DaqeKnobs {
+            interleaving_diversity: 2.0,
+            ..base
+        };
         assert!(bad_interleave.validated().is_err());
 
-        let bad_prune = DaqeKnobs { pruning_aggressiveness: f64::NAN, ..base };
-        assert!(bad_prune.validated().is_err(), "NaN must not pass a range check");
+        let bad_prune = DaqeKnobs {
+            pruning_aggressiveness: f64::NAN,
+            ..base
+        };
+        assert!(
+            bad_prune.validated().is_err(),
+            "NaN must not pass a range check"
+        );
 
-        let bad_energy = DaqeKnobs { energy_target: 6, ..base };
+        let bad_energy = DaqeKnobs {
+            energy_target: 6,
+            ..base
+        };
         assert!(bad_energy.validated().unwrap_err().contains("energyTarget"));
 
-        let low_afk = DaqeKnobs { afk_idle_timeout_ms: 14_999, ..base };
-        assert!(low_afk.validated().unwrap_err().contains("afkIdleTimeoutMs"));
+        let low_afk = DaqeKnobs {
+            afk_idle_timeout_ms: 14_999,
+            ..base
+        };
+        assert!(low_afk
+            .validated()
+            .unwrap_err()
+            .contains("afkIdleTimeoutMs"));
 
-        let high_afk = DaqeKnobs { afk_idle_timeout_ms: 120_001, ..base };
+        let high_afk = DaqeKnobs {
+            afk_idle_timeout_ms: 120_001,
+            ..base
+        };
         assert!(high_afk.validated().is_err());
 
         // Boundary values are accepted.
-        assert!(DaqeKnobs { energy_target: 1, ..base }.validated().is_ok());
-        assert!(DaqeKnobs { energy_target: 5, ..base }.validated().is_ok());
-        assert!(DaqeKnobs { afk_idle_timeout_ms: 15_000, ..base }.validated().is_ok());
-        assert!(DaqeKnobs { afk_idle_timeout_ms: 120_000, ..base }.validated().is_ok());
-        assert!(DaqeKnobs { srs_decay_weight: 0.0, ..base }.validated().is_ok());
-        assert!(DaqeKnobs { srs_decay_weight: 1.0, ..base }.validated().is_ok());
+        assert!(DaqeKnobs {
+            energy_target: 1,
+            ..base
+        }
+        .validated()
+        .is_ok());
+        assert!(DaqeKnobs {
+            energy_target: 5,
+            ..base
+        }
+        .validated()
+        .is_ok());
+        assert!(DaqeKnobs {
+            afk_idle_timeout_ms: 15_000,
+            ..base
+        }
+        .validated()
+        .is_ok());
+        assert!(DaqeKnobs {
+            afk_idle_timeout_ms: 120_000,
+            ..base
+        }
+        .validated()
+        .is_ok());
+        assert!(DaqeKnobs {
+            srs_decay_weight: 0.0,
+            ..base
+        }
+        .validated()
+        .is_ok());
+        assert!(DaqeKnobs {
+            srs_decay_weight: 1.0,
+            ..base
+        }
+        .validated()
+        .is_ok());
     }
 
     #[test]
     fn srs_only_knobs_ignore_the_energy_target() {
-        let srs_only = DaqeKnobs { srs_decay_weight: 0.5, ..DaqeKnobs::default() };
+        let srs_only = DaqeKnobs {
+            srs_decay_weight: 0.5,
+            ..DaqeKnobs::default()
+        };
         assert!(!srs_only.is_srs_only(), "other knobs are still non-zero");
         let bare = DaqeKnobs {
             srs_decay_weight: 0.5,

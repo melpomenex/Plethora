@@ -245,9 +245,12 @@ pub async fn create_learning_item(
     proposal_id: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<LearningItem> {
-    let existing_for_acceptance = if let (Some(acceptance), Some(proposal)) = (&acceptance_id, &proposal_id) {
-        find_learning_item_by_acceptance_key(acceptance, proposal, &repo).await?
-    } else { None };
+    let existing_for_acceptance =
+        if let (Some(acceptance), Some(proposal)) = (&acceptance_id, &proposal_id) {
+            find_learning_item_by_acceptance_key(acceptance, proposal, &repo).await?
+        } else {
+            None
+        };
     let acceptance_key = acceptance_id.clone();
     let proposal_key = proposal_id.clone();
 
@@ -304,8 +307,14 @@ pub async fn create_learning_item(
             }
         }
     }
-    let source = crate::database::learning_item_source::ExpectedLearningSource { document_revision: source_revision, extract_revision };
-    let created = match repo.create_learning_item_with_source(&item, Some(&source)).await {
+    let source = crate::database::learning_item_source::ExpectedLearningSource {
+        document_revision: source_revision,
+        extract_revision,
+    };
+    let created = match repo
+        .create_learning_item_with_source(&item, Some(&source))
+        .await
+    {
         Ok(created) => created,
         Err(error) => {
             // Concurrent retry: the unique (acceptance_id, proposal_id) index
@@ -314,7 +323,11 @@ pub async fn create_learning_item(
                 if let Some(existing) =
                     find_learning_item_by_acceptance_key(acceptance, proposal, &repo).await?
                 {
-                    if crate::database::learning_item_source::same_learning_candidate(&existing, &item) { return Ok(existing); }
+                    if crate::database::learning_item_source::same_learning_candidate(
+                        &existing, &item,
+                    ) {
+                        return Ok(existing);
+                    }
                 }
             }
             return Err(error);
@@ -415,7 +428,10 @@ pub async fn create_learning_items_batch(
         item.extract_id = entry.extract_id.clone();
         item.document_id = entry.document_id.clone();
         item.answer = entry.answer.clone();
-        item.cloze_text = entry.cloze_text.clone().or_else(|| (item.item_type == ItemType::Cloze).then(|| item.question.clone()));
+        item.cloze_text = entry
+            .cloze_text
+            .clone()
+            .or_else(|| (item.item_type == ItemType::Cloze).then(|| item.question.clone()));
         item.tags = entry.tags.clone().unwrap_or_default();
         item.image_asset_ids = entry.image_asset_ids.clone().unwrap_or_default();
         item.interaction_metadata = entry.interaction_metadata.clone();

@@ -17,7 +17,9 @@ pub struct RecordedRequest {
 impl RecordedRequest {
     /// Case-insensitive contains over the raw head (header lookup helper).
     pub fn has_header(&self, name: &str) -> bool {
-        self.head.to_ascii_lowercase().contains(&name.to_ascii_lowercase())
+        self.head
+            .to_ascii_lowercase()
+            .contains(&name.to_ascii_lowercase())
     }
 
     /// The value of `Range:` if present, e.g. `bytes=1048576-`.
@@ -88,10 +90,7 @@ impl TestServerBuilder {
     /// Declare the full `Content-Length` but only send the first `n` bytes of
     /// the body, holding the connection open afterward. Returns a receiver that
     /// resolves once the partial body has been written.
-    pub fn hold_after_bytes(
-        mut self,
-        n: usize,
-    ) -> (Self, tokio::sync::oneshot::Receiver<()>) {
+    pub fn hold_after_bytes(mut self, n: usize) -> (Self, tokio::sync::oneshot::Receiver<()>) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.hold_after_bytes = Some(n);
         self.hold_signal = Some(tx);
@@ -102,10 +101,7 @@ impl TestServerBuilder {
     /// then close it abruptly (mid-stream failure); later connections serve
     /// their full body. Returns a receiver that resolves once those bytes have
     /// been written.
-    pub fn drop_after_bytes(
-        mut self,
-        n: usize,
-    ) -> (Self, tokio::sync::oneshot::Receiver<()>) {
+    pub fn drop_after_bytes(mut self, n: usize) -> (Self, tokio::sync::oneshot::Receiver<()>) {
         let (tx, rx) = tokio::sync::oneshot::channel();
         self.drop_after_bytes = Some(n);
         self.drop_signal = Some(tx);

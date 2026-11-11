@@ -9,12 +9,12 @@ use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, BufReader};
 use tokio::sync::mpsc;
 use tokio::sync::watch;
 
-use crate::utils::ffmpeg;
 use super::probe;
 use super::types::{
     JobProgress, MediaCompatError, MediaFailureCode, MediaInspection, MediaPlaybackPlan,
     PlaybackStrategy,
 };
+use crate::utils::ffmpeg;
 
 #[derive(Debug)]
 pub struct FfmpegRunResult {
@@ -31,13 +31,25 @@ fn ffmpeg_supports_fps_mode(version: Option<&str>) -> bool {
     let Some(version) = version else { return false };
     let token = version
         .split_whitespace()
-        .find(|token| token.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false)
-            || token.starts_with('n'))
+        .find(|token| {
+            token
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false)
+                || token.starts_with('n')
+        })
         .unwrap_or(version);
     let token = token.trim_start_matches('n');
     let mut parts = token.split('.');
-    let major = parts.next().and_then(|value| value.parse::<u32>().ok()).unwrap_or(0);
-    let minor = parts.next().and_then(|value| value.parse::<u32>().ok()).unwrap_or(0);
+    let major = parts
+        .next()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(0);
+    let minor = parts
+        .next()
+        .and_then(|value| value.parse::<u32>().ok())
+        .unwrap_or(0);
     major > 5 || (major == 5 && minor >= 1)
 }
 
@@ -52,14 +64,24 @@ fn ffmpeg_format(container: &str) -> &'static str {
 
 fn is_hevc(inspection: &MediaInspection, plan: &MediaPlaybackPlan) -> bool {
     plan.selected_video_index
-        .and_then(|index| inspection.video_streams.iter().find(|stream| stream.index == index))
+        .and_then(|index| {
+            inspection
+                .video_streams
+                .iter()
+                .find(|stream| stream.index == index)
+        })
         .map(|stream| stream.codec.eq_ignore_ascii_case("hevc"))
         .unwrap_or(false)
 }
 
 fn is_dolby_vision(inspection: &MediaInspection, plan: &MediaPlaybackPlan) -> bool {
     plan.selected_video_index
-        .and_then(|index| inspection.video_streams.iter().find(|stream| stream.index == index))
+        .and_then(|index| {
+            inspection
+                .video_streams
+                .iter()
+                .find(|stream| stream.index == index)
+        })
         .map(|stream| stream.hdr.dolby_vision.is_some())
         .unwrap_or(false)
 }
@@ -106,9 +128,15 @@ pub fn build_args(
     }
 
     let profile = plan.output.as_ref();
-    let container = profile.map(|profile| profile.container.as_str()).unwrap_or("mkv");
-    let video = profile.map(|profile| profile.video.as_str()).unwrap_or("copy");
-    let audio = profile.map(|profile| profile.audio.as_str()).unwrap_or("copy");
+    let container = profile
+        .map(|profile| profile.container.as_str())
+        .unwrap_or("mkv");
+    let video = profile
+        .map(|profile| profile.video.as_str())
+        .unwrap_or("copy");
+    let audio = profile
+        .map(|profile| profile.audio.as_str())
+        .unwrap_or("copy");
 
     if video == "copy" {
         push(&mut args, "-c:v");
@@ -117,19 +145,29 @@ pub fn build_args(
         push(&mut args, "-c:v");
         push(&mut args, "libx264");
         push(&mut args, "-preset");
-        push(&mut args, profile.and_then(|profile| profile.video_preset.as_deref()).unwrap_or("veryfast"));
+        push(
+            &mut args,
+            profile
+                .and_then(|profile| profile.video_preset.as_deref())
+                .unwrap_or("veryfast"),
+        );
         push(&mut args, "-crf");
-        push(&mut args, profile.and_then(|profile| profile.video_crf).unwrap_or(20).to_string());
+        push(
+            &mut args,
+            profile
+                .and_then(|profile| profile.video_crf)
+                .unwrap_or(20)
+                .to_string(),
+        );
         push(&mut args, "-threads");
-        let cores = std::thread::available_parallelism().map(|value| value.get()).unwrap_or(4);
+        let cores = std::thread::available_parallelism()
+            .map(|value| value.get())
+            .unwrap_or(4);
         push(&mut args, cores.saturating_sub(2).clamp(1, 4).to_string());
         push(&mut args, "-pix_fmt");
         push(&mut args, "yuv420p");
         let mut filters = Vec::new();
-        if profile
-            .and_then(|profile| profile.tone_map.as_deref())
-            == Some("hdr10_to_sdr_bt709")
-        {
+        if profile.and_then(|profile| profile.tone_map.as_deref()) == Some("hdr10_to_sdr_bt709") {
             filters.push(
                 "zscale=t=linear:npl=100,format=gbrpf32le,zscale=p=bt709,tonemap=tonemap=hable:desat=0,zscale=t=bt709:m=bt709:r=tv,format=yuv420p".to_string(),
             );
@@ -160,7 +198,12 @@ pub fn build_args(
             push(&mut args, "-b:a");
             push(
                 &mut args,
-                format!("{}k", profile.and_then(|profile| profile.audio_bitrate_kbps).unwrap_or(192)),
+                format!(
+                    "{}k",
+                    profile
+                        .and_then(|profile| profile.audio_bitrate_kbps)
+                        .unwrap_or(192)
+                ),
             );
             if let Some(channels) = profile.and_then(|profile| profile.audio_channels) {
                 push(&mut args, "-ac");
@@ -186,7 +229,14 @@ pub fn build_args(
         push(&mut args, "+faststart");
         if video == "copy" && is_hevc(inspection, plan) {
             push(&mut args, "-tag:v");
-            push(&mut args, if is_dolby_vision(inspection, plan) { "dvh1" } else { "hvc1" });
+            push(
+                &mut args,
+                if is_dolby_vision(inspection, plan) {
+                    "dvh1"
+                } else {
+                    "hvc1"
+                },
+            );
         }
     }
     push(&mut args, "-f");
@@ -256,10 +306,16 @@ pub async fn run(
             .with_detail(error.to_string())
         })?;
     let stdout = child.stdout.take().ok_or_else(|| {
-        MediaCompatError::new(MediaFailureCode::ConversionFailed, "FFmpeg stdout unavailable.")
+        MediaCompatError::new(
+            MediaFailureCode::ConversionFailed,
+            "FFmpeg stdout unavailable.",
+        )
     })?;
     let stderr = child.stderr.take().ok_or_else(|| {
-        MediaCompatError::new(MediaFailureCode::ConversionFailed, "FFmpeg stderr unavailable.")
+        MediaCompatError::new(
+            MediaFailureCode::ConversionFailed,
+            "FFmpeg stderr unavailable.",
+        )
     })?;
     let stderr_task = tokio::spawn(read_capped(stderr, 64 * 1024));
     let (progress_tx, mut progress_rx) = mpsc::channel::<JobProgress>(32);
@@ -362,7 +418,10 @@ pub async fn verify(
             "The prepared copy unexpectedly contains subtitle streams.",
         ));
     }
-    if let (Some(expected), Some(actual)) = (inspection.duration_seconds, output_inspection.duration_seconds) {
+    if let (Some(expected), Some(actual)) = (
+        inspection.duration_seconds,
+        output_inspection.duration_seconds,
+    ) {
         if (expected - actual).abs() > 0.75 {
             return Err(MediaCompatError::new(
                 MediaFailureCode::ConversionVerificationFailed,
@@ -432,7 +491,9 @@ mod tests {
     async fn remux_fixture_produces_verified_output() {
         let input = fixture("mkv-h264-aac.mkv");
         if !input.exists() {
-            eprintln!("skipping: generated fixture missing; run scripts/media-fixtures/generate.sh");
+            eprintln!(
+                "skipping: generated fixture missing; run scripts/media-fixtures/generate.sh"
+            );
             return;
         }
         let inspection = probe::inspect_path(&input, None).await.expect("inspect");
@@ -455,10 +516,8 @@ mod tests {
             can_convert: true,
             ..Default::default()
         };
-        let output_dir = std::env::temp_dir().join(format!(
-            "plethora-compat-test-{}",
-            uuid::Uuid::new_v4()
-        ));
+        let output_dir =
+            std::env::temp_dir().join(format!("plethora-compat-test-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&output_dir).expect("temp dir");
         let output = output_dir.join("output.mkv");
         let args = build_args(&plan, &inspection, &input, &output);
@@ -466,7 +525,12 @@ mod tests {
         let result = run(args, inspection.duration_seconds, rx, None)
             .await
             .expect("run");
-        assert_eq!(result.exit_code, Some(0), "ffmpeg stderr: {}", result.stderr_tail);
+        assert_eq!(
+            result.exit_code,
+            Some(0),
+            "ffmpeg stderr: {}",
+            result.stderr_tail
+        );
         assert!(output.exists());
         let verification = verify(&output, &inspection, &plan).await.expect("verify");
         assert!(verification.contains(&"decode_2s_ok".to_string()));

@@ -119,8 +119,8 @@ pub fn classify(system: &SystemInfo, artifact: Option<&Artifact>) -> Suitability
 
     // Sherpa-onnx TTS and Cactus Whistle STT run CPU-only in Plethora,
     // so a discrete GPU never gates or improves the verdict — evaluate RAM.
-    let cpu_first = artifact.runtime == HfRuntime::SherpaOnnxTts
-        || artifact.runtime == HfRuntime::WhistleStt;
+    let cpu_first =
+        artifact.runtime == HfRuntime::SherpaOnnxTts || artifact.runtime == HfRuntime::WhistleStt;
 
     // Apple Silicon: unified memory is the accelerator budget.
     if system.is_apple_silicon {
@@ -173,71 +173,74 @@ pub fn classify(system: &SystemInfo, artifact: Option<&Artifact>) -> Suitability
     // runtimes — a big VRAM number must not turn a CPU verdict into a GPU one.
     if !cpu_first {
         if let Some(vram) = system.gpu.as_ref().and_then(|g| g.vram_bytes) {
-        let is_nvidia = system.gpu.as_ref().map(|g| g.vendor == "nvidia").unwrap_or(false);
-        let accelerator = if is_nvidia {
-            "CUDA"
-        } else {
-            "GPU"
-        };
-        if needs > vram {
-            // Too big for VRAM. If it also can't fit in RAM → hard no.
-            if needs > system.available_memory_bytes {
-                return Suitability {
-                    level: SuitabilityLevel::NotRecommended,
-                    explanation: format!(
+            let is_nvidia = system
+                .gpu
+                .as_ref()
+                .map(|g| g.vendor == "nvidia")
+                .unwrap_or(false);
+            let accelerator = if is_nvidia { "CUDA" } else { "GPU" };
+            if needs > vram {
+                // Too big for VRAM. If it also can't fit in RAM → hard no.
+                if needs > system.available_memory_bytes {
+                    return Suitability {
+                        level: SuitabilityLevel::NotRecommended,
+                        explanation: format!(
                         "Requires ~{} — the detected GPU has {} VRAM and the model also won't fit \
                          in the {} of free RAM. No valid CPU/offload config exists.",
                         gb(needs),
                         gb(vram),
                         gb(system.available_memory_bytes)
                     ),
-                    requires: vec![format!("{} {} VRAM", gb(needs), accelerator)],
-                    machine,
-                };
-            }
-            return Suitability {
-                level: SuitabilityLevel::MayRunSlowly,
-                explanation: format!(
+                        requires: vec![format!("{} {} VRAM", gb(needs), accelerator)],
+                        machine,
+                    };
+                }
+                return Suitability {
+                    level: SuitabilityLevel::MayRunSlowly,
+                    explanation: format!(
                     "Requires ~{} but the detected GPU has {} VRAM. It would run CPU-offloaded \
                      (Requires Offload) — expect much slower inference.",
                     gb(needs),
                     gb(vram)
                 ),
-                requires: vec![format!("{} {} VRAM (or CPU offload)", gb(needs), accelerator)],
-                machine,
-            };
-        }
-        if needs > vram * 3 / 4 {
-            return Suitability {
-                level: SuitabilityLevel::ShouldRun,
-                explanation: format!(
+                    requires: vec![format!(
+                        "{} {} VRAM (or CPU offload)",
+                        gb(needs),
+                        accelerator
+                    )],
+                    machine,
+                };
+            }
+            if needs > vram * 3 / 4 {
+                return Suitability {
+                    level: SuitabilityLevel::ShouldRun,
+                    explanation: format!(
                     "Fits the {} of {} VRAM with limited headroom — should run but may contend \
                      with other GPU workloads.",
                     gb(vram),
                     accelerator
                 ),
+                    requires: vec![],
+                    machine,
+                };
+            }
+            let base = if artifact.confidence == DetectionConfidence::Exact {
+                SuitabilityLevel::Recommended
+            } else {
+                SuitabilityLevel::ShouldRun
+            };
+            return Suitability {
+                level: base,
+                explanation: format!(
+                    "Fits comfortably in the {} of {} VRAM via the {} runtime.",
+                    gb(vram),
+                    accelerator,
+                    artifact.runtime.label()
+                ),
                 requires: vec![],
                 machine,
             };
         }
-        let base = if artifact.confidence == DetectionConfidence::Exact {
-            SuitabilityLevel::Recommended
-        } else {
-            SuitabilityLevel::ShouldRun
-        };
-        return Suitability {
-            level: base,
-            explanation: format!(
-                "Fits comfortably in the {} of {} VRAM via the {} runtime.",
-                gb(vram),
-                accelerator,
-                artifact.runtime.label()
-            ),
-            requires: vec![],
-            machine,
-        };
-    }
-
     }
 
     // CPU-only (or GPU without reported VRAM): evaluate for CPU inference.
@@ -461,7 +464,11 @@ mod tests {
     fn small_whisper_on_gpu_is_recommended() {
         let sys = nvidia_system(8.0, 32.0, 50.0);
         // ~500 MB ggml model → needs ~0.6 GB.
-        let a = artifact(HfRuntime::WhisperCpp, 500 * 1024 * 1024, DetectionConfidence::Exact);
+        let a = artifact(
+            HfRuntime::WhisperCpp,
+            500 * 1024 * 1024,
+            DetectionConfidence::Exact,
+        );
         let s = classify(&sys, Some(&a));
         assert_eq!(s.level, SuitabilityLevel::Recommended, "{}", s.explanation);
     }
@@ -469,7 +476,11 @@ mod tests {
     #[test]
     fn small_whisper_on_cpu_is_should_run() {
         let sys = cpu_system(16.0, 50.0);
-        let a = artifact(HfRuntime::WhisperCpp, 500 * 1024 * 1024, DetectionConfidence::Exact);
+        let a = artifact(
+            HfRuntime::WhisperCpp,
+            500 * 1024 * 1024,
+            DetectionConfidence::Exact,
+        );
         let s = classify(&sys, Some(&a));
         assert_eq!(s.level, SuitabilityLevel::ShouldRun, "{}", s.explanation);
         assert!(s.explanation.to_lowercase().contains("cpu"));
@@ -478,7 +489,11 @@ mod tests {
     #[test]
     fn small_sherpa_onnx_on_cpu_is_should_run() {
         let sys = cpu_system(16.0, 50.0);
-        let a = artifact(HfRuntime::SherpaOnnxStt, 120 * 1024 * 1024, DetectionConfidence::Exact);
+        let a = artifact(
+            HfRuntime::SherpaOnnxStt,
+            120 * 1024 * 1024,
+            DetectionConfidence::Exact,
+        );
         let s = classify(&sys, Some(&a));
         assert_eq!(s.level, SuitabilityLevel::ShouldRun, "{}", s.explanation);
     }
@@ -497,9 +512,18 @@ mod tests {
     fn insufficient_vram_is_not_recommended_with_vram_explanation() {
         let sys = nvidia_system(8.0, 16.0, 100.0);
         // ~12 GB model (weights) → needs ~14.4 GB > 8 GB VRAM AND > 12.8 GB avail RAM.
-        let a = artifact(HfRuntime::WhisperCpp, 12 * 1024 * 1024 * 1024, DetectionConfidence::Exact);
+        let a = artifact(
+            HfRuntime::WhisperCpp,
+            12 * 1024 * 1024 * 1024,
+            DetectionConfidence::Exact,
+        );
         let s = classify(&sys, Some(&a));
-        assert_eq!(s.level, SuitabilityLevel::NotRecommended, "{}", s.explanation);
+        assert_eq!(
+            s.level,
+            SuitabilityLevel::NotRecommended,
+            "{}",
+            s.explanation
+        );
         assert!(s.explanation.contains("VRAM"), "{}", s.explanation);
         assert!(s.explanation.contains("8"), "{}", s.explanation);
     }
@@ -508,10 +532,18 @@ mod tests {
     fn oversized_for_vram_but_fits_ram_is_may_run_slowly() {
         let sys = nvidia_system(8.0, 64.0, 100.0);
         // ~10 GB model → needs ~12 GB > 8 GB VRAM but < 51 GB avail RAM.
-        let a = artifact(HfRuntime::WhisperCpp, 10 * 1024 * 1024 * 1024, DetectionConfidence::Exact);
+        let a = artifact(
+            HfRuntime::WhisperCpp,
+            10 * 1024 * 1024 * 1024,
+            DetectionConfidence::Exact,
+        );
         let s = classify(&sys, Some(&a));
         assert_eq!(s.level, SuitabilityLevel::MayRunSlowly, "{}", s.explanation);
-        assert!(s.explanation.to_lowercase().contains("offload"), "{}", s.explanation);
+        assert!(
+            s.explanation.to_lowercase().contains("offload"),
+            "{}",
+            s.explanation
+        );
     }
 
     // ── 5.4: CPU-only machine realistic warning ────────────────────────────
@@ -519,17 +551,34 @@ mod tests {
     fn cpu_only_large_model_warns_realistically() {
         let sys = cpu_system(8.0, 100.0);
         // ~6 GB model needs ~7.2 GB > 6.4 GB available RAM.
-        let a = artifact(HfRuntime::WhisperCpp, 6 * 1024 * 1024 * 1024, DetectionConfidence::Exact);
+        let a = artifact(
+            HfRuntime::WhisperCpp,
+            6 * 1024 * 1024 * 1024,
+            DetectionConfidence::Exact,
+        );
         let s = classify(&sys, Some(&a));
-        assert_eq!(s.level, SuitabilityLevel::NotRecommended, "{}", s.explanation);
-        assert!(s.explanation.to_lowercase().contains("ram"), "{}", s.explanation);
+        assert_eq!(
+            s.level,
+            SuitabilityLevel::NotRecommended,
+            "{}",
+            s.explanation
+        );
+        assert!(
+            s.explanation.to_lowercase().contains("ram"),
+            "{}",
+            s.explanation
+        );
     }
 
     #[test]
     fn cpu_only_medium_model_is_may_run_slowly() {
         let sys = cpu_system(16.0, 100.0);
         // ~8 GB model needs ~9.6 GB: > 8 GB (half of 16 total) but < 12.8 avail.
-        let a = artifact(HfRuntime::WhisperCpp, 8 * 1024 * 1024 * 1024, DetectionConfidence::Exact);
+        let a = artifact(
+            HfRuntime::WhisperCpp,
+            8 * 1024 * 1024 * 1024,
+            DetectionConfidence::Exact,
+        );
         let s = classify(&sys, Some(&a));
         assert_eq!(s.level, SuitabilityLevel::MayRunSlowly, "{}", s.explanation);
     }
@@ -538,7 +587,11 @@ mod tests {
     #[test]
     fn apple_silicon_small_model_is_recommended() {
         let sys = apple_silicon_system(16.0, 50.0);
-        let a = artifact(HfRuntime::WhisperCpp, 500 * 1024 * 1024, DetectionConfidence::Exact);
+        let a = artifact(
+            HfRuntime::WhisperCpp,
+            500 * 1024 * 1024,
+            DetectionConfidence::Exact,
+        );
         let s = classify(&sys, Some(&a));
         assert_eq!(s.level, SuitabilityLevel::Recommended, "{}", s.explanation);
         assert!(s.explanation.contains("Apple Silicon"), "{}", s.explanation);
@@ -548,7 +601,11 @@ mod tests {
     fn apple_silicon_large_model_is_may_run_slowly() {
         let sys = apple_silicon_system(8.0, 100.0);
         // ~4 GB model needs ~4.8 GB > 3.2 GB (half of 6.4 avail budget).
-        let a = artifact(HfRuntime::WhisperCpp, 4 * 1024 * 1024 * 1024, DetectionConfidence::Exact);
+        let a = artifact(
+            HfRuntime::WhisperCpp,
+            4 * 1024 * 1024 * 1024,
+            DetectionConfidence::Exact,
+        );
         let s = classify(&sys, Some(&a));
         assert_eq!(s.level, SuitabilityLevel::MayRunSlowly, "{}", s.explanation);
     }
@@ -557,20 +614,46 @@ mod tests {
     fn apple_silicon_oversized_model_is_not_recommended() {
         let sys = apple_silicon_system(8.0, 100.0);
         // ~6 GB model needs ~7.2 GB > 6.4 GB available unified memory.
-        let a = artifact(HfRuntime::WhisperCpp, 6 * 1024 * 1024 * 1024, DetectionConfidence::Exact);
+        let a = artifact(
+            HfRuntime::WhisperCpp,
+            6 * 1024 * 1024 * 1024,
+            DetectionConfidence::Exact,
+        );
         let s = classify(&sys, Some(&a));
-        assert_eq!(s.level, SuitabilityLevel::NotRecommended, "{}", s.explanation);
+        assert_eq!(
+            s.level,
+            SuitabilityLevel::NotRecommended,
+            "{}",
+            s.explanation
+        );
     }
 
     // ── 5.6: insufficient disk → blocked ───────────────────────────────────
     #[test]
     fn insufficient_disk_is_blocked() {
         let sys = cpu_system(32.0, 2.0); // only 2 GB free
-        let a = artifact(HfRuntime::WhisperCpp, 3 * 1024 * 1024 * 1024, DetectionConfidence::Exact);
+        let a = artifact(
+            HfRuntime::WhisperCpp,
+            3 * 1024 * 1024 * 1024,
+            DetectionConfidence::Exact,
+        );
         let s = classify(&sys, Some(&a));
-        assert_eq!(s.level, SuitabilityLevel::NotRecommended, "{}", s.explanation);
-        assert!(s.explanation.to_lowercase().contains("free"), "{}", s.explanation);
-        assert!(s.requires.iter().any(|r| r.contains("3.0 GB")), "{:?}", s.requires);
+        assert_eq!(
+            s.level,
+            SuitabilityLevel::NotRecommended,
+            "{}",
+            s.explanation
+        );
+        assert!(
+            s.explanation.to_lowercase().contains("free"),
+            "{}",
+            s.explanation
+        );
+        assert!(
+            s.requires.iter().any(|r| r.contains("3.0 GB")),
+            "{:?}",
+            s.requires
+        );
     }
 
     // Suitability evaluates the ACTUAL artifact (quantized) not the repo-wide size.
@@ -579,7 +662,11 @@ mod tests {
         let sys = cpu_system(8.0, 100.0);
         // Small int8 artifact (~120 MB) — even though the repo "download_size"
         // might be huge, classification uses the artifact.
-        let a = artifact(HfRuntime::SherpaOnnxStt, 120 * 1024 * 1024, DetectionConfidence::Exact);
+        let a = artifact(
+            HfRuntime::SherpaOnnxStt,
+            120 * 1024 * 1024,
+            DetectionConfidence::Exact,
+        );
         let s = classify(&sys, Some(&a));
         assert_eq!(s.level, SuitabilityLevel::ShouldRun, "{}", s.explanation);
     }
@@ -588,7 +675,11 @@ mod tests {
     #[test]
     fn disk_insufficient_blocks_when_download_exceeds_free_space() {
         let sys = cpu_system(32.0, 2.0); // only 2 GB free
-        let a = artifact(HfRuntime::WhisperCpp, 3 * 1024 * 1024 * 1024, DetectionConfidence::Exact);
+        let a = artifact(
+            HfRuntime::WhisperCpp,
+            3 * 1024 * 1024 * 1024,
+            DetectionConfidence::Exact,
+        );
         let msg = disk_insufficient(&sys, &a).expect("disk gate trips");
         assert!(msg.to_lowercase().contains("free disk space"), "{}", msg);
         assert!(msg.contains("3.0 GB"), "{}", msg);
@@ -597,7 +688,11 @@ mod tests {
     #[test]
     fn disk_insufficient_passes_when_space_is_enough() {
         let sys = cpu_system(32.0, 100.0);
-        let a = artifact(HfRuntime::WhisperCpp, 3 * 1024 * 1024 * 1024, DetectionConfidence::Exact);
+        let a = artifact(
+            HfRuntime::WhisperCpp,
+            3 * 1024 * 1024 * 1024,
+            DetectionConfidence::Exact,
+        );
         assert!(disk_insufficient(&sys, &a).is_none());
     }
 
@@ -605,7 +700,11 @@ mod tests {
     fn disk_insufficient_passes_when_disk_is_unknown() {
         let mut sys = cpu_system(32.0, 2.0);
         sys.disk_free_bytes = None;
-        let a = artifact(HfRuntime::WhisperCpp, 3 * 1024 * 1024 * 1024, DetectionConfidence::Exact);
+        let a = artifact(
+            HfRuntime::WhisperCpp,
+            3 * 1024 * 1024 * 1024,
+            DetectionConfidence::Exact,
+        );
         assert!(disk_insufficient(&sys, &a).is_none());
     }
 }

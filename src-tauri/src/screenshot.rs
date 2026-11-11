@@ -13,9 +13,8 @@ use xcap::{Monitor, Window};
 #[cfg(feature = "screenshot")]
 #[tauri::command]
 pub async fn capture_screenshot() -> Result<String> {
-    let monitors = Monitor::all().map_err(|err| {
-        PlethoraError::Internal(format!("Failed to enumerate monitors: {err}"))
-    })?;
+    let monitors = Monitor::all()
+        .map_err(|err| PlethoraError::Internal(format!("Failed to enumerate monitors: {err}")))?;
     let monitor = monitors
         .iter()
         .find(|m| m.is_primary().unwrap_or(false))
@@ -32,12 +31,11 @@ pub async fn capture_screenshot() -> Result<String> {
 #[cfg(feature = "screenshot")]
 #[tauri::command]
 pub async fn capture_screen_by_index(index: usize) -> Result<String> {
-    let monitors = Monitor::all().map_err(|err| {
-        PlethoraError::Internal(format!("Failed to enumerate monitors: {err}"))
-    })?;
-    let monitor = monitors.get(index).ok_or_else(|| {
-        PlethoraError::InvalidInput(format!("Screen index {index} out of range"))
-    })?;
+    let monitors = Monitor::all()
+        .map_err(|err| PlethoraError::Internal(format!("Failed to enumerate monitors: {err}")))?;
+    let monitor = monitors
+        .get(index)
+        .ok_or_else(|| PlethoraError::InvalidInput(format!("Screen index {index} out of range")))?;
 
     let image = monitor
         .capture_image()
@@ -125,18 +123,18 @@ pub async fn capture_app_window_region(
     let inner_position = window.inner_position().map_err(|err| {
         PlethoraError::Internal(format!("Failed to read content position: {err}"))
     })?;
-    let outer_position = window.outer_position().map_err(|err| {
-        PlethoraError::Internal(format!("Failed to read window position: {err}"))
-    })?;
+    let outer_position = window
+        .outer_position()
+        .map_err(|err| PlethoraError::Internal(format!("Failed to read window position: {err}")))?;
     let inner_size = window
         .inner_size()
         .map_err(|err| PlethoraError::Internal(format!("Failed to read content size: {err}")))?;
     let outer_size = window
         .outer_size()
         .map_err(|err| PlethoraError::Internal(format!("Failed to read window size: {err}")))?;
-    let scale = window.scale_factor().map_err(|err| {
-        PlethoraError::Internal(format!("Failed to read display scale: {err}"))
-    })?;
+    let scale = window
+        .scale_factor()
+        .map_err(|err| PlethoraError::Internal(format!("Failed to read display scale: {err}")))?;
 
     // xcap backends differ: some capture the full decorated window and others
     // capture only its client area. Use the closest Tauri physical size to

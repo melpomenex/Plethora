@@ -543,10 +543,7 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
             .fetch_optional(pool)
             .await
             .map_err(|e| {
-                crate::error::PlethoraError::Internal(format!(
-                    "Failed to find RSS article: {}",
-                    e
-                ))
+                crate::error::PlethoraError::Internal(format!("Failed to find RSS article: {}", e))
             })?
     } else {
         None
@@ -558,10 +555,7 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
             .fetch_optional(pool)
             .await
             .map_err(|e| {
-                crate::error::PlethoraError::Internal(format!(
-                    "Failed to find RSS article: {}",
-                    e
-                ))
+                crate::error::PlethoraError::Internal(format!("Failed to find RSS article: {}", e))
             })?
     } else {
         None
@@ -664,10 +658,7 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
             .fetch_optional(pool)
             .await
             .map_err(|e| {
-                crate::error::PlethoraError::Internal(format!(
-                    "Failed to load RSS article: {}",
-                    e
-                ))
+                crate::error::PlethoraError::Internal(format!("Failed to load RSS article: {}", e))
             })?
         {
             row
@@ -689,10 +680,7 @@ async fn upsert_rss_article(pool: &sqlx::SqlitePool, input: RssArticleInput) -> 
             .fetch_one(pool)
             .await
             .map_err(|e| {
-                crate::error::PlethoraError::Internal(format!(
-                    "Failed to load RSS article: {}",
-                    e
-                ))
+                crate::error::PlethoraError::Internal(format!("Failed to load RSS article: {}", e))
             })?
     };
 
@@ -926,10 +914,7 @@ pub async fn get_rss_feed_unread_count(
             .fetch_one(repo.pool())
             .await
             .map_err(|e| {
-                crate::error::PlethoraError::Internal(format!(
-                    "Failed to get unread count: {}",
-                    e
-                ))
+                crate::error::PlethoraError::Internal(format!("Failed to get unread count: {}", e))
             })?;
 
     Ok(row.get("count"))
@@ -1849,10 +1834,7 @@ pub async fn get_article_full_content(
             .fetch_optional(repo.pool())
             .await
             .map_err(|e| {
-                crate::error::PlethoraError::Internal(format!(
-                    "Failed to get full content: {}",
-                    e
-                ))
+                crate::error::PlethoraError::Internal(format!("Failed to get full content: {}", e))
             })?;
 
     Ok(row.map(|row| {

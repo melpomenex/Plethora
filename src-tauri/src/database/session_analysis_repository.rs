@@ -498,19 +498,22 @@ impl SessionAnalysisRepository {
         &self,
         input: &AcceptSessionDraftsInput,
     ) -> Result<AcceptSessionDraftsResponse> {
-        let doc_id: Option<String> = sqlx::query_scalar(
-            "SELECT document_id FROM recording_sessions WHERE id = ?",
-        )
-        .bind(&input.session_id)
-        .fetch_optional(&self.pool)
-        .await
-        .map_err(SessionOperationError::from)?;
+        let doc_id: Option<String> =
+            sqlx::query_scalar("SELECT document_id FROM recording_sessions WHERE id = ?")
+                .bind(&input.session_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(SessionOperationError::from)?;
         let doc_id = doc_id.unwrap_or_default();
 
         let all_or_nothing = input.all_or_nothing.unwrap_or(false);
 
         if all_or_nothing {
-            let mut tx = self.pool.begin().await.map_err(SessionOperationError::from)?;
+            let mut tx = self
+                .pool
+                .begin()
+                .await
+                .map_err(SessionOperationError::from)?;
             let mut results = Vec::with_capacity(input.items.len());
             let mut failed = false;
 
@@ -707,15 +710,12 @@ impl SessionAnalysisRepository {
         let now = now_dt.to_rfc3339();
 
         if is_replace {
-            let replace_id = spec
-                .duplicate_target_id
-                .as_deref()
-                .or_else(|| {
-                    payload
-                        .get("duplicateTargetId")
-                        .or_else(|| payload.get("duplicate_target_id"))
-                        .and_then(|v| v.as_str())
-                });
+            let replace_id = spec.duplicate_target_id.as_deref().or_else(|| {
+                payload
+                    .get("duplicateTargetId")
+                    .or_else(|| payload.get("duplicate_target_id"))
+                    .and_then(|v| v.as_str())
+            });
 
             if let Some(rep_id) = replace_id {
                 final_target_id = rep_id.to_string();
@@ -759,7 +759,10 @@ impl SessionAnalysisRepository {
                     .map_err(|e| format!("Failed to update learning_item {}: {}", final_target_id, e))?;
                 }
             } else {
-                return Err("Duplicate decision was replace/update but no duplicate_target_id provided".to_string());
+                return Err(
+                    "Duplicate decision was replace/update but no duplicate_target_id provided"
+                        .to_string(),
+                );
             }
         } else {
             final_target_id = uuid::Uuid::new_v4().to_string();
@@ -848,7 +851,10 @@ impl SessionAnalysisRepository {
                     .get("question")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                let question = if item_type == ItemType::Cloze || raw_question.contains("{{") || raw_question.contains("[[") {
+                let question = if item_type == ItemType::Cloze
+                    || raw_question.contains("{{")
+                    || raw_question.contains("[[")
+                {
                     normalize_cloze_markers(raw_question)
                 } else {
                     raw_question.to_string()
@@ -977,7 +983,11 @@ impl SessionAnalysisRepository {
         // Insert learning_object_sources
         let los_id = uuid::Uuid::new_v4().to_string();
         let los_hash = crate::database::learning_object_source_repository::LearningObjectSourceRepository::compute_evidence_hash(&draft.evidence_json);
-        let los_target_kind = if target_kind == "extract" { "extract" } else { "card" };
+        let los_target_kind = if target_kind == "extract" {
+            "extract"
+        } else {
+            "card"
+        };
 
         sqlx::query(
             r#"
@@ -1161,7 +1171,8 @@ impl Repository {
         limit: Option<i64>,
     ) -> std::result::Result<SessionLearningDraftPage, SessionOperationError> {
         let repo = SessionAnalysisRepository::new(self.pool().clone());
-        repo.list_learning_drafts(session_id, status, kind, cursor, limit).await
+        repo.list_learning_drafts(session_id, status, kind, cursor, limit)
+            .await
     }
 
     pub async fn update_session_learning_draft(
@@ -1388,12 +1399,19 @@ mod tests {
 
         // 4. Reject drafts creates zero learning_items / extracts
         let rejected_count = repo
-            .reject_learning_drafts(&session_id, &[created_ids[1].clone(), created_ids[2].clone()])
+            .reject_learning_drafts(
+                &session_id,
+                &[created_ids[1].clone(), created_ids[2].clone()],
+            )
             .await
             .unwrap();
         assert_eq!(rejected_count, 2);
 
-        let rejected_draft = repo.get_learning_draft(&created_ids[1]).await.unwrap().unwrap();
+        let rejected_draft = repo
+            .get_learning_draft(&created_ids[1])
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(rejected_draft.status, "rejected");
 
         // Verify learning_items and extracts count is still 0
@@ -1442,10 +1460,7 @@ mod tests {
             normalize_cloze_markers("Already {{c3::preserved}}."),
             "Already {{c3::preserved}}."
         );
-        assert_eq!(
-            normalize_cloze_markers("No cloze here."),
-            "No cloze here."
-        );
+        assert_eq!(normalize_cloze_markers("No cloze here."), "No cloze here.");
     }
 
     #[tokio::test]
@@ -1558,30 +1573,35 @@ mod tests {
         );
 
         // 5. Verify learning_object_sources
-        let los_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM learning_object_sources WHERE session_id = ?",
-        )
-        .bind(&session_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let los_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM learning_object_sources WHERE session_id = ?")
+                .bind(&session_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(los_count, 2);
 
         // 6. Verify ai_provenance
-        let prov_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM ai_provenance WHERE target_id IN (?, ?)",
-        )
-        .bind(&card_target_id)
-        .bind(&extract_target_id)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
+        let prov_count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM ai_provenance WHERE target_id IN (?, ?)")
+                .bind(&card_target_id)
+                .bind(&extract_target_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(prov_count, 2);
 
         // 7. Verify draft status updated to accepted
-        let updated_card_draft = repo.get_learning_draft(&card_draft.id).await.unwrap().unwrap();
+        let updated_card_draft = repo
+            .get_learning_draft(&card_draft.id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(updated_card_draft.status, "accepted");
-        assert_eq!(updated_card_draft.accepted_target_id, Some(card_target_id.clone()));
+        assert_eq!(
+            updated_card_draft.accepted_target_id,
+            Some(card_target_id.clone())
+        );
 
         // 8. Idempotent acceptance retry returns same target without recreating
         let retry_res = repo
@@ -1669,11 +1689,12 @@ mod tests {
         assert_eq!(res.results[0].target_id, Some(existing_id.clone()));
 
         // Verify existing item updated
-        let updated_q: String = sqlx::query_scalar("SELECT question FROM learning_items WHERE id = ?")
-            .bind(&existing_id)
-            .fetch_one(&pool)
-            .await
-            .unwrap();
+        let updated_q: String =
+            sqlx::query_scalar("SELECT question FROM learning_items WHERE id = ?")
+                .bind(&existing_id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
         assert_eq!(updated_q, "Updated Better Question");
 
         // Total count remains 1 (no new row created)

@@ -52,7 +52,9 @@ fn api_error_code(body: &str) -> Option<String> {
         .and_then(|error| error.code)
 }
 
-pub async fn refresh_access_token(refresh_token: &str) -> Result<RefreshTokensResponse, RefreshError> {
+pub async fn refresh_access_token(
+    refresh_token: &str,
+) -> Result<RefreshTokensResponse, RefreshError> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(AUTH_TIMEOUT_SECS))
         .build()

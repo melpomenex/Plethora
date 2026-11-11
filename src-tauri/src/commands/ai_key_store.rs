@@ -399,21 +399,20 @@ mod tests {
     use crate::utils::keychain::force_keyring_for_tests;
     use crate::utils::keychain::testing::MemoryKeyring;
 
-
-/// Keyring backend whose every operation fails — forces the encrypted-file
-/// fallback path so tests can seed files.
-struct UnavailableKeyring;
-impl crate::utils::keychain::KeyringIo for UnavailableKeyring {
-    fn set(&self, _s: &str, _u: &str, _v: &str) -> Result<(), String> {
-        Err("unavailable".to_string())
+    /// Keyring backend whose every operation fails — forces the encrypted-file
+    /// fallback path so tests can seed files.
+    struct UnavailableKeyring;
+    impl crate::utils::keychain::KeyringIo for UnavailableKeyring {
+        fn set(&self, _s: &str, _u: &str, _v: &str) -> Result<(), String> {
+            Err("unavailable".to_string())
+        }
+        fn get(&self, _s: &str, _u: &str) -> Result<String, String> {
+            Err("unavailable".to_string())
+        }
+        fn delete(&self, _s: &str, _u: &str) -> Result<(), String> {
+            Err("unavailable".to_string())
+        }
     }
-    fn get(&self, _s: &str, _u: &str) -> Result<String, String> {
-        Err("unavailable".to_string())
-    }
-    fn delete(&self, _s: &str, _u: &str) -> Result<(), String> {
-        Err("unavailable".to_string())
-    }
-}
 
     fn temp_dir(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -479,8 +478,7 @@ impl crate::utils::keychain::KeyringIo for UnavailableKeyring {
         legacy_store.store_key("openai", "sk-file").await.unwrap();
         assert!(legacy_dir.join("ai_keys/openai.enc").exists());
 
-        let store =
-            AIKeyStore::with_keyring(new_dir.clone(), Some(legacy_dir.clone()), keyring);
+        let store = AIKeyStore::with_keyring(new_dir.clone(), Some(legacy_dir.clone()), keyring);
         let key = store.get_key("openai").await.unwrap();
         assert_eq!(key.as_deref(), Some("sk-file"));
         assert!(

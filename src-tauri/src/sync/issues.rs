@@ -81,7 +81,9 @@ pub async fn record_undecryptable_records(
     .bind(created_at)
     .execute(&mut **tx)
     .await
-    .map_err(|e| PlethoraError::Internal(format!("Failed to record undecryptable sync records: {e}")))?;
+    .map_err(|e| {
+        PlethoraError::Internal(format!("Failed to record undecryptable sync records: {e}"))
+    })?;
     Ok(())
 }
 
@@ -89,7 +91,10 @@ pub async fn list_open_issues(pool: &Pool<Sqlite>, limit: i64) -> Result<Vec<Syn
     list_open_issues_ordered(pool, limit, false).await
 }
 
-pub async fn list_open_issues_for_resolution(pool: &Pool<Sqlite>, limit: i64) -> Result<Vec<SyncIssue>> {
+pub async fn list_open_issues_for_resolution(
+    pool: &Pool<Sqlite>,
+    limit: i64,
+) -> Result<Vec<SyncIssue>> {
     list_open_issues_ordered(pool, limit, true).await
 }
 
@@ -109,7 +114,20 @@ async fn list_open_issues_ordered(
         LIMIT ?1
         "#
     );
-    let rows = sqlx::query_as::<_, (String, String, String, String, Option<String>, i64, i64, String, i64)>(&query)
+    let rows = sqlx::query_as::<
+        _,
+        (
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            i64,
+            i64,
+            String,
+            i64,
+        ),
+    >(&query)
     .bind(limit)
     .fetch_all(pool)
     .await
@@ -118,7 +136,17 @@ async fn list_open_issues_ordered(
     Ok(rows
         .into_iter()
         .map(
-            |(id, entity_type, entity_id, conflict_kind, local_change_id, server_revision, base_revision, status, created_at)| {
+            |(
+                id,
+                entity_type,
+                entity_id,
+                conflict_kind,
+                local_change_id,
+                server_revision,
+                base_revision,
+                status,
+                created_at,
+            )| {
                 SyncIssue {
                     id,
                     entity_type,

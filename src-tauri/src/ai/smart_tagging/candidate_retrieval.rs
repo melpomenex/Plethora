@@ -3,9 +3,9 @@
 //! Ranks and returns top candidate tags (bounded to 30) from the user's library
 //! based on lexical overlap, term salience, and library frequency.
 
-use std::collections::HashMap;
 use super::normalization::{normalize_for_comparison, to_singular_stem};
 use super::salience::ScoredTerm;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct CandidateTag {
@@ -53,7 +53,9 @@ pub fn rank_candidate_tags(
         if norm_title == norm_tag || title_stem == stem_tag {
             score += 10.0;
             match_type = "title-exact";
-        } else if lower_title.contains(&tag_trimmed.to_lowercase()) || norm_title.contains(&norm_tag) {
+        } else if lower_title.contains(&tag_trimmed.to_lowercase())
+            || norm_title.contains(&norm_tag)
+        {
             score += 7.0;
             match_type = "title-contains";
         }
@@ -70,7 +72,10 @@ pub fn rank_candidate_tags(
         }
 
         // 3. Salient term match
-        if let Some(&term_score) = term_scores.get(&norm_tag).or_else(|| term_scores.get(&stem_tag)) {
+        if let Some(&term_score) = term_scores
+            .get(&norm_tag)
+            .or_else(|| term_scores.get(&stem_tag))
+        {
             score += term_score * 2.0;
             if match_type == "none" {
                 match_type = "salient-term";
@@ -81,7 +86,9 @@ pub fn rank_candidate_tags(
             if tag_words.len() > 1 {
                 let mut word_matches = 0;
                 for w in &tag_words {
-                    if term_scores.contains_key(*w) || term_scores.contains_key(&to_singular_stem(w)) {
+                    if term_scores.contains_key(*w)
+                        || term_scores.contains_key(&to_singular_stem(w))
+                    {
                         word_matches += 1;
                     }
                 }
@@ -110,7 +117,11 @@ pub fn rank_candidate_tags(
         }
     }
 
-    candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    candidates.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     if candidates.len() > limit {
         candidates.truncate(limit);
@@ -132,14 +143,12 @@ mod tests {
             ("Ancient Rome".to_string(), 5),
         ];
 
-        let salient = vec![
-            ScoredTerm {
-                term: "machine learning".to_string(),
-                score: 6.0,
-                frequency: 4,
-                is_phrase: true,
-            },
-        ];
+        let salient = vec![ScoredTerm {
+            term: "machine learning".to_string(),
+            score: 6.0,
+            frequency: 4,
+            is_phrase: true,
+        }];
 
         let candidates = rank_candidate_tags(
             &existing,

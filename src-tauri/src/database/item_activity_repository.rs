@@ -60,9 +60,7 @@ impl ItemActivityRepository {
         .bind(event.progress_end)
         .execute(&self.pool)
         .await
-        .map_err(|e| {
-            PlethoraError::Internal(format!("Failed to record item activity: {}", e))
-        })?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to record item activity: {}", e)))?;
 
         Ok(())
     }
@@ -143,9 +141,7 @@ impl ItemActivityRepository {
         )
         .bind(item_id)
         .bind(item_type.as_str())
-        .bind(
-            (now - chrono::Duration::seconds(ACTIVITY_COALESCE_WINDOW_SECONDS)).to_rfc3339(),
-        )
+        .bind((now - chrono::Duration::seconds(ACTIVITY_COALESCE_WINDOW_SECONDS)).to_rfc3339())
         .fetch_optional(&self.pool)
         .await?;
 

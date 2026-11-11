@@ -18,9 +18,10 @@ pub async fn segment_document(
     overlap: usize,
     repo: State<'_, Repository>,
 ) -> Result<SegmentationResult> {
-    let doc = repo.get_document(&document_id).await?.ok_or_else(|| {
-        crate::error::PlethoraError::NotFound("Document not found".to_string())
-    })?;
+    let doc = repo
+        .get_document(&document_id)
+        .await?
+        .ok_or_else(|| crate::error::PlethoraError::NotFound("Document not found".to_string()))?;
 
     let content = doc.content.unwrap_or_default();
     if content.is_empty() {
@@ -60,9 +61,10 @@ pub async fn auto_segment_and_create_extracts(
     overlap: Option<usize>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<String>> {
-    let doc = repo.get_document(&document_id).await?.ok_or_else(|| {
-        crate::error::PlethoraError::NotFound("Document not found".to_string())
-    })?;
+    let doc = repo
+        .get_document(&document_id)
+        .await?
+        .ok_or_else(|| crate::error::PlethoraError::NotFound("Document not found".to_string()))?;
 
     let content = doc.content.unwrap_or_default();
     if content.is_empty() {

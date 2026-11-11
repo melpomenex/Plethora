@@ -27,9 +27,9 @@ pub fn is_syncable_setting_key(key: &str) -> bool {
     if normalized.is_empty() {
         return false;
     }
-    !DEVICE_LOCAL_DENYLIST
-        .iter()
-        .any(|deny| normalized.eq_ignore_ascii_case(deny) || normalized.starts_with(&format!("{deny}.")))
+    !DEVICE_LOCAL_DENYLIST.iter().any(|deny| {
+        normalized.eq_ignore_ascii_case(deny) || normalized.starts_with(&format!("{deny}."))
+    })
 }
 
 #[cfg(test)]

@@ -48,9 +48,7 @@ pub async fn ingest_image_asset(
 ) -> Result<ImageAssetDto> {
     let bytes = general_purpose::STANDARD
         .decode(base64_data.as_bytes())
-        .map_err(|e| {
-            PlethoraError::InvalidInput(format!("Invalid base64 image payload: {}", e))
-        })?;
+        .map_err(|e| PlethoraError::InvalidInput(format!("Invalid base64 image payload: {}", e)))?;
 
     ingest_image_bytes(bytes, mime_type, file_name, repo.inner())
         .await
@@ -82,9 +80,7 @@ pub async fn ingest_image_asset_from_base64_with_status(
 ) -> Result<(ImageAssetDto, bool)> {
     let bytes = general_purpose::STANDARD
         .decode(base64_data.as_bytes())
-        .map_err(|e| {
-            PlethoraError::InvalidInput(format!("Invalid base64 image payload: {}", e))
-        })?;
+        .map_err(|e| PlethoraError::InvalidInput(format!("Invalid base64 image payload: {}", e)))?;
 
     ingest_image_bytes(bytes, mime_type, file_name, repo).await
 }
@@ -305,13 +301,15 @@ pub fn sanitize_svg(input: &[u8]) -> Result<Vec<u8>> {
     cleaned = script_self_closing_re.replace_all(&cleaned, "").to_string();
 
     // Strip inline event handlers: on*="..." or on*='...' or on*=value
-    let event_handler_re = regex::Regex::new(r#"(?is)\s+on[a-z0-9_-]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)"#)
-        .map_err(|e| PlethoraError::Internal(e.to_string()))?;
+    let event_handler_re =
+        regex::Regex::new(r#"(?is)\s+on[a-z0-9_-]+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)"#)
+            .map_err(|e| PlethoraError::Internal(e.to_string()))?;
     cleaned = event_handler_re.replace_all(&cleaned, "").to_string();
 
     // Strip javascript: and data: in href / xlink:href
-    let js_href_re = regex::Regex::new(r#"(?is)\s+(?:xlink:)?href\s*=\s*["']\s*(?:javascript|data):[^"']*["']"#)
-        .map_err(|e| PlethoraError::Internal(e.to_string()))?;
+    let js_href_re =
+        regex::Regex::new(r#"(?is)\s+(?:xlink:)?href\s*=\s*["']\s*(?:javascript|data):[^"']*["']"#)
+            .map_err(|e| PlethoraError::Internal(e.to_string()))?;
     cleaned = js_href_re.replace_all(&cleaned, "").to_string();
 
     // Strip <foreignObject...>...</foreignObject> to prevent embedded HTML/XSS injection
@@ -320,7 +318,9 @@ pub fn sanitize_svg(input: &[u8]) -> Result<Vec<u8>> {
     let foreign_obj_self_closing_re = regex::Regex::new(r#"(?is)<foreignObject\b[^>]*/>"#)
         .map_err(|e| PlethoraError::Internal(e.to_string()))?;
     cleaned = foreign_obj_re.replace_all(&cleaned, "").to_string();
-    cleaned = foreign_obj_self_closing_re.replace_all(&cleaned, "").to_string();
+    cleaned = foreign_obj_self_closing_re
+        .replace_all(&cleaned, "")
+        .to_string();
 
     if cleaned.trim().is_empty() {
         return Err(PlethoraError::InvalidInput(
@@ -335,20 +335,41 @@ pub fn parse_svg_dimensions(svg_bytes: &[u8]) -> (Option<i32>, Option<i32>) {
     let Ok(svg_str) = std::str::from_utf8(svg_bytes) else {
         return (None, None);
     };
-    let width_re = regex::Regex::new(r#"(?is)<svg\b[^>]*\bwidth\s*=\s*["'](\d+(?:\.\d+)?)(?:px)?["']"#).ok();
-    let height_re = regex::Regex::new(r#"(?is)<svg\b[^>]*\bheight\s*=\s*["'](\d+(?:\.\d+)?)(?:px)?["']"#).ok();
+    let width_re =
+        regex::Regex::new(r#"(?is)<svg\b[^>]*\bwidth\s*=\s*["'](\d+(?:\.\d+)?)(?:px)?["']"#).ok();
+    let height_re =
+        regex::Regex::new(r#"(?is)<svg\b[^>]*\bheight\s*=\s*["'](\d+(?:\.\d+)?)(?:px)?["']"#).ok();
 
-    let width = width_re.as_ref().and_then(|re| re.captures(svg_str)).and_then(|c| c.get(1)).and_then(|m| m.as_str().parse::<f64>().ok()).map(|v| v as i32);
-    let height = height_re.as_ref().and_then(|re| re.captures(svg_str)).and_then(|c| c.get(1)).and_then(|m| m.as_str().parse::<f64>().ok()).map(|v| v as i32);
+    let width = width_re
+        .as_ref()
+        .and_then(|re| re.captures(svg_str))
+        .and_then(|c| c.get(1))
+        .and_then(|m| m.as_str().parse::<f64>().ok())
+        .map(|v| v as i32);
+    let height = height_re
+        .as_ref()
+        .and_then(|re| re.captures(svg_str))
+        .and_then(|c| c.get(1))
+        .and_then(|m| m.as_str().parse::<f64>().ok())
+        .map(|v| v as i32);
 
     if width.is_some() && height.is_some() {
         return (width, height);
     }
 
-    let viewbox_re = regex::Regex::new(r#"(?is)<svg\b[^>]*\bviewBox\s*=\s*["'][^"']*?\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s*["']"#).ok();
+    let viewbox_re = regex::Regex::new(
+        r#"(?is)<svg\b[^>]*\bviewBox\s*=\s*["'][^"']*?\s+(\d+(?:\.\d+)?)\s+(\d+(?:\.\d+)?)\s*["']"#,
+    )
+    .ok();
     if let Some(captures) = viewbox_re.as_ref().and_then(|re| re.captures(svg_str)) {
-        let vb_w = captures.get(1).and_then(|m| m.as_str().parse::<f64>().ok()).map(|v| v as i32);
-        let vb_h = captures.get(2).and_then(|m| m.as_str().parse::<f64>().ok()).map(|v| v as i32);
+        let vb_w = captures
+            .get(1)
+            .and_then(|m| m.as_str().parse::<f64>().ok())
+            .map(|v| v as i32);
+        let vb_h = captures
+            .get(2)
+            .and_then(|m| m.as_str().parse::<f64>().ok())
+            .map(|v| v as i32);
         return (width.or(vb_w), height.or(vb_h));
     }
 
@@ -501,7 +522,10 @@ pub async fn update_image_asset_metadata(
         ));
     }
 
-    if !repo.update_image_asset_metadata(&asset_id, &serialized).await? {
+    if !repo
+        .update_image_asset_metadata(&asset_id, &serialized)
+        .await?
+    {
         return Err(crate::error::PlethoraError::NotFound(format!(
             "Image asset {}",
             asset_id
@@ -649,11 +673,23 @@ mod tests {
         let cleaned_str = String::from_utf8(cleaned).expect("utf8");
         assert!(!cleaned_str.contains("<script"), "script tags stripped");
         assert!(!cleaned_str.contains("onload"), "inline handlers stripped");
-        assert!(!cleaned_str.contains("onmouseover"), "inline handlers stripped");
+        assert!(
+            !cleaned_str.contains("onmouseover"),
+            "inline handlers stripped"
+        );
         assert!(!cleaned_str.contains("DOCTYPE"), "DOCTYPE stripped");
-        assert!(!cleaned_str.contains("ENTITY"), "entity declarations stripped");
-        assert!(!cleaned_str.contains("foreignObject"), "foreignObject stripped");
-        assert!(!cleaned_str.contains("javascript:"), "javascript href stripped");
+        assert!(
+            !cleaned_str.contains("ENTITY"),
+            "entity declarations stripped"
+        );
+        assert!(
+            !cleaned_str.contains("foreignObject"),
+            "foreignObject stripped"
+        );
+        assert!(
+            !cleaned_str.contains("javascript:"),
+            "javascript href stripped"
+        );
         assert!(cleaned_str.contains("<svg"), "svg element retained");
         assert!(cleaned_str.contains("<circle"), "benign content retained");
         assert!(cleaned_str.contains(">label<"), "text content retained");
@@ -704,27 +740,24 @@ mod tests {
 
     #[tokio::test]
     async fn ingest_base64_rejects_invalid_encoding() {
-        let repo_pool = crate::database::connection::Database::new(std::path::PathBuf::from(":memory:"))
-            .await
-            .expect("in-memory db");
+        let repo_pool =
+            crate::database::connection::Database::new(std::path::PathBuf::from(":memory:"))
+                .await
+                .expect("in-memory db");
         repo_pool.migrate().await.expect("migrate");
         let repo = Repository::new(repo_pool.pool().clone());
-        let err = ingest_image_asset_from_base64(
-            "%%%not-base64%%%",
-            None,
-            None,
-            &repo,
-        )
-        .await
-        .unwrap_err();
+        let err = ingest_image_asset_from_base64("%%%not-base64%%%", None, None, &repo)
+            .await
+            .unwrap_err();
         assert!(matches!(err, PlethoraError::InvalidInput(_)));
     }
 
     #[tokio::test]
     async fn ingest_image_asset_deduplicates_by_sha256() {
-        let repo_pool = crate::database::connection::Database::new(std::path::PathBuf::from(":memory:"))
-            .await
-            .expect("in-memory db");
+        let repo_pool =
+            crate::database::connection::Database::new(std::path::PathBuf::from(":memory:"))
+                .await
+                .expect("in-memory db");
         repo_pool.migrate().await.expect("migrate");
         let repo = Repository::new(repo_pool.pool().clone());
         // 1x1 red PNG
@@ -754,9 +787,10 @@ mod tests {
 
     #[tokio::test]
     async fn ingest_image_asset_rejects_non_image_payload() {
-        let repo_pool = crate::database::connection::Database::new(std::path::PathBuf::from(":memory:"))
-            .await
-            .expect("in-memory db");
+        let repo_pool =
+            crate::database::connection::Database::new(std::path::PathBuf::from(":memory:"))
+                .await
+                .expect("in-memory db");
         repo_pool.migrate().await.expect("migrate");
         let repo = Repository::new(repo_pool.pool().clone());
         let base64_data = general_purpose::STANDARD.encode(b"this is definitely not an image");
@@ -773,9 +807,10 @@ mod tests {
 
     #[tokio::test]
     async fn image_asset_metadata_round_trips_and_status_reports_duplicates() {
-        let repo_pool = crate::database::connection::Database::new(std::path::PathBuf::from(":memory:"))
-            .await
-            .expect("in-memory db");
+        let repo_pool =
+            crate::database::connection::Database::new(std::path::PathBuf::from(":memory:"))
+                .await
+                .expect("in-memory db");
         repo_pool.migrate().await.expect("migrate");
         let repo = Repository::new(repo_pool.pool().clone());
         // 1x1 red PNG

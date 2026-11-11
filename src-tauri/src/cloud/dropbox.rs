@@ -435,7 +435,11 @@ impl CloudProvider for DropboxProvider {
         data: Vec<u8>,
         progress: Option<Box<dyn Fn(u64, u64) + Send + Sync>>,
     ) -> Result<String, AppError> {
-        let full_path = format!("{}/{}", self.get_app_folder_path(), path.trim_start_matches('/'));
+        let full_path = format!(
+            "{}/{}",
+            self.get_app_folder_path(),
+            path.trim_start_matches('/')
+        );
         let data_len = data.len();
 
         if let Some(p) = &progress {
@@ -491,7 +495,11 @@ impl CloudProvider for DropboxProvider {
         path: &str,
         progress: Option<Box<dyn Fn(u64, u64) + Send + Sync>>,
     ) -> Result<Vec<u8>, AppError> {
-        let full_path = format!("{}/{}", self.get_app_folder_path(), path.trim_start_matches('/'));
+        let full_path = format!(
+            "{}/{}",
+            self.get_app_folder_path(),
+            path.trim_start_matches('/')
+        );
         let arg = serde_json::json!({ "path": full_path }).to_string();
 
         let response = self
@@ -544,9 +552,7 @@ impl CloudProvider for DropboxProvider {
                     let data = legacy_response
                         .bytes()
                         .await
-                        .map_err(|e| {
-                            AppError::Internal(format!("Failed to download file: {}", e))
-                        })?
+                        .map_err(|e| AppError::Internal(format!("Failed to download file: {}", e)))?
                         .to_vec();
                     if let Some(p) = &progress {
                         p(data.len() as u64, data.len() as u64);
@@ -577,7 +583,11 @@ impl CloudProvider for DropboxProvider {
         let full_path = if path.is_empty() || path == "/" {
             self.get_app_folder_path()
         } else {
-            format!("{}/{}", self.get_app_folder_path(), path.trim_start_matches('/'))
+            format!(
+                "{}/{}",
+                self.get_app_folder_path(),
+                path.trim_start_matches('/')
+            )
         };
 
         let arg = serde_json::json!({
@@ -630,7 +640,11 @@ impl CloudProvider for DropboxProvider {
     }
 
     async fn delete_file(&self, path: &str) -> Result<(), AppError> {
-        let full_path = format!("{}/{}", self.get_app_folder_path(), path.trim_start_matches('/'));
+        let full_path = format!(
+            "{}/{}",
+            self.get_app_folder_path(),
+            path.trim_start_matches('/')
+        );
         let arg = serde_json::json!({ "path": full_path }).to_string();
 
         let response = self
@@ -651,7 +665,11 @@ impl CloudProvider for DropboxProvider {
     }
 
     async fn get_metadata(&self, path: &str) -> Result<FileMetadata, AppError> {
-        let full_path = format!("{}/{}", self.get_app_folder_path(), path.trim_start_matches('/'));
+        let full_path = format!(
+            "{}/{}",
+            self.get_app_folder_path(),
+            path.trim_start_matches('/')
+        );
         let arg = serde_json::json!({
             "path": full_path,
             "include_media_info": false
@@ -695,7 +713,11 @@ impl CloudProvider for DropboxProvider {
     }
 
     async fn create_folder(&self, path: &str) -> Result<String, AppError> {
-        let full_path = format!("{}/{}", self.get_app_folder_path(), path.trim_start_matches('/'));
+        let full_path = format!(
+            "{}/{}",
+            self.get_app_folder_path(),
+            path.trim_start_matches('/')
+        );
         let arg = serde_json::json!({
             "path": full_path,
             "autorename": false

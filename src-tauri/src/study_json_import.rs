@@ -338,40 +338,43 @@ mod tests {
         f
     }
 
-#[test]
-fn imported_cards_carry_the_chosen_collection() {
-    let card = StudyJsonCard {
-        answer: "A".to_string(),
-        subject: "Physics".to_string(),
-        deck_name: "Mechanics".to_string(),
-        difficulty: None,
-        difficulty_score: None,
-        correct_count: 0,
-        missed_count: 0,
-        review_count: 0,
-        ease_factor: default_ease_factor(),
-        interval_days: 0,
-        repetitions: 0,
-        lapse_count: 0,
-        retention_rate: 0.0,
-        lapse_rate: 0.0,
-        due_at: None,
-        last_reviewed: None,
-        manual_review: false,
-        save_for_later: false,
-        known_pile: false,
-    };
+    #[test]
+    fn imported_cards_carry_the_chosen_collection() {
+        let card = StudyJsonCard {
+            answer: "A".to_string(),
+            subject: "Physics".to_string(),
+            deck_name: "Mechanics".to_string(),
+            difficulty: None,
+            difficulty_score: None,
+            correct_count: 0,
+            missed_count: 0,
+            review_count: 0,
+            ease_factor: default_ease_factor(),
+            interval_days: 0,
+            repetitions: 0,
+            lapse_count: 0,
+            retention_rate: 0.0,
+            lapse_rate: 0.0,
+            due_at: None,
+            last_reviewed: None,
+            manual_review: false,
+            save_for_later: false,
+            known_pile: false,
+        };
 
-    let chosen = "11111111-2222-3333-4444-555555555555";
-    let item = build_learning_item("Question?", &card, "doc-1", Some(chosen));
-    assert_eq!(item.collection_id, chosen, "cards must follow the chosen collection");
+        let chosen = "11111111-2222-3333-4444-555555555555";
+        let item = build_learning_item("Question?", &card, "doc-1", Some(chosen));
+        assert_eq!(
+            item.collection_id, chosen,
+            "cards must follow the chosen collection"
+        );
 
-    let fallback = build_learning_item("Question?", &card, "doc-1", None);
-    assert_eq!(
-        fallback.collection_id,
-        crate::models::collection::DEFAULT_COLLECTION_ID
-    );
-}
+        let fallback = build_learning_item("Question?", &card, "doc-1", None);
+        assert_eq!(
+            fallback.collection_id,
+            crate::models::collection::DEFAULT_COLLECTION_ID
+        );
+    }
 
     fn sample_card() -> serde_json::Value {
         serde_json::json!({

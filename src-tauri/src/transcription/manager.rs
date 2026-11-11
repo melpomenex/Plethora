@@ -3,8 +3,8 @@
 //! Provides word-level timestamped token extraction, normalization, and collection
 //! across STT engines (Whisper, Parakeet/sherpa-onnx, Whistle/needle, Android STT, Groq).
 
-use serde::{Deserialize, Serialize};
 use crate::transcription::engine::TranscriptSegment;
+use serde::{Deserialize, Serialize};
 
 /// A word-level token with high-resolution timestamps (in milliseconds) and optional confidence/probability.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -51,7 +51,12 @@ pub fn extract_word_tokens(segment: &TranscriptSegment) -> Vec<PodcastWordToken>
         }
     }
 
-    interpolate_words(&segment.text, segment.start_ms, segment.end_ms, segment.confidence as f64)
+    interpolate_words(
+        &segment.text,
+        segment.start_ms,
+        segment.end_ms,
+        segment.confidence as f64,
+    )
 }
 
 /// Parse a raw JSON string of word timing entries into `PodcastWordToken`s.
@@ -286,7 +291,10 @@ mod tests {
         assert_eq!(determine_stt_worker_threads(true, "critical"), 0);
 
         // Thermal actions
-        assert_eq!(evaluate_stt_thermal_state("normal"), SttThermalAction::Continue);
+        assert_eq!(
+            evaluate_stt_thermal_state("normal"),
+            SttThermalAction::Continue
+        );
         assert_eq!(
             evaluate_stt_thermal_state("severe"),
             SttThermalAction::PauseWorker(std::time::Duration::from_secs(30))

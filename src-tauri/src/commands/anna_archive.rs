@@ -164,9 +164,10 @@ impl AnnaArchiveClient {
 
     /// Fetch search results from a URL
     async fn fetch_search_results(&self, url: &str) -> Result<Vec<BookSearchResult>> {
-        let response = self.http_client.get(url).send().await.map_err(|e| {
-            crate::error::PlethoraError::Internal(format!("Network error: {}", e))
-        })?;
+        let response =
+            self.http_client.get(url).send().await.map_err(|e| {
+                crate::error::PlethoraError::Internal(format!("Network error: {}", e))
+            })?;
 
         if !response.status().is_success() {
             return Err(crate::error::PlethoraError::Internal(format!(

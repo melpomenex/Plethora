@@ -681,7 +681,11 @@ impl ConceptRepository {
         })
         .bind(&proposal.analysis_id)
         .bind(&proposal.source_revision)
-        .bind(if proposal.origin == "user" { "user" } else { "ai" })
+        .bind(if proposal.origin == "user" {
+            "user"
+        } else {
+            "ai"
+        })
         .execute(&self.pool)
         .await;
 

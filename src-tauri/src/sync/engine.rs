@@ -45,7 +45,9 @@ pub async fn push_outbox(
     }
 
     if auth.get_refresh_token().is_none() && auth.get_access_token().is_none() {
-        return Err(PlethoraError::Internal("Sign in required for sync push".to_string()));
+        return Err(PlethoraError::Internal(
+            "Sign in required for sync push".to_string(),
+        ));
     }
 
     let mut tx = repo.pool().begin().await?;
@@ -76,12 +78,17 @@ pub async fn push_outbox(
 
             for entry in &batch {
                 let allowed = crate::database::document_privacy::sync_entity_allowed(
-                    &mut *repo.pool().acquire().await?, entry.entity_type, &entry.entity_id,
-                ).await?;
+                    &mut *repo.pool().acquire().await?,
+                    entry.entity_type,
+                    &entry.entity_id,
+                )
+                .await?;
                 if !allowed {
                     // Revoked after batch selection; never prepare/upload bytes.
                     sqlx::query("DELETE FROM sync_outbox WHERE change_id = ?1")
-                        .bind(&entry.change_id).execute(repo.pool()).await?;
+                        .bind(&entry.change_id)
+                        .execute(repo.pool())
+                        .await?;
                     continue;
                 }
                 // Image outbox rows contain the local bytes so the domain write
@@ -178,7 +185,9 @@ pub async fn pull_remote(
     }
 
     if auth.get_refresh_token().is_none() && auth.get_access_token().is_none() {
-        return Err(PlethoraError::Internal("Sign in required for sync pull".to_string()));
+        return Err(PlethoraError::Internal(
+            "Sign in required for sync pull".to_string(),
+        ));
     }
 
     let master_key = require_master_key().await?;
@@ -194,11 +203,10 @@ pub async fn pull_remote(
     tx.commit().await?;
 
     loop {
-        let (page, next_cursor, has_more, account_epoch) =
-            with_bearer_retry(auth, |token| {
-                pull_page(token, &local_device_id, cursor, 500)
-            })
-            .await?;
+        let (page, next_cursor, has_more, account_epoch) = with_bearer_retry(auth, |token| {
+            pull_page(token, &local_device_id, cursor, 500)
+        })
+        .await?;
         if account_epoch > local_epoch {
             set_key_epoch(account_epoch).await?;
             local_epoch = account_epoch;

@@ -4,8 +4,7 @@ use crate::database::{AudioEditionRepository, Repository};
 use crate::error::Result;
 use crate::models::audio_edition::{
     AudioEdition, AudioEditionAnchor, AudioEditionSection, AudioEditionWithSections,
-    ListeningSession, ListeningSessionItem, ListeningSessionItemUpdate,
-    ListeningSessionWithItems,
+    ListeningSession, ListeningSessionItem, ListeningSessionItemUpdate, ListeningSessionWithItems,
 };
 use tauri::State;
 
@@ -275,10 +274,7 @@ pub async fn get_listening_session_items(
 }
 
 #[tauri::command]
-pub async fn delete_listening_session_item(
-    id: String,
-    repo: State<'_, Repository>,
-) -> Result<()> {
+pub async fn delete_listening_session_item(id: String, repo: State<'_, Repository>) -> Result<()> {
     let repository = AudioEditionRepository::new(repo.pool().clone());
     repository.delete_listening_session_item(&id).await
 }
@@ -292,5 +288,7 @@ pub async fn update_listening_session_item(
     repo: State<'_, Repository>,
 ) -> Result<ListeningSessionItem> {
     let repository = AudioEditionRepository::new(repo.pool().clone());
-    repository.update_listening_session_item(&id, &updates).await
+    repository
+        .update_listening_session_item(&id, &updates)
+        .await
 }

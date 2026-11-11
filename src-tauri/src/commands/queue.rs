@@ -15,8 +15,11 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use tauri::State;
 
 async fn video_priorities(repo: &Repository) -> Result<HashMap<String, i32>> {
-    let rows: Vec<(String, i32)> = sqlx::query_as("SELECT item_id, slider FROM queue_external_priorities WHERE kind = 'video-extract'")
-        .fetch_all(repo.pool()).await?;
+    let rows: Vec<(String, i32)> = sqlx::query_as(
+        "SELECT item_id, slider FROM queue_external_priorities WHERE kind = 'video-extract'",
+    )
+    .fetch_all(repo.pool())
+    .await?;
     Ok(rows.into_iter().collect())
 }
 
@@ -349,7 +352,8 @@ async fn get_queue_items_from_repo(
 
         // Video extracts inherit parent document's priority, or 0.5 if no parent rank exists (D1)
         let explicit = video_priorities.get(&extract.id).copied();
-        let signal = explicit.map(|value| CanonicalSignal::measured(value as f64 / 100.0))
+        let signal = explicit
+            .map(|value| CanonicalSignal::measured(value as f64 / 100.0))
             .unwrap_or_else(|| priority_snapshot.document_signal(&extract.document_id));
         let q_item = QueueItem {
             id: extract.id.clone(),
@@ -679,9 +683,7 @@ async fn get_due_queue_items_from_repo_at(
         .into_iter()
         .chain(new_extracts.into_iter())
         .collect();
-    let video_extracts = repo
-        .get_video_extract_queue_candidates(&due_before)
-        .await?;
+    let video_extracts = repo.get_video_extract_queue_candidates(&due_before).await?;
     let documents = repo
         .list_due_documents_for_queue(&due_before, collection_id)
         .await?;
@@ -844,7 +846,8 @@ async fn get_due_queue_items_from_repo_at(
             .map(|t| preview_text(t, 100));
 
         let explicit = video_priorities.get(&extract.id).copied();
-        let signal = explicit.map(|value| CanonicalSignal::measured(value as f64 / 100.0))
+        let signal = explicit
+            .map(|value| CanonicalSignal::measured(value as f64 / 100.0))
             .unwrap_or_else(|| priority_snapshot.document_signal(&extract.document_id));
         let q_item = QueueItem {
             id: extract.id.clone(),
@@ -1260,7 +1263,9 @@ pub async fn get_queue_with_playlist_intersperse_from_repo(
                     .iter()
                     .enumerate()
                     .filter_map(|(idx, sub_q)| {
-                        if sub_q.items_since_last_insert >= sub_q.interval && !sub_q.videos.is_empty() {
+                        if sub_q.items_since_last_insert >= sub_q.interval
+                            && !sub_q.videos.is_empty()
+                        {
                             Some(idx)
                         } else {
                             None
@@ -1341,7 +1346,9 @@ mod tests {
 
     #[tokio::test]
     async fn video_extracts_are_first_class_queue_rows() {
-        use crate::issue6_test_support::{issue6_repository, now, NEW_VIDEO_EXTRACT_ID, VIDEO_EXTRACT_ID};
+        use crate::issue6_test_support::{
+            issue6_repository, now, NEW_VIDEO_EXTRACT_ID, VIDEO_EXTRACT_ID,
+        };
 
         let repo = issue6_repository().await;
         let items = get_queue_items_from_repo(&repo, None).await.unwrap();
@@ -1361,10 +1368,17 @@ mod tests {
         assert_eq!(due.extract_id, None);
         assert_eq!(due.document_id, crate::issue6_test_support::VIDEO_ID);
         assert_eq!(due.reps, Some(0));
-        assert!(video_rows.iter().any(|item| item.id == NEW_VIDEO_EXTRACT_ID));
+        assert!(video_rows
+            .iter()
+            .any(|item| item.id == NEW_VIDEO_EXTRACT_ID));
 
         let reviewed = repo
-            .review_video_extract(VIDEO_EXTRACT_ID, 3, &uuid::Uuid::new_v4().to_string(), now())
+            .review_video_extract(
+                VIDEO_EXTRACT_ID,
+                3,
+                &uuid::Uuid::new_v4().to_string(),
+                now(),
+            )
             .await
             .unwrap();
         assert!(reviewed.extract.is_some());
@@ -1373,7 +1387,9 @@ mod tests {
             .await
             .unwrap();
         assert!(!after.iter().any(|extract| extract.id == VIDEO_EXTRACT_ID));
-        assert!(after.iter().any(|extract| extract.id == NEW_VIDEO_EXTRACT_ID));
+        assert!(after
+            .iter()
+            .any(|extract| extract.id == NEW_VIDEO_EXTRACT_ID));
     }
 
     #[tokio::test]
@@ -1394,8 +1410,7 @@ mod tests {
             11.0,
             "Other collection segment".into(),
         );
-        other_extract.queue_status =
-            crate::models::video_extract::VideoExtractQueueStatus::Queued;
+        other_extract.queue_status = crate::models::video_extract::VideoExtractQueueStatus::Queued;
         other_extract.collection_id = other_doc.collection_id.clone();
         other_extract.date_created = now();
         other_extract.date_modified = now();
@@ -1417,8 +1432,14 @@ mod tests {
         selector.sort_queue_items_at(&mut first_sort, now());
         selector.sort_queue_items_at(&mut second_sort, now());
         assert_eq!(
-            first_sort.iter().map(|item| item.id.clone()).collect::<Vec<_>>(),
-            second_sort.iter().map(|item| item.id.clone()).collect::<Vec<_>>()
+            first_sort
+                .iter()
+                .map(|item| item.id.clone())
+                .collect::<Vec<_>>(),
+            second_sort
+                .iter()
+                .map(|item| item.id.clone())
+                .collect::<Vec<_>>()
         );
         let selected = selector.get_next_items(&full_pool, 1);
         assert_eq!(selected.len(), 1);
@@ -1683,7 +1704,10 @@ mod collection_scope_tests {
     fn default_scope_includes_sentinel_legacy_and_unassigned_rows() {
         // Rows for each of the four queue item types under default scope.
         for row in ["", "00000000-0000-0000-0000-000000000001", "default"] {
-            assert!(collection_allows(Some(DEFAULT_COLLECTION_ID), row), "row {row:?}");
+            assert!(
+                collection_allows(Some(DEFAULT_COLLECTION_ID), row),
+                "row {row:?}"
+            );
         }
         // The legacy "default" literal scope behaves identically.
         assert!(collection_allows(Some("default"), ""));
@@ -1708,8 +1732,10 @@ mod collection_scope_tests {
 
 #[cfg(test)]
 mod neutral_priority_tests {
-    use super::{neutral_queue_priority, EXTRACT_PRIORITY_SPAN, NEW_ITEM_BASE_PRIORITY,
-                REVIEWED_ITEM_BASE_PRIORITY};
+    use super::{
+        neutral_queue_priority, EXTRACT_PRIORITY_SPAN, NEW_ITEM_BASE_PRIORITY,
+        REVIEWED_ITEM_BASE_PRIORITY,
+    };
 
     #[test]
     fn a_new_item_outranks_a_reviewed_one_at_the_same_interval() {

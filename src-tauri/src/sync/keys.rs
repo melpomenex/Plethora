@@ -76,7 +76,10 @@ fn derive_machine_key_with_salt(salt: &[u8]) -> Result<[u8; 32]> {
 fn encrypt_file(account: &str, plaintext: &[u8]) -> Result<()> {
     let dir = keys_dir()?;
     std::fs::create_dir_all(&dir).map_err(|e| {
-        PlethoraError::Internal(format!("Failed to create sync_keys dir {}: {e}", dir.display()))
+        PlethoraError::Internal(format!(
+            "Failed to create sync_keys dir {}: {e}",
+            dir.display()
+        ))
     })?;
 
     let mut salt = [0u8; 16];
@@ -96,7 +99,10 @@ fn encrypt_file(account: &str, plaintext: &[u8]) -> Result<()> {
 
     let path = file_path(account)?;
     std::fs::write(&path, &out).map_err(|e| {
-        PlethoraError::Internal(format!("Failed to write sync key file {}: {e}", path.display()))
+        PlethoraError::Internal(format!(
+            "Failed to write sync key file {}: {e}",
+            path.display()
+        ))
     })?;
     Ok(())
 }
@@ -107,7 +113,10 @@ fn decrypt_file(account: &str) -> Result<Option<Vec<u8>>> {
         return Ok(None);
     }
     let data = std::fs::read(&path).map_err(|e| {
-        PlethoraError::Internal(format!("Failed to read sync key file {}: {e}", path.display()))
+        PlethoraError::Internal(format!(
+            "Failed to read sync key file {}: {e}",
+            path.display()
+        ))
     })?;
     if data.len() < 28 {
         return Err(PlethoraError::Internal(
@@ -120,13 +129,11 @@ fn decrypt_file(account: &str) -> Result<Option<Vec<u8>>> {
     let key = derive_machine_key_with_salt(salt)?;
     let cipher = Aes256Gcm::new_from_slice(&key)
         .map_err(|e| PlethoraError::Internal(format!("AES init: {e}")))?;
-    let plaintext = cipher
-        .decrypt(nonce, ciphertext)
-        .map_err(|_| {
-            PlethoraError::Internal(
-                "Failed to decrypt sync key file; credentials may be from another machine".into(),
-            )
-        })?;
+    let plaintext = cipher.decrypt(nonce, ciphertext).map_err(|_| {
+        PlethoraError::Internal(
+            "Failed to decrypt sync key file; credentials may be from another machine".into(),
+        )
+    })?;
     Ok(Some(plaintext))
 }
 
@@ -222,8 +229,8 @@ pub async fn store_master_key(master: [u8; 32]) -> Result<()> {
 }
 
 pub async fn store_master_key_from_recovery(recovery_key: &str) -> Result<[u8; 32]> {
-    let normalized = SyncCrypto::normalize_recovery_key(recovery_key)
-        .map_err(PlethoraError::InvalidInput)?;
+    let normalized =
+        SyncCrypto::normalize_recovery_key(recovery_key).map_err(PlethoraError::InvalidInput)?;
     let master = SyncCrypto::derive_master_key(&normalized);
     store_master_key(master).await?;
     Ok(master)

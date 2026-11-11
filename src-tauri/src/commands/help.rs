@@ -3,7 +3,8 @@
 use serde::{Deserialize, Serialize};
 use std::sync::OnceLock;
 
-static BUNDLED_HELP_JSON: &str = include_str!("../../../src/features/help/generated/helpIndex.json");
+static BUNDLED_HELP_JSON: &str =
+    include_str!("../../../src/features/help/generated/helpIndex.json");
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HelpSearchResultItem {
@@ -86,7 +87,10 @@ pub fn get_bundled_help_index() -> &'static str {
 
 /// Fast native Rust search across bundled help chunks.
 #[tauri::command]
-pub fn search_help_docs_native(query: String, max_results: Option<usize>) -> Vec<HelpSearchResultItem> {
+pub fn search_help_docs_native(
+    query: String,
+    max_results: Option<usize>,
+) -> Vec<HelpSearchResultItem> {
     let index = get_parsed_index();
     let q = query.trim().to_lowercase();
     if q.is_empty() {

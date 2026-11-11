@@ -37,7 +37,11 @@ pub fn to_singular_stem(norm: &str) -> String {
         stem.push('y');
     } else if stem.ends_with("es") && stem.len() > 3 {
         // e.g. classes -> class, but not games -> gam
-        if stem.ends_with("sses") || stem.ends_with("shes") || stem.ends_with("ches") || stem.ends_with("xes") {
+        if stem.ends_with("sses")
+            || stem.ends_with("shes")
+            || stem.ends_with("ches")
+            || stem.ends_with("xes")
+        {
             stem.truncate(stem.len() - 2);
         } else {
             stem.truncate(stem.len() - 1);
@@ -53,12 +57,17 @@ pub fn to_display_casing(raw: &str) -> String {
     let parts: Vec<&str> = raw.split_whitespace().collect();
     let mut result = Vec::new();
 
-    let minor_words = ["and", "or", "of", "in", "the", "a", "an", "for", "to", "on", "with"];
+    let minor_words = [
+        "and", "or", "of", "in", "the", "a", "an", "for", "to", "on", "with",
+    ];
 
     for (i, word) in parts.iter().enumerate() {
         let lower = word.to_lowercase();
         // Check acronyms / short tokens (e.g. "AI", "ML", "CPU", "GPU", "OS", "DB", "SQL", "HTML", "CSS", "API")
-        let upper_acronyms = ["ai", "ml", "cpu", "gpu", "os", "db", "sql", "html", "css", "api", "tcp", "ip", "udp", "http", "llm", "rag", "ui", "ux", "toc"];
+        let upper_acronyms = [
+            "ai", "ml", "cpu", "gpu", "os", "db", "sql", "html", "css", "api", "tcp", "ip", "udp",
+            "http", "llm", "rag", "ui", "ux", "toc",
+        ];
         if upper_acronyms.contains(&lower.as_str()) {
             result.push(lower.to_uppercase());
         } else if i > 0 && minor_words.contains(&lower.as_str()) {
@@ -116,22 +125,48 @@ pub fn canonicalize_tag(candidate: &str, existing_tags: &[String]) -> String {
 
     // 4. Known common synonym / acronym mappings if present in existing taxonomy
     let known_synonyms: &[(&[&str], &str)] = &[
-        (&["machine learning", "ml", "ai ml", "ai / ml"], "Machine Learning"),
-        (&["artificial intelligence", "ai"], "Artificial Intelligence"),
-        (&["operating systems", "operating system", "os"], "Operating Systems"),
+        (
+            &["machine learning", "ml", "ai ml", "ai / ml"],
+            "Machine Learning",
+        ),
+        (
+            &["artificial intelligence", "ai"],
+            "Artificial Intelligence",
+        ),
+        (
+            &["operating systems", "operating system", "os"],
+            "Operating Systems",
+        ),
         (&["deep learning", "dl"], "Deep Learning"),
-        (&["natural language processing", "nlp"], "Natural Language Processing"),
+        (
+            &["natural language processing", "nlp"],
+            "Natural Language Processing",
+        ),
         (&["computer science", "cs"], "Computer Science"),
-        (&["large language model", "large language models", "llm", "llms"], "Large Language Models"),
+        (
+            &[
+                "large language model",
+                "large language models",
+                "llm",
+                "llms",
+            ],
+            "Large Language Models",
+        ),
     ];
 
     for (synonyms, _canonical) in known_synonyms {
-        let is_candidate_in_group = synonyms.iter().any(|s| normalize_for_comparison(s) == candidate_norm || to_singular_stem(&normalize_for_comparison(s)) == candidate_stem);
+        let is_candidate_in_group = synonyms.iter().any(|s| {
+            normalize_for_comparison(s) == candidate_norm
+                || to_singular_stem(&normalize_for_comparison(s)) == candidate_stem
+        });
         if is_candidate_in_group {
             for existing in existing_tags {
                 let ext_norm = normalize_for_comparison(existing);
                 let ext_stem = to_singular_stem(&ext_norm);
-                if synonyms.iter().any(|s| normalize_for_comparison(s) == ext_norm || to_singular_stem(&normalize_for_comparison(s)) == ext_stem) {
+                if synonyms.iter().any(|s| {
+                    normalize_for_comparison(s) == ext_norm
+                        || to_singular_stem(&normalize_for_comparison(s)) == ext_stem
+                }) {
                     return existing.clone();
                 }
             }
@@ -148,16 +183,31 @@ mod tests {
 
     #[test]
     fn test_case_and_hyphen_normalization() {
-        let existing = vec!["Computer Science".to_string(), "Machine Learning".to_string()];
-        assert_eq!(canonicalize_tag("computer-science", &existing), "Computer Science");
-        assert_eq!(canonicalize_tag("COMPUTER SCIENCE", &existing), "Computer Science");
-        assert_eq!(canonicalize_tag("computer_science", &existing), "Computer Science");
+        let existing = vec![
+            "Computer Science".to_string(),
+            "Machine Learning".to_string(),
+        ];
+        assert_eq!(
+            canonicalize_tag("computer-science", &existing),
+            "Computer Science"
+        );
+        assert_eq!(
+            canonicalize_tag("COMPUTER SCIENCE", &existing),
+            "Computer Science"
+        );
+        assert_eq!(
+            canonicalize_tag("computer_science", &existing),
+            "Computer Science"
+        );
     }
 
     #[test]
     fn test_singular_plural_consolidation() {
         let existing = vec!["Operating System".to_string()];
-        assert_eq!(canonicalize_tag("Operating Systems", &existing), "Operating System");
+        assert_eq!(
+            canonicalize_tag("Operating Systems", &existing),
+            "Operating System"
+        );
 
         let existing2 = vec!["Algorithms".to_string()];
         assert_eq!(canonicalize_tag("Algorithm", &existing2), "Algorithms");

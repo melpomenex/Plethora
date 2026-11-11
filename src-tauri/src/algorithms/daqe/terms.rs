@@ -119,7 +119,10 @@ pub fn calculate_canonical_urgency(
     } else if let Some(slider) = item.priority_slider {
         ((slider.clamp(0, 100) as f64) / 100.0, true)
     } else if let Some(rating) = item.priority_rating {
-        ((crate::algorithms::resolve_priority_slider(0, rating) as f64) / 100.0, true)
+        (
+            (crate::algorithms::resolve_priority_slider(0, rating) as f64) / 100.0,
+            true,
+        )
     } else {
         (0.5, false)
     };
@@ -425,9 +428,7 @@ pub fn friction_penalty(signals: Option<&ItemSignals>) -> TermValue {
         return TermValue::measured(0.0);
     }
 
-    let saturating = |count: i32, per: f64, cap: f64| {
-        (count.max(0) as f64).min(cap) * per
-    };
+    let saturating = |count: i32, per: f64, cap: f64| (count.max(0) as f64).min(cap) * per;
 
     let postpones = saturating(inputs.postpone_count, 0.10, 4.0);
     let skips = saturating(inputs.rapid_skip_count, 0.10, 4.0);
@@ -544,7 +545,10 @@ mod tests {
     #[test]
     fn energy_fit_reports_measured_when_a_model_supplies_complexity() {
         let item = queue_item("doc-1", "document", None);
-        let signals = ItemSignals { complexity: Some(5.0), ..Default::default() };
+        let signals = ItemSignals {
+            complexity: Some(5.0),
+            ..Default::default()
+        };
         let term = energy_fit(&item, Some(&signals), 5.0);
         assert!(term.available && !term.defaulted);
         assert_eq!(term.effective(), 1.0);
@@ -559,14 +563,20 @@ mod tests {
         };
         let term = energy_fit(&item, Some(&signals), 3.0);
         assert!(term.defaulted);
-        assert_eq!(term.effective(), fit_value(default_complexity_for("learning-item"), 3.0));
+        assert_eq!(
+            term.effective(),
+            fit_value(default_complexity_for("learning-item"), 3.0)
+        );
     }
 
     #[test]
     fn default_complexity_ranks_item_types_by_reading_commitment() {
         assert!(default_complexity_for("document") > default_complexity_for("extract"));
         assert!(default_complexity_for("extract") > default_complexity_for("learning-item"));
-        assert_eq!(default_complexity_for("learning-item"), default_complexity_for("rss-article"));
+        assert_eq!(
+            default_complexity_for("learning-item"),
+            default_complexity_for("rss-article")
+        );
     }
 
     #[test]
@@ -581,7 +591,10 @@ mod tests {
     fn a_local_alignment_is_available_but_never_looks_measured() {
         // No decision model, but the goal matched something: a real number the UI
         // can rank by, flagged so it is never presented as a model verdict.
-        let signals = ItemSignals { local_goal_alignment: Some(0.4), ..Default::default() };
+        let signals = ItemSignals {
+            local_goal_alignment: Some(0.4),
+            ..Default::default()
+        };
         let term = goal_relevance(Some(&signals), 0.3);
         assert!(term.available);
         assert!(term.defaulted);
@@ -596,7 +609,10 @@ mod tests {
             ..Default::default()
         };
         let term = goal_relevance(Some(&signals), 0.3);
-        assert!(term.available && !term.defaulted, "a real verdict is measured");
+        assert!(
+            term.available && !term.defaulted,
+            "a real verdict is measured"
+        );
         assert_eq!(term.effective(), 0.9);
     }
 
@@ -616,7 +632,10 @@ mod tests {
 
     #[test]
     fn a_non_finite_goal_verdict_is_rejected() {
-        let signals = ItemSignals { goal_alignment: Some(f64::NAN), ..Default::default() };
+        let signals = ItemSignals {
+            goal_alignment: Some(f64::NAN),
+            ..Default::default()
+        };
         assert_eq!(signals.goal_alignment_value(), None);
         assert!(!goal_relevance(Some(&signals), 0.3).available);
     }
@@ -625,7 +644,10 @@ mod tests {
     fn no_goal_leaves_the_term_unavailable_rather_than_scoring_zero() {
         // The distinction the goal field exists to preserve: the user has not said
         // what they are studying, which is not the same as nothing being relevant.
-        let signals = ItemSignals { relevance: None, ..Default::default() };
+        let signals = ItemSignals {
+            relevance: None,
+            ..Default::default()
+        };
         let term = goal_relevance(Some(&signals), 0.3);
         assert!(!term.available);
         assert!(!term.defaulted);
@@ -634,13 +656,22 @@ mod tests {
 
     #[test]
     fn goal_relevance_rejects_out_of_range_values_instead_of_clamping() {
-        let signals = ItemSignals { relevance: Some(1.7), ..Default::default() };
+        let signals = ItemSignals {
+            relevance: Some(1.7),
+            ..Default::default()
+        };
         assert_eq!(signals.relevalscore_value(), None);
 
-        let signals = ItemSignals { relevance: Some(f64::NAN), ..Default::default() };
+        let signals = ItemSignals {
+            relevance: Some(f64::NAN),
+            ..Default::default()
+        };
         assert_eq!(signals.relevalscore_value(), None);
 
-        let signals = ItemSignals { relevance: Some(0.62), ..Default::default() };
+        let signals = ItemSignals {
+            relevance: Some(0.62),
+            ..Default::default()
+        };
         assert_eq!(signals.relevalscore_value(), Some(0.62));
     }
 
@@ -673,8 +704,7 @@ mod tests {
         high.priority_slider = Some(95);
 
         assert!(
-            srs_urgency(&high, None, &ctx).effective()
-                > srs_urgency(&low, None, &ctx).effective()
+            srs_urgency(&high, None, &ctx).effective() > srs_urgency(&low, None, &ctx).effective()
         );
     }
 
@@ -746,7 +776,10 @@ mod tests {
         let signals = ItemSignals::default();
         let term = friction_penalty(Some(&signals));
         assert_eq!(term.effective(), 0.0);
-        assert!(term.available, "no telemetry is a measured zero, not unknown");
+        assert!(
+            term.available,
+            "no telemetry is a measured zero, not unknown"
+        );
         assert!(signals.friction.is_untracked());
     }
 
@@ -754,11 +787,17 @@ mod tests {
     fn friction_penalty_grows_with_postponements() {
         let clean = ItemSignals::default();
         let thrice = ItemSignals {
-            friction: FrictionInputs { postpone_count: 3, ..Default::default() },
+            friction: FrictionInputs {
+                postpone_count: 3,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let many = ItemSignals {
-            friction: FrictionInputs { postpone_count: 9, ..Default::default() },
+            friction: FrictionInputs {
+                postpone_count: 9,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -812,8 +851,7 @@ mod tests {
         };
         for step in 0..=10 {
             // Knob applied as the weight, exactly once.
-            let value =
-                friction_penalty(Some(&extreme)).effective() * (step as f64 / 10.0);
+            let value = friction_penalty(Some(&extreme)).effective() * (step as f64 / 10.0);
             assert!((0.0..=1.0).contains(&value), "friction must stay in [0,1]");
         }
         assert!(friction_penalty(Some(&extreme)).effective() <= 1.0);
@@ -827,7 +865,10 @@ mod tests {
     #[test]
     fn friction_penalty_floor_applies_at_the_documented_three_postponements() {
         let three = ItemSignals {
-            friction: FrictionInputs { postpone_count: 3, ..Default::default() },
+            friction: FrictionInputs {
+                postpone_count: 3,
+                ..Default::default()
+            },
             ..Default::default()
         };
         // 0.10 per postponement at aggressiveness 1.0.
@@ -963,10 +1004,17 @@ mod tests {
         assert!(!ev.priority_available);
         assert_eq!(ev.memory_urgency, 0.5);
 
-        let mut future_doc = queue_item("future", "document", Some(&(n + chrono::Duration::days(5)).to_rfc3339()));
+        let mut future_doc = queue_item(
+            "future",
+            "document",
+            Some(&(n + chrono::Duration::days(5)).to_rfc3339()),
+        );
         future_doc.canonical_priority = Some(0.8);
         let fut_ev = calculate_canonical_urgency(&future_doc, n, None);
-        assert_eq!(fut_ev.temporal_urgency, 0.0, "Future rotational items have T=0");
+        assert_eq!(
+            fut_ev.temporal_urgency, 0.0,
+            "Future rotational items have T=0"
+        );
         assert!((fut_ev.memory_urgency - 0.16).abs() < 1e-12);
     }
 
@@ -981,19 +1029,30 @@ mod tests {
         assert!((ev1.memory_urgency - 0.550000).abs() < 1e-5);
 
         // 2. 30-day late document, 25% -> M = 0.803072
-        let mut d2 = queue_item("d2", "document", Some(&(n - chrono::Duration::days(30)).to_rfc3339()));
+        let mut d2 = queue_item(
+            "d2",
+            "document",
+            Some(&(n - chrono::Duration::days(30)).to_rfc3339()),
+        );
         d2.canonical_priority = Some(0.25);
         let ev2 = calculate_canonical_urgency(&d2, n, None);
         assert!((ev2.memory_urgency - 0.803072).abs() < 1e-4);
 
         // 3. 14-day late document, 25% -> M = 0.702848
-        let mut d3 = queue_item("d3", "document", Some(&(n - chrono::Duration::days(14)).to_rfc3339()));
+        let mut d3 = queue_item(
+            "d3",
+            "document",
+            Some(&(n - chrono::Duration::days(14)).to_rfc3339()),
+        );
         d3.canonical_priority = Some(0.25);
         let ev3 = calculate_canonical_urgency(&d3, n, None);
         assert!((ev3.memory_urgency - 0.702848).abs() < 1e-4);
 
         // Monotone lateness check: 30-day late MUST beat 14-day late (no day-14 decline!)
-        assert!(ev2.memory_urgency > ev3.memory_urgency, "30-day late must outrank 14-day late (no day-14 decline)");
+        assert!(
+            ev2.memory_urgency > ev3.memory_urgency,
+            "30-day late must outrank 14-day late (no day-14 decline)"
+        );
 
         // 4. Due now document, 25% -> M = 0.450000
         let mut d4 = queue_item("d4", "document", Some(&n.to_rfc3339()));
@@ -1015,7 +1074,11 @@ mod tests {
         assert!((ev6.memory_urgency - 0.600000).abs() < 1e-5);
 
         // 7. 7-day late bottom-ranked document, explicit 0% -> M = 0.557388
-        let mut d7 = queue_item("d7", "document", Some(&(n - chrono::Duration::days(7)).to_rfc3339()));
+        let mut d7 = queue_item(
+            "d7",
+            "document",
+            Some(&(n - chrono::Duration::days(7)).to_rfc3339()),
+        );
         d7.canonical_priority = Some(0.0);
         d7.priority_explicitly_set = Some(true);
         let ev7 = calculate_canonical_urgency(&d7, n, None);
@@ -1025,7 +1088,11 @@ mod tests {
         assert!(ev6.memory_urgency > ev7.memory_urgency);
 
         // 8. Future reviewed document +7 days, 100% -> M = 0.200000
-        let mut d8 = queue_item("d8", "document", Some(&(n + chrono::Duration::days(7)).to_rfc3339()));
+        let mut d8 = queue_item(
+            "d8",
+            "document",
+            Some(&(n + chrono::Duration::days(7)).to_rfc3339()),
+        );
         d8.canonical_priority = Some(1.0);
         let ev8 = calculate_canonical_urgency(&d8, n, None);
         assert!((ev8.memory_urgency - 0.200000).abs() < 1e-5);

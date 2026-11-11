@@ -11,11 +11,13 @@ pub async fn extract_html_content(file_path: &str) -> Result<ExtractedContent> {
     let content = match tokio::fs::read_to_string(path).await {
         Ok(c) => c,
         Err(e) => {
-            return Err(crate::error::PlethoraError::Import(crate::error::ImportError {
-                code: crate::error::ImportErrorCode::FileNotFound,
-                message: format!("Failed to read HTML file: {}", e),
-                file_name: Some(file_path.to_string()),
-            }))
+            return Err(crate::error::PlethoraError::Import(
+                crate::error::ImportError {
+                    code: crate::error::ImportErrorCode::FileNotFound,
+                    message: format!("Failed to read HTML file: {}", e),
+                    file_name: Some(file_path.to_string()),
+                },
+            ))
         }
     };
 

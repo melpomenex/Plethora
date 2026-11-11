@@ -329,7 +329,6 @@ mod tests {
 
     #[test]
     fn test_lookup_1_based_grade_conversion() {
-
         // Grade 1 (easiest) -> index 0 -> should give high SInc
         let grade_1_val = sinc_lookup(0, 10, 10);
         // Grade 20 (hardest) -> index 19 -> should give lower SInc

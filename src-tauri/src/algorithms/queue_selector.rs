@@ -175,9 +175,7 @@ impl QueueSelector {
             }
 
             // Deterministic tie-breaking: (entity_kind, entity_id) ascending
-            a.item_type
-                .cmp(&b.item_type)
-                .then_with(|| a.id.cmp(&b.id))
+            a.item_type.cmp(&b.item_type).then_with(|| a.id.cmp(&b.id))
         });
     }
 

@@ -756,8 +756,7 @@ pub async fn get_due_workload_forecast(
     let overdue_documents = grouped.overdue_documents;
     let overdue_extracts = grouped.overdue_extracts;
     let overdue_video = grouped.overdue_video_extracts;
-    let overdue_total =
-        overdue_learning + overdue_documents + overdue_extracts + overdue_video;
+    let overdue_total = overdue_learning + overdue_documents + overdue_extracts + overdue_video;
     if overdue_total > 0 {
         points.push(DueForecastPoint {
             date: (start - Duration::days(1)).to_string(),
@@ -966,10 +965,7 @@ pub async fn optimize_algorithm_params(
     result.minimum_history_required = MIN_HISTORY_REQUIRED;
 
     if total <= 0 {
-        result.fsrs_weights = fsrs::DEFAULT_PARAMETERS
-            .iter()
-            .map(|w| *w as f64)
-            .collect();
+        result.fsrs_weights = fsrs::DEFAULT_PARAMETERS.iter().map(|w| *w as f64).collect();
         result.expected_retention = 0.5;
         result.converged = false;
         return Ok(result);
@@ -987,14 +983,12 @@ pub async fn optimize_algorithm_params(
                 reviews: Vec::new(),
             });
         }
-        let grade = crate::algorithms::precision::rating_to_grade(
-            match entry.rating {
-                ReviewRating::Again => 1,
-                ReviewRating::Hard => 2,
-                ReviewRating::Good => 3,
-                ReviewRating::Easy => 4,
-            },
-        );
+        let grade = crate::algorithms::precision::rating_to_grade(match entry.rating {
+            ReviewRating::Again => 1,
+            ReviewRating::Hard => 2,
+            ReviewRating::Good => 3,
+            ReviewRating::Easy => 4,
+        });
         if let Some(item) = revlog_items.last_mut() {
             item.reviews
                 .push((entry.days_since_previous_review as f64, grade));
@@ -1004,10 +998,7 @@ pub async fn optimize_algorithm_params(
     let train_set = build_fsrs_items(&revlog_items);
 
     let fsrs_weights = if train_set.is_empty() {
-        fsrs::DEFAULT_PARAMETERS
-            .iter()
-            .map(|w| *w as f64)
-            .collect()
+        fsrs::DEFAULT_PARAMETERS.iter().map(|w| *w as f64).collect()
     } else {
         tauri::async_runtime::spawn_blocking(move || {
             fsrs::compute_parameters(fsrs::ComputeParametersInput {
@@ -1078,7 +1069,9 @@ pub async fn get_arena_optimization_status(
 /// optimizer and M3's matrices learn continuously as reviews occur. This
 /// command is kept for API compatibility but is a no-op.
 #[tauri::command]
-pub async fn optimize_arena_locally(repo: State<'_, Repository>) -> Result<ArenaOptimizationStatus> {
+pub async fn optimize_arena_locally(
+    repo: State<'_, Repository>,
+) -> Result<ArenaOptimizationStatus> {
     get_arena_optimization_status(repo).await
 }
 

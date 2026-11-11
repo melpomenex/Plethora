@@ -192,8 +192,14 @@ pub fn compute_classifier_signal(
                 .as_ref()
                 .is_some_and(|a| a.contains(&value_lower)),
             "title" => title_lower.contains(&value_lower),
-            "tag" => item.tags.iter().any(|t| t.to_lowercase().contains(&value_lower)),
-            "feed" => item.feed_id.as_ref().is_some_and(|f| f == &classifier.value),
+            "tag" => item
+                .tags
+                .iter()
+                .any(|t| t.to_lowercase().contains(&value_lower)),
+            "feed" => item
+                .feed_id
+                .as_ref()
+                .is_some_and(|f| f == &classifier.value),
             _ => false,
         };
 
@@ -244,7 +250,9 @@ pub fn compute_rating_history_signal(
     }
 
     if let Some(category) = &item.category {
-        if let Some(summary) = source_summaries.get(&format!("category:{}", category.to_lowercase())) {
+        if let Some(summary) =
+            source_summaries.get(&format!("category:{}", category.to_lowercase()))
+        {
             total_positive += summary.positive_count;
             total_negative += summary.negative_count;
             matched = true;
@@ -326,7 +334,11 @@ fn cosine_similarity(a: &[f32], b: &[f32]) -> f64 {
         return 0.0;
     }
 
-    let dot: f64 = a.iter().zip(b.iter()).map(|(x, y)| (*x as f64) * (*y as f64)).sum();
+    let dot: f64 = a
+        .iter()
+        .zip(b.iter())
+        .map(|(x, y)| (*x as f64) * (*y as f64))
+        .sum();
     let norm_a: f64 = a.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
     let norm_b: f64 = b.iter().map(|x| (*x as f64).powi(2)).sum::<f64>().sqrt();
 
@@ -404,23 +416,23 @@ mod tests {
     #[test]
     fn test_composite_score_all_signals() {
         let score = compute_composite_score(
-            Some(0.8),  // classifier
-            Some(0.6),  // tag affinity
-            Some(0.7),  // rating history
-            Some(0.9),  // semantic
+            Some(0.8), // classifier
+            Some(0.6), // tag affinity
+            Some(0.7), // rating history
+            Some(0.9), // semantic
         );
-        let expected = (0.8 * 0.4 + 0.6 * 0.25 + 0.7 * 0.2 + 0.9 * 0.15)
-            / (0.4 + 0.25 + 0.2 + 0.15);
+        let expected =
+            (0.8 * 0.4 + 0.6 * 0.25 + 0.7 * 0.2 + 0.9 * 0.15) / (0.4 + 0.25 + 0.2 + 0.15);
         assert!((score - expected).abs() < 0.001);
     }
 
     #[test]
     fn test_composite_score_partial_signals() {
         let score = compute_composite_score(
-            Some(0.8),  // classifier
-            None,       // tag affinity missing
-            Some(0.7),  // rating history
-            None,       // semantic missing
+            Some(0.8), // classifier
+            None,      // tag affinity missing
+            Some(0.7), // rating history
+            None,      // semantic missing
         );
         // Weight redistributed: 0.4 and 0.2 are present, total = 0.6
         let expected = (0.8 * 0.4 + 0.7 * 0.2) / (0.4 + 0.2);
@@ -597,10 +609,7 @@ mod tests {
 
     #[test]
     fn test_compute_embedding_centroid() {
-        let embeddings = vec![
-            vec![2.0, 4.0],
-            vec![4.0, 2.0],
-        ];
+        let embeddings = vec![vec![2.0, 4.0], vec![4.0, 2.0]];
         let centroid = compute_embedding_centroid(&embeddings).unwrap();
         assert!((centroid[0] - 3.0).abs() < 0.001);
         assert!((centroid[1] - 3.0).abs() < 0.001);
@@ -626,13 +635,11 @@ mod tests {
             embedding: Some(vec![1.0, 0.0, 0.0]),
         };
 
-        let classifiers = vec![
-            ClassifierSignal {
-                classifier_type: "author".into(),
-                value: "Author A".into(),
-                sentiment: "like".into(),
-            },
-        ];
+        let classifiers = vec![ClassifierSignal {
+            classifier_type: "author".into(),
+            value: "Author A".into(),
+            sentiment: "like".into(),
+        }];
 
         let mut tag_cache = TagAffinityCache::new(100);
         for _ in 0..15 {
@@ -684,13 +691,7 @@ mod tests {
 
         let tag_cache = TagAffinityCache::new(100); // Empty cache
         let source_summaries = std::collections::HashMap::new();
-        let result = compute_relevance(
-            &item,
-            &[],
-            &tag_cache,
-            &source_summaries,
-            &None,
-        );
+        let result = compute_relevance(&item, &[], &tag_cache, &source_summaries, &None);
 
         // No signals → neutral score
         assert!((result.score - 0.5).abs() < 0.001);
@@ -701,18 +702,8 @@ mod tests {
 
     #[test]
     fn test_high_relevance_items_sort_earlier() {
-        let high_relevance = compute_composite_score(
-            Some(0.9),
-            Some(0.8),
-            Some(0.9),
-            Some(0.8),
-        );
-        let low_relevance = compute_composite_score(
-            Some(0.1),
-            Some(0.2),
-            Some(0.1),
-            Some(0.2),
-        );
+        let high_relevance = compute_composite_score(Some(0.9), Some(0.8), Some(0.9), Some(0.8));
+        let low_relevance = compute_composite_score(Some(0.1), Some(0.2), Some(0.1), Some(0.2));
         assert!(high_relevance > low_relevance);
 
         // Simulate blending with same FSRS priority
@@ -763,15 +754,30 @@ mod tests {
             embedding: None,
         };
         let mut summaries = std::collections::HashMap::new();
-        summaries.insert("author:author a".into(), SourceRatingSummary {
-            total_ratings: 5, positive_count: 4, negative_count: 1,
-        });
-        summaries.insert("feed:feed1".into(), SourceRatingSummary {
-            total_ratings: 10, positive_count: 2, negative_count: 8,
-        });
-        summaries.insert("category:tech".into(), SourceRatingSummary {
-            total_ratings: 20, positive_count: 15, negative_count: 5,
-        });
+        summaries.insert(
+            "author:author a".into(),
+            SourceRatingSummary {
+                total_ratings: 5,
+                positive_count: 4,
+                negative_count: 1,
+            },
+        );
+        summaries.insert(
+            "feed:feed1".into(),
+            SourceRatingSummary {
+                total_ratings: 10,
+                positive_count: 2,
+                negative_count: 8,
+            },
+        );
+        summaries.insert(
+            "category:tech".into(),
+            SourceRatingSummary {
+                total_ratings: 20,
+                positive_count: 15,
+                negative_count: 5,
+            },
+        );
         let signal = compute_rating_history_signal(&item, &summaries).unwrap();
         // Mixed: positive author/category, negative feed
         assert!(signal > 0.3);

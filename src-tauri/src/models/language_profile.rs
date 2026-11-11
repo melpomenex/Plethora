@@ -29,8 +29,8 @@ pub fn validate_bcp47(value: &str) -> Result<String, String> {
     }
 
     let language = parts[0];
-    let is_language = (2..=8).contains(&language.len())
-        && language.chars().all(|c| c.is_ascii_alphabetic());
+    let is_language =
+        (2..=8).contains(&language.len()) && language.chars().all(|c| c.is_ascii_alphabetic());
     if !is_language {
         return Err(format!("Invalid BCP-47 language subtag: {language}"));
     }
@@ -76,9 +76,7 @@ pub fn validate_bcp47(value: &str) -> Result<String, String> {
         if extension_mode {
             // A one-character extension is handled above; all remaining
             // extension values must be 2–8 alphanumeric characters.
-            if !(2..=8).contains(&part.len())
-                || !part.chars().all(|c| c.is_ascii_alphanumeric())
-            {
+            if !(2..=8).contains(&part.len()) || !part.chars().all(|c| c.is_ascii_alphanumeric()) {
                 return Err(format!("Invalid language extension subtag: {part}"));
             }
             index += 1;
@@ -106,7 +104,11 @@ pub fn validate_bcp47(value: &str) -> Result<String, String> {
         } else if part.len() == 4 && part.chars().all(|c| c.is_ascii_alphabetic()) {
             let mut chars = part.chars();
             let first = chars.next().unwrap().to_ascii_uppercase();
-            canonical.push(std::iter::once(first).chain(chars.map(|c| c.to_ascii_lowercase())).collect());
+            canonical.push(
+                std::iter::once(first)
+                    .chain(chars.map(|c| c.to_ascii_lowercase()))
+                    .collect(),
+            );
         } else if (part.len() == 2 && part.chars().all(|c| c.is_ascii_alphabetic()))
             || (part.len() == 3 && part.chars().all(|c| c.is_ascii_digit()))
         {
@@ -427,7 +429,10 @@ pub struct ProfileDeleteReport {
     pub retained_learning_items: i64,
 }
 
-pub fn normalize_scope(account_id: Option<&str>, workspace_id: Option<&str>) -> LanguageProfileScope {
+pub fn normalize_scope(
+    account_id: Option<&str>,
+    workspace_id: Option<&str>,
+) -> LanguageProfileScope {
     LanguageProfileScope {
         account_id: account_id
             .filter(|value| !value.trim().is_empty())

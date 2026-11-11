@@ -9,13 +9,13 @@ use crate::models::language_lexicon::{
     clamp_context_text, normalize_lexical_form, stable_occurrence_key, EncounterBatchResult,
     EncounterInput, LanguageLexicalAnalysis, LanguageLexicalEntry, LanguageLexiconExport,
     LanguageLexiconSyncEnvelope, LanguageLookupEvent, LanguageOccurrence, LanguageSurfaceForm,
-    LexicalEntryOverride, LexicalEntryUpsert, LexicalObjectKind, LexiconPage, LegacyLookupRecord,
+    LegacyLookupRecord, LexicalEntryOverride, LexicalEntryUpsert, LexicalObjectKind, LexiconPage,
     LookupInput, OrphanState, SourceAnchor, DEFAULT_OCCURRENCE_PAGE_SIZE,
     LANGUAGE_LEXICON_SCHEMA_VERSION, MAX_OCCURRENCE_PAGE_SIZE,
 };
 use chrono::Utc;
-use sqlx::{sqlite::SqliteRow, Row, Sqlite};
 use serde_json::Value;
+use sqlx::{sqlite::SqliteRow, Row, Sqlite};
 use std::collections::HashSet;
 
 fn json<T: serde::Serialize>(value: &T) -> Result<String> {
@@ -66,7 +66,10 @@ fn entry_from_row(row: &SqliteRow) -> Result<LanguageLexicalEntry> {
         active_evidence_count: row.try_get("active_evidence_count")?,
         passive_evidence_count: row.try_get("passive_evidence_count")?,
         knowledge_state: row.try_get("knowledge_state")?,
-        review_relationships: parsed(row.try_get("review_relationships_json")?, Value::Object(Default::default())),
+        review_relationships: parsed(
+            row.try_get("review_relationships_json")?,
+            Value::Object(Default::default()),
+        ),
         user_notes: row.try_get("user_notes")?,
         ignored: row.try_get::<i64, _>("ignored")? != 0,
         proper_noun: row.try_get::<i64, _>("proper_noun")? != 0,
@@ -103,7 +106,10 @@ fn analysis_from_row(row: &SqliteRow) -> Result<LanguageLexicalAnalysis> {
         processor_version: row.try_get("processor_version")?,
         lemma: row.try_get("lemma")?,
         part_of_speech: row.try_get("part_of_speech")?,
-        morphology: parsed(row.try_get("morphology_json")?, Value::Object(Default::default())),
+        morphology: parsed(
+            row.try_get("morphology_json")?,
+            Value::Object(Default::default()),
+        ),
         confidence: row.try_get("confidence")?,
         authoritative: row.try_get::<i64, _>("authoritative")? != 0,
         created_at: row.try_get("created_at")?,
@@ -186,7 +192,9 @@ impl Repository {
         .fetch_optional(self.pool())
         .await?;
         if exists.is_none() {
-            return Err(PlethoraError::NotFound(format!("Language profile {profile_id}")));
+            return Err(PlethoraError::NotFound(format!(
+                "Language profile {profile_id}"
+            )));
         }
         Ok(())
     }
@@ -216,7 +224,10 @@ impl Repository {
             .unwrap_or(&normalized)
             .trim()
             .to_string();
-        let id = input.id.clone().unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let id = input
+            .id
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         sqlx::query(
             "INSERT INTO language_lexical_entries
              (id, profile_id, language_tag, object_kind, lexical_key, normalized_form,
@@ -287,7 +298,9 @@ impl Repository {
         tx.commit().await?;
         self.get_language_lexical_entry(&input.profile_id, &id)
             .await?
-            .ok_or_else(|| PlethoraError::Internal("Lexical entry disappeared after upsert".to_string()))
+            .ok_or_else(|| {
+                PlethoraError::Internal("Lexical entry disappeared after upsert".to_string())
+            })
     }
 
     pub async fn get_language_lexical_entry(
@@ -295,13 +308,12 @@ impl Repository {
         profile_id: &str,
         entry_id: &str,
     ) -> Result<Option<LanguageLexicalEntry>> {
-        let row = sqlx::query(
-            "SELECT * FROM language_lexical_entries WHERE profile_id = ?1 AND id = ?2",
-        )
-        .bind(profile_id)
-        .bind(entry_id)
-        .fetch_optional(self.pool())
-        .await?;
+        let row =
+            sqlx::query("SELECT * FROM language_lexical_entries WHERE profile_id = ?1 AND id = ?2")
+                .bind(profile_id)
+                .bind(entry_id)
+                .fetch_optional(self.pool())
+                .await?;
         row.as_ref().map(entry_from_row).transpose()
     }
 
@@ -353,8 +365,15 @@ impl Repository {
                 .fetch_all(self.pool())
                 .await?
         };
-        check_page(rows.iter().map(entry_from_row).collect::<Result<Vec<_>>>()?, offset, limit, total)
-            .pipe(Ok)
+        check_page(
+            rows.iter()
+                .map(entry_from_row)
+                .collect::<Result<Vec<_>>>()?,
+            offset,
+            limit,
+            total,
+        )
+        .pipe(Ok)
     }
 
     pub async fn record_language_encounter(
@@ -362,11 +381,9 @@ impl Repository {
         input: EncounterInput,
     ) -> Result<LanguageLexicalEntry> {
         let result = self.record_language_encounter_batch(vec![input]).await?;
-        result
-            .entries
-            .into_iter()
-            .next()
-            .ok_or_else(|| PlethoraError::Internal("Encounter did not produce an entry".to_string()))
+        result.entries.into_iter().next().ok_or_else(|| {
+            PlethoraError::Internal("Encounter did not produce an entry".to_string())
+        })
     }
 
     pub async fn record_language_encounter_batch(
@@ -374,9 +391,16 @@ impl Repository {
         inputs: Vec<EncounterInput>,
     ) -> Result<EncounterBatchResult> {
         if inputs.is_empty() {
-            return Ok(EncounterBatchResult { accepted: 0, coalesced: 0, entries: Vec::new() });
+            return Ok(EncounterBatchResult {
+                accepted: 0,
+                coalesced: 0,
+                entries: Vec::new(),
+            });
         }
-        let profile_ids: HashSet<&str> = inputs.iter().map(|input| input.profile_id.as_str()).collect();
+        let profile_ids: HashSet<&str> = inputs
+            .iter()
+            .map(|input| input.profile_id.as_str())
+            .collect();
         for profile_id in profile_ids {
             self.ensure_profile(profile_id).await?;
         }
@@ -389,7 +413,9 @@ impl Repository {
             let surface = input.surface.trim();
             let normalized = normalize_lexical_form(input.normalized.as_deref().unwrap_or(surface));
             if normalized.is_empty() {
-                return Err(PlethoraError::InvalidInput("Encounter surface cannot be empty".to_string()));
+                return Err(PlethoraError::InvalidInput(
+                    "Encounter surface cannot be empty".to_string(),
+                ));
             }
             let confident_lemma = input
                 .lemma
@@ -401,7 +427,9 @@ impl Repository {
                 id: None,
                 profile_id: input.profile_id.clone(),
                 language_tag: input.language_tag.clone(),
-                normalized_form: confident_lemma.clone().unwrap_or_else(|| normalized.clone()),
+                normalized_form: confident_lemma
+                    .clone()
+                    .unwrap_or_else(|| normalized.clone()),
                 canonical_form: input.canonical_form.clone(),
                 lemma: confident_lemma.clone(),
                 object_kind: input.object_kind.clone(),
@@ -425,9 +453,18 @@ impl Repository {
                 .clone()
                 .or_else(|| anchor.as_ref().map(|value| value.source_type.clone()))
                 .unwrap_or_else(|| "text".to_string());
-            let document_id = input.document_id.clone().or_else(|| anchor.as_ref().and_then(|v| v.document_id.clone()));
-            let media_id = input.media_id.clone().or_else(|| anchor.as_ref().and_then(|v| v.media_id.clone()));
-            let source_id = input.source_id.clone().or_else(|| anchor.as_ref().and_then(|v| v.source_id.clone()));
+            let document_id = input
+                .document_id
+                .clone()
+                .or_else(|| anchor.as_ref().and_then(|v| v.document_id.clone()));
+            let media_id = input
+                .media_id
+                .clone()
+                .or_else(|| anchor.as_ref().and_then(|v| v.media_id.clone()));
+            let source_id = input
+                .source_id
+                .clone()
+                .or_else(|| anchor.as_ref().and_then(|v| v.source_id.clone()));
             let occurrence_key = stable_occurrence_key(input, &normalized);
             let existing = sqlx::query_scalar::<_, i64>(
                 "SELECT COUNT(*) FROM language_occurrences WHERE profile_id = ?1 AND occurrence_key = ?2",
@@ -436,7 +473,11 @@ impl Repository {
             .bind(&occurrence_key)
             .fetch_one(&mut *tx)
             .await? > 0;
-            if existing { coalesced += 1; } else { accepted += 1; }
+            if existing {
+                coalesced += 1;
+            } else {
+                accepted += 1;
+            }
             let document_is_new = if let Some(document_id) = document_id.as_ref() {
                 let count = sqlx::query_scalar::<_, i64>(
                     "SELECT COUNT(*) FROM language_occurrences WHERE profile_id = ?1 AND lexical_entry_id = ?2 AND document_id = ?3",
@@ -533,7 +574,10 @@ impl Repository {
             .bind(if input.was_lookup { 1i64 } else { 0 })
             .bind(if input.was_interacted { 1i64 } else { 0 })
             .bind(if input.was_interacted { 0i64 } else { 1i64 })
-            .bind(&input.profile_id).bind(&entry_id).execute(&mut *tx).await?;
+            .bind(&input.profile_id)
+            .bind(&entry_id)
+            .execute(&mut *tx)
+            .await?;
             // Safe automatic transition: exposure is recorded as evidence and
             // only a new entry moves to Encountered. Manual states are never
             // overwritten by an encounter.
@@ -548,30 +592,45 @@ impl Repository {
                    version = language_knowledge_states.version + 1
                  WHERE language_knowledge_states.manual_override = 0",
             )
-            .bind(uuid::Uuid::new_v4().to_string()).bind(&input.profile_id).bind(&entry_id)
-            .bind(if input.was_interacted { 0i64 } else { 1i64 }).bind(first_seen)
-            .execute(&mut *tx).await?;
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(&input.profile_id)
+            .bind(&entry_id)
+            .bind(if input.was_interacted { 0i64 } else { 1i64 })
+            .bind(first_seen)
+            .execute(&mut *tx)
+            .await?;
             sqlx::query(
                 "INSERT INTO language_knowledge_evidence_events
                  (id, profile_id, lexical_entry_id, kind, confidence, source_id, occurred_at)
                  VALUES (?1, ?2, ?3, 'encounter', ?4, ?5, ?6)",
             )
-            .bind(uuid::Uuid::new_v4().to_string()).bind(&input.profile_id).bind(&entry_id)
-            .bind(input.confidence).bind(&source_id).bind(first_seen)
-            .execute(&mut *tx).await?;
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(&input.profile_id)
+            .bind(&entry_id)
+            .bind(input.confidence)
+            .bind(&source_id)
+            .bind(first_seen)
+            .execute(&mut *tx)
+            .await?;
         }
         tx.commit().await?;
         let mut entries = Vec::new();
         let mut seen = HashSet::new();
         for id in entry_ids {
             if seen.insert(id.clone()) {
-                if let Some(entry) = self.get_language_lexical_entry(&inputs[0].profile_id, &id).await? {
+                if let Some(entry) = self
+                    .get_language_lexical_entry(&inputs[0].profile_id, &id)
+                    .await?
+                {
                     entries.push(entry);
                 } else {
                     // A batch may contain multiple profiles; resolve by querying
                     // the profile carried by the input at the same position below.
                     for input in &inputs {
-                        if let Some(entry) = self.get_language_lexical_entry(&input.profile_id, &id).await? {
+                        if let Some(entry) = self
+                            .get_language_lexical_entry(&input.profile_id, &id)
+                            .await?
+                        {
                             entries.push(entry);
                             break;
                         }
@@ -579,7 +638,11 @@ impl Repository {
                 }
             }
         }
-        Ok(EncounterBatchResult { accepted, coalesced, entries })
+        Ok(EncounterBatchResult {
+            accepted,
+            coalesced,
+            entries,
+        })
     }
 
     pub async fn list_language_occurrences(
@@ -596,37 +659,85 @@ impl Repository {
         let (offset, limit) = page_bounds(offset, limit);
         let mut predicates = vec!["profile_id = ?1".to_string()];
         let mut values = Vec::<&str>::new();
-        if let Some(value) = entry_id { predicates.push(format!("lexical_entry_id = ?{}", values.len() + 2)); values.push(value); }
-        if let Some(value) = document_id { predicates.push(format!("document_id = ?{}", values.len() + 2)); values.push(value); }
-        if let Some(value) = media_id { predicates.push(format!("media_id = ?{}", values.len() + 2)); values.push(value); }
-        if let Some(value) = language_tag { predicates.push(format!("language_tag = ?{}", values.len() + 2)); values.push(value); }
+        if let Some(value) = entry_id {
+            predicates.push(format!("lexical_entry_id = ?{}", values.len() + 2));
+            values.push(value);
+        }
+        if let Some(value) = document_id {
+            predicates.push(format!("document_id = ?{}", values.len() + 2));
+            values.push(value);
+        }
+        if let Some(value) = media_id {
+            predicates.push(format!("media_id = ?{}", values.len() + 2));
+            values.push(value);
+        }
+        if let Some(value) = language_tag {
+            predicates.push(format!("language_tag = ?{}", values.len() + 2));
+            values.push(value);
+        }
         let where_sql = predicates.join(" AND ");
         let total_sql = format!("SELECT COUNT(*) FROM language_occurrences WHERE {where_sql}");
         let rows_sql = format!("SELECT * FROM language_occurrences WHERE {where_sql} ORDER BY encountered_at DESC, id LIMIT ?{} OFFSET ?{}", values.len() + 2, values.len() + 3);
         let mut total_query = sqlx::query_scalar::<_, i64>(&total_sql).bind(profile_id);
         let mut rows_query = sqlx::query(&rows_sql).bind(profile_id);
-        for value in values { total_query = total_query.bind(value); rows_query = rows_query.bind(value); }
+        for value in values {
+            total_query = total_query.bind(value);
+            rows_query = rows_query.bind(value);
+        }
         let total = total_query.fetch_one(self.pool()).await?;
-        let rows = rows_query.bind(limit).bind(offset).fetch_all(self.pool()).await?;
-        check_page(rows.iter().map(occurrence_from_row).collect::<Result<Vec<_>>>()?, offset, limit, total).pipe(Ok)
+        let rows = rows_query
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(self.pool())
+            .await?;
+        check_page(
+            rows.iter()
+                .map(occurrence_from_row)
+                .collect::<Result<Vec<_>>>()?,
+            offset,
+            limit,
+            total,
+        )
+        .pipe(Ok)
     }
 
     pub async fn record_language_lookup(&self, input: LookupInput) -> Result<LanguageLookupEvent> {
         let surface = input.surface.trim();
         let normalized = normalize_lexical_form(surface);
-        if normalized.is_empty() { return Err(PlethoraError::InvalidInput("Lookup surface cannot be empty".to_string())); }
+        if normalized.is_empty() {
+            return Err(PlethoraError::InvalidInput(
+                "Lookup surface cannot be empty".to_string(),
+            ));
+        }
         let now = input.looked_up_at.unwrap_or_else(|| Utc::now().timestamp());
         if let Some(profile_id) = input.profile_id.as_deref() {
             self.ensure_profile(profile_id).await?;
-            let language_tag = input.language_tag.clone().unwrap_or_else(|| "und".to_string());
-            let entry = self.upsert_language_lexical_entry(LexicalEntryUpsert {
-                id: None, profile_id: profile_id.to_string(), language_tag, normalized_form: normalized.clone(),
-                canonical_form: Some(surface.to_string()), lemma: None, object_kind: LexicalObjectKind::Token,
-                meanings: input.meanings.clone(), translations: input.translations.clone(), part_of_speech: input.part_of_speech.clone(),
-                pronunciation: input.pronunciation.clone(), frequency: None, cefr_level: None,
-                provider_id: input.provider_id.clone(), provider_version: input.provider_version.clone(),
-                processor_id: None, processor_version: None, identity_confidence: None,
-            }).await?;
+            let language_tag = input
+                .language_tag
+                .clone()
+                .unwrap_or_else(|| "und".to_string());
+            let entry = self
+                .upsert_language_lexical_entry(LexicalEntryUpsert {
+                    id: None,
+                    profile_id: profile_id.to_string(),
+                    language_tag,
+                    normalized_form: normalized.clone(),
+                    canonical_form: Some(surface.to_string()),
+                    lemma: None,
+                    object_kind: LexicalObjectKind::Token,
+                    meanings: input.meanings.clone(),
+                    translations: input.translations.clone(),
+                    part_of_speech: input.part_of_speech.clone(),
+                    pronunciation: input.pronunciation.clone(),
+                    frequency: None,
+                    cefr_level: None,
+                    provider_id: input.provider_id.clone(),
+                    provider_version: input.provider_version.clone(),
+                    processor_id: None,
+                    processor_version: None,
+                    identity_confidence: None,
+                })
+                .await?;
             let event_id = uuid::Uuid::new_v4().to_string();
             let anchor_json = input.source_anchor.as_ref().map(json).transpose()?;
             sqlx::query(
@@ -634,9 +745,20 @@ impl Repository {
                  (id, profile_id, lexical_entry_id, surface, normalized, document_id, media_id,
                   source_anchor_json, looked_up_at, provider_id, provider_version)
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
-            ).bind(&event_id).bind(profile_id).bind(&entry.id).bind(surface).bind(&normalized)
-             .bind(&input.document_id).bind(&input.media_id).bind(anchor_json).bind(now)
-             .bind(&input.provider_id).bind(&input.provider_version).execute(self.pool()).await?;
+            )
+            .bind(&event_id)
+            .bind(profile_id)
+            .bind(&entry.id)
+            .bind(surface)
+            .bind(&normalized)
+            .bind(&input.document_id)
+            .bind(&input.media_id)
+            .bind(anchor_json)
+            .bind(now)
+            .bind(&input.provider_id)
+            .bind(&input.provider_version)
+            .execute(self.pool())
+            .await?;
             sqlx::query("UPDATE language_lexical_entries SET lookup_count = lookup_count + 1, updated_at = ?1, version = version + 1 WHERE id = ?2 AND profile_id = ?3")
                 .bind(now).bind(&entry.id).bind(profile_id).execute(self.pool()).await?;
             sqlx::query(
@@ -644,9 +766,17 @@ impl Repository {
                  (id, profile_id, lexical_entry_id, kind, source_id, occurred_at)
                  VALUES (?1, ?2, ?3, 'lookup', ?4, ?5)",
             )
-            .bind(uuid::Uuid::new_v4().to_string()).bind(profile_id).bind(&entry.id)
-            .bind(&input.document_id).bind(now).execute(self.pool()).await?;
-            let row = sqlx::query("SELECT * FROM language_lookup_events WHERE id = ?1").bind(&event_id).fetch_one(self.pool()).await?;
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(profile_id)
+            .bind(&entry.id)
+            .bind(&input.document_id)
+            .bind(now)
+            .execute(self.pool())
+            .await?;
+            let row = sqlx::query("SELECT * FROM language_lookup_events WHERE id = ?1")
+                .bind(&event_id)
+                .fetch_one(self.pool())
+                .await?;
             return lookup_from_row(&row);
         }
         let event_id = uuid::Uuid::new_v4().to_string();
@@ -660,9 +790,17 @@ impl Repository {
                last_seen_at = excluded.last_seen_at, last_document_id = COALESCE(excluded.last_document_id, language_legacy_lookup_history.last_document_id)",
         ).bind(&event_id).bind(surface).bind(&normalized).bind(now).bind(&input.document_id).execute(self.pool()).await?;
         Ok(LanguageLookupEvent {
-            id: event_id, profile_id: None, lexical_entry_id: None, surface: surface.to_string(), normalized,
-            document_id: input.document_id, media_id: input.media_id, source_anchor: input.source_anchor,
-            looked_up_at: now, provider_id: input.provider_id, provider_version: input.provider_version,
+            id: event_id,
+            profile_id: None,
+            lexical_entry_id: None,
+            surface: surface.to_string(),
+            normalized,
+            document_id: input.document_id,
+            media_id: input.media_id,
+            source_anchor: input.source_anchor,
+            looked_up_at: now,
+            provider_id: input.provider_id,
+            provider_version: input.provider_version,
         })
     }
 
@@ -674,17 +812,31 @@ impl Repository {
         self.ensure_profile(profile_id).await?;
         let mut migrated = 0;
         for record in records {
-            let entry = self.upsert_language_lexical_entry(LexicalEntryUpsert {
-                id: None, profile_id: profile_id.to_string(), language_tag: "und".to_string(),
-                normalized_form: normalize_lexical_form(&record.word), canonical_form: Some(record.word.clone()),
-                lemma: None, object_kind: LexicalObjectKind::Token, ..Default::default()
-            }).await?;
+            let entry = self
+                .upsert_language_lexical_entry(LexicalEntryUpsert {
+                    id: None,
+                    profile_id: profile_id.to_string(),
+                    language_tag: "und".to_string(),
+                    normalized_form: normalize_lexical_form(&record.word),
+                    canonical_form: Some(record.word.clone()),
+                    lemma: None,
+                    object_kind: LexicalObjectKind::Token,
+                    ..Default::default()
+                })
+                .await?;
             sqlx::query(
                 "UPDATE language_lexical_entries SET lookup_count = MAX(lookup_count, ?1),
                    first_encountered_at = COALESCE(first_encountered_at, ?2),
                    last_encountered_at = MAX(COALESCE(last_encountered_at, 0), ?3),
                    updated_at = ?3, version = version + 1 WHERE id = ?4 AND profile_id = ?5",
-            ).bind(record.lookup_count).bind(record.first_seen_at).bind(record.last_seen_at).bind(&entry.id).bind(profile_id).execute(self.pool()).await?;
+            )
+            .bind(record.lookup_count)
+            .bind(record.first_seen_at)
+            .bind(record.last_seen_at)
+            .bind(&entry.id)
+            .bind(profile_id)
+            .execute(self.pool())
+            .await?;
             sqlx::query(
                 "INSERT INTO language_knowledge_states
                  (id, profile_id, lexical_entry_id, state, passive_evidence, created_at, updated_at, version)
@@ -698,9 +850,16 @@ impl Repository {
                 "INSERT INTO language_knowledge_evidence_events
                  (id, profile_id, lexical_entry_id, kind, metadata_json, occurred_at)
                  VALUES (?1, ?2, ?3, 'lookup', ?4, ?5)",
-            ).bind(uuid::Uuid::new_v4().to_string()).bind(profile_id).bind(&entry.id)
-             .bind(json(&serde_json::json!({ "migratedLookupCount": record.lookup_count }))?)
-             .bind(record.last_seen_at).execute(self.pool()).await?;
+            )
+            .bind(uuid::Uuid::new_v4().to_string())
+            .bind(profile_id)
+            .bind(&entry.id)
+            .bind(json(
+                &serde_json::json!({ "migratedLookupCount": record.lookup_count }),
+            )?)
+            .bind(record.last_seen_at)
+            .execute(self.pool())
+            .await?;
             let normalized = normalize_lexical_form(&record.word);
             sqlx::query("UPDATE language_legacy_lookup_history SET profile_id = ?1, migrated_at = ?2 WHERE normalized = ?3 AND account_id = 'local' AND workspace_id = 'default'")
                 .bind(profile_id).bind(Utc::now().timestamp()).bind(&normalized).execute(self.pool()).await?;
@@ -732,7 +891,8 @@ impl Repository {
         ).bind(&input.lemma).bind(&input.canonical_form).bind(&input.knowledge_state).bind(&input.user_notes)
          .bind(input.ignored.map(|v| if v { 1i64 } else { 0 })).bind(input.proper_noun.map(|v| if v { 1i64 } else { 0 }))
          .bind(Utc::now().timestamp()).bind(&input.profile_id).bind(&input.entry_id).execute(self.pool()).await?;
-        self.get_language_lexical_entry(&input.profile_id, &input.entry_id).await?
+        self.get_language_lexical_entry(&input.profile_id, &input.entry_id)
+            .await?
             .ok_or_else(|| PlethoraError::NotFound(format!("Lexical entry {}", input.entry_id)))
     }
 
@@ -744,36 +904,78 @@ impl Repository {
         occurrence_limit: i64,
     ) -> Result<LanguageLexiconExport> {
         self.ensure_profile(profile_id).await?;
-        let entries = self.list_language_lexical_entries(profile_id, None, 0, 10_000).await?.items;
+        let entries = self
+            .list_language_lexical_entries(profile_id, None, 0, 10_000)
+            .await?
+            .items;
         let surfaces = sqlx::query("SELECT * FROM language_surface_forms WHERE profile_id = ?1 ORDER BY last_seen_at DESC, id LIMIT 10000")
             .bind(profile_id).fetch_all(self.pool()).await?.iter().map(surface_from_row).collect::<Result<Vec<_>>>()?;
         let analyses = sqlx::query("SELECT * FROM language_lexical_analyses WHERE profile_id = ?1 ORDER BY created_at DESC LIMIT 10000")
             .bind(profile_id).fetch_all(self.pool()).await?.iter().map(analysis_from_row).collect::<Result<Vec<_>>>()?;
         let lookup_events = sqlx::query("SELECT * FROM language_lookup_events WHERE profile_id = ?1 ORDER BY looked_up_at DESC, id LIMIT 10000")
             .bind(profile_id).fetch_all(self.pool()).await?.iter().map(lookup_from_row).collect::<Result<Vec<_>>>()?;
-        let occurrence_total = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM language_occurrences WHERE profile_id = ?1").bind(profile_id).fetch_one(self.pool()).await?;
+        let occurrence_total = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM language_occurrences WHERE profile_id = ?1",
+        )
+        .bind(profile_id)
+        .fetch_one(self.pool())
+        .await?;
         let occurrences = if include_occurrences {
-            self.list_language_occurrences(profile_id, None, None, None, None, occurrence_offset, occurrence_limit).await?.items
-        } else { Vec::new() };
+            self.list_language_occurrences(
+                profile_id,
+                None,
+                None,
+                None,
+                None,
+                occurrence_offset,
+                occurrence_limit,
+            )
+            .await?
+            .items
+        } else {
+            Vec::new()
+        };
         Ok(LanguageLexiconExport {
-            schema_version: LANGUAGE_LEXICON_SCHEMA_VERSION, profile_id: profile_id.to_string(), exported_at: Utc::now().timestamp(),
-            entries, surfaces, analyses, occurrences, lookup_events, occurrences_included: include_occurrences,
-            occurrence_offset, occurrence_limit: occurrence_limit.clamp(1, MAX_OCCURRENCE_PAGE_SIZE), occurrence_total,
+            schema_version: LANGUAGE_LEXICON_SCHEMA_VERSION,
+            profile_id: profile_id.to_string(),
+            exported_at: Utc::now().timestamp(),
+            entries,
+            surfaces,
+            analyses,
+            occurrences,
+            lookup_events,
+            occurrences_included: include_occurrences,
+            occurrence_offset,
+            occurrence_limit: occurrence_limit.clamp(1, MAX_OCCURRENCE_PAGE_SIZE),
+            occurrence_total,
         })
     }
 
-    pub async fn serialize_language_lexicon_for_sync(&self, profile_id: &str) -> Result<LanguageLexiconSyncEnvelope> {
-        let export = self.export_language_lexicon(profile_id, false, 0, DEFAULT_OCCURRENCE_PAGE_SIZE).await?;
+    pub async fn serialize_language_lexicon_for_sync(
+        &self,
+        profile_id: &str,
+    ) -> Result<LanguageLexiconSyncEnvelope> {
+        let export = self
+            .export_language_lexicon(profile_id, false, 0, DEFAULT_OCCURRENCE_PAGE_SIZE)
+            .await?;
         Ok(LanguageLexiconSyncEnvelope {
-            schema_version: export.schema_version, profile_id: export.profile_id, changed_at: export.exported_at,
-            entries: export.entries, surfaces: export.surfaces, analyses: export.analyses, occurrences: Vec::new(),
-            lookup_events: export.lookup_events, occurrences_included: false,
+            schema_version: export.schema_version,
+            profile_id: export.profile_id,
+            changed_at: export.exported_at,
+            entries: export.entries,
+            surfaces: export.surfaces,
+            analyses: export.analyses,
+            occurrences: Vec::new(),
+            lookup_events: export.lookup_events,
+            occurrences_included: false,
         })
     }
 }
 
 trait Pipe: Sized {
-    fn pipe<T>(self, function: impl FnOnce(Self) -> T) -> T { function(self) }
+    fn pipe<T>(self, function: impl FnOnce(Self) -> T) -> T {
+        function(self)
+    }
 }
 impl<T> Pipe for T {}
 
@@ -785,7 +987,9 @@ mod tests {
     use std::path::PathBuf;
 
     async fn repository() -> Repository {
-        let database = Database::new(PathBuf::from(":memory:")).await.expect("database");
+        let database = Database::new(PathBuf::from(":memory:"))
+            .await
+            .expect("database");
         database.migrate().await.expect("migrations");
         Repository::new(database.pool().clone())
     }
@@ -842,7 +1046,12 @@ mod tests {
         }
     }
 
-    fn encounter(profile_id: &str, surface: &str, token_id: &str, confidence: f64) -> EncounterInput {
+    fn encounter(
+        profile_id: &str,
+        surface: &str,
+        token_id: &str,
+        confidence: f64,
+    ) -> EncounterInput {
         EncounterInput {
             profile_id: profile_id.to_string(),
             language_tag: "es".to_string(),
@@ -867,14 +1076,32 @@ mod tests {
     async fn preserves_surface_forms_and_rejects_low_confidence_merges() {
         let repo = repository().await;
         let profile = profile(&repo, "Spanish").await;
-        let first = repo.record_language_encounter(encounter(&profile.id, "hablando", "tok-1", 0.99)).await.unwrap();
-        let second = repo.record_language_encounter(encounter(&profile.id, "habló", "tok-2", 0.99)).await.unwrap();
-        let low = repo.record_language_encounter(encounter(&profile.id, "hablaste", "tok-3", 0.2)).await.unwrap();
+        let first = repo
+            .record_language_encounter(encounter(&profile.id, "hablando", "tok-1", 0.99))
+            .await
+            .unwrap();
+        let second = repo
+            .record_language_encounter(encounter(&profile.id, "habló", "tok-2", 0.99))
+            .await
+            .unwrap();
+        let low = repo
+            .record_language_encounter(encounter(&profile.id, "hablaste", "tok-3", 0.2))
+            .await
+            .unwrap();
         assert_eq!(first.id, second.id);
         assert_ne!(first.id, low.id);
         assert_eq!(first.lemma.as_deref(), Some("hablar"));
         assert_eq!(low.lemma, None);
-        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM language_surface_forms WHERE profile_id = ?1").bind(&profile.id).fetch_one(repo.pool()).await.unwrap(), 3);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM language_surface_forms WHERE profile_id = ?1"
+            )
+            .bind(&profile.id)
+            .fetch_one(repo.pool())
+            .await
+            .unwrap(),
+            3
+        );
     }
 
     #[tokio::test]
@@ -883,16 +1110,28 @@ mod tests {
         let profile = profile(&repo, "Spanish").await;
         let mut input = encounter(&profile.id, "hola", "tok-1", 1.0);
         input.id = Some("occurrence-1".to_string());
-        let result = repo.record_language_encounter_batch(vec![input.clone(), input]).await.unwrap();
+        let result = repo
+            .record_language_encounter_batch(vec![input.clone(), input])
+            .await
+            .unwrap();
         assert_eq!(result.accepted, 1);
         assert_eq!(result.coalesced, 1);
         let entry = result.entries.first().unwrap();
         assert_eq!(entry.encounter_count, 2);
-        let page = repo.list_language_occurrences(&profile.id, Some(&entry.id), None, None, None, 0, 0).await.unwrap();
+        let page = repo
+            .list_language_occurrences(&profile.id, Some(&entry.id), None, None, None, 0, 0)
+            .await
+            .unwrap();
         assert_eq!(page.items.len(), 1);
         assert_eq!(page.items[0].repeat_count, 2);
         assert!(page.limit >= 1);
-        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM learning_items").fetch_one(repo.pool()).await.unwrap(), 0);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM learning_items")
+                .fetch_one(repo.pool())
+                .await
+                .unwrap(),
+            0
+        );
     }
 
     #[tokio::test]
@@ -900,12 +1139,29 @@ mod tests {
         let repo = repository().await;
         let first_profile = profile(&repo, "Spanish").await;
         let second_profile = profile(&repo, "French").await;
-        let first = repo.record_language_lookup(LookupInput {
-            profile_id: Some(first_profile.id.clone()), language_tag: Some("es".to_string()), surface: "casa".to_string(), ..Default::default()
-        }).await.unwrap();
+        let first = repo
+            .record_language_lookup(LookupInput {
+                profile_id: Some(first_profile.id.clone()),
+                language_tag: Some("es".to_string()),
+                surface: "casa".to_string(),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
         assert_eq!(first.profile_id.as_deref(), Some(first_profile.id.as_str()));
-        assert!(repo.list_language_lexical_entries(&second_profile.id, None, 0, 50).await.unwrap().items.is_empty());
-        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM learning_items").fetch_one(repo.pool()).await.unwrap(), 0);
+        assert!(repo
+            .list_language_lexical_entries(&second_profile.id, None, 0, 50)
+            .await
+            .unwrap()
+            .items
+            .is_empty());
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM learning_items")
+                .fetch_one(repo.pool())
+                .await
+                .unwrap(),
+            0
+        );
     }
 
     #[tokio::test]
@@ -916,13 +1172,43 @@ mod tests {
         let profile = profile(&repo, "Spanish").await;
         let mut source_encounter = encounter(&profile.id, "casa", "tok-a2", 1.0);
         source_encounter.document_id = Some("doc-a2".to_string());
-        let entry = repo.record_language_encounter(source_encounter).await.unwrap();
+        let entry = repo
+            .record_language_encounter(source_encounter)
+            .await
+            .unwrap();
         repo.delete_document("doc-a2").await.unwrap();
-        assert_eq!(sqlx::query_scalar::<_, String>("SELECT orphan_state FROM language_occurrences WHERE profile_id = ?1 LIMIT 1").bind(&profile.id).fetch_one(repo.pool()).await.unwrap(), "orphaned");
-        let report = repo.delete_language_profile(&profile.id, None, None).await.unwrap();
+        assert_eq!(
+            sqlx::query_scalar::<_, String>(
+                "SELECT orphan_state FROM language_occurrences WHERE profile_id = ?1 LIMIT 1"
+            )
+            .bind(&profile.id)
+            .fetch_one(repo.pool())
+            .await
+            .unwrap(),
+            "orphaned"
+        );
+        let report = repo
+            .delete_language_profile(&profile.id, None, None)
+            .await
+            .unwrap();
         assert!(report.removed_profile_derived_data >= 1);
-        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM language_lexical_entries WHERE profile_id = ?1").bind(&profile.id).fetch_one(repo.pool()).await.unwrap(), 0);
-        assert_eq!(sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM documents WHERE id = 'doc-keep'").fetch_one(repo.pool()).await.unwrap(), 1);
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>(
+                "SELECT COUNT(*) FROM language_lexical_entries WHERE profile_id = ?1"
+            )
+            .bind(&profile.id)
+            .fetch_one(repo.pool())
+            .await
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM documents WHERE id = 'doc-keep'")
+                .fetch_one(repo.pool())
+                .await
+                .unwrap(),
+            1
+        );
         let _ = entry;
     }
 
@@ -934,10 +1220,16 @@ mod tests {
     async fn million_occurrence_fixture_returns_bounded_page() {
         let repo = repository().await;
         let profile = profile(&repo, "Spanish").await;
-        let entry = repo.upsert_language_lexical_entry(LexicalEntryUpsert {
-            profile_id: profile.id.clone(), language_tag: "es".to_string(), normalized_form: "hola".to_string(),
-            canonical_form: Some("hola".to_string()), ..Default::default()
-        }).await.unwrap();
+        let entry = repo
+            .upsert_language_lexical_entry(LexicalEntryUpsert {
+                profile_id: profile.id.clone(),
+                language_tag: "es".to_string(),
+                normalized_form: "hola".to_string(),
+                canonical_form: Some("hola".to_string()),
+                ..Default::default()
+            })
+            .await
+            .unwrap();
         sqlx::query(
             "WITH RECURSIVE sequence(n) AS (
                  SELECT 1 UNION ALL SELECT n + 1 FROM sequence WHERE n < 1000000
@@ -948,7 +1240,10 @@ mod tests {
              SELECT 'fixture-' || n, ?1, ?2, 'es', 'hola', 'hola', 'fixture', n, n, 'fixture-key-' || n
              FROM sequence",
         ).bind(&profile.id).bind(&entry.id).execute(repo.pool()).await.unwrap();
-        let page = repo.list_language_occurrences(&profile.id, Some(&entry.id), None, None, None, 999_990, 50).await.unwrap();
+        let page = repo
+            .list_language_occurrences(&profile.id, Some(&entry.id), None, None, None, 999_990, 50)
+            .await
+            .unwrap();
         assert_eq!(page.items.len(), 10);
         assert_eq!(page.total, 1_000_000);
         assert!(!page.has_more);

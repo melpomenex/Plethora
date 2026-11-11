@@ -397,7 +397,8 @@ const SHERPA_FILES_CUDA_12: [SherpaFilePin; 5] = [
 /// 0.15, 2026-08-31 benchmark) with no accuracy loss from quantization.
 /// encoder.onnx carries its weights in the sidecar encoder.data (ONNX
 /// external-data format) — the two must sit in the same directory.
-const FP32_MODEL_REPO: &str = "csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-2026-06-11";
+const FP32_MODEL_REPO: &str =
+    "csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-560ms-2026-06-11";
 const FP32_MODEL_FILES: [PinnedArtifact; 5] = [
     PinnedArtifact {
         label: "Nemotron fp32 encoder",
@@ -724,21 +725,25 @@ pub fn uninstall<R: tauri::Runtime>(app: &AppHandle<R>) -> Result<()> {
 /// Emits `gpu-runtime://install-progress` throughout (weighted across the
 /// whole artifact set, not per file), `gpu-runtime://install-finished` at the
 /// end, and `gpu-runtime://status-changed` on every state transition.
-pub async fn install<R: tauri::Runtime>(app: &AppHandle<R>, cancel: CancellationToken) -> Result<()> {
+pub async fn install<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    cancel: CancellationToken,
+) -> Result<()> {
     let status = evaluate(app);
     if !status.supported {
         return Err(anyhow!(
             "{}",
-            status.reason.unwrap_or_else(|| "GPU runtime not supported here".into())
+            status
+                .reason
+                .unwrap_or_else(|| "GPU runtime not supported here".into())
         ));
     }
     if status.installed {
         return Ok(());
     }
     let flavor = flavor_for_driver_major(
-        driver_version_major(&status.driver_version.expect("supported implies driver")).expect(
-            "supported implies a parseable driver version",
-        ),
+        driver_version_major(&status.driver_version.expect("supported implies driver"))
+            .expect("supported implies a parseable driver version"),
     )
     .expect("supported implies a flavor");
 
@@ -995,7 +1000,12 @@ async fn install_inner<R: tauri::Runtime>(
     Ok(())
 }
 
-fn emit_stage<R: tauri::Runtime>(app: &AppHandle<R>, stage: &'static str, label: &str, percent: f32) {
+fn emit_stage<R: tauri::Runtime>(
+    app: &AppHandle<R>,
+    stage: &'static str,
+    label: &str,
+    percent: f32,
+) {
     let _ = app.emit(
         GPU_PROGRESS_EVENT,
         GpuInstallProgress {
@@ -1149,7 +1159,11 @@ mod tests {
     fn flavor_tables_are_self_consistent() {
         for flavor in [GpuFlavor::Cuda13, GpuFlavor::Cuda12] {
             let artifacts = flavor.artifacts();
-            assert_eq!(artifacts.len(), 12, "tarball + 6 wheels + 5 fp32 model files");
+            assert_eq!(
+                artifacts.len(),
+                12,
+                "tarball + 6 wheels + 5 fp32 model files"
+            );
             for artifact in &artifacts {
                 assert!(
                     artifact.url.starts_with("https://"),
@@ -1171,10 +1185,7 @@ mod tests {
             assert_eq!(sherpa_files(flavor).len(), 5);
             // The online/offline rename mapping must match the CPU bundle
             // convention (download-sidecars.js).
-            let dests: Vec<&str> = sherpa_files(flavor)
-                .iter()
-                .map(|p| p.dest_path)
-                .collect();
+            let dests: Vec<&str> = sherpa_files(flavor).iter().map(|p| p.dest_path).collect();
             assert!(dests.contains(&"bin/sherpa-online"));
             assert!(dests.contains(&"bin/sherpa-onnx"));
         }
@@ -1223,7 +1234,11 @@ mod tests {
                 sha256: None,
             },
         );
-        std::fs::write(root.join("manifest.json"), serde_json::to_string(&m).unwrap()).unwrap();
+        std::fs::write(
+            root.join("manifest.json"),
+            serde_json::to_string(&m).unwrap(),
+        )
+        .unwrap();
         assert!(verify_manifest(root).is_some());
 
         // Size drift → None.
@@ -1234,7 +1249,11 @@ mod tests {
                 sha256: None,
             },
         );
-        std::fs::write(root.join("manifest.json"), serde_json::to_string(&m).unwrap()).unwrap();
+        std::fs::write(
+            root.join("manifest.json"),
+            serde_json::to_string(&m).unwrap(),
+        )
+        .unwrap();
         assert!(verify_manifest(root).is_none());
 
         // Unknown flavor tag still verifies (files rule), but flavor_from_tag
@@ -1281,7 +1300,10 @@ mod tests {
         let handle = app.handle().clone();
 
         let before = evaluate(&handle);
-        println!("status before: supported={} flavor={:?}", before.supported, before.flavor);
+        println!(
+            "status before: supported={} flavor={:?}",
+            before.supported, before.flavor
+        );
         if !before.supported {
             println!(
                 "SKIPPED: this machine cannot run the GPU runtime ({})",
@@ -1324,7 +1346,15 @@ mod tests {
         // 2 s of silence the recognizer can chew through.
         let wav = std::env::temp_dir().join("gpu-runtime-live-test.wav");
         let ff = tokio::process::Command::new("ffmpeg")
-            .args(["-y", "-f", "lavfi", "-i", "anullsrc=r=16000:cl=mono", "-t", "2"])
+            .args([
+                "-y",
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=r=16000:cl=mono",
+                "-t",
+                "2",
+            ])
             .arg(&wav)
             .output()
             .await
@@ -1351,7 +1381,10 @@ mod tests {
                 "--joiner={}",
                 model_dir.join("joiner.int8.onnx").display()
             ))
-            .arg(format!("--tokens={}", model_dir.join("tokens.txt").display()))
+            .arg(format!(
+                "--tokens={}",
+                model_dir.join("tokens.txt").display()
+            ))
             .arg(&wav)
             .env("LD_LIBRARY_PATH", &lib)
             .output()

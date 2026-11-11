@@ -213,7 +213,14 @@ impl Repository {
         evidence_json: &str,
     ) -> Result<LearningObjectSource> {
         let repo = LearningObjectSourceRepository::new(self.pool().clone());
-        repo.save_source_association(target_kind, target_id, session_id, document_id, evidence_json).await
+        repo.save_source_association(
+            target_kind,
+            target_id,
+            session_id,
+            document_id,
+            evidence_json,
+        )
+        .await
     }
 
     pub async fn get_learning_object_sources_for_target(
@@ -287,10 +294,7 @@ mod tests {
         assert_eq!(target_sources[0].id, source1.id);
 
         // 5. Query by session
-        let session_sources = repo
-            .get_sources_for_session(session_id)
-            .await
-            .unwrap();
+        let session_sources = repo.get_sources_for_session(session_id).await.unwrap();
         assert_eq!(session_sources.len(), 1);
         assert_eq!(session_sources[0].id, source1.id);
 

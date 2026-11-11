@@ -302,9 +302,16 @@ pub async fn refresh_playlist(
                                 .await
                                 {
                                     Ok(mut doc) => {
-                                        let sub_priority = subscription.priority_rating.clamp(1, 10);
-                                        let slider = (((sub_priority - 1) as f64 / 9.0) * 100.0).round() as i32;
-                                        let rating = if slider > 0 { ((slider - 1) / 20) + 1 } else { 0 };
+                                        let sub_priority =
+                                            subscription.priority_rating.clamp(1, 10);
+                                        let slider = (((sub_priority - 1) as f64 / 9.0) * 100.0)
+                                            .round()
+                                            as i32;
+                                        let rating = if slider > 0 {
+                                            ((slider - 1) / 20) + 1
+                                        } else {
+                                            0
+                                        };
                                         let _ = sqlx::query(
                                             "UPDATE documents SET priority_rating = ?1, priority_slider = ?2, priority_score = ?2, priority_explicitly_set = 0 WHERE id = ?3",
                                         )
@@ -388,7 +395,11 @@ pub async fn import_playlist_video(
     // Seed document priority once from subscription priority (1..=10)
     let sub_priority = sub_priority.clamp(1, 10);
     let slider = (((sub_priority - 1) as f64 / 9.0) * 100.0).round() as i32;
-    let rating = if slider > 0 { ((slider - 1) / 20) + 1 } else { 0 };
+    let rating = if slider > 0 {
+        ((slider - 1) / 20) + 1
+    } else {
+        0
+    };
     sqlx::query(
         "UPDATE documents SET priority_rating = ?1, priority_slider = ?2, priority_score = ?2, priority_explicitly_set = 0 WHERE id = ?3",
     )

@@ -202,8 +202,7 @@ impl AuthManager {
         if needs_refresh {
             self.refresh_tokens().await?;
         }
-        self.get_access_token()
-            .ok_or(RefreshError::NoRefreshToken)
+        self.get_access_token().ok_or(RefreshError::NoRefreshToken)
     }
 
     /// Force a refresh even when the current access token still looks fresh.
@@ -227,7 +226,9 @@ impl AuthManager {
             }
         }
 
-        let refresh_token = self.get_refresh_token().ok_or(RefreshError::NoRefreshToken)?;
+        let refresh_token = self
+            .get_refresh_token()
+            .ok_or(RefreshError::NoRefreshToken)?;
         let response = refresh_access_token(&refresh_token).await?;
         let rotated = refresh::tokens_from_refresh(response);
         self.update_tokens(rotated.clone());
@@ -512,8 +513,8 @@ mod tests {
         let exp = chrono::Utc::now().timestamp() - 60;
         let header = base64::engine::general_purpose::URL_SAFE_NO_PAD
             .encode(r#"{"alg":"none","typ":"JWT"}"#);
-        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(format!(r#"{{"exp":{exp}}}"#));
+        let payload =
+            base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(format!(r#"{{"exp":{exp}}}"#));
         let expired = format!("{header}.{payload}.sig");
 
         auth.set_signed_in(

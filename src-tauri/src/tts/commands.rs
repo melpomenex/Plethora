@@ -61,7 +61,9 @@ fn runtime_available() -> Result<String, String> {
 }
 
 #[tauri::command]
-pub async fn sherpa_tts_status(state: State<'_, SherpaTtsState>) -> Result<SherpaTtsStatus, String> {
+pub async fn sherpa_tts_status(
+    state: State<'_, SherpaTtsState>,
+) -> Result<SherpaTtsStatus, String> {
     let availability = runtime_available();
     let mut status = match availability {
         Ok(_) => SherpaTtsStatus {

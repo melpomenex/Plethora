@@ -44,7 +44,10 @@ pub async fn resolve_episode_chapters(input: &ChapterResolutionInput) -> Vec<Pod
                     return chapters;
                 }
                 Ok(_) => {
-                    tracing::debug!("External JSON returned empty chapters for {}", input.episode_id);
+                    tracing::debug!(
+                        "External JSON returned empty chapters for {}",
+                        input.episode_id
+                    );
                 }
                 Err(e) => {
                     tracing::warn!(
@@ -122,8 +125,10 @@ pub async fn resolve_and_persist_episode_chapters(
 
     if !resolved.is_empty() {
         let source = resolved[0].source.clone();
-        repo.upsert_podcast_chapters(&input.episode_id, &resolved).await?;
-        repo.update_episode_chapters_source(&input.episode_id, &source).await?;
+        repo.upsert_podcast_chapters(&input.episode_id, &resolved)
+            .await?;
+        repo.update_episode_chapters_source(&input.episode_id, &source)
+            .await?;
     }
 
     Ok(resolved)
@@ -133,8 +138,8 @@ pub async fn resolve_and_persist_episode_chapters(
 mod tests {
     use super::*;
     use crate::models::podcast_ad::ChapterSource;
-    use tempfile::NamedTempFile;
     use std::io::Write;
+    use tempfile::NamedTempFile;
 
     #[tokio::test]
     async fn test_cascade_external_json_overrides_description() {
@@ -328,6 +333,9 @@ mod tests {
         let resolved = resolve_episode_chapters(&input).await;
         assert_eq!(resolved.len(), 3);
         assert_eq!(resolved[0].title, "Desc Intro");
-        assert_eq!(resolved[0].source, ChapterSource::DescriptionTimestamp.as_str());
+        assert_eq!(
+            resolved[0].source,
+            ChapterSource::DescriptionTimestamp.as_str()
+        );
     }
 }

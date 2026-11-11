@@ -156,7 +156,9 @@ pub async fn resolve_native_audio_source(
     manifest["queueKeys"] = serde_json::to_value(&queue).map_err(|error| error.to_string())?;
     manifest["queueEntries"] = serde_json::Value::Array(prepared);
     if let Some(config) = study_config {
-        let serialized = serde_json::to_vec(&config).map_err(|error| error.to_string())?.len();
+        let serialized = serde_json::to_vec(&config)
+            .map_err(|error| error.to_string())?
+            .len();
         if serialized > 32 * 1024 {
             return Err("Study configuration exceeds the native manifest limit".into());
         }
@@ -506,11 +508,15 @@ mod tests {
             Some("doc-promoted".to_string())
         );
         assert_eq!(
-            promoted_podcast_document_id(&pool, "ep-standalone").await.unwrap(),
+            promoted_podcast_document_id(&pool, "ep-standalone")
+                .await
+                .unwrap(),
             None
         );
         assert_eq!(
-            promoted_podcast_document_id(&pool, "missing").await.unwrap(),
+            promoted_podcast_document_id(&pool, "missing")
+                .await
+                .unwrap(),
             None
         );
     }

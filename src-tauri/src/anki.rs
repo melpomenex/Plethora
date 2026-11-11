@@ -1403,8 +1403,7 @@ pub async fn export_deck_as_apkg(
                             (cloze_model_id, format!("{}\x1f{}", anki_cloze, back))
                         }
                         None => {
-                            let front =
-                                item.question.replace('\x1f', " ").replace('\\', "\\\\");
+                            let front = item.question.replace('\x1f', " ").replace('\\', "\\\\");
                             let back = item
                                 .answer
                                 .as_deref()

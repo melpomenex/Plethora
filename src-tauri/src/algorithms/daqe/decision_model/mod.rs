@@ -62,7 +62,11 @@ impl DecisionVerdict {
     /// Nothing at all — used when a provider is unavailable and every term falls
     /// back. Distinct from a verdict of zeroes, which claims to have measured.
     pub fn empty() -> Self {
-        Self { score: None, tier: None, gate: None }
+        Self {
+            score: None,
+            tier: None,
+            gate: None,
+        }
     }
 
     /// Reject a score outside `[0,1]` instead of clamping it. A clamped score is
@@ -147,10 +151,7 @@ pub trait DecisionModelProvider: Send + Sync + std::fmt::Debug {
 
     /// `evaluateNoul` — the fast binary gate: prerequisites met, ready for
     /// review, or stale enough to prune.
-    async fn evaluate_noul(
-        &self,
-        request: &DecisionRequest,
-    ) -> Result<bool, ProviderFailure>;
+    async fn evaluate_noul(&self, request: &DecisionRequest) -> Result<bool, ProviderFailure>;
 }
 
 /// The set of providers the user has configured.
@@ -174,11 +175,17 @@ impl ProviderRegistry {
     pub const DEFAULT_TIMEOUT_MS: u64 = 8_000;
 
     pub fn new() -> Self {
-        Self { providers: BTreeMap::new(), timeout_ms: Self::DEFAULT_TIMEOUT_MS }
+        Self {
+            providers: BTreeMap::new(),
+            timeout_ms: Self::DEFAULT_TIMEOUT_MS,
+        }
     }
 
     pub fn with_timeout_ms(timeout_ms: u64) -> Self {
-        Self { providers: BTreeMap::new(), timeout_ms }
+        Self {
+            providers: BTreeMap::new(),
+            timeout_ms,
+        }
     }
 
     /// Register or replace a provider. Registering an existing id overwrites,
@@ -267,19 +274,22 @@ mod tests {
             &self,
             _request: &DecisionRequest,
         ) -> Result<DecisionModelTier, ProviderFailure> {
-            self.fail_with.clone().map_or(Ok(DecisionModelTier::MediumAnalysis), Err)
+            self.fail_with
+                .clone()
+                .map_or(Ok(DecisionModelTier::MediumAnalysis), Err)
         }
 
-        async fn evaluate_noul(
-            &self,
-            _request: &DecisionRequest,
-        ) -> Result<bool, ProviderFailure> {
+        async fn evaluate_noul(&self, _request: &DecisionRequest) -> Result<bool, ProviderFailure> {
             self.fail_with.clone().map_or(Ok(true), Err)
         }
     }
 
     fn stub(id: &'static str, kind: ProviderKind) -> Arc<dyn DecisionModelProvider> {
-        Arc::new(StubProvider { id, kind, fail_with: None })
+        Arc::new(StubProvider {
+            id,
+            kind,
+            fail_with: None,
+        })
     }
 
     fn remote(id: &'static str) -> Arc<dyn DecisionModelProvider> {
@@ -308,7 +318,14 @@ mod tests {
         registry.register(stub("laya", ProviderKind::Local));
         registry.register(remote("remote-model"));
         assert_eq!(registry.len(), 3);
-        assert_eq!(registry.ids(), vec!["jev".to_string(), "laya".to_string(), "remote-model".to_string()]);
+        assert_eq!(
+            registry.ids(),
+            vec![
+                "jev".to_string(),
+                "laya".to_string(),
+                "remote-model".to_string()
+            ]
+        );
     }
 
     #[test]
@@ -355,10 +372,26 @@ mod tests {
 
     #[test]
     fn an_out_of_range_score_is_rejected_not_clamped() {
-        let too_high = DecisionVerdict { score: Some(1.7), tier: None, gate: None };
-        let too_low = DecisionVerdict { score: Some(-0.1), tier: None, gate: None };
-        let not_a_number = DecisionVerdict { score: Some(f64::NAN), tier: None, gate: None };
-        let in_range = DecisionVerdict { score: Some(0.0), tier: None, gate: None };
+        let too_high = DecisionVerdict {
+            score: Some(1.7),
+            tier: None,
+            gate: None,
+        };
+        let too_low = DecisionVerdict {
+            score: Some(-0.1),
+            tier: None,
+            gate: None,
+        };
+        let not_a_number = DecisionVerdict {
+            score: Some(f64::NAN),
+            tier: None,
+            gate: None,
+        };
+        let in_range = DecisionVerdict {
+            score: Some(0.0),
+            tier: None,
+            gate: None,
+        };
 
         assert!(too_high.validated().is_err());
         assert!(too_low.validated().is_err());
@@ -383,7 +416,14 @@ mod tests {
         assert_eq!(empty.score, None);
         assert_eq!(empty.tier, None);
         assert_eq!(empty.gate, None);
-        assert_ne!(empty, DecisionVerdict { score: Some(0.0), tier: None, gate: Some(false) });
+        assert_ne!(
+            empty,
+            DecisionVerdict {
+                score: Some(0.0),
+                tier: None,
+                gate: Some(false)
+            }
+        );
     }
 
     #[test]
@@ -403,7 +443,15 @@ mod tests {
             .map(|f| serde_json::to_string(f).expect("serialise"))
             .collect();
         for (failure, json) in failures.iter().zip(&serialized) {
-            assert!(json.contains(&format!("{:?}", failure).to_lowercase().split('{').next().unwrap_or("")) || !json.is_empty());
+            assert!(
+                json.contains(
+                    &format!("{:?}", failure)
+                        .to_lowercase()
+                        .split('{')
+                        .next()
+                        .unwrap_or("")
+                ) || !json.is_empty()
+            );
         }
         // Distinct failures must not collapse into the same payload.
         let mut unique = serialized.clone();
@@ -425,6 +473,9 @@ mod tests {
     fn the_registry_holds_one_timeout_for_every_provider() {
         let registry = ProviderRegistry::with_timeout_ms(1_234);
         assert_eq!(registry.timeout_ms(), 1_234);
-        assert_eq!(ProviderRegistry::new().timeout_ms(), ProviderRegistry::DEFAULT_TIMEOUT_MS);
+        assert_eq!(
+            ProviderRegistry::new().timeout_ms(),
+            ProviderRegistry::DEFAULT_TIMEOUT_MS
+        );
     }
 }

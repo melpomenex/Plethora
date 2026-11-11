@@ -320,8 +320,12 @@ pub async fn finalize_recording_session(
 
     tx.commit().await.map_err(SessionOperationError::from)?;
 
-    let origin: SessionOrigin = serde_json::from_value(serde_json::Value::String(row.get("origin"))).map_err(|_| unavailable())?;
-    let content_type: SessionContentType = serde_json::from_value(serde_json::Value::String(row.get("content_type"))).map_err(|_| unavailable())?;
+    let origin: SessionOrigin =
+        serde_json::from_value(serde_json::Value::String(row.get("origin")))
+            .map_err(|_| unavailable())?;
+    let content_type: SessionContentType =
+        serde_json::from_value(serde_json::Value::String(row.get("content_type")))
+            .map_err(|_| unavailable())?;
     let raw: String = row.get("content_type");
 
     Ok(RecordingSession {
@@ -329,10 +333,15 @@ pub async fn finalize_recording_session(
         document_id: row.get("document_id"),
         origin,
         content_type,
-        original_content_type: (content_type == SessionContentType::Other && raw != "other").then_some(raw),
+        original_content_type: (content_type == SessionContentType::Other && raw != "other")
+            .then_some(raw),
         profile_json: row.get("profile_json"),
-        capture_state: serde_json::from_value(serde_json::Value::String(row.get("capture_state"))).map_err(|_| unavailable())?,
-        ingestion_state: serde_json::from_value(serde_json::Value::String(row.get("ingestion_state"))).map_err(|_| unavailable())?,
+        capture_state: serde_json::from_value(serde_json::Value::String(row.get("capture_state")))
+            .map_err(|_| unavailable())?,
+        ingestion_state: serde_json::from_value(serde_json::Value::String(
+            row.get("ingestion_state"),
+        ))
+        .map_err(|_| unavailable())?,
         transcript_id: row.get("transcript_id"),
         media_asset_id: row.get("media_asset_id"),
         transcript_revision: row.get("transcript_revision"),
@@ -584,13 +593,24 @@ mod tests {
         fs::create_dir_all(&parts_dir).unwrap();
 
         let asset_id = uuid::Uuid::new_v4().to_string();
-        init_recording_manifest(dir.path(), &session_id, &asset_id, "epoch-1", "audio/wav", None, None).unwrap();
+        init_recording_manifest(
+            dir.path(),
+            &session_id,
+            &asset_id,
+            "epoch-1",
+            "audio/wav",
+            None,
+            None,
+        )
+        .unwrap();
 
         // Inject unrenamed .partial file
         let partial = parts_dir.join("part_000000.bin.partial");
         fs::write(&partial, b"unfinished bytes").unwrap();
 
-        let report = reconcile_recording_session(dir.path(), repo.pool(), &session_id).await.unwrap();
+        let report = reconcile_recording_session(dir.path(), repo.pool(), &session_id)
+            .await
+            .unwrap();
         assert_eq!(report.verified_parts, 0);
         // Partial file should be cleaned up
         assert!(!partial.exists());
@@ -617,7 +637,16 @@ mod tests {
         fs::create_dir_all(&parts_dir).unwrap();
 
         let asset_id = uuid::Uuid::new_v4().to_string();
-        let mut manifest = init_recording_manifest(dir.path(), &session_id, &asset_id, "epoch-1", "audio/wav", None, None).unwrap();
+        let mut manifest = init_recording_manifest(
+            dir.path(),
+            &session_id,
+            &asset_id,
+            "epoch-1",
+            "audio/wav",
+            None,
+            None,
+        )
+        .unwrap();
 
         // Write verified part to disk
         let part_file = parts_dir.join("part_000000.bin");
@@ -639,19 +668,24 @@ mod tests {
 
         // DB currently has no parts for this asset!
         // Run recovery 1st time
-        let report1 = reconcile_recording_session(dir.path(), repo.pool(), &session_id).await.unwrap();
+        let report1 = reconcile_recording_session(dir.path(), repo.pool(), &session_id)
+            .await
+            .unwrap();
         assert_eq!(report1.verified_parts, 1);
         assert_eq!(report1.acknowledged_duration_ms, 5000);
 
-        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM recording_parts WHERE asset_id = ?1")
-            .bind(&asset_id)
-            .fetch_one(repo.pool())
-            .await
-            .unwrap();
+        let count: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM recording_parts WHERE asset_id = ?1")
+                .bind(&asset_id)
+                .fetch_one(repo.pool())
+                .await
+                .unwrap();
         assert_eq!(count, 1);
 
         // Run recovery 2nd time (restart twice yields same verified state)
-        let report2 = reconcile_recording_session(dir.path(), repo.pool(), &session_id).await.unwrap();
+        let report2 = reconcile_recording_session(dir.path(), repo.pool(), &session_id)
+            .await
+            .unwrap();
         assert_eq!(report2.verified_parts, 1);
         assert_eq!(report2.acknowledged_duration_ms, 5000);
     }
@@ -677,7 +711,16 @@ mod tests {
         fs::create_dir_all(&parts_dir).unwrap();
 
         let asset_id = uuid::Uuid::new_v4().to_string();
-        let mut manifest = init_recording_manifest(dir.path(), &session_id, &asset_id, "epoch-1", "audio/wav", None, None).unwrap();
+        let mut manifest = init_recording_manifest(
+            dir.path(),
+            &session_id,
+            &asset_id,
+            "epoch-1",
+            "audio/wav",
+            None,
+            None,
+        )
+        .unwrap();
 
         // Part 0 is valid
         let p0 = parts_dir.join("part_000000.bin");
@@ -721,7 +764,9 @@ mod tests {
 
         write_manifest_atomic(&root, &manifest).unwrap();
 
-        let report = reconcile_recording_session(dir.path(), repo.pool(), &session_id).await.unwrap();
+        let report = reconcile_recording_session(dir.path(), repo.pool(), &session_id)
+            .await
+            .unwrap();
         assert_eq!(report.verified_parts, 1);
         assert_eq!(report.missing_gaps, 1);
         assert_eq!(report.corrupt_parts, 1);
@@ -785,8 +830,8 @@ mod tests {
                 sha256: compute_sha256(&bytes),
                 start_ms: sequence * 5000,
                 duration_ms: 5000,
-                format_json:
-                    "{\"sampleRate\":16000,\"channels\":1,\"encoding\":\"pcm16le\"}".into(),
+                format_json: "{\"sampleRate\":16000,\"channels\":1,\"encoding\":\"pcm16le\"}"
+                    .into(),
                 committed_at: chrono::Utc::now().to_rfc3339(),
             });
         };

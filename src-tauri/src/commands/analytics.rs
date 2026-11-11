@@ -385,9 +385,7 @@ pub async fn get_category_stats(repo: State<'_, Repository>) -> Result<Vec<Categ
 
 /// Pure query body of [`get_category_stats`], separated so the grouping is
 /// unit-testable without a Tauri app handle.
-async fn category_stats(
-    pool: &sqlx::SqlitePool,
-) -> Result<Vec<CategoryStats>, String> {
+async fn category_stats(pool: &sqlx::SqlitePool) -> Result<Vec<CategoryStats>, String> {
     let rows = sqlx::query(
         r#"
         WITH categories AS (
@@ -442,10 +440,7 @@ async fn category_stats(
         let reviews_count: i64 = row
             .try_get("reviews_count")
             .expect("missing reviews_count column");
-        let retention_rate: f64 = row
-            .try_get::<f64, _>("retention_rate")
-            .unwrap_or(0.0)
-            * 100.0;
+        let retention_rate: f64 = row.try_get::<f64, _>("retention_rate").unwrap_or(0.0) * 100.0;
 
         stats.push(CategoryStats {
             category,
@@ -782,10 +777,22 @@ fn aggregate_capture_activity(
         window_days,
         per_day,
         by_source: vec![
-            CaptureSourceCount { source: CaptureSource::BrowserExtension, count: source_counts[0] },
-            CaptureSourceCount { source: CaptureSource::ShareTarget, count: source_counts[1] },
-            CaptureSourceCount { source: CaptureSource::Rss, count: source_counts[2] },
-            CaptureSourceCount { source: CaptureSource::Manual, count: source_counts[3] },
+            CaptureSourceCount {
+                source: CaptureSource::BrowserExtension,
+                count: source_counts[0],
+            },
+            CaptureSourceCount {
+                source: CaptureSource::ShareTarget,
+                count: source_counts[1],
+            },
+            CaptureSourceCount {
+                source: CaptureSource::Rss,
+                count: source_counts[2],
+            },
+            CaptureSourceCount {
+                source: CaptureSource::Manual,
+                count: source_counts[3],
+            },
         ],
         needs_attention,
     }
@@ -804,7 +811,6 @@ pub async fn get_capture_activity(
     capture_activity(repo.pool(), days).await
 }
 
-
 /// Recent saved links, independent of the aggregate reporting window.
 #[tauri::command]
 pub async fn get_browser_capture_documents(
@@ -812,8 +818,7 @@ pub async fn get_browser_capture_documents(
     offset: Option<i64>,
     repo: State<'_, Repository>,
 ) -> crate::error::Result<crate::database::capture_repository::BrowserCapturePage> {
-    crate::database::capture_repository::browser_capture_documents(repo.pool(), limit, offset)
-        .await
+    crate::database::capture_repository::browser_capture_documents(repo.pool(), limit, offset).await
 }
 
 /// Recent persisted captures selected by runtime source. Share results allow
@@ -836,7 +841,9 @@ async fn capture_activity(
     pool: &sqlx::SqlitePool,
     days: Option<i32>,
 ) -> Result<CaptureActivity, String> {
-    let window_days = days.unwrap_or(30).clamp(1, CAPTURE_ACTIVITY_MAX_WINDOW_DAYS);
+    let window_days = days
+        .unwrap_or(30)
+        .clamp(1, CAPTURE_ACTIVITY_MAX_WINDOW_DAYS);
     let window_start = (Utc::now().date_naive() - chrono::Duration::days((window_days - 1) as i64))
         .and_hms_opt(0, 0, 0)
         .expect("invalid time 0:0:0")
@@ -906,7 +913,9 @@ mod tests {
         let mut extract_card = LearningItem::new(ItemType::Flashcard, "quote card".to_string());
         extract_card.extract_id = Some(created_extract.id.clone());
         extract_card.document_id = Some(created_doc.id.clone());
-        repo.create_learning_item(&extract_card).await.expect("extract card");
+        repo.create_learning_item(&extract_card)
+            .await
+            .expect("extract card");
 
         let stats = category_stats(repo.pool()).await.expect("stats");
 
@@ -949,7 +958,9 @@ mod tests {
             CaptureSource::BrowserExtension
         );
         assert_eq!(
-            classify_capture(Some(r#"{"captureProvenance":{"source":"browser_extension"}}"#)),
+            classify_capture(Some(
+                r#"{"captureProvenance":{"source":"browser_extension"}}"#
+            )),
             CaptureSource::BrowserExtension
         );
     }
@@ -962,7 +973,9 @@ mod tests {
             CaptureSource::ShareTarget
         );
         assert_eq!(
-            classify_capture(Some(r#"{"captureProvenance":{"source":"share_extension"}}"#)),
+            classify_capture(Some(
+                r#"{"captureProvenance":{"source":"share_extension"}}"#
+            )),
             CaptureSource::ShareTarget
         );
         // Field alone (e.g. provenance stripped, marker merged by a caller).
@@ -1048,7 +1061,10 @@ mod tests {
     #[test]
     fn aggregate_counts_needs_attention_and_clamps_window() {
         let rows = vec![
-            capture_row(0, r#"{"source":"browser_extension","organization":{"status":"needs-review"}}"#),
+            capture_row(
+                0,
+                r#"{"source":"browser_extension","organization":{"status":"needs-review"}}"#,
+            ),
             capture_row(0, r#"{"organization":{"status":"failed"}}"#),
             capture_row(0, r#"{"organization":{"status":"completed"}}"#),
         ];
@@ -1056,7 +1072,10 @@ mod tests {
 
         let activity = aggregate_capture_activity(&rows, 200, today);
         assert_eq!(activity.window_days, CAPTURE_ACTIVITY_MAX_WINDOW_DAYS);
-        assert_eq!(activity.per_day.len(), CAPTURE_ACTIVITY_MAX_WINDOW_DAYS as usize);
+        assert_eq!(
+            activity.per_day.len(),
+            CAPTURE_ACTIVITY_MAX_WINDOW_DAYS as usize
+        );
         assert_eq!(activity.needs_attention, 2);
 
         // Below the minimum: one day minimum window.

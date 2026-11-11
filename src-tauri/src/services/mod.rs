@@ -1,7 +1,7 @@
 //! Service layer modules
 
-pub mod position;
 pub mod audio_playback;
+pub mod position;
 pub mod reading_goal;
 
 pub use position::PositionService;

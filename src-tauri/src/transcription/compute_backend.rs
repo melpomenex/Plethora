@@ -135,8 +135,14 @@ impl fmt::Display for ComputeError {
             Self::DriverUnavailable(s) => write!(f, "GPU driver unavailable: {s}"),
             Self::RuntimeMissing(s) => write!(f, "GPU runtime missing: {s}"),
             Self::InitializationFailed(s) => write!(f, "GPU initialization failed: {s}"),
-            Self::OutOfMemory { required_bytes, free_bytes } => {
-                write!(f, "GPU out of memory (required: {required_bytes:?}, free: {free_bytes:?})")
+            Self::OutOfMemory {
+                required_bytes,
+                free_bytes,
+            } => {
+                write!(
+                    f,
+                    "GPU out of memory (required: {required_bytes:?}, free: {free_bytes:?})"
+                )
             }
             Self::ExecutionFailed(s) => write!(f, "GPU execution failed: {s}"),
             Self::DeviceLost(s) => write!(f, "GPU device lost: {s}"),
@@ -205,11 +211,7 @@ impl BackendHealthCache {
         }
     }
 
-    pub fn is_model_degraded(
-        &self,
-        backend: ComputeBackend,
-        model_id: &str,
-    ) -> Option<String> {
+    pub fn is_model_degraded(&self, backend: ComputeBackend, model_id: &str) -> Option<String> {
         self.degraded_models
             .lock()
             .ok()?
@@ -350,7 +352,8 @@ pub fn probe_runtime_capabilities(
         // --provider=coreml, watch the recognizer refuse it, and fall back
         // to CPU after a wasted attempt (plus a confusing "GPU unavailable"
         // toast). Report honestly until a CoreML-capable runtime ships.
-        let reason = "GPU acceleration is not bundled on macOS yet — local transcription runs on the CPU";
+        let reason =
+            "GPU acceleration is not bundled on macOS yet — local transcription runs on the CPU";
         for backend in [ComputeBackend::CoreMl, ComputeBackend::Metal] {
             providers.insert(
                 backend,
@@ -379,8 +382,14 @@ pub fn probe_runtime_capabilities(
         // Windows DirectML check
         #[cfg(target_os = "windows")]
         {
-            providers.insert(ComputeBackend::DirectMl, probe_directml_runtime(sidecar_bin_dir));
-            providers.insert(ComputeBackend::Vulkan, probe_whisper_vulkan_runtime(sidecar_bin_dir));
+            providers.insert(
+                ComputeBackend::DirectMl,
+                probe_directml_runtime(sidecar_bin_dir),
+            );
+            providers.insert(
+                ComputeBackend::Vulkan,
+                probe_whisper_vulkan_runtime(sidecar_bin_dir),
+            );
         }
     }
 
@@ -391,7 +400,9 @@ pub fn probe_runtime_capabilities(
 /// runtime files are complete. It lives beside its own DLLs so Windows never
 /// loads the DirectML ONNX Runtime into the CPU sidecar's DLL search location.
 #[cfg(target_os = "windows")]
-pub fn directml_runtime_dir(sidecar_bin_dir: Option<&std::path::Path>) -> Option<std::path::PathBuf> {
+pub fn directml_runtime_dir(
+    sidecar_bin_dir: Option<&std::path::Path>,
+) -> Option<std::path::PathBuf> {
     let dir = sidecar_bin_dir?.join(DIRECTML_RUNTIME_DIR_NAME);
     let manifest_path = dir.join(DIRECTML_RUNTIME_MANIFEST);
     let manifest: serde_json::Value =
@@ -424,7 +435,9 @@ fn probe_whisper_vulkan_runtime(sidecar_bin_dir: Option<&std::path::Path>) -> Pr
         return ProviderStatus {
             available: false,
             runtime_usable: false,
-            reason_unavailable: Some("The Windows Whisper sidecar directory is missing".to_string()),
+            reason_unavailable: Some(
+                "The Windows Whisper sidecar directory is missing".to_string(),
+            ),
         };
     };
     let manifest_path = bin_dir.join(WHISPER_VULKAN_MANIFEST);
@@ -553,8 +566,7 @@ fn detect_windows_adapters() -> Vec<DeviceInfo> {
             id: adapter_index,
             name,
             vendor: windows_vendor_name(desc.VendorId).to_string(),
-            vram_bytes: (desc.DedicatedVideoMemory > 0)
-                .then_some(desc.DedicatedVideoMemory as u64),
+            vram_bytes: (desc.DedicatedVideoMemory > 0).then_some(desc.DedicatedVideoMemory as u64),
             free_vram_bytes: None,
         });
     }
@@ -622,7 +634,10 @@ fn check_cuda_usable(
         if found {
             (true, None)
         } else {
-            (false, Some("CUDA libraries (onnxruntime_providers_cuda.dll) not found".to_string()))
+            (
+                false,
+                Some("CUDA libraries (onnxruntime_providers_cuda.dll) not found".to_string()),
+            )
         }
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
@@ -663,7 +678,10 @@ fn parse_nvidia_smi_devices(output: &str) -> Vec<(String, u64)> {
 #[cfg(target_os = "linux")]
 fn enrich_with_nvidia_smi(devices: &mut Vec<DeviceInfo>) {
     let Ok(output) = std::process::Command::new("nvidia-smi")
-        .args(["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"])
+        .args([
+            "--query-gpu=name,memory.total",
+            "--format=csv,noheader,nounits",
+        ])
         .output()
     else {
         return;
@@ -738,7 +756,11 @@ impl ComputeBackendSelector {
         let platform_backends: &[ComputeBackend] = {
             #[cfg(target_os = "macos")]
             {
-                &[ComputeBackend::CoreMl, ComputeBackend::Metal, ComputeBackend::Cpu]
+                &[
+                    ComputeBackend::CoreMl,
+                    ComputeBackend::Metal,
+                    ComputeBackend::Cpu,
+                ]
             }
             #[cfg(target_os = "linux")]
             {
@@ -933,7 +955,10 @@ mod tests {
         {
             assert_eq!(selection.primary.backend, ComputeBackend::Cuda);
             assert_eq!(selection.primary.device_id, Some(0));
-            assert!(selection.fallback_chain.iter().any(|c| c.backend == ComputeBackend::Cpu));
+            assert!(selection
+                .fallback_chain
+                .iter()
+                .any(|c| c.backend == ComputeBackend::Cpu));
         }
         #[cfg(target_os = "macos")]
         {
@@ -1059,7 +1084,11 @@ mod tests {
         use crate::transcription::gpu_runtime::GpuRuntimeStatus;
         let cases: Vec<(GpuRuntimeStatus, bool, bool)> = vec![
             // No NVIDIA driver at all.
-            (gpu_status(false, false, false, Some("No NVIDIA GPU driver detected")), false, true),
+            (
+                gpu_status(false, false, false, Some("No NVIDIA GPU driver detected")),
+                false,
+                true,
+            ),
             // Driver present but too old for any flavor.
             (
                 gpu_status(
@@ -1073,12 +1102,7 @@ mod tests {
             ),
             // Supported driver, runtime not yet provisioned.
             (
-                gpu_status(
-                    true,
-                    true,
-                    false,
-                    Some("GPU runtime not installed yet"),
-                ),
+                gpu_status(true, true, false, Some("GPU runtime not installed yet")),
                 false,
                 true,
             ),
@@ -1091,7 +1115,11 @@ mod tests {
                 .providers
                 .get(&ComputeBackend::Cuda)
                 .expect("cuda provider always present off-macOS");
-            assert_eq!(cuda.runtime_usable, expect_usable, "reason: {:?}", cuda.reason_unavailable);
+            assert_eq!(
+                cuda.runtime_usable, expect_usable,
+                "reason: {:?}",
+                cuda.reason_unavailable
+            );
             assert_eq!(
                 cuda.reason_unavailable.is_some(),
                 expect_reason,

@@ -81,7 +81,9 @@ impl LlmRequestPolicy {
             .max(max_output)
             .min(configured.saturating_sub(headroom))
             .max(1);
-        let prompt_budget = configured.saturating_sub(output_reserve).max(headroom.min(configured));
+        let prompt_budget = configured
+            .saturating_sub(output_reserve)
+            .max(headroom.min(configured));
         Self {
             configured_context_tokens: configured,
             prompt_budget_tokens: prompt_budget.min(configured.saturating_sub(output_reserve)),
@@ -182,7 +184,8 @@ pub fn resolve_request_policy(input: &PolicyResolutionInput) -> LlmRequestPolicy
     let mut configured = resolve_configured_context(input);
     let mut max_output = resolve_max_output(input);
 
-    let is_ollama = input.apply_ollama_default_guard || input.provider.eq_ignore_ascii_case("ollama");
+    let is_ollama =
+        input.apply_ollama_default_guard || input.provider.eq_ignore_ascii_case("ollama");
     if is_ollama && configured < max_output.saturating_add(MIN_PROMPT_HEADROOM) {
         // Prefer raising configured context (migration bump) over clamping output.
         configured = configured
@@ -221,7 +224,10 @@ pub fn legacy_field_equals_provider_max_output(
     legacy_context_window: Option<usize>,
     provider_max_output: Option<usize>,
 ) -> bool {
-    match (positive(legacy_context_window), positive(provider_max_output)) {
+    match (
+        positive(legacy_context_window),
+        positive(provider_max_output),
+    ) {
         (Some(a), Some(b)) => a == b,
         _ => false,
     }
@@ -285,7 +291,10 @@ mod tests {
             apply_ollama_default_guard: true,
             ..Default::default()
         });
-        assert_eq!(policy.configured_context_tokens, CONSERVATIVE_CONTEXT_FALLBACK);
+        assert_eq!(
+            policy.configured_context_tokens,
+            CONSERVATIVE_CONTEXT_FALLBACK
+        );
     }
 
     #[test]
@@ -356,7 +365,10 @@ mod tests {
 
     #[test]
     fn legacy_field_equal_to_provider_max_still_prompt_budget() {
-        assert!(legacy_field_equals_provider_max_output(Some(4096), Some(4096)));
+        assert!(legacy_field_equals_provider_max_output(
+            Some(4096),
+            Some(4096)
+        ));
         let policy = resolve_request_policy(&PolicyResolutionInput {
             prompt_budget_hint: Some(4096),
             provider_max_output: Some(4096),
@@ -365,7 +377,12 @@ mod tests {
             provider: "ollama".to_string(),
             ..Default::default()
         });
-        assert_eq!(policy.max_output_tokens.min(policy.configured_context_tokens), policy.max_output_tokens);
+        assert_eq!(
+            policy
+                .max_output_tokens
+                .min(policy.configured_context_tokens),
+            policy.max_output_tokens
+        );
         assert!(policy.prompt_budget_tokens >= MIN_PROMPT_HEADROOM);
         // Max output still comes from provider settings (possibly clamped), not
         // from treating the legacy field as generation length alone.

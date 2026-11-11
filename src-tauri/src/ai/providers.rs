@@ -646,7 +646,8 @@ mod ollama_stack_b_tests {
 
     #[test]
     fn stack_b_defaults_to_conservative_4096() {
-        let provider = OllamaProvider::new("http://localhost:11434".to_string(), "llama3.2".to_string());
+        let provider =
+            OllamaProvider::new("http://localhost:11434".to_string(), "llama3.2".to_string());
         let request = ChatCompletionRequest {
             messages: vec![Message::user("hi")],
             temperature: 0.2,

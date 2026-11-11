@@ -91,13 +91,11 @@ pub fn rank_strict_manual(items: &[QueueItem]) -> Vec<RankedItem> {
             .score
             .partial_cmp(&left.score)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| {
-                match (&left.item.due_date, &right.item.due_date) {
-                    (Some(d_left), Some(d_right)) => d_left.cmp(d_right),
-                    (Some(_), None) => std::cmp::Ordering::Less,
-                    (None, Some(_)) => std::cmp::Ordering::Greater,
-                    (None, None) => std::cmp::Ordering::Equal,
-                }
+            .then_with(|| match (&left.item.due_date, &right.item.due_date) {
+                (Some(d_left), Some(d_right)) => d_left.cmp(d_right),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
             })
             .then_with(|| left.item.item_type.cmp(&right.item.item_type))
             .then_with(|| left.item.id.cmp(&right.item.id))
@@ -135,11 +133,11 @@ pub fn rank(items: &[QueueItem], knobs: &DaqeKnobs, ctx: &RankContext<'_>) -> Ve
     // calling it per item makes a ranking O(n²) in the signal count — 16 000 000
     // string comparisons on a 4 000-item pool, which is exactly the kind of cost
     // that hides until a user's backlog grows.
-    let signal_index: std::collections::HashMap<&str, &terms::ItemSignals> =
-        ctx.signals
-            .iter()
-            .map(|s| (s.item_id.as_str(), s))
-            .collect();
+    let signal_index: std::collections::HashMap<&str, &terms::ItemSignals> = ctx
+        .signals
+        .iter()
+        .map(|s| (s.item_id.as_str(), s))
+        .collect();
 
     let mut ranked: Vec<RankedItem> = items
         .iter()
@@ -208,13 +206,11 @@ pub fn rank(items: &[QueueItem], knobs: &DaqeKnobs, ctx: &RankContext<'_>) -> Ve
             .score
             .partial_cmp(&left.score)
             .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| {
-                match (&left.item.due_date, &right.item.due_date) {
-                    (Some(d_left), Some(d_right)) => d_left.cmp(d_right),
-                    (Some(_), None) => std::cmp::Ordering::Less,
-                    (None, Some(_)) => std::cmp::Ordering::Greater,
-                    (None, None) => std::cmp::Ordering::Equal,
-                }
+            .then_with(|| match (&left.item.due_date, &right.item.due_date) {
+                (Some(d_left), Some(d_right)) => d_left.cmp(d_right),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (None, None) => std::cmp::Ordering::Equal,
             })
             .then_with(|| left.item.item_type.cmp(&right.item.item_type))
             .then_with(|| left.item.id.cmp(&right.item.id))
@@ -268,10 +264,7 @@ pub fn rank_with_top_n(
 /// A measured fatigue downshift lowers this without touching
 /// `knobs.energy_target`, and the reason travels with the breakdown so the UI can
 /// say why the effective value differs from the configured one.
-fn effective_energy_target(
-    knobs: &DaqeKnobs,
-    ctx: &RankContext<'_>,
-) -> (f64, Option<String>) {
+fn effective_energy_target(knobs: &DaqeKnobs, ctx: &RankContext<'_>) -> (f64, Option<String>) {
     let configured = knobs.energy_target as f64;
     match ctx.energy_downshift {
         Some(downshift) if downshift.baseline_sufficient => {
@@ -413,7 +406,10 @@ mod tests {
     /// is absent. Comparing two runs through this base isolates a single knob,
     /// which comparing against the legacy-fallback ordering cannot do.
     fn scoring_path_knobs() -> DaqeKnobs {
-        DaqeKnobs { goal_relevance: 0.05, ..srs_only_knobs() }
+        DaqeKnobs {
+            goal_relevance: 0.05,
+            ..srs_only_knobs()
+        }
     }
 
     fn srs_only_knobs() -> DaqeKnobs {
@@ -455,7 +451,11 @@ mod tests {
         assert!(srs_only_knobs().is_srs_only());
         assert!(!DaqeKnobs::default().is_srs_only());
         assert!(
-            !DaqeKnobs { srs_decay_weight: 0.0, ..DaqeKnobs::default() }.is_srs_only(),
+            !DaqeKnobs {
+                srs_decay_weight: 0.0,
+                ..DaqeKnobs::default()
+            }
+            .is_srs_only(),
             "all-zero knobs order by input order, not by the pre-DAQE sort"
         );
     }
@@ -485,7 +485,11 @@ mod tests {
         let twin_b = item("twin", "learning-item", 5.0, 2);
         let ctx = RankContext::bare(now());
 
-        let forward = rank(&[twin_a.clone(), twin_b.clone()], &DaqeKnobs::default(), &ctx);
+        let forward = rank(
+            &[twin_a.clone(), twin_b.clone()],
+            &DaqeKnobs::default(),
+            &ctx,
+        );
         assert_eq!(forward.len(), 2);
         assert_eq!(forward[0].input_index, 0);
         assert_eq!(forward[1].input_index, 1);
@@ -504,7 +508,10 @@ mod tests {
         let before: std::collections::HashMap<String, SchedulerState> = source
             .iter()
             .map(|i| {
-                (i.id.clone(), (i.stability, i.difficulty, i.interval, i.due_date.clone()))
+                (
+                    i.id.clone(),
+                    (i.stability, i.difficulty, i.interval, i.due_date.clone()),
+                )
             })
             .collect();
 
@@ -520,7 +527,12 @@ mod tests {
             let id = entry.item.id.clone();
             assert_eq!(
                 before.get(&id).cloned(),
-                Some((entry.item.stability, entry.item.difficulty, entry.item.interval, entry.item.due_date.clone())),
+                Some((
+                    entry.item.stability,
+                    entry.item.difficulty,
+                    entry.item.interval,
+                    entry.item.due_date.clone()
+                )),
                 "ranking is read-only on scheduling state for {id}"
             );
         }
@@ -656,7 +668,10 @@ mod tests {
                 ..Default::default()
             },
         ];
-        let knobs = DaqeKnobs { goal_relevance: 1.0, ..srs_only_knobs() };
+        let knobs = DaqeKnobs {
+            goal_relevance: 1.0,
+            ..srs_only_knobs()
+        };
 
         let toward_algebra = RankContext {
             goal: Some("linear algebra"),
@@ -668,8 +683,16 @@ mod tests {
             // Same signals, goal changed: the caller recomputes alignment for a new
             // goal, which is why a goal-dependent judgement is never cached.
             signals: &[
-                ItemSignals { item_id: "algebra".to_string(), local_goal_alignment: Some(0.1), ..Default::default() },
-                ItemSignals { item_id: "topology".to_string(), local_goal_alignment: Some(0.9), ..Default::default() },
+                ItemSignals {
+                    item_id: "algebra".to_string(),
+                    local_goal_alignment: Some(0.1),
+                    ..Default::default()
+                },
+                ItemSignals {
+                    item_id: "topology".to_string(),
+                    local_goal_alignment: Some(0.9),
+                    ..Default::default()
+                },
             ],
             ..RankContext::bare(now())
         };
@@ -678,16 +701,24 @@ mod tests {
         let topology_first = rank(&source, &knobs, &toward_topology);
 
         assert_eq!(algebra_first.first().expect("non-empty").item.id, "algebra");
-        assert_eq!(topology_first.first().expect("non-empty").item.id, "topology");
+        assert_eq!(
+            topology_first.first().expect("non-empty").item.id,
+            "topology"
+        );
     }
 
     #[test]
     fn changing_the_goal_reorders_without_changing_membership() {
         let source = pool();
-        let knobs = DaqeKnobs { goal_relevance: 1.0, ..srs_only_knobs() };
+        let knobs = DaqeKnobs {
+            goal_relevance: 1.0,
+            ..srs_only_knobs()
+        };
         let mut ids = |ctx: &RankContext<'_>| {
-            let mut ranked: Vec<String> =
-                rank(&source, &knobs, ctx).iter().map(|entry| entry.item.id.clone()).collect();
+            let mut ranked: Vec<String> = rank(&source, &knobs, ctx)
+                .iter()
+                .map(|entry| entry.item.id.clone())
+                .collect();
             ranked.sort();
             ranked
         };
@@ -712,7 +743,10 @@ mod tests {
     #[test]
     fn an_identical_goal_and_pool_rank_identically_twice() {
         let source = pool();
-        let knobs = DaqeKnobs { goal_relevance: 1.0, ..srs_only_knobs() };
+        let knobs = DaqeKnobs {
+            goal_relevance: 1.0,
+            ..srs_only_knobs()
+        };
         let signals = vec![ItemSignals {
             item_id: "e".to_string(),
             local_goal_alignment: Some(0.7),
@@ -724,10 +758,14 @@ mod tests {
             ..RankContext::bare(now())
         };
 
-        let first: Vec<String> =
-            rank(&source, &knobs, &ctx()).iter().map(|e| e.item.id.clone()).collect();
-        let second: Vec<String> =
-            rank(&source, &knobs, &ctx()).iter().map(|e| e.item.id.clone()).collect();
+        let first: Vec<String> = rank(&source, &knobs, &ctx())
+            .iter()
+            .map(|e| e.item.id.clone())
+            .collect();
+        let second: Vec<String> = rank(&source, &knobs, &ctx())
+            .iter()
+            .map(|e| e.item.id.clone())
+            .collect();
         assert_eq!(first, second);
     }
 
@@ -752,7 +790,11 @@ mod tests {
         };
 
         let score_of_e = |ranked: &[RankedItem]| {
-            *ranked.iter().find(|r| r.item.id == "e").expect("e present").score_ref()
+            *ranked
+                .iter()
+                .find(|r| r.item.id == "e")
+                .expect("e present")
+                .score_ref()
         };
         let off = rank(&source, &scoring_path_knobs(), &ctx);
         let on = rank(
@@ -795,7 +837,11 @@ mod tests {
         };
 
         let score_of_e = |ranked: &[RankedItem]| {
-            *ranked.iter().find(|r| r.item.id == "e").expect("e present").score_ref()
+            *ranked
+                .iter()
+                .find(|r| r.item.id == "e")
+                .expect("e present")
+                .score_ref()
         };
         let off = rank(&source, &scoring_path_knobs(), &ctx);
         let on = rank(
@@ -902,7 +948,10 @@ mod tests {
         let ctx = RankContext::bare(now());
         let entry = &rank(&pool(), &DaqeKnobs::default(), &ctx)[0];
 
-        assert!(entry.breakdown.srs_urgency.available, "SRS is always derivable");
+        assert!(
+            entry.breakdown.srs_urgency.available,
+            "SRS is always derivable"
+        );
         assert!(!entry.breakdown.goal_relevance.available);
         assert!(entry.breakdown.energy_fit.available);
         assert!(entry.breakdown.energy_fit.defaulted);
@@ -916,7 +965,10 @@ mod tests {
         let ranked = rank(&pool(), &DaqeKnobs::default(), &ctx);
         assert_eq!(ranked.len(), pool().len());
         for entry in &ranked {
-            assert!(entry.score.is_finite(), "a degraded score must still be a number");
+            assert!(
+                entry.score.is_finite(),
+                "a degraded score must still be a number"
+            );
         }
     }
 
@@ -941,7 +993,10 @@ mod tests {
             .find(|r| r.item.id == "e")
             .expect("e present");
 
-        assert_eq!(entry.breakdown.goal_relevance.value, 1.0, "clamped at the term's ceiling");
+        assert_eq!(
+            entry.breakdown.goal_relevance.value, 1.0,
+            "clamped at the term's ceiling"
+        );
         assert!(entry.breakdown.goal_relevance.available);
     }
 
@@ -1108,7 +1163,13 @@ mod latency {
 
     fn reference_pool() -> (Vec<QueueItem>, Vec<ItemSignals>, Vec<RecentItem>) {
         let now = Utc.with_ymd_and_hms(2026, 6, 1, 12, 0, 0).unwrap();
-        let types = ["document", "extract", "learning-item", "playlist-video", "rss-article"];
+        let types = [
+            "document",
+            "extract",
+            "learning-item",
+            "playlist-video",
+            "rss-article",
+        ];
 
         let items: Vec<QueueItem> = (0..POOL)
             .map(|n| {
@@ -1338,7 +1399,7 @@ mod ranking_reports {
                 let item_type = types[n % types.len()];
                 let canonical_p = ((n % 100) as f64) / 99.0;
                 let due = match n % 10 {
-                    0 => None, // 10% new
+                    0 => None,                                                          // 10% new
                     1 | 2 => Some(now + chrono::Duration::days(((n % 30) + 1) as i64)), // 20% future
                     _ => {
                         let days_overdue = ((n % 60) + 1) as i64;
@@ -1377,7 +1438,11 @@ mod ranking_reports {
                     let d = (now - due_utc).num_milliseconds() as f64 / 86_400_000.0;
                     let o = (d / 14.0).min(1.0);
                     let u = 0.5;
-                    let decay = if d > 14.0 { (10.0 - 0.1 * d).max(5.0) / 10.0 } else { 1.0 };
+                    let decay = if d > 14.0 {
+                        (10.0 - 0.1 * d).max(5.0) / 10.0
+                    } else {
+                        1.0
+                    };
                     return (0.5 * u + 0.3 * o + 0.2 * p) * decay;
                 } else {
                     return 0.35 + 0.25 * p;
@@ -1415,8 +1480,16 @@ mod ranking_reports {
             .map(|(rank_idx, (item, _))| (item.id.as_str(), rank_idx))
             .collect();
 
-        let top20_new: HashSet<&str> = new_ranked.iter().take(20).map(|e| e.item.id.as_str()).collect();
-        let top20_old: HashSet<&str> = old_items.iter().take(20).map(|(item, _)| item.id.as_str()).collect();
+        let top20_new: HashSet<&str> = new_ranked
+            .iter()
+            .take(20)
+            .map(|e| e.item.id.as_str())
+            .collect();
+        let top20_old: HashSet<&str> = old_items
+            .iter()
+            .take(20)
+            .map(|(item, _)| item.id.as_str())
+            .collect();
         let overlap = top20_new.intersection(&top20_old).count() as f64 / 20.0;
 
         let total_displacement: usize = items
@@ -1424,7 +1497,11 @@ mod ranking_reports {
             .map(|item| {
                 let r_new = new_order_map[item.id.as_str()];
                 let r_old = old_order_map[item.id.as_str()];
-                if r_new > r_old { r_new - r_old } else { r_old - r_new }
+                if r_new > r_old {
+                    r_new - r_old
+                } else {
+                    r_old - r_new
+                }
             })
             .sum();
         let avg_displacement = total_displacement as f64 / size as f64;
@@ -1460,7 +1537,11 @@ mod ranking_reports {
         while !draining_pool.is_empty() {
             let chunk = draining_pool.len().min(100);
             let ranked = rank(&draining_pool, &knobs, &ctx);
-            let to_remove: HashSet<String> = ranked.iter().take(chunk).map(|e| e.item.id.clone()).collect();
+            let to_remove: HashSet<String> = ranked
+                .iter()
+                .take(chunk)
+                .map(|e| e.item.id.clone())
+                .collect();
             drained_count += to_remove.len();
             draining_pool.retain(|item| !to_remove.contains(&item.id));
         }
@@ -1486,31 +1567,49 @@ mod ranking_reports {
         println!("               1K RANKING REPORT (N=1000)              ");
         println!("=======================================================");
         println!("Top-20 Overlap: {:.2}%", report_1k.top_20_overlap * 100.0);
-        println!("Average Order Displacement: {:.2} positions ({:.2}%)",
-            report_1k.avg_displacement, (report_1k.avg_displacement / 1000.0) * 100.0);
-        println!("Top 100 Composition: Due={}, New={}, Future={}",
-            report_1k.due_exposure_top100, report_1k.new_exposure_top100, report_1k.future_exposure_top100);
+        println!(
+            "Average Order Displacement: {:.2} positions ({:.2}%)",
+            report_1k.avg_displacement,
+            (report_1k.avg_displacement / 1000.0) * 100.0
+        );
+        println!(
+            "Top 100 Composition: Due={}, New={}, Future={}",
+            report_1k.due_exposure_top100,
+            report_1k.new_exposure_top100,
+            report_1k.future_exposure_top100
+        );
         println!("Top 100 Priority Quintiles: Q1(0-.2)={}, Q2(.2-.4)={}, Q3(.4-.6)={}, Q4(.6-.8)={}, Q5(.8-1.0)={}",
             report_1k.quintile_counts_top100[0], report_1k.quintile_counts_top100[1],
             report_1k.quintile_counts_top100[2], report_1k.quintile_counts_top100[3],
             report_1k.quintile_counts_top100[4]);
-        println!("Finite Pool Drain: {}/{} items drained without replacement",
-            report_1k.drained_count, report_1k.size);
+        println!(
+            "Finite Pool Drain: {}/{} items drained without replacement",
+            report_1k.drained_count, report_1k.size
+        );
 
         println!("\n=======================================================");
         println!("              10K RANKING REPORT (N=10000)             ");
         println!("=======================================================");
         println!("Top-20 Overlap: {:.2}%", report_10k.top_20_overlap * 100.0);
-        println!("Average Order Displacement: {:.2} positions ({:.2}%)",
-            report_10k.avg_displacement, (report_10k.avg_displacement / 10000.0) * 100.0);
-        println!("Top 100 Composition: Due={}, New={}, Future={}",
-            report_10k.due_exposure_top100, report_10k.new_exposure_top100, report_10k.future_exposure_top100);
+        println!(
+            "Average Order Displacement: {:.2} positions ({:.2}%)",
+            report_10k.avg_displacement,
+            (report_10k.avg_displacement / 10000.0) * 100.0
+        );
+        println!(
+            "Top 100 Composition: Due={}, New={}, Future={}",
+            report_10k.due_exposure_top100,
+            report_10k.new_exposure_top100,
+            report_10k.future_exposure_top100
+        );
         println!("Top 100 Priority Quintiles: Q1(0-.2)={}, Q2(.2-.4)={}, Q3(.4-.6)={}, Q4(.6-.8)={}, Q5(.8-1.0)={}",
             report_10k.quintile_counts_top100[0], report_10k.quintile_counts_top100[1],
             report_10k.quintile_counts_top100[2], report_10k.quintile_counts_top100[3],
             report_10k.quintile_counts_top100[4]);
-        println!("Finite Pool Drain: {}/{} items drained without replacement",
-            report_10k.drained_count, report_10k.size);
+        println!(
+            "Finite Pool Drain: {}/{} items drained without replacement",
+            report_10k.drained_count, report_10k.size
+        );
         println!("=======================================================\n");
 
         assert_eq!(report_1k.drained_count, 1000);

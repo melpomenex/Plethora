@@ -18,7 +18,13 @@ use url::Url;
 pub fn is_prohibited_ip(ip: &IpAddr) -> bool {
     match ip {
         IpAddr::V4(ipv4) => {
-            if ipv4.is_loopback() || ipv4.is_link_local() || ipv4.is_private() || ipv4.is_broadcast() || ipv4.is_unspecified() || ipv4.is_documentation() {
+            if ipv4.is_loopback()
+                || ipv4.is_link_local()
+                || ipv4.is_private()
+                || ipv4.is_broadcast()
+                || ipv4.is_unspecified()
+                || ipv4.is_documentation()
+            {
                 return true;
             }
             let octets = ipv4.octets();
@@ -135,9 +141,7 @@ pub struct Podcast20ChapterItem {
 /// Helper to parse a JSON Value (number or string) into milliseconds
 fn parse_time_value(val: &serde_json::Value) -> Option<i64> {
     match val {
-        serde_json::Value::Number(n) => {
-            n.as_f64().map(|secs| (secs * 1000.0).round() as i64)
-        }
+        serde_json::Value::Number(n) => n.as_f64().map(|secs| (secs * 1000.0).round() as i64),
         serde_json::Value::String(s) => parse_timestamp_to_ms(s),
         _ => None,
     }
@@ -152,8 +156,7 @@ pub fn parse_chapters_json(
     let parsed: Podcast20ChaptersFile =
         serde_json::from_str(json_str).map_err(|e| format!("Invalid chapters JSON: {}", e))?;
 
-    let mut raw_items: Vec<(i64, Option<i64>, String, Option<String>, Option<String>)> =
-        Vec::new();
+    let mut raw_items: Vec<(i64, Option<i64>, String, Option<String>, Option<String>)> = Vec::new();
 
     for item in parsed.chapters {
         let start_ms = parse_time_value(&item.start_time).unwrap_or(0);
@@ -169,11 +172,10 @@ pub fn parse_chapters_json(
     let num_items = raw_items.len();
     let mut chapters = Vec::with_capacity(num_items);
 
-    for (idx, (start_ms, explicit_end_ms, title, image, link)) in raw_items.into_iter().enumerate() {
+    for (idx, (start_ms, explicit_end_ms, title, image, link)) in raw_items.into_iter().enumerate()
+    {
         let is_sponsor = is_sponsor_title(&title);
-        let fallback_next_start = chapters
-            .get(idx)
-            .map(|_| start_ms); // placeholder, recalculated below
+        let fallback_next_start = chapters.get(idx).map(|_| start_ms); // placeholder, recalculated below
         let end_ms = explicit_end_ms
             .or_else(|| {
                 // If there's an explicit duration or next chapter
@@ -252,10 +254,7 @@ pub async fn fetch_external_chapters(
         .map_err(|e| format!("Failed to fetch chapters from {}: {}", url_str, e))?;
 
     if !resp.status().is_success() {
-        return Err(format!(
-            "Failed to fetch chapters: HTTP {}",
-            resp.status()
-        ));
+        return Err(format!("Failed to fetch chapters: HTTP {}", resp.status()));
     }
 
     // Guard maximum payload size to 5MB
@@ -298,7 +297,9 @@ mod tests {
 
         // Valid public URLs
         assert!(validate_external_url("https://example.com/chapters.json").is_ok());
-        assert!(validate_external_url("http://podcasts.example.org:8080/ep1/chapters.json").is_ok());
+        assert!(
+            validate_external_url("http://podcasts.example.org:8080/ep1/chapters.json").is_ok()
+        );
     }
 
     #[test]
@@ -332,13 +333,19 @@ mod tests {
         assert_eq!(chapters[0].title, "Welcome and Intro");
         assert_eq!(chapters[0].start_ms, 0);
         assert_eq!(chapters[0].end_ms, 120500);
-        assert_eq!(chapters[0].image_url.as_deref(), Some("https://example.com/ch1.jpg"));
+        assert_eq!(
+            chapters[0].image_url.as_deref(),
+            Some("https://example.com/ch1.jpg")
+        );
         assert!(!chapters[0].is_advertisement);
 
         assert_eq!(chapters[1].title, "Sponsor: CloudHost");
         assert_eq!(chapters[1].start_ms, 120500);
         assert_eq!(chapters[1].end_ms, 270000); // 04:30 = 270s = 270000ms
-        assert_eq!(chapters[1].link_url.as_deref(), Some("https://example.com/sponsor"));
+        assert_eq!(
+            chapters[1].link_url.as_deref(),
+            Some("https://example.com/sponsor")
+        );
         assert!(chapters[1].is_advertisement);
 
         assert_eq!(chapters[2].title, "Main Topic");

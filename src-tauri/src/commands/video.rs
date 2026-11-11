@@ -2,9 +2,7 @@
 //! Handles importing local video files and video-specific features
 
 use crate::database::Repository;
-use crate::models::{
-    Document, DocumentMetadata, FileType, VideoExtract,
-};
+use crate::models::{Document, DocumentMetadata, FileType, VideoExtract};
 use crate::transcription::engine::TranscriptionEngine;
 use crate::transcription::model_manager::ModelManager;
 use std::sync::{Arc, Mutex};
@@ -734,7 +732,8 @@ pub async fn rate_video_extract(
     repo: State<'_, Repository>,
 ) -> Result<crate::models::video_extract::VideoExtractReviewResult, String> {
     repo.review_video_extract(&extract_id, rating, &operation_id, chrono::Utc::now())
-        .await.map_err(|e| format!("Could not save this extract review: {}", e))
+        .await
+        .map_err(|e| format!("Could not save this extract review: {}", e))
 }
 
 /// Viewing is recorded only after confirmed playback, independently of review.
@@ -744,7 +743,8 @@ pub async fn mark_video_extract_seen(
     repo: State<'_, Repository>,
 ) -> Result<VideoExtract, String> {
     repo.mark_video_extract_seen(&extract_id, chrono::Utc::now())
-        .await.map_err(|e| format!("Could not save viewing progress: {}", e))
+        .await
+        .map_err(|e| format!("Could not save viewing progress: {}", e))
 }
 
 /// All saved video extracts in a collection (library view), regardless of queue status.
@@ -809,9 +809,12 @@ pub async fn get_video_extract_review_candidates(
 /// Snapshot local metadata and receipts for a collection archive.
 #[tauri::command]
 pub async fn get_video_extract_lifecycle(
-    document_ids: Option<Vec<String>>, repo: State<'_, Repository>,
+    document_ids: Option<Vec<String>>,
+    repo: State<'_, Repository>,
 ) -> Result<crate::models::video_extract::VideoExtractLifecycleArchive, String> {
-    repo.export_video_extract_lifecycle(document_ids.as_deref()).await.map_err(|e| e.to_string())
+    repo.export_video_extract_lifecycle(document_ids.as_deref())
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// YouTube runtime health status

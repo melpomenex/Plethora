@@ -171,20 +171,11 @@ pub enum NotebookLmSourcePayload {
         mime_type: Option<String>,
     },
     /// Web URL
-    Url {
-        url: String,
-        title: Option<String>,
-    },
+    Url { url: String, title: Option<String> },
     /// YouTube Video URL
-    Youtube {
-        url: String,
-        title: Option<String>,
-    },
+    Youtube { url: String, title: Option<String> },
     /// In-memory text (transported via ephemeral temp file)
-    Text {
-        text: String,
-        title: Option<String>,
-    },
+    Text { text: String, title: Option<String> },
     /// Existing Plethora Library Document ID
     Document {
         document_id: String,
@@ -217,9 +208,10 @@ impl<'de> Deserialize<'de> for NotebookLmSourcePayload {
         let title = raw.title;
         match kind.as_str() {
             "file" => {
-                let path = raw.path.or(raw.content).ok_or_else(|| {
-                    serde::de::Error::missing_field("path (or legacy content)")
-                })?;
+                let path = raw
+                    .path
+                    .or(raw.content)
+                    .ok_or_else(|| serde::de::Error::missing_field("path (or legacy content)"))?;
                 Ok(NotebookLmSourcePayload::File {
                     path,
                     title,
@@ -227,21 +219,24 @@ impl<'de> Deserialize<'de> for NotebookLmSourcePayload {
                 })
             }
             "url" => {
-                let url = raw.url.or(raw.content).ok_or_else(|| {
-                    serde::de::Error::missing_field("url (or legacy content)")
-                })?;
+                let url = raw
+                    .url
+                    .or(raw.content)
+                    .ok_or_else(|| serde::de::Error::missing_field("url (or legacy content)"))?;
                 Ok(NotebookLmSourcePayload::Url { url, title })
             }
             "youtube" => {
-                let url = raw.url.or(raw.content).ok_or_else(|| {
-                    serde::de::Error::missing_field("url (or legacy content)")
-                })?;
+                let url = raw
+                    .url
+                    .or(raw.content)
+                    .ok_or_else(|| serde::de::Error::missing_field("url (or legacy content)"))?;
                 Ok(NotebookLmSourcePayload::Youtube { url, title })
             }
             "text" => {
-                let text = raw.text.or(raw.content).ok_or_else(|| {
-                    serde::de::Error::missing_field("text (or legacy content)")
-                })?;
+                let text = raw
+                    .text
+                    .or(raw.content)
+                    .ok_or_else(|| serde::de::Error::missing_field("text (or legacy content)"))?;
                 Ok(NotebookLmSourcePayload::Text { text, title })
             }
             "document" | "library" => {
@@ -795,13 +790,15 @@ impl ScopedTempSourceFile {
         let file_name = format!("{}.{}", Uuid::new_v4(), extension.trim_start_matches('.'));
         let path = stage_dir.join(file_name);
 
-        tokio::fs::write(&path, content.as_bytes()).await.map_err(|e| {
-            AppError::IntegrationError(format!(
-                "Failed to write scoped temp file {}: {}",
-                path.display(),
-                e
-            ))
-        })?;
+        tokio::fs::write(&path, content.as_bytes())
+            .await
+            .map_err(|e| {
+                AppError::IntegrationError(format!(
+                    "Failed to write scoped temp file {}: {}",
+                    path.display(),
+                    e
+                ))
+            })?;
 
         Ok(Self { path, keep: false })
     }
@@ -874,7 +871,10 @@ fn extract_clean_cli_error(stderr: &str, stdout: &str) -> String {
     for text in &[stdout, stderr] {
         if let Ok(json) = serde_json::from_str::<serde_json::Value>(text.trim()) {
             if let Some(msg) = json.get("message").and_then(|m| m.as_str()) {
-                let err_code = json.get("code").and_then(|c| c.as_str()).unwrap_or("CLI_ERROR");
+                let err_code = json
+                    .get("code")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("CLI_ERROR");
                 return format!("{}: {}", err_code, msg.trim());
             }
             if let Some(err) = json.get("error").and_then(|e| e.as_str()) {
@@ -892,7 +892,11 @@ fn extract_clean_cli_error(stderr: &str, stdout: &str) -> String {
     };
 
     let trimmed = raw.trim();
-    let lines: Vec<&str> = trimmed.lines().map(str::trim).filter(|l| !l.is_empty()).collect();
+    let lines: Vec<&str> = trimmed
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
     if let Some(last_line) = lines.last() {
         if last_line.contains("Error:") || last_line.contains("Exception:") {
             if lines.len() > 1 {
@@ -1408,8 +1412,7 @@ async fn run_first_success_with_bootstrap(
         match result {
             Ok(result) => return Ok(result),
             Err(err) => {
-                let sanitized: Vec<String> =
-                    args.iter().map(|a| sanitize_arg_for_log(a)).collect();
+                let sanitized: Vec<String> = args.iter().map(|a| sanitize_arg_for_log(a)).collect();
                 errors.push(format!("{} -> {}", sanitized.join(" "), err));
             }
         }
@@ -1899,14 +1902,23 @@ impl NotebookLMProvider for CliNotebookLMProvider {
                         "Source file does not exist: {path}"
                     )));
                 }
-                let bytes = fs::metadata(file_path).map(|m| m.len() as usize).unwrap_or(0);
+                let bytes = fs::metadata(file_path)
+                    .map(|m| m.len() as usize)
+                    .unwrap_or(0);
                 let t = title.clone().or_else(|| {
                     file_path
                         .file_stem()
                         .and_then(|s| s.to_str())
                         .map(|s| s.to_string())
                 });
-                (path.clone(), "file".to_string(), t, "original_file", bytes, None)
+                (
+                    path.clone(),
+                    "file".to_string(),
+                    t,
+                    "original_file",
+                    bytes,
+                    None,
+                )
             }
             NotebookLmSourcePayload::Text { text, title } => {
                 let staged = ScopedTempSourceFile::create(
@@ -1942,10 +1954,13 @@ impl NotebookLMProvider for CliNotebookLMProvider {
                     .and_then(|e| e.to_str())
                     .unwrap_or("")
                     .to_lowercase();
-                let is_supported_ext = matches!(ext.as_str(), "pdf" | "epub" | "docx" | "txt" | "md");
+                let is_supported_ext =
+                    matches!(ext.as_str(), "pdf" | "epub" | "docx" | "txt" | "md");
 
                 if is_supported_ext && file_path.is_file() {
-                    let bytes = fs::metadata(file_path).map(|m| m.len() as usize).unwrap_or(0);
+                    let bytes = fs::metadata(file_path)
+                        .map(|m| m.len() as usize)
+                        .unwrap_or(0);
                     (
                         doc.file_path.clone(),
                         "file".to_string(),
@@ -1961,11 +1976,12 @@ impl NotebookLMProvider for CliNotebookLMProvider {
                         .as_deref()
                         .filter(|c| !c.trim().is_empty())
                         .unwrap_or(&doc.title);
-                    let temp_ext = if ext == "html" || ext == "htm" || doc.file_type == FileType::Html {
-                        "md"
-                    } else {
-                        "md"
-                    };
+                    let temp_ext =
+                        if ext == "html" || ext == "htm" || doc.file_type == FileType::Html {
+                            "md"
+                        } else {
+                            "md"
+                        };
                     let staged = ScopedTempSourceFile::create(
                         &ctx.app_dir.join("notebooklm_staged"),
                         content,
@@ -3917,14 +3933,7 @@ pub async fn notebooklm_add_source(
     let repo = repo_state.as_deref();
     let ctx = provider_context(&app, root.clone()).await;
     let source = provider
-        .add_source(
-            &auth,
-            &settings,
-            &ctx,
-            &selected,
-            &req,
-            repo,
-        )
+        .add_source(&auth, &settings, &ctx, &selected, &req, repo)
         .await?;
     tracing::info!(
         "notebooklm.source.added id={} kind={}",
@@ -5813,7 +5822,11 @@ mod tests {
         let tmp = tempfile::tempdir().expect("tempdir");
         let ctx = fake_cli_context(tmp.path(), write_fake_cli(tmp.path(), body));
         CliNotebookLMProvider
-            .list_notebooks(&NotebookLMAuthState::default(), &NotebookLMSettings::default(), &ctx)
+            .list_notebooks(
+                &NotebookLMAuthState::default(),
+                &NotebookLMSettings::default(),
+                &ctx,
+            )
             .await
     }
 
@@ -5870,10 +5883,11 @@ mod tests {
 
     #[tokio::test]
     async fn list_valid_envelope_parses_notebooks() {
-        let notebooks =
-            list_with_fake_cli("{\"notebooks\": [{\"id\":\"a\",\"title\":\"A\",\"sources_count\":2}]}")
-                .await
-                .expect("valid envelope must parse");
+        let notebooks = list_with_fake_cli(
+            "{\"notebooks\": [{\"id\":\"a\",\"title\":\"A\",\"sources_count\":2}]}",
+        )
+        .await
+        .expect("valid envelope must parse");
         assert_eq!(notebooks.len(), 1);
         assert_eq!(notebooks[0].id, "a");
         assert_eq!(notebooks[0].sources_count, 2);
@@ -5901,10 +5915,7 @@ mod tests {
         // auth.connected = true straight after an exit-0 login. The verified
         // path must refuse to persist when the session does not verify.
         let tmp = tempfile::tempdir().expect("tempdir");
-        let ctx = fake_cli_context(
-            tmp.path(),
-            write_unauthenticated_fake_cli(tmp.path()),
-        );
+        let ctx = fake_cli_context(tmp.path(), write_unauthenticated_fake_cli(tmp.path()));
 
         let auth = NotebookLMAuthState::default();
         assert!(!auth.connected, "default auth must start disconnected");
@@ -5926,7 +5937,10 @@ mod tests {
     #[tokio::test]
     async fn authenticated_auth_check_body_verifies_session() {
         let tmp = tempfile::tempdir().expect("tempdir");
-        let script = write_fake_cli(tmp.path(), "{\"authenticated\": true, \"email\": \"u@example.com\"}");
+        let script = write_fake_cli(
+            tmp.path(),
+            "{\"authenticated\": true, \"email\": \"u@example.com\"}",
+        );
         let ctx = fake_cli_context(tmp.path(), script);
         assert!(verify_cli_session(&ctx).await);
     }
@@ -6034,7 +6048,8 @@ mod tests {
             "kind": "library",
             "content": "doc_legacy_123"
         });
-        let req: AddSourceRequest = serde_json::from_value(json).expect("deserialize legacy library");
+        let req: AddSourceRequest =
+            serde_json::from_value(json).expect("deserialize legacy library");
         match req.payload {
             NotebookLmSourcePayload::Document { document_id, .. } => {
                 assert_eq!(document_id, "doc_legacy_123");
@@ -6059,7 +6074,9 @@ mod tests {
             assert!(temp_path.is_file(), "temp file must exist while in scope");
             assert!(temp_path.to_string_lossy().ends_with(".md"));
 
-            let read_back = tokio::fs::read_to_string(&temp_path).await.expect("read back");
+            let read_back = tokio::fs::read_to_string(&temp_path)
+                .await
+                .expect("read back");
             assert_eq!(read_back, sample_text, "UTF-8 content must match verbatim");
             // guard drops here at end of block
         }
@@ -6099,7 +6116,8 @@ mod tests {
         assert_eq!(clean, "VALIDATION_ERROR: Source document is empty.");
 
         // Error message truncation for giant tracebacks
-        let giant_traceback = "Traceback (most recent call last):\n".to_string() + &"  frame x\n".repeat(100);
+        let giant_traceback =
+            "Traceback (most recent call last):\n".to_string() + &"  frame x\n".repeat(100);
         let truncated = extract_clean_cli_error(&giant_traceback, "");
         assert!(truncated.len() <= 600);
     }
@@ -6155,7 +6173,8 @@ fi
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&fake_cli_script, fs::Permissions::from_mode(0o755)).expect("chmod");
+            fs::set_permissions(&fake_cli_script, fs::Permissions::from_mode(0o755))
+                .expect("chmod");
         }
 
         let ctx = fake_cli_context(tmp.path(), fake_cli_script);

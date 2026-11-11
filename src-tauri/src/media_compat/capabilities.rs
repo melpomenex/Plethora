@@ -14,14 +14,15 @@ use sha2::{Digest, Sha256};
 use tokio::process::Command;
 use tokio::sync::{Mutex, OnceCell};
 
-use crate::utils::ffmpeg;
 use super::types::{
     CapabilityLevel, EncoderCapability, EngineKind, FfmpegCapabilities, GStreamerReport,
     MediaRuntimeCapabilities, PlatformKind,
 };
+use crate::utils::ffmpeg;
 
 const CAPABILITY_TTL: Duration = Duration::from_secs(10 * 60);
-static CAP_CACHE: OnceCell<Mutex<Option<(Instant, MediaRuntimeCapabilities)>>> = OnceCell::const_new();
+static CAP_CACHE: OnceCell<Mutex<Option<(Instant, MediaRuntimeCapabilities)>>> =
+    OnceCell::const_new();
 
 fn platform() -> PlatformKind {
     if cfg!(target_os = "linux") {
@@ -104,7 +105,9 @@ async fn detect_gstreamer() -> (Option<GStreamerReport>, Vec<String>) {
         // `matroska:  matroskademux: Matroska demuxer`
         let mut parts = line.split_whitespace();
         let _plugin = parts.next();
-        let Some(element) = parts.next() else { continue };
+        let Some(element) = parts.next() else {
+            continue;
+        };
         let element = element.trim_end_matches(':');
         if !element.is_empty() && !element.contains(':') {
             found_elements.push(element.to_string());
@@ -114,7 +117,11 @@ async fn detect_gstreamer() -> (Option<GStreamerReport>, Vec<String>) {
     found_elements.dedup();
 
     let mut plugin_dirs = Vec::new();
-    for key in ["GST_PLUGIN_PATH", "GST_PLUGIN_SYSTEM_PATH_1_0", "GST_PLUGIN_SYSTEM_PATH"] {
+    for key in [
+        "GST_PLUGIN_PATH",
+        "GST_PLUGIN_SYSTEM_PATH_1_0",
+        "GST_PLUGIN_SYSTEM_PATH",
+    ] {
         if let Some(value) = std::env::var_os(key) {
             for path in std::env::split_paths(&value) {
                 if !path.as_os_str().is_empty() {
@@ -163,8 +170,24 @@ fn collect_gstreamer_capabilities(
 ) {
     let Some(report) = report else {
         for key in [
-            "h264", "hevc", "av1", "vp9", "mpeg2video", "vc1", "wmv3", "mpeg4",
-            "aac", "ac3", "eac3", "dts", "truehd", "opus", "flac", "mp3", "mp2", "vorbis",
+            "h264",
+            "hevc",
+            "av1",
+            "vp9",
+            "mpeg2video",
+            "vc1",
+            "wmv3",
+            "mpeg4",
+            "aac",
+            "ac3",
+            "eac3",
+            "dts",
+            "truehd",
+            "opus",
+            "flac",
+            "mp3",
+            "mp2",
+            "vorbis",
         ] {
             decoders.insert(key.to_string(), CapabilityLevel::Unknown);
         }
@@ -176,10 +199,42 @@ fn collect_gstreamer_capabilities(
     let elements = &report.found_elements;
     let available = report.inspect_available;
     for (key, names) in [
-        ("h264", vec!["avdec_h264", "openh264dec", "vah264dec", "vaapih264dec", "vulkanh264dec", "nvh264dec"]),
-        ("hevc", vec!["avdec_h265", "libde265dec", "vah265dec", "vaapih265dec", "vulkanh265dec", "nvh265dec"]),
-        ("av1", vec!["avdec_av1", "dav1ddec", "vaav1dec", "vulkanav1dec", "nvav1dec"]),
-        ("vp9", vec!["avdec_vp9", "vp9dec", "vavp9dec", "vaapivp9dec"]),
+        (
+            "h264",
+            vec![
+                "avdec_h264",
+                "openh264dec",
+                "vah264dec",
+                "vaapih264dec",
+                "vulkanh264dec",
+                "nvh264dec",
+            ],
+        ),
+        (
+            "hevc",
+            vec![
+                "avdec_h265",
+                "libde265dec",
+                "vah265dec",
+                "vaapih265dec",
+                "vulkanh265dec",
+                "nvh265dec",
+            ],
+        ),
+        (
+            "av1",
+            vec![
+                "avdec_av1",
+                "dav1ddec",
+                "vaav1dec",
+                "vulkanav1dec",
+                "nvav1dec",
+            ],
+        ),
+        (
+            "vp9",
+            vec!["avdec_vp9", "vp9dec", "vavp9dec", "vaapivp9dec"],
+        ),
         ("mpeg2video", vec!["avdec_mpeg2video", "mpeg2dec"]),
         ("vc1", vec!["avdec_vc1"]),
         ("wmv3", vec!["avdec_wmv3"]),
@@ -211,7 +266,10 @@ fn collect_gstreamer_capabilities(
     // Bitmap subtitle caps are not a playback support signal on WebKitGTK; the
     // HTML media pipeline rejected subpicture/x-pgs even with decoders present.
     subtitle_support.insert("bitmap".to_string(), CapabilityLevel::Unsupported);
-    subtitle_support.insert("hdmv_pgs_subtitle".to_string(), CapabilityLevel::Unsupported);
+    subtitle_support.insert(
+        "hdmv_pgs_subtitle".to_string(),
+        CapabilityLevel::Unsupported,
+    );
     subtitle_support.insert("dvd_subtitle".to_string(), CapabilityLevel::Unsupported);
     subtitle_support.insert("dvb_subtitle".to_string(), CapabilityLevel::Unsupported);
 }
@@ -230,7 +288,11 @@ async fn tool_output(path: &std::path::Path, args: &[&str]) -> Option<String> {
     Some(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-async fn detect_ffmpeg() -> (FfmpegCapabilities, HashMap<String, EncoderCapability>, Vec<String>) {
+async fn detect_ffmpeg() -> (
+    FfmpegCapabilities,
+    HashMap<String, EncoderCapability>,
+    Vec<String>,
+) {
     let mut warnings = Vec::new();
     let ffmpeg_path = ffmpeg::resolve_tool_path("ffmpeg");
     let ffprobe_path = ffmpeg::resolve_ffprobe_path();
@@ -246,18 +308,17 @@ async fn detect_ffmpeg() -> (FfmpegCapabilities, HashMap<String, EncoderCapabili
     };
     let mut encoders = HashMap::new();
     if let Some(path) = ffmpeg_path.as_deref() {
-        let encoder_text = tool_output(path, &["-hide_banner", "-encoders"]).await.unwrap_or_default();
-        let filter_text = tool_output(path, &["-hide_banner", "-filters"]).await.unwrap_or_default();
+        let encoder_text = tool_output(path, &["-hide_banner", "-encoders"])
+            .await
+            .unwrap_or_default();
+        let filter_text = tool_output(path, &["-hide_banner", "-filters"])
+            .await
+            .unwrap_or_default();
         capabilities.has_libx264 = encoder_text.contains("libx264");
         capabilities.has_aac = encoder_text.contains(" aac ");
         capabilities.has_zscale = filter_text.contains("zscale");
         capabilities.has_tonemap = filter_text.contains("tonemap");
-        for candidate in [
-            "h264_videotoolbox",
-            "h264_nvenc",
-            "h264_qsv",
-            "h264_amf",
-        ] {
+        for candidate in ["h264_videotoolbox", "h264_nvenc", "h264_qsv", "h264_amf"] {
             let present = encoder_text.contains(candidate);
             if present {
                 capabilities.hardware_encoders.push(candidate.to_string());
@@ -265,7 +326,11 @@ async fn detect_ffmpeg() -> (FfmpegCapabilities, HashMap<String, EncoderCapabili
             encoders.insert(
                 candidate.to_string(),
                 EncoderCapability {
-                    level: if present { CapabilityLevel::Supported } else { CapabilityLevel::Unknown },
+                    level: if present {
+                        CapabilityLevel::Supported
+                    } else {
+                        CapabilityLevel::Unknown
+                    },
                     factory: present.then(|| candidate.to_string()),
                     hardware: true,
                     canary: None,
@@ -275,7 +340,11 @@ async fn detect_ffmpeg() -> (FfmpegCapabilities, HashMap<String, EncoderCapabili
         encoders.insert(
             "libx264".to_string(),
             EncoderCapability {
-                level: if capabilities.has_libx264 { CapabilityLevel::Supported } else { CapabilityLevel::Unsupported },
+                level: if capabilities.has_libx264 {
+                    CapabilityLevel::Supported
+                } else {
+                    CapabilityLevel::Unsupported
+                },
                 factory: capabilities.has_libx264.then(|| "libx264".to_string()),
                 hardware: false,
                 canary: Some(capabilities.has_libx264),
@@ -284,7 +353,11 @@ async fn detect_ffmpeg() -> (FfmpegCapabilities, HashMap<String, EncoderCapabili
         encoders.insert(
             "aac".to_string(),
             EncoderCapability {
-                level: if capabilities.has_aac { CapabilityLevel::Supported } else { CapabilityLevel::Unsupported },
+                level: if capabilities.has_aac {
+                    CapabilityLevel::Supported
+                } else {
+                    CapabilityLevel::Unsupported
+                },
                 factory: capabilities.has_aac.then(|| "aac".to_string()),
                 hardware: false,
                 canary: Some(capabilities.has_aac),
@@ -329,7 +402,12 @@ async fn detect_uncached() -> MediaRuntimeCapabilities {
     let mut decoders = HashMap::new();
     let mut demuxers = HashMap::new();
     let mut subtitle_support = HashMap::new();
-    collect_gstreamer_capabilities(&gstreamer, &mut decoders, &mut demuxers, &mut subtitle_support);
+    collect_gstreamer_capabilities(
+        &gstreamer,
+        &mut decoders,
+        &mut demuxers,
+        &mut subtitle_support,
+    );
     let (ffmpeg_caps, encoders, ff_warnings) = detect_ffmpeg().await;
     warnings.extend(ff_warnings);
 
@@ -367,9 +445,7 @@ async fn detect_uncached() -> MediaRuntimeCapabilities {
 }
 
 pub async fn detect(refresh: bool) -> MediaRuntimeCapabilities {
-    let cache = CAP_CACHE
-        .get_or_init(|| async { Mutex::new(None) })
-        .await;
+    let cache = CAP_CACHE.get_or_init(|| async { Mutex::new(None) }).await;
     let mut guard = cache.lock().await;
     if !refresh {
         if let Some((checked, capabilities)) = guard.as_ref() {

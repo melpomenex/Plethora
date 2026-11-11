@@ -21,9 +21,7 @@ fn cache_root(app: &AppHandle) -> Result<PathBuf> {
     app.path()
         .app_cache_dir()
         .map(|path| path.join("incrementum").join("pdf-reflow-v1"))
-        .map_err(|error| {
-            PlethoraError::Internal(format!("Failed to resolve PDF cache: {error}"))
-        })
+        .map_err(|error| PlethoraError::Internal(format!("Failed to resolve PDF cache: {error}")))
 }
 
 fn document_cache_dir(

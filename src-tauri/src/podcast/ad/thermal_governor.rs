@@ -7,7 +7,10 @@ pub enum ThermalDecision {
     /// Proceed with processing at the given worker concurrency.
     Proceed { max_threads: usize },
     /// Device is warm (SEVERE); pause processing for the specified duration and drop to 1 thread.
-    Throttle { pause_duration: Duration, max_threads: usize },
+    Throttle {
+        pause_duration: Duration,
+        max_threads: usize,
+    },
     /// Device is overheating (CRITICAL); immediately halt, persist partial progress, and defer.
     AbortAndDefer { reason: &'static str },
 }

@@ -3,10 +3,10 @@
 //! Scans ingested podcast chapters for sponsor keywords in titles and external links,
 //! detecting sponsor intervals with high precision and confidence >= 0.85.
 
+use crate::models::podcast_ad::{AdDetectionMethod, PodcastAdInterval, PodcastChapter};
 use regex::Regex;
 use std::sync::OnceLock;
 use uuid::Uuid;
-use crate::models::podcast_ad::{AdDetectionMethod, PodcastAdInterval, PodcastChapter};
 
 static SPONSOR_KEYWORD_REGEX: OnceLock<Regex> = OnceLock::new();
 static SELF_PROMO_REGEX: OnceLock<Regex> = OnceLock::new();
@@ -29,8 +29,10 @@ fn self_promo_regex() -> &'static Regex {
 
 fn cross_promo_regex() -> &'static Regex {
     CROSS_PROMO_REGEX.get_or_init(|| {
-        Regex::new(r"(?i)\b(?:cross[- ]promo|recommendation|shoutout|guest appearance|featured show)\b")
-            .expect("Valid cross-promo regex")
+        Regex::new(
+            r"(?i)\b(?:cross[- ]promo|recommendation|shoutout|guest appearance|featured show)\b",
+        )
+        .expect("Valid cross-promo regex")
     })
 }
 
@@ -64,11 +66,14 @@ pub fn classify_chapter_metadata(
                 category: "external_ad".to_string(),
                 confidence: 1.0,
                 origin: AdDetectionMethod::MetadataChapter.as_str().to_string(),
-                metadata_json: Some(serde_json::json!({
-                    "chapterIndex": chapter.chapter_index,
-                    "chapterTitle": chapter.title,
-                    "reason": "explicit_chapter_flag",
-                }).to_string()),
+                metadata_json: Some(
+                    serde_json::json!({
+                        "chapterIndex": chapter.chapter_index,
+                        "chapterTitle": chapter.title,
+                        "reason": "explicit_chapter_flag",
+                    })
+                    .to_string(),
+                ),
             });
             continue;
         }
@@ -89,8 +94,7 @@ pub fn classify_chapter_metadata(
         if matches_title || matches_link {
             let category = if bumper_regex().is_match(title_clean) {
                 "bumper"
-            } else if self_promo_regex().is_match(title_clean)
-                || link_clean.contains("patreon.com")
+            } else if self_promo_regex().is_match(title_clean) || link_clean.contains("patreon.com")
             {
                 "host_self_promo"
             } else if cross_promo_regex().is_match(title_clean) {
@@ -108,12 +112,15 @@ pub fn classify_chapter_metadata(
                 category: category.to_string(),
                 confidence: 0.85,
                 origin: AdDetectionMethod::MetadataChapter.as_str().to_string(),
-                metadata_json: Some(serde_json::json!({
-                    "chapterIndex": chapter.chapter_index,
-                    "chapterTitle": chapter.title,
-                    "linkUrl": chapter.link_url,
-                    "reason": "keyword_heuristic",
-                }).to_string()),
+                metadata_json: Some(
+                    serde_json::json!({
+                        "chapterIndex": chapter.chapter_index,
+                        "chapterTitle": chapter.title,
+                        "linkUrl": chapter.link_url,
+                        "reason": "keyword_heuristic",
+                    })
+                    .to_string(),
+                ),
             });
         }
     }
@@ -125,7 +132,14 @@ pub fn classify_chapter_metadata(
 mod tests {
     use super::*;
 
-    fn make_chap(index: i32, title: &str, start_ms: i64, end_ms: i64, is_ad: bool, link: Option<&str>) -> PodcastChapter {
+    fn make_chap(
+        index: i32,
+        title: &str,
+        start_ms: i64,
+        end_ms: i64,
+        is_ad: bool,
+        link: Option<&str>,
+    ) -> PodcastChapter {
         PodcastChapter {
             id: format!("ch-{}", index),
             episode_id: "ep-test".into(),
@@ -146,21 +160,63 @@ mod tests {
             // (title, is_ad, link, expect_ad, expected_category)
             ("Introduction", false, None, false, ""),
             ("A Word From Our Sponsor", false, None, true, "external_ad"),
-            ("Sponsor: Squarespace", false, Some("https://squarespace.com/code"), true, "external_ad"),
+            (
+                "Sponsor: Squarespace",
+                false,
+                Some("https://squarespace.com/code"),
+                true,
+                "external_ad",
+            ),
             ("Deep Dive into Economics", false, None, false, ""),
             ("Commercial Break", false, None, true, "external_ad"),
-            ("Join our Patreon Community", false, Some("https://patreon.com/show"), true, "host_self_promo"),
+            (
+                "Join our Patreon Community",
+                false,
+                Some("https://patreon.com/show"),
+                true,
+                "host_self_promo",
+            ),
             ("Discussion with Guest", false, None, false, ""),
-            ("Promo: Season 2 Announcement", false, None, true, "external_ad"),
+            (
+                "Promo: Season 2 Announcement",
+                false,
+                None,
+                true,
+                "external_ad",
+            ),
             ("Audible Discount Code", false, None, true, "external_ad"),
             ("Midroll Ads", false, None, true, "external_ad"),
             ("Q&A Session", false, None, false, ""),
-            ("Cross-Promo: Listen to TechTalk", false, None, true, "podcast_cross_promo"),
-            ("Merchandise & Store Update", false, Some("https://shop.show.com"), true, "host_self_promo"),
+            (
+                "Cross-Promo: Listen to TechTalk",
+                false,
+                None,
+                true,
+                "podcast_cross_promo",
+            ),
+            (
+                "Merchandise & Store Update",
+                false,
+                Some("https://shop.show.com"),
+                true,
+                "host_self_promo",
+            ),
             ("Station ID & Bumper", false, None, true, "bumper"),
             ("Book Recommendations", false, None, false, ""),
-            ("Explicit Sponsor Flagged Chapter", true, None, true, "external_ad"),
-            ("Support Us on Patreon", false, None, true, "host_self_promo"),
+            (
+                "Explicit Sponsor Flagged Chapter",
+                true,
+                None,
+                true,
+                "external_ad",
+            ),
+            (
+                "Support Us on Patreon",
+                false,
+                None,
+                true,
+                "host_self_promo",
+            ),
             ("Postroll Advertisement", false, None, true, "external_ad"),
             ("Audience Feedback", false, None, false, ""),
             ("Concluding Remarks", false, None, false, ""),
@@ -170,7 +226,14 @@ mod tests {
             .iter()
             .enumerate()
             .map(|(i, (title, is_ad, link, _, _))| {
-                make_chap(i as i32, title, (i as i64) * 60_000, (i as i64 + 1) * 60_000, *is_ad, *link)
+                make_chap(
+                    i as i32,
+                    title,
+                    (i as i64) * 60_000,
+                    (i as i64 + 1) * 60_000,
+                    *is_ad,
+                    *link,
+                )
             })
             .collect();
 
@@ -184,12 +247,24 @@ mod tests {
             let start = (i as i64) * 60_000;
             let found = intervals.iter().find(|inv| inv.start_ms == start);
             if *expect_ad {
-                assert!(found.is_some(), "Expected chapter '{}' to be detected as ad", title);
+                assert!(
+                    found.is_some(),
+                    "Expected chapter '{}' to be detected as ad",
+                    title
+                );
                 let inv = found.unwrap();
-                assert_eq!(inv.category, *expected_cat, "Mismatch category for chapter '{}'", title);
+                assert_eq!(
+                    inv.category, *expected_cat,
+                    "Mismatch category for chapter '{}'",
+                    title
+                );
                 assert!(inv.confidence >= 0.85);
             } else {
-                assert!(found.is_none(), "Expected chapter '{}' NOT to be detected as ad", title);
+                assert!(
+                    found.is_none(),
+                    "Expected chapter '{}' NOT to be detected as ad",
+                    title
+                );
             }
         }
     }

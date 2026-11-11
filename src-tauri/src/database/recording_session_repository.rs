@@ -881,13 +881,11 @@ impl Repository {
         .await?;
 
         // 5. Update transcripts table revision
-        sqlx::query(
-            "UPDATE transcripts SET revision = ?1 WHERE id = ?2",
-        )
-        .bind(new_revision)
-        .bind(transcript_id)
-        .execute(&mut *tx)
-        .await?;
+        sqlx::query("UPDATE transcripts SET revision = ?1 WHERE id = ?2")
+            .bind(new_revision)
+            .bind(transcript_id)
+            .execute(&mut *tx)
+            .await?;
 
         // 6. Invalidate affected analysis runs / drafts if tables exist
         let has_analysis_runs: bool = sqlx::query_scalar(
@@ -991,7 +989,7 @@ impl Repository {
             };
 
             sqlx::query(
-                "UPDATE recording_session_markers SET window_ms = ?1, note = ?2 WHERE id = ?3"
+                "UPDATE recording_session_markers SET window_ms = ?1, note = ?2 WHERE id = ?3",
             )
             .bind(extended_window)
             .bind(&updated_note)
@@ -1018,7 +1016,7 @@ impl Repository {
              FROM transcript_segments ts
              JOIN transcripts t ON t.id = ts.transcript_id
              WHERE t.session_id = ?1 AND ts.start_ms <= ?2 AND ts.end_ms >= ?3
-             ORDER BY ts.ordinal ASC LIMIT 3"
+             ORDER BY ts.ordinal ASC LIMIT 3",
         )
         .bind(session_id)
         .bind(media_ms)
@@ -1075,7 +1073,7 @@ impl Repository {
         let rows = sqlx::query(
             "SELECT * FROM recording_session_markers
              WHERE session_id = ?1
-             ORDER BY media_ms ASC, created_at ASC"
+             ORDER BY media_ms ASC, created_at ASC",
         )
         .bind(session_id)
         .fetch_all(pool)
@@ -1091,7 +1089,7 @@ impl Repository {
         let pool = self.pool();
         let pending = sqlx::query(
             "SELECT * FROM recording_session_markers
-             WHERE session_id = ?1 AND state = 'pending'"
+             WHERE session_id = ?1 AND state = 'pending'",
         )
         .bind(session_id)
         .fetch_all(pool)
@@ -1108,7 +1106,7 @@ impl Repository {
                  FROM transcript_segments ts
                  JOIN transcripts t ON t.id = ts.transcript_id
                  WHERE t.session_id = ?1 AND ts.start_ms <= ?2 AND ts.end_ms >= ?3
-                 ORDER BY ts.ordinal ASC LIMIT 3"
+                 ORDER BY ts.ordinal ASC LIMIT 3",
             )
             .bind(session_id)
             .bind(media_ms)
@@ -1148,10 +1146,11 @@ impl Repository {
         session_id: &str,
         expected_version: i64,
     ) -> SessionResult<DeleteSessionMediaResult> {
-        let row = sqlx::query("SELECT version, media_asset_id FROM recording_sessions WHERE id = ?1")
-            .bind(session_id)
-            .fetch_optional(self.pool())
-            .await?;
+        let row =
+            sqlx::query("SELECT version, media_asset_id FROM recording_sessions WHERE id = ?1")
+                .bind(session_id)
+                .fetch_optional(self.pool())
+                .await?;
 
         let (version, media_asset_id): (i64, Option<String>) = match row {
             Some(r) => (r.get("version"), r.get("media_asset_id")),
@@ -1173,10 +1172,11 @@ impl Repository {
         }
 
         // Fetch all media assets and parts for this session
-        let assets = sqlx::query("SELECT id, relative_path FROM media_assets WHERE session_id = ?1")
-            .bind(session_id)
-            .fetch_all(self.pool())
-            .await?;
+        let assets =
+            sqlx::query("SELECT id, relative_path FROM media_assets WHERE session_id = ?1")
+                .bind(session_id)
+                .fetch_all(self.pool())
+                .await?;
 
         let now = chrono::Utc::now().to_rfc3339();
         let mut journal_entries: Vec<(String, String, String)> = Vec::new();
@@ -1187,10 +1187,11 @@ impl Repository {
             let j_id = format!("cleanup-{}", uuid::Uuid::new_v4());
             journal_entries.push((j_id, a_id.clone(), rel_path));
 
-            let parts = sqlx::query("SELECT relative_path FROM recording_parts WHERE asset_id = ?1")
-                .bind(&a_id)
-                .fetch_all(self.pool())
-                .await?;
+            let parts =
+                sqlx::query("SELECT relative_path FROM recording_parts WHERE asset_id = ?1")
+                    .bind(&a_id)
+                    .fetch_all(self.pool())
+                    .await?;
 
             for p_row in parts {
                 let p_rel: String = p_row.get("relative_path");
@@ -1220,7 +1221,7 @@ impl Repository {
         sqlx::query(
             "UPDATE recording_sessions
              SET media_asset_id = NULL, version = ?1, updated_at = ?2
-             WHERE id = ?3 AND version = ?4"
+             WHERE id = ?3 AND version = ?4",
         )
         .bind(new_version)
         .bind(&now)
@@ -1238,7 +1239,8 @@ impl Repository {
 
         // Physical cleanup
         for (j_id, _a_id, rel_path) in &journal_entries {
-            let path_res = crate::recording::safe_resolve_recording_path(data_dir, session_id, rel_path);
+            let path_res =
+                crate::recording::safe_resolve_recording_path(data_dir, session_id, rel_path);
             let update_status = match path_res {
                 Ok(path) => {
                     if path.exists() {
@@ -1251,7 +1253,7 @@ impl Repository {
 
             let update_now = chrono::Utc::now().to_rfc3339();
             let _ = sqlx::query(
-                "UPDATE recording_cleanup_journal SET status = ?1, updated_at = ?2 WHERE id = ?3"
+                "UPDATE recording_cleanup_journal SET status = ?1, updated_at = ?2 WHERE id = ?3",
             )
             .bind(update_status)
             .bind(&update_now)
@@ -1303,10 +1305,11 @@ impl Repository {
         }
 
         // Fetch media assets for journal
-        let assets = sqlx::query("SELECT id, relative_path FROM media_assets WHERE session_id = ?1")
-            .bind(session_id)
-            .fetch_all(self.pool())
-            .await?;
+        let assets =
+            sqlx::query("SELECT id, relative_path FROM media_assets WHERE session_id = ?1")
+                .bind(session_id)
+                .fetch_all(self.pool())
+                .await?;
 
         let now = chrono::Utc::now().to_rfc3339();
         let mut journal_entries: Vec<(String, String, String)> = Vec::new();
@@ -1317,10 +1320,11 @@ impl Repository {
             let j_id = format!("cleanup-{}", uuid::Uuid::new_v4());
             journal_entries.push((j_id, a_id.clone(), rel_path));
 
-            let parts = sqlx::query("SELECT relative_path FROM recording_parts WHERE asset_id = ?1")
-                .bind(&a_id)
-                .fetch_all(self.pool())
-                .await?;
+            let parts =
+                sqlx::query("SELECT relative_path FROM recording_parts WHERE asset_id = ?1")
+                    .bind(&a_id)
+                    .fetch_all(self.pool())
+                    .await?;
 
             for p_row in parts {
                 let p_rel: String = p_row.get("relative_path");
@@ -1405,7 +1409,9 @@ impl Repository {
 
             let mut success = false;
             if let Some(s_id) = session_id {
-                if let Ok(path) = crate::recording::safe_resolve_recording_path(data_dir, &s_id, &relative_path) {
+                if let Ok(path) =
+                    crate::recording::safe_resolve_recording_path(data_dir, &s_id, &relative_path)
+                {
                     if !path.exists() || std::fs::remove_file(&path).is_ok() {
                         success = true;
                     }
@@ -1524,10 +1530,11 @@ impl Repository {
         session_id: &str,
         document_id: &str,
     ) -> SessionResult<Vec<SessionRelatedDocument>> {
-        let row = sqlx::query("SELECT profile_json, document_id FROM recording_sessions WHERE id = ?1")
-            .bind(session_id)
-            .fetch_optional(self.pool())
-            .await?;
+        let row =
+            sqlx::query("SELECT profile_json, document_id FROM recording_sessions WHERE id = ?1")
+                .bind(session_id)
+                .fetch_optional(self.pool())
+                .await?;
         let (profile_json_str, session_doc_id): (String, String) = match row {
             Some(r) => (r.get("profile_json"), r.get("document_id")),
             None => return Err(unavailable()),
@@ -1592,7 +1599,10 @@ impl Repository {
 
         let mut profile: serde_json::Value =
             serde_json::from_str(&profile_json_str).unwrap_or_else(|_| serde_json::json!({}));
-        if let Some(arr) = profile.get_mut("relatedDocumentIds").and_then(|v| v.as_array_mut()) {
+        if let Some(arr) = profile
+            .get_mut("relatedDocumentIds")
+            .and_then(|v| v.as_array_mut())
+        {
             arr.retain(|v| v.as_str() != Some(document_id));
         }
 
@@ -1641,10 +1651,18 @@ impl Repository {
 
                 match doc_row {
                     Some(r) => {
-                        let is_local_only = r.try_get::<bool, _>("is_local_only")
-                            .unwrap_or_else(|_| r.try_get::<i64, _>("is_local_only").map(|v| v != 0).unwrap_or(false));
-                        let is_ai_excluded = r.try_get::<bool, _>("is_ai_excluded")
-                            .unwrap_or_else(|_| r.try_get::<i64, _>("is_ai_excluded").map(|v| v != 0).unwrap_or(false));
+                        let is_local_only =
+                            r.try_get::<bool, _>("is_local_only").unwrap_or_else(|_| {
+                                r.try_get::<i64, _>("is_local_only")
+                                    .map(|v| v != 0)
+                                    .unwrap_or(false)
+                            });
+                        let is_ai_excluded =
+                            r.try_get::<bool, _>("is_ai_excluded").unwrap_or_else(|_| {
+                                r.try_get::<i64, _>("is_ai_excluded")
+                                    .map(|v| v != 0)
+                                    .unwrap_or(false)
+                            });
                         results.push(SessionRelatedDocument {
                             id: r.get("id"),
                             title: r.get("title"),
@@ -1671,7 +1689,6 @@ impl Repository {
         Ok(results)
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1708,7 +1725,11 @@ mod tests {
         assert_eq!(session.content_type, SessionContentType::Lecture);
 
         // Verify document was created and defaulted to is_local_only = true
-        let doc = repo.get_document(&session.document_id).await.unwrap().unwrap();
+        let doc = repo
+            .get_document(&session.document_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert!(doc.is_local_only);
 
         // Privacy lookup for the session
@@ -1732,7 +1753,10 @@ mod tests {
             profile_json: "{}".into(),
         };
         assert_eq!(
-            repo.create_recording_session(&conflicting).await.unwrap_err().code,
+            repo.create_recording_session(&conflicting)
+                .await
+                .unwrap_err()
+                .code,
             "StaleRevision"
         );
     }
@@ -1740,7 +1764,11 @@ mod tests {
     #[tokio::test]
     async fn session_creation_with_existing_document() {
         let repo = repository().await;
-        let doc = Document::new("Pre-existing audio".into(), "audio.mp3".into(), FileType::Audio);
+        let doc = Document::new(
+            "Pre-existing audio".into(),
+            "audio.mp3".into(),
+            FileType::Audio,
+        );
         repo.create_document(&doc).await.unwrap();
 
         let id = uuid::Uuid::new_v4().to_string();
@@ -1766,7 +1794,10 @@ mod tests {
         assert_eq!(found.unwrap().id, session.id);
 
         // Non-existent document returns None
-        let not_found = repo.find_session_by_document_id("non-existent-doc").await.unwrap();
+        let not_found = repo
+            .find_session_by_document_id("non-existent-doc")
+            .await
+            .unwrap();
         assert!(not_found.is_none());
     }
 
@@ -1864,7 +1895,10 @@ mod tests {
             "INSERT INTO transcripts (session_id, book_id, chapter_id, model_used, language, status, revision, created_at, updated_at) VALUES (?1, 'sess', 'chap', 'model', 'en', 'completed', 1, ?2, ?2)",
         )
         .bind(&id).bind(&now).execute(repo.pool()).await.unwrap();
-        let transcript_id: i64 = sqlx::query_scalar("SELECT last_insert_rowid()").fetch_one(repo.pool()).await.unwrap();
+        let transcript_id: i64 = sqlx::query_scalar("SELECT last_insert_rowid()")
+            .fetch_one(repo.pool())
+            .await
+            .unwrap();
 
         sqlx::query("UPDATE recording_sessions SET transcript_id = ?1, transcript_revision = 1 WHERE id = ?2")
             .bind(transcript_id).bind(&id).execute(repo.pool()).await.unwrap();
@@ -1884,12 +1918,18 @@ mod tests {
         assert!(p1.next_cursor.is_some());
 
         // Page 2
-        let p2 = repo.get_session_segments(&id, p1.next_cursor.as_deref(), 2).await.unwrap();
+        let p2 = repo
+            .get_session_segments(&id, p1.next_cursor.as_deref(), 2)
+            .await
+            .unwrap();
         assert_eq!(p2.items.len(), 1);
         assert!(p2.next_cursor.is_none());
 
         // Unknown session
-        let err = repo.get_session_segments("unknown-id", None, 10).await.unwrap_err();
+        let err = repo
+            .get_session_segments("unknown-id", None, 10)
+            .await
+            .unwrap_err();
         assert_eq!(err.code, "SourceUnavailable");
     }
 
@@ -1987,24 +2027,47 @@ mod tests {
         assert_eq!(count, 2);
 
         // Verify segments roundtrip
-        let page = repo.get_session_segments(&session_id, None, 10).await.unwrap();
+        let page = repo
+            .get_session_segments(&session_id, None, 10)
+            .await
+            .unwrap();
         assert_eq!(page.items.len(), 2);
         assert_eq!(page.items[0].segment_key, "u1:0");
         assert_eq!(page.items[0].text, "First spoken unit");
         assert_eq!(page.items[0].confidence, Some(0.95));
         assert_eq!(page.items[0].speaker_id.as_deref(), Some("spk-1"));
-        assert!(matches!(page.items[0].timing, SessionTranscriptTiming::Measured { start_ms: 0, end_ms: 5000 }));
+        assert!(matches!(
+            page.items[0].timing,
+            SessionTranscriptTiming::Measured {
+                start_ms: 0,
+                end_ms: 5000
+            }
+        ));
         assert_eq!(page.items[0].words.as_ref().unwrap().len(), 2);
 
         // Untimed output stays untimed
-        assert!(matches!(page.items[1].timing, SessionTranscriptTiming::None {}));
+        assert!(matches!(
+            page.items[1].timing,
+            SessionTranscriptTiming::None {}
+        ));
 
         // Verify document content projection
-        let doc = repo.get_document(&session.document_id).await.unwrap().unwrap();
-        assert_eq!(doc.content.as_deref(), Some("First spoken unit Untimed conclusion"));
+        let doc = repo
+            .get_document(&session.document_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            doc.content.as_deref(),
+            Some("First spoken unit Untimed conclusion")
+        );
 
         // Verify queue progress checkpoint
-        let queue_item = repo.get_transcription_queue_entry_by_id(job_id).await.unwrap().unwrap();
+        let queue_item = repo
+            .get_transcription_queue_entry_by_id(job_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(queue_item.processed_duration_ms, 30_000);
         assert_eq!(queue_item.progress, 50);
 
@@ -2022,7 +2085,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(count_repeat, 2);
-        let page_after_repeat = repo.get_session_segments(&session_id, None, 10).await.unwrap();
+        let page_after_repeat = repo
+            .get_session_segments(&session_id, None, 10)
+            .await
+            .unwrap();
         assert_eq!(page_after_repeat.items.len(), 2);
 
         // 3. Stale epoch or wrong lease owner is rejected as cancelled
@@ -2103,7 +2169,10 @@ mod tests {
             },
         ];
 
-        let count1 = repo.import_session_transcript(&session_id, &segments_rev1).await.unwrap();
+        let count1 = repo
+            .import_session_transcript(&session_id, &segments_rev1)
+            .await
+            .unwrap();
         assert_eq!(count1, 2);
 
         // Verify session transcript_revision and state
@@ -2112,28 +2181,41 @@ mod tests {
         assert_eq!(updated_sess1.ingestion_state, SessionIngestionState::Saved);
 
         // Verify document content projection
-        let doc1 = repo.get_document(&session.document_id).await.unwrap().unwrap();
-        assert!(doc1.content.as_deref().unwrap().contains("First imported cue"));
-        assert!(doc1.content.as_deref().unwrap().contains("Second untimed paragraph"));
+        let doc1 = repo
+            .get_document(&session.document_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(doc1
+            .content
+            .as_deref()
+            .unwrap()
+            .contains("First imported cue"));
+        assert!(doc1
+            .content
+            .as_deref()
+            .unwrap()
+            .contains("Second untimed paragraph"));
 
         // 2. Second import: replacement revision increments revision to 2
-        let segments_rev2 = vec![
-            SessionTranscriptSegmentInput {
-                segment_key: "seg_1".into(),
-                ordinal: 0,
-                start_ms: Some(1000),
-                end_ms: Some(5000),
-                text: "Updated first cue".into(),
-                confidence: None,
-                words_json: None,
-                speaker_id: None,
-                timing_kind: "imported".into(),
-                revision: 2,
-                metadata_json: None,
-            },
-        ];
+        let segments_rev2 = vec![SessionTranscriptSegmentInput {
+            segment_key: "seg_1".into(),
+            ordinal: 0,
+            start_ms: Some(1000),
+            end_ms: Some(5000),
+            text: "Updated first cue".into(),
+            confidence: None,
+            words_json: None,
+            speaker_id: None,
+            timing_kind: "imported".into(),
+            revision: 2,
+            metadata_json: None,
+        }];
 
-        let count2 = repo.import_session_transcript(&session_id, &segments_rev2).await.unwrap();
+        let count2 = repo
+            .import_session_transcript(&session_id, &segments_rev2)
+            .await
+            .unwrap();
         assert_eq!(count2, 1);
 
         let updated_sess2 = repo.get_recording_session(&session_id).await.unwrap();
@@ -2141,7 +2223,10 @@ mod tests {
 
         // 3. Nonexistent session returns error without corrupting state
         let nonexistent_id = uuid::Uuid::new_v4().to_string();
-        let err = repo.import_session_transcript(&nonexistent_id, &segments_rev1).await.unwrap_err();
+        let err = repo
+            .import_session_transcript(&nonexistent_id, &segments_rev1)
+            .await
+            .unwrap_err();
         assert_eq!(err.code, "SourceUnavailable");
     }
 
@@ -2218,11 +2303,17 @@ mod tests {
         .unwrap();
 
         // When collection_id of col_physics is specified, sess_hash_1 is prioritized
-        let scoped_physics = repo.find_session_by_media_hash(hash_a, Some(&col_physics.id)).await.unwrap();
+        let scoped_physics = repo
+            .find_session_by_media_hash(hash_a, Some(&col_physics.id))
+            .await
+            .unwrap();
         assert_eq!(scoped_physics.unwrap().id, id1);
 
         // When collection_id of col_math is specified, sess_hash_2 is prioritized
-        let scoped_math = repo.find_session_by_media_hash(hash_a, Some(&col_math.id)).await.unwrap();
+        let scoped_math = repo
+            .find_session_by_media_hash(hash_a, Some(&col_math.id))
+            .await
+            .unwrap();
         assert_eq!(scoped_math.unwrap().id, id2);
 
         // Hash B still not found
@@ -2321,7 +2412,9 @@ mod tests {
             revision: 1,
             metadata_json: None,
         }];
-        repo.import_session_transcript(&session.id, &segments).await.unwrap();
+        repo.import_session_transcript(&session.id, &segments)
+            .await
+            .unwrap();
 
         // 4. Resolve pending markers
         let resolved_markers = repo
@@ -2373,16 +2466,16 @@ mod tests {
             metadata_json: None,
         }];
 
-        repo.import_session_transcript(&session.id, &segments).await.unwrap();
+        repo.import_session_transcript(&session.id, &segments)
+            .await
+            .unwrap();
 
         let s_after_import = repo.get_recording_session(&session.id).await.unwrap();
         assert_eq!(s_after_import.transcript_revision, 1);
 
         // 3. Create an extract representing an accepted learning object
-        let mut ext = crate::models::Extract::new(
-            session.document_id.clone(),
-            initial_text.to_string(),
-        );
+        let mut ext =
+            crate::models::Extract::new(session.document_id.clone(), initial_text.to_string());
         ext.notes = Some("Important physics concept".to_string());
         ext.selection_context = Some(serde_json::json!({ "type": "session_transcript" }));
         let extract = repo.create_extract(&ext).await.unwrap();
@@ -2423,7 +2516,11 @@ mod tests {
         assert_eq!(s_after_correct.transcript_revision, 2);
 
         // 7. Verify document content projection refreshed
-        let doc = repo.get_document(&session.document_id).await.unwrap().unwrap();
+        let doc = repo
+            .get_document(&session.document_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(doc.content.as_deref(), Some(corrected_text));
 
         // 8. Verify document_search (FTS5) has refreshed content via triggers
@@ -2559,13 +2656,19 @@ mod tests {
 
         // Verify transcript and segments are still intact!
         assert_eq!(after_media_del.transcript_revision, 1);
-        let segments = repo.get_session_segments(&session_id, None, 10).await.unwrap();
+        let segments = repo
+            .get_session_segments(&session_id, None, 10)
+            .await
+            .unwrap();
         assert_eq!(segments.items.len(), 1);
-        assert_eq!(segments.items[0].text, "Virtual memory maps virtual addresses to physical pages.");
+        assert_eq!(
+            segments.items[0].text,
+            "Virtual memory maps virtual addresses to physical pages."
+        );
 
         // Verify cleanup journal was completed
         let journal_status: String = sqlx::query_scalar(
-            "SELECT status FROM recording_cleanup_journal WHERE session_id = ?1 LIMIT 1"
+            "SELECT status FROM recording_cleanup_journal WHERE session_id = ?1 LIMIT 1",
         )
         .bind(&session_id)
         .fetch_one(repo.pool())
@@ -2636,20 +2739,28 @@ mod tests {
             },
         ];
 
-        repo.import_session_transcript(&session_id, &segments).await.unwrap();
+        repo.import_session_transcript(&session_id, &segments)
+            .await
+            .unwrap();
 
         let speakers = repo.list_session_speakers(&session_id).await.unwrap();
         assert_eq!(speakers, vec!["Speaker 1", "Speaker 2"]);
 
         // Rename "Speaker 1" -> "Alice"
-        let renamed = repo.update_session_speaker(&session_id, "Speaker 1", Some("Alice")).await.unwrap();
+        let renamed = repo
+            .update_session_speaker(&session_id, "Speaker 1", Some("Alice"))
+            .await
+            .unwrap();
         assert_eq!(renamed, 1);
 
         let speakers_after = repo.list_session_speakers(&session_id).await.unwrap();
         assert_eq!(speakers_after, vec!["Alice", "Speaker 2"]);
 
         // Merge "Speaker 2" -> "Alice"
-        let merged = repo.update_session_speaker(&session_id, "Speaker 2", Some("Alice")).await.unwrap();
+        let merged = repo
+            .update_session_speaker(&session_id, "Speaker 2", Some("Alice"))
+            .await
+            .unwrap();
         assert_eq!(merged, 1);
 
         let speakers_final = repo.list_session_speakers(&session_id).await.unwrap();
@@ -2704,11 +2815,17 @@ mod tests {
         .unwrap();
 
         // 3. Initially no related documents
-        let initial = repo.list_session_related_documents(&session_id).await.unwrap();
+        let initial = repo
+            .list_session_related_documents(&session_id)
+            .await
+            .unwrap();
         assert!(initial.is_empty());
 
         // 4. Associate slides PDF
-        let after_pdf = repo.associate_session_document(&session_id, &pdf_doc_id).await.unwrap();
+        let after_pdf = repo
+            .associate_session_document(&session_id, &pdf_doc_id)
+            .await
+            .unwrap();
         assert_eq!(after_pdf.len(), 1);
         assert_eq!(after_pdf[0].id, pdf_doc_id);
         assert_eq!(after_pdf[0].title, "Lecture 01 Slides");
@@ -2718,17 +2835,26 @@ mod tests {
         assert!(after_pdf[0].is_available);
 
         // 5. Associate epub (has independent privacy: is_ai_excluded=true, is_local_only=false)
-        let after_both = repo.associate_session_document(&session_id, &epub_doc_id).await.unwrap();
+        let after_both = repo
+            .associate_session_document(&session_id, &epub_doc_id)
+            .await
+            .unwrap();
         assert_eq!(after_both.len(), 2);
         assert_eq!(after_both[1].id, epub_doc_id);
         assert!(!after_both[1].is_local_only);
         assert!(after_both[1].is_ai_excluded);
 
         // 6. Associating session's own document is rejected
-        assert!(repo.associate_session_document(&session_id, &session_doc_id).await.is_err());
+        assert!(repo
+            .associate_session_document(&session_id, &session_doc_id)
+            .await
+            .is_err());
 
         // 7. Associating non-existent document is rejected
-        assert!(repo.associate_session_document(&session_id, "non-existent-doc").await.is_err());
+        assert!(repo
+            .associate_session_document(&session_id, "non-existent-doc")
+            .await
+            .is_err());
 
         // 8. Delete PDF from library documents table to verify graceful unavailable handling
         sqlx::query("DELETE FROM documents WHERE id = ?1")
@@ -2737,7 +2863,10 @@ mod tests {
             .await
             .unwrap();
 
-        let after_delete = repo.list_session_related_documents(&session_id).await.unwrap();
+        let after_delete = repo
+            .list_session_related_documents(&session_id)
+            .await
+            .unwrap();
         assert_eq!(after_delete.len(), 2);
         assert_eq!(after_delete[0].id, pdf_doc_id);
         assert!(!after_delete[0].is_available);
@@ -2745,7 +2874,10 @@ mod tests {
         assert!(after_delete[1].is_available);
 
         // 9. Disassociate deleted PDF
-        let after_disassociate = repo.disassociate_session_document(&session_id, &pdf_doc_id).await.unwrap();
+        let after_disassociate = repo
+            .disassociate_session_document(&session_id, &pdf_doc_id)
+            .await
+            .unwrap();
         assert_eq!(after_disassociate.len(), 1);
         assert_eq!(after_disassociate[0].id, epub_doc_id);
     }

@@ -129,7 +129,6 @@ fn adopt_legacy_db_file_set(app_dir: &Path) {
     let _ = std::fs::remove_file(&journal_path);
 }
 
-
 /// Outcome of [`Database::open_or_recover`]. Lets the caller tell the user
 /// whether their existing database was reused or had to be quarantined and
 /// recreated from scratch after failing the startup integrity check.
@@ -272,9 +271,8 @@ impl Database {
 
         // Out of retries with no corruption verdict. Fail loudly and leave the
         // file untouched — an actionable startup error beats a silent reset.
-        Err(last_transient.unwrap_or_else(|| {
-            PlethoraError::Internal("Database could not be opened".to_string())
-        }))
+        Err(last_transient
+            .unwrap_or_else(|| PlethoraError::Internal("Database could not be opened".to_string())))
     }
 
     /// Open the database at `path` and verify it with `PRAGMA integrity_check`.
@@ -286,9 +284,9 @@ impl Database {
         Self::open_checked(path)
             .await
             .map_err(|failure| match failure {
-                OpenFailure::Corrupt(verdict) => PlethoraError::Internal(format!(
-                    "Database integrity check failed: {verdict}"
-                )),
+                OpenFailure::Corrupt(verdict) => {
+                    PlethoraError::Internal(format!("Database integrity check failed: {verdict}"))
+                }
                 OpenFailure::Transient(err) => err,
             })
     }

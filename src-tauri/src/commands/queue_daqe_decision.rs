@@ -28,7 +28,9 @@ use crate::algorithms::daqe::decision_model::{
 use crate::algorithms::daqe::ranker::rank_with_top_n;
 use crate::algorithms::daqe::{ItemSignals, RankContext, RecentItem};
 use crate::commands::ai_key_store::AIKeyStore;
-use crate::commands::daqe_probe::{DecisionProvider, key_slot, resolve_provider_url, DecisionConfig};
+use crate::commands::daqe_probe::{
+    key_slot, resolve_provider_url, DecisionConfig, DecisionProvider,
+};
 use crate::database::daqe_model_cache_repository::{content_hash_for, DaqeModelCacheRepository};
 use crate::database::repository::Repository;
 use crate::error::{PlethoraError, Result};
@@ -62,7 +64,9 @@ pub async fn rank_queue_with_decision(
     let Some(decision) = decision else {
         return Ok(None);
     };
-    let limit = candidates.unwrap_or(DEFAULT_ENRICHED_CANDIDATES).clamp(1, 100);
+    let limit = candidates
+        .unwrap_or(DEFAULT_ENRICHED_CANDIDATES)
+        .clamp(1, 100);
 
     // The opt-in is checked here, before the provider is even constructed, so the
     // remote code path is unreachable rather than merely skipped. Running a probe is
@@ -77,12 +81,19 @@ pub async fn rank_queue_with_decision(
         .as_ref()
         .ok_or_else(|| PlethoraError::InvalidInput("No decision provider is configured".into()))?;
     let url = resolve_provider_url(&decision)?;
-    let timeout_ms = decision.timeout_ms.unwrap_or(ProviderRegistry::DEFAULT_TIMEOUT_MS);
+    let timeout_ms = decision
+        .timeout_ms
+        .unwrap_or(ProviderRegistry::DEFAULT_TIMEOUT_MS);
 
     // The credential comes from the OS keychain here, at the start of the pass, and
     // is never read from settings — which hold only `decisionApiKeySet`.
     let api_key = key_slot(*provider_id)
-        .and_then(|_| futures::executor::block_on(key_store.get_key(key_slot(*provider_id).unwrap_or_default())).ok())
+        .and_then(|_| {
+            futures::executor::block_on(
+                key_store.get_key(key_slot(*provider_id).unwrap_or_default()),
+            )
+            .ok()
+        })
         .flatten();
     let provider = HttpDecisionProvider::new(
         *provider_id,
@@ -102,8 +113,8 @@ pub async fn rank_queue_with_decision(
 
     // The pool and its signals are rebuilt exactly as the first pass builds them, so
     // the only difference between the two snapshots is the model judgements.
-    let pool = crate::commands::queue::due_candidate_pool(repo.inner(), collection_id.as_deref())
-        .await?;
+    let pool =
+        crate::commands::queue::due_candidate_pool(repo.inner(), collection_id.as_deref()).await?;
     if pool.is_empty() {
         return Ok(None);
     }
@@ -166,15 +177,29 @@ pub async fn rank_queue_with_decision(
 
         // Content-derived first: a hit costs no inference at all.
         let content_hash = content_hash_for(&item.item_type, &[], estimate_length(item));
-        let cached = cache.get(&content_hash, RANKER_RUBRIC_VERSION).await.ok().flatten();
+        let cached = cache
+            .get(&content_hash, RANKER_RUBRIC_VERSION)
+            .await
+            .ok()
+            .flatten();
         if let Some(hit) = &cached {
-            signal.complexity = hit.tier.as_ref().map(|tier| tier.complexity()).or(signal.complexity);
+            signal.complexity = hit
+                .tier
+                .as_ref()
+                .map(|tier| tier.complexity())
+                .or(signal.complexity);
         }
-        if cached.as_ref().is_some_and(|hit| hit.tier.is_some() && hit.gate.is_some()) {
+        if cached
+            .as_ref()
+            .is_some_and(|hit| hit.tier.is_some() && hit.gate.is_some())
+        {
             continue;
         }
 
-        match provider.evaluate_item(&request, goal_context.as_ref()).await {
+        match provider
+            .evaluate_item(&request, goal_context.as_ref())
+            .await
+        {
             Ok(decision_for_item) => {
                 // Goal alignment is read every time and never written to the cache:
                 // the same item under a different goal deserves a different answer.
@@ -269,10 +294,16 @@ pub async fn decision_model_availability(
     decision: Option<DecisionConfig>,
 ) -> Result<DecisionAvailability> {
     let Some(config) = decision else {
-        return Ok(DecisionAvailability { available: false, reason: Some("no provider configured".into()) });
+        return Ok(DecisionAvailability {
+            available: false,
+            reason: Some("no provider configured".into()),
+        });
     };
     let Some(provider) = config.provider else {
-        return Ok(DecisionAvailability { available: false, reason: Some("no provider configured".into()) });
+        return Ok(DecisionAvailability {
+            available: false,
+            reason: Some("no provider configured".into()),
+        });
     };
     let local = matches!(provider, DecisionProvider::SystemOne);
     if !local && !config.allow_remote {
@@ -282,7 +313,10 @@ pub async fn decision_model_availability(
         });
     }
     match resolve_provider_url(&config) {
-        Ok(_) => Ok(DecisionAvailability { available: true, reason: None }),
+        Ok(_) => Ok(DecisionAvailability {
+            available: true,
+            reason: None,
+        }),
         Err(error) => Ok(DecisionAvailability {
             available: false,
             reason: Some(error.to_string()),
@@ -327,7 +361,10 @@ mod tests {
             ..Default::default()
         };
         let availability = decision_model_availability(Some(config)).await.unwrap();
-        assert!(!availability.available, "running a probe is not consent to ranking");
+        assert!(
+            !availability.available,
+            "running a probe is not consent to ranking"
+        );
         assert!(availability.reason.unwrap().contains("not opted in"));
     }
 
@@ -340,7 +377,10 @@ mod tests {
             ..Default::default()
         };
         let availability = decision_model_availability(Some(config)).await.unwrap();
-        assert!(availability.available, "a local model sends nothing anywhere");
+        assert!(
+            availability.available,
+            "a local model sends nothing anywhere"
+        );
     }
 
     #[tokio::test]
@@ -361,7 +401,10 @@ mod tests {
         // alignment can never be served from it.
         let first = content_hash_for("document", &[], 4_200);
         let second = content_hash_for("document", &[], 4_200);
-        assert_eq!(first, second, "the same content hashes the same under any goal");
+        assert_eq!(
+            first, second,
+            "the same content hashes the same under any goal"
+        );
         assert_ne!(first, content_hash_for("document", &[], 4_201));
         assert_ne!(first, content_hash_for("extract", &[], 4_200));
     }

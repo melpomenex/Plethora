@@ -97,12 +97,11 @@ pub fn conclude_for_item(
 ) -> LoopConclusion {
     // Engagement promotion first: an item the reader invests in is not a split
     // candidate, and the two signals can co-occur.
-    if evidence.active_dwell_ms >= PROMOTION_MIN_ACTIVE_DWELL_MS && evidence.interactions > 0
-    {
+    if evidence.active_dwell_ms >= PROMOTION_MIN_ACTIVE_DWELL_MS && evidence.interactions > 0 {
         // One interaction per five minutes of active dwell is a real engagement
         // threshold; below it, the interaction is incidental.
-        let per_five_minutes = evidence.interactions as f64
-            / (evidence.active_dwell_ms as f64 / 300_000.0).max(1.0);
+        let per_five_minutes =
+            evidence.interactions as f64 / (evidence.active_dwell_ms as f64 / 300_000.0).max(1.0);
         if per_five_minutes >= 0.2 {
             let boost = (per_five_minutes / 2.0).clamp(0.0, 1.0);
             return LoopConclusion::Promote {
@@ -239,7 +238,10 @@ mod tests {
     #[test]
     fn dwell_without_interaction_promotes_nothing() {
         let evidence = engaged(600_000, 0);
-        assert_eq!(conclude_for_item("doc-1", &evidence, now()), LoopConclusion::NoSignal);
+        assert_eq!(
+            conclude_for_item("doc-1", &evidence, now()),
+            LoopConclusion::NoSignal
+        );
     }
 
     #[test]
@@ -247,9 +249,15 @@ mod tests {
         // 20 minutes of dwell, four extracts: 0.2 per five minutes.
         let evidence = engaged(1_200_000, 4);
         match conclude_for_item("doc-1", &evidence, now()) {
-            LoopConclusion::Promote { boost, evidence: why } => {
+            LoopConclusion::Promote {
+                boost,
+                evidence: why,
+            } => {
                 assert!(boost > 0.0, "a promotion must be non-zero");
-                assert!(why.contains("1200000 ms"), "the evidence names the measurement");
+                assert!(
+                    why.contains("1200000 ms"),
+                    "the evidence names the measurement"
+                );
             }
             other => panic!("expected a promotion, got {other:?}"),
         }
@@ -305,7 +313,10 @@ mod tests {
             interactions: 2,
             ..Default::default()
         };
-        assert_eq!(conclude_for_item("doc-1", &evidence, now()), LoopConclusion::NoSignal);
+        assert_eq!(
+            conclude_for_item("doc-1", &evidence, now()),
+            LoopConclusion::NoSignal
+        );
     }
 
     #[test]
@@ -341,15 +352,27 @@ mod tests {
 
     #[test]
     fn velocity_needs_a_trustworthy_baseline() {
-        let current = Velocity { items_completed: 30, active_minutes: 60.0, sessions: 30 };
-        let tiny = Velocity { items_completed: 30, active_minutes: 60.0, sessions: 2 };
+        let current = Velocity {
+            items_completed: 30,
+            active_minutes: 60.0,
+            sessions: 30,
+        };
+        let tiny = Velocity {
+            items_completed: 30,
+            active_minutes: 60.0,
+            sessions: 2,
+        };
         assert_eq!(
             compare_velocity(current, tiny, VELOCITY_BASELINE_DAYS),
             None,
             "a two-session baseline cannot support a downshift"
         );
 
-        let solid = Velocity { items_completed: 30, active_minutes: 60.0, sessions: 40 };
+        let solid = Velocity {
+            items_completed: 30,
+            active_minutes: 60.0,
+            sessions: 40,
+        };
         let comparison = compare_velocity(current, solid, VELOCITY_BASELINE_DAYS)
             .expect("a 40-session baseline is enough");
         assert!(comparison.baseline_sufficient);
@@ -358,23 +381,55 @@ mod tests {
 
     #[test]
     fn velocity_needs_a_nonzero_rate_on_both_sides() {
-        let current = Velocity { items_completed: 0, active_minutes: 0.0, sessions: 10 };
-        let baseline = Velocity { items_completed: 10, active_minutes: 10.0, sessions: 10 };
+        let current = Velocity {
+            items_completed: 0,
+            active_minutes: 0.0,
+            sessions: 10,
+        };
+        let baseline = Velocity {
+            items_completed: 10,
+            active_minutes: 10.0,
+            sessions: 10,
+        };
         assert_eq!(compare_velocity(current, baseline, 30), None);
 
-        let current = Velocity { items_completed: 10, active_minutes: 10.0, sessions: 10 };
-        let baseline = Velocity { items_completed: 10, active_minutes: 0.0, sessions: 10 };
+        let current = Velocity {
+            items_completed: 10,
+            active_minutes: 10.0,
+            sessions: 10,
+        };
+        let baseline = Velocity {
+            items_completed: 10,
+            active_minutes: 0.0,
+            sessions: 10,
+        };
         assert_eq!(compare_velocity(current, baseline, 30), None);
     }
 
     #[test]
     fn a_collapse_is_below_forty_percent_of_baseline() {
-        let baseline = Velocity { items_completed: 30, active_minutes: 60.0, sessions: 40 };
-        let half = Velocity { items_completed: 15, active_minutes: 60.0, sessions: 40 };
-        let quarter = Velocity { items_completed: 7, active_minutes: 60.0, sessions: 40 };
+        let baseline = Velocity {
+            items_completed: 30,
+            active_minutes: 60.0,
+            sessions: 40,
+        };
+        let half = Velocity {
+            items_completed: 15,
+            active_minutes: 60.0,
+            sessions: 40,
+        };
+        let quarter = Velocity {
+            items_completed: 7,
+            active_minutes: 60.0,
+            sessions: 40,
+        };
 
-        let half_ratio = compare_velocity(half, baseline, 30).expect("comparable").ratio;
-        let quarter_ratio = compare_velocity(quarter, baseline, 30).expect("comparable").ratio;
+        let half_ratio = compare_velocity(half, baseline, 30)
+            .expect("comparable")
+            .ratio;
+        let quarter_ratio = compare_velocity(quarter, baseline, 30)
+            .expect("comparable")
+            .ratio;
         assert!(half_ratio > VELOCITY_COLLAPSE_RATIO);
         assert!(quarter_ratio < VELOCITY_COLLAPSE_RATIO);
     }

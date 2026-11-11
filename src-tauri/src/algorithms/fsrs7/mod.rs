@@ -5,7 +5,7 @@
 
 use crate::error::Result;
 use crate::models::MemoryState as PlethoraMemoryState;
-use fsrs::{MemoryState as FsrsMemoryState, NextStates, FSRS, DEFAULT_PARAMETERS};
+use fsrs::{MemoryState as FsrsMemoryState, NextStates, DEFAULT_PARAMETERS, FSRS};
 use std::sync::{Mutex, OnceLock};
 
 pub const FSRS7_PARAM_LEN: usize = 34;
@@ -93,8 +93,7 @@ pub fn next_states_fractional(
     elapsed_days: f32,
 ) -> Result<NextStates> {
     let fsrs_state = current_memory_state.and_then(to_fsrs_memory_state);
-    fsrs
-        .next_states_with_elapsed_days(fsrs_state, desired_retention, elapsed_days)
+    fsrs.next_states_with_elapsed_days(fsrs_state, desired_retention, elapsed_days)
         .map_err(Into::into)
 }
 

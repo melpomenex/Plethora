@@ -51,10 +51,11 @@ pub async fn subscribe_podcast(
         .build()
         .map_err(|e| PlethoraError::Internal(format!("Failed to build HTTP client: {}", e)))?;
 
-    let response =
-        client.get(&feed_url).send().await.map_err(|e| {
-            PlethoraError::Internal(format!("Failed to fetch podcast feed: {}", e))
-        })?;
+    let response = client
+        .get(&feed_url)
+        .send()
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("Failed to fetch podcast feed: {}", e)))?;
 
     if !response.status().is_success() {
         return Err(PlethoraError::Internal(format!(
@@ -164,10 +165,11 @@ pub async fn refresh_podcast_feed(
         .build()
         .map_err(|e| PlethoraError::Internal(format!("Failed to build HTTP client: {}", e)))?;
 
-    let response =
-        client.get(&feed_url).send().await.map_err(|e| {
-            PlethoraError::Internal(format!("Failed to fetch podcast feed: {}", e))
-        })?;
+    let response = client
+        .get(&feed_url)
+        .send()
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("Failed to fetch podcast feed: {}", e)))?;
 
     if !response.status().is_success() {
         return Err(PlethoraError::Internal(format!(
@@ -439,7 +441,12 @@ async fn run_transcription_job(
     tokens: PodcastTranscriptionTokens,
 ) -> Result<()> {
     let saved = repo.resolve_podcast_transcript(&episode_id).await?;
-    if !saved.text.trim().is_empty() || matches!(saved.status.as_str(), "pending" | "transcribing" | "downloading" | "processing") {
+    if !saved.text.trim().is_empty()
+        || matches!(
+            saved.status.as_str(),
+            "pending" | "transcribing" | "downloading" | "processing"
+        )
+    {
         return Ok(());
     }
     // 1. Get episode
@@ -476,10 +483,7 @@ async fn run_transcription_job(
     std::fs::create_dir_all(&temp_dir)
         .map_err(|e| PlethoraError::Internal(format!("Failed to create temp dir: {}", e)))?;
 
-    let ext = resolve_podcast_audio_ext(
-        episode.audio_type.as_deref(),
-        Some(&episode.audio_url),
-    );
+    let ext = resolve_podcast_audio_ext(episode.audio_type.as_deref(), Some(&episode.audio_url));
     let temp_file = temp_dir.join(format!("{}_episode.{}", episode_id, ext));
 
     // Insert cancellation token
@@ -518,9 +522,9 @@ async fn run_transcription_job(
 
         let total_size = response.content_length().unwrap_or(0);
         let mut downloaded: u64 = 0;
-        let mut file = tokio::fs::File::create(&temp_file).await.map_err(|e| {
-            PlethoraError::Internal(format!("Failed to create temp file: {}", e))
-        })?;
+        let mut file = tokio::fs::File::create(&temp_file)
+            .await
+            .map_err(|e| PlethoraError::Internal(format!("Failed to create temp file: {}", e)))?;
 
         // Local throttle state for download progress (last_emitted_pct, last_emit).
         let mut dl_throttle: (i32, Instant) = (-1, Instant::now() - Duration::from_secs(1));
@@ -532,8 +536,8 @@ async fn run_transcription_job(
                     "Transcription cancelled".to_string(),
                 ));
             }
-            let chunk = item
-                .map_err(|e| PlethoraError::Internal(format!("Download stream error: {}", e)))?;
+            let chunk =
+                item.map_err(|e| PlethoraError::Internal(format!("Download stream error: {}", e)))?;
             file.write_all(&chunk)
                 .await
                 .map_err(|e| PlethoraError::Internal(format!("Write error: {}", e)))?;
@@ -651,7 +655,8 @@ async fn run_transcription_job(
             .await
             .map_err(|e| PlethoraError::Internal(format!("Audio preparation failed: {}", e)))?;
 
-        let route = crate::models::hf::manager::stt_route_for_model(repo.pool(), &selected_model).await;
+        let route =
+            crate::models::hf::manager::stt_route_for_model(repo.pool(), &selected_model).await;
         let progress_cb: Option<Box<dyn Fn(i32) + Send + Sync>> = Some(throttled_progress_cb(
             app_clone.clone(),
             ep_id.clone(),
@@ -1087,9 +1092,8 @@ fn split_audio_bytes_into_groq_chunks(
         let end_byte = boundaries[i + 1];
         let chunk_bytes = &data[start_byte as usize..end_byte as usize];
         let chunk_path = chunks_dir.join(format!("chunk_{:04}.mp3", i));
-        std::fs::write(&chunk_path, chunk_bytes).map_err(|e| {
-            PlethoraError::Internal(format!("Failed to write chunk {}: {}", i, e))
-        })?;
+        std::fs::write(&chunk_path, chunk_bytes)
+            .map_err(|e| PlethoraError::Internal(format!("Failed to write chunk {}: {}", i, e)))?;
         let start_ms = (start_byte * 8000 / bitrate_bps.max(1)) as i64;
         let end_ms = (end_byte * 8000 / bitrate_bps.max(1)) as i64;
         chunks_out.push(MobileAudioChunk {
@@ -1171,13 +1175,19 @@ async fn split_local_container_for_groq(
     file_path: &str,
     chunks_dir: &Path,
 ) -> Result<Vec<MobileAudioChunk>> {
-    let probe_stderr = run_ffmpeg_for_groq(app_handle, &["-hide_banner", "-i", file_path, "-f", "null", "-"]).await?;
+    let probe_stderr = run_ffmpeg_for_groq(
+        app_handle,
+        &["-hide_banner", "-i", file_path, "-f", "null", "-"],
+    )
+    .await?;
     let total_duration = parse_ffmpeg_duration_seconds(&probe_stderr).ok_or_else(|| {
         PlethoraError::Internal(
             "FFmpeg could not determine the audiobook duration for safe Groq chunking".to_string(),
         )
     })?;
-    let chunk_count = (total_duration / CONTAINER_CHUNK_DURATION_SECONDS).ceil().max(1.0) as usize;
+    let chunk_count = (total_duration / CONTAINER_CHUNK_DURATION_SECONDS)
+        .ceil()
+        .max(1.0) as usize;
     let mut chunks = Vec::with_capacity(chunk_count);
 
     for index in 0..chunk_count {
@@ -1220,7 +1230,9 @@ async fn split_local_container_for_groq(
         .await?;
 
         let bytes = std::fs::metadata(&output_path)
-            .map_err(|e| PlethoraError::Internal(format!("Failed to inspect Groq chunk {}: {}", index, e)))?
+            .map_err(|e| {
+                PlethoraError::Internal(format!("Failed to inspect Groq chunk {}: {}", index, e))
+            })?
             .len();
         if bytes >= MOBILE_CHUNK_TARGET {
             return Err(PlethoraError::Internal(format!(
@@ -1414,7 +1426,8 @@ pub async fn transcribe_podcast_groq_chunks(
     api_url: Option<String>,
 ) -> Result<Vec<GroqChunkSegment>> {
     let model = groq_model.unwrap_or_else(|| "whisper-large-v3-turbo".to_string());
-    let endpoint = api_url.unwrap_or_else(|| "https://api.groq.com/openai/v1/audio/transcriptions".to_string());
+    let endpoint = api_url
+        .unwrap_or_else(|| "https://api.groq.com/openai/v1/audio/transcriptions".to_string());
     let is_openrouter = endpoint.contains("openrouter.ai");
     let provider_name = if is_openrouter { "OpenRouter" } else { "Groq" };
     let client = reqwest::Client::builder()
@@ -1445,9 +1458,8 @@ pub async fn transcribe_podcast_groq_chunks(
         );
 
         // Read chunk bytes from disk (stays in Rust — no IPC).
-        let chunk_bytes = std::fs::read(&chunk.path).map_err(|e| {
-            PlethoraError::Internal(format!("Failed to read chunk {}: {}", i, e))
-        })?;
+        let chunk_bytes = std::fs::read(&chunk.path)
+            .map_err(|e| PlethoraError::Internal(format!("Failed to read chunk {}: {}", i, e)))?;
         eprintln!(
             "[podcast-transcribe] {}_chunks: chunk {} = {} bytes",
             provider_name.to_lowercase(),
@@ -1477,7 +1489,10 @@ pub async fn transcribe_podcast_groq_chunks(
             .send()
             .await
             .map_err(|e| {
-                PlethoraError::Internal(format!("{} chunk {} upload failed: {}", provider_name, i, e))
+                PlethoraError::Internal(format!(
+                    "{} chunk {} upload failed: {}",
+                    provider_name, i, e
+                ))
             })?;
 
         if !resp.status().is_success() {
@@ -1617,7 +1632,8 @@ pub async fn transcribe_audio_file_groq(
     api_url: Option<String>,
 ) -> Result<i64> {
     let model = groq_model.unwrap_or_else(|| "whisper-large-v3-turbo".to_string());
-    let endpoint = api_url.unwrap_or_else(|| "https://api.groq.com/openai/v1/audio/transcriptions".to_string());
+    let endpoint = api_url
+        .unwrap_or_else(|| "https://api.groq.com/openai/v1/audio/transcriptions".to_string());
     let is_openrouter = endpoint.contains("openrouter.ai");
     let provider_name = if is_openrouter { "OpenRouter" } else { "Groq" };
     let client = reqwest::Client::builder()
@@ -1703,9 +1719,7 @@ pub async fn transcribe_audio_file_groq(
     .bind(transcript_id)
     .fetch_one(repo.pool())
     .await
-    .map_err(|e| {
-        PlethoraError::Internal(format!("Failed to read transcript checkpoint: {}", e))
-    })?;
+    .map_err(|e| PlethoraError::Internal(format!("Failed to read transcript checkpoint: {}", e)))?;
 
     // 4. Upload each chunk and persist segments as they arrive.
     for (i, chunk) in chunks.iter().enumerate() {
@@ -1722,9 +1736,8 @@ pub async fn transcribe_audio_file_groq(
             serde_json::json!({ "documentId": &document_id, "status": "processing", "progress": progress, "message": format!("Transcribing chunk {}/{} via {}…", i + 1, chunks.len(), provider_name) }),
         );
 
-        let chunk_bytes = std::fs::read(&chunk.path).map_err(|e| {
-            PlethoraError::Internal(format!("Failed to read chunk {}: {}", i, e))
-        })?;
+        let chunk_bytes = std::fs::read(&chunk.path)
+            .map_err(|e| PlethoraError::Internal(format!("Failed to read chunk {}: {}", i, e)))?;
 
         let mut form = reqwest::multipart::Form::new()
             .text("model", model.clone())
@@ -1747,7 +1760,10 @@ pub async fn transcribe_audio_file_groq(
             .send()
             .await
             .map_err(|e| {
-                PlethoraError::Internal(format!("{} chunk {} upload failed: {}", provider_name, i, e))
+                PlethoraError::Internal(format!(
+                    "{} chunk {} upload failed: {}",
+                    provider_name, i, e
+                ))
             })?;
 
         if !resp.status().is_success() {
@@ -1920,9 +1936,18 @@ pub async fn transcribe_audio_file_groq(
 /// Bridge to the Android STT plugin. Sync because `run_mobile_plugin` parks
 /// the calling thread until Kotlin resolves the Invoke. Faked in tests.
 pub trait OnDeviceSttBridge: Send + Sync {
-    fn start_job(&self, request: serde_json::Value) -> std::result::Result<serde_json::Value, String>;
-    fn job_status(&self, request: serde_json::Value) -> std::result::Result<serde_json::Value, String>;
-    fn cancel_job(&self, request: serde_json::Value) -> std::result::Result<serde_json::Value, String>;
+    fn start_job(
+        &self,
+        request: serde_json::Value,
+    ) -> std::result::Result<serde_json::Value, String>;
+    fn job_status(
+        &self,
+        request: serde_json::Value,
+    ) -> std::result::Result<serde_json::Value, String>;
+    fn cancel_job(
+        &self,
+        request: serde_json::Value,
+    ) -> std::result::Result<serde_json::Value, String>;
 }
 
 /// Running on-device jobs keyed by document id → plugin job id, so the UI can
@@ -1934,14 +1959,29 @@ pub struct PluginSttBridge(pub plethora_android_stt::Native);
 
 #[cfg(target_os = "android")]
 impl OnDeviceSttBridge for PluginSttBridge {
-    fn start_job(&self, request: serde_json::Value) -> std::result::Result<serde_json::Value, String> {
-        self.0.invoke("sttStartJob", request).map_err(|e| e.to_string())
+    fn start_job(
+        &self,
+        request: serde_json::Value,
+    ) -> std::result::Result<serde_json::Value, String> {
+        self.0
+            .invoke("sttStartJob", request)
+            .map_err(|e| e.to_string())
     }
-    fn job_status(&self, request: serde_json::Value) -> std::result::Result<serde_json::Value, String> {
-        self.0.invoke("sttJobStatus", request).map_err(|e| e.to_string())
+    fn job_status(
+        &self,
+        request: serde_json::Value,
+    ) -> std::result::Result<serde_json::Value, String> {
+        self.0
+            .invoke("sttJobStatus", request)
+            .map_err(|e| e.to_string())
     }
-    fn cancel_job(&self, request: serde_json::Value) -> std::result::Result<serde_json::Value, String> {
-        self.0.invoke("sttCancelJob", request).map_err(|e| e.to_string())
+    fn cancel_job(
+        &self,
+        request: serde_json::Value,
+    ) -> std::result::Result<serde_json::Value, String> {
+        self.0
+            .invoke("sttCancelJob", request)
+            .map_err(|e| e.to_string())
     }
 }
 
@@ -1961,7 +2001,12 @@ fn parse_plugin_segments(payload: &serde_json::Value) -> Vec<OnDeviceSegment> {
     for seg in segments {
         let start_ms = seg.get("startMs").and_then(|v| v.as_i64()).unwrap_or(0);
         let end_ms = seg.get("endMs").and_then(|v| v.as_i64()).unwrap_or(0);
-        let text = seg.get("text").and_then(|v| v.as_str()).unwrap_or("").trim().to_string();
+        let text = seg
+            .get("text")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim()
+            .to_string();
         if text.is_empty() || end_ms <= start_ms {
             continue;
         }
@@ -1969,7 +2014,12 @@ fn parse_plugin_segments(payload: &serde_json::Value) -> Vec<OnDeviceSegment> {
             .get("words")
             .filter(|w| w.is_array())
             .and_then(|w| serde_json::to_string(w).ok());
-        out.push(OnDeviceSegment { start_ms, end_ms, text, words_json });
+        out.push(OnDeviceSegment {
+            start_ms,
+            end_ms,
+            text,
+            words_json,
+        });
     }
     out
 }
@@ -1994,7 +2044,10 @@ async fn run_on_device_transcription_inner(
 ) -> Result<i64> {
     let path = Path::new(file_path);
     if !path.exists() {
-        return Err(PlethoraError::NotFound(format!("Audio file not found: {}", file_path)));
+        return Err(PlethoraError::NotFound(format!(
+            "Audio file not found: {}",
+            file_path
+        )));
     }
     emit(
         "audiobook://transcription-progress",
@@ -2016,7 +2069,9 @@ async fn run_on_device_transcription_inner(
             .bind(document_id)
             .fetch_one(pool)
             .await
-            .map_err(|e| PlethoraError::Internal(format!("Failed to fetch transcript id: {}", e)))?;
+            .map_err(|e| {
+                PlethoraError::Internal(format!("Failed to fetch transcript id: {}", e))
+            })?;
 
     // Resume state: the decode offset the last run checkpointed.
     let checkpoint: Option<(String, i64, i64)> = sqlx::query_as(
@@ -2026,7 +2081,11 @@ async fn run_on_device_transcription_inner(
     .fetch_optional(pool)
     .await
     .map_err(|e| PlethoraError::Internal(format!("Failed to read transcription checkpoint: {}", e)))?;
-    let resume_from_ms = checkpoint.as_ref().map(|(_, offset, _)| *offset).unwrap_or(0).max(0);
+    let resume_from_ms = checkpoint
+        .as_ref()
+        .map(|(_, offset, _)| *offset)
+        .unwrap_or(0)
+        .max(0);
 
     emit(
         "audiobook://transcription-progress",
@@ -2067,7 +2126,9 @@ async fn run_on_device_transcription_inner(
         .unwrap_or("android-ondevice")
         .to_string();
     if let Some(jobs) = jobs {
-        jobs.lock().unwrap().insert(document_id.to_string(), job_id.clone());
+        jobs.lock()
+            .unwrap()
+            .insert(document_id.to_string(), job_id.clone());
     }
 
     // Poll until a terminal state, persisting each batch of segments and the
@@ -2077,26 +2138,41 @@ async fn run_on_device_transcription_inner(
         tokio::time::sleep(poll_interval).await;
         let status_bridge = Arc::clone(&bridge);
         let status_request = serde_json::json!({ "jobId": job_id, "cursor": cursor });
-        let status = match tokio::task::spawn_blocking(move || status_bridge.job_status(status_request))
-            .await
-        {
-            Ok(Ok(v)) => v,
-            Ok(Err(e)) => {
-                break Err(PlethoraError::Internal(format!("On-device STT status failed: {}", e)))
-            }
-            Err(e) => break Err(PlethoraError::Internal(format!("STT status task failed: {}", e))),
-        };
-        let state = status.get("status").and_then(|v| v.as_str()).unwrap_or("failed").to_string();
+        let status =
+            match tokio::task::spawn_blocking(move || status_bridge.job_status(status_request))
+                .await
+            {
+                Ok(Ok(v)) => v,
+                Ok(Err(e)) => {
+                    break Err(PlethoraError::Internal(format!(
+                        "On-device STT status failed: {}",
+                        e
+                    )))
+                }
+                Err(e) => {
+                    break Err(PlethoraError::Internal(format!(
+                        "STT status task failed: {}",
+                        e
+                    )))
+                }
+            };
+        let state = status
+            .get("status")
+            .and_then(|v| v.as_str())
+            .unwrap_or("failed")
+            .to_string();
         let progress_raw = status.get("progress").and_then(|v| v.as_i64()).unwrap_or(0);
-        let decode_offset_ms = status.get("decodeOffsetMs").and_then(|v| v.as_i64()).unwrap_or(0);
+        let decode_offset_ms = status
+            .get("decodeOffsetMs")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
 
         // Persist completed segments incrementally.
         let segments = parse_plugin_segments(&status);
         if !segments.is_empty() {
-            let mut tx = pool
-                .begin()
-                .await
-                .map_err(|e| PlethoraError::Internal(format!("Failed to begin STT checkpoint: {}", e)))?;
+            let mut tx = pool.begin().await.map_err(|e| {
+                PlethoraError::Internal(format!("Failed to begin STT checkpoint: {}", e))
+            })?;
             for seg in &segments {
                 sqlx::query("INSERT OR IGNORE INTO transcript_segments (transcript_id, start_ms, end_ms, text, confidence, words_json) VALUES (?, ?, ?, ?, 1.0, ?)")
                     .bind(transcript_id)
@@ -2108,11 +2184,14 @@ async fn run_on_device_transcription_inner(
                     .await
                     .map_err(|e| PlethoraError::Internal(format!("Failed to checkpoint STT segments: {}", e)))?;
             }
-            tx.commit()
-                .await
-                .map_err(|e| PlethoraError::Internal(format!("Failed to commit STT checkpoint: {}", e)))?;
+            tx.commit().await.map_err(|e| {
+                PlethoraError::Internal(format!("Failed to commit STT checkpoint: {}", e))
+            })?;
         }
-        cursor = status.get("nextCursor").and_then(|v| v.as_i64()).unwrap_or(cursor);
+        cursor = status
+            .get("nextCursor")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(cursor);
 
         // Checkpoint the decode position after the segments are durable.
         let _ = sqlx::query(
@@ -2144,11 +2223,19 @@ async fn run_on_device_transcription_inner(
                 .bind(document_id)
                 .execute(pool)
                 .await;
-                break Err(PlethoraError::Internal("transcription_cancelled".to_string()));
+                break Err(PlethoraError::Internal(
+                    "transcription_cancelled".to_string(),
+                ));
             }
             failed => {
-                let kind = status.get("errorKind").and_then(|v| v.as_str()).unwrap_or("inference_failed");
-                let message = status.get("error").and_then(|v| v.as_str()).unwrap_or("on-device transcription failed");
+                let kind = status
+                    .get("errorKind")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("inference_failed");
+                let message = status
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("on-device transcription failed");
                 if kind == "service_timeout" {
                     // Graceful FGS-timeout stop (design.md D6): leave the
                     // transcript processing with the checkpoint intact so a
@@ -2170,10 +2257,11 @@ async fn run_on_device_transcription_inner(
                 if hard_fail {
                     // Undecodable input never gets further; drop the checkpoint
                     // so a retry starts clean instead of re-seeking into it.
-                    let _ = sqlx::query("DELETE FROM transcription_checkpoints WHERE document_id = ?")
-                        .bind(document_id)
-                        .execute(pool)
-                        .await;
+                    let _ =
+                        sqlx::query("DELETE FROM transcription_checkpoints WHERE document_id = ?")
+                            .bind(document_id)
+                            .execute(pool)
+                            .await;
                 }
                 break Err(PlethoraError::Internal(format!(
                     "On-device transcription failed ({}): {}",
@@ -2256,7 +2344,17 @@ pub async fn transcribe_audio_file_on_device(
 ) -> Result<i64> {
     #[cfg(not(target_os = "android"))]
     {
-        let _ = (&app_handle, &repo, &jobs, &document_id, &file_path, &language, &model_id, &pacing, &title);
+        let _ = (
+            &app_handle,
+            &repo,
+            &jobs,
+            &document_id,
+            &file_path,
+            &language,
+            &model_id,
+            &pacing,
+            &title,
+        );
         return Err(PlethoraError::Internal(
             "platform_unsupported: on-device transcription is Android-only".to_string(),
         ));
@@ -2483,9 +2581,10 @@ fn podcast_audio_dir(app_handle: &AppHandle) -> std::result::Result<PathBuf, Ple
     // storage on every platform (on Android this is /data/data/<pkg>/files via
     // app_data_dir; dirs::data_dir() instead resolves to a READ-ONLY system path
     // on Android and fails with "Read-only file system" when creating the dir).
-    let base = app_handle.path().app_data_dir().map_err(|e| {
-        PlethoraError::Internal(format!("Failed to resolve app_data_dir: {}", e))
-    })?;
+    let base = app_handle
+        .path()
+        .app_data_dir()
+        .map_err(|e| PlethoraError::Internal(format!("Failed to resolve app_data_dir: {}", e)))?;
     let dir = base.join("podcast-audio");
     std::fs::create_dir_all(&dir).map_err(|e| {
         PlethoraError::Internal(format!("Failed to create podcast-audio dir: {}", e))
@@ -2635,8 +2734,7 @@ pub async fn download_podcast_episode(
 
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
-        let chunk =
-            chunk.map_err(|e| PlethoraError::Internal(format!("Download error: {}", e)))?;
+        let chunk = chunk.map_err(|e| PlethoraError::Internal(format!("Download error: {}", e)))?;
         file.write_all(&chunk)
             .await
             .map_err(|e| PlethoraError::Internal(format!("Write error: {}", e)))?;
@@ -2820,9 +2918,10 @@ pub async fn search_podcasts(query: String) -> Result<Vec<PodcastSearchResult>> 
         )));
     }
 
-    let data: ITunesSearchResponse = response.json().await.map_err(|e| {
-        PlethoraError::Internal(format!("Failed to parse search response: {}", e))
-    })?;
+    let data: ITunesSearchResponse = response
+        .json()
+        .await
+        .map_err(|e| PlethoraError::Internal(format!("Failed to parse search response: {}", e)))?;
 
     let results = data
         .results
@@ -2882,19 +2981,30 @@ mod on_device_tests {
     }
 
     impl OnDeviceSttBridge for MockSttBridge {
-        fn start_job(&self, request: serde_json::Value) -> std::result::Result<serde_json::Value, String> {
+        fn start_job(
+            &self,
+            request: serde_json::Value,
+        ) -> std::result::Result<serde_json::Value, String> {
             self.started.lock().unwrap().push(request);
             Ok(serde_json::json!({ "jobId": "job-1", "modelId": "sense-voice-multi-int8" }))
         }
-        fn job_status(&self, _request: serde_json::Value) -> std::result::Result<serde_json::Value, String> {
+        fn job_status(
+            &self,
+            _request: serde_json::Value,
+        ) -> std::result::Result<serde_json::Value, String> {
             self.statuses
                 .lock()
                 .unwrap()
                 .pop()
                 .map(Ok::<_, String>)
-                .unwrap_or_else(|| Ok(serde_json::json!({ "status": "completed", "progress": 100 })))
+                .unwrap_or_else(|| {
+                    Ok(serde_json::json!({ "status": "completed", "progress": 100 }))
+                })
         }
-        fn cancel_job(&self, _request: serde_json::Value) -> std::result::Result<serde_json::Value, String> {
+        fn cancel_job(
+            &self,
+            _request: serde_json::Value,
+        ) -> std::result::Result<serde_json::Value, String> {
             Ok(serde_json::json!({ "cancelled": true }))
         }
     }
@@ -2913,7 +3023,11 @@ mod on_device_tests {
             .expect("doc");
         let audio = std::env::temp_dir().join(format!("stt-test-{}.m4b", doc.id));
         std::fs::write(&audio, b"fake audio").expect("write audio");
-        (db.pool().clone(), doc.id, audio.to_string_lossy().to_string())
+        (
+            db.pool().clone(),
+            doc.id,
+            audio.to_string_lossy().to_string(),
+        )
     }
 
     fn running_with_segments(segments: serde_json::Value) -> serde_json::Value {
@@ -2967,9 +3081,12 @@ mod on_device_tests {
             // job_status consumes these like a stack: running first, then
             // the terminal completed snapshot.
             statuses: Mutex::new(vec![
-                completed_with_segments(3, serde_json::json!([
-                    { "index": 2, "startMs": 2000, "endMs": 2900, "text": "and goodbye" }
-                ])),
+                completed_with_segments(
+                    3,
+                    serde_json::json!([
+                        { "index": 2, "startMs": 2000, "endMs": 2900, "text": "and goodbye" }
+                    ]),
+                ),
                 running_with_segments(segments_payload()),
             ]),
             started: Mutex::new(Vec::new()),
@@ -3007,19 +3124,19 @@ mod on_device_tests {
                 .await
                 .expect("content");
         assert_eq!(content.as_deref(), Some("Hello world and goodbye"));
-        let status: String =
-            sqlx::query_scalar("SELECT status FROM transcripts WHERE book_id = ?")
-                .bind(&doc_id)
-                .fetch_one(&pool)
-                .await
-                .expect("status");
+        let status: String = sqlx::query_scalar("SELECT status FROM transcripts WHERE book_id = ?")
+            .bind(&doc_id)
+            .fetch_one(&pool)
+            .await
+            .expect("status");
         assert_eq!(status, "completed");
-        let checkpoint: Option<i64> =
-            sqlx::query_scalar("SELECT decode_offset_ms FROM transcription_checkpoints WHERE document_id = ?")
-                .bind(&doc_id)
-                .fetch_optional(&pool)
-                .await
-                .expect("checkpoint");
+        let checkpoint: Option<i64> = sqlx::query_scalar(
+            "SELECT decode_offset_ms FROM transcription_checkpoints WHERE document_id = ?",
+        )
+        .bind(&doc_id)
+        .fetch_optional(&pool)
+        .await
+        .expect("checkpoint");
         assert_eq!(checkpoint, None);
 
         // Groq-compatible event payloads on the shared channel.
@@ -3051,12 +3168,11 @@ mod on_device_tests {
             .execute(&pool)
             .await
             .expect("transcript");
-        let transcript_id: i64 =
-            sqlx::query_scalar("SELECT id FROM transcripts WHERE book_id = ?")
-                .bind(&doc_id)
-                .fetch_one(&pool)
-                .await
-                .expect("tid");
+        let transcript_id: i64 = sqlx::query_scalar("SELECT id FROM transcripts WHERE book_id = ?")
+            .bind(&doc_id)
+            .fetch_one(&pool)
+            .await
+            .expect("tid");
         for (start, end, text) in [(0, 900, "Hello"), (1000, 1900, "world")] {
             sqlx::query("INSERT INTO transcript_segments (transcript_id, start_ms, end_ms, text) VALUES (?, ?, ?, ?)")
                 .bind(transcript_id)
@@ -3074,9 +3190,12 @@ mod on_device_tests {
             .expect("checkpoint");
 
         let bridge = Arc::new(MockSttBridge {
-            statuses: Mutex::new(vec![completed_with_segments(1, serde_json::json!([
-                { "index": 0, "startMs": 12000, "endMs": 12800, "text": "Resumed text" }
-            ]))]),
+            statuses: Mutex::new(vec![completed_with_segments(
+                1,
+                serde_json::json!([
+                    { "index": 0, "startMs": 12000, "endMs": 12800, "text": "Resumed text" }
+                ]),
+            )]),
             started: Mutex::new(Vec::new()),
         });
         let started_ref = Arc::clone(&bridge);
@@ -3084,7 +3203,10 @@ mod on_device_tests {
         assert_eq!(result.expect("ok"), 3);
 
         // The new job MUST resume from the checkpointed decode offset.
-        assert_eq!(started_ref.started.lock().unwrap()[0]["resumeFromMs"], 12000);
+        assert_eq!(
+            started_ref.started.lock().unwrap()[0]["resumeFromMs"],
+            12000
+        );
 
         // Prior segments survived and the combined text includes them.
         let content: Option<String> =
@@ -3117,12 +3239,13 @@ mod on_device_tests {
                 .expect("status");
         assert_eq!(status, "failed");
         assert!(error.as_deref().unwrap().contains("codec_unsupported"));
-        let checkpoint: Option<i64> =
-            sqlx::query_scalar("SELECT decode_offset_ms FROM transcription_checkpoints WHERE document_id = ?")
-                .bind(&doc_id)
-                .fetch_optional(&pool)
-                .await
-                .expect("checkpoint");
+        let checkpoint: Option<i64> = sqlx::query_scalar(
+            "SELECT decode_offset_ms FROM transcription_checkpoints WHERE document_id = ?",
+        )
+        .bind(&doc_id)
+        .fetch_optional(&pool)
+        .await
+        .expect("checkpoint");
         assert_eq!(checkpoint, None);
     }
 
@@ -3130,32 +3253,30 @@ mod on_device_tests {
     async fn service_timeout_keeps_processing_for_resume() {
         let (pool, doc_id, audio) = test_setup().await;
         let bridge = Arc::new(MockSttBridge {
-            statuses: Mutex::new(vec![
-                serde_json::json!({
-                    "status": "failed", "progress": 50, "decodeOffsetMs": 5000, "nextCursor": 1,
-                    "segments": [ { "index": 0, "startMs": 0, "endMs": 900, "text": "Half" } ],
-                    "errorKind": "service_timeout", "error": "fgs timeout"
-                }),
-            ]),
+            statuses: Mutex::new(vec![serde_json::json!({
+                "status": "failed", "progress": 50, "decodeOffsetMs": 5000, "nextCursor": 1,
+                "segments": [ { "index": 0, "startMs": 0, "endMs": 900, "text": "Half" } ],
+                "errorKind": "service_timeout", "error": "fgs timeout"
+            })]),
             started: Mutex::new(Vec::new()),
         });
         let (result, _) = run(&pool, &doc_id, &audio, bridge).await;
         assert!(result.is_err());
 
         // Status stays processing (resumable), segments persisted, checkpoint kept.
-        let status: String =
-            sqlx::query_scalar("SELECT status FROM transcripts WHERE book_id = ?")
-                .bind(&doc_id)
-                .fetch_one(&pool)
-                .await
-                .expect("status");
+        let status: String = sqlx::query_scalar("SELECT status FROM transcripts WHERE book_id = ?")
+            .bind(&doc_id)
+            .fetch_one(&pool)
+            .await
+            .expect("status");
         assert_eq!(status, "processing");
-        let checkpoint: Option<i64> =
-            sqlx::query_scalar("SELECT decode_offset_ms FROM transcription_checkpoints WHERE document_id = ?")
-                .bind(&doc_id)
-                .fetch_optional(&pool)
-                .await
-                .expect("checkpoint");
+        let checkpoint: Option<i64> = sqlx::query_scalar(
+            "SELECT decode_offset_ms FROM transcription_checkpoints WHERE document_id = ?",
+        )
+        .bind(&doc_id)
+        .fetch_optional(&pool)
+        .await
+        .expect("checkpoint");
         assert_eq!(checkpoint, Some(5000));
         let count: i64 =
             sqlx::query_scalar("SELECT COUNT(*) FROM transcript_segments ts JOIN transcripts t ON t.id = ts.transcript_id WHERE t.book_id = ?")
@@ -3214,7 +3335,10 @@ mod on_device_tests {
         assert_eq!(resolve_podcast_audio_ext(Some("audio/mpeg"), None), "mp3");
         assert_eq!(resolve_podcast_audio_ext(Some("audio/mp3"), None), "mp3");
         assert_eq!(resolve_podcast_audio_ext(Some("audio/x-mpeg"), None), "mp3");
-        assert_eq!(resolve_podcast_audio_ext(Some("audio/mpeg; charset=utf-8"), None), "mp3");
+        assert_eq!(
+            resolve_podcast_audio_ext(Some("audio/mpeg; charset=utf-8"), None),
+            "mp3"
+        );
 
         // AAC and MP4
         assert_eq!(resolve_podcast_audio_ext(Some("audio/mp4"), None), "m4a");
@@ -3247,7 +3371,10 @@ mod on_device_tests {
 
         // Ambiguous/unknown MIME falls back to URL extension
         assert_eq!(
-            resolve_podcast_audio_ext(Some("application/octet-stream"), Some("https://example.com/ep.m4a")),
+            resolve_podcast_audio_ext(
+                Some("application/octet-stream"),
+                Some("https://example.com/ep.m4a")
+            ),
             "m4a"
         );
 

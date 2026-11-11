@@ -5,8 +5,7 @@ use tauri::{AppHandle, State};
 use crate::database::Repository;
 use crate::error::Result;
 use crate::models::{
-    PodcastAdCorrection, PodcastAdInterval, PodcastAdSettings, PodcastChapter,
-    PodcastProcessingJob,
+    PodcastAdCorrection, PodcastAdInterval, PodcastAdSettings, PodcastChapter, PodcastProcessingJob,
 };
 
 #[tauri::command]
@@ -35,17 +34,12 @@ pub async fn save_manual_ad_interval(
 }
 
 #[tauri::command]
-pub async fn delete_ad_interval(
-    interval_id: String,
-    repo: State<'_, Repository>,
-) -> Result<()> {
+pub async fn delete_ad_interval(interval_id: String, repo: State<'_, Repository>) -> Result<()> {
     repo.delete_ad_interval(&interval_id).await
 }
 
 #[tauri::command]
-pub async fn get_podcast_ad_settings(
-    repo: State<'_, Repository>,
-) -> Result<PodcastAdSettings> {
+pub async fn get_podcast_ad_settings(repo: State<'_, Repository>) -> Result<PodcastAdSettings> {
     repo.get_podcast_ad_settings().await
 }
 
@@ -80,10 +74,7 @@ pub async fn detect_episode_ads(
 }
 
 #[tauri::command]
-pub async fn cancel_ad_detection(
-    episode_id: String,
-    repo: State<'_, Repository>,
-) -> Result<()> {
+pub async fn cancel_ad_detection(episode_id: String, repo: State<'_, Repository>) -> Result<()> {
     if let Some(mut job) = repo.get_podcast_processing_job(&episode_id).await? {
         job.status = "cancelled".to_string();
         job.updated_at = chrono::Utc::now().to_rfc3339();

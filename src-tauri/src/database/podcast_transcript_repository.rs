@@ -382,14 +382,17 @@ mod tests {
             .unwrap();
 
         // 3. Verify segments are fetched with words
-        let segments = repo.get_podcast_transcript_segments_with_words(ep_id).await.unwrap();
+        let segments = repo
+            .get_podcast_transcript_segments_with_words(ep_id)
+            .await
+            .unwrap();
         assert_eq!(segments.len(), 1);
         assert_eq!(segments[0].text, "Hello");
         assert_eq!(segments[0].word_timings_json.as_deref(), Some(words_json));
 
         // 4. Verify Document record is linked to this episode
         let linked_doc: Option<String> = sqlx::query_scalar(
-            "SELECT id FROM documents WHERE json_extract(metadata, '$.source') = ?"
+            "SELECT id FROM documents WHERE json_extract(metadata, '$.source') = ?",
         )
         .bind(format!("podcast:{}", ep_id))
         .fetch_optional(repo.pool())

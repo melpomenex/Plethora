@@ -51,9 +51,7 @@ pub mod optimize;
 
 use serde::{Deserialize, Serialize};
 
-pub use crate::arena_model_identity::{
-    normalize_arena_model_id, ArenaModelId, ARENA_MODEL_IDS,
-};
+pub use crate::arena_model_identity::{normalize_arena_model_id, ArenaModelId, ARENA_MODEL_IDS};
 
 pub use arena::ArenaState;
 use ensemble::*;
@@ -1182,7 +1180,8 @@ mod tests {
                 < 1e-14
         );
         assert!(
-            (commit_collection.arena.decayed_baseline_loss - expected_arena.decayed_baseline_loss).abs()
+            (commit_collection.arena.decayed_baseline_loss - expected_arena.decayed_baseline_loss)
+                .abs()
                 < 1e-14
         );
         assert_eq!(

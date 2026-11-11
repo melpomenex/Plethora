@@ -14,9 +14,9 @@
 //! Single-flight: one active synthesis at a time; a new request supersedes the
 //! previous one by cancelling its flag first.
 
-use crate::models::hf::adapters::{RunContract, SherpaTtsFamily};
 use super::sherpa_ffi;
 use super::sherpa_ffi::{build_supertonic_config, SherpaCApi, SherpaOnnxGenerationConfig, EMPTY_C};
+use crate::models::hf::adapters::{RunContract, SherpaTtsFamily};
 use std::ffi::{c_char, c_float, c_void, CString};
 use std::os::raw::c_int as c_int32_t;
 use std::path::PathBuf;
@@ -175,7 +175,12 @@ impl SherpaTtsEngine {
     /// Synthesize one sentence chunk. Returns non-empty PCM samples at the
     /// engine-reported sample rate. Cancels any in-flight synthesis first
     /// (single-flight: newest request wins).
-    pub async fn synthesize(&self, text: String, sid: i32, speed: f32) -> Result<SynthesisOutput, String> {
+    pub async fn synthesize(
+        &self,
+        text: String,
+        sid: i32,
+        speed: f32,
+    ) -> Result<SynthesisOutput, String> {
         if text.trim().is_empty() {
             return Err("text is empty".to_string());
         }
@@ -227,9 +232,7 @@ impl Drop for SherpaTtsEngine {
     fn drop(&mut self) {
         // Best-effort synchronous unload: send Unload and give the worker a
         // moment, then join. The worker's Drop guard also destroys the engine.
-        let _ = self.tx.send(TtsRequest::Unload {
-            reply: channel().0,
-        });
+        let _ = self.tx.send(TtsRequest::Unload { reply: channel().0 });
         if let Ok(mut guard) = self.worker.lock() {
             if let Some(handle) = guard.take() {
                 let _ = handle.join();
@@ -279,13 +282,18 @@ fn load_model(
     contract: &RunContract,
 ) -> Result<LoadedModelInfo, String> {
     // Reject invalid contracts before touching FFI.
-    contract.validate().map_err(|e| format!("invalid run contract for {model_id}: {e}"))?;
+    contract
+        .validate()
+        .map_err(|e| format!("invalid run contract for {model_id}: {e}"))?;
     if !contract.paths_contained() {
-        return Err(format!("run contract for {model_id} references paths outside the install dir"));
+        return Err(format!(
+            "run contract for {model_id} references paths outside the install dir"
+        ));
     }
 
-    let lib_path = sherpa_ffi::locate_c_api_lib()
-        .ok_or_else(|| "sherpa-onnx C API library not found; re-run scripts/download-sidecars.js".to_string())?;
+    let lib_path = sherpa_ffi::locate_c_api_lib().ok_or_else(|| {
+        "sherpa-onnx C API library not found; re-run scripts/download-sidecars.js".to_string()
+    })?;
     let api = SherpaCApi::load(&lib_path)?;
 
     let (strings, config) = build_supertonic_config(model_dir, contract)?;
@@ -313,7 +321,9 @@ fn load_model(
     state._config_strings = Some(strings);
     let info = LoadedModelInfo {
         model_id: model_id.to_string(),
-        family: contract.effective_tts_family().unwrap_or(SherpaTtsFamily::Supertonic),
+        family: contract
+            .effective_tts_family()
+            .unwrap_or(SherpaTtsFamily::Supertonic),
         sample_rate: sr as u32,
         num_speakers: speakers.max(0) as u32,
     };
@@ -380,5 +390,8 @@ fn synthesize_once(
     if samples.is_empty() {
         return Err("synthesis produced no audio".to_string());
     }
-    Ok(SynthesisOutput { samples, sample_rate })
+    Ok(SynthesisOutput {
+        samples,
+        sample_rate,
+    })
 }

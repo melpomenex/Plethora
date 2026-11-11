@@ -99,18 +99,15 @@ pub fn extract_id3v2_chapters(
         let frame_size = if version >= 4 {
             parse_syncsafe_u32(&data[pos + 4..pos + 8]) as usize
         } else {
-            u32::from_be_bytes([
-                data[pos + 4],
-                data[pos + 5],
-                data[pos + 6],
-                data[pos + 7],
-            ]) as usize
+            u32::from_be_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]])
+                as usize
         };
 
         let frame_data_start = pos + 10;
         let frame_data_end = (frame_data_start + frame_size).min(end_of_tag);
 
-        if frame_id == b"CHAP" && frame_data_end <= data.len() && frame_data_end > frame_data_start {
+        if frame_id == b"CHAP" && frame_data_end <= data.len() && frame_data_end > frame_data_start
+        {
             let chap_bytes = &data[frame_data_start..frame_data_end];
             // Element ID is null-terminated string
             if let Some(null_idx) = chap_bytes.iter().position(|&b| b == 0) {
@@ -190,7 +187,8 @@ pub fn extract_id3v2_chapters(
     let num_chaps = raw_chapters.len();
     let mut chapters = Vec::with_capacity(num_chaps);
 
-    for (idx, (start_ms, explicit_end_ms, title, link_url)) in raw_chapters.into_iter().enumerate() {
+    for (idx, (start_ms, explicit_end_ms, title, link_url)) in raw_chapters.into_iter().enumerate()
+    {
         let is_sponsor = is_sponsor_title(&title);
         let end_ms = if explicit_end_ms > start_ms {
             explicit_end_ms
@@ -329,7 +327,8 @@ fn find_box_recursive<'a>(
 ) {
     let mut pos = start;
     while pos + 8 <= end {
-        let size = u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
+        let size =
+            u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
         let box_type = &data[pos + 4..pos + 8];
 
         let box_size = if size == 1 && pos + 16 <= end {

@@ -55,7 +55,8 @@ fn classify_metadata(metadata: &Value) -> CaptureSource {
 /// supported native share entry point. Semantic tags and URL presence do not
 /// establish this relationship.
 pub fn share_capture_eligible(metadata_json: Option<&str>) -> bool {
-    let Some(metadata) = metadata_json.and_then(|json| serde_json::from_str::<Value>(json).ok()) else {
+    let Some(metadata) = metadata_json.and_then(|json| serde_json::from_str::<Value>(json).ok())
+    else {
         return false;
     };
     let Some(obj) = metadata.as_object() else {
@@ -83,14 +84,26 @@ pub fn share_capture_eligible(metadata_json: Option<&str>) -> bool {
 pub fn share_capture_url(metadata_json: Option<&str>, file_path: &str) -> Option<String> {
     let metadata: Value = serde_json::from_str(metadata_json?).ok()?;
     let candidates = [
-        metadata.pointer("/shareProvenance/sourceUrl").and_then(Value::as_str),
-        metadata.pointer("/shareProvenance/originalUrl").and_then(Value::as_str),
-        metadata.pointer("/shareProvenance/url").and_then(Value::as_str),
-        metadata.pointer("/captureProvenance/sourceUrl").and_then(Value::as_str),
-        metadata.pointer("/browserCaptureContext/sourceUrl").and_then(Value::as_str),
+        metadata
+            .pointer("/shareProvenance/sourceUrl")
+            .and_then(Value::as_str),
+        metadata
+            .pointer("/shareProvenance/originalUrl")
+            .and_then(Value::as_str),
+        metadata
+            .pointer("/shareProvenance/url")
+            .and_then(Value::as_str),
+        metadata
+            .pointer("/captureProvenance/sourceUrl")
+            .and_then(Value::as_str),
+        metadata
+            .pointer("/browserCaptureContext/sourceUrl")
+            .and_then(Value::as_str),
         metadata.get("originalUrl").and_then(Value::as_str),
         metadata.get("url").and_then(Value::as_str),
-        metadata.pointer("/webArticle/originalUrl").and_then(Value::as_str),
+        metadata
+            .pointer("/webArticle/originalUrl")
+            .and_then(Value::as_str),
         Some(file_path),
     ];
     let result = candidates.into_iter().flatten().find_map(|candidate| {
@@ -210,7 +223,11 @@ mod tests {
             ).as_deref(),
             Some("https://example.org/original")
         );
-        assert!(share_capture_url(Some(r#"{"url":"note://local"}"#), "file:///private/document.pdf").is_none());
+        assert!(share_capture_url(
+            Some(r#"{"url":"note://local"}"#),
+            "file:///private/document.pdf"
+        )
+        .is_none());
         assert!(share_capture_url(Some("not JSON"), "https://example.org").is_none());
         assert_eq!(
             share_capture_url(

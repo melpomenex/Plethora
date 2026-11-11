@@ -9,8 +9,8 @@ pub mod device;
 pub mod engine;
 pub mod flags;
 pub(crate) mod full_state;
-pub(crate) mod image_sync;
 pub mod gate;
+pub(crate) mod image_sync;
 pub mod issues;
 pub mod journal;
 pub mod keys;
@@ -28,9 +28,9 @@ pub mod types;
 pub mod wire;
 
 #[cfg(test)]
-mod convergence_test;
-#[cfg(test)]
 mod chaos_test;
+#[cfg(test)]
+mod convergence_test;
 
 use crate::database::Repository;
 use crate::entitlements::EntitlementCache;
@@ -127,9 +127,7 @@ async fn status_from_db(
 ) -> Result<SyncStatus, String> {
     engine.refresh_pending_count(repo.pool()).await;
     let mut status = engine.get_status();
-    status.pending_outbox_count = count_pending(repo.pool())
-        .await
-        .map_err(map_error)?;
+    status.pending_outbox_count = count_pending(repo.pool()).await.map_err(map_error)?;
     if !sync_v2_enabled(Some(cloud_sync_enabled(entitlements))) {
         status.error = Some("Plethora Pro cloud sync is required".to_string());
     }
@@ -153,7 +151,9 @@ pub async fn sync_push(
     entitlements: tauri::State<'_, Arc<EntitlementCache>>,
 ) -> Result<PushResult, String> {
     engine.set_syncing(true);
-    let result = push_outbox(&repo, &auth, &*entitlements).await.map_err(map_error);
+    let result = push_outbox(&repo, &auth, &*entitlements)
+        .await
+        .map_err(map_error);
     engine.set_syncing(false);
     engine.refresh_pending_count(repo.pool()).await;
     match &result {
@@ -174,7 +174,9 @@ pub async fn sync_pull(
 ) -> Result<PullResult, String> {
     let _ = cursor;
     engine.set_syncing(true);
-    let result = pull_remote(&repo, &auth, &*entitlements).await.map_err(map_error);
+    let result = pull_remote(&repo, &auth, &*entitlements)
+        .await
+        .map_err(map_error);
     engine.set_syncing(false);
     engine.refresh_pending_count(repo.pool()).await;
     match &result {
@@ -304,9 +306,7 @@ pub async fn sync_revoke_sync_device(
     sync_device_id: String,
 ) -> Result<u32, String> {
     let mut tx = repo.pool().begin().await.map_err(|e| e.to_string())?;
-    let local_device = device::ensure_device_id(&mut tx)
-        .await
-        .map_err(map_error)?;
+    let local_device = device::ensure_device_id(&mut tx).await.map_err(map_error)?;
     tx.commit().await.map_err(|e| e.to_string())?;
     if local_device == sync_device_id {
         return Err("Cannot revoke the current device from itself".to_string());
@@ -371,7 +371,9 @@ pub async fn sync_upload_blob(
         token,
         &master_key,
         &bytes,
-        content_type.as_deref().unwrap_or("application/octet-stream"),
+        content_type
+            .as_deref()
+            .unwrap_or("application/octet-stream"),
     )
     .await
     .map_err(map_error)

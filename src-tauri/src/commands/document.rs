@@ -32,9 +32,7 @@ pub(crate) fn copy_media_to_app_storage(
         .path()
         .app_data_dir()
         .map(|d| d.join("incrementum").join(subdir))
-        .map_err(|e| {
-            PlethoraError::Internal(format!("Failed to resolve app data dir: {}", e))
-        })?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to resolve app data dir: {}", e)))?;
 
     std::fs::create_dir_all(&dest_dir).map_err(|e| {
         PlethoraError::Internal(format!("Failed to create {} directory: {}", subdir, e))
@@ -78,9 +76,7 @@ pub(crate) fn stage_media_file_unique(
         .path()
         .app_data_dir()
         .map(|d| d.join("incrementum").join(subdir))
-        .map_err(|e| {
-            PlethoraError::Internal(format!("Failed to resolve app data dir: {}", e))
-        })?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to resolve app data dir: {}", e)))?;
 
     std::fs::create_dir_all(&dest_dir).map_err(|e| {
         PlethoraError::Internal(format!("Failed to create {} directory: {}", subdir, e))
@@ -309,14 +305,16 @@ async fn import_from_path(
             .iter()
             .find(|d| d.content_hash.as_ref() == Some(hash))
         {
-            return Err(crate::error::PlethoraError::Import(crate::error::ImportError {
-                code: crate::error::ImportErrorCode::DuplicateDocument,
-                message: format!(
-                    "Duplicate document detected: Already imported as '{}'",
-                    duplicate.title
-                ),
-                file_name: Some(file_name.to_string()),
-            }));
+            return Err(crate::error::PlethoraError::Import(
+                crate::error::ImportError {
+                    code: crate::error::ImportErrorCode::DuplicateDocument,
+                    message: format!(
+                        "Duplicate document detected: Already imported as '{}'",
+                        duplicate.title
+                    ),
+                    file_name: Some(file_name.to_string()),
+                },
+            ));
         }
     }
 
@@ -452,9 +450,7 @@ pub async fn import_document_from_bytes(
         .path()
         .app_data_dir()
         .map(|d| d.join("imports"))
-        .map_err(|e| {
-            PlethoraError::Internal(format!("Failed to resolve app data dir: {}", e))
-        })?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to resolve app data dir: {}", e)))?;
     std::fs::create_dir_all(&dest_dir).map_err(|e| {
         PlethoraError::Internal(format!(
             "Failed to create imports directory {}: {}",
@@ -525,9 +521,7 @@ pub async fn stage_import_file_start(
         .path()
         .app_data_dir()
         .map(|d| d.join("imports"))
-        .map_err(|e| {
-            PlethoraError::Internal(format!("Failed to resolve app data dir: {}", e))
-        })?;
+        .map_err(|e| PlethoraError::Internal(format!("Failed to resolve app data dir: {}", e)))?;
     std::fs::create_dir_all(&dest_dir).map_err(|e| {
         PlethoraError::Internal(format!(
             "Failed to create imports directory {}: {}",
@@ -1032,7 +1026,8 @@ pub async fn set_document_privacy(
     expected_version: i64,
     repo: State<'_, Repository>,
 ) -> Result<Document> {
-    repo.set_document_privacy(&id, is_local_only, is_ai_excluded, expected_version).await
+    repo.set_document_privacy(&id, is_local_only, is_ai_excluded, expected_version)
+        .await
 }
 
 /// Explicitly clear a document's category. `update_document` treats an empty
@@ -1818,10 +1813,7 @@ pub async fn fetch_url_content(url: String) -> Result<FetchedUrlContent> {
     let download_dir = temp_dir.join("incrementum-downloads");
 
     std::fs::create_dir_all(&download_dir).map_err(|e| {
-        crate::error::PlethoraError::Internal(format!(
-            "Failed to create download directory: {}",
-            e
-        ))
+        crate::error::PlethoraError::Internal(format!("Failed to create download directory: {}", e))
     })?;
 
     // Generate a unique filename
@@ -1960,9 +1952,9 @@ fn write_snapshot_to_dir(
     encoder
         .write_all(raw)
         .map_err(|e| PlethoraError::Internal(format!("Failed to compress snapshot: {}", e)))?;
-    let compressed = encoder.finish().map_err(|e| {
-        PlethoraError::Internal(format!("Failed to finish snapshot gzip: {}", e))
-    })?;
+    let compressed = encoder
+        .finish()
+        .map_err(|e| PlethoraError::Internal(format!("Failed to finish snapshot gzip: {}", e)))?;
     std::fs::write(&dest, &compressed)
         .map_err(|e| PlethoraError::Internal(format!("Failed to write snapshot file: {}", e)))?;
 
@@ -2175,7 +2167,10 @@ mod browser_import_recovery_tests {
         let changed_again = recover_document_content(&mut reloaded, &repo)
             .await
             .expect("repeat recovery");
-        assert!(!changed_again, "a healed browser import should be idempotent");
+        assert!(
+            !changed_again,
+            "a healed browser import should be idempotent"
+        );
     }
 
     #[test]
@@ -2501,7 +2496,8 @@ pub fn sweep_stale_staging_files(app: &tauri::AppHandle) {
     if let Ok(data_dir) = app.path().app_data_dir() {
         let imports_dir = data_dir.join("imports");
         if imports_dir.is_dir() {
-            let cutoff = std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 60 * 60);
+            let cutoff =
+                std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 60 * 60);
             if let Ok(entries) = std::fs::read_dir(&imports_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();

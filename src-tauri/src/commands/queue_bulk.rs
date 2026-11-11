@@ -55,7 +55,14 @@ pub struct QueuePriorityTarget {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-enum QueuePriorityKind { Document, Extract, LearningItem, RssArticle, PodcastEpisode, VideoExtract }
+enum QueuePriorityKind {
+    Document,
+    Extract,
+    LearningItem,
+    RssArticle,
+    PodcastEpisode,
+    VideoExtract,
+}
 
 impl From<QueueEntityKind> for QueuePriorityKind {
     fn from(kind: QueueEntityKind) -> Self {
@@ -70,8 +77,12 @@ impl From<QueueEntityKind> for QueuePriorityKind {
 impl QueuePriorityKind {
     fn label(self) -> &'static str {
         match self {
-            Self::Document => "document", Self::Extract => "extract", Self::LearningItem => "learning-item",
-            Self::RssArticle => "rss-article", Self::PodcastEpisode => "podcast-episode", Self::VideoExtract => "video-extract",
+            Self::Document => "document",
+            Self::Extract => "extract",
+            Self::LearningItem => "learning-item",
+            Self::RssArticle => "rss-article",
+            Self::PodcastEpisode => "podcast-episode",
+            Self::VideoExtract => "video-extract",
         }
     }
 }
@@ -753,10 +764,13 @@ pub(crate) async fn bulk_update_item_priorities_inner(
     slider: i32,
 ) -> Result<BulkOperationResult> {
     let resolved = resolve_queue_entities(repo, &item_ids).await?;
-    let targets = item_ids.into_iter().map(|id| {
-        let kind = resolved.get(&id).copied().map(QueuePriorityKind::from);
-        (id, kind)
-    }).collect();
+    let targets = item_ids
+        .into_iter()
+        .map(|id| {
+            let kind = resolved.get(&id).copied().map(QueuePriorityKind::from);
+            (id, kind)
+        })
+        .collect();
     bulk_update_priority_targets(repo, targets, slider, false).await
 }
 
@@ -790,7 +804,9 @@ async fn bulk_update_priority_targets(
         let result_id = if typed_results {
             let prefix = kind.map(QueuePriorityKind::label).unwrap_or("unknown");
             format!("{prefix}:{item_id}")
-        } else { item_id.clone() };
+        } else {
+            item_id.clone()
+        };
         let table = match kind {
             Some(QueuePriorityKind::Document) => Some("documents"),
             Some(QueuePriorityKind::Extract) => Some("extracts"),
@@ -801,12 +817,21 @@ async fn bulk_update_priority_targets(
             None => None,
         };
         let exists = if let Some(table) = table {
-            sqlx::query_scalar::<_, i64>(&format!("SELECT EXISTS(SELECT 1 FROM {table} WHERE id = ?)"))
-                .bind(item_id).fetch_one(&mut *tx).await? != 0
-        } else { false };
+            sqlx::query_scalar::<_, i64>(&format!(
+                "SELECT EXISTS(SELECT 1 FROM {table} WHERE id = ?)"
+            ))
+            .bind(item_id)
+            .fetch_one(&mut *tx)
+            .await?
+                != 0
+        } else {
+            false
+        };
         if !exists {
             result.failed.push(result_id);
-            result.errors.push(format!("{:?} {}: {}", kind, item_id, not_found(item_id)));
+            result
+                .errors
+                .push(format!("{:?} {}: {}", kind, item_id, not_found(item_id)));
             continue;
         }
         match kind {
@@ -851,11 +876,20 @@ async fn bulk_update_priority_targets(
                 .bind(item_id)
                 .execute(&mut *tx)
                 .await?;
-                journal_queue_fields(&mut tx, QueueEntityKind::LearningItem, item_id, &["priority"])
-                    .await?;
+                journal_queue_fields(
+                    &mut tx,
+                    QueueEntityKind::LearningItem,
+                    item_id,
+                    &["priority"],
+                )
+                .await?;
                 result.succeeded.push(result_id);
             }
-            Some(kind @ (QueuePriorityKind::RssArticle | QueuePriorityKind::PodcastEpisode | QueuePriorityKind::VideoExtract)) => {
+            Some(
+                kind @ (QueuePriorityKind::RssArticle
+                | QueuePriorityKind::PodcastEpisode
+                | QueuePriorityKind::VideoExtract),
+            ) => {
                 sqlx::query("INSERT INTO queue_external_priorities (kind, item_id, slider) VALUES (?, ?, ?) ON CONFLICT(kind, item_id) DO UPDATE SET slider = excluded.slider")
                     .bind(kind.label()).bind(item_id).bind(slider_value).execute(&mut *tx).await?;
                 result.succeeded.push(result_id);
@@ -1291,7 +1325,13 @@ pub async fn bulk_update_typed_item_priorities(
     slider: i32,
     repo: State<'_, Repository>,
 ) -> Result<BulkOperationResult> {
-    bulk_update_priority_targets(&repo, targets.into_iter().map(|t| (t.id, Some(t.kind))).collect(), slider, true).await
+    bulk_update_priority_targets(
+        &repo,
+        targets.into_iter().map(|t| (t.id, Some(t.kind))).collect(),
+        slider,
+        true,
+    )
+    .await
 }
 
 #[derive(Debug, Serialize)]
@@ -1303,12 +1343,20 @@ pub struct ExternalPriority {
 }
 
 #[tauri::command]
-pub async fn get_queue_external_priorities(repo: State<'_, Repository>) -> Result<Vec<ExternalPriority>> {
+pub async fn get_queue_external_priorities(
+    repo: State<'_, Repository>,
+) -> Result<Vec<ExternalPriority>> {
     let rows = sqlx::query("SELECT kind, item_id, slider FROM queue_external_priorities")
-        .fetch_all(repo.pool()).await?;
-    Ok(rows.into_iter().map(|row| ExternalPriority {
-        kind: row.get("kind"), item_id: row.get("item_id"), slider: row.get("slider"),
-    }).collect())
+        .fetch_all(repo.pool())
+        .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| ExternalPriority {
+            kind: row.get("kind"),
+            item_id: row.get("item_id"),
+            slider: row.get("slider"),
+        })
+        .collect())
 }
 
 #[tauri::command]
@@ -1556,18 +1604,64 @@ mod bulk_item_tests {
         let doc = make_document(&repo, "Collision").await;
         let card = make_learning_item(&repo).await;
         sqlx::query("UPDATE learning_items SET id = ? WHERE id = ?")
-            .bind(&doc).bind(&card).execute(repo.pool()).await.unwrap();
+            .bind(&doc)
+            .bind(&card)
+            .execute(repo.pool())
+            .await
+            .unwrap();
         let original = repo.get_learning_item_by_id(&doc).await.unwrap().unwrap();
 
-        let result = bulk_update_priority_targets(&repo, vec![(doc.clone(), Some(QueuePriorityKind::Document))], 73, true).await.unwrap();
+        let result = bulk_update_priority_targets(
+            &repo,
+            vec![(doc.clone(), Some(QueuePriorityKind::Document))],
+            73,
+            true,
+        )
+        .await
+        .unwrap();
         assert_eq!(result.succeeded, vec![format!("document:{doc}")]);
-        assert_eq!(repo.get_document(&doc).await.unwrap().unwrap().priority_slider, 73);
-        assert_eq!(repo.get_learning_item_by_id(&doc).await.unwrap().unwrap().priority_slider, original.priority_slider);
+        assert_eq!(
+            repo.get_document(&doc)
+                .await
+                .unwrap()
+                .unwrap()
+                .priority_slider,
+            73
+        );
+        assert_eq!(
+            repo.get_learning_item_by_id(&doc)
+                .await
+                .unwrap()
+                .unwrap()
+                .priority_slider,
+            original.priority_slider
+        );
 
-        let result = bulk_update_priority_targets(&repo, vec![(doc.clone(), Some(QueuePriorityKind::LearningItem))], 0, true).await.unwrap();
+        let result = bulk_update_priority_targets(
+            &repo,
+            vec![(doc.clone(), Some(QueuePriorityKind::LearningItem))],
+            0,
+            true,
+        )
+        .await
+        .unwrap();
         assert_eq!(result.succeeded, vec![format!("learning-item:{doc}")]);
-        assert_eq!(repo.get_learning_item_by_id(&doc).await.unwrap().unwrap().priority_slider, 0);
-        assert_eq!(repo.get_document(&doc).await.unwrap().unwrap().priority_slider, 73);
+        assert_eq!(
+            repo.get_learning_item_by_id(&doc)
+                .await
+                .unwrap()
+                .unwrap()
+                .priority_slider,
+            0
+        );
+        assert_eq!(
+            repo.get_document(&doc)
+                .await
+                .unwrap()
+                .unwrap()
+                .priority_slider,
+            73
+        );
     }
 
     #[tokio::test]
@@ -1586,18 +1680,42 @@ mod bulk_item_tests {
         video.id = "same".into();
         repo.create_video_extract(&video).await.unwrap();
 
-        let result = bulk_update_priority_targets(&repo, vec![
-            ("same".into(), Some(QueuePriorityKind::RssArticle)),
-            ("same".into(), Some(QueuePriorityKind::PodcastEpisode)),
-            ("same".into(), Some(QueuePriorityKind::VideoExtract)),
-            ("missing".into(), Some(QueuePriorityKind::RssArticle)),
-        ], 73, true).await.unwrap();
+        let result = bulk_update_priority_targets(
+            &repo,
+            vec![
+                ("same".into(), Some(QueuePriorityKind::RssArticle)),
+                ("same".into(), Some(QueuePriorityKind::PodcastEpisode)),
+                ("same".into(), Some(QueuePriorityKind::VideoExtract)),
+                ("missing".into(), Some(QueuePriorityKind::RssArticle)),
+            ],
+            73,
+            true,
+        )
+        .await
+        .unwrap();
         assert_eq!(result.succeeded.len(), 3);
         assert_eq!(result.failed, vec!["rss-article:missing"]);
-        let rows: Vec<(String, i32)> = sqlx::query_as("SELECT kind, slider FROM queue_external_priorities ORDER BY kind")
-            .fetch_all(repo.pool()).await.unwrap();
-        assert_eq!(rows, vec![("podcast-episode".into(), 73), ("rss-article".into(), 73), ("video-extract".into(), 73)]);
-        assert_ne!(repo.get_document(&doc).await.unwrap().unwrap().priority_slider, 73);
+        let rows: Vec<(String, i32)> =
+            sqlx::query_as("SELECT kind, slider FROM queue_external_priorities ORDER BY kind")
+                .fetch_all(repo.pool())
+                .await
+                .unwrap();
+        assert_eq!(
+            rows,
+            vec![
+                ("podcast-episode".into(), 73),
+                ("rss-article".into(), 73),
+                ("video-extract".into(), 73)
+            ]
+        );
+        assert_ne!(
+            repo.get_document(&doc)
+                .await
+                .unwrap()
+                .unwrap()
+                .priority_slider,
+            73
+        );
     }
 
     #[tokio::test]
@@ -1644,20 +1762,52 @@ mod bulk_item_tests {
 
         // Both keys match initially; only the child with an explicit slider
         // must survive a subsequent parent cascade.
-        repo.update_extract_priority(&overridden, parent.priority_score, 0).await.unwrap();
+        repo.update_extract_priority(&overridden, parent.priority_score, 0)
+            .await
+            .unwrap();
         let saved = repo.get_extract(&overridden).await.unwrap().unwrap();
         assert_eq!(saved.priority_slider, Some(0));
         assert_eq!(saved.priority_score, parent.priority_score);
-        repo.cascade_document_priority(&doc, parent.priority_score, 73.5).await.unwrap();
-        assert_eq!(repo.get_extract(&overridden).await.unwrap().unwrap().priority_score, parent.priority_score);
-        assert_eq!(repo.get_extract(&inherited).await.unwrap().unwrap().priority_score, 73.5);
-        assert_eq!(repo.get_document(&doc).await.unwrap().unwrap().priority_score, parent.priority_score);
-        repo.update_extract_priority(&overridden, 21.75, 73).await.unwrap();
+        repo.cascade_document_priority(&doc, parent.priority_score, 73.5)
+            .await
+            .unwrap();
+        assert_eq!(
+            repo.get_extract(&overridden)
+                .await
+                .unwrap()
+                .unwrap()
+                .priority_score,
+            parent.priority_score
+        );
+        assert_eq!(
+            repo.get_extract(&inherited)
+                .await
+                .unwrap()
+                .unwrap()
+                .priority_score,
+            73.5
+        );
+        assert_eq!(
+            repo.get_document(&doc)
+                .await
+                .unwrap()
+                .unwrap()
+                .priority_score,
+            parent.priority_score
+        );
+        repo.update_extract_priority(&overridden, 21.75, 73)
+            .await
+            .unwrap();
         let saved = repo.get_extract(&overridden).await.unwrap().unwrap();
         assert_eq!(saved.priority_score, 21.75);
         assert_eq!(saved.priority_slider, Some(73));
-        let from_list = repo.list_extracts_by_document(&doc).await.unwrap().into_iter()
-            .find(|item| item.id == overridden).unwrap();
+        let from_list = repo
+            .list_extracts_by_document(&doc)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|item| item.id == overridden)
+            .unwrap();
         assert_eq!(from_list.priority_slider, Some(73));
         let payload = serde_json::to_string(&saved).unwrap();
         let restored: Extract = serde_json::from_str(&payload).unwrap();
@@ -1669,20 +1819,23 @@ mod bulk_item_tests {
         let repo = setup_repo().await;
         let parent = make_document(&repo, "Parent").await;
         let other = make_document(&repo, "Other").await;
-        for (id, score, slider, rating) in [
-            (&parent, 50.0, 50, 3),
-            (&other, 20.0, 20, 2),
-        ] {
+        for (id, score, slider, rating) in [(&parent, 50.0, 50, 3), (&other, 20.0, 20, 2)] {
             sqlx::query("UPDATE documents SET priority_score = ?, priority_slider = ?, priority_rating = ?, priority_explicitly_set = 1 WHERE id = ?")
                 .bind(score).bind(slider).bind(rating).bind(id).execute(repo.pool()).await.unwrap();
         }
         let extract = make_extract(&repo, &parent).await;
         sqlx::query("UPDATE extracts SET priority_score = 50.0 WHERE id = ?")
-            .bind(&extract).execute(repo.pool()).await.unwrap();
+            .bind(&extract)
+            .execute(repo.pool())
+            .await
+            .unwrap();
 
         let key = crate::database::priority_rank::key_for_slider(repo.pool(), 90)
-            .await.unwrap();
-        repo.update_extract_priority(&extract, key, 90).await.unwrap();
+            .await
+            .unwrap();
+        repo.update_extract_priority(&extract, key, 90)
+            .await
+            .unwrap();
 
         // The extract now sorts above both documents; the parent's own
         // priority and scheduling fields are untouched.
@@ -1698,7 +1851,14 @@ mod bulk_item_tests {
         assert_eq!(parent_after.priority_slider, 50);
         assert_eq!(parent_after.priority_rating, 3);
         assert!(parent_after.priority_explicitly_set);
-        assert_eq!(repo.get_extract(&extract).await.unwrap().unwrap().priority_slider, Some(90));
+        assert_eq!(
+            repo.get_extract(&extract)
+                .await
+                .unwrap()
+                .unwrap()
+                .priority_slider,
+            Some(90)
+        );
     }
 
     #[tokio::test]
@@ -1729,11 +1889,18 @@ mod bulk_item_tests {
         sqlx::query("CREATE TRIGGER reject_card_priority BEFORE UPDATE ON learning_items BEGIN SELECT RAISE(ABORT, 'rejected'); END")
             .execute(repo.pool()).await.unwrap();
 
-        assert!(bulk_update_item_priorities_inner(&repo, vec![doc.clone(), card], 73).await.is_err());
+        assert!(
+            bulk_update_item_priorities_inner(&repo, vec![doc.clone(), card], 73)
+                .await
+                .is_err()
+        );
         let after = repo.get_document(&doc).await.unwrap().unwrap();
         assert_eq!(after.priority_slider, before.priority_slider);
         assert_eq!(after.priority_score, before.priority_score);
-        assert_eq!(after.priority_explicitly_set, before.priority_explicitly_set);
+        assert_eq!(
+            after.priority_explicitly_set,
+            before.priority_explicitly_set
+        );
     }
 
     #[tokio::test]

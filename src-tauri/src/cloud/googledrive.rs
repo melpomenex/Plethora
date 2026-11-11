@@ -29,8 +29,10 @@ impl Default for GoogleDriveConfig {
         Self {
             client_id: crate::utils::keychain::env_or_legacy("PLETHORA_GOOGLE_DRIVE_CLIENT_ID")
                 .unwrap_or_else(|| "YOUR_CLIENT_ID.apps.googleusercontent.com".to_string()),
-            client_secret: crate::utils::keychain::env_or_legacy("PLETHORA_GOOGLE_DRIVE_CLIENT_SECRET")
-                .unwrap_or_else(|| "YOUR_CLIENT_SECRET".to_string()),
+            client_secret: crate::utils::keychain::env_or_legacy(
+                "PLETHORA_GOOGLE_DRIVE_CLIENT_SECRET",
+            )
+            .unwrap_or_else(|| "YOUR_CLIENT_SECRET".to_string()),
             redirect_uri: "http://localhost:15173/auth/callback".to_string(),
             scopes: vec![
                 "https://www.googleapis.com/auth/drive.appdata".to_string(), // App folder access

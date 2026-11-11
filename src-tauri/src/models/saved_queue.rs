@@ -12,7 +12,10 @@ pub struct PriorityRange {
 
 impl Default for PriorityRange {
     fn default() -> Self {
-        Self { min: 0.0, max: 100.0 }
+        Self {
+            min: 0.0,
+            max: 100.0,
+        }
     }
 }
 

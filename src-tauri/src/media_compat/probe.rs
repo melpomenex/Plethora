@@ -14,12 +14,12 @@ use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt};
 use tokio::process::Command;
 
-use crate::utils::ffmpeg;
 use super::types::{
     is_bitmap_subtitle, AudioStreamInfo, ChapterInfo, DolbyVisionInfo, HdrInfo, HdrKind,
     MediaCompatError, MediaFailureCode, MediaInspection, MediaSourceInfo, MediaToolReport,
     ProbeStatus, SubtitleKind, SubtitleStreamInfo, VideoStreamInfo,
 };
+use crate::utils::ffmpeg;
 
 const MAX_STDOUT_BYTES: usize = 8 * 1024 * 1024;
 const MAX_STDERR_BYTES: usize = 64 * 1024;
@@ -196,7 +196,12 @@ fn normalize_container(raw: &str) -> String {
     } else if lower.is_empty() {
         "unknown".to_string()
     } else {
-        lower.split(',').next().unwrap_or("unknown").trim().to_string()
+        lower
+            .split(',')
+            .next()
+            .unwrap_or("unknown")
+            .trim()
+            .to_string()
     }
 }
 
@@ -241,8 +246,7 @@ fn parse_dv(stream: &ProbeStream) -> Option<DolbyVisionInfo> {
         el_present: side.el_present_flag.unwrap_or(0) != 0,
         bl_present: side.bl_present_flag.unwrap_or(0) != 0,
         compatibility_id: side.dv_bl_signal_compatibility_id,
-        hdr10_compatible: profile == 8
-            || side.dv_bl_signal_compatibility_id.unwrap_or(0) != 0,
+        hdr10_compatible: profile == 8 || side.dv_bl_signal_compatibility_id.unwrap_or(0) != 0,
     })
 }
 
@@ -489,7 +493,9 @@ async fn file_sample(path: &Path, size: u64) -> Option<(Vec<u8>, Vec<u8>)> {
 }
 
 /// Cheap source version fingerprint: size + mtime + sampled head/tail bytes.
-pub async fn source_fingerprint(path: &Path) -> Result<(String, Option<u64>, Option<i64>), MediaCompatError> {
+pub async fn source_fingerprint(
+    path: &Path,
+) -> Result<(String, Option<u64>, Option<i64>), MediaCompatError> {
     let (size, modified) = file_metadata(path).await.ok_or_else(|| {
         MediaCompatError::new(
             MediaFailureCode::SourceNotFound,
@@ -523,7 +529,12 @@ fn path_hash(path: &Path) -> String {
     hex::encode(Sha256::digest(path.to_string_lossy().as_bytes()))[..12].to_string()
 }
 
-async fn source_info(path: &Path, fingerprint: String, size: Option<u64>, modified: Option<i64>) -> MediaSourceInfo {
+async fn source_info(
+    path: &Path,
+    fingerprint: String,
+    size: Option<u64>,
+    modified: Option<i64>,
+) -> MediaSourceInfo {
     MediaSourceInfo {
         path_label: path_label(path),
         path_hash: path_hash(path),

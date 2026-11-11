@@ -21,8 +21,8 @@ use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::process::Stdio;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -202,9 +202,7 @@ impl PocketTTSStatus {
             source: None,
             executable: None,
             detail: None,
-            error: Some(format!(
-                "No Pocket TTS runtime was found. {RECOVERY_HINT}"
-            )),
+            error: Some(format!("No Pocket TTS runtime was found. {RECOVERY_HINT}")),
         }
     }
 }
@@ -412,7 +410,11 @@ fn dedupe_dirs(dirs: Vec<PathBuf>) -> Vec<PathBuf> {
 /// A base that instead carries a venv-shaped `bin/pocket-tts` works too.
 fn bundled_executables(base: &Path) -> Vec<PathBuf> {
     let triple = current_target_triple();
-    let ext = if cfg!(target_os = "windows") { ".exe" } else { "" };
+    let ext = if cfg!(target_os = "windows") {
+        ".exe"
+    } else {
+        ""
+    };
     let mut out: Vec<PathBuf> = Vec::new();
     // A venv-shaped console script inside the base is a real `pocket-tts`, so
     // it is tried first — that is the layout a provisioned runtime has, and
@@ -465,7 +467,11 @@ pub fn pocket_tts_candidates(
         }
     }
     for dir in system_dirs {
-        push(dir.join(executable_name()), PocketTTSSource::System, &mut out);
+        push(
+            dir.join(executable_name()),
+            PocketTTSSource::System,
+            &mut out,
+        );
     }
     out
 }
@@ -969,7 +975,8 @@ fn is_using_cached(line: &str) -> bool {
 }
 
 fn is_installing_collected(line: &str) -> bool {
-    line.trim_start().starts_with("Installing collected packages")
+    line.trim_start()
+        .starts_with("Installing collected packages")
 }
 
 fn is_successfully_installed(line: &str) -> bool {
@@ -1025,7 +1032,9 @@ pub fn augmented_pocket_tts_env() -> Vec<(String, String)> {
 
 /// Injectable-lookup variant so the contents are testable without mutating the
 /// test process's environment.
-pub fn augmented_pocket_tts_env_from(get: &dyn Fn(&str) -> Option<String>) -> Vec<(String, String)> {
+pub fn augmented_pocket_tts_env_from(
+    get: &dyn Fn(&str) -> Option<String>,
+) -> Vec<(String, String)> {
     let mut vars: Vec<(String, String)> = Vec::new();
     fn push(vars: &mut Vec<(String, String)>, key: &str, value: Option<String>) {
         if let Some(value) = value {
@@ -1191,10 +1200,7 @@ pub fn pocket_tts_python_candidates() -> Vec<Vec<String>> {
             vec!["python3".to_string()],
         ];
     }
-    let mut candidates = vec![
-        vec!["python3".to_string()],
-        vec!["python".to_string()],
-    ];
+    let mut candidates = vec![vec!["python3".to_string()], vec!["python".to_string()]];
     if let Ok(home) = std::env::var("HOME") {
         candidates.push(vec![format!("{home}/.local/bin/python3")]);
         candidates.push(vec![format!("{home}/.local/bin/python")]);
@@ -1518,14 +1524,13 @@ where
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
-    let mut child = spawn_tolerant(&mut cmd).await.map_err(|e| {
-        InstallError::Failed(format!("Could not start {}: {e}", program.display()))
-    })?;
+    let mut child = spawn_tolerant(&mut cmd)
+        .await
+        .map_err(|e| InstallError::Failed(format!("Could not start {}: {e}", program.display())))?;
 
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
-    let collected: Arc<std::sync::Mutex<String>> =
-        Arc::new(std::sync::Mutex::new(String::new()));
+    let collected: Arc<std::sync::Mutex<String>> = Arc::new(std::sync::Mutex::new(String::new()));
     let sink: Arc<std::sync::Mutex<F>> = Arc::new(std::sync::Mutex::new(on_line));
 
     let stdout_drain = async {
@@ -1747,20 +1752,14 @@ async fn install_inner(
     let parser: Arc<std::sync::Mutex<PipProgressParser>> =
         Arc::new(std::sync::Mutex::new(PipProgressParser::new()));
     let sink_parser = parser.clone();
-    let install_outcome = run_streamed_command(
-        &program,
-        &args,
-        true,
-        install_env,
-        token,
-        move |line| {
+    let install_outcome =
+        run_streamed_command(&program, &args, true, install_env, token, move |line| {
             sink_parser
                 .lock()
                 .unwrap_or_else(|e| e.into_inner())
                 .feed(line);
-        },
-    )
-    .await;
+        })
+        .await;
     // `finish` accounts for the download that was still in flight when the
     // command exited — pip never announces that one.
     let (total, received) = {
@@ -1826,7 +1825,9 @@ fn describe_failure(outcome: &CommandOutcome) -> String {
 /// install environment (because it inherited a `PATH` or a proxy the packaged
 /// app will not have) is a broken runtime, and this is where that is caught
 /// rather than on the user's first utterance.
-pub async fn verify_provisioned_runtime(executable: &Path) -> std::result::Result<(), InstallError> {
+pub async fn verify_provisioned_runtime(
+    executable: &Path,
+) -> std::result::Result<(), InstallError> {
     let mut cmd = tokio::process::Command::new(executable);
     cmd.env_clear();
     for (key, value) in synthesis_env() {
@@ -1978,12 +1979,11 @@ fn synthesis_candidates(app: &AppHandle) -> Vec<ExecutableCandidate> {
 /// Used only as a last-resort launcher, and to name the path in errors.
 fn sidecar_path() -> Result<PathBuf> {
     let exe = std::env::current_exe()?;
-    Ok(exe
-        .with_file_name(if cfg!(target_os = "windows") {
-            "pocket-tts.exe"
-        } else {
-            "pocket-tts"
-        }))
+    Ok(exe.with_file_name(if cfg!(target_os = "windows") {
+        "pocket-tts.exe"
+    } else {
+        "pocket-tts"
+    }))
 }
 
 async fn run_generation(
@@ -2132,7 +2132,9 @@ pub async fn pocket_tts_generate(
 /// Tauri command: Stop synthesis
 #[tauri::command]
 pub async fn pocket_tts_stop(app_handle: tauri::AppHandle) -> Result<(), String> {
-    stop_pocket_tts(&app_handle).await.map_err(|e| e.to_string())
+    stop_pocket_tts(&app_handle)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// Tauri command: Cleanup resources
@@ -2219,9 +2221,13 @@ pub async fn pocket_tts_install(
         let _guard = guard;
         match run_pocket_tts_install(task_app.clone(), task_id.clone(), paths, token).await {
             Ok(message) => emit_finished(&task_app, &task_id, true, false, message),
-            Err(InstallError::Cancelled) => {
-                emit_finished(&task_app, &task_id, false, true, InstallError::Cancelled.message())
-            }
+            Err(InstallError::Cancelled) => emit_finished(
+                &task_app,
+                &task_id,
+                false,
+                true,
+                InstallError::Cancelled.message(),
+            ),
             Err(InstallError::Failed(message)) => {
                 emit_finished(&task_app, &task_id, false, false, message)
             }
@@ -2343,12 +2349,8 @@ mod tests {
         make_executable(&provisioned_executable(&bundled_base));
         make_executable(&system.join(executable_name()));
 
-        let candidates = pocket_tts_candidates(
-            None,
-            vec![bundled_base.clone()],
-            vec![system.clone()],
-            None,
-        );
+        let candidates =
+            pocket_tts_candidates(None, vec![bundled_base.clone()], vec![system.clone()], None);
         let resolved = select_working_candidate(candidates, always_working).unwrap();
 
         assert_eq!(resolved.source, PocketTTSSource::Bundled);
@@ -2441,9 +2443,11 @@ mod tests {
             Some(invoked),
         );
 
-        assert!(!candidates
-            .iter()
-            .any(|c| c.path == dir.path().join("next-to-the-binary").join(executable_name())));
+        assert!(!candidates.iter().any(|c| c.path
+            == dir
+                .path()
+                .join("next-to-the-binary")
+                .join(executable_name())));
         assert!(candidates
             .iter()
             .any(|c| c.path == provisioned_executable(&venv)));
@@ -2543,9 +2547,13 @@ mod tests {
 
     #[test]
     fn disk_gate_reports_both_numbers_when_it_refuses() {
-        let error = decide_install_disk_space(Some((2_000_000_000, 4_000_000_000)), 3_000_000_000, Path::new("/data"))
-            .unwrap_err()
-            .to_string();
+        let error = decide_install_disk_space(
+            Some((2_000_000_000, 4_000_000_000)),
+            3_000_000_000,
+            Path::new("/data"),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(error.contains("3.0 GB"), "{error}");
         assert!(error.contains("2.0 GB"), "{error}");
         assert!(error.contains("/data"), "{error}");
@@ -2570,7 +2578,10 @@ mod tests {
         if cfg!(target_os = "windows") {
             assert!(joined.contains("py -3"), "{joined}");
         } else {
-            assert!(candidates.contains(&vec!["python3".to_string()]), "{joined}");
+            assert!(
+                candidates.contains(&vec!["python3".to_string()]),
+                "{joined}"
+            );
             assert!(candidates.contains(&vec!["python".to_string()]), "{joined}");
         }
     }
@@ -2737,7 +2748,10 @@ mod tests {
         let joined = args.join(" ");
         assert!(joined.contains(TORCH_CPU_EXTRA_INDEX), "{joined}");
         assert!(joined.contains(PYPI_INDEX_URL), "{joined}");
-        assert!(args.contains(&"off".to_string()), "progress bar must be off");
+        assert!(
+            args.contains(&"off".to_string()),
+            "progress bar must be off"
+        );
         assert!(args.contains(&"--disable-pip-version-check".to_string()));
         assert_eq!(args.last().unwrap(), POCKET_TTS_PACKAGE);
     }
@@ -2749,7 +2763,10 @@ mod tests {
         let joined = args.join(" ");
         assert!(joined.contains(TORCH_CPU_EXTRA_INDEX), "{joined}");
         assert!(joined.contains(PYPI_INDEX_URL), "{joined}");
-        assert!(args.contains(&python.to_string_lossy().to_string()), "{joined}");
+        assert!(
+            args.contains(&python.to_string_lossy().to_string()),
+            "{joined}"
+        );
         assert_eq!(args.last().unwrap(), POCKET_TTS_PACKAGE);
     }
 
@@ -2783,7 +2800,10 @@ mod tests {
         make_executable(&uv);
         let env = vec![(
             "PATH".to_string(),
-            std::env::join_paths([dir.path()]).unwrap().to_string_lossy().to_string(),
+            std::env::join_paths([dir.path()])
+                .unwrap()
+                .to_string_lossy()
+                .to_string(),
         )];
         assert_eq!(find_uv_binary(&env), Some(uv));
     }
@@ -2795,7 +2815,11 @@ mod tests {
     async fn a_stub_that_exits_non_zero_fails_verification_with_its_own_stderr() {
         let dir = temp_dir("verify-fail");
         let stub = dir.path().join("pocket-tts");
-        std::fs::write(&stub, b"#!/bin/sh\necho 'ModuleNotFoundError: torch' >&2\nexit 3\n").unwrap();
+        std::fs::write(
+            &stub,
+            b"#!/bin/sh\necho 'ModuleNotFoundError: torch' >&2\nexit 3\n",
+        )
+        .unwrap();
         {
             use std::os::unix::fs::PermissionsExt;
             let mut perms = std::fs::metadata(&stub).unwrap().permissions();
@@ -2888,14 +2912,8 @@ mod tests {
     #[test]
     fn a_second_register_is_rejected() {
         let state = PocketTTSInstallState::default();
-        assert!(state.try_register(InstallSlot::new(
-            "first".into(),
-            CancellationToken::new()
-        )));
-        assert!(!state.try_register(InstallSlot::new(
-            "second".into(),
-            CancellationToken::new()
-        )));
+        assert!(state.try_register(InstallSlot::new("first".into(), CancellationToken::new())));
+        assert!(!state.try_register(InstallSlot::new("second".into(), CancellationToken::new())));
         assert_eq!(state.current().unwrap().id, "first");
     }
 
@@ -2906,10 +2924,7 @@ mod tests {
         // Simulate the guard's `Drop` without needing an `AppHandle`.
         assert!(state.unregister("a").is_some());
         assert!(state.current().is_none());
-        assert!(state.try_register(InstallSlot::new(
-            "b".into(),
-            CancellationToken::new()
-        )));
+        assert!(state.try_register(InstallSlot::new("b".into(), CancellationToken::new())));
     }
 
     #[test]
@@ -3017,7 +3032,10 @@ mod tests {
         let sink_seen = seen.clone();
         let mut tracker = PocketTTSProgressTracker::new(
             Box::new(move |event: &PocketTTSInstallProgress| {
-                sink_seen.lock().unwrap().push((event.received, event.percent));
+                sink_seen
+                    .lock()
+                    .unwrap()
+                    .push((event.received, event.percent));
             }),
             "id",
         )
@@ -3036,10 +3054,7 @@ mod tests {
                 pair[1].0 >= pair[0].0,
                 "received went backwards: {events:?}"
             );
-            assert!(
-                pair[1].1 >= pair[0].1,
-                "percent went backwards: {events:?}"
-            );
+            assert!(pair[1].1 >= pair[0].1, "percent went backwards: {events:?}");
         }
         assert_eq!(events.last().unwrap().0, 1000);
     }
@@ -3085,7 +3100,10 @@ mod tests {
             .collect();
         received.extend(parser.finish());
 
-        assert_eq!(parser.announced_total(), 2_300_000 + 755_100_000 + 16_400_000);
+        assert_eq!(
+            parser.announced_total(),
+            2_300_000 + 755_100_000 + 16_400_000
+        );
         for pair in received.windows(2) {
             assert!(pair[1] > pair[0], "not monotonic: {received:?}");
         }
@@ -3149,7 +3167,10 @@ mod tests {
         let venv = dir.path().join("venv");
         std::fs::create_dir_all(&venv).unwrap();
         let error = uninstall_provisioned_venv(true, &venv).unwrap_err();
-        assert!(error.contains("an install is running"), "unexpected refusal: {error}");
+        assert!(
+            error.contains("an install is running"),
+            "unexpected refusal: {error}"
+        );
         // The running install is not disturbed.
         assert!(venv.exists());
     }
@@ -3201,8 +3222,8 @@ mod tests {
             &dir.path().join("o.wav"),
             "hello",
         )
-            .await
-            .unwrap_err();
+        .await
+        .unwrap_err();
         let full = format!("{error} {RECOVERY_HINT}");
 
         assert!(full.contains(&missing.display().to_string()), "{full}");
@@ -3228,8 +3249,8 @@ mod tests {
             &dir.path().join("o.wav"),
             "hello",
         )
-            .await
-            .unwrap_err();
+        .await
+        .unwrap_err();
         let full = format!("{error} {RECOVERY_HINT}");
 
         assert!(full.contains("CUDA out of memory"), "{full}");

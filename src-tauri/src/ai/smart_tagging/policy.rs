@@ -6,11 +6,11 @@
 use chrono::Utc;
 use std::collections::HashSet;
 
-use crate::models::SmartTagDetail;
 use super::candidate_retrieval::CandidateTag;
 use super::domain_signatures::DomainMatch;
 use super::normalization::{canonicalize_tag, normalize_for_comparison};
 use super::salience::ScoredTerm;
+use crate::models::SmartTagDetail;
 
 pub const DEFAULT_CONFIDENCE_THRESHOLD: f64 = 0.70;
 pub const DEFAULT_MAX_TAGS: usize = 6;
@@ -66,7 +66,10 @@ pub fn evaluate_and_filter_tags(
             let canonical = canonicalize_tag(dm.domain_name, existing_library_tags);
             let norm = normalize_for_comparison(&canonical);
 
-            if !dismissed_norms.contains(&norm) && !manual_norms.contains(&norm) && !seen_canonical.contains(&norm) {
+            if !dismissed_norms.contains(&norm)
+                && !manual_norms.contains(&norm)
+                && !seen_canonical.contains(&norm)
+            {
                 seen_canonical.insert(norm);
                 proposed_details.push(SmartTagDetail {
                     tag: canonical,
@@ -93,13 +96,28 @@ pub fn evaluate_and_filter_tags(
             let canonical = ct.tag.clone();
             let norm = normalize_for_comparison(&canonical);
 
-            if !dismissed_norms.contains(&norm) && !manual_norms.contains(&norm) && !seen_canonical.contains(&norm) {
+            if !dismissed_norms.contains(&norm)
+                && !manual_norms.contains(&norm)
+                && !seen_canonical.contains(&norm)
+            {
                 seen_canonical.insert(norm);
                 let reason = match ct.match_type {
-                    "title-exact" => format!("Exact match with document title and existing library tag '{}'", ct.tag),
-                    "title-contains" => format!("Strong lexical match in document title for existing tag '{}'", ct.tag),
-                    "heading-contains" => format!("Matches section headings for existing library tag '{}'", ct.tag),
-                    "salient-term" => format!("High TF-IDF term density aligned with existing tag '{}'", ct.tag),
+                    "title-exact" => format!(
+                        "Exact match with document title and existing library tag '{}'",
+                        ct.tag
+                    ),
+                    "title-contains" => format!(
+                        "Strong lexical match in document title for existing tag '{}'",
+                        ct.tag
+                    ),
+                    "heading-contains" => format!(
+                        "Matches section headings for existing library tag '{}'",
+                        ct.tag
+                    ),
+                    "salient-term" => format!(
+                        "High TF-IDF term density aligned with existing tag '{}'",
+                        ct.tag
+                    ),
                     _ => format!("Taxonomy alignment with existing library tag '{}'", ct.tag),
                 };
 
@@ -126,7 +144,10 @@ pub fn evaluate_and_filter_tags(
             let canonical = canonicalize_tag(&st.term, existing_library_tags);
             let norm = normalize_for_comparison(&canonical);
 
-            if !dismissed_norms.contains(&norm) && !manual_norms.contains(&norm) && !seen_canonical.contains(&norm) {
+            if !dismissed_norms.contains(&norm)
+                && !manual_norms.contains(&norm)
+                && !seen_canonical.contains(&norm)
+            {
                 let confidence = (0.70 + (st.score - 3.0) * 0.04).clamp(0.70, 0.92);
                 if confidence >= config.min_confidence {
                     seen_canonical.insert(norm);
@@ -149,7 +170,11 @@ pub fn evaluate_and_filter_tags(
     }
 
     // Sort by confidence descending
-    proposed_details.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+    proposed_details.sort_by(|a, b| {
+        b.confidence
+            .partial_cmp(&a.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     if proposed_details.len() > max_tags {
         proposed_details.truncate(max_tags);
@@ -165,30 +190,22 @@ mod tests {
     #[test]
     fn test_insufficient_evidence_produces_zero_tags() {
         let config = PolicyConfig::default();
-        let details = evaluate_and_filter_tags(
-            "Short note",
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &[],
-            &config,
+        let details = evaluate_and_filter_tags("Short note", &[], &[], &[], &[], &[], &[], &config);
+        assert!(
+            details.is_empty(),
+            "Zero tags should be produced for weak evidence"
         );
-        assert!(details.is_empty(), "Zero tags should be produced for weak evidence");
     }
 
     #[test]
     fn test_dismissed_and_manual_tags_are_not_duplicated() {
         let config = PolicyConfig::default();
-        let domain_matches = vec![
-            DomainMatch {
-                domain_name: "Mathematics",
-                confidence: 0.90,
-                matched_terms: vec!["calculus".to_string()],
-                reason: "Matched calculus".to_string(),
-            },
-        ];
+        let domain_matches = vec![DomainMatch {
+            domain_name: "Mathematics",
+            confidence: 0.90,
+            matched_terms: vec!["calculus".to_string()],
+            reason: "Matched calculus".to_string(),
+        }];
 
         // If "Mathematics" was dismissed by the user, policy should not re-add it
         let details = evaluate_and_filter_tags(

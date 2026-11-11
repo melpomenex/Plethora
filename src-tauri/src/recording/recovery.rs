@@ -98,13 +98,14 @@ pub async fn reconcile_recording_session(
         }
         expected_sequence = entry.sequence + 1;
 
-        let part_path = match safe_resolve_recording_path(data_dir, session_id, &entry.relative_path) {
-            Ok(p) => p,
-            Err(_) => {
-                corrupt_parts += 1;
-                continue;
-            }
-        };
+        let part_path =
+            match safe_resolve_recording_path(data_dir, session_id, &entry.relative_path) {
+                Ok(p) => p,
+                Err(_) => {
+                    corrupt_parts += 1;
+                    continue;
+                }
+            };
 
         if !part_path.exists() {
             missing_gaps += 1;
