@@ -1,0 +1,26 @@
+%PDF-1.4
+%âãÏÓ
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Kids[3 0 R 4 0 R 5 0 R 6 0 R 7 0 R]/Count 5>>endobj
+3 0 obj<</Type/Page/Parent 2 0 R/Contents 8 0 R>>endobj
+4 0 obj<</Type/Page/Parent 2 0 R/Contents 9 0 R>>endobj
+5 0 obj<</Type/Page/Parent 2 0 R/Contents 10 0 R>>endobj
+6 0 obj<</Type/Page/Parent 2 0 R/Contents 11 0 R>>endobj
+7 0 obj<</Type/Page/Parent 2 0 R/Contents 12 0 R>>endobj
+8 0 obj<</Length 64>>stream
+BT /F1 12 Tf 72 720 Td (Study processes before scheduling) Tj ET
+endstream endobj
+9 0 obj<</Length 64>>stream
+BT /F1 12 Tf 72 720 Td (A process is an executing program) Tj ET
+endstream endobj
+10 0 obj<</Length 53>>stream
+BT /F1 12 Tf 72 720 Td (A context switch saves) Tj ET
+endstream endobj
+11 0 obj<</Length 65>>stream
+BT /F1 12 Tf 72 720 Td (translation lookaside buffer (TLB)) Tj ET
+endstream endobj
+12 0 obj<</Length 67>>stream
+BT /F1 12 Tf 72 720 Td (On a page fault, the processor traps) Tj ET
+endstream endobj
+trailer<</Root 1 0 R>>
+%%EOF

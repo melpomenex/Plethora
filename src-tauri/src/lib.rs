@@ -78,6 +78,8 @@ mod tray;
 
 mod epub_server;
 #[cfg(test)]
+mod golden_test_support;
+#[cfg(test)]
 mod issue6_test_support;
 mod media_compat;
 mod media_server;

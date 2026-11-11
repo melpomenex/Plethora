@@ -1326,3 +1326,435 @@
 - **Milestone 4 Achieved:** A user can complete an examination, practice questions with immediate feedback, recover sessions seamlessly across interruptions/restarts, and review past attempt history with full source citations.
 - **Next Change:** `implement-rubric-based-exam-grading` (Change 5)
 - **Next Eligible Task:** `C5-T01`
+
+---
+
+### Task Checkpoint: C6-T04 (repair + verification)
+- **Change:** `derive-study-gaps-from-exam-evidence`
+- **Task ID:** `C6-T04`
+- **Status:** COMPLETE
+- **Files Modified:**
+  - `src-tauri/src/database/learning_evidence_repository.rs` (list filter fix)
+  - `openspec/changes/derive-study-gaps-from-exam-evidence/tasks.md`
+- **Implementation Summary:**
+  - Fixed `list_learning_gaps` filter: `(?2=1 OR status='active')` so non-dismissed listing returns only active gaps; resolved gaps require includeDismissed=true. Previously resolved leaked into active listing causing test failure.
+  - Verified transactional settlement hooks in `exam_session_repository.rs` (delete recompute) and `exam_grading_repository.rs` (final-grade evidence upsert), 8 learning-evidence commands registered in `lib.rs`/`commands/mod.rs`.
+- **Verification Evidence:**
+  - `cargo test --lib learning_evidence`: 5 passed (3 repo + 2 migration)
+  - `cargo test --lib study_`: 31 passed, 0 failed
+  - `openspec validate derive-study-gaps-from-exam-evidence --type change --strict --no-interactive`: Valid
+- **Next Eligible Task:** `C6-T05`
+
+---
+
+### Task Checkpoint: C6-T05
+- **Change:** `derive-study-gaps-from-exam-evidence`
+- **Task ID:** `C6-T05`
+- **Status:** COMPLETE
+- **Files Modified:**
+  - `src/types/knowledgeGaps.ts` (canonical re-export, legacy provenance types)
+  - `src/stores/knowledgeGapsStore.ts` (non-persisted API cache, legacy-compat recordGap/dismiss/resolve + load/refresh/dismissNative/reconcile/loadPlanEvidence)
+- **Files Created:**
+  - `src/api/learning-evidence.ts` (8 commands, fail-closed unsupported_platform)
+  - `src/api/__tests__/learning-evidence.test.ts` (3 tests)
+  - `src/lib/study-plans/evidence/legacyKnowledgeGapsImport.ts` (preview/convert/execute, backup rename only after commit)
+  - `src/lib/study-plans/evidence/__tests__/legacyKnowledgeGapsImport.test.ts` (3 tests)
+- **Verification Evidence:**
+  - `npm run test:run -- src/api/__tests__/learning-evidence.test.ts src/lib/study-plans/evidence/__tests__/legacyKnowledgeGapsImport.test.ts src/stores/__tests__/knowledgeGapsStore.test.ts`: 3 files, 8 tests passed
+  - `npx eslint` on 6 touched files: clean (global tsc has pre-existing unrelated errors, no new errors in touched files)
+  - `openspec validate derive-study-gaps-from-exam-evidence --type change --strict --no-interactive`: Valid
+- **Next Eligible Task:** `C6-T06`
+
+---
+
+### Task Checkpoint: C6-T06
+- **Change:** `derive-study-gaps-from-exam-evidence`
+- **Task ID:** `C6-T06`
+- **Status:** COMPLETE
+- **Files Modified:**
+  - `src/components/study-plans/StudyPlanEditor.tsx` (new Evidence & Gaps tab)
+  - `src/components/study-plans/results/AttemptResults.tsx` (Final-only evidence note)
+  - `src/components/study-plans/results/AttemptHistory.tsx` (Final-only note + same-paper/cross-paper test ids, fixed priorAttempt scope)
+- **Files Created:**
+  - `src/components/study-plans/evidence/UncertaintyReasons.tsx`, `EvidenceSummaryCard.tsx`, `NodeLearningProgress.tsx`, `WeakConceptList.tsx`, `KnowledgeGapCard.tsx`, `GapEvidencePanel.tsx`, `GapHistory.tsx`, `StudyPlanProgress.tsx`, `index.ts`
+  - `src/components/study-plans/evidence/__tests__/evidenceViews.test.tsx` (6 tests)
+- **Verification Evidence:**
+  - `npm run test:run -- src/components/study-plans/evidence/__tests__/evidenceViews.test.tsx src/components/study-plans/__tests__/StudyPlanEditor.test.tsx src/components/study-plans/results/__tests__/AttemptHistory.test.tsx src/components/study-plans/results/__tests__/AttemptResults.test.tsx`: 4 files, 15 tests passed (fixed priorAttempt ReferenceError)
+  - `npx eslint` on evidence + modified views: clean
+  - `openspec validate derive-study-gaps-from-exam-evidence --type change --strict --no-interactive`: Valid
+- **Next Eligible Task:** `C6-T07`
+
+---
+
+### Task Checkpoint: C6-T07
+- **Change:** `derive-study-gaps-from-exam-evidence`
+- **Task ID:** `C6-T07`
+- **Status:** COMPLETE
+- **Files Created:**
+  - `src/lib/study-plans/remediation/remediationService.ts` (practice/follow-up/plan-adjustment draft builders, frozen-scope guard, no auto-start/scheduler/provider)
+  - `src/components/study-plans/remediation/RemediationAction.tsx`, `RemediationDisposition.tsx`, `RemediationList.tsx`, `PerformanceComparison.tsx`, `index.ts`
+  - `src/lib/study-plans/remediation/__tests__/remediationService.test.tsx` (3 tests)
+- **Verification Evidence:**
+  - `npm run test:run -- src/lib/study-plans/evidence/ src/lib/study-plans/remediation/ src/components/study-plans/evidence/ src/api/__tests__/learning-evidence.test.ts src/stores/__tests__/knowledgeGapsStore.test.ts`: 7 files, 40 tests passed
+  - `npx eslint` on remediation + evidence: clean; grep confirms no scheduler/queue/FSRS writes (comment only)
+  - `cargo test --lib study_` (from src-tauri): 31 passed, 0 failed
+  - `openspec validate derive-study-gaps-from-exam-evidence --type change --strict --no-interactive`: Valid
+- **Next Eligible Task:** `C6-T08`
+
+---
+
+### Task Checkpoint: C6-T08
+- **Change:** `derive-study-gaps-from-exam-evidence`
+- **Task ID:** `C6-T08`
+- **Status:** COMPLETE (with honestly recorded unrelated/blocked gates)
+- **Files Created:**
+  - `openspec/changes/derive-study-gaps-from-exam-evidence/verification.md`
+- **Files Modified:**
+  - `openspec/changes/derive-study-gaps-from-exam-evidence/tasks.md`
+  - Rust formatting only via `cargo fmt`: `commands/learning_evidence.rs`, `database/exam_session_repository.rs`, `database/learning_evidence_repository.rs`, `database/migrations.rs`, `models/learning_evidence.rs`
+- **Verification Evidence:**
+  - `npm run test:run -- src/lib/study-plans/evidence/ src/lib/study-plans/remediation/ src/components/study-plans/evidence/ src/api/__tests__/learning-evidence.test.ts src/stores/__tests__/knowledgeGapsStore.test.ts src/components/study-plans/results/__tests__/ src/components/study-plans/__tests__/StudyPlanEditor.test.tsx`: 11 files, 51 passed
+  - `cargo test --lib study_` (src-tauri): 31 passed, 0 failed
+  - `npm run test:wave5:regression`: 9 files, 46 passed (review/FSRS isolation)
+  - `npx tsc --noEmit`: 0 errors in C6 touched files; global pre-existing unrelated errors untouched
+  - `npx eslint` scoped: 0 errors (4 pre-existing warnings)
+  - `cargo fmt --check`: pass after `cargo fmt`
+  - `npm run bench:check`: FAIL on 1 unrelated pre-existing `podcastAd/cue-regex-throughput` regression (0.05356 > limit 0.04925); stale-below WARNs; no C6 baseline edited
+  - `cargo test --lib` full: NOT COMPLETED (timeout at 120s and 600s); targeted suite used instead
+  - `openspec validate derive-study-gaps-from-exam-evidence --type change --strict --no-interactive`: Valid
+  - Real-provider/device: NOT RUN / NOT QUALIFIED (no paid calls, no physical matrix)
+- **Change 6 Complete:** All C6-T01..T08 checked with executed evidence. C7 may consume summaries/gaps/recommendations.
+- **Next Eligible Task:** `C7-T01` (`integrate-study-plans-with-adaptive-practice`)
+
+---
+
+### Task Checkpoint: C7-T01
+- **Change:** `integrate-study-plans-with-adaptive-practice`
+- **Task ID:** `C7-T01`
+- **Status:** COMPLETE
+- **Files Modified:**
+  - `src-tauri/src/database/assessment_blueprint_repository.rs` (C7 narrow validation: diagnostic 4-12/essay-rejected/timer-null, practice timer-null on create/save/publish + test)
+  - `src-tauri/src/database/learning_evidence_repository.rs` (strict diagnostic adapter: mode=diagnostic/complete/all-final/no-evidence guards + test)
+  - `openspec/changes/integrate-study-plans-with-adaptive-practice/tasks.md`
+- **Files Created:**
+  - `src/lib/study-plans/diagnostics/diagnosticConfig.ts` (default 6, 4-12, essay/timer rejection, practice timer)
+  - `src/lib/study-plans/diagnostics/diagnosticPriorEvidence.ts` (Skip->null, complete/final/revision guards, sparse insufficient)
+  - `src/lib/study-plans/diagnostics/curriculumAdaptation.ts` (rank 0/1/2 preference, lock precedence, DAG-safe)
+  - `src/lib/study-plans/diagnostics/__tests__/diagnostics.test.ts` (3 tests)
+- **Notes:**
+  - `src/api/learning-evidence.ts:get_diagnostic_prior_evidence` already existed from C6-T05 with shared signature; no duplicate wrapper added. No migration added; only existing evidence read command used.
+- **Verification Evidence:**
+  - `npm run test:run -- src/lib/study-plans/diagnostics/__tests__/diagnostics.test.ts`: 3 passed
+  - `cargo test --lib diagnostic`: 5 passed (2 new C7 + 3 unrelated diagnostics)
+  - `cargo test --lib study_`: 31 passed, 0 failed
+  - `npx eslint src/lib/study-plans/diagnostics/ src/api/learning-evidence.ts`: clean
+  - `npx tsc --noEmit`: 0 errors in new diagnostics files (global pre-existing errors untouched)
+  - `cargo fmt --check`: pass after `cargo fmt`
+  - `openspec validate integrate-study-plans-with-adaptive-practice --type change --strict --no-interactive`: Valid
+- **Next Eligible Task:** `C7-T02`
+
+---
+
+### Task Checkpoint: C7-T02
+- **Change:** `integrate-study-plans-with-adaptive-practice`
+- **Task ID:** `C7-T02`
+- **Status:** COMPLETE
+- **Files Modified:**
+  - `src/lib/study-plans/assessments/publicQuestion.ts` (exam/diagnostic always exclude hints, practice-only reveal)
+  - `src/lib/study-plans/attempts/responseValidation.ts` (hint 0..3 bounds, precommitted/order/exam-leak validator)
+  - `src/lib/study-plans/attempts/attemptPolicy.ts` (Finish dedup equality helper)
+  - `src/lib/study-plans/attempts/attemptController.ts` (practice-only highest-used hint tracking)
+  - `src/components/study-plans/attempts/PracticeCheckPanel.tsx` (hintLevel prop, clamped 0..3 passthrough)
+  - `src-tauri/src/database/exam_session_repository.rs` (check hint bounds/precommit; practice Finish reuse-on-identical else ordinal append; seed hints; new tests)
+  - `openspec/changes/integrate-study-plans-with-adaptive-practice/tasks.md`
+- **Files Created:**
+  - `src/lib/study-plans/practice/hintState.ts` (sequential reveal, level lookup)
+  - `src/lib/study-plans/practice/practiceAdaptation.ts` (<.6 dec/min1, >.85 no-hints inc/max5, else same + exclusions)
+  - `src/lib/study-plans/practice/__tests__/practiceHints.test.ts` (3 tests)
+- **Verification Evidence:**
+  - `npm run test:run -- src/lib/study-plans/practice/ ... publicQuestion/questionValidation/questionCodec/attempts/AttemptRunner/PracticeCheck`: 12 files, 114 passed (existing C3/C4 suites green)
+  - `cargo test --lib exam_session`: 6 passed (incl. new hint-bounds/Finish-dedup + fixed seed hints)
+  - `cargo test --lib study_`: 31 passed; `cargo test --lib diagnostic`: 5 passed
+  - `npx eslint` scoped: clean; `npx tsc --noEmit`: 0 errors in touched files
+  - `cargo fmt --check`: pass after `cargo fmt`
+  - `openspec validate integrate-study-plans-with-adaptive-practice --type change --strict --no-interactive`: Valid
+- **Next Eligible Task:** `C7-T03`
+
+---
+
+### Task Checkpoint: C7-T03
+- **Change:** `integrate-study-plans-with-adaptive-practice`
+- **Task ID:** `C7-T03`
+- **Status:** COMPLETE
+- **Files Modified:**
+  - `src/components/study-plans/StudyPlanCreateForm.tsx` (optional diagnosticSlot host)
+  - `src/components/study-plans/CurriculumGenerator.tsx` (diagnosticSlot passthrough to preview)
+  - `src/components/study-plans/CurriculumDraftPreview.tsx` (diagnosticSlot render)
+  - `src/components/study-plans/assessments/AssessmentBuilder.tsx` (initialMode/initialConfig/onStartedAttempt; fixed TDZ shadowing bug)
+  - `openspec/changes/integrate-study-plans-with-adaptive-practice/tasks.md`
+- **Files Created:**
+  - `src/components/study-plans/diagnostics/DiagnosticChoice.tsx`, `DiagnosticGenerationPanel.tsx`, `DiagnosticResumeCard.tsx`, `DiagnosticResultsAdapter.tsx`, `index.ts`
+  - `src/components/study-plans/diagnostics/__tests__/diagnosticWizard.test.tsx` (4 tests)
+- **Failure Fixed:**
+  - TDZ shadowing: local `const initialConfig` referenced prop `initialConfig` in its own initializer (ReferenceError, builder init failed). Renamed local to `baseConfig` with `configOverride` alias.
+- **Verification Evidence:**
+  - `npm run test:run -- src/components/study-plans/diagnostics/ ... CreateForm/curriculumGenerationUI/AssessmentBuilder .../diagnostics lib`: 5 files, 24 passed (incl. Take/Skip no-artifact, Take persists + resume, pending disables Apply, no-earlier-imports)
+  - `npx eslint` scoped: clean
+  - `openspec validate integrate-study-plans-with-adaptive-practice --type change --strict --no-interactive`: Valid
+- **Next Eligible Task:** `C7-T04`
+
+---
+
+### Task Checkpoint: C7-T04
+- **Change:** `integrate-study-plans-with-adaptive-practice`
+- **Task ID:** `C7-T04`
+- **Status:** COMPLETE
+- **Files Modified:**
+  - `src/components/tutor/TutorSheet.tsx` (studyContext + retrieveImpl props, scoped retrieve closure, empty-ids refuse, scope-key reset; session.ts unchanged)
+  - `openspec/changes/integrate-study-plans-with-adaptive-practice/tasks.md`
+- **Files Created:**
+  - `src/components/study-plans/tutoring/studyTutorContext.ts` (validated context builder + bounded material)
+  - `src/components/study-plans/tutoring/studyTutorPrivacy.ts` (fail-closed preflight)
+  - `src/components/study-plans/tutoring/StudyTutorHost.tsx` (refuse UI vs scoped TutorSheet)
+  - `src/components/study-plans/tutoring/index.ts`
+  - `src/components/study-plans/tutoring/__tests__/studyTutor.test.tsx` (4 tests)
+- **Verification Evidence:**
+  - `npm run test:run -- src/components/study-plans/tutoring/ src/components/language/__tests__/tutorIntegration.test.tsx src/components/viewer/__tests__/SelectionActionsSheet.relationships.test.tsx`: 3 files, 16 passed (scoped retrieval filters, no global fallback, missing/deleted/excluded refuse, non-Study defaults unchanged)
+  - `npx eslint` scoped: clean
+  - `openspec validate integrate-study-plans-with-adaptive-practice --type change --strict --no-interactive`: Valid
+- **Next Eligible Task:** `C7-T05`
+
+---
+
+### Task Checkpoint: C7-T05
+- **Change:** `integrate-study-plans-with-adaptive-practice`
+- **Task ID:** `C7-T05`
+- **Status:** COMPLETE
+- **Files Modified:**
+  - `src/components/study-plans/attempts/AttemptRunner.tsx` (practice-only hint control/guidance, hintLevel passthrough, return context)
+  - `src/components/study-plans/attempts/PracticeCheckPanel.tsx` (C7-T02 hintLevel already; reused)
+  - `src/components/study-plans/assessments/AssessmentPreview.tsx` (Practice-only hint policy note)
+  - `openspec/changes/integrate-study-plans-with-adaptive-practice/tasks.md`
+- **Files Created:**
+  - `src/components/study-plans/practice/PracticeHintControl.tsx`, `PracticeGuidancePanel.tsx`, `NextPracticePanel.tsx`, `PracticeContextReturn.tsx`, `index.ts`
+  - `src/components/study-plans/practice/__tests__/practiceLifecycle.test.tsx` (4 tests)
+- **Verification Evidence:**
+  - `npm run test:run -- src/components/study-plans/practice/ ... AttemptRunner/PracticeCheck/AssessmentPreview/QuestionEditor`: 5 files, 23 passed (hint→check→tutor→recheck→Finish→Next, exact hint/repetition, no scheduler writes, restart disclosure)
+  - `npx eslint` scoped: clean
+  - `openspec validate integrate-study-plans-with-adaptive-practice --type change --strict --no-interactive`: Valid
+- **Next Eligible Task:** `C7-T06`
+
+---
+
+### Task Checkpoint: C7-T06
+- **Change:** `integrate-study-plans-with-adaptive-practice`
+- **Task ID:** `C7-T06`
+- **Status:** COMPLETE
+- **Files Modified:**
+  - `src/lib/ai/tasks/definitions/learnThisValidation.ts` (exported candidateSignature unchanged)
+  - `src/components/learn/LearnThisProposalSheet.tsx` (static clozeText/clozeRanges seed, acceptance/perCandidateProposalIds, per-candidate id with unknown fail-closed)
+  - `src/components/learn/acceptLearnThis.ts` (perCandidateProposalIds, per-candidate resolution in batch+cloze paths, collision/unknown fail closed)
+  - `openspec/changes/integrate-study-plans-with-adaptive-practice/tasks.md`
+- **Files Created:**
+  - `src/lib/study-plans/remediation/cardProposalAdapter.ts` (remediation→acceptanceId, signature→sha256, 300-char serializer, collision/duplicate fail closed)
+  - `src/lib/study-plans/remediation/cardAcceptance.ts` (reconcile-before-retry, allowClozeDuplicate=false)
+  - `src/components/study-plans/remediation/CardProposalHost.tsx` (static preview/edit/accept/reject, no auto cards)
+  - `src/lib/study-plans/remediation/__tests__/cardProposals.test.tsx` (3 tests)
+- **Verification Evidence:**
+  - `npm run test:run -- LearnThisProposalSheet/static/learnThisValidation/remediation`: 5 files, 33 passed (malformed/duplicate/cloze+non-cloze/same-twice/missing/reject, retry idempotent, legacy callers unchanged)
+  - `npx eslint` scoped: clean
+  - `openspec validate integrate-study-plans-with-adaptive-practice --type change --strict --no-interactive`: Valid
+- **Next Eligible Task:** `C7-T07`
+
+---
+
+### Task Checkpoint: C7-T07
+- **Change:** `integrate-study-plans-with-adaptive-practice`
+- **Task ID:** `C7-T07`
+- **Status:** COMPLETE
+- **Files Modified:**
+  - `src/components/study-plans/StudyPlansTab.tsx` (returnContext on runner/results/builder views)
+  - `src/components/study-plans/attempts/AttemptRunnerView.tsx` (+returnContext passthrough)
+  - `src/components/study-plans/results/AttemptResultsView.tsx` (+returnContext banner, recompute note)
+  - `src/components/study-plans/assessments/AssessmentBuilder.tsx` (+returnContext banner)
+  - `openspec/changes/integrate-study-plans-with-adaptive-practice/tasks.md`
+- **Files Created:**
+  - `src/components/study-plans/remediation/returnContext.ts`
+  - `src/components/study-plans/remediation/ReassessmentChoice.tsx` (retake-same vs new-paper, exclusions, no auto-start, source deleted/stale)
+  - `src/components/study-plans/remediation/WeakTopicWorkspace.tsx` (weak→source/tutor/practice/cards/dismiss→retake/new→results→plan)
+  - `src/components/study-plans/remediation/__tests__/reassessment.test.tsx` (3 tests)
+- **Verification Evidence:**
+  - `npm run test:run -- src/components/study-plans/remediation/__tests__/reassessment.test.tsx`: 3 passed (fixed duplicate-mount)
+  - `npm run test:run -- src/lib/study-plans/remediation/ src/components/study-plans/remediation/`: 3 files, 9 passed
+  - `npm run test:run -- remediation + AttemptResults + AttemptRunner`: 3 files, 11 passed
+  - `npx eslint` scoped: clean; `npx tsc --noEmit`: 0 errors in touched files
+  - `openspec validate integrate-study-plans-with-adaptive-practice --type change --strict --no-interactive`: Valid
+- **Next Eligible Task:** `C7-T08`
+
+---
+
+### Task Checkpoint: C7-T08
+- **Change:** `integrate-study-plans-with-adaptive-practice`
+- **Task ID:** `C7-T08`
+- **Status:** COMPLETE (with honestly recorded full-suite timeout)
+- **Files Created:**
+  - `openspec/changes/integrate-study-plans-with-adaptive-practice/verification.md`
+- **Files Modified:**
+  - `openspec/changes/integrate-study-plans-with-adaptive-practice/tasks.md`
+- **Verification Evidence:**
+  - C7 targeted Vitest: 9 files, 30 passed
+  - Existing-owner regression: 5 files, 30 passed; wave5: 9 files, 46 passed (no scheduler writes)
+  - Rust: diagnostic 5, exam_session 6, assessment_blueprint 5 — all passed
+  - `npx tsc --noEmit`: 0 errors in C7 touched files
+  - `npx eslint` scoped: clean; `cargo fmt --check`: pass
+  - `npm run bench:check`: PASS (70 compared OK; 27.2 MB)
+  - `cargo test --lib` full: NOT COMPLETED (timeout); targeted suites used instead
+  - `openspec validate integrate-study-plans-with-adaptive-practice --type change --strict --no-interactive`: Valid
+  - Real-provider/device: NOT RUN / NOT QUALIFIED
+- **Change 7 Complete:** All C7-T01..T08 checked with executed evidence.
+- **Next Eligible Task:** `C8-T01` (`validate-study-plans-and-examinations-end-to-end`)
+
+---
+
+### Task Checkpoint: C8-T01 (functional complete; strict validation blocked by tooling)
+- **Change:** `validate-study-plans-and-examinations-end-to-end`
+- **Task ID:** `C8-T01`
+- **Status:** FUNCTIONALLY COMPLETE — checkbox left unchecked (strict validator requires specs deltas; change is `skip_specs:true` by design, no behavior to spec)
+- **Files Created:**
+  - `src/test/study-plans-golden/fixtures/osCourse.ts`, `sourceManifest.ts`, `goldenOracle.ts`, `aliases.ts`, `schedulerSentinel.ts`
+  - `src/test/study-plans-golden/assets/os.pdf`, `ch01.xhtml`, `transcripts.json`
+  - `src/test/study-plans-golden/__tests__/fixtures.test.ts` (3 tests, incl. twice-identical run)
+  - `src-tauri/src/golden_test_support.rs` (test-only corpus loader + twice-identical test)
+- **Verification Evidence:**
+  - `npm run test:run -- src/test/study-plans-golden/`: 1 file, 3 tests passed (corpus/hashes/slots/scores/evidence math, asset determinism + mutation detection)
+  - `cargo test --lib golden_test_support` (src-tauri): 1 passed (3 docs + 5 concepts, idempotent reload)
+  - `npx eslint` fixtures/tests: clean; `cargo fmt --check`: pass after `cargo fmt`
+  - `openspec validate validate-study-plans-and-examinations-end-to-end --type change --strict/--no-interactive`: FAILS on missing specs deltas — pre-existing structural (change has no specs/ by `skip_specs:true` design; adding specs would violate "do not add behavior here"). Left unchecked per task rule.
+- **Next Eligible Task:** `C8-T02`
+
+---
+
+### Task Checkpoint: C8-T02 (functional complete; strict validation blocked by tooling)
+- **Change:** `validate-study-plans-and-examinations-end-to-end`
+- **Task ID:** `C8-T02`
+- **Status:** FUNCTIONALLY COMPLETE — checkbox left unchecked (C8 strict validator requires specs deltas; change is `skip_specs:true` by design)
+- **Files Created:**
+  - `src/test/study-plans-golden/scriptedProvider.ts`, `providerJournal.ts`, `networkGuard.ts`, `nativeHarness.ts`
+  - `src/e2e/study-plans-golden.spec.ts` (isolated harness smoke outline; full E2E NOT RUN in unit gates)
+  - `src/test/study-plans-golden/__tests__/harness.test.ts` (4 tests)
+- **Verification Evidence:**
+  - `npm run test:run -- src/test/study-plans-golden/`: 2 files, 7 tests passed (keyed fixtures, unexpected-call fail, network deny, alias/clock normalization, metadata-only journal; fixed payload-class substring assertion)
+  - `cargo test --lib golden_test_support` (src-tauri): 1 passed (temp SQLite create/reopen via real migrations)
+  - `npx eslint` harness/spec: clean; `cargo fmt --check`: pass after `cargo fmt`
+  - Playwright E2E: NOT RUN (needs dev server + native build; spec committed as outline)
+  - `openspec validate ... --strict`: blocked (same pre-existing C8 specs-delta tooling issue as T01)
+- **Next Eligible Task:** `C8-T03`
+
+---
+
+### Task Checkpoint: C8-T03 (functional unit layer complete; E2E NOT RUN; checkbox unchecked)
+- **Change:** `validate-study-plans-and-examinations-end-to-end`
+- **Task ID:** `C8-T03`
+- **Status:** FUNCTIONALLY COMPLETE (unit layer) — checkbox left unchecked (C8 strict validator tooling block; full E2E needs browser/native device)
+- **Files Created:**
+  - `src/test/study-plans-golden/goldenAssertions.ts` (30 steps, unit layer)
+  - `src/test/study-plans-golden/artifactSnapshots.ts` (normalized manifest builder)
+  - `src/test/study-plans-golden/__tests__/goldenSteps.test.ts` (3 tests incl. twice-identical run)
+- **Verification Evidence:**
+  - `npm run test:run -- src/test/study-plans-golden/`: 3 files, 10 tests passed (fixtures 3 + harness 4 + golden 3)
+  - Fixed null-skip assertion and missing maxPoints in step-16 fixture
+  - `npx eslint` golden files: clean
+  - E2E/integration layers: NOT RUN (need Playwright dev server + native temp DB + physical device); unit layer only
+  - `openspec validate ... --strict`: blocked (pre-existing C8 skip_specs tooling issue)
+- **Next Eligible Task:** `C8-T04`
+
+---
+
+### Task Checkpoint: C8-T04 (functional unit layer complete; E2E NOT RUN; checkbox unchecked)
+- **Change:** `validate-study-plans-and-examinations-end-to-end`
+- **Task ID:** `C8-T04`
+- **Status:** FUNCTIONALLY COMPLETE (unit layer) — checkbox left unchecked (C8 strict validator tooling block)
+- **Files Created:**
+  - `src/test/study-plans-golden/negativeCurriculum.ts`, `negativeQuestions.ts`, `negativeAttempts.ts`, `negativeGrading.ts`, `negativeEvidence.ts`, `adversarialSources.ts`
+  - `src/test/study-plans-golden/__tests__/negativeMatrix.test.ts` (7 tests)
+- **Verification Evidence:**
+  - `npm run test:run -- src/test/study-plans-golden/__tests__/negativeMatrix.test.ts`: 1 file, 7 tests passed
+  - `npx eslint` matrix files: clean
+  - Lease/cancel/late/upgrade covered by owning Rust suites (C2/C4/C5/C6 gates green)
+- **Next Eligible Task:** `C8-T05`
+
+---
+
+### Task Checkpoint: C8-T05 (functional unit layer complete; E2E/device NOT RUN; checkbox unchecked)
+- **Change:** `validate-study-plans-and-examinations-end-to-end`
+- **Task ID:** `C8-T05`
+- **Status:** FUNCTIONALLY COMPLETE (unit layer) — checkbox left unchecked (C8 strict validator tooling block)
+- **Files Created:**
+  - `src/test/study-plans-golden/privacyMatrix.ts`, `offlineMatrix.ts`, `sourceNavigationMatrix.ts`, `schedulerIsolation.ts`
+  - `src/test/study-plans-golden/__tests__/boundaries.test.ts` (5 tests)
+- **Verification Evidence:**
+  - `npm run test:run -- src/test/study-plans-golden/__tests__/boundaries.test.ts`: 1 file, 5 tests passed
+  - `npx eslint` matrix files: clean
+  - Audio/YouTube: explicit NOT QUALIFIED (no generic jump claim); physical-device matrix remains C8-T09
+- **Next Eligible Task:** `C8-T06`
+
+---
+
+### Task Checkpoint: C8-T06 (functional unit layer complete; E2E NOT RUN; checkbox unchecked)
+- **Change:** `validate-study-plans-and-examinations-end-to-end`
+- **Task ID:** `C8-T06`
+- **Status:** FUNCTIONALLY COMPLETE (unit layer) — checkbox left unchecked (C8 strict validator tooling block)
+- **Files Created:**
+  - `src/test/study-plans-golden/migrationFixtures.ts`
+  - `src/test/study-plans-golden/__tests__/migrations.test.ts` (2 tests)
+- **Verification Evidence:**
+  - `npm run test:run -- src/test/study-plans-golden/__tests__/migrations.test.ts`: 1 file, 2 tests passed
+  - `cargo test --lib migration_139`: 2 passed; `cargo test --lib migration_14`: 8 passed (fresh/prior, FK checks)
+  - `npx eslint` fixtures: clean
+  - Whole-DB backup/restore on temp DB + PWA refusal: unit-shape only; physical backup E2E NOT RUN
+- **Next Eligible Task:** `C8-T07`
+
+---
+
+### Task Checkpoint: C8-T07 (functional unit layer complete; E2E/device NOT RUN; checkbox unchecked)
+- **Change:** `validate-study-plans-and-examinations-end-to-end`
+- **Task ID:** `C8-T07`
+- **Status:** FUNCTIONALLY COMPLETE (unit layer) — checkbox left unchecked (C8 strict validator tooling block)
+- **Files Created:**
+  - `src/lib/study-plans/topology.bench.ts`, `assessments/questionValidation.bench.ts`, `attempts/objectiveGrading.bench.ts`, `evidence/evidenceAggregation.bench.ts`
+  - `src/test/study-plans-golden/__tests__/accessibility.test.tsx` (3 tests)
+- **Files Modified:**
+  - `scripts/perf-baselines.json` (4 new C8-T07 baselines only, no existing budget loosened)
+- **Verification Evidence:**
+  - `npm run test:run -- src/test/study-plans-golden/__tests__/accessibility.test.tsx`: 1 file, 3 tests passed (fixed import depth)
+  - `npm run test:scripts`: pass; `npm run docs:validate`: 76 files pass; `npm run check:bundle`: OK 27.2 MB
+  - `npm run bench:check`: 4 new benches pass with new baselines; 2 unrelated pre-existing failures (podcastAd cue-regex, haptic-policy-admission) NOT touched per no-regression rule; stale-below WARNs untouched
+  - `npx tsc --noEmit`: 0 errors in touched files; `npx eslint` scoped: clean after unused-var fix; `cargo fmt --check`: pass; `cargo test --lib study_`: 31 passed
+  - E2E/a11y device matrix (200% zoom/mobile reflow/touch/reduced-motion/screen reader): NOT RUN — unit labels/status/focus only
+- **Next Eligible Task:** `C8-T08`
+
+---
+
+### Task Checkpoint: C8-T08 (NOT RUN — needs user authorization/devices; documented)
+- **Change:** `validate-study-plans-and-examinations-end-to-end`
+- **Task ID:** `C8-T08`
+- **Status:** NOT RUN / NOT QUALIFIED — no paid calls made, no devices available
+- **Files Created:**
+  - `openspec/changes/validate-study-plans-and-examinations-end-to-end/evaluation/provider-matrix.md`, `curriculum-quality.md`, `question-quality.md`, `rubric-quality.md`, `privacy-cost-evidence.md`
+- **Verification Evidence:** No executions; procedure + fixed sample sets documented only. Paid calls require explicit separate consent; physical devices require access.
+- **Next Eligible Task:** `C8-T09`
+
+---
+
+### Task Checkpoint: C8-T09 (final audit complete with honest blockers; checkbox unchecked)
+- **Change:** `validate-study-plans-and-examinations-end-to-end`
+- **Task ID:** `C8-T09`
+- **Status:** AUDIT COMPLETE — release NOT QUALIFIED (E2E/device/provider NOT RUN; C8 strict-validation tooling block)
+- **Files Created:**
+  - `openspec/changes/validate-study-plans-and-examinations-end-to-end/verification.md`
+  - `evidence/command-log.md`, `evidence/platform-matrix.md`, `evidence/accessibility-matrix.md`, `evidence/golden-normalized-manifest.json`, `evidence/regression-matrix.md`
+- **Verification Evidence:**
+  - `openspec validate --all --strict --no-interactive`: 682 passed, 46 failed (all 46 pre-existing unrelated; C1–C7 program changes pass; C8 fails on skip_specs tooling)
+  - All C8 unit suites pass; E2E/device/provider explicitly NOT RUN
+  - Traceability/risk/handoff audit recorded in verification.md; no commit/branch/PR/push
+- **Program End State:** C1–C7 complete+verified; C8 unit-layer complete (T01–T07 functional, T08/T09 documented NOT RUN). No safe work remains without E2E/device/provider authorization or validator-tooling decision.

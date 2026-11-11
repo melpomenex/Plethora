@@ -1,0 +1,19 @@
+{
+  "video": "Synthetic Scheduling Lecture",
+  "extracts": [
+    {
+      "extractId": "vext_fixture_rr",
+      "segment": "seg_fixture_rr",
+      "start": 70.0,
+      "end": 99.0,
+      "text": "Round Robin gives each runnable thread a time quantum. When the quantum expires, the thread moves to the back of the ready queue. A shorter quantum can improve responsiveness but adds more context-switch overhead."
+    },
+    {
+      "extractId": "vext_fixture_fcfs",
+      "segment": "seg_fixture_fcfs",
+      "start": 300.0,
+      "end": 325.0,
+      "text": "First Come First Served runs the first arriving job to completion. Round Robin rotates runnable jobs through fixed quanta."
+    }
+  ]
+}

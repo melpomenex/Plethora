@@ -8436,7 +8436,10 @@ mod tests {
         )
         .execute(&pool)
         .await;
-        assert!(dup_evidence.is_err(), "Duplicate (source_kind, source_id, concept_id) must fail UNIQUE constraint");
+        assert!(
+            dup_evidence.is_err(),
+            "Duplicate (source_kind, source_id, concept_id) must fail UNIQUE constraint"
+        );
 
         // 4. Test score range CHECK(observed_score BETWEEN 0 AND 1)
         let bad_score = sqlx::query(
@@ -8445,7 +8448,10 @@ mod tests {
         )
         .execute(&pool)
         .await;
-        assert!(bad_score.is_err(), "observed_score > 1 must fail CHECK constraint");
+        assert!(
+            bad_score.is_err(),
+            "observed_score > 1 must fail CHECK constraint"
+        );
 
         // 5. Test policy_version CHECK constraint
         let bad_policy = sqlx::query(
@@ -8454,7 +8460,10 @@ mod tests {
         )
         .execute(&pool)
         .await;
-        assert!(bad_policy.is_err(), "policy_version != 'evidence-v1' must fail CHECK constraint");
+        assert!(
+            bad_policy.is_err(),
+            "policy_version != 'evidence-v1' must fail CHECK constraint"
+        );
 
         // 6. Insert learning_concept_summaries
         sqlx::query(
@@ -8481,7 +8490,10 @@ mod tests {
         )
         .execute(&pool)
         .await;
-        assert!(dup_gap.is_err(), "Duplicate (concept_id, kind, rule_id) must fail UNIQUE constraint");
+        assert!(
+            dup_gap.is_err(),
+            "Duplicate (concept_id, kind, rule_id) must fail UNIQUE constraint"
+        );
 
         // 9. Insert learning_gap_evidence
         sqlx::query(
@@ -8507,17 +8519,25 @@ mod tests {
             .await
             .expect("Deleting gap_1 succeeds");
 
-        let (ge_count,): (i64,) = sqlx::query_as("SELECT count(*) FROM learning_gap_evidence WHERE gap_id = 'gap_1'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(ge_count, 0, "learning_gap_evidence must cascade delete with gap");
+        let (ge_count,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM learning_gap_evidence WHERE gap_id = 'gap_1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            ge_count, 0,
+            "learning_gap_evidence must cascade delete with gap"
+        );
 
-        let (rem_count,): (i64,) = sqlx::query_as("SELECT count(*) FROM learning_remediations WHERE gap_id = 'gap_1'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(rem_count, 0, "learning_remediations must cascade delete with gap");
+        let (rem_count,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM learning_remediations WHERE gap_id = 'gap_1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            rem_count, 0,
+            "learning_remediations must cascade delete with gap"
+        );
 
         // 12. Test CASCADE deletion of grade -> learning_evidence
         sqlx::query("DELETE FROM exam_grades WHERE id = 'grd_1'")
@@ -8525,11 +8545,15 @@ mod tests {
             .await
             .expect("Deleting grd_1 succeeds");
 
-        let (ev_count,): (i64,) = sqlx::query_as("SELECT count(*) FROM learning_evidence WHERE grade_id = 'grd_1'")
-            .fetch_one(&pool)
-            .await
-            .unwrap();
-        assert_eq!(ev_count, 0, "learning_evidence must cascade delete with grade");
+        let (ev_count,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM learning_evidence WHERE grade_id = 'grd_1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(
+            ev_count, 0,
+            "learning_evidence must cascade delete with grade"
+        );
 
         let fk_violations: Vec<(String, i64, String, i64)> =
             sqlx::query_as("PRAGMA foreign_key_check")

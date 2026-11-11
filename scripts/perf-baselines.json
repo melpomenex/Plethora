@@ -13,7 +13,7 @@
     },
     "kp-timeline/sample-sweep-desktop": {
       "cost": 0.1521,
-      "reason": "knowledge-peck-startup-animation: initial baseline for a full canonical-desktop sampleTimeline sweep at 60 fps frame granularity (113 frames, 9 elements each) — the per-frame cost the single rAF driver pays during the ~1.5 s choreography."
+      "reason": "knowledge-peck-startup-animation: initial baseline for a full canonical-desktop sampleTimeline sweep at 60 fps frame granularity (113 frames, 9 elements each) \u2014 the per-frame cost the single rAF driver pays during the ~1.5 s choreography."
     },
     "kp-timeline/sample-sweep-phone": {
       "cost": 0.0776,
@@ -126,7 +126,7 @@
     "reader-speech-index/build": {
       "cost": 3.759,
       "tolerance": 1.4,
-      "reason": "improve-reader-tts: initial baseline for building the anchored speech index (24 seeded sections × 30 paragraphs, CHUNK_MAX packing with page markers)."
+      "reason": "improve-reader-tts: initial baseline for building the anchored speech index (24 seeded sections \u00d7 30 paragraphs, CHUNK_MAX packing with page markers)."
     },
     "reader-speech-index/locate": {
       "cost": 4.128,
@@ -219,7 +219,7 @@
     },
     "daqe/project-snapshot-5000-items-no-snapshot": {
       "cost": 0.05393,
-      "reason": "add-dynamic-adaptive-queue-engine: initial baseline for the no-snapshot fallback path, which runs on first paint and on every store reload before a background re-rank completes. It must stay far cheaper than the projecting path — a ratio of ~14x here is the signal that the previous order is being preserved rather than recomputed."
+      "reason": "add-dynamic-adaptive-queue-engine: initial baseline for the no-snapshot fallback path, which runs on first paint and on every store reload before a background re-rank completes. It must stay far cheaper than the projecting path \u2014 a ratio of ~14x here is the signal that the previous order is being preserved rather than recomputed."
     },
     "haptic-policy-admission-512": {
       "cost": 0.4462,
@@ -255,7 +255,7 @@
     },
     "assistant-video/topical-2h-cached": {
       "cost": 0.2246,
-      "reason": "unify-assistant-conversation-and-video-context: initial baseline for query-time transcript planning on a cached 2-hour transcript (3,600 segments) — the per-prompt cost of the BM25 window ranking that replaced the 2,000-token head truncation. Normalized by the noise anchor; no tiktoken encode/decode runs on playback ticks."
+      "reason": "unify-assistant-conversation-and-video-context: initial baseline for query-time transcript planning on a cached 2-hour transcript (3,600 segments) \u2014 the per-prompt cost of the BM25 window ranking that replaced the 2,000-token head truncation. Normalized by the noise anchor; no tiktoken encode/decode runs on playback ticks."
     },
     "assistant-video/playback-2h-cached": {
       "cost": 0.1207,
@@ -298,7 +298,7 @@
     },
     "passageScoring/normalize-1200-chars": {
       "cost": 0.255,
-      "reason": "Re-recorded in fix-learning-agent-model-routing-and-tool-orchestration: this benchmark is untouched by the change, but local runs consistently measure 0.246–0.255 (vs 0.1884 baseline) — machine/measurement drift on the normalization path. Re-recorded to keep the gate green; no code in this path changed."
+      "reason": "Re-recorded in fix-learning-agent-model-routing-and-tool-orchestration: this benchmark is untouched by the change, but local runs consistently measure 0.246\u20130.255 (vs 0.1884 baseline) \u2014 machine/measurement drift on the normalization path. Re-recorded to keep the gate green; no code in this path changed."
     },
     "passageScoring/queue-8-push-pop": {
       "cost": 0.008359,
@@ -308,6 +308,22 @@
     "passageScoring/sha256-2400-chars": {
       "cost": 0.3521,
       "reason": "complete-reader-extract-worthiness-integration: initial baseline (anchor-calibrated full local bench:check run) for the self-contained SHA-256 primitive alone over 16 seeded 2,400-character passages."
+    },
+    "study-plans/topology-order-100-nodes": {
+      "cost": 0.07429,
+      "reason": "C8-T07 golden fixture: Kahn ordering over worst-supported 100 manual nodes (60 edges); deterministic seeded input."
+    },
+    "study-plans/objective-grading-40-items": {
+      "cost": 0.0008819,
+      "reason": "C8-T07 golden fixture: deterministic objective grading over 40 single-select items."
+    },
+    "study-plans/question-validation-40-items": {
+      "cost": 0.01859,
+      "reason": "C8-T07 golden fixture: fail-closed validation over 40 items."
+    },
+    "study-plans/evidence-aggregation-1000-rows": {
+      "cost": 2.593,
+      "reason": "C8-T07 golden fixture: evidence-v1 fold over 1000 rows (250 groups)."
     }
   }
 }
