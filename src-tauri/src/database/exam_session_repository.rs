@@ -763,6 +763,14 @@ impl ExamSessionRepository {
                 .map_err(|e| {
                     StudyCommandError::storage_failed(format!("Failed to insert grade: {}", e))
                 })?;
+
+                if grade.state == "final" {
+                    crate::database::LearningEvidenceRepository::record_evidence_for_grade_tx(
+                        &mut tx,
+                        &grade_id,
+                    )
+                    .await?;
+                }
             }
         }
 
@@ -981,6 +989,14 @@ impl ExamSessionRepository {
                 StudyCommandError::storage_failed(format!("Failed to insert practice grade: {}", e))
             })?;
 
+            if og.state == "final" {
+                crate::database::LearningEvidenceRepository::record_evidence_for_grade_tx(
+                    &mut tx,
+                    &grade_id,
+                )
+                .await?;
+            }
+
             grade_res = Some(ExamGrade {
                 id: grade_id,
                 response_submission_id: sub_id,
@@ -1084,9 +1100,24 @@ impl ExamSessionRepository {
         pool: &Pool<Sqlite>,
         attempt_id: &str,
     ) -> Result<(), StudyCommandError> {
+        let affected_concepts: Vec<String> = sqlx::query_scalar(
+            "SELECT DISTINCT le.concept_id FROM learning_evidence le
+             JOIN exam_grades g ON g.id = le.grade_id
+             JOIN exam_response_submissions s ON s.id = g.response_submission_id
+             WHERE s.attempt_id = ?1",
+        )
+        .bind(attempt_id)
+        .fetch_all(pool)
+        .await
+        .unwrap_or_default();
+
+        let mut tx = pool.begin().await.map_err(|e| {
+            StudyCommandError::storage_failed(format!("Failed to begin delete transaction: {}", e))
+        })?;
+
         let result = sqlx::query("DELETE FROM exam_attempts WHERE id = ?")
             .bind(attempt_id)
-            .execute(pool)
+            .execute(&mut *tx)
             .await
             .map_err(|e| {
                 StudyCommandError::storage_failed(format!("Failed to delete exam attempt: {}", e))
@@ -1097,6 +1128,19 @@ impl ExamSessionRepository {
                 "study.assessment.error.attempt_not_found",
             ));
         }
+
+        if !affected_concepts.is_empty() {
+            crate::database::LearningEvidenceRepository::recompute_concepts_tx(
+                &mut tx,
+                &affected_concepts,
+                None,
+            )
+            .await?;
+        }
+
+        tx.commit().await.map_err(|e| {
+            StudyCommandError::storage_failed(format!("Failed to commit delete transaction: {}", e))
+        })?;
 
         Ok(())
     }

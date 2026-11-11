@@ -17,6 +17,7 @@ pub mod language_knowledge;
 pub mod language_lexicon;
 pub mod language_practice;
 pub mod language_profile;
+pub mod learning_evidence;
 pub mod learning_item;
 pub mod playlist;
 pub mod position;
@@ -59,6 +60,7 @@ pub use language_profile::{
     ProfileLifecycle, ProfilePreferences, ResolvedLanguageProfileContext, DEFAULT_ACCOUNT_SCOPE,
     DEFAULT_WORKSPACE_SCOPE, LANGUAGE_PROFILE_SCHEMA_VERSION,
 };
+pub use learning_evidence::*;
 pub use learning_item::{
     CardVersionEntry, ItemState, ItemType, LearningItem, MemoryState, ReviewRating,
 };

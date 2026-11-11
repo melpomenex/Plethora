@@ -322,6 +322,15 @@ impl ExamGradingRepository {
             }
         }
 
+        // 7. Atomic evidence settlement for final current grades
+        if input.state == "final" {
+            crate::database::LearningEvidenceRepository::record_evidence_for_grade_tx(
+                &mut tx,
+                &new_grade_id,
+            )
+            .await?;
+        }
+
         tx.commit().await.map_err(|e| {
             StudyCommandError::storage_failed(format!("Failed to commit grade transaction: {}", e))
         })?;

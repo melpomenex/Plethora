@@ -5438,6 +5438,107 @@ pub const MIGRATIONS: &[Migration] = &[
         BEGIN SELECT RAISE(ABORT,'committed_question_immutable'); END;
         "#,
     ),
+
+    Migration::new(
+        "143_learning_evidence_and_gaps",
+        r#"
+        CREATE TABLE learning_evidence (
+            id TEXT PRIMARY KEY,
+            concept_id TEXT NOT NULL,
+            concept_label TEXT NOT NULL,
+            plan_id TEXT REFERENCES study_plans(id) ON DELETE SET NULL,
+            node_id TEXT,
+            source_kind TEXT NOT NULL CHECK(source_kind IN
+                ('exam-final','practice-check','diagnostic-final','review-result')),
+            source_id TEXT NOT NULL,
+            grade_id TEXT REFERENCES exam_grades(id) ON DELETE CASCADE,
+            evidence_group_id TEXT NOT NULL,
+            question_fingerprint TEXT,
+            observed_score REAL CHECK(observed_score IS NULL OR
+                (observed_score >= 0 AND observed_score <= 1)),
+            outcome TEXT NOT NULL CHECK(outcome IN
+                ('correct','partial','incorrect','misconception','unanswered','skipped','review-lapse')),
+            misconception TEXT,
+            learner_confidence REAL CHECK(learner_confidence IS NULL OR
+                (learner_confidence >= 0 AND learner_confidence <= 1)),
+            hint_level INTEGER NOT NULL DEFAULT 0 CHECK(hint_level >= 0),
+            grader_origin TEXT NOT NULL CHECK(grader_origin IN
+                ('deterministic','ai','manual','user-review')),
+            occurred_at TEXT NOT NULL,
+            policy_version TEXT NOT NULL DEFAULT 'evidence-v1' CHECK(policy_version='evidence-v1'),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(source_kind,source_id,concept_id)
+        );
+        CREATE INDEX learning_evidence_concept ON learning_evidence(concept_id,occurred_at DESC);
+        CREATE INDEX learning_evidence_group ON learning_evidence(evidence_group_id,concept_id);
+        CREATE INDEX learning_evidence_plan ON learning_evidence(plan_id,node_id,occurred_at DESC);
+        CREATE INDEX learning_evidence_grade ON learning_evidence(grade_id);
+
+        CREATE TABLE learning_concept_summaries (
+            concept_id TEXT PRIMARY KEY,
+            concept_label TEXT NOT NULL,
+            policy_version TEXT NOT NULL CHECK(policy_version='evidence-v1'),
+            evidence_cutoff TEXT NOT NULL,
+            level TEXT NOT NULL CHECK(level IN
+                ('insufficient-evidence','needs-attention','developing','demonstrated-consistently')),
+            stats_json TEXT NOT NULL,
+            evidence_ids_json TEXT NOT NULL,
+            computed_at TEXT NOT NULL
+        );
+        CREATE INDEX learning_summaries_level ON learning_concept_summaries(level,computed_at DESC);
+
+        CREATE TABLE learning_gaps (
+            id TEXT PRIMARY KEY,
+            concept_id TEXT NOT NULL,
+            concept_label TEXT NOT NULL,
+            plan_id TEXT REFERENCES study_plans(id) ON DELETE SET NULL,
+            node_id TEXT,
+            kind TEXT NOT NULL CHECK(kind IN
+                ('weak_prerequisite','missing_concept','repeatedly_failed','read_never_reviewed',
+                 'disconnected_cluster','weak_transfer')),
+            rule_id TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('active','dismissed','resolved')),
+            first_detected_at TEXT NOT NULL,
+            last_detected_at TEXT NOT NULL,
+            evidence_cutoff TEXT NOT NULL,
+            legacy_import_key TEXT UNIQUE,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(concept_id,kind,rule_id)
+        );
+        CREATE INDEX learning_gaps_active ON learning_gaps(status,plan_id,last_detected_at DESC);
+        CREATE INDEX learning_gaps_concept ON learning_gaps(concept_id,kind,status);
+
+        CREATE TABLE learning_gap_evidence (
+            gap_id TEXT NOT NULL REFERENCES learning_gaps(id) ON DELETE CASCADE,
+            evidence_id TEXT REFERENCES learning_evidence(id) ON DELETE CASCADE,
+            record_id TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK(kind IN
+                ('review_lapse','unreviewed_reading','graph_edge','assessment')),
+            description TEXT NOT NULL,
+            source_ref_id TEXT REFERENCES study_source_refs(id) ON DELETE RESTRICT,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            PRIMARY KEY(gap_id,record_id,kind)
+        );
+        CREATE INDEX learning_gap_evidence_record ON learning_gap_evidence(record_id,kind);
+
+        CREATE TABLE learning_remediations (
+            id TEXT PRIMARY KEY,
+            gap_id TEXT NOT NULL REFERENCES learning_gaps(id) ON DELETE CASCADE,
+            kind TEXT NOT NULL CHECK(kind IN
+                ('open-source','review-extract','tutor','targeted-practice','card-proposals',
+                 'follow-up-exam','plan-adjustment')),
+            status TEXT NOT NULL CHECK(status IN ('suggested','accepted','dismissed','completed')),
+            source_ref_ids_json TEXT NOT NULL DEFAULT '[]',
+            payload_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(gap_id,kind)
+        );
+        CREATE INDEX learning_remediations_status ON learning_remediations(gap_id,status);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
@@ -8126,6 +8227,319 @@ mod tests {
         assert_eq!(
             grd_count, 0,
             "exam_grades must cascade delete with submission"
+        );
+    }
+
+    #[tokio::test]
+    async fn migration_143_learning_evidence_fresh_and_prior_db() {
+        let prior_pool = pool_migrated_up_to("143_learning_evidence_and_gaps").await;
+        run_migrations(&prior_pool)
+            .await
+            .expect("Migrating from 143 on prior db succeeds");
+
+        let fresh_pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("open fresh in-memory db");
+        run_migrations(&fresh_pool)
+            .await
+            .expect("Fresh migration through 143 succeeds");
+
+        // Verify tables exist
+        for table in &[
+            "learning_evidence",
+            "learning_concept_summaries",
+            "learning_gaps",
+            "learning_gap_evidence",
+            "learning_remediations",
+        ] {
+            let (count,): (i64,) =
+                sqlx::query_as("SELECT count(*) FROM sqlite_master WHERE type='table' AND name=?")
+                    .bind(table)
+                    .fetch_one(&fresh_pool)
+                    .await
+                    .unwrap();
+            assert_eq!(count, 1, "Table {} must exist", table);
+        }
+
+        // Verify indexes exist
+        for idx in &[
+            "learning_evidence_concept",
+            "learning_evidence_group",
+            "learning_evidence_plan",
+            "learning_evidence_grade",
+            "learning_summaries_level",
+            "learning_gaps_active",
+            "learning_gaps_concept",
+            "learning_gap_evidence_record",
+            "learning_remediations_status",
+        ] {
+            let (count,): (i64,) =
+                sqlx::query_as("SELECT count(*) FROM sqlite_master WHERE type='index' AND name=?")
+                    .bind(idx)
+                    .fetch_one(&fresh_pool)
+                    .await
+                    .unwrap();
+            assert_eq!(count, 1, "Index {} must exist", idx);
+        }
+
+        let fk_violations: Vec<(String, i64, String, i64)> =
+            sqlx::query_as("PRAGMA foreign_key_check")
+                .fetch_all(&fresh_pool)
+                .await
+                .unwrap();
+        assert!(
+            fk_violations.is_empty(),
+            "Fresh migration must pass foreign_key_check: {:?}",
+            fk_violations
+        );
+    }
+
+    #[tokio::test]
+    async fn migration_143_learning_evidence_constraints_and_invariants() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .expect("open in-memory db");
+        sqlx::query("PRAGMA foreign_keys = ON")
+            .execute(&pool)
+            .await
+            .unwrap();
+        run_migrations(&pool).await.expect("run all migrations");
+
+        // 1. Fixture setup: document, source ref, plan, blueprint, question, attempt, response, submission, grade
+        sqlx::query(
+            "INSERT INTO documents (id, title, file_path, file_type, date_added, date_modified, content) \
+             VALUES ('doc_1', 'Bio Text', '/tmp/bio.md', 'markdown', '2026-11-10T12:00:00Z', '2026-11-10T12:00:00Z', 'Photosynthesis text')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO study_source_refs (id, document_id, excerpt, excerpt_sha256, revision, revision_kind, document_title, source_type, captured_at) \
+             VALUES ('ssr_1', 'doc_1', 'Chloroplast excerpt', 'sha_1', 'rev_1', 'content-hash', 'Bio Text', 'markdown', '2026-11-10T12:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO study_plans (id, title, goal, depth, status, current_version, revision, created_at, updated_at) \
+             VALUES ('plan_1', 'Bio Plan', 'Goal', 'survey', 'active', 0, 1, '2026-11-10T12:00:00Z', '2026-11-10T12:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO study_plan_versions (id, plan_id, version, state, source_scope_json, created_by, created_at, published_at) \
+             VALUES ('spv_1', 'plan_1', 1, 'published', '[]', 'user', '2026-11-10T12:00:00Z', '2026-11-10T12:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO study_plan_nodes (id, plan_id, semantic_key, created_at) \
+             VALUES ('node_1', 'plan_1', 'chloroplasts', '2026-11-10T12:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO assessment_blueprints (id, plan_id, title, lifecycle, revision, created_at, updated_at) \
+             VALUES ('bp_1', 'plan_1', 'Bio Exam', 'active', 1, '2026-11-10T12:00:00Z', '2026-11-10T12:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO assessment_blueprint_revisions (id, blueprint_id, revision, state, config_json, scoring_json, source_scope_json, quota_json, source_snapshot_hash, created_at, published_at) \
+             VALUES ('bpr_1', 'bp_1', 1, 'ready', '{}', '{}', '{}', '{}', 'sha256:snap', '2026-11-10T12:00:00Z', '2026-11-10T12:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO assessment_questions (id, blueprint_id, semantic_fingerprint, created_at) \
+             VALUES ('q_1', 'bp_1', 'fp_q1', '2026-11-10T12:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO assessment_question_revisions (id, question_id, blueprint_revision_id, revision, slot_key, fingerprint, kind, payload_json, answer_key_json, max_points, difficulty, validation, committed_at, created_at) \
+             VALUES ('qrev_1', 'q_1', 'bpr_1', 1, 'slot_1', 'fp_1', 'short-answer', '{}', '{}', 4.0, 3, 'valid', '2026-11-10T12:00:00Z', '2026-11-10T12:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO exam_attempts (id, blueprint_revision_id, client_start_key, mode, status, question_revision_ids_json, revision, started_at, maximum_points, created_at, updated_at) \
+             VALUES ('att_1', 'bpr_1', 'start_1', 'exam', 'complete', '[\"qrev_1\"]', 2, '2026-11-10T12:00:00Z', 4.0, '2026-11-10T12:00:00Z', '2026-11-10T12:30:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO exam_responses (id, attempt_id, question_revision_id, draft_json, mark, revision, last_client_mutation_id, updated_at) \
+             VALUES ('resp_1', 'att_1', 'qrev_1', '{\"text\":\"thylakoid\"}', 'answered', 1, 'mut_1', '2026-11-10T12:15:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO exam_response_submissions (id, response_id, attempt_id, question_revision_id, ordinal, kind, response_json, mark, hint_level, created_at) \
+             VALUES ('subm_1', 'resp_1', 'att_1', 'qrev_1', 1, 'exam-final', '{\"text\":\"thylakoid\"}', 'answered', 0, '2026-11-10T12:30:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO exam_grades (id, response_submission_id, question_revision_id, origin, state, points, max_points, criteria_json, is_current, created_at) \
+             VALUES ('grd_1', 'subm_1', 'qrev_1', 'ai', 'final', 4.0, 4.0, '[]', 1, '2026-11-10T12:35:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 2. Insert valid learning_evidence
+        sqlx::query(
+            "INSERT INTO learning_evidence (id, concept_id, concept_label, plan_id, node_id, source_kind, source_id, grade_id, \
+             evidence_group_id, question_fingerprint, observed_score, outcome, misconception, learner_confidence, hint_level, \
+             grader_origin, occurred_at, policy_version, created_at, updated_at) \
+             VALUES ('ev_1', 'c_photo', 'Photosynthesis', 'plan_1', 'node_1', 'exam-final', 'subm_1', 'grd_1', \
+             'att_1:c_photo', 'fp_1', 1.0, 'correct', NULL, 0.8, 0, 'ai', '2026-11-10T12:30:00Z', 'evidence-v1', '2026-11-10T12:35:00Z', '2026-11-10T12:35:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .expect("Valid learning_evidence insert must succeed");
+
+        // 3. Test uniqueness constraint UNIQUE(source_kind, source_id, concept_id)
+        let dup_evidence = sqlx::query(
+            "INSERT INTO learning_evidence (id, concept_id, concept_label, plan_id, node_id, source_kind, source_id, grade_id, \
+             evidence_group_id, question_fingerprint, observed_score, outcome, misconception, learner_confidence, hint_level, \
+             grader_origin, occurred_at, policy_version, created_at, updated_at) \
+             VALUES ('ev_dup', 'c_photo', 'Photosynthesis', 'plan_1', 'node_1', 'exam-final', 'subm_1', 'grd_1', \
+             'att_1:c_photo', 'fp_1', 1.0, 'correct', NULL, 0.8, 0, 'ai', '2026-11-10T12:30:00Z', 'evidence-v1', '2026-11-10T12:35:00Z', '2026-11-10T12:35:00Z')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(dup_evidence.is_err(), "Duplicate (source_kind, source_id, concept_id) must fail UNIQUE constraint");
+
+        // 4. Test score range CHECK(observed_score BETWEEN 0 AND 1)
+        let bad_score = sqlx::query(
+            "INSERT INTO learning_evidence (id, concept_id, concept_label, source_kind, source_id, evidence_group_id, observed_score, outcome, grader_origin, occurred_at, created_at, updated_at) \
+             VALUES ('ev_bad_score', 'c_photo_2', 'Photo2', 'exam-final', 'subm_1', 'grp_1', 1.5, 'correct', 'ai', '2026-11-10T12:30:00Z', '2026-11-10T12:35:00Z', '2026-11-10T12:35:00Z')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(bad_score.is_err(), "observed_score > 1 must fail CHECK constraint");
+
+        // 5. Test policy_version CHECK constraint
+        let bad_policy = sqlx::query(
+            "INSERT INTO learning_evidence (id, concept_id, concept_label, source_kind, source_id, evidence_group_id, observed_score, outcome, grader_origin, occurred_at, policy_version, created_at, updated_at) \
+             VALUES ('ev_bad_policy', 'c_photo_2', 'Photo2', 'exam-final', 'subm_1', 'grp_1', 1.0, 'correct', 'ai', '2026-11-10T12:30:00Z', 'evidence-v2', '2026-11-10T12:35:00Z', '2026-11-10T12:35:00Z')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(bad_policy.is_err(), "policy_version != 'evidence-v1' must fail CHECK constraint");
+
+        // 6. Insert learning_concept_summaries
+        sqlx::query(
+            "INSERT INTO learning_concept_summaries (concept_id, concept_label, policy_version, evidence_cutoff, level, stats_json, evidence_ids_json, computed_at) \
+             VALUES ('c_photo', 'Photosynthesis', 'evidence-v1', '2026-11-10T12:30:00Z', 'developing', '{\"observedMean\":1.0}', '[\"ev_1\"]', '2026-11-10T12:35:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .expect("Valid learning_concept_summaries insert must succeed");
+
+        // 7. Insert learning_gaps
+        sqlx::query(
+            "INSERT INTO learning_gaps (id, concept_id, concept_label, plan_id, node_id, kind, rule_id, status, first_detected_at, last_detected_at, evidence_cutoff, legacy_import_key, created_at, updated_at) \
+             VALUES ('gap_1', 'c_photo', 'Photosynthesis', 'plan_1', 'node_1', 'repeatedly_failed', 'assessment-repeated-failure-v1', 'active', '2026-11-10T12:00:00Z', '2026-11-10T12:30:00Z', '2026-11-10T12:30:00Z', 'leg_1', '2026-11-10T12:35:00Z', '2026-11-10T12:35:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .expect("Valid learning_gaps insert must succeed");
+
+        // 8. Test UNIQUE(concept_id, kind, rule_id) on learning_gaps
+        let dup_gap = sqlx::query(
+            "INSERT INTO learning_gaps (id, concept_id, concept_label, plan_id, node_id, kind, rule_id, status, first_detected_at, last_detected_at, evidence_cutoff, created_at, updated_at) \
+             VALUES ('gap_dup', 'c_photo', 'Photosynthesis', 'plan_1', 'node_1', 'repeatedly_failed', 'assessment-repeated-failure-v1', 'active', '2026-11-10T12:00:00Z', '2026-11-10T12:30:00Z', '2026-11-10T12:30:00Z', '2026-11-10T12:35:00Z', '2026-11-10T12:35:00Z')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(dup_gap.is_err(), "Duplicate (concept_id, kind, rule_id) must fail UNIQUE constraint");
+
+        // 9. Insert learning_gap_evidence
+        sqlx::query(
+            "INSERT INTO learning_gap_evidence (gap_id, evidence_id, record_id, kind, description, source_ref_id, payload_json) \
+             VALUES ('gap_1', 'ev_1', 'rec_1', 'assessment', 'Low score on exam', 'ssr_1', '{}')",
+        )
+        .execute(&pool)
+        .await
+        .expect("Valid learning_gap_evidence insert must succeed");
+
+        // 10. Insert learning_remediations
+        sqlx::query(
+            "INSERT INTO learning_remediations (id, gap_id, kind, status, source_ref_ids_json, payload_json, created_at, updated_at) \
+             VALUES ('rem_1', 'gap_1', 'open-source', 'suggested', '[\"ssr_1\"]', '{}', '2026-11-10T12:35:00Z', '2026-11-10T12:35:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .expect("Valid learning_remediations insert must succeed");
+
+        // 11. Test CASCADE deletion of gap -> gap_evidence and remediations
+        sqlx::query("DELETE FROM learning_gaps WHERE id = 'gap_1'")
+            .execute(&pool)
+            .await
+            .expect("Deleting gap_1 succeeds");
+
+        let (ge_count,): (i64,) = sqlx::query_as("SELECT count(*) FROM learning_gap_evidence WHERE gap_id = 'gap_1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(ge_count, 0, "learning_gap_evidence must cascade delete with gap");
+
+        let (rem_count,): (i64,) = sqlx::query_as("SELECT count(*) FROM learning_remediations WHERE gap_id = 'gap_1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(rem_count, 0, "learning_remediations must cascade delete with gap");
+
+        // 12. Test CASCADE deletion of grade -> learning_evidence
+        sqlx::query("DELETE FROM exam_grades WHERE id = 'grd_1'")
+            .execute(&pool)
+            .await
+            .expect("Deleting grd_1 succeeds");
+
+        let (ev_count,): (i64,) = sqlx::query_as("SELECT count(*) FROM learning_evidence WHERE grade_id = 'grd_1'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(ev_count, 0, "learning_evidence must cascade delete with grade");
+
+        let fk_violations: Vec<(String, i64, String, i64)> =
+            sqlx::query_as("PRAGMA foreign_key_check")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert!(
+            fk_violations.is_empty(),
+            "All operations must pass foreign_key_check: {:?}",
+            fk_violations
         );
     }
 }

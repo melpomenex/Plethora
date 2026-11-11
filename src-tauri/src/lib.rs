@@ -2674,6 +2674,14 @@ pub fn run() {
             commands::record_rubric_grade,
             commands::record_manual_grade,
             commands::get_response_grade_history,
+            commands::get_concept_mastery_summary,
+            commands::get_diagnostic_prior_evidence,
+            commands::get_study_plan_evidence,
+            commands::list_learning_gaps,
+            commands::dismiss_learning_gap,
+            commands::refresh_local_learning_gaps,
+            commands::reconcile_learning_evidence,
+            commands::record_remediation_disposition,
             audio_lifecycle::get_audio_lifecycle_capabilities,
         ])
         .build({
