@@ -14,7 +14,7 @@ import type { StudySourceRefV1 } from '../../../types/studySource';
 import type { SourceEvidenceItem } from '../../ai/tasks/definitions/curriculumTasks';
 import type { TopicEvidenceSummary } from '../../ai/tasks/definitions/studyQuestionTasks';
 
-export const DESKTOP_BATCH_SIZE = 4;
+export const DESKTOP_BATCH_SIZE = 2;
 export const MOBILE_BATCH_SIZE = 2;
 
 export interface TopicInfo {
@@ -24,6 +24,7 @@ export interface TopicInfo {
   conceptLabel: string;
   title: string;
   objectives: string[];
+  sourceRefIds?: string[];
 }
 
 export interface QuestionBatchPlan {
@@ -96,6 +97,8 @@ export function planQuestionBatches(options: PlanQuestionBatchesOptions): Questi
     }
   }
 
+  const sourceById = new Map(sourceRefs.map((ref) => [ref.id, ref]));
+
   // Split slots into batches
   const batches: QuestionBatchPlan[] = [];
   const totalBatches = Math.ceil(slots.length / batchSize);
@@ -129,9 +132,11 @@ export function planQuestionBatches(options: PlanQuestionBatchesOptions): Questi
       }
     }
 
-    // Select grounding sources (up to 4 sources per batch to keep containment tight)
-    // In practice, select sources relevant to the plan or all verified sources up to limit
-    const selectedSourceRefs = sourceRefs.slice(0, 4);
+    // Give each topic's verified references a chance to appear before filling remaining slots.
+    const topicSources = involvedTopicIndices.map((index) => topicMap.get(index)?.sourceRefIds ?? []);
+    const preferred = topicSources.flatMap((ids) => ids.find((id) => sourceById.has(id)) ?? []);
+    const selectedIds = new Set([...preferred, ...topicSources.flat(), ...sourceById.keys()]);
+    const selectedSourceRefs = [...selectedIds].flatMap((id) => sourceById.get(id) ?? []).slice(0, 4);
     const sources: SourceEvidenceItem[] = [];
     const sourceMap: Record<string, string> = {};
 

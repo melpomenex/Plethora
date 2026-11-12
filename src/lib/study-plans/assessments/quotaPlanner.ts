@@ -23,7 +23,7 @@ export const QUOTA_BOUNDS = {
   MAX_REQUESTED_COUNT: 40,
   DIAGNOSTIC_MIN_COUNT: 4,
   DIAGNOSTIC_MAX_COUNT: 12,
-  DESKTOP_BATCH_SIZE: 4,
+  DESKTOP_BATCH_SIZE: 2,
   MOBILE_BATCH_SIZE: 2,
 } as const;
 
@@ -275,7 +275,7 @@ export function evaluateQuotaReport(
     }
   }
 
-  const accepted = validBySlotKey.size;
+  const accepted = slots.filter((slot) => validBySlotKey.has(slot.slotKey)).length;
 
   // Aggregate deficits by (kind, topicIndex, difficulty)
   const deficitMap = new Map<string, { kind: QuestionKind; topicIndex: number; difficulty: Difficulty; count: number }>();

@@ -7,6 +7,8 @@ import type {
   AssessmentConfigV1,
   BlueprintDetail,
 } from '../../../../types/assessmentQuestions';
+import { planQuotaSlots } from '../quotaPlanner';
+import { AIError } from '../../../ai/errors';
 import type { StudyAiPreflight } from '../../generation/types';
 import type { StudySourceRefV1, StudySourceResolution } from '../../../../types/studySource';
 
@@ -170,7 +172,18 @@ describe('Assessment Generation Coordinator (C3-T07)', () => {
     });
   });
 
-  it('executes full generation cycle with mock runner and saves questions', async () => {
+  it.each(['new', 'retry', 'invalid-first-batch'] as const)('generates and saves assessment questions (%s)', async (scenario) => {
+    const config = { ...mockConfig, requestedCount: scenario === 'invalid-first-batch' ? 6 : 2 };
+    const slots = planQuotaSlots(config, mockDetail.revision.id);
+    const draft = {
+      ...mockDetail,
+      revision: { ...mockDetail.revision, config },
+      questions: scenario === 'retry' ? [{
+        slotKey: slots[0].slotKey,
+        fingerprint: 'saved-question',
+        validation: 'valid',
+      }] : [],
+    } as BlueprintDetail;
     const mockSaveQuestion = vi.fn().mockResolvedValue({ id: 'aqr_1' });
     const mockSaveDraft = vi.fn().mockResolvedValue({
       ...mockDetail,
@@ -187,7 +200,13 @@ describe('Assessment Generation Coordinator (C3-T07)', () => {
     });
     const mockCompleteStep = vi.fn().mockResolvedValue({ stepStatus: 'completed' });
 
-    const mockRunPinned = vi.fn().mockImplementation((_task, input) => ({
+    const mockRunPinned = vi.fn().mockImplementation(async (_task, input) => {
+      if (scenario === 'invalid-first-batch' && input.stepKey === 'question_batch:0000') {
+        throw new AIError('InvalidStructuredOutput', 'private raw reply', {
+          completion: { attemptCount: 2, terminalFailureKind: 'output-limit' },
+        });
+      }
+      return {
       output: {
         schemaVersion: 1,
         questions: input.slots.map((s: any, idx: number) => ({
@@ -209,7 +228,8 @@ describe('Assessment Generation Coordinator (C3-T07)', () => {
         })),
       },
       provenance: { provider: 'test', model: 'test-model' },
-    }));
+      };
+    });
 
     const mockResolveSources = vi.fn().mockResolvedValue([
       {
@@ -224,7 +244,7 @@ describe('Assessment Generation Coordinator (C3-T07)', () => {
       mockPreflight,
       {
         deps: {
-          getBlueprintRevisionFn: vi.fn().mockResolvedValue(mockDetail),
+          getBlueprintRevisionFn: vi.fn().mockResolvedValue(draft),
           saveBlueprintDraftFn: mockSaveDraft,
           saveQuestionDraftFn: mockSaveQuestion,
           startJobFn: mockStartJob,
@@ -253,17 +273,23 @@ describe('Assessment Generation Coordinator (C3-T07)', () => {
       })
     );
 
-    // Both questions persisted
-    expect(mockSaveQuestion).toHaveBeenCalledTimes(2);
-    expect(mockCompleteStep).toHaveBeenCalledTimes(1);
-
-    // Quota report updated
-    expect(result.quotaReport.requested).toBe(2);
+    expect(mockSaveQuestion).toHaveBeenCalledTimes(scenario === 'retry' ? 1 : 2);
+    expect(mockCompleteStep).toHaveBeenCalledTimes(scenario === 'invalid-first-batch' ? 2 : 1);
+    expect(result.quotaReport.requested).toBe(config.requestedCount);
     expect(result.quotaReport.accepted).toBe(2);
-    expect(result.quotaReport.deficits).toHaveLength(0);
+    if (scenario === 'retry') {
+      expect(mockRunPinned.mock.calls[0][1].slots).toEqual([slots[1]]);
+    }
+    if (scenario === 'invalid-first-batch') {
+      expect(result.deficitsCount).toBe(4);
+      expect(result.callsMade).toBe(3);
+      expect(result.quotaReport.validationIssues).toContainEqual(expect.objectContaining({ code: 'invalid_model_output' }));
+      expect(JSON.stringify(result.quotaReport)).not.toContain('private raw reply');
+    }
     expect(mockSaveDraft).toHaveBeenCalled();
-    const submittedStep = mockStartJob.mock.calls[0][0].steps[0];
-    expect(mockCompleteStep.mock.calls[0][0].inputHash).toBe(submittedStep.inputHash);
+    const submittedSteps = mockStartJob.mock.calls[0][0].steps;
+    expect(submittedSteps.map((step: { ordinal: number }) => step.ordinal)).toEqual(scenario === 'invalid-first-batch' ? [0, 1] : [0]);
+    expect(mockCompleteStep.mock.calls[0][0].inputHash).toBe(submittedSteps[0].inputHash);
     expect(mockResolveSources.mock.calls[0][0][0]).toMatchObject({
       documentId: 'doc_1',
       excerpt: 'Sample excerpt from document 1',

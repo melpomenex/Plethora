@@ -6,7 +6,7 @@
  * - openspec/changes/implement-resumable-examination-sessions/ (C4-T05)
  */
 
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   GraduationCap,
   BookOpen,
@@ -17,6 +17,7 @@ import {
 import { Button } from '../../md3/Button';
 import type { AttemptDetail } from '../../../types/assessmentSessions';
 import type { AssessmentQuestionRevision } from '../../../types/assessmentQuestions';
+import type { StudySourceResolution } from '../../../types/studySource';
 import { useAttemptLifecycle } from '../../../lib/study-plans/attempts/useAttemptLifecycle';
 import { AttemptTimer } from './AttemptTimer';
 import { AttemptProgress } from './AttemptProgress';
@@ -41,6 +42,8 @@ export interface AttemptRunnerProps {
   returnContext?: PracticeReturnContext | null;
   onOpenTutor?: () => void;
   onReturnToPlan?: () => void;
+  sourceRefs?: Record<string, StudySourceResolution>;
+  sourceRefsLoading?: boolean;
 }
 
 export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
@@ -51,9 +54,12 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
   returnContext = null,
   onOpenTutor,
   onReturnToPlan,
+  sourceRefs = {},
+  sourceRefsLoading = false,
 }) => {
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [hintLevels, setHintLevels] = useState<Record<string, number>>({});
+  const [sourceMaterialOpen, setSourceMaterialOpen] = useState(detail.attempt.mode === 'practice');
 
   const {
     state,
@@ -89,6 +95,9 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
 
   const isExam = attempt.mode === 'exam';
   const isPractice = attempt.mode === 'practice';
+  useEffect(() => {
+    setSourceMaterialOpen(isPractice);
+  }, [currentQuestion?.id, isPractice]);
   const currentHintLevel = currentQuestion ? (hintLevels[currentQuestion.id] ?? 0) : 0;
 
   const handleFinalSubmit = async () => {
@@ -116,10 +125,14 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
   }
 
   const qData = currentQuestion.question;
+  const questionSourceIds = qData.sourceRefIds ?? [];
+  const currentQuestionSources = questionSourceIds
+    .map((sourceRefId) => sourceRefs[sourceRefId])
+    .filter((source): source is StudySourceResolution => source?.status === 'current');
 
   return (
     <div
-      className={`max-w-4xl mx-auto flex flex-col gap-6 p-4 sm:p-6 bg-surface dark:bg-surface-dark min-h-screen ${className}`}
+      className={`max-w-4xl mx-auto flex h-full min-h-0 flex-col gap-6 overflow-y-auto overscroll-contain p-4 sm:p-6 bg-surface dark:bg-surface-dark ${className}`}
       role="main"
       aria-label="Examination Session"
     >
@@ -207,6 +220,53 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
             {currentSlot?.mark === 'skipped' ? 'Skipped (Click to unskip)' : 'Skip for now'}
           </Button>
         </div>
+
+        {questionSourceIds.length > 0 && (
+          <section className="rounded-xl border border-outline-variant/40 bg-surface-container-low p-4">
+            <button
+              type="button"
+              className="flex min-h-11 w-full items-center justify-between gap-3 text-left font-semibold text-on-surface"
+              aria-expanded={sourceMaterialOpen}
+              onClick={() => setSourceMaterialOpen((open) => !open)}
+            >
+              <span className="flex items-center gap-2">
+                <BookOpen size={17} className="text-primary" />
+                Provided text
+                <span className="text-xs font-normal text-on-surface-variant">
+                  {currentQuestionSources.length > 0
+                    ? `${currentQuestionSources.length} passage${currentQuestionSources.length === 1 ? '' : 's'}`
+                    : ''}
+                </span>
+              </span>
+              <span className="text-xs text-primary">
+                {sourceMaterialOpen ? 'Hide' : 'Show'}
+              </span>
+            </button>
+            {sourceMaterialOpen && (
+              <div className="mt-3 space-y-3 border-t border-outline-variant/30 pt-3">
+                {currentQuestionSources.map(({ ref }) => (
+                  <article key={ref.id} className="space-y-1.5">
+                    <h2 className="text-xs font-semibold text-on-surface">
+                      {ref.documentTitle}
+                      {ref.sectionLabel ? ` · ${ref.sectionLabel}` : ''}
+                    </h2>
+                    <blockquote className="whitespace-pre-wrap border-l-2 border-primary/50 pl-3 text-sm leading-relaxed text-on-surface-variant">
+                      {ref.excerpt}
+                    </blockquote>
+                  </article>
+                ))}
+                {sourceRefsLoading && currentQuestionSources.length === 0 && (
+                  <p className="text-sm text-on-surface-variant">Loading the verified passage…</p>
+                )}
+                {!sourceRefsLoading && currentQuestionSources.length === 0 && (
+                  <p className="text-sm text-on-surface-variant">
+                    The passage could not be loaded or verified. Check the source in the study plan before answering.
+                  </p>
+                )}
+              </div>
+            )}
+          </section>
+        )}
 
         {/* Dynamic Question Input by Kind */}
         {qData.kind === 'single-select' && (

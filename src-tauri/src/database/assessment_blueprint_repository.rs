@@ -781,6 +781,11 @@ impl AssessmentBlueprintRepository {
         }
 
         let accepted_count = q_rows.len() as i64;
+        if accepted_count == 0 {
+            return Err(StudyCommandError::invalid_state(
+                "study.assessment.error.empty_paper",
+            ));
+        }
         let config: serde_json::Value =
             serde_json::from_str(&rev_row.get::<String, _>("config_json"))
                 .unwrap_or(serde_json::Value::Null);
@@ -1075,6 +1080,12 @@ mod tests {
         assert_eq!(detail.blueprint.revision, 1);
         assert_eq!(detail.revision.state, BlueprintState::Draft);
         assert_eq!(detail.questions.len(), 0);
+
+        let error = repo
+            .publish_assessment_blueprint(&detail.revision.id, detail.blueprint.revision, true)
+            .await
+            .expect_err("an empty paper cannot be published");
+        assert_eq!(error.message_key, "study.assessment.error.empty_paper");
 
         // Fetch back
         let fetched = repo

@@ -33,6 +33,38 @@ import { encodeQuestionRevision, decodeQuestionRevision } from './questionCodec'
 import { computeQuestionFingerprint } from './questionFingerprint';
 import { validateAssessmentQuestion } from './questionValidation';
 
+type StoredQuestionRevision = AssessmentQuestionRevision & {
+  kind?: AssessmentQuestion['kind'];
+  payload?: unknown;
+  answerKey?: unknown;
+  rubric?: unknown;
+};
+
+/** Normalize the native storage DTO into the nested domain question used by the UI. */
+function normalizeQuestionRevision(revision: AssessmentQuestionRevision): AssessmentQuestionRevision {
+  if (revision.question?.prompt) return revision;
+
+  const stored = revision as StoredQuestionRevision;
+  if (typeof stored.kind !== 'string' || stored.payload == null || stored.answerKey == null) {
+    throw new Error('study.assessment.error.invalid_question_revision');
+  }
+
+  const toJson = (value: unknown) => typeof value === 'string' ? value : JSON.stringify(value);
+  const decoded = decodeQuestionRevision(
+    toJson(stored.payload),
+    toJson(stored.answerKey),
+    stored.rubric == null ? null : toJson(stored.rubric),
+  );
+  return { ...revision, question: decoded.question };
+}
+
+function normalizeBlueprintDetail(detail: BlueprintDetail): BlueprintDetail {
+  return {
+    ...detail,
+    questions: (detail.questions ?? []).map(normalizeQuestionRevision),
+  };
+}
+
 export interface CreateBlueprintParams {
   planId?: string | null;
   title: string;
@@ -80,14 +112,14 @@ export class BlueprintService {
       sourceScope: params.sourceScope,
       sourceSnapshotHash: params.sourceSnapshotHash,
     };
-    return createAssessmentBlueprint(input);
+    return normalizeBlueprintDetail(await createAssessmentBlueprint(input));
   }
 
   /**
    * Fetches an assessment blueprint revision detail.
    */
   static async getBlueprintRevision(revisionId: string): Promise<BlueprintDetail> {
-    return getAssessmentBlueprintRevision(revisionId);
+    return normalizeBlueprintDetail(await getAssessmentBlueprintRevision(revisionId));
   }
 
   /**
@@ -102,7 +134,7 @@ export class BlueprintService {
       sourceScope: params.sourceScope,
       sourceSnapshotHash: params.sourceSnapshotHash,
     };
-    return saveAssessmentBlueprintDraft(input);
+    return normalizeBlueprintDetail(await saveAssessmentBlueprintDraft(input));
   }
 
   /**
@@ -141,7 +173,7 @@ export class BlueprintService {
       targets,
     };
 
-    return upsertAssessmentQuestionDraft(input);
+    return normalizeQuestionRevision(await upsertAssessmentQuestionDraft(input));
   }
 
   /**
@@ -150,7 +182,7 @@ export class BlueprintService {
   static async saveQuestionDraft(
     input: SaveQuestionDraftInput
   ): Promise<AssessmentQuestionRevision> {
-    return upsertAssessmentQuestionDraft(input);
+    return normalizeQuestionRevision(await upsertAssessmentQuestionDraft(input));
   }
 
   /**
@@ -161,7 +193,7 @@ export class BlueprintService {
     expectedRevision: number,
     shortfallAccepted = false
   ): Promise<BlueprintDetail> {
-    return publishAssessmentBlueprint(revisionId, expectedRevision, shortfallAccepted);
+    return normalizeBlueprintDetail(await publishAssessmentBlueprint(revisionId, expectedRevision, shortfallAccepted));
   }
 
   /**

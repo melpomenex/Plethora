@@ -11,6 +11,7 @@ import {
   ArrowLeft,
   FloppyDisk,
   CheckCircle,
+  ArrowSquareOut,
   Warning,
   Clock,
   GitDiff,
@@ -51,17 +52,19 @@ import { useTabId } from '../common/Tabs/TabContent';
 import { Button } from '../md3/Button';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { studyErrorMessage } from '../../lib/study-plans/studyErrorMessage';
+import { AssessmentList } from './assessments/AssessmentList';
+import type { AssessmentConfigV1 } from '../../types/assessmentQuestions';
 
 export interface StudyPlanEditorProps {
   planDetail: StudyPlanDetail;
   initialNodeId?: string;
   onBack: () => void;
   onOpenSource?: (sourceRefId: string, resolution?: StudySourceResolution) => void;
-  onOpenAssessmentBuilder?: (planId: string, versionId: string) => void;
+  onOpenAssessmentBuilder?: (planId: string, versionId: string, blueprintRevisionId?: string, initialConfig?: AssessmentConfigV1, initialTitle?: string) => void;
   onPrepareAssessment?: StudyPlanProgressProps['onPrepareAssessment'];
 }
 
-type EditorTab = 'outline' | 'sources' | 'diff' | 'history' | 'progress';
+type EditorTab = 'outline' | 'sources' | 'assessments' | 'diff' | 'history' | 'progress';
 
 export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
   planDetail,
@@ -86,6 +89,40 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
   const [prerequisites, setPrerequisites] = useState<PlanPrerequisite[]>(
     planDetail.version.prerequisites
   );
+  const assessmentConfigForTopic = (nodeId: string): AssessmentConfigV1 => {
+    const node = nodes.find((item) => item.nodeId === nodeId);
+    return {
+      schemaVersion: 1,
+      mode: 'exam',
+      requestedCount: 10,
+      typeWeights: { 'single-select': 4, 'multi-select': 2, cloze: 2, 'short-answer': 2, essay: 1 },
+      difficultyWeights: { 1: 1, 2: 3, 3: 4, 4: 2, 5: 1 },
+      topicTargets: [{ nodeId, conceptId: node?.conceptId || null, weight: 1 }],
+      timeLimitSeconds: 1800,
+      knowledgePolicy: 'source-only',
+      excludedQuestionFingerprints: [],
+      pointsByKind: { 'single-select': 1, 'multi-select': 1, cloze: 1, 'short-answer': 2, essay: 8 },
+    };
+  };
+  const orderedStudyNodes = orderStudyPlan(nodes, prerequisites);
+  const learningOrder = orderedStudyNodes.ok
+    ? orderedStudyNodes.value.orderedNodes
+    : [...nodes].filter((node) => node.included).sort((a, b) => a.position - b.position);
+  const unfinishedNodes = learningOrder.filter((node) => {
+    const activity = planDetail.activityByNodeId[node.nodeId] ?? 'not-started';
+    return activity !== 'completed' && activity !== 'skipped';
+  });
+  const nextStudyNode = unfinishedNodes.find((node) =>
+    node.sourceRefIds.some((refId) => planDetail.sourceRefs[refId]?.status !== 'missing')
+  ) ?? unfinishedNodes[0];
+  const isContinuingTopic = nextStudyNode &&
+    planDetail.activityByNodeId[nextStudyNode.nodeId] === 'in-progress';
+  const nextStudySourceRefId = nextStudyNode?.sourceRefIds.find(
+    (refId) => planDetail.sourceRefs[refId]?.status !== 'missing'
+  );
+  const nextStudySourceTitle = nextStudySourceRefId
+    ? planDetail.sourceRefs[nextStudySourceRefId]?.ref?.documentTitle
+    : undefined;
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(
     planDetail.version.nodes.find((node) => node.nodeId === initialNodeId)?.nodeId ??
     planDetail.version.nodes[0]?.nodeId ?? null
@@ -182,6 +219,19 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
       );
     } catch (err: any) {
       setErrorBanner(studyErrorMessage(err, 'Could not update topic activity.'));
+    }
+  };
+
+  const handleBeginLearning = async () => {
+    if (!nextStudyNode) return;
+    setSelectedNodeId(nextStudyNode.nodeId);
+    if ((planDetail.activityByNodeId[nextStudyNode.nodeId] ?? 'not-started') !== 'in-progress') {
+      await handleActivityChange(nextStudyNode.nodeId, 'in-progress');
+    }
+    if (nextStudySourceRefId) {
+      handleOpenSource(nextStudySourceRefId);
+    } else {
+      setActiveTab('sources');
     }
   };
 
@@ -354,18 +404,6 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
                 <span>Regenerate</span>
               </Button>
 
-              {onOpenAssessmentBuilder && (
-                <Button
-                  variant="outlined"
-                  size="sm"
-                  onClick={() => onOpenAssessmentBuilder(planDetail.plan.id, planDetail.version.id)}
-                  aria-label="Open assessment builder"
-                >
-                  <GraduationCap size={16} />
-                  <span>Assessments</span>
-                </Button>
-              )}
-
               <Button
                 variant="tonal"
                 size="sm"
@@ -387,8 +425,63 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
               </Button>
             </>
           )}
+          {onOpenAssessmentBuilder && (
+            <Button
+              variant="outlined"
+              size="sm"
+              onClick={() => setActiveTab('assessments')}
+              aria-label="Open assessments for this study plan"
+            >
+              <GraduationCap size={16} />
+              <span>Assessments</span>
+            </Button>
+          )}
       </div>
     </div>
+
+      {!isDraft && (
+        nextStudyNode ? (
+          <section
+            aria-labelledby="study-plan-next-step"
+            className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-xl border border-primary-500/30 bg-primary-500/5"
+          >
+            <div className="min-w-0">
+              <h2 id="study-plan-next-step" className="text-sm font-semibold text-surface-900 dark:text-surface-100">
+                {isContinuingTopic ? 'Continue with' : 'Start with'} {nextStudyNode.title}
+              </h2>
+              <p className="mt-1 text-xs text-surface-600 dark:text-surface-300">
+                {nextStudySourceRefId
+                  ? isContinuingTopic
+                    ? `Continue with ${nextStudySourceTitle || 'its first linked source'}, then select Completed below when you finish.`
+                    : `Open ${nextStudySourceTitle || 'its first linked source'} to study. The topic will be marked In progress; select Completed below when you finish.`
+                  : 'This topic has no linked source. Browse the plan’s source material to choose where to begin.'}
+              </p>
+            </div>
+            <Button
+              variant="filled"
+              size="sm"
+              onClick={() => void handleBeginLearning()}
+              aria-label={nextStudySourceRefId
+                ? `Open a source and start ${nextStudyNode.title}`
+                : 'Browse plan source material'}
+              className="flex-shrink-0"
+            >
+              <ArrowSquareOut size={16} />
+              <span>{nextStudySourceRefId ? 'Open source' : 'Browse sources'}</span>
+            </Button>
+          </section>
+        ) : (
+          <div role="status" className="flex items-start gap-2 p-4 rounded-xl border border-emerald-500/25 bg-emerald-500/5 text-sm">
+            <CheckCircle size={18} weight="fill" className="mt-0.5 text-emerald-600 dark:text-emerald-400" />
+            <div>
+              <p className="font-semibold text-surface-900 dark:text-surface-100">No topics left to start</p>
+              <p className="mt-1 text-xs text-surface-600 dark:text-surface-300">
+                Select any topic to review its sources or update its progress.
+              </p>
+            </div>
+          </div>
+        )
+      )}
 
       {/* Interrupted Jobs Recovery Banner */}
       {interruptedJobs.length > 0 && (
@@ -474,6 +567,20 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
         >
           <FileText size={16} />
           <span>Source Material</span>
+        </button>
+
+        <button
+          role="tab"
+          aria-selected={activeTab === 'assessments'}
+          onClick={() => setActiveTab('assessments')}
+          className={`flex items-center gap-1.5 px-4 py-2 border-b-2 transition-colors ${
+            activeTab === 'assessments'
+              ? 'border-primary-500 text-primary-600 dark:text-primary-400'
+              : 'border-transparent text-surface-500 hover:text-surface-800 dark:hover:text-surface-200'
+          }`}
+        >
+          <GraduationCap size={16} />
+          <span>Assessments</span>
         </button>
 
         <button
@@ -574,6 +681,26 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
             isReadOnly={true}
           />
       </div>
+      )}
+
+      {activeTab === 'assessments' && (
+        <AssessmentList
+          planId={planDetail.plan.id}
+          topics={nodes.filter((node) => node.included).map((node) => ({ nodeId: node.nodeId, title: node.title }))}
+          onCreateNew={() => onOpenAssessmentBuilder?.(planDetail.plan.id, planDetail.version.id)}
+          onCreateForTopic={(nodeId) => onOpenAssessmentBuilder?.(
+            planDetail.plan.id,
+            planDetail.version.id,
+            undefined,
+            assessmentConfigForTopic(nodeId),
+            `${planDetail.plan.title} — ${nodes.find((node) => node.nodeId === nodeId)?.title || 'Topic'} Assessment`,
+          )}
+          onSelectBlueprint={(blueprintId, revisionId) => onOpenAssessmentBuilder?.(
+            planDetail.plan.id,
+            planDetail.version.id,
+            revisionId || blueprintId,
+          )}
+        />
       )}
 
       {activeTab === 'diff' && (

@@ -38,6 +38,56 @@ export const STUDY_QUESTION_GENERATE_SCHEMA: AISchemaDescriptor = {
                 learningObjectives: { type: 'array', items: { type: 'string' } },
                 explanation: { type: 'string' },
                 sourceHandles: { type: 'array', items: { type: 'string' } },
+                options: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: { handle: { type: 'string' }, text: { type: 'string' } },
+                    required: ['handle', 'text'],
+                  },
+                },
+                correctOptionHandle: { type: 'string' },
+                correctOptionHandles: { type: 'array', items: { type: 'string' } },
+                segments: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      kind: { type: 'string', enum: ['text', 'blank'] },
+                      text: { type: 'string' },
+                      blankId: { type: 'string' },
+                    },
+                    required: ['kind'],
+                  },
+                },
+                blanks: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      handle: { type: 'string' },
+                      acceptedAnswers: { type: 'array', items: { type: 'string' } },
+                      caseSensitive: { type: 'boolean' },
+                    },
+                    required: ['handle', 'acceptedAnswers', 'caseSensitive'],
+                  },
+                },
+                referenceAnswer: { type: 'string' },
+                keyFacts: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      handle: { type: 'string' },
+                      text: { type: 'string' },
+                      required: { type: 'boolean' },
+                    },
+                    required: ['handle', 'text', 'required'],
+                  },
+                },
+                acceptedAnswers: { type: 'array', items: { type: 'string' } },
+                expectedReasoning: { type: 'string' },
+                rubric: { type: 'object' },
                 applicationLevel: {
                   type: 'string',
                   enum: ['recall', 'comprehension', 'application', 'multi-step-reasoning'],
@@ -241,14 +291,28 @@ export function validateQuestionBatchOutputForTask(
               }
             }
           }
-          // Segments with blank must match blank handles
+          // Reject malformed segments here so runTask can use its one repair
+          // attempt instead of persisting a question the domain validator drops.
           if (Array.isArray(q.segments)) {
-            for (const seg of q.segments) {
-              if (seg && seg.kind === 'blank') {
-                const bId = seg.blankId;
-                if (!bId || !blankHandles.has(bId)) {
-                  errors.push(`questions[${i}]: segment blankId "${String(bId)}" does not match any blank handle`);
+            for (let segmentIndex = 0; segmentIndex < q.segments.length; segmentIndex++) {
+              const seg = q.segments[segmentIndex];
+              if (typeof seg !== 'object' || seg === null || Array.isArray(seg)) {
+                errors.push(`questions[${i}].segments[${segmentIndex}] must be a segment object`);
+                continue;
+              }
+
+              const segment = seg as Record<string, unknown>;
+              if (segment.kind === 'text') {
+                if (typeof segment.text !== 'string') {
+                  errors.push(`questions[${i}].segments[${segmentIndex}].text must be a string for text segments`);
                 }
+              } else if (segment.kind === 'blank') {
+                const blankId = segment.blankId;
+                if (typeof blankId !== 'string' || !blankHandles.has(blankId)) {
+                  errors.push(`questions[${i}].segments[${segmentIndex}].blankId must match a declared blank handle`);
+                }
+              } else {
+                errors.push(`questions[${i}].segments[${segmentIndex}].kind must be "text" or "blank"`);
               }
             }
           }

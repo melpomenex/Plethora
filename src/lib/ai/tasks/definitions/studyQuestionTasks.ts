@@ -52,7 +52,7 @@ const QUESTION_CORE_INSTRUCTION = [
   '  3. Reference ONLY valid source handles provided in this turn (e.g. "s_0", "s_1"). Never invent handles.',
   '  4. For single-select questions: provide 2-8 options (handle, text) and correctOptionHandle.',
   '  5. For multi-select questions: provide 2-8 options and at least 2 correctOptionHandles.',
-  '  6. For cloze questions: provide segments (text and blank with blankId) and blanks (handle, acceptedAnswers, caseSensitive).',
+  '  6. For cloze questions: every segment must have kind exactly "text" with a string text field, or kind exactly "blank" with blankId equal to a declared blank handle. Never omit kind. Provide blanks with handle, acceptedAnswers, and caseSensitive.',
   '  7. For short-answer questions: provide referenceAnswer, keyFacts (handle, text, required), and analytic rubric with at least 1 criterion.',
   '  8. For essay questions: provide expectedReasoning, and analytic rubric with at least 2 criteria (each with 2+ levels).',
   '  9. Precommitted hints (0 to 3) must be helpful without leaking the exact answer key.',

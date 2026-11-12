@@ -237,8 +237,8 @@ describe('quotaPlanner', () => {
   describe('calculateMaxQuestionModelCalls', () => {
     it('computes 2 * ceil(N / batchSize)', () => {
       // Desktop batchSize = 4
-      expect(calculateMaxQuestionModelCalls(10, false)).toBe(6); // 2 * ceil(10/4) = 2 * 3 = 6
-      expect(calculateMaxQuestionModelCalls(30, false)).toBe(16); // 2 * ceil(30/4) = 2 * 8 = 16
+      expect(calculateMaxQuestionModelCalls(10, false)).toBe(10); // 2 * ceil(10/2) = 2 * 5 = 10
+      expect(calculateMaxQuestionModelCalls(30, false)).toBe(30); // 2 * ceil(30/2) = 2 * 15 = 30
 
       // Mobile batchSize = 2
       expect(calculateMaxQuestionModelCalls(10, true)).toBe(10); // 2 * ceil(10/2) = 2 * 5 = 10

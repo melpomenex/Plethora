@@ -9,6 +9,7 @@
 import React from 'react';
 import { Warning, ArrowCounterClockwise, Check, Copy } from '@phosphor-icons/react';
 import { Button } from '../../md3/Button';
+import { studyErrorMessageForKey } from '../../../lib/study-plans/studyErrorMessage';
 import type { QuotaReport } from '../../../types/assessmentQuestions';
 
 export interface GenerationDeficitReportProps {
@@ -16,6 +17,8 @@ export interface GenerationDeficitReportProps {
   onRetryDeficits?: () => void;
   onAcceptShortfall?: () => void;
   isRetrying?: boolean;
+  canRetry?: boolean;
+  isPublishing?: boolean;
   className?: string;
 }
 
@@ -24,6 +27,8 @@ export const GenerationDeficitReport: React.FC<GenerationDeficitReportProps> = (
   onRetryDeficits,
   onAcceptShortfall,
   isRetrying = false,
+  canRetry = true,
+  isPublishing = false,
   className = '',
 }) => {
   const { requested, accepted, deficits, duplicateQuestionFingerprints, validationIssues } =
@@ -46,8 +51,9 @@ export const GenerationDeficitReport: React.FC<GenerationDeficitReportProps> = (
               Quota Shortfall Detected ({accepted} of {requested} accepted)
             </h4>
             <p className="text-xs text-amber-800 dark:text-amber-200 mt-0.5">
-              {deficitCount} requested question{deficitCount === 1 ? '' : 's'} could not be
-              fulfilled due to missing sources, duplicates, or validation constraints.
+              {accepted === 0
+                ? 'No questions passed validation. Review the issues below or add a question manually.'
+                : `${deficitCount} requested question${deficitCount === 1 ? '' : 's'} could not be filled.`}
             </p>
           </div>
         </div>
@@ -58,7 +64,7 @@ export const GenerationDeficitReport: React.FC<GenerationDeficitReportProps> = (
               variant="outlined"
               size="sm"
               onClick={onRetryDeficits}
-              disabled={isRetrying}
+              disabled={isRetrying || !canRetry || isPublishing}
               className="text-xs text-amber-900 dark:text-amber-100 border-amber-300 dark:border-amber-700"
             >
               <ArrowCounterClockwise className={`w-3.5 h-3.5 mr-1.5 ${isRetrying ? 'animate-spin' : ''}`} />
@@ -66,11 +72,12 @@ export const GenerationDeficitReport: React.FC<GenerationDeficitReportProps> = (
             </Button>
           )}
 
-          {onAcceptShortfall && (
+          {onAcceptShortfall && accepted > 0 && deficitCount > 0 && (
             <Button
               variant="filled"
               size="sm"
               onClick={onAcceptShortfall}
+              disabled={isPublishing}
               className="text-xs bg-amber-600 hover:bg-amber-700 text-white"
             >
               <Check className="w-3.5 h-3.5 mr-1.5" />
@@ -126,7 +133,7 @@ export const GenerationDeficitReport: React.FC<GenerationDeficitReportProps> = (
           <ul className="list-disc list-inside space-y-0.5 text-[11px]">
             {validationIssues.slice(0, 4).map((iss, i) => (
               <li key={i} className="truncate">
-                {iss.path}: {iss.messageKey}
+                {studyErrorMessageForKey(iss.messageKey) ?? `${iss.path}: ${iss.code.replaceAll('_', ' ')}`}
               </li>
             ))}
           </ul>

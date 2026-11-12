@@ -158,9 +158,11 @@ export const PlanNodeEditor: React.FC<PlanNodeEditorProps> = ({
           <NodeActivityControl
             activity={activity}
             onChange={onChangeActivity}
-            disabled={isReadOnly}
           />
         </div>
+        <p className="text-[11px] text-surface-500 dark:text-surface-400">
+          Open a linked source to study, then mark this topic complete when you’re done.
+        </p>
       </div>
 
       {/* Concept Label */}

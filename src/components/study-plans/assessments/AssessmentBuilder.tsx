@@ -24,7 +24,9 @@ import { BlueprintProviderSummary } from './BlueprintProviderSummary';
 import { GenerationDeficitReport } from './GenerationDeficitReport';
 import { BlueprintService } from '../../../lib/study-plans/assessments/blueprintService';
 import { QuestionEditor } from './QuestionEditor';
-import { planQuotaSlots } from '../../../lib/study-plans/assessments/quotaPlanner';
+import { calculateModelCallBudget, resolveBatchSize } from '../../../lib/study-plans/assessments/evidencePlanner';
+import { studyErrorMessage } from '../../../lib/study-plans/studyErrorMessage';
+import { evaluateQuotaReport, planQuotaSlots } from '../../../lib/study-plans/assessments/quotaPlanner';
 import { runAssessmentGenerationCoordinator } from '../../../lib/study-plans/assessments/generationCoordinator';
 import { performStudyAiPreflight, type StudyPreflightResult } from '../../../lib/study-plans/generation/preflight';
 import { refreshCurriculumScope } from '../../../lib/study-plans/generation/curriculumPreflight';
@@ -37,6 +39,7 @@ import type {
   AssessmentQuestion,
   AssessmentQuestionRevision,
   QuotaSlot,
+  QuotaReport,
 } from '../../../types/assessmentQuestions';
 import type { StudySourceRefV1 } from '../../../types/studySource';
 import type { StudyAiPreflight, StudyJobProgress } from '../../../lib/study-plans/generation/types';
@@ -53,6 +56,7 @@ export interface AssessmentBuilderProps {
   /** C7-T03 diagnostic host callbacks: prefill mode/config without new destination. */
   initialMode?: AssessmentConfigV1['mode'];
   initialConfig?: Partial<AssessmentConfigV1>;
+  initialTitle?: string;
   onStartedAttempt?: (attemptId: string) => void;
   /** C7-T07 return context banner (no auto-start, plan unchanged). */
   returnContext?: import('../remediation/returnContext').ReassessmentReturnContext | null;
@@ -130,6 +134,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   isMobile = false,
   initialMode,
   initialConfig,
+  initialTitle,
   onStartedAttempt,
   returnContext = null,
 }) => {
@@ -138,8 +143,9 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   const [config, setConfig] = useState<AssessmentConfigV1 | null>(null);
   const [state, setState] = useState<BuilderState>('loading');
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
+  const [generationReport, setGenerationReport] = useState<QuotaReport | null>(null);
   const [progress, setProgress] = useState<StudyJobProgress | null>(null);
-  const [preflight, setPreflight] = useState<StudyAiPreflight | null>(null);
+  const [inspectedPreflight, setPreflight] = useState<StudyAiPreflight | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [manualQuestion, setManualQuestion] = useState<AssessmentQuestionRevision | null | undefined>(undefined);
@@ -149,6 +155,31 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   const [preflightRoute, setPreflightRoute] = useState<StudyPreflightResult['route'] | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const batchSize = resolveBatchSize(isMobile);
+  const callBudget = calculateModelCallBudget(config?.requestedCount ?? 0, batchSize);
+  // Inspect-only preflight runs before the user can accept consent, so its
+  // authorization snapshot must be refreshed from the live controls.
+  const disclosureRequired = !!inspectedPreflight && (
+    inspectedPreflight.sendsSourceOffDevice ||
+    (typeof inspectedPreflight.embeddingDestination === 'object' &&
+      inspectedPreflight.embeddingDestination?.sendsOffDevice)
+  );
+  const consentReady = !!inspectedPreflight &&
+    (!disclosureRequired || cloudDisclosureAccepted) &&
+    (!inspectedPreflight.billable || costConsentAccepted);
+  const preflight = inspectedPreflight && {
+    ...inspectedPreflight,
+    maximumModelCalls: callBudget,
+    cloudDisclosureAccepted,
+    costConsentAccepted,
+    featureAllowed: consentReady,
+  };
+  const canGenerate = !!(preflight && preflightRoute && preflight.featureAllowed);
+  const hasValidQuestions = detail?.questions.some((question) => question.validation === 'valid');
+  const configuredSlots = config && detail ? planQuotaSlots(config, detail.revision.id) : [];
+  const quotaReport = generationReport ?? (detail && hasValidQuestions
+    ? evaluateQuotaReport(configuredSlots, detail.questions)
+    : null);
 
   const availableSourceRefs: StudySourceRefV1[] = Object.entries(planDetail?.sourceRefs || {}).flatMap(([id, resolution]) => {
     const scoped = detail?.revision.sourceScope.resolvedDocuments.find((doc) => doc.documentId === resolution.ref.documentId);
@@ -156,9 +187,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
         (resolution.ref.extractId && !scoped.extractIds.includes(resolution.ref.extractId))) return [];
     return [{ ...resolution.ref, id }];
   });
-  const nextManualSlot = config && detail
-    ? planQuotaSlots(config, detail.revision.id).find((slot) => !detail.questions.some((question) => question.slotKey === slot.slotKey))
-    : undefined;
+  const nextManualSlot = configuredSlots.find((slot) => !detail?.questions.some((question) => question.slotKey === slot.slotKey));
 
   const saveManualQuestion = async (question: AssessmentQuestion) => {
     if (!detail || !config || detail.revision.state === 'ready') return;
@@ -187,6 +216,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       });
       const refreshed = await BlueprintService.getBlueprintRevision(detail.revision.id);
       setDetail(refreshed);
+      setGenerationReport(null);
       setManualQuestion(undefined);
     } finally {
       setIsSavingQuestion(false);
@@ -196,6 +226,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   // Initialize or load blueprint revision
   const initBlueprint = useCallback(async () => {
     setState('loading');
+    setGenerationReport(null);
     setErrorBanner(null);
     try {
       let loadedDetail: BlueprintDetail;
@@ -209,7 +240,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       } else {
         // Initialize new draft blueprint
         const planTitle = planDetail?.plan.title || 'General';
-        const defaultTitle = `${planTitle} Examination`;
+        const defaultTitle = initialTitle || `${planTitle} Examination`;
         const configOverride = initialConfig;
 
         const baseConfig: AssessmentConfigV1 = {
@@ -224,7 +255,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             essay: 1,
           },
           difficultyWeights: configOverride?.difficultyWeights ?? { 1: 1, 2: 3, 3: 4, 4: 2, 5: 1 },
-          topicTargets: configOverride?.topicTargets ?? (planDetail?.version.nodes || []).map((n) => ({
+          topicTargets: configOverride?.topicTargets ?? (planDetail?.version.nodes || []).filter((node) => node.included).map((n) => ({
             nodeId: n.nodeId,
             conceptId: n.conceptId || null,
             weight: 1,
@@ -283,7 +314,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
           primaryTask: studyQuestionTask as any,
           documents: docs,
           sourceExcerptCount: refs.length,
-          plannedModelSteps: Math.ceil(loadedDetail.revision.config.requestedCount / (isMobile ? 3 : 6)),
+          plannedModelSteps: Math.ceil(loadedDetail.revision.config.requestedCount / batchSize),
           inspectOnly: true,
         });
         setPreflight(res.preflight);
@@ -296,7 +327,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       setErrorBanner(err?.messageKey || err?.message || 'Failed to initialize assessment');
       setState('error');
     }
-  }, [initialRevisionId, planDetail, initialConfig, isMobile]);
+  }, [initialRevisionId, planDetail, initialConfig, initialTitle, batchSize]);
 
   useEffect(() => {
     initBlueprint();
@@ -326,12 +357,10 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
   // Run AI Question Generation
   const handleGenerate = async () => {
-    if (!detail || !config || !preflight || !preflightRoute || !preflight.featureAllowed) return;
-    const offDevice = preflight.sendsSourceOffDevice ||
-      (typeof preflight.embeddingDestination === 'object' && preflight.embeddingDestination?.sendsOffDevice);
-    if ((offDevice && !cloudDisclosureAccepted) || (preflight.billable && !costConsentAccepted)) return;
+    if (!detail || !config || !preflight || !canGenerate || abortControllerRef.current || detail.revision.state === 'ready') return;
     setState('generating');
     setErrorBanner(null);
+    setGenerationReport(null);
     setProgress({ completed: 0, total: 1, labelKey: 'Initializing generation…' });
 
     const controller = new AbortController();
@@ -340,7 +369,11 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
     try {
       // First persist current parameters to draft
       const savedDetail = await handleSaveDraft();
-      if (!savedDetail) throw new Error('Draft could not be saved. Generation was not started.');
+      if (!savedDetail) {
+        setErrorBanner('Draft could not be saved. Generation was not started.');
+        setState('idle');
+        return;
+      }
 
       const result = await runAssessmentGenerationCoordinator(
         {
@@ -357,16 +390,15 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       );
 
       setDetail(result.blueprintDetail);
-      if (result.deficitsCount > 0) {
-        setState('needs-review');
-      } else {
-        setState('ready');
-      }
+      setGenerationReport(result.quotaReport);
+      setState(result.deficitsCount > 0 ? 'needs-review' : 'idle');
     } catch (err: any) {
+      const latest = await BlueprintService.getBlueprintRevision(detail.revision.id).catch(() => null);
+      if (latest) setDetail(latest);
       if (err?.code === 'cancelled') {
         setErrorBanner('Generation cancelled. Partial drafts remain intact.');
       } else {
-        setErrorBanner(err?.messageKey || err?.message || 'Generation failed');
+        setErrorBanner(studyErrorMessage(err, 'Question generation stopped. Saved questions are available in the draft.'));
       }
       setState('idle');
     } finally {
@@ -377,7 +409,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
   // Publish Blueprint Paper
   const handlePublish = async (acceptShortfall = false) => {
-    if (!detail) return;
+    if (!detail || !hasValidQuestions || abortControllerRef.current) return;
     setIsPublishing(true);
     setErrorBanner(null);
     try {
@@ -390,7 +422,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       setState('ready');
       onPublished?.(published);
     } catch (err: any) {
-      setErrorBanner(err?.messageKey || err?.message || 'Failed to publish assessment');
+      setErrorBanner(studyErrorMessage(err, 'Failed to publish assessment.'));
     } finally {
       setIsPublishing(false);
     }
@@ -412,7 +444,8 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   };
 
   return (
-    <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
+    <div className="h-full min-h-0 overflow-y-auto overscroll-contain">
+      <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
       {returnContext && (
         <p data-testid="builder-return-context" className="text-xs text-on-surface-variant">
           Follow-up context: plan {returnContext.planId ?? '—'} · gap {returnContext.gapId ?? '—'}. No
@@ -485,16 +518,14 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               variant="filled"
               size="sm"
               onClick={handleGenerate}
-              disabled={state === 'generating' || state === 'ready' || !preflightRoute || !preflight.featureAllowed ||
-                ((preflight.sendsSourceOffDevice || (typeof preflight.embeddingDestination === 'object' && preflight.embeddingDestination?.sendsOffDevice)) && !cloudDisclosureAccepted) ||
-                (preflight.billable && !costConsentAccepted)}
+              disabled={state === 'generating' || state === 'ready' || !canGenerate}
             >
               <Sparkle className="w-4 h-4 mr-1.5" />
               Generate Questions
             </Button>
           )}
 
-          {state !== 'ready' && detail && detail.questions.length > 0 && (
+          {state !== 'ready' && hasValidQuestions && (
             <Button
               variant="filled"
               size="sm"
@@ -561,17 +592,19 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             />
           </div>
           <span className="text-xs text-primary-700 dark:text-primary-300 block">
-            Step {progress.completed} of {progress.total} — {progress.labelKey}
+            Batch {Math.min(progress.completed + 1, progress.total)} of {progress.total}
           </span>
         </div>
       )}
 
       {/* Shortfall / Deficit Report */}
-      {detail?.revision.quota && (
+      {state !== 'ready' && state !== 'generating' && quotaReport && (
         <GenerationDeficitReport
-          quotaReport={detail.revision.quota}
+          quotaReport={quotaReport}
           onRetryDeficits={handleGenerate}
-          onAcceptShortfall={() => handlePublish(true)}
+          canRetry={canGenerate}
+          onAcceptShortfall={hasValidQuestions ? () => handlePublish(true) : undefined}
+          isPublishing={isPublishing}
         />
       )}
 
@@ -600,7 +633,11 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
           <div className="lg:col-span-2 space-y-6">
             <BlueprintQuotaControls
               config={config}
-              onChange={(updated) => setConfig(updated)}
+              onChange={(updated) => {
+                if (updated.requestedCount !== config.requestedCount) setCostConsentAccepted(false);
+                setGenerationReport(null);
+                setConfig(updated);
+              }}
               disabled={state === 'generating' || state === 'ready'}
             />
           </div>
@@ -651,6 +688,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
           />
         );
       })()}
+      </div>
     </div>
   );
 };

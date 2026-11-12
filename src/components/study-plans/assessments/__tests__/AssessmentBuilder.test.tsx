@@ -204,6 +204,8 @@ describe('AssessmentBuilder Component (C3-T08)', () => {
     expect(screen.getByText('Grounding Source Scope')).toBeInTheDocument();
     expect(screen.getByText('AI Execution & Call Budget')).toBeInTheDocument();
     expect(screen.getByText('Total Questions Quota: 10')).toBeInTheDocument();
+    expect(screen.queryByText(/Quota Shortfall/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Accept 0-Question Paper/ })).not.toBeInTheDocument();
   });
 
   it('saves draft parameters when Save Draft button is clicked', async () => {
@@ -229,7 +231,7 @@ describe('AssessmentBuilder Component (C3-T08)', () => {
     });
   });
 
-  it('triggers coordinator on Generate Questions click', async () => {
+  it.each([false, true])('generates with a budget sized for the active platform (mobile: %s)', async (isMobile) => {
     vi.mocked(preflightModule.performStudyAiPreflight).mockResolvedValueOnce({
       preflight: mockPreflight,
       route: { provider: { id: 'native' }, task: {} } as any,
@@ -251,12 +253,15 @@ describe('AssessmentBuilder Component (C3-T08)', () => {
       callsMade: 3,
     });
 
-    render(<AssessmentBuilder planDetail={mockPlanDetail} onClose={vi.fn()} />);
+    render(<AssessmentBuilder planDetail={mockPlanDetail} isMobile={isMobile} onClose={vi.fn()} />);
 
     await waitFor(() => {
       expect(screen.getByText('Generate Questions')).toBeInTheDocument();
     });
 
+    expect(preflightModule.performStudyAiPreflight).toHaveBeenCalledWith(expect.objectContaining({
+      plannedModelSteps: 5,
+    }));
     fireEvent.click(screen.getByText('Generate Questions'));
 
     await waitFor(() => {
@@ -264,7 +269,7 @@ describe('AssessmentBuilder Component (C3-T08)', () => {
         expect.objectContaining({
           blueprintRevisionId: 'abr_1',
         }),
-        expect.anything(),
+        expect.objectContaining({ maximumModelCalls: 10 }),
         expect.anything()
       );
     });

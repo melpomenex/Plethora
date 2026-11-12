@@ -41,7 +41,7 @@ export type StudyPlansView =
       };
     }
   | { name: 'plan'; planId: string; versionId?: string; nodeId?: string }
-  | { name: 'assessment-builder'; planId?: string; versionId?: string; blueprintRevisionId?: string; initialConfig?: AssessmentConfigV1; returnContext?: ReassessmentReturnContext | null }
+  | { name: 'assessment-builder'; planId?: string; versionId?: string; blueprintRevisionId?: string; initialConfig?: AssessmentConfigV1; initialTitle?: string; returnContext?: ReassessmentReturnContext | null }
   | { name: 'attempt-runner'; attemptId: string; fromHistory?: boolean; planId?: string; returnContext?: ReassessmentReturnContext | null }
   | { name: 'attempt-results'; attemptId: string; fromHistory?: boolean; planId?: string; returnContext?: ReassessmentReturnContext | null };
 
@@ -156,6 +156,7 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({ initialView, onOpe
         blueprintRevisionId={view.blueprintRevisionId}
         initialMode={view.initialConfig?.mode}
         initialConfig={view.initialConfig}
+        initialTitle={view.initialTitle}
         returnContext={view.returnContext ?? null}
         onClose={() => setView(view.planId ? { name: 'plan', planId: view.planId } : { name: 'home' })}
         onStartAssessment={(attemptId) => setView({ name: 'attempt-runner', attemptId, planId: view.planId, returnContext: view.returnContext ?? null })}
@@ -170,8 +171,8 @@ export const StudyPlansTab: React.FC<StudyPlansTabProps> = ({ initialView, onOpe
         initialNodeId={view.nodeId}
         onBack={() => setView({ name: 'home' })}
         onOpenSource={onOpenSource}
-        onOpenAssessmentBuilder={(planId, versionId) =>
-          setView({ name: 'assessment-builder', planId, versionId })
+        onOpenAssessmentBuilder={(planId, versionId, blueprintRevisionId, initialConfig, initialTitle) =>
+          setView({ name: 'assessment-builder', planId, versionId, blueprintRevisionId, initialConfig, initialTitle })
         }
         onPrepareAssessment={(gap, mode) => {
           const { plan, version } = activePlanDetail;

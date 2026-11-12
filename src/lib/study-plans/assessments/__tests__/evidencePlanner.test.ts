@@ -11,7 +11,7 @@ import type { StudySourceRefV1 } from '../../../../types/studySource';
 
 describe('Assessment Evidence Planner', () => {
   it('resolves desktop and mobile batch sizes correctly', () => {
-    expect(resolveBatchSize(false)).toBe(DESKTOP_BATCH_SIZE); // 4
+    expect(resolveBatchSize(false)).toBe(DESKTOP_BATCH_SIZE); // 2
     expect(resolveBatchSize(true)).toBe(MOBILE_BATCH_SIZE); // 2
   });
 

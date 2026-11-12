@@ -34,6 +34,8 @@ import type {
   StudyAiPreflight,
   StudyJobProgress,
 } from '../generation/types';
+import { AIError } from '../../ai/errors';
+import { logModelFailure, modelFailure } from '../generation/modelFailure';
 import { runPinnedStudyTask } from '../generation/pinnedTask';
 import { sha256 } from '../generation/requestHash';
 import {
@@ -45,7 +47,7 @@ import {
   calculateModelCallBudget,
   planQuestionBatches,
   resolveBatchSize,
-  type QuestionBatchPlan,
+  type TopicInfo,
 } from './evidencePlanner';
 import {
   buildQuotaReport,
@@ -89,7 +91,7 @@ export interface AssessmentCoordinatorOptions {
 }
 
 export interface AssessmentCoordinatorResult {
-  jobId: string;
+  jobId: string | null;
   blueprintDetail: BlueprintDetail;
   quotaReport: QuotaReport;
   acceptedCount: number;
@@ -190,6 +192,7 @@ export async function runAssessmentGenerationCoordinator(
   const claimStep = deps.claimStepFn || claimStudyJobStep;
   const completeStep = deps.completeStepFn || completeStudyJobStep;
   const failStep = deps.failStepFn || failStudyJobStep;
+  const cancelJob = deps.cancelJobFn || cancelStudyGenerationJob;
   const resolveSourceRefs = deps.resolveSourceRefsFn || resolveStudySourceRefs;
   const getPlan = deps.getStudyPlanFn || getStudyPlan;
   const refreshScope = deps.refreshScopeFn || refreshCurriculumScope;
@@ -211,7 +214,7 @@ export async function runAssessmentGenerationCoordinator(
   }
 
   // 1. Fetch blueprint revision
-  let detail = await getRevision(request.blueprintRevisionId);
+  const detail = await getRevision(request.blueprintRevisionId);
   if (detail.blueprint.revision !== request.expectedRevision) {
     throw new StudyApiError({ code: 'stale_revision', messageKey: 'study_plan.error.stale_revision', retryable: true });
   }
@@ -249,51 +252,70 @@ export async function runAssessmentGenerationCoordinator(
     resolveSourceRefs
   );
   if (detail.revision.config.knowledgePolicy === 'source-only' && verifiedSources.length === 0) {
-    throw new StudyApiError({ code: 'missing_source', messageKey: 'study_generation.error.source_missing', retryable: false });
+    throw new StudyApiError({ code: 'missing_source', messageKey: 'study.assessment.error.no_verified_passages', retryable: false });
   }
 
-  // 3. Quota allocation & slots construction
   const config = detail.revision.config;
   const slots: QuotaSlot[] = planQuotaSlots(config, detail.revision.id);
+  const existingFingerprints = new Set(detail.questions.map((question) => question.fingerprint).filter(Boolean));
+  const savedSlotKeys = new Set(detail.questions.filter((question) => question.validation === 'valid').map((question) => question.slotKey));
+  const acceptedSlotKeys = new Set(slots.filter((slot) => savedSlotKeys.has(slot.slotKey)).map((slot) => slot.slotKey));
+  const pendingSlots = slots.filter((slot) => !acceptedSlotKeys.has(slot.slotKey));
 
-  // 4. Batch planning
+  if (!pendingSlots.length) {
+    return {
+      jobId: null,
+      blueprintDetail: detail,
+      quotaReport: buildQuotaReport(slots.length, slots, acceptedSlotKeys, [], [], false),
+      acceptedCount: acceptedSlotKeys.size,
+      deficitsCount: 0,
+      callsMade: 0,
+    };
+  }
+
+  const nodesById = new Map(planDetail?.version.nodes?.filter((node) => node.included).map((node) => [node.nodeId, node]));
+  const topics = config.topicTargets.flatMap<TopicInfo>((target, index) => {
+    const node = target.nodeId ? nodesById.get(target.nodeId) : undefined;
+    return node ? [{
+      index,
+      title: node.title,
+      conceptLabel: node.conceptLabel,
+      objectives: node.learningObjectives,
+      sourceRefIds: node.sourceRefIds,
+    }] : [];
+  });
   const batchSize = resolveBatchSize(request.isMobile);
-  const plannedBatches: QuestionBatchPlan[] = planQuestionBatches({
-    slots,
+  const plannedBatches = planQuestionBatches({
+    slots: pendingSlots,
     sourceRefs: verifiedSources,
     topicTargets: config.topicTargets,
-    isMobile: request.isMobile,
+    topics,
     maxBatchSize: batchSize,
   });
-
-  const modelCallBudget = calculateModelCallBudget(slots.length, batchSize);
+  const modelCallBudget = calculateModelCallBudget(pendingSlots.length, batchSize);
   if (modelCallBudget > preflight.maximumModelCalls) {
     throw new StudyApiError({ code: 'invalid_input', messageKey: 'study_generation.error.model_call_budget_exceeded', retryable: false });
   }
 
-  // 5. Start native job
-  const requestHash = sha256(
-    JSON.stringify({
-      revisionId: detail.revision.id,
-      config,
-      slotsCount: slots.length,
-      snapshotHash: detail.revision.sourceSnapshotHash,
-    })
-  );
-
+  const requestHash = sha256(JSON.stringify({
+    revisionId: detail.revision.id,
+    targetRevision: detail.blueprint.revision,
+    config,
+    pendingSlots: pendingSlots.map((slot) => slot.slotKey),
+    snapshotHash: detail.revision.sourceSnapshotHash,
+  }));
   const taskInputs = plannedBatches.map((batch) => ({
-    jobId: 'pending',
     stepKey: batch.stepKey,
     slots: batch.slots,
     sources: batch.sources,
     topicEvidence: batch.topicEvidence,
     knowledgePolicy: config.knowledgePolicy,
     excludedFingerprints: config.excludedQuestionFingerprints,
-  } satisfies StudyQuestionTaskInput));
-  const steps: CreateStudyStepInput[] = plannedBatches.map((b, idx) => ({
-    stepKey: b.stepKey,
-    ordinal: idx + 1,
-    inputHash: sha256(JSON.stringify({ ...taskInputs[idx], jobId: undefined })),
+  } satisfies Omit<StudyQuestionTaskInput, 'jobId'>));
+  const steps: CreateStudyStepInput[] = taskInputs.map((input, ordinal) => ({
+    stepKey: input.stepKey,
+    ordinal,
+    inputHash: sha256(JSON.stringify(input)),
   }));
 
   const startInput: StartStudyJobInput = {
@@ -312,14 +334,6 @@ export async function runAssessmentGenerationCoordinator(
   }
   const authorizedPreflight = { ...preflight };
 
-  // Track state across steps
-  const existingFingerprints = new Set<string>();
-  const acceptedSlotKeys = new Set<string>();
-  for (const q of detail.questions) {
-    if (q.fingerprint) existingFingerprints.add(q.fingerprint);
-    if (q.slotKey) acceptedSlotKeys.add(q.slotKey);
-  }
-
   const allDuplicates: string[] = [];
   const allIssues: Array<{ path: string; code: string; messageKey: string }> = [];
   let callsMade = 0;
@@ -328,13 +342,9 @@ export async function runAssessmentGenerationCoordinator(
   for (let idx = 0; idx < plannedBatches.length; idx++) {
     const batch = plannedBatches[idx];
 
-    // Check cancellation
     if (signal?.aborted) {
-      throw new StudyApiError({
-        code: 'cancelled',
-        messageKey: 'study_generation.error.cancelled',
-        retryable: false,
-      });
+      await cancelJob(job.id, job.cancellationEpoch).catch(() => undefined);
+      throw new StudyApiError({ code: 'cancelled', messageKey: 'study_generation.error.cancelled', retryable: false });
     }
 
     // Report progress
@@ -352,31 +362,7 @@ export async function runAssessmentGenerationCoordinator(
       continue;
     }
 
-    // Check call budget cap: at most 2 * ceil(N / batchSize)
-    if (callsMade >= modelCallBudget) {
-      await failStep({
-        jobId: job.id,
-        stepKey: batch.stepKey,
-        leaseOwner,
-        cancellationEpoch: job.cancellationEpoch,
-        error: {
-          code: 'quota_shortfall',
-          messageKey: 'study.assessment.error.model_call_budget_exceeded',
-          retryable: false,
-        },
-      });
-      continue;
-    }
-
-    const taskInput: StudyQuestionTaskInput = {
-      jobId: job.id,
-      stepKey: batch.stepKey,
-      slots: batch.slots,
-      sources: batch.sources,
-      topicEvidence: batch.topicEvidence,
-      knowledgePolicy: config.knowledgePolicy,
-      excludedFingerprints: config.excludedQuestionFingerprints,
-    };
+    const taskInput = { ...taskInputs[idx], jobId: job.id };
 
     try {
       if (!planDetail) throw new StudyApiError({ code: 'missing_source', messageKey: 'study_generation.error.source_missing', retryable: false });
@@ -396,7 +382,6 @@ export async function runAssessmentGenerationCoordinator(
       if (authorization.preflight.maximumModelCalls < modelCallBudget || callsMade + 2 > authorizedPreflight.maximumModelCalls) {
         throw new StudyApiError({ code: 'invalid_input', messageKey: 'study_generation.error.model_call_budget_exceeded', retryable: false });
       }
-      callsMade++;
       const taskResult = await runPinned(
         studyQuestionTask,
         taskInput,
@@ -406,62 +391,72 @@ export async function runAssessmentGenerationCoordinator(
           preflightRoute,
         },
         preflight
-      );
-
-      signal?.throwIfAborted();
-      await refreshScope(planDetail.version.sourceScope);
-      const batchOutput = taskResult.output;
-      const provenance: GenerationProvenance = {
-        taskId: taskResult.taskId,
-        providerId: taskResult.providerId,
-        endpointLocality: typeof authorization.preflight.generationDestination === 'object'
-          ? authorization.preflight.generationDestination.locality : 'unknown',
-        requestedModelClass: taskResult.requestedModelClass,
-        servedModelClass: taskResult.servedModelClass,
-        fallbackPath: taskResult.fallbackPath,
-        validationOutcome: taskResult.validationOutcome,
-        baseModelName: taskResult.baseModelName,
-        promptContractVersion: 'study-ai-v1',
-        usage: taskResult.usage,
-      };
-
-      // Translate, validate, and screen duplicates
-      const mergeRes = translateAndFilterCandidates({
-        batch: batchOutput,
-        batchPlan: batch,
-        existingFingerprints,
-        excludedFingerprints: config.excludedQuestionFingerprints,
+      ).catch((error: unknown) => {
+        if (!(error instanceof AIError) || error.category !== 'InvalidStructuredOutput') throw error;
+        logModelFailure(job.id, batch.stepKey, error);
+        callsMade += error.completion?.attemptCount ?? 1;
+        const issue = modelFailure(error);
+        allIssues.push({ path: `steps.${batch.stepKey}`, code: issue.code, messageKey: issue.messageKey });
+        return null;
       });
 
-      // Persist accepted candidates to SQLite via blueprint repository
-      for (const candidate of mergeRes.acceptedCandidates) {
-        const encoded = encodeQuestionRevision(candidate.question);
+      signal?.throwIfAborted();
+      if (taskResult) {
+        callsMade += taskResult.validationOutcome === 'repaired' ? 2 : 1;
+        await refreshScope(planDetail.version.sourceScope);
+        const batchOutput = taskResult.output;
+        const provenance: GenerationProvenance = {
+          taskId: taskResult.taskId,
+          providerId: taskResult.providerId,
+          endpointLocality: typeof authorization.preflight.generationDestination === 'object'
+            ? authorization.preflight.generationDestination.locality : 'unknown',
+          requestedModelClass: taskResult.requestedModelClass,
+          servedModelClass: taskResult.servedModelClass,
+          fallbackPath: taskResult.fallbackPath,
+          validationOutcome: taskResult.validationOutcome,
+          baseModelName: taskResult.baseModelName,
+          promptContractVersion: 'study-ai-v1',
+          usage: taskResult.usage,
+        };
 
-        await saveQuestion({
-          blueprintRevisionId: detail.revision.id,
-          slotKey: candidate.slotKey,
-          fingerprint: candidate.fingerprint,
-          kind: candidate.question.kind,
-          payloadJson: encoded.payloadJson,
-          answerKeyJson: encoded.answerKeyJson,
-          rubricJson: encoded.rubricJson,
-          maxPoints: candidate.question.maxPoints,
-          difficulty: candidate.question.difficulty,
-          validation: 'valid',
-          validationIssuesJson: null,
-          providerJson: JSON.stringify(provenance),
-          sourceRefIds: candidate.question.sourceRefIds,
-          targets: candidate.question.learningObjectives.map((obj) => ({
-            conceptLabel: obj,
-            objectiveText: obj,
-          })),
+        // Translate, validate, and screen duplicates
+        const mergeRes = translateAndFilterCandidates({
+          batch: batchOutput,
+          batchPlan: batch,
+          existingFingerprints,
+          excludedFingerprints: config.excludedQuestionFingerprints,
         });
 
-        acceptedSlotKeys.add(candidate.slotKey);
-      }
+        // Persist accepted candidates to SQLite via blueprint repository
+        for (const candidate of mergeRes.acceptedCandidates) {
+          const encoded = encodeQuestionRevision(candidate.question);
 
-      allDuplicates.push(...mergeRes.duplicateFingerprints);
-      allIssues.push(...mergeRes.issues);
+          await saveQuestion({
+            blueprintRevisionId: detail.revision.id,
+            slotKey: candidate.slotKey,
+            fingerprint: candidate.fingerprint,
+            kind: candidate.question.kind,
+            payloadJson: encoded.payloadJson,
+            answerKeyJson: encoded.answerKeyJson,
+            rubricJson: encoded.rubricJson,
+            maxPoints: candidate.question.maxPoints,
+            difficulty: candidate.question.difficulty,
+            validation: 'valid',
+            validationIssuesJson: null,
+            providerJson: JSON.stringify(provenance),
+            sourceRefIds: candidate.question.sourceRefIds,
+            targets: candidate.question.learningObjectives.map((obj) => ({
+              conceptLabel: obj,
+              objectiveText: obj,
+            })),
+          });
+
+          acceptedSlotKeys.add(candidate.slotKey);
+        }
+
+        allDuplicates.push(...mergeRes.duplicateFingerprints);
+        allIssues.push(...mergeRes.issues);
+      }
 
       // Complete step
       const isFinal = idx === plannedBatches.length - 1;
@@ -470,7 +465,7 @@ export async function runAssessmentGenerationCoordinator(
         stepKey: batch.stepKey,
         leaseOwner,
         cancellationEpoch: job.cancellationEpoch,
-        inputHash: sha256(JSON.stringify({ ...taskInput, jobId: undefined })),
+        inputHash: steps[idx].inputHash,
         outputRefId: null,
         nextStepIndex: idx + 1,
         progress: {
@@ -482,30 +477,22 @@ export async function runAssessmentGenerationCoordinator(
       });
     } catch (err) {
       if (signal?.aborted) {
-        throw new StudyApiError({
-          code: 'cancelled',
-          messageKey: 'study_generation.error.cancelled',
-          retryable: false,
-        });
+        await cancelJob(job.id, job.cancellationEpoch).catch(() => undefined);
+        throw new StudyApiError({ code: 'cancelled', messageKey: 'study_generation.error.cancelled', retryable: false });
       }
 
-      const errMsg = err instanceof Error ? err.message : String(err);
+      if (err instanceof AIError) logModelFailure(job.id, batch.stepKey, err);
+      const error = err instanceof AIError ? new StudyApiError(modelFailure(err)) : err;
       await failStep({
         jobId: job.id,
         stepKey: batch.stepKey,
         leaseOwner,
         cancellationEpoch: job.cancellationEpoch,
-        error: {
-          code: 'invalid_model_output',
-          messageKey: errMsg,
-          retryable: true,
-        },
-      });
-      allIssues.push({
-        path: `steps.${batch.stepKey}`,
-        code: 'step_failed',
-        messageKey: errMsg,
-      });
+        error: error instanceof StudyApiError
+          ? { code: error.code, messageKey: error.messageKey, retryable: error.retryable }
+          : { code: 'internal_error', messageKey: 'study_generation.error.step_stopped', retryable: true },
+      }).catch(() => undefined);
+      throw error;
     }
   }
 
