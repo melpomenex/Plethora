@@ -3565,51 +3565,25 @@ export const amberLiquidGlassTheme: Theme = {
       width: 60vw;
       height: 60vw;
       border-radius: 50%;
-      filter: blur(100px);
       z-index: -100;
       opacity: 0.22;
       pointer-events: none;
-      mix-blend-mode: screen;
-      animation: amber-blob-flow 30s infinite alternate ease-in-out;
     }
 
     :root[data-theme-id="amber-liquid-glass"]::before {
       background: radial-gradient(circle, rgba(245, 158, 11, 0.6) 0%, transparent 70%);
       top: -20%;
       left: -20%;
-      animation-delay: 0s;
     }
 
     :root[data-theme-id="amber-liquid-glass"]::after {
       background: radial-gradient(circle, rgba(232, 120, 40, 0.5) 0%, transparent 70%);
       bottom: -20%;
       right: -20%;
-      animation-delay: -7s;
-      animation-duration: 35s;
     }
 
-    @keyframes amber-blob-flow {
-      0% {
-        transform: translate(0, 0) scale(1) rotate(0deg);
-      }
-      33% {
-        transform: translate(15vw, 10vh) scale(1.15) rotate(120deg);
-      }
-      66% {
-        transform: translate(-10vw, 25vh) scale(0.9) rotate(240deg);
-      }
-      100% {
-        transform: translate(5vw, -5vh) scale(1.05) rotate(360deg);
-      }
-    }
-
-    /* Respect OS reduced-motion: freeze the blob animation but keep the blobs. */
-    @media (prefers-reduced-motion: reduce) {
-      :root[data-theme-id="amber-liquid-glass"]::before,
-      :root[data-theme-id="amber-liquid-glass"]::after {
-        animation: none !important;
-      }
-    }
+    /* Keep the ambient amber glow static: animating large fixed layers in
+       transparent WebKit windows can saturate the renderer and starve input. */
 
     :root[data-theme-id="amber-liquid-glass"] .app-shell {
       background: rgba(18, 11, 4, 0.65) !important;
