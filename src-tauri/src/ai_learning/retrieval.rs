@@ -26,7 +26,7 @@ use futures::TryStreamExt;
 use sqlx::{QueryBuilder, Row};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashSet};
-use tracing::{debug, warn};
+use tracing::debug;
 
 /// Lexical prefilter size (design D11: "top ~200 by rank").
 pub const LEXICAL_PREFILTER_LIMIT: i64 = 200;
@@ -322,10 +322,13 @@ async fn lexical_results(
         return Ok(out);
     }
 
-    let allowed_docs = filters
+    // Scope the FTS rows before ranking and limiting them. A global cap can
+    // hide selected documents behind higher-ranked hits outside the scope.
+    let scoped_docs = filters
         .document_ids
         .as_ref()
-        .map(|docs| docs.iter().map(|d| d.as_str()).collect::<HashSet<&str>>());
+        .map(serde_json::to_string)
+        .transpose()?;
     let allowed_types: Option<HashSet<&str>> = filters
         .source_types
         .as_ref()
@@ -334,33 +337,23 @@ async fn lexical_results(
     let type_ok = |t: &str| allowed_types.as_ref().map_or(true, |set| set.contains(t));
 
     // Document hits.
-    let doc_rows: Vec<(String, f64, String)> = match sqlx::query_as(
+    let doc_rows: Vec<(String, f64, String)> = sqlx::query_as(
         "SELECT ds.document_id, rank, snippet(document_search, 2, '<mark>', '</mark>', '...', 24)
          FROM document_search ds
          WHERE document_search MATCH ?1
+           AND (?3 IS NULL OR ds.document_id IN (SELECT value FROM json_each(?3)))
          ORDER BY rank
          LIMIT ?2",
     )
     .bind(&fts_query)
     .bind(LEXICAL_PREFILTER_LIMIT)
+    .bind(scoped_docs.as_deref())
     .fetch_all(repo.pool())
-    .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            warn!("lexical document search failed: {}", e);
-            Vec::new()
-        }
-    };
+    .await?;
 
     for (doc_id, rank, snippet) in doc_rows {
         if out.len() >= k {
             break;
-        }
-        if let Some(allowed) = allowed_docs.as_ref() {
-            if !allowed.contains(doc_id.as_str()) {
-                continue;
-            }
         }
         let score = normalize_bm25(rank);
 
@@ -412,33 +405,23 @@ async fn lexical_results(
     }
 
     // Extract hits map to extract chunks via source_id.
-    let extract_rows: Vec<(String, String, f64)> = match sqlx::query_as(
+    let extract_rows: Vec<(String, String, f64)> = sqlx::query_as(
         "SELECT es.extract_id, es.document_id, rank
          FROM extract_search es
          WHERE extract_search MATCH ?1
+           AND (?3 IS NULL OR es.document_id IN (SELECT value FROM json_each(?3)))
          ORDER BY rank
          LIMIT ?2",
     )
     .bind(&fts_query)
     .bind(LEXICAL_PREFILTER_LIMIT)
+    .bind(scoped_docs.as_deref())
     .fetch_all(repo.pool())
-    .await
-    {
-        Ok(rows) => rows,
-        Err(e) => {
-            warn!("lexical extract search failed: {}", e);
-            Vec::new()
-        }
-    };
+    .await?;
 
     for (extract_id, doc_id, rank) in extract_rows {
-        if out.len() >= k * 2 {
+        if out.len() >= k {
             break;
-        }
-        if let Some(allowed) = allowed_docs.as_ref() {
-            if !allowed.contains(doc_id.as_str()) {
-                continue;
-            }
         }
         if !type_ok("extract") {
             continue;
@@ -617,6 +600,43 @@ mod tests {
         assert!(!response.results.is_empty(), "FTS hit surfaced");
         assert!(response.results[0].document_id == "lex-1");
         assert!(response.results[0].text.contains("quantum"));
+    }
+
+    #[tokio::test]
+    async fn lexical_limit_is_applied_within_selected_documents() {
+        let pool = test_pool().await;
+        let repo = Repository::new(pool.clone());
+        for index in 0..LEXICAL_PREFILTER_LIMIT {
+            seed_document(&pool, &format!("outside-{index}"), "tunneling", "text").await;
+        }
+        seed_document(
+            &pool,
+            "selected",
+            "Quantum tunneling explains alpha decay and several other physical effects.",
+            "text",
+        )
+        .await;
+
+
+        let backend = EmbeddingBackend::OnDevice {
+            model: crate::ai_learning::embeddings_backend::ON_DEVICE_MODEL,
+        };
+        let response = retrieve(
+            &repo,
+            &backend,
+            "tunneling",
+            5,
+            &RetrievalFilters {
+                document_ids: Some(vec!["selected".to_string()]),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("retrieve selected document");
+        assert_eq!(response.mode, "lexicalOnly");
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(response.results[0].document_id, "selected");
+        assert!(response.results[0].text.contains("alpha decay"));
     }
 
     #[tokio::test]

@@ -178,6 +178,41 @@ describe('hydrateCurriculumEvidence', () => {
     expect(res.handleToSourceRefIdMap.get('src_h0')).toBe('ssr_0');
   });
 
+  it('verifies a lexical snippet against source text without a synthetic chunk reference', async () => {
+    const excerpt = 'Quantum tunneling explains alpha decay.';
+    const resolveSourceRefsFn = vi.fn(async (inputs: StudySourceRefInput[]): Promise<StudySourceResolution[]> =>
+      inputs.map((input) => JSON.parse(JSON.stringify({
+        status: input.chunk ? 'stale' : 'current',
+        navigation: 'coarse',
+        ref: {
+          schemaVersion: 1, id: 'verified', documentId: input.documentId, extractId: null,
+          excerpt: input.excerpt, excerptSha256: 'hash', revision: 'rev_1',
+          revisionKind: 'content-hash', documentTitle: 'Physics', sourceType: 'text',
+          capturedAt: '2026-11-10T00:00:00Z',
+        },
+      }))));
+    const result = await hydrateCurriculumEvidence({
+      goal: 'tunneling',
+      sourceScope: dummyScope,
+      depth: 'survey',
+      retrieveFn: vi.fn().mockResolvedValue({
+        mode: 'lexicalOnly', candidatesScanned: 0,
+        results: [{
+          chunkId: 'fts-doc_1', documentId: 'doc_1', sourceType: 'document',
+          ordinal: -1, text: excerpt, headingPath: [],
+          location: { sourceType: 'fts', documentId: 'doc_1', ordinal: -1 },
+          contentHash: '', tokenCount: 0, score: 1, mode: 'lexicalOnly',
+        }],
+      }),
+      resolveSourceRefsFn,
+      listConfirmedConceptLinksFn: vi.fn().mockResolvedValue([]),
+    });
+    expect(resolveSourceRefsFn.mock.calls[0][0][0].chunk).toBeUndefined();
+    expect(result.allHandles.map((item) => item.excerpt)).toEqual([excerpt]);
+    expect(result.allHandles[0].extractId).toBeUndefined();
+    expect(result.handleToSourceRefIdMap.get(result.allHandles[0].handle)).toBe('verified');
+  });
+
   it('drops stale hydrated references while preserving stable exact reference mapping', async () => {
     const retrieveFn = vi.fn().mockResolvedValue({
       mode: 'semantic', candidatesScanned: 2,

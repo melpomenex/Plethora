@@ -546,8 +546,8 @@ describe('Curriculum Generation UI Components (C2-T09)', () => {
               staleDocuments: 0,
               failedDocuments: 0,
               totalChunks: 1,
-              totalEmbeddings: 1,
-              embeddingStorageBytes: 1,
+              totalEmbeddings: 0,
+              embeddingStorageBytes: 0,
               embeddingModels: [],
               paused: false,
               pendingDocuments: 0,
@@ -555,7 +555,7 @@ describe('Curriculum Generation UI Components (C2-T09)', () => {
             documents: [{
               documentId: 'doc_1',
               state: 'indexed',
-              chunksIndexed: 1,
+              chunksIndexed: 0,
               totalChunks: 1,
               updatedAt: '2026-11-10T00:00:00Z',
             }],
@@ -585,6 +585,7 @@ describe('Curriculum Generation UI Components (C2-T09)', () => {
       // The exact configured model is visible during inspection before consent.
       await waitFor(() => expect(screen.queryByText(/Checking model/)).not.toBeInTheDocument());
       expect(await screen.findByText(alternateModelId)).toBeInTheDocument();
+      expect(await screen.findByText(/1 with indexed chunks/)).toBeInTheDocument();
       const start = screen.getByRole('button', { name: /Start AI Generation/i });
       expect(start).toBeDisabled();
       expect(launch).not.toHaveBeenCalled();

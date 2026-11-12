@@ -49,7 +49,7 @@ import { mergeCurriculumProposals, type MergeCurriculumResult } from './merge';
 import { EVIDENCE_LIMITS } from './planEvidence';
 import { runPinnedStudyTask } from './pinnedTask';
 import { computeRequestHash, sha256 } from './requestHash';
-import { prepareCurriculumPreflight, refreshCurriculumScope } from './curriculumPreflight';
+import { countIndexedCurriculumSources, prepareCurriculumPreflight, refreshCurriculumScope } from './curriculumPreflight';
 import { evaluateStudyPrivacy } from './privacy';
 import { classifyRouteDestination, validatePreflightUnchanged } from './preflight';
 import { resolveTaskRoute } from '../../ai/tasks/router';
@@ -67,6 +67,7 @@ import type {
 
 export interface CoordinatorDependencies {
   startJobFn?: typeof startStudyGenerationJob;
+  countIndexedSourcesFn?: typeof countIndexedCurriculumSources;
   resumeJobFn?: typeof resumeStudyGenerationJob;
   claimStepFn?: typeof claimStudyJobStep;
   completeStepFn?: typeof completeStudyJobStep;
@@ -255,7 +256,28 @@ export async function runCurriculumCoordinator(
   });
   signal?.throwIfAborted();
   if (evidence.batches.length === 0) {
-    throw new StudyApiError({ code: 'missing_source', messageKey: 'study_generation.error.no_evidence', retryable: true });
+    const countIndexedSources = deps.countIndexedSourcesFn ?? countIndexedCurriculumSources;
+    const documents = authorized.sourceScope.resolvedDocuments;
+    const indexedSources = await countIndexedSources(documents.map((doc) => doc.documentId));
+    signal?.throwIfAborted();
+    console.debug('[study-plans] Curriculum evidence unavailable', {
+      selectedDocuments: authorized.sourceScope.selected.documentIds.length,
+      selectedExtracts: authorized.sourceScope.selected.extractIds.length,
+      resolvedDocuments: documents.length,
+      indexedSources,
+      retrieval: evidence.retrieval,
+      verificationResults: evidence.resolutions.map(({ status, reasonKey }) => ({ status, reasonKey })),
+      elapsedMs: now() - startedAt,
+    });
+    if (evidence.retrieval?.failedQueries) {
+      throw new StudyApiError({ code: 'storage_failed', messageKey: 'study_generation.error.retrieval_failed', retryable: true });
+    }
+    const messageKey = evidence.resolutions.length > 0
+      ? 'study_generation.error.unverified_evidence'
+      : indexedSources === 0
+        ? 'study_generation.error.index_not_ready'
+        : 'study_generation.error.no_evidence';
+    throw new StudyApiError({ code: 'insufficient_evidence', messageKey, retryable: true });
   }
   const batches = evidence.batches;
   if (2 * (batches.length + 1) > preflight.maximumModelCalls) {
@@ -278,7 +300,9 @@ export async function runCurriculumCoordinator(
     const stepKey = `decompose:${String(b).padStart(4, '0')}`;
     plannedSteps.push({
       stepKey,
-      ordinal: b + 1,
+      // Native claims compare this ordinal directly with the zero-based
+      // next_step_index, which starts at 0 for the first step.
+      ordinal: b,
       inputHash: sha256(JSON.stringify({ stepKey, requestHash, batchIndex: b })),
     });
   }
@@ -286,7 +310,7 @@ export async function runCurriculumCoordinator(
   const prereqStepKey = `prerequisites:${String(batches.length).padStart(4, '0')}`;
   plannedSteps.push({
     stepKey: prereqStepKey,
-    ordinal: batches.length + 1,
+    ordinal: batches.length,
     inputHash: sha256(JSON.stringify({ stepKey: prereqStepKey, requestHash })),
   });
 

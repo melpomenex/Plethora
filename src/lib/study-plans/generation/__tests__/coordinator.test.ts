@@ -120,6 +120,31 @@ describe('Curriculum Coordinator and Job Controller', () => {
     };
   }
 
+  it.each([
+    { indexed: 2, failedQueries: 0, rejected: false, messageKey: 'study_generation.error.no_evidence' },
+    { indexed: null, failedQueries: 1, rejected: false, messageKey: 'study_generation.error.retrieval_failed' },
+    { indexed: 2, failedQueries: 0, rejected: true, messageKey: 'study_generation.error.unverified_evidence' },
+    { indexed: 0, failedQueries: 0, rejected: false, messageKey: 'study_generation.error.index_not_ready' },
+  ])('reports $messageKey before starting a generation job', async ({ indexed, failedQueries, rejected, messageKey }) => {
+    const startJobFn = vi.fn();
+    const deps: CoordinatorDependencies = {
+      ...testPreflightDeps(),
+      getPlanFn: vi.fn().mockResolvedValue(createMockPlanDetail()),
+      startJobFn,
+      countIndexedSourcesFn: vi.fn().mockResolvedValue(indexed),
+      hydrateEvidenceFn: vi.fn().mockResolvedValue({
+        batches: [],
+        uniqueHits: [],
+        resolutions: rejected ? [{ status: 'stale' }] : [],
+        retrieval: { failedQueries },
+      }),
+    };
+
+    await expect(runCurriculumCoordinator(dummyRequest, dummyPreflight, { deps }))
+      .rejects.toMatchObject({ messageKey });
+    expect(startJobFn).not.toHaveBeenCalled();
+  });
+
   function createMockPlanDetail(revision = 1, draftVersionId = 'spv_draft_1'): StudyPlanDetail {
     return {
       plan: {
@@ -464,6 +489,12 @@ describe('Curriculum Coordinator and Job Controller', () => {
     const result = await runCurriculumCoordinator(dummyRequest, dummyPreflight, { deps, creationKey: 'ck_1' });
 
     expect(result.jobId).toBe('job_gen_1');
+    expect(mockStartJob).toHaveBeenCalledWith(expect.objectContaining({
+      steps: expect.arrayContaining([
+        expect.objectContaining({ stepKey: 'decompose:0000', ordinal: 0 }),
+        expect.objectContaining({ stepKey: 'prerequisites:0001', ordinal: 1 }),
+      ]),
+    }));
     expect(completedSteps).toEqual(['decompose:0000', 'prerequisites:0001']);
     expect(savedDrafts.length).toBe(2);
 

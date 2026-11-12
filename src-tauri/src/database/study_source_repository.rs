@@ -4,6 +4,9 @@
 //! - openspec/planning/study-plans-assessments-program/02-SHARED-CONTRACTS.md §2
 //! - openspec/changes/establish-persistent-study-plans/
 
+use crate::ai_learning::chunker::{chunk_document, ChunkContext, ChunkInput, ChunkOptions};
+use crate::ai_learning::indexer::build_rich_text_chunks;
+use crate::ai_learning::models::{ChunkLocation, ChunkModel, SOURCE_TYPE_DOCUMENT};
 use crate::models::study_source::{
     FieldIssue, RevisionKind, StudyCommandError, StudyErrorCode, StudySourceChunk,
     StudySourceNavigation, StudySourceRefInput, StudySourceRefV1, StudySourceResolution,
@@ -12,7 +15,7 @@ use crate::models::study_source::{
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Row, Sqlite, Transaction};
-use std::collections::HashMap;
+use std::collections::{hash_map::Entry, HashMap};
 use uuid::Uuid;
 
 pub const EXCERPT_MIN_CHARS: usize = 1;
@@ -28,6 +31,73 @@ pub fn compute_sha256(text: &str) -> String {
 pub fn compute_excerpt_sha256(excerpt: &str) -> String {
     let normalized = excerpt.replace("\r\n", "\n");
     compute_sha256(&normalized)
+}
+
+/// Collapse every whitespace run to a single space so chunk text produced by
+/// the indexer (which normalizes hard-wrapped paragraphs and joins blocks with
+/// blank lines) can be compared with the original source projection. Without
+/// this, valid retrieved chunks are rejected whenever the stored source keeps
+/// line breaks the chunker removed.
+pub fn normalize_for_match(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut pending_space = false;
+    for ch in text.replace("\r\n", "\n").chars() {
+        if ch.is_whitespace() {
+            pending_space = !out.is_empty();
+        } else {
+            if pending_space {
+                out.push(' ');
+                pending_space = false;
+            }
+            out.push(ch);
+        }
+    }
+    out
+}
+
+fn normalized_match_count(haystack: &str, needle: &str) -> usize {
+    let normalized_needle = normalize_for_match(needle);
+    if normalized_needle.is_empty() {
+        return 0;
+    }
+    normalize_for_match(haystack)
+        .match_indices(&normalized_needle)
+        .count()
+}
+
+/// Builds the searchable projections of a source: stored plain text first,
+/// then the same tag-stripped HTML projection the chunker indexes. HTML and
+/// EPUB documents frequently keep only the rich markup, so the plain text is
+/// empty even though the source is fully available.
+fn collect_source_texts(plain: Option<&str>, html: Option<&str>) -> Vec<String> {
+    let mut texts = Vec::new();
+    if let Some(text) = plain {
+        if !text.trim().is_empty() {
+            texts.push(text.to_string());
+        }
+    }
+    if let Some(markup) = html {
+        if !markup.trim().is_empty() {
+            let projection = crate::ai_learning::chunker::html_plain_text(markup);
+            if !projection.trim().is_empty() {
+                texts.push(projection);
+            }
+        }
+    }
+    texts
+}
+
+fn best_source_match_count(texts: &[String], normalized_needle: &str) -> usize {
+    texts
+        .iter()
+        .map(|text| normalized_match_count(text, normalized_needle))
+        .max()
+        .unwrap_or(0)
+}
+
+enum BookProjection {
+    Rich(Vec<ChunkModel>),
+    Plain(Vec<ChunkModel>),
 }
 
 #[derive(Clone)]
@@ -57,6 +127,7 @@ impl StudySourceRepository {
         inputs: &[StudySourceRefInput],
     ) -> Result<Vec<StudySourceResolution>, StudyCommandError> {
         let mut resolutions = Vec::with_capacity(inputs.len());
+        let mut book_chunks = HashMap::new();
 
         for (idx, input) in inputs.iter().enumerate() {
             // Validate input document ID
@@ -91,7 +162,8 @@ impl StudySourceRepository {
 
             // Fetch live document
             let doc_row = sqlx::query(
-                "SELECT id, title, file_type, content, content_hash, date_modified, is_local_only, is_ai_excluded
+                "SELECT id, title, file_type, file_path, content, html_content, content_hash, date_modified,
+                        is_archived, is_local_only, is_ai_excluded
                  FROM documents WHERE id = ?1 LIMIT 1",
             )
             .bind(&input.document_id)
@@ -152,34 +224,37 @@ impl StudySourceRepository {
             let doc_file_type: String = doc
                 .try_get("file_type")
                 .unwrap_or_else(|_| "unknown".to_string());
-            let doc_content_hash: Option<String> = doc.try_get("content_hash").ok().flatten();
-            let doc_date_modified: String = doc
-                .try_get("date_modified")
-                .unwrap_or_else(|_| Utc::now().to_rfc3339());
+            let doc_content_hash = doc.try_get::<Option<String>, _>("content_hash").ok().flatten();
+            let doc_date_modified: String = doc.try_get("date_modified").unwrap_or_default();
             let doc_content: Option<String> = doc.try_get("content").ok().flatten();
+            let doc_html: Option<String> = doc.try_get("html_content").ok().flatten();
+            let is_archived: bool = doc.try_get("is_archived").unwrap_or(false);
             let is_ai_excluded: bool = doc.try_get("is_ai_excluded").unwrap_or(false);
 
-            // Determine live revision
-            let (live_revision, live_revision_kind) = if let Some(ref hash) = doc_content_hash {
-                if !hash.trim().is_empty() {
-                    (hash.clone(), RevisionKind::ContentHash)
-                } else {
-                    (doc_date_modified.clone(), RevisionKind::ModifiedAt)
-                }
+            // Match the revision selected by the frontend source scope.
+            let content_hash = doc_content_hash
+                .as_deref()
+                .map(str::trim)
+                .filter(|hash| !hash.is_empty());
+            let (live_revision, live_revision_kind) = if let Some(hash) = content_hash {
+                (hash.to_string(), RevisionKind::ContentHash)
             } else if !doc_date_modified.trim().is_empty() {
-                (doc_date_modified.clone(), RevisionKind::ModifiedAt)
+                (
+                    doc_date_modified.trim().to_string(),
+                    RevisionKind::ModifiedAt,
+                )
             } else {
                 ("unknown".to_string(), RevisionKind::Unknown)
             };
+            let revision_mismatch = input
+                .revision
+                .as_ref()
+                .is_some_and(|revision| revision != &live_revision);
 
-            let mut revision_mismatch = false;
-            if let Some(ref supplied_rev) = input.revision {
-                if supplied_rev != &live_revision {
-                    revision_mismatch = true;
-                }
-            }
-
-            // Validate excerpt in extract or document content
+            // Validate the excerpt against the canonical indexed chunk and the
+            // live source. Whitespace is normalized on both sides: the chunker
+            // unwraps hard-wrapped paragraphs, so byte-exact comparison against
+            // stored content produces false "stale" verdicts for every hit.
             let mut status = StudySourceStatus::Current;
             let mut navigation = if input.jump.is_some() {
                 StudySourceNavigation::Exact
@@ -188,9 +263,17 @@ impl StudySourceRepository {
             };
             let mut reason_key: Option<String> = None;
 
-            if let Some(ref ext_id) = input.extract_id {
+            if is_archived {
+                status = StudySourceStatus::Missing;
+                navigation = StudySourceNavigation::Unavailable;
+                reason_key = Some("study_source.missing.document_archived".to_string());
+            } else if revision_mismatch {
+                status = StudySourceStatus::Stale;
+                navigation = StudySourceNavigation::Coarse;
+                reason_key = Some("study_source.stale.revision_mismatch".to_string());
+            } else if let Some(ref ext_id) = input.extract_id {
                 let ext_row = sqlx::query(
-                    "SELECT id, document_id, content FROM extracts WHERE id = ?1 LIMIT 1",
+                    "SELECT id, document_id, content, html_content FROM extracts WHERE id = ?1 LIMIT 1",
                 )
                 .bind(ext_id)
                 .fetch_optional(&self.pool)
@@ -215,77 +298,178 @@ impl StudySourceRepository {
                             }],
                         ));
                     }
-                    let ext_content: String = ext.try_get("content").unwrap_or_default();
-                    let norm_ext_content = ext_content.replace("\r\n", "\n");
-                    let match_count = norm_ext_content.matches(&normalized_excerpt).count();
-
-                    if match_count == 0 {
+                    let ext_content: Option<String> =
+                        ext.try_get("content").ok().flatten();
+                    let ext_html: Option<String> =
+                        ext.try_get("html_content").ok().flatten();
+                    let source_texts =
+                        collect_source_texts(ext_content.as_deref(), ext_html.as_deref());
+                    if input.chunk.is_some() {
+                        if let Some(reason) = self
+                            .verify_chunk_ref(
+                                input,
+                                &doc_date_modified,
+                                &normalized_excerpt,
+                                &source_texts,
+                                None,
+                                true,
+                            )
+                            .await?
+                        {
+                            status = StudySourceStatus::Stale;
+                            navigation = StudySourceNavigation::Coarse;
+                            reason_key = Some(reason);
+                        }
+                    } else if source_texts.is_empty() {
+                        let (found, count) = self
+                            .search_source_chunks(
+                                &input.document_id,
+                                Some(ext_id),
+                                &normalized_excerpt,
+                            )
+                            .await?;
+                        if !found {
+                            status = StudySourceStatus::Stale;
+                            navigation = StudySourceNavigation::Coarse;
+                            reason_key =
+                                Some("study_source.stale.excerpt_not_in_extract".to_string());
+                        } else if count > 1 {
+                            status = StudySourceStatus::Ambiguous;
+                            navigation = StudySourceNavigation::Coarse;
+                            reason_key =
+                                Some("study_source.ambiguous.multiple_matches".to_string());
+                        }
+                    } else {
+                        let match_count =
+                            best_source_match_count(&source_texts, &normalized_excerpt);
+                        if match_count == 0 {
+                            status = StudySourceStatus::Stale;
+                            navigation = StudySourceNavigation::Coarse;
+                            reason_key =
+                                Some("study_source.stale.excerpt_not_in_extract".to_string());
+                        } else if match_count > 1 {
+                            status = StudySourceStatus::Ambiguous;
+                            navigation = StudySourceNavigation::Coarse;
+                            reason_key =
+                                Some("study_source.ambiguous.multiple_matches".to_string());
+                        }
+                    }
+                }
+            } else {
+                let is_book = matches!(doc_file_type.as_str(), "pdf" | "epub");
+                let mut book_projection = None;
+                if is_book && input.chunk.is_some() && !is_ai_excluded {
+                    let key = (
+                        input.document_id.clone(),
+                        live_revision.clone(),
+                        doc_date_modified.clone(),
+                    );
+                    let projection =
+                        match book_chunks.entry(key) {
+                            Entry::Occupied(entry) => entry.into_mut(),
+                            Entry::Vacant(entry) => {
+                                let ctx = ChunkContext {
+                                    document_id: &input.document_id,
+                                    source_type: SOURCE_TYPE_DOCUMENT,
+                                    source_id: None,
+                                    location_source_type: &doc_file_type,
+                                    spine_index: None,
+                                };
+                                let path: String = doc.try_get("file_path").unwrap_or_default();
+                                let projection =
+                                    match build_rich_text_chunks(&ctx, &path, doc_html.as_deref())
+                                        .await
+                                    {
+                                        Some(chunks) => BookProjection::Rich(chunks),
+                                        None => {
+                                            let text = doc_content.as_deref().unwrap_or_default();
+                                            BookProjection::Plain(chunk_document(
+                                                &ctx,
+                                                ChunkInput::Plain {
+                                                    text,
+                                                    heading_heuristic: true,
+                                                },
+                                                &ChunkOptions::default(),
+                                            ))
+                                        }
+                                    };
+                                entry.insert(projection)
+                            }
+                        };
+                    book_projection = Some(&*projection);
+                }
+                let source_texts = if book_projection.is_some() {
+                    Vec::new()
+                } else {
+                    collect_source_texts(doc_content.as_deref(), doc_html.as_deref())
+                };
+                if input.chunk.is_some() {
+                    if let Some(reason) = self
+                        .verify_chunk_ref(
+                            input,
+                            &doc_date_modified,
+                            &normalized_excerpt,
+                            &source_texts,
+                            book_projection,
+                            !is_book,
+                        )
+                        .await?
+                    {
                         status = StudySourceStatus::Stale;
                         navigation = StudySourceNavigation::Coarse;
-                        reason_key = Some("study_source.stale.excerpt_not_in_extract".to_string());
+                        reason_key = Some(reason);
+                    }
+                } else if source_texts.is_empty() && !is_book {
+                    let (found, count) = self
+                        .search_source_chunks(&input.document_id, None, &normalized_excerpt)
+                        .await?;
+                    if !found {
+                        status = StudySourceStatus::Stale;
+                        navigation = StudySourceNavigation::Coarse;
+                        reason_key = Some("study_source.stale.excerpt_not_in_source".to_string());
+                    } else if count > 1 {
+                        status = StudySourceStatus::Ambiguous;
+                        navigation = StudySourceNavigation::Coarse;
+                        reason_key = Some("study_source.ambiguous.multiple_matches".to_string());
+                    }
+                } else {
+                    let match_count = best_source_match_count(&source_texts, &normalized_excerpt);
+                    if match_count == 0 && is_book {
+                        status = StudySourceStatus::Stale;
+                        navigation = StudySourceNavigation::Coarse;
+                        reason_key = Some("study_source.stale.excerpt_not_in_source".to_string());
+                    } else if match_count == 0 {
+                        // HTML/PDF projections can differ from stored plain text.
+                        // Fall back to the canonical indexed chunk before
+                        // declaring the excerpt stale.
+                        let (found, count) = self
+                            .search_source_chunks(&input.document_id, None, &normalized_excerpt)
+                            .await?;
+                        if !found {
+                            status = StudySourceStatus::Stale;
+                            navigation = StudySourceNavigation::Coarse;
+                            reason_key =
+                                Some("study_source.stale.excerpt_not_in_source".to_string());
+                        } else if count > 1 {
+                            status = StudySourceStatus::Ambiguous;
+                            navigation = StudySourceNavigation::Coarse;
+                            reason_key =
+                                Some("study_source.ambiguous.multiple_matches".to_string());
+                        }
                     } else if match_count > 1 {
                         status = StudySourceStatus::Ambiguous;
                         navigation = StudySourceNavigation::Coarse;
                         reason_key = Some("study_source.ambiguous.multiple_matches".to_string());
                     }
                 }
-            } else if let Some(ref full_content) = doc_content {
-                let norm_full_content = full_content.replace("\r\n", "\n");
-                let match_count = norm_full_content.matches(&normalized_excerpt).count();
-
-                if match_count == 0 {
-                    status = StudySourceStatus::Stale;
-                    navigation = StudySourceNavigation::Coarse;
-                    reason_key = Some("study_source.stale.excerpt_not_in_document".to_string());
-                } else if match_count > 1 {
-                    status = StudySourceStatus::Ambiguous;
-                    navigation = StudySourceNavigation::Coarse;
-                    reason_key = Some("study_source.ambiguous.multiple_matches".to_string());
-                }
-            }
-
-            if input.extract_id.is_none()
-                && doc_content
-                    .as_deref()
-                    .is_none_or(|text| text.trim().is_empty())
-            {
-                let indexed_text: Option<String> = if let Some(chunk) = &input.chunk {
-                    sqlx::query_scalar(
-                        "SELECT c.text FROM semantic_chunks c
-                         JOIN ai_index_state i ON i.document_id = c.document_id
-                         JOIN documents d ON d.id = c.document_id
-                         WHERE c.id = ?1 AND c.document_id = ?2 AND c.ordinal = ?3
-                           AND c.source_type = 'document' AND i.state = 'indexed'
-                           AND datetime(i.updated_at) >= datetime(d.date_modified)",
-                    )
-                    .bind(&chunk.chunk_id)
-                    .bind(&input.document_id)
-                    .bind(chunk.ordinal)
-                    .fetch_optional(&self.pool)
-                    .await
-                    .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?
-                } else {
-                    None
-                };
-                if !indexed_text.is_some_and(|text| {
-                    text.trim()
-                        .replace("\r\n", "\n")
-                        .starts_with(&normalized_excerpt)
-                }) {
-                    status = StudySourceStatus::Stale;
-                    navigation = StudySourceNavigation::Coarse;
-                    reason_key = Some("study_source.stale.excerpt_not_in_document".to_string());
-                }
-            }
-
-            if revision_mismatch && status == StudySourceStatus::Current {
-                status = StudySourceStatus::Stale;
-                navigation = StudySourceNavigation::Coarse;
-                reason_key = Some("study_source.stale.revision_mismatch".to_string());
             }
 
             // Validate jump kind compatibility
-            if let Some(ref jump) = input.jump {
+            if let Some(jump) = input
+                .jump
+                .as_ref()
+                .filter(|_| status == StudySourceStatus::Current)
+            {
                 if let Some(kind_val) = jump.get("kind").and_then(|k| k.as_str()) {
                     let doc_type_lower = doc_file_type.to_lowercase();
                     if (doc_type_lower == "pdf" && kind_val != "pdf")
@@ -317,7 +501,15 @@ impl StudySourceRepository {
                 }
             }
 
-            if is_ai_excluded && reason_key.is_none() {
+            if is_ai_excluded {
+                // AI-excluded documents must never verify as a usable source,
+                // even when the excerpt itself matches. Callers only accept
+                // `current` resolutions, so the status (not just the reason
+                // key) has to change here.
+                if status != StudySourceStatus::Missing {
+                    status = StudySourceStatus::Unsupported;
+                    navigation = StudySourceNavigation::Unavailable;
+                }
                 reason_key = Some("study_source.meta.ai_excluded".to_string());
             }
 
@@ -356,6 +548,199 @@ impl StudySourceRepository {
         }
 
         Ok(resolutions)
+    }
+
+    /// Validates a retrieved chunk as the canonical indexed representation of
+    /// an excerpt: identity, document ownership, ordinal, content hash, source
+    /// type, excerpt containment, and freshness. Returns a specific reason key
+    /// when any check fails.
+    async fn verify_chunk_ref(
+        &self,
+        input: &StudySourceRefInput,
+        doc_date_modified: &str,
+        normalized_excerpt: &str,
+        source_texts: &[String],
+        book_projection: Option<&BookProjection>,
+        allow_index_fallback: bool,
+    ) -> Result<Option<String>, StudyCommandError> {
+        let Some(chunk_ref) = input.chunk.as_ref() else {
+            return Ok(Some("study_source.stale.chunk_not_found".to_string()));
+        };
+        let excerpt_key = normalize_for_match(normalized_excerpt);
+
+        let row = sqlx::query(
+            "SELECT c.document_id, c.source_type, c.source_id, c.ordinal, c.text,
+                    c.content_hash, c.location_json, i.state AS index_state,
+                    (i.document_id IS NOT NULL
+                     AND datetime(i.updated_at) >= datetime(?2)) AS index_current
+             FROM semantic_chunks c
+             LEFT JOIN ai_index_state i ON i.document_id = c.document_id
+             WHERE c.id = ?1
+             LIMIT 1",
+        )
+        .bind(&chunk_ref.chunk_id)
+        .bind(doc_date_modified)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+
+        let Some(row) = row else {
+            return Ok(Some("study_source.stale.chunk_not_found".to_string()));
+        };
+
+        let chunk_doc_id: String = row.try_get("document_id").unwrap_or_default();
+        if chunk_doc_id != input.document_id {
+            return Ok(Some(
+                "study_source.stale.chunk_document_mismatch".to_string(),
+            ));
+        }
+
+        let chunk_ordinal: i64 = row.try_get("ordinal").unwrap_or_default();
+        if chunk_ordinal != i64::from(chunk_ref.ordinal) {
+            return Ok(Some(
+                "study_source.stale.chunk_ordinal_mismatch".to_string(),
+            ));
+        }
+
+        let chunk_text: String = row.try_get("text").unwrap_or_default();
+        let stored_hash: String = row.try_get("content_hash").unwrap_or_default();
+        let computed_hash = crate::ai_learning::chunker::chunk_content_hash(&chunk_text);
+        if stored_hash != computed_hash {
+            return Ok(Some(
+                "study_source.stale.chunk_integrity_failed".to_string(),
+            ));
+        }
+
+        let source_type: String = row.try_get("source_type").unwrap_or_default();
+        let source_id: Option<String> = row.try_get("source_id").ok().flatten();
+        if input.extract_id.is_some() {
+            let expected_extract = input.extract_id.as_deref();
+            if source_type != crate::ai_learning::models::SOURCE_TYPE_EXTRACT
+                || source_id.as_deref() != expected_extract
+            {
+                return Ok(Some(
+                    "study_source.stale.chunk_source_type_mismatch".to_string(),
+                ));
+            }
+        } else if !matches!(
+            source_type.as_str(),
+            crate::ai_learning::models::SOURCE_TYPE_DOCUMENT
+                | crate::ai_learning::models::SOURCE_TYPE_SESSION
+                | "transcript"
+        ) {
+            return Ok(Some(
+                "study_source.stale.chunk_source_type_mismatch".to_string(),
+            ));
+        }
+
+        if !normalize_for_match(&chunk_text).contains(&excerpt_key) {
+            return Ok(Some(
+                "study_source.stale.chunk_text_mismatch".to_string(),
+            ));
+        }
+
+        if let Some(projection) = book_projection {
+            let chunks = match projection {
+                BookProjection::Rich(chunks) => chunks,
+                BookProjection::Plain(chunks) => {
+                    let page_scoped = row
+                        .try_get::<String, _>("location_json")
+                        .ok()
+                        .and_then(|json| serde_json::from_str::<ChunkLocation>(&json).ok())
+                        .is_some_and(|location| {
+                            location.source_type == "pdf" && location.page_number.is_some()
+                        });
+                    if page_scoped {
+                        return Ok(Some(
+                            "study_source.stale.source_projection_unavailable".to_string(),
+                        ));
+                    }
+                    chunks
+                }
+            };
+            let matches_live_chunk = chunks.iter().any(|chunk| {
+                if chunk.id != chunk_ref.chunk_id
+                    || chunk.ordinal != chunk_ordinal
+                    || chunk.content_hash != stored_hash
+                {
+                    return false;
+                }
+                serde_json::from_str::<ChunkLocation>(&chunk.location_json).is_ok_and(|location| {
+                    let requested_page = input
+                        .jump
+                        .as_ref()
+                        .and_then(|jump| jump.get("pageNumber"))
+                        .and_then(serde_json::Value::as_i64);
+                    usize::try_from(chunk_ref.start_offset) == Ok(location.start_offset)
+                        && usize::try_from(chunk_ref.end_offset) == Ok(location.end_offset)
+                        && requested_page.is_none_or(|page| location.page_number == Some(page))
+                })
+            });
+            return Ok((!matches_live_chunk)
+                .then(|| "study_source.stale.chunk_not_in_live_source".to_string()));
+        }
+
+        // The excerpt is present in the canonical chunk. If the original
+        // source projection also contains it, the chunk is current. Otherwise
+        // fall back to index freshness (transcript/session chunks add
+        // timestamps and speaker prefixes, and PDF/HTML projections can differ
+        // from the chunker's text).
+        let matches_original = source_texts
+            .iter()
+            .any(|text| normalize_for_match(text).contains(&excerpt_key));
+        if matches_original {
+            return Ok(None);
+        }
+
+        // A book with a missing rich projection can still be proved by
+        // stored source text. Index timestamps alone cannot establish it.
+        if !allow_index_fallback {
+            return Ok(Some("study_source.stale.excerpt_not_in_source".to_string()));
+        }
+
+        let index_state: Option<String> = row.try_get("index_state").ok().flatten();
+        let index_current: bool = row.try_get("index_current").unwrap_or(false);
+        let state_current = matches!(index_state.as_deref(), Some("indexed" | "stale"));
+        if !index_current || !state_current {
+            return Ok(Some(
+                "study_source.stale.index_not_current".to_string(),
+            ));
+        }
+
+        Ok(None)
+    }
+
+    /// Searches the canonical chunks of one document (optionally scoped to an
+    /// extract) for a whitespace-normalized excerpt. Used when the source has
+    /// no plain-text projection (transcripts, sessions) or when the projection
+    /// differs from the indexed text.
+    async fn search_source_chunks(
+        &self,
+        document_id: &str,
+        extract_id: Option<&str>,
+        normalized_excerpt: &str,
+    ) -> Result<(bool, usize), StudyCommandError> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT text FROM semantic_chunks
+             WHERE document_id = ?1
+               AND (
+                    (?2 IS NOT NULL AND source_type = 'extract' AND source_id = ?2)
+                    OR
+                    (?2 IS NULL AND source_type IN ('document', 'transcript', 'session'))
+               )",
+        )
+        .bind(document_id)
+        .bind(extract_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+
+        let excerpt_key = normalize_for_match(normalized_excerpt);
+        let count = rows
+            .iter()
+            .filter(|(text,)| normalize_for_match(text).contains(&excerpt_key))
+            .count();
+        Ok((count > 0, count))
     }
 
     /// Finds an existing study_source_refs row ID matching the content tuple,
@@ -553,6 +938,7 @@ impl StudySourceRepository {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ai_learning::models::{SOURCE_TYPE_DOCUMENT, SOURCE_TYPE_EXTRACT};
 
     async fn create_test_db() -> Pool<Sqlite> {
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
@@ -724,6 +1110,623 @@ mod tests {
         assert_eq!(
             res_bad_jump[0].navigation,
             StudySourceNavigation::Unavailable
+        );
+    }
+
+    async fn seed_document(
+        pool: &Pool<Sqlite>,
+        id: &str,
+        title: &str,
+        file_type: &str,
+        content: &str,
+        content_hash: &str,
+        updated_at: &str,
+    ) {
+        sqlx::query(
+            "INSERT INTO documents
+                (id, title, file_path, file_type, content, content_hash, date_added, date_modified)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+        )
+        .bind(id)
+        .bind(title)
+        .bind(format!("/path/{id}"))
+        .bind(file_type)
+        .bind(content)
+        .bind(content_hash)
+        .bind(updated_at)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn seed_chunk(
+        pool: &Pool<Sqlite>,
+        id: &str,
+        document_id: &str,
+        source_type: &str,
+        source_id: Option<&str>,
+        ordinal: i32,
+        text: &str,
+    ) {
+        sqlx::query(
+            "INSERT INTO semantic_chunks
+                (id, document_id, source_type, source_id, ordinal, text, content_hash, token_count)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0)",
+        )
+        .bind(id)
+        .bind(document_id)
+        .bind(source_type)
+        .bind(source_id)
+        // Insert i64 so SQLite stores an integer, matching the production table.
+        .bind(i64::from(ordinal))
+        .bind(text)
+        .bind(crate::ai_learning::chunker::chunk_content_hash(text))
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    async fn seed_index_state(
+        pool: &Pool<Sqlite>,
+        document_id: &str,
+        state: &str,
+        updated_at: &str,
+    ) {
+        sqlx::query(
+            "INSERT INTO ai_index_state
+                (document_id, state, chunks_indexed, total_chunks, updated_at)
+             VALUES (?1, ?2, 1, 1, ?3)",
+        )
+        .bind(document_id)
+        .bind(state)
+        .bind(updated_at)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+
+    fn chunk_ref(id: &str, ordinal: i32, text: &str) -> StudySourceChunk {
+        StudySourceChunk {
+            chunk_id: id.to_string(),
+            ordinal,
+            start_offset: 0,
+            end_offset: text.chars().count() as i32,
+        }
+    }
+
+    fn retrieved_book_ref(chunk: &ChunkModel, revision: &str) -> StudySourceRefInput {
+        let location: ChunkLocation = serde_json::from_str(&chunk.location_json).unwrap();
+        StudySourceRefInput {
+            document_id: chunk.document_id.clone(),
+            extract_id: None,
+            excerpt: chunk.text.trim().chars().take(500).collect(),
+            excerpt_sha256: None,
+            revision: Some(revision.into()),
+            revision_kind: Some(RevisionKind::ContentHash),
+            document_title: None,
+            source_type: Some(chunk.source_type.clone()),
+            jump: location
+                .page_number
+                .map(|page| serde_json::json!({"kind": "pdf", "pageNumber": page})),
+            chunk: Some(StudySourceChunk {
+                chunk_id: chunk.id.clone(),
+                ordinal: chunk.ordinal as i32,
+                start_offset: location.start_offset as i32,
+                end_offset: location.end_offset as i32,
+            }),
+            section_label: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_pdf_and_epub_chunks_require_current_authoritative_projection() {
+        let pool = create_test_db().await;
+        let repo = StudySourceRepository::new(pool.clone());
+        let pdf_fixture = |name: &str| {
+            format!(
+                "{}/tests/fixtures/pdf-baseline/{name}",
+                env!("CARGO_MANIFEST_DIR")
+            )
+        };
+        let temp = tempfile::tempdir().unwrap();
+        let pdf_path = temp.path().join("book.pdf");
+        tokio::fs::copy(pdf_fixture("simple-text.pdf"), &pdf_path)
+            .await
+            .unwrap();
+        let path = pdf_path.to_str().unwrap();
+        let html = "<h1>Chapter One</h1><p>Grounded knowledge has a basis in experience.</p><p>Another original sentence belongs to the same chapter.</p>";
+
+        for kind in ["pdf", "epub"] {
+            let markup = (kind == "epub").then_some(html);
+            let ctx = ChunkContext {
+                document_id: kind,
+                source_type: SOURCE_TYPE_DOCUMENT,
+                source_id: None,
+                location_source_type: kind,
+                spine_index: None,
+            };
+            let chunks = build_rich_text_chunks(&ctx, path, markup).await.unwrap();
+            let chunk = chunks.first().unwrap();
+            let input = retrieved_book_ref(chunk, "book-rev");
+            seed_document(
+                &pool,
+                kind,
+                "Book",
+                kind,
+                "Different import projection.",
+                "book-rev",
+                "2026-11-10T12:00:00Z",
+            )
+            .await;
+            sqlx::query("UPDATE documents SET file_path = ?1, html_content = ?2 WHERE id = ?3")
+                .bind(path)
+                .bind(markup)
+                .bind(kind)
+                .execute(&pool)
+                .await
+                .unwrap();
+            seed_chunk(
+                &pool,
+                &chunk.id,
+                kind,
+                SOURCE_TYPE_DOCUMENT,
+                None,
+                chunk.ordinal as i32,
+                &chunk.text,
+            )
+            .await;
+            sqlx::query("UPDATE semantic_chunks SET location_json = ?1 WHERE id = ?2")
+                .bind(&chunk.location_json)
+                .bind(&chunk.id)
+                .execute(&pool)
+                .await
+                .unwrap();
+
+            // An old index timestamp alone does not invalidate a fresh source match.
+            seed_index_state(&pool, kind, "indexed", "2026-11-10T11:00:00Z").await;
+            let mut bad_offset = input.clone();
+            bad_offset.chunk.as_mut().unwrap().end_offset += 1;
+            let mut wrong_revision = input.clone();
+            wrong_revision.revision = Some("old-rev".into());
+            let results = repo
+                .resolve_study_source_refs(&[input.clone(), bad_offset, wrong_revision])
+                .await
+                .unwrap();
+            assert_eq!(results[0].status, StudySourceStatus::Current);
+            assert_eq!(
+                results[1].reason_key.as_deref(),
+                Some("study_source.stale.chunk_not_in_live_source")
+            );
+            assert_eq!(results[2].status, StudySourceStatus::Stale);
+            assert_eq!(
+                results[2].reason_key.as_deref(),
+                Some("study_source.stale.revision_mismatch")
+            );
+
+            // Change the actual source while keeping the DB revision unchanged.
+            // The import projection and a fresh index timestamp still claim the old excerpt.
+            sqlx::query("UPDATE documents SET content = ?1 WHERE id = ?2")
+                .bind(&input.excerpt)
+                .bind(kind)
+                .execute(&pool)
+                .await
+                .unwrap();
+            sqlx::query("UPDATE ai_index_state SET updated_at = '2026-11-10T13:00:00Z' WHERE document_id = ?1")
+                .bind(kind).execute(&pool).await.unwrap();
+            if kind == "pdf" {
+                tokio::fs::copy(pdf_fixture("ligature-heavy.pdf"), &pdf_path)
+                    .await
+                    .unwrap();
+            } else {
+                sqlx::query("UPDATE documents SET html_content = '<p>Entirely different source text.</p>' WHERE id = 'epub'")
+                    .execute(&pool).await.unwrap();
+            }
+
+            let result = repo.resolve_study_source_refs(&[input]).await.unwrap();
+            assert_eq!(result[0].status, StudySourceStatus::Stale);
+            assert_eq!(
+                result[0].reason_key.as_deref(),
+                Some("study_source.stale.chunk_not_in_live_source")
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn test_chunk_verification_accepts_whitespace_normalized_canonical_chunk() {
+        let pool = create_test_db().await;
+        let repo = StudySourceRepository::new(pool.clone());
+
+        // Stored content keeps hard line breaks the chunker removes, so a
+        // byte-exact comparison would mark this valid passage stale.
+        seed_document(
+            &pool,
+            "doc_epub",
+            "Philosophy",
+            "epub",
+            "Knowledge is a justified true belief.\nValue depends on desire.\n\nAgents act for reasons.",
+            "rev_epub",
+            "2026-11-10T12:00:00Z",
+        )
+        .await;
+        let live_content = "Knowledge is a justified true belief.\nValue depends on desire.\n\nAgents act for reasons.";
+        let ctx = ChunkContext {
+            document_id: "doc_epub",
+            source_type: SOURCE_TYPE_DOCUMENT,
+            source_id: None,
+            location_source_type: "epub",
+            spine_index: None,
+        };
+        let chunks = crate::ai_learning::chunker::chunk_document(
+            &ctx,
+            crate::ai_learning::chunker::ChunkInput::Plain {
+                text: live_content,
+                heading_heuristic: true,
+            },
+            &Default::default(),
+        );
+        let chunk = &chunks[0];
+        assert!(!live_content.contains(&chunk.text));
+        seed_chunk(
+            &pool,
+            &chunk.id,
+            "doc_epub",
+            SOURCE_TYPE_DOCUMENT,
+            None,
+            chunk.ordinal as i32,
+            &chunk.text,
+        )
+        .await;
+        seed_index_state(&pool, "doc_epub", "indexed", "2026-11-10T12:05:00Z").await;
+
+        let input = retrieved_book_ref(chunk, "rev_epub");
+        let results = repo
+            .resolve_study_source_refs(&[input.clone()])
+            .await
+            .unwrap();
+        assert_eq!(results[0].status, StudySourceStatus::Current);
+        assert_eq!(results[0].reason_key, None);
+
+        let edited_content = format!("A new paragraph precedes the old passage.\n\n{live_content}");
+        sqlx::query("UPDATE documents SET content = ?1 WHERE id = 'doc_epub'")
+            .bind(&edited_content)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let results = repo.resolve_study_source_refs(&[input]).await.unwrap();
+        assert_eq!(results[0].status, StudySourceStatus::Stale);
+        assert_eq!(
+            results[0].reason_key.as_deref(),
+            Some("study_source.stale.chunk_not_in_live_source")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_chunk_verification_rejects_missing_mismatched_and_fabricated() {
+        let pool = create_test_db().await;
+        let repo = StudySourceRepository::new(pool.clone());
+
+        seed_document(
+            &pool,
+            "doc_a",
+            "Doc A",
+            "markdown",
+            "Alpha passage. Beta passage.",
+            "rev_a",
+            "2026-11-10T12:00:00Z",
+        )
+        .await;
+        seed_chunk(
+            &pool,
+            "chunk_a_0",
+            "doc_a",
+            SOURCE_TYPE_DOCUMENT,
+            None,
+            0,
+            "Alpha passage. Beta passage.",
+        )
+        .await;
+        seed_index_state(&pool, "doc_a", "indexed", "2026-11-10T12:05:00Z").await;
+
+        seed_document(
+            &pool,
+            "doc_b",
+            "Doc B",
+            "markdown",
+            "Another document.",
+            "rev_b",
+            "2026-11-10T12:00:00Z",
+        )
+        .await;
+
+        let base = StudySourceRefInput {
+            document_id: "doc_a".to_string(),
+            extract_id: None,
+            excerpt: "Alpha passage.".to_string(),
+            excerpt_sha256: None,
+            revision: Some("rev_a".to_string()),
+            revision_kind: None,
+            document_title: None,
+            source_type: None,
+            jump: None,
+            chunk: Some(chunk_ref("chunk_a_0", 0, "Alpha passage.")),
+            section_label: None,
+        };
+
+        // Fabricated excerpt not present in the canonical chunk.
+        let mut fabricated = base.clone();
+        fabricated.excerpt = "A hallucinated quotation.".to_string();
+        let res = repo
+            .resolve_study_source_refs(&[fabricated])
+            .await
+            .unwrap();
+        assert_eq!(res[0].status, StudySourceStatus::Stale);
+        assert_eq!(
+            res[0].reason_key.as_deref(),
+            Some("study_source.stale.chunk_text_mismatch")
+        );
+
+        // Nonexistent chunk id.
+        let mut missing = base.clone();
+        missing.chunk = Some(chunk_ref("chunk_missing", 0, "Alpha passage."));
+        let res = repo.resolve_study_source_refs(&[missing]).await.unwrap();
+        assert_eq!(
+            res[0].reason_key.as_deref(),
+            Some("study_source.stale.chunk_not_found")
+        );
+
+        // Chunk exists but belongs to a different document.
+        let mut wrong_doc = base.clone();
+        wrong_doc.chunk = Some(chunk_ref("chunk_a_0", 0, "Alpha passage."));
+        wrong_doc.document_id = "doc_b".to_string();
+        wrong_doc.revision = Some("rev_b".to_string());
+        let res = repo.resolve_study_source_refs(&[wrong_doc]).await.unwrap();
+        assert_eq!(
+            res[0].reason_key.as_deref(),
+            Some("study_source.stale.chunk_document_mismatch")
+        );
+
+        // Ordinal drift for the same chunk id.
+        let mut wrong_ordinal = base.clone();
+        wrong_ordinal.chunk = Some(chunk_ref("chunk_a_0", 7, "Alpha passage."));
+        let res = repo
+            .resolve_study_source_refs(&[wrong_ordinal])
+            .await
+            .unwrap();
+        assert_eq!(
+            res[0].reason_key.as_deref(),
+            Some("study_source.stale.chunk_ordinal_mismatch")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_transcript_only_document_verifies_from_canonical_chunk() {
+        let pool = create_test_db().await;
+        let repo = StudySourceRepository::new(pool.clone());
+
+        seed_document(
+            &pool,
+            "doc_video",
+            "GPU Talk",
+            "youtube",
+            "",
+            "rev_video",
+            "2026-11-10T12:00:00Z",
+        )
+        .await;
+        let transcript_text = "[0:00] Today we discuss GPU kernels.\n[0:05] Occupancy matters.";
+        seed_chunk(
+            &pool,
+            "chunk_video_0",
+            "doc_video",
+            "transcript",
+            None,
+            0,
+            transcript_text,
+        )
+        .await;
+        seed_index_state(&pool, "doc_video", "indexed", "2026-11-10T12:05:00Z").await;
+
+        let result = repo
+            .resolve_study_source_refs(&[StudySourceRefInput {
+                document_id: "doc_video".to_string(),
+                extract_id: None,
+                excerpt: "[0:00] Today we discuss GPU kernels.".to_string(),
+                excerpt_sha256: None,
+                revision: Some("rev_video".to_string()),
+                revision_kind: None,
+                document_title: None,
+                source_type: Some("transcript".to_string()),
+                jump: None,
+                chunk: Some(chunk_ref("chunk_video_0", 0, transcript_text)),
+                section_label: None,
+            }])
+            .await
+            .unwrap();
+        assert_eq!(result[0].status, StudySourceStatus::Current);
+    }
+
+    #[tokio::test]
+    async fn test_extract_chunk_requires_matching_extract_source() {
+        let pool = create_test_db().await;
+        let repo = StudySourceRepository::new(pool.clone());
+
+        seed_document(
+            &pool,
+            "doc_book",
+            "Book",
+            "pdf",
+            "Document body.",
+            "rev_book",
+            "2026-11-10T12:00:00Z",
+        )
+        .await;
+        sqlx::query(
+            "INSERT INTO extracts (id, document_id, content, date_created, date_modified)
+             VALUES ('ext_1', 'doc_book', 'An extracted passage.', '2026-11-10T12:00:00Z', '2026-11-10T12:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        seed_chunk(
+            &pool,
+            "chunk_ext_1",
+            "doc_book",
+            SOURCE_TYPE_EXTRACT,
+            Some("ext_1"),
+            0,
+            "An extracted passage.",
+        )
+        .await;
+        seed_index_state(&pool, "doc_book", "indexed", "2026-11-10T12:05:00Z").await;
+
+        let result = repo
+            .resolve_study_source_refs(&[StudySourceRefInput {
+                document_id: "doc_book".to_string(),
+                extract_id: Some("ext_1".to_string()),
+                excerpt: "An extracted passage.".to_string(),
+                excerpt_sha256: None,
+                revision: Some("rev_book".to_string()),
+                revision_kind: None,
+                document_title: None,
+                source_type: Some("pdf".to_string()),
+                jump: None,
+                chunk: Some(chunk_ref("chunk_ext_1", 0, "An extracted passage.")),
+                section_label: None,
+            }])
+            .await
+            .unwrap();
+        assert_eq!(result[0].status, StudySourceStatus::Current);
+
+        // A document chunk cannot stand in for an extract reference, even
+        // when its text matches the extract exactly.
+        seed_chunk(
+            &pool,
+            "chunk_doc_body",
+            "doc_book",
+            SOURCE_TYPE_DOCUMENT,
+            None,
+            0,
+            "An extracted passage.",
+        )
+        .await;
+        let wrong_source_type = StudySourceRepository::new(pool.clone());
+        let result = wrong_source_type
+            .resolve_study_source_refs(&[StudySourceRefInput {
+                document_id: "doc_book".to_string(),
+                extract_id: Some("ext_1".to_string()),
+                excerpt: "An extracted passage.".to_string(),
+                excerpt_sha256: None,
+                revision: Some("rev_book".to_string()),
+                revision_kind: None,
+                document_title: None,
+                source_type: None,
+                jump: None,
+                chunk: Some(chunk_ref("chunk_doc_body", 0, "An extracted passage.")),
+                section_label: None,
+            }])
+            .await
+            .unwrap();
+        assert_eq!(
+            result[0].reason_key.as_deref(),
+            Some("study_source.stale.chunk_source_type_mismatch")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_ai_excluded_and_stale_index_sources_are_rejected() {
+        let pool = create_test_db().await;
+        let repo = StudySourceRepository::new(pool.clone());
+
+        seed_document(
+            &pool,
+            "doc_excluded",
+            "Private",
+            "markdown",
+            "A private passage.",
+            "rev_private",
+            "2026-11-10T12:00:00Z",
+        )
+        .await;
+        sqlx::query("UPDATE documents SET is_ai_excluded = 1 WHERE id = 'doc_excluded'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let result = repo
+            .resolve_study_source_refs(&[StudySourceRefInput {
+                document_id: "doc_excluded".to_string(),
+                extract_id: None,
+                excerpt: "A private passage.".to_string(),
+                excerpt_sha256: None,
+                revision: Some("rev_private".to_string()),
+                revision_kind: None,
+                document_title: None,
+                source_type: None,
+                jump: None,
+                chunk: None,
+                section_label: None,
+            }])
+            .await
+            .unwrap();
+        assert_eq!(result[0].status, StudySourceStatus::Unsupported);
+        assert_eq!(
+            result[0].reason_key.as_deref(),
+            Some("study_source.meta.ai_excluded")
+        );
+
+        // Transcript-only chunk whose index state predates the document edit.
+        seed_document(
+            &pool,
+            "doc_stale_transcript",
+            "Stale Talk",
+            "audio",
+            "",
+            "rev_stale",
+            "2026-11-10T13:00:00Z",
+        )
+        .await;
+        seed_chunk(
+            &pool,
+            "chunk_stale_0",
+            "doc_stale_transcript",
+            "transcript",
+            None,
+            0,
+            "[0:00] A stale transcript line.",
+        )
+        .await;
+        seed_index_state(
+            &pool,
+            "doc_stale_transcript",
+            "indexed",
+            "2026-11-10T12:00:00Z",
+        )
+        .await;
+
+        let result = repo
+            .resolve_study_source_refs(&[StudySourceRefInput {
+                document_id: "doc_stale_transcript".to_string(),
+                extract_id: None,
+                excerpt: "[0:00] A stale transcript line.".to_string(),
+                excerpt_sha256: None,
+                revision: Some("rev_stale".to_string()),
+                revision_kind: None,
+                document_title: None,
+                source_type: Some("transcript".to_string()),
+                jump: None,
+                chunk: Some(chunk_ref(
+                    "chunk_stale_0",
+                    0,
+                    "[0:00] A stale transcript line.",
+                )),
+                section_label: None,
+            }])
+            .await
+            .unwrap();
+        assert_eq!(result[0].status, StudySourceStatus::Stale);
+        assert_eq!(
+            result[0].reason_key.as_deref(),
+            Some("study_source.stale.index_not_current")
         );
     }
 

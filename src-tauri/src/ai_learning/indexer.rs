@@ -358,6 +358,34 @@ pub enum IndexOutcome {
     Paused,
 }
 
+/// Result of the embedding phase. `embedded` is the authoritative count of
+/// chunks whose stored vector matches the active backend model/version, not
+/// the number of attempts.
+struct EmbedOutcome {
+    embedded: i64,
+    error: Option<String>,
+}
+
+async fn current_embedding_count(
+    repo: &Repository,
+    document_id: &str,
+    model: &str,
+    version: i64,
+) -> Result<i64> {
+    let count: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*)
+         FROM semantic_chunks c
+         JOIN semantic_chunk_embeddings e ON e.chunk_id = c.id
+         WHERE c.document_id = ?1 AND e.model = ?2 AND e.embedding_version = ?3",
+    )
+    .bind(document_id)
+    .bind(model)
+    .bind(version)
+    .fetch_one(repo.pool())
+    .await?;
+    Ok(count)
+}
+
 /// Index one document end-to-end. `should_continue` is checked between
 /// embedding batches; returning `false` aborts the pass (already-committed
 /// chunks are retained and the state is left `queued` for resume). Exposed
@@ -389,16 +417,22 @@ pub async fn index_document_once(
     set_state(repo, document_id, IndexState::Indexing, None).await?;
 
     let content = doc.content.clone().unwrap_or_default();
-    if content.trim().is_empty()
-        && !matches!(
-            doc.file_type,
-            crate::models::FileType::Youtube
-                | crate::models::FileType::Video
-                | crate::models::FileType::Audio
-        )
-    {
-        // Nothing indexable (e.g. scanned PDF awaiting OCR). Record an empty
-        // but successful state so the document is not perpetually requeued.
+
+    // 1. Chunk the document body. Transcript-backed documents (recording
+    // sessions, YouTube, video/audio) have no `documents.content`, so the
+    // body chunker must get a chance to read their transcript tables.
+    let chunks = build_document_chunks(repo, &doc, &content).await;
+
+    // 2. Extra sources (task 4.7): extracts, annotations, card fronts.
+    let mut all_chunks = chunks;
+    all_chunks.extend(build_extract_chunks(repo, document_id).await);
+    all_chunks.extend(build_annotation_chunks(repo, document_id).await);
+    all_chunks.extend(build_card_chunks(repo, document_id).await);
+
+    let total = all_chunks.len() as i64;
+    if all_chunks.is_empty() {
+        // Nothing indexable (e.g. a scanned PDF awaiting OCR): record an
+        // honest empty success so the document is not perpetually requeued.
         upsert_state_row(
             repo,
             document_id,
@@ -412,41 +446,40 @@ pub async fn index_document_once(
         return Ok(IndexOutcome::Completed);
     }
 
-    // 1. Chunk the document body.
-    let chunks = build_document_chunks(repo, &doc, &content).await;
-
-    // 2. Extra sources (task 4.7): extracts, annotations, card fronts.
-    let mut all_chunks = chunks;
-    all_chunks.extend(build_extract_chunks(repo, document_id).await);
-    all_chunks.extend(build_annotation_chunks(repo, document_id).await);
-    all_chunks.extend(build_card_chunks(repo, document_id).await);
-
-    let total = all_chunks.len() as i64;
-
     // 3. Hash diff: delete orphans, insert new, refresh metadata of retained.
     apply_chunk_diff(repo, document_id, &all_chunks).await?;
 
     // 4. Embed missing/stale chunks, per-chunk commits, interrupt checks.
-    let embedded = embed_chunks(repo, document_id, backend, should_continue).await?;
+    let embed = embed_chunks(repo, document_id, backend, should_continue).await?;
 
     if !should_continue() {
         // Interrupted: keep what was committed; resume later from queued.
-        set_state_raw(repo, document_id, IndexState::Queued, embedded, total, None).await?;
-        return Ok(if embedded < total {
+        set_state_raw(
+            repo,
+            document_id,
+            IndexState::Queued,
+            embed.embedded,
+            total,
+            embed.error.as_deref(),
+        )
+        .await?;
+        return Ok(if embed.embedded < total {
             IndexOutcome::Paused
         } else {
             IndexOutcome::Completed
         });
     }
 
+    // Chunks are committed and usable even if vector generation was
+    // incomplete. Record the vector error without invalidating lexical evidence.
     upsert_state_row(
         repo,
         document_id,
         IndexState::Indexed,
         Some(backend),
+        embed.embedded,
         total,
-        total,
-        None,
+        embed.error.as_deref(),
     )
     .await?;
     let chunk_rows: Vec<(String, String)> =
@@ -605,51 +638,27 @@ async fn build_document_chunks(
         spine_index: None,
     };
 
-    // Storage for parsed inputs whose references go into `ChunkInput` below.
-    let pages_storage: Vec<String>;
-    let html_storage: String;
-
-    let input = match doc.file_type {
-        crate::models::FileType::Pdf => {
-            // Per-page extraction (see processor::pdf::extract_pdf_pages_text
-            // for the decision record). Falls back to whole-content chunking.
-            match crate::processor::pdf::extract_pdf_pages_text(&doc.file_path).await {
-                Ok(pages) if !pages.is_empty() => {
-                    pages_storage = pages;
-                    ChunkInput::Paged {
-                        pages: &pages_storage,
-                    }
-                }
-                _ => ChunkInput::Plain {
-                    text: content,
-                    heading_heuristic: true,
-                },
-            }
-        }
-        crate::models::FileType::Html | crate::models::FileType::Epub => {
-            // Prefer preserved HTML (headings via tag scan); fall back to the
-            // stored plain-text projection with the typographic heuristic.
-            match load_html_content(repo, &doc.id).await {
-                Some(html) if !html.trim().is_empty() => {
-                    html_storage = html;
-                    ChunkInput::Html {
-                        html: &html_storage,
-                    }
-                }
-                _ => ChunkInput::Plain {
-                    text: content,
-                    heading_heuristic: true,
-                },
-            }
-        }
-        crate::models::FileType::Markdown => ChunkInput::Markdown { text: content },
-        _ => ChunkInput::Plain {
-            text: content,
-            heading_heuristic: false,
-        },
+    let html = if matches!(
+        doc.file_type,
+        crate::models::FileType::Html | crate::models::FileType::Epub
+    ) {
+        load_html_content(repo, &doc.id).await
+    } else {
+        None
     };
-
-    let mut chunks = chunk_document(&ctx, input, &ChunkOptions::default());
+    let mut chunks = match build_rich_text_chunks(&ctx, &doc.file_path, html.as_deref()).await {
+        Some(chunks) => chunks,
+        None => {
+            let input = match doc.file_type {
+                crate::models::FileType::Markdown => ChunkInput::Markdown { text: content },
+                _ => ChunkInput::Plain {
+                    text: content,
+                    heading_heuristic: matches!(location_type, "pdf" | "epub" | "html"),
+                },
+            };
+            chunk_document(&ctx, input, &ChunkOptions::default())
+        }
+    };
 
     // Extract embedded figures from documents (PDFs) and schedule them as figure chunks
     if doc.file_type == crate::models::FileType::Pdf {
@@ -677,6 +686,32 @@ async fn build_document_chunks(
     }
 
     chunks
+}
+
+/// Rebuild the text chunks from the same PDF pages or preserved markup used
+/// by indexing. This reads source material only and leaves the index untouched.
+pub(crate) async fn build_rich_text_chunks(
+    ctx: &ChunkContext<'_>,
+    file_path: &str,
+    html: Option<&str>,
+) -> Option<Vec<ChunkModel>> {
+    let pages;
+    let input = match ctx.location_source_type {
+        "pdf" => {
+            pages = crate::processor::pdf::extract_pdf_pages_text(file_path)
+                .await
+                .ok()?;
+            if pages.is_empty() {
+                return None;
+            }
+            ChunkInput::Paged { pages: &pages }
+        }
+        "epub" | "html" => ChunkInput::Html {
+            html: html.filter(|html| !html.trim().is_empty())?,
+        },
+        _ => return None,
+    };
+    Some(chunk_document(ctx, input, &ChunkOptions::default()))
 }
 
 async fn load_html_content(repo: &Repository, document_id: &str) -> Option<String> {
@@ -912,7 +947,7 @@ async fn embed_chunks(
     document_id: &str,
     backend: &EmbeddingBackend,
     should_continue: &mut (dyn FnMut() -> bool + Send),
-) -> Result<i64> {
+) -> Result<EmbedOutcome> {
     let rows: Vec<(String, Option<i64>, Option<String>)> = sqlx::query_as(
         "SELECT c.id, e.embedding_version, e.model
          FROM semantic_chunks c
@@ -945,7 +980,10 @@ async fn embed_chunks(
     let done_before = total_chunks - pending.len() as i64;
 
     if pending.is_empty() {
-        return Ok(total_chunks);
+        return Ok(EmbedOutcome {
+            embedded: total_chunks,
+            error: None,
+        });
     }
 
     if !backend.is_available() {
@@ -957,13 +995,19 @@ async fn embed_chunks(
             pending.len(),
             backend.kind_name()
         );
-        return Ok(done_before);
+        return Ok(EmbedOutcome {
+            embedded: done_before,
+            error: None,
+        });
     }
 
     let mut embedded = done_before;
     for batch in pending.chunks(EMBED_BATCH_SIZE) {
         if !should_continue() {
-            return Ok(embedded);
+            return Ok(EmbedOutcome {
+                embedded,
+                error: None,
+            });
         }
         let mut texts: Vec<String> = Vec::with_capacity(batch.len());
         for id in batch {
@@ -981,9 +1025,12 @@ async fn embed_chunks(
             .await?;
         let vectors: Vec<Vec<f32>> = match backend.embed_texts(&texts).await {
             Ok(v) => v,
-            Err(EmbeddingUnavailable { reason }) => {
-                warn!("embedding batch failed for {}: {}", document_id, reason);
-                return Ok(embedded);
+            Err(EmbeddingUnavailable { .. }) => {
+                warn!("embedding batch failed for {}", document_id);
+                return Ok(EmbedOutcome {
+                    embedded,
+                    error: Some("Embedding backend could not complete the request".into()),
+                });
             }
         };
         for (chunk_id, vector) in batch.iter().zip(vectors.iter()) {
@@ -994,7 +1041,11 @@ async fn embed_chunks(
             embedded += 1;
         }
     }
-    Ok(embedded)
+    Ok(EmbedOutcome {
+        embedded,
+        error: (embedded < total_chunks)
+            .then(|| "Embedding backend returned incomplete vectors".into()),
+    })
 }
 
 async fn chunk_text(repo: &Repository, chunk_id: &str) -> Option<String> {
@@ -1527,6 +1578,47 @@ mod tests {
         .unwrap();
         assert!(chunks > 0);
         assert_eq!(embeddings, 0, "no embeddings stored without a backend");
+    }
+
+    #[tokio::test]
+    async fn embedding_error_preserves_lexical_readiness() {
+        let pool = test_pool().await;
+        let repo = Repository::new(pool.clone());
+        seed_document(
+            &pool,
+            "embedding-failure",
+            "Quantum tunneling explains alpha decay.",
+            "text",
+        )
+        .await;
+        let backend = EmbeddingBackend::OnDeviceLive {
+            model: crate::ai_learning::embeddings_backend::ON_DEVICE_MODEL,
+            embedder: std::sync::Arc::new(|_, _, _| {
+                Err(crate::ai_learning::embeddings_backend::OnDeviceEmbedFailure {
+                    code: "inference_failed".into(),
+                    message: "provider error detail".into(),
+                })
+            }),
+        };
+        index_document_once(&repo, "embedding-failure", &backend, &mut || true)
+            .await
+            .expect("record embedding failure");
+        let (state, embedded, total) = state_of(&pool, "embedding-failure").await.unwrap();
+        assert_eq!((state.as_str(), embedded, total), ("indexed", 0, 1));
+        let error: String = sqlx::query_scalar(
+            "SELECT error FROM ai_index_state WHERE document_id = 'embedding-failure'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("read safe embedding error");
+        assert_eq!(error, "Embedding backend could not complete the request");
+        let chunks: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM semantic_chunks WHERE document_id = 'embedding-failure'",
+        )
+        .fetch_one(&pool)
+        .await
+        .expect("read lexical chunks");
+        assert_eq!(chunks, 1);
     }
 
     #[tokio::test]

@@ -75,6 +75,12 @@ export interface HydratedEvidenceResult {
     embeddingModels: string[];
     queryCount: number;
     failedQueries: number;
+    retrievedCandidates: number;
+    candidatesInScope: number;
+    submittedPassages: number;
+    rejectedPassages: number;
+    retrievalMs: number;
+    verificationMs: number;
     verifiedPassages: number;
     documentsWithEvidence: number;
   };
@@ -250,6 +256,9 @@ export async function hydrateCurriculumEvidence(
   const embeddingModels = new Set<string>();
   let failedQueries = 0;
   let queryCount = 0;
+  let retrievedCandidates = 0;
+  let candidatesInScope = 0;
+  const retrievalStarted = performance.now();
 
   async function retrieve(query: string, k: number): Promise<RetrievalResult[]> {
     await beforeQuery?.();
@@ -267,11 +276,14 @@ export async function hydrateCurriculumEvidence(
       if (response.mode === 'semantic' && response.embeddingModel) {
         embeddingModels.add(response.embeddingModel);
       }
-      return response.results.filter((hit) => {
+      retrievedCandidates += response.results.length;
+      const hits = response.results.filter((hit) => {
         if (!allowedDocIds.has(hit.documentId)) return false;
         const extractId = hit.location?.extractId ?? (hit.sourceType === 'extract' ? hit.sourceId : undefined);
         return fullDocumentIds.has(hit.documentId) || !!extractId && allowedExtractIds.has(extractId);
       });
+      candidatesInScope += hits.length;
+      return hits;
     } catch {
       signal?.throwIfAborted();
       failedQueries++;
@@ -288,6 +300,8 @@ export async function hydrateCurriculumEvidence(
     listConceptsFn,
   );
   const seedHitsPerSeed = await runConcurrent(seeds, concurrency, (seed) => retrieve(seed, kPerSeed));
+
+  const retrievalMs = performance.now() - retrievalStarted;
 
   // 4. Aggregate & Deduplicate up to maxGlobalHits (96)
   const seenSignatures = new Set<string>();
@@ -321,22 +335,26 @@ export async function hydrateCurriculumEvidence(
     sourceType: hit.sourceType,
     revision: documentsById.get(hit.documentId)?.revision,
     jump: mapLocationToJump(hit.location),
-    chunk: hit.location && hit.chunkId ? {
+    chunk: hit.location && hit.location.sourceType !== 'fts' && hit.chunkId ? {
       chunkId: hit.chunkId,
       ordinal: hit.ordinal,
       startOffset: hit.location.startOffset,
       endOffset: hit.location.endOffset,
     } : undefined,
   }));
+  const verificationStarted = performance.now();
   const resolutions = refInputs.length ? await resolveSourceRefsFn(refInputs) : [];
   const verifiedRefs = resolutions.flatMap(({ status, ref }, index) => {
     const input = refInputs[index];
+    // Rust serializes a missing extract ID as null. Document inputs omit it.
+    const extractId = ref.extractId ?? undefined;
     return status === 'current' && input && ref.documentId === input.documentId &&
-      ref.extractId === input.extractId && (!input.revision || ref.revision === input.revision) &&
+      extractId === input.extractId && (!input.revision || ref.revision === input.revision) &&
       ref.excerpt === input.excerpt.replace(/\r\n/g, '\n') &&
       ref.revisionKind !== 'unknown'
-      ? [ref] : [];
+      ? [{ ...ref, extractId }] : [];
   });
+  const verificationMs = performance.now() - verificationStarted;
   const refKey = (ref: { documentId: string; extractId?: string; excerpt: string }) =>
     JSON.stringify([ref.documentId, ref.extractId, ref.excerpt.trim()]);
   const refsByEvidence = new Map(verifiedRefs.map((ref) => [refKey(ref), ref.id]));
@@ -359,6 +377,12 @@ export async function hydrateCurriculumEvidence(
       embeddingModels: [...embeddingModels],
       queryCount,
       failedQueries,
+      retrievedCandidates,
+      candidatesInScope,
+      submittedPassages: refInputs.length,
+      rejectedPassages: refInputs.length - verifiedRefs.length,
+      retrievalMs,
+      verificationMs,
       verifiedPassages: plan.allHandles.length,
       documentsWithEvidence: new Set(plan.allHandles.map((item) => item.documentId)).size,
     },

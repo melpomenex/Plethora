@@ -133,7 +133,8 @@ export async function countIndexedCurriculumSources(documentIds: string[]): Prom
     // Native status is a bounded inventory. A missing status can be a pagination limit.
     const selected = status.documents.filter((doc) => ids.has(doc.documentId));
     if (selected.length < ids.size && status.documents.length >= 500) return null;
-    return selected.filter((doc) => doc.state === 'indexed' && doc.chunksIndexed > 0).length;
+    // chunksIndexed counts embeddings. A lexical-only index still has usable chunks.
+    return selected.filter((doc) => doc.state === 'indexed' && doc.totalChunks > 0).length;
   } catch {
     return null;
   }

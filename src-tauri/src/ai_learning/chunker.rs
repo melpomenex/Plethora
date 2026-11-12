@@ -763,6 +763,17 @@ fn parse_html_blocks(html: &str) -> Vec<Block> {
     p.blocks
 }
 
+/// Flatten HTML into the same tag-stripped, whitespace-normalized projection
+/// the chunker indexes. Source verification uses this to prove an excerpt is
+/// still present in the original markup when `documents.content` is empty.
+pub fn html_plain_text(html: &str) -> String {
+    parse_html_blocks(html)
+        .into_iter()
+        .map(|block| block.text)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 fn heading_level(tag: &str) -> Option<usize> {
     match tag {
         "h1" => Some(1),
