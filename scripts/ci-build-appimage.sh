@@ -4,7 +4,25 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
-APPIMAGE_DIR="src-tauri/target/release/bundle/appimage"
+if [[ -n "${PLETHORA_APPIMAGE_CARGO_PROFILE:-}" ]]; then
+  APPIMAGE_CARGO_PROFILE="$PLETHORA_APPIMAGE_CARGO_PROFILE"
+elif [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+  # CI artifacts use the production release profile.
+  APPIMAGE_CARGO_PROFILE="release"
+else
+  # Local AppImages are for iteration; avoid release LTO and optimizer memory.
+  APPIMAGE_CARGO_PROFILE="package-fast"
+fi
+
+case "$APPIMAGE_CARGO_PROFILE" in
+  release|package-fast) ;;
+  *)
+    echo "Unsupported AppImage Cargo profile: $APPIMAGE_CARGO_PROFILE (expected release or package-fast)" >&2
+    exit 2
+    ;;
+esac
+
+APPIMAGE_DIR="src-tauri/target/$APPIMAGE_CARGO_PROFILE/bundle/appimage"
 APPDIR="$APPIMAGE_DIR/Plethora.AppDir"
 NOTEBOOKLM_RUNTIME_SRC="src-tauri/bin/notebooklm-runtime"
 NOTEBOOKLM_RUNTIME_DST="$APPDIR/usr/bin/notebooklm-runtime"
@@ -43,9 +61,18 @@ cleanup_appimage_build() {
 }
 trap cleanup_appimage_build EXIT
 
-echo "Building AppImage with tauri..."
+echo "Building AppImage with tauri (Cargo profile: $APPIMAGE_CARGO_PROFILE)..."
+if [[ "$APPIMAGE_CARGO_PROFILE" == "package-fast" ]]; then
+  echo "FAST LOCAL APPIMAGE — unoptimized; do not distribute as a release artifact."
+fi
 build_rc=0
-APPIMAGE_EXTRACT_AND_RUN=1 NO_STRIP=1 npm run tauri -- build --bundles appimage || build_rc=$?
+build_started=$SECONDS
+if [[ "$APPIMAGE_CARGO_PROFILE" == "release" ]]; then
+  APPIMAGE_EXTRACT_AND_RUN=1 NO_STRIP=1 npm run tauri -- build --bundles appimage || build_rc=$?
+else
+  APPIMAGE_EXTRACT_AND_RUN=1 NO_STRIP=1 npm run tauri -- build --bundles appimage -- --profile "$APPIMAGE_CARGO_PROFILE" || build_rc=$?
+fi
+echo "Tauri native build elapsed: $((SECONDS - build_started))s (Cargo profile: $APPIMAGE_CARGO_PROFILE)"
 if [[ $build_rc -ne 0 ]]; then
   echo "tauri appimage build exited with $build_rc; attempting fallback packaging from AppDir"
 fi
