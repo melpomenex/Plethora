@@ -70,6 +70,15 @@ const STAGES: StepInfo[] = [
   },
 ];
 
+const PROGRESS_LABELS: Record<string, string> = {
+  'study_generation.progress.queued': 'Waiting to generate topics.',
+  'study_generation.step.decompose': 'Building the source outline.',
+  'study_generation.step.prerequisites': 'Inferring prerequisites from saved topics.',
+  'study_generation.progress.decomposing_complete': 'Topics saved to the draft.',
+  'study_generation.progress.prerequisites_complete': 'Draft ready for review.',
+  'study_generation.progress.prerequisites_unavailable': 'Draft ready for review. Prerequisite inference was unavailable.',
+};
+
 export const GenerationProgress: React.FC<GenerationProgressProps> = ({
   progress,
   status,
@@ -84,6 +93,9 @@ export const GenerationProgress: React.FC<GenerationProgressProps> = ({
   const completedSteps = progress?.completed ?? (progress as any)?.completedSteps ?? 0;
   const totalSteps = Math.max(1, progress?.total ?? (progress as any)?.totalSteps ?? 2);
   const percent = Math.min(100, Math.round((completedSteps / totalSteps) * 100));
+  const decompositionComplete = completedSteps > 0 && completedSteps >= totalSteps - 1;
+  const allStepsComplete = completedSteps >= totalSteps;
+  const activeStage = decompositionComplete ? 1 : 0;
 
   const handleCancelClick = () => {
     setShowCancelConfirm(true);
@@ -136,7 +148,7 @@ export const GenerationProgress: React.FC<GenerationProgressProps> = ({
             </span>
           </h3>
           <p className="text-[11px] text-surface-500 mt-0.5">
-            {progress?.labelKey ||
+            {(progress && PROGRESS_LABELS[progress.labelKey]) ||
               (progress as any)?.message ||
               (status === 'paused' ? 'Paused by user.' : 'Executing bounded generation steps.')}
           </p>
@@ -232,8 +244,9 @@ export const GenerationProgress: React.FC<GenerationProgressProps> = ({
         <div className="space-y-2">
           {STAGES.map((s) => {
             const Icon = s.icon;
-            const isDone = completedSteps > s.index;
-            const isCurrent = completedSteps === s.index && status === 'running';
+            const isDone = s.index === 0 ? decompositionComplete : allStepsComplete;
+            const isCurrent = status === 'running' && !allStepsComplete && s.index === activeStage;
+            const failed = status === 'failed' && !allStepsComplete && s.index === activeStage;
 
             return (
               <div
@@ -259,7 +272,7 @@ export const GenerationProgress: React.FC<GenerationProgressProps> = ({
                   <div className="flex items-center justify-between">
                     <span className="font-bold text-xs">{s.label}</span>
                     <span className="text-[10px] font-semibold text-surface-400">
-                      {isDone ? 'Completed' : isCurrent ? 'In progress' : 'Pending'}
+                      {isDone ? 'Completed' : isCurrent ? 'In progress' : failed ? 'Failed' : 'Pending'}
                     </span>
                   </div>
                   <p className="text-[11px] text-surface-500 line-clamp-1">{s.subtext}</p>

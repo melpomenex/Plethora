@@ -260,7 +260,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
               return (
                 <div
                   key={node.nodeId}
-                  className="p-4 rounded-xl border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800/60 space-y-2.5 text-xs transition-shadow hover:shadow-sm"
+                  className="p-4 rounded-xl border border-outline-variant bg-surface-container text-on-surface space-y-2.5 text-xs transition-shadow hover:shadow-sm"
                 >
                   {/* Title & Index Header */}
                   <div className="flex items-start justify-between gap-3">
@@ -270,7 +270,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
                       </span>
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-bold text-sm text-surface-900 dark:text-surface-100">
+                          <h3 className="font-bold text-sm text-on-surface">
                             {node.title}
                           </h3>
                           {node.locked && (
@@ -293,7 +293,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
                           </span>
                         </div>
                         {node.conceptLabel && (
-                          <div className="text-[11px] text-surface-500">
+                          <div className="text-[11px] text-on-surface-variant">
                             Concept: <span className="font-semibold">{node.conceptLabel}</span>
                           </div>
                         )}
@@ -303,7 +303,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
 
                   {/* Summary */}
                   {node.summary && (
-                    <p className="text-surface-600 dark:text-surface-300 text-[11px] leading-relaxed pl-8">
+                    <p className="text-on-surface-variant text-[11px] leading-relaxed pl-8">
                       {node.summary}
                     </p>
                   )}
@@ -311,10 +311,10 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
                   {/* Learning Objectives */}
                   {node.learningObjectives.length > 0 && (
                     <div className="pl-8 space-y-1">
-                      <div className="text-[10px] font-bold uppercase tracking-wider text-surface-400">
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">
                         Learning Objectives
                       </div>
-                      <ul className="list-disc list-inside space-y-0.5 text-[11px] text-surface-700 dark:text-surface-300">
+                      <ul className="list-disc list-inside space-y-0.5 text-[11px] text-on-surface-variant">
                         {node.learningObjectives.map((obj, i) => (
                           <li key={i}>{obj}</li>
                         ))}
@@ -325,7 +325,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
                   {/* Grounded Source Citations & Prereqs */}
                   <div className="pl-8 flex items-center gap-2 flex-wrap pt-1 text-[11px]">
                     {node.sourceRefIds.length > 0 && (
-                      <div className="flex items-center gap-1 text-surface-500">
+                      <div className="flex items-center gap-1 text-on-surface-variant">
                         <Link size={13} />
                         <span>{node.sourceRefIds.length} source reference(s)</span>
                       </div>
@@ -334,11 +334,11 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
                     {nodePrereqs.length > 0 && (
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <GitFork size={13} className="text-primary-500" />
-                        <span className="text-surface-500">Prerequisites:</span>
+                          <span className="text-on-surface-variant">Prerequisites:</span>
                         {nodePrereqs.map((p) => (
                           <span
                             key={p!.nodeId}
-                            className="px-1.5 py-0.5 rounded bg-surface-100 dark:bg-surface-700 text-surface-700 dark:text-surface-300 font-semibold text-[10px]"
+                            className="px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant font-semibold text-[10px]"
                           >
                             {p!.title}
                           </span>
@@ -347,7 +347,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
                     )}
 
                     {node.whyHere && (
-                      <div className="text-[10px] text-surface-400 italic">
+                      <div className="text-[10px] text-on-surface-variant italic">
                         Proposal note: {node.whyHere}
                       </div>
                     )}

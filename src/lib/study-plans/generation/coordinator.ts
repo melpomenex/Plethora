@@ -53,12 +53,14 @@ import { countIndexedCurriculumSources, prepareCurriculumPreflight, refreshCurri
 import { evaluateStudyPrivacy } from './privacy';
 import { classifyRouteDestination, validatePreflightUnchanged } from './preflight';
 import { resolveTaskRoute } from '../../ai/tasks/router';
+import { AIError } from '../../ai/errors';
+import { logModelFailure, MALFORMED_OUTPUT, modelFailure } from './modelFailure';
 import type { AITaskResult } from '../../ai/tasks/types';
 import type {
   CreateStudyStepInput,
   CurriculumGenerationRequest,
   CurriculumExecutionStats,
-  CurriculumTopicProposal,
+  CurriculumEdgeProposal,
   StartStudyJobInput,
   StudyAiPreflight,
   StudyJobProgress,
@@ -150,6 +152,55 @@ export async function verifySourceRevisions(
   }
 }
 
+function prerequisiteInput(
+  nodes: StudyPlanDetail['version']['nodes'],
+  evidence: HydratedEvidenceResult,
+  jobId: string,
+  stepKey: string,
+) {
+  const included = nodes.filter((node) => node.included && !node.userAdded && !node.userModified);
+  const refIds = new Set(included.flatMap((node) => node.sourceRefIds));
+  const handlesByRefId = new Map<string, string>();
+  const sources: NonNullable<CurriculumPrerequisiteTaskInput['sources']> = [];
+  let sourceChars = 0;
+  for (const item of evidence.allHandles) {
+    const refId = evidence.handleToSourceRefIdMap.get(item.handle);
+    if (!refId || !refIds.has(refId) || handlesByRefId.has(refId)) continue;
+    if (sources.length >= EVIDENCE_LIMITS.MAX_HANDLES_PER_BATCH) break;
+    if (sourceChars + item.excerpt.length > EVIDENCE_LIMITS.MAX_CHARS_PER_BATCH) continue;
+    handlesByRefId.set(refId, item.handle);
+    sources.push({ handle: item.handle, title: item.documentTitle, excerpt: item.excerpt });
+    sourceChars += item.excerpt.length;
+  }
+  const topics: TopicEvidenceItem[] = included.map((node, index) => ({
+    handle: `t_${index}`,
+    title: node.title,
+    conceptName: node.conceptLabel,
+    objectives: node.learningObjectives,
+    sourceHandles: node.sourceRefIds.flatMap((id) => handlesByRefId.get(id) ?? []),
+  }));
+  const nodeIds = new Map(topics.map((topic, index) => [topic.handle, included[index].nodeId]));
+  return { taskInput: { jobId, stepKey, topics, sources }, nodeIds };
+}
+
+function canSkipPrerequisites(error: unknown): boolean {
+  if (error instanceof StudyApiError) return error.code === 'invalid_model_output';
+  return error instanceof AIError && (
+    error.code === 'timeout' ||
+    ['InvalidStructuredOutput', 'InputTooLarge', 'GenerationFailed', 'ModelUnavailable', 'ProviderOffline'].includes(error.category)
+  );
+}
+
+function recordPrerequisiteFailure(
+  jobId: string, stepKey: string, error: unknown, execution: CurriculumExecutionStats,
+): void {
+  if (!(error instanceof AIError)) return;
+  logModelFailure(jobId, stepKey, error);
+  const attempts = error.completion?.attemptCount ?? 0;
+  execution.modelCalls += attempts;
+  execution.corrections += Number(attempts === 2);
+}
+
 /**
  * Executes a durable curriculum generation workflow:
  * 1. Preflight and source verification.
@@ -181,9 +232,11 @@ export async function runCurriculumCoordinator(
   const signal = options.signal;
   const now = deps.now ?? Date.now;
   const startedAt = now();
+  const previousExecution = resumeFrom?.progress.execution;
   const execution: CurriculumExecutionStats = {
     modelCalls: 0, corrections: 0, reportedInputTokens: 0, reportedOutputTokens: 0,
     responsesWithUsage: 0, durationMs: 0,
+    ...previousExecution,
   };
   const recordModelResult = (result: AITaskResult) => {
     const repaired = result.validationOutcome === 'repaired';
@@ -194,7 +247,7 @@ export async function runCurriculumCoordinator(
       execution.reportedInputTokens += result.usage.inputTokens;
       execution.reportedOutputTokens += result.usage.outputTokens;
     }
-    execution.durationMs = now() - startedAt;
+    execution.durationMs = (previousExecution?.durationMs ?? 0) + now() - startedAt;
   };
 
   // 1. Check initial plan existence and draft
@@ -354,7 +407,6 @@ export async function runCurriculumCoordinator(
   );
 
   // 5. Execution loop
-  const accumulatedTopics: CurriculumTopicProposal[] = [];
   let latestMergeResult: MergeCurriculumResult = {
     nodes: planDetail.version.nodes,
     prerequisites: planDetail.version.prerequisites,
@@ -431,24 +483,14 @@ export async function runCurriculumCoordinator(
         const allowedHandles = batch.handles.map((h) => h.handle);
         const valResult = validateDecomposeOutputForTask(taskResult.output, allowedHandles);
         if (!valResult.ok) {
-          throw new StudyApiError({
-            code: 'invalid_model_output',
-            messageKey: 'study_generation.error.malformed_output',
-            retryable: true,
-          });
+          throw new StudyApiError(MALFORMED_OUTPUT);
         }
 
         signal?.throwIfAborted();
-        const topics = taskResult.output.topics.map((topic) => ({
-          ...topic,
-          handle: `b${batchIndex}_${topic.handle}`,
-        }));
-        accumulatedTopics.push(...topics);
-
         // Reconcile and checkpoint draft
         latestMergeResult = mergeCurriculumProposals({
           baseVersion: planDetail.version,
-          proposedTopics: topics,
+          proposedTopics: valResult.value.topics,
           proposedEdges: [],
           depth: request.depth,
           handleToSourceRefIdMap: evidence.handleToSourceRefIdMap,
@@ -488,115 +530,70 @@ export async function runCurriculumCoordinator(
         options.onProgress?.(progress);
 
       } else if (step.stepKey.startsWith('prerequisites:')) {
-        const uniqueTopics = new Map<string, CurriculumTopicProposal>();
-        for (const topic of accumulatedTopics) {
-          const key = (topic.conceptName || topic.title).toLowerCase().trim();
-          if (!uniqueTopics.has(key)) uniqueTopics.set(key, topic);
-        }
-        const proposedTopics = [...uniqueTopics.values()].slice(0, EVIDENCE_LIMITS.DEPTH_CAPS[request.depth]);
-        const topicItems: TopicEvidenceItem[] = proposedTopics.map((topic) => ({
-          handle: topic.handle,
-          title: topic.title,
-          conceptName: topic.conceptName,
-          objectives: topic.learningObjectives,
-          sourceHandles: topic.sourceHandles,
-        }));
-        if (!topicItems.length) {
-          // A checkpoint can contain draft topics from an earlier run.
-          for (const node of planDetail.version.nodes.filter((item) => item.included)) {
-            topicItems.push({
-              handle: `t_${node.position}`,
-              title: node.title,
-              conceptName: node.conceptLabel,
-              objectives: node.learningObjectives,
-              sourceHandles: [],
-            });
-          }
-        }
-        const referencedHandles = new Set(topicItems.flatMap((topic) => topic.sourceHandles));
-        const candidateSources = evidence.allHandles.filter((item) => referencedHandles.has(item.handle));
-        // The final request shares the per-batch context limit. Keep original handles.
-        const boundedSources = [];
-        let sourceChars = 0;
-        for (const item of candidateSources) {
-          if (boundedSources.length >= EVIDENCE_LIMITS.MAX_HANDLES_PER_BATCH ||
-              sourceChars + item.excerpt.length > EVIDENCE_LIMITS.MAX_CHARS_PER_BATCH) break;
-          boundedSources.push(item);
-          sourceChars += item.excerpt.length;
-        }
-        const suppliedSourceHandles = new Set(boundedSources.map((item) => item.handle));
-        const taskInput: CurriculumPrerequisiteTaskInput = {
-          jobId: job.id,
-          stepKey: step.stepKey,
-          topics: topicItems.map((topic) => ({
-            ...topic,
-            sourceHandles: topic.sourceHandles.filter((id) => suppliedSourceHandles.has(id)),
-          })),
-          sources: boundedSources.map((item) => ({
-            handle: item.handle,
-            title: item.documentTitle,
-            excerpt: item.excerpt,
-          })),
-        };
-
-        const taskResult = await runPinned(
-          curriculumPrerequisiteTask,
-          taskInput,
-          { signal, targetId: `${job.id}:${step.stepKey}`, preflightRoute: prerequisiteRoute },
-          authorized.preflight
-        );
-
-        recordModelResult(taskResult);
-        // Validate output
-        const knownTopicHandles = topicItems.map((t) => t.handle);
-        const allowedSourceHandles = boundedSources.map((item) => item.handle);
-        const valResult = validatePrerequisiteOutputForTask(
-          taskResult.output,
-          knownTopicHandles,
-          allowedSourceHandles
-        );
-
-        if (!valResult.ok) {
+        const { taskInput, nodeIds } = prerequisiteInput(planDetail.version.nodes, evidence, job.id, step.stepKey);
+        if (!planDetail.version.nodes.some((node) => node.included)) {
           throw new StudyApiError({
-            code: 'invalid_model_output',
-            messageKey: 'study_generation.error.malformed_output',
-            retryable: true,
+            code: 'invalid_state', messageKey: 'study_generation.error.no_included_topics', retryable: false,
           });
         }
 
-        const effectiveTopics: CurriculumTopicProposal[] =
-          accumulatedTopics.length > 0
-            ? accumulatedTopics
-            : planDetail.version.nodes.map((n) => ({
-                handle: `t_${n.position}`,
-                title: n.title,
-                summary: n.summary,
-                learningObjectives: n.learningObjectives,
-                conceptName: n.conceptLabel,
-                materialSupport: n.materialSupport === 'grounded' ? 'grounded' : 'unsupported',
-                sourceHandles: n.sourceRefIds,
-                whyHere: n.whyHere,
-              }));
+        let proposedEdges: CurriculumEdgeProposal[] = [];
+        let prerequisitesUnavailable = false;
+        if (taskInput.topics.length > 1) {
+          try {
+            const taskResult = await runPinned(
+              curriculumPrerequisiteTask,
+              taskInput,
+              { signal, targetId: `${job.id}:${step.stepKey}`, preflightRoute: prerequisiteRoute },
+              authorized.preflight
+            );
+            recordModelResult(taskResult);
+            const validated = validatePrerequisiteOutputForTask(
+              taskResult.output,
+              [...nodeIds.keys()],
+              taskInput.sources.map((source) => source.handle),
+            );
+            if (!validated.ok) throw new StudyApiError(MALFORMED_OUTPUT);
 
-        // Merge edges with Kahn cycle pruning & DAG ordering
-        latestMergeResult = mergeCurriculumProposals({
-          baseVersion: planDetail.version,
-          proposedTopics: effectiveTopics,
-          proposedEdges: taskResult.output.edges,
-          depth: request.depth,
-          handleToSourceRefIdMap: evidence.handleToSourceRefIdMap,
-        });
+            proposedEdges = validated.value.edges.map((edge) => ({
+              ...edge,
+              prerequisiteHandle: nodeIds.get(edge.prerequisiteHandle)!,
+              dependentHandle: nodeIds.get(edge.dependentHandle)!,
+            }));
+          } catch (error) {
+            if (signal?.aborted || !canSkipPrerequisites(error)) throw error;
+            prerequisitesUnavailable = true;
+            execution.durationMs = (previousExecution?.durationMs ?? 0) + now() - startedAt;
+            recordPrerequisiteFailure(job.id, step.stepKey, error, execution);
+          }
+        }
 
-        const saveInput: SaveStudyPlanDraftInput = {
-          planId: request.planId,
-          expectedDraftRevision: currentRevision,
-          nodes: latestMergeResult.nodes,
-          prerequisites: latestMergeResult.prerequisites,
-          sourceRefs: sourceInputsForDraft(latestMergeResult),
-        };
         await verifyPrivacy();
-        planDetail = await saveDraft(saveInput);
-        currentRevision = planDetail.plan.revision;
+        if (proposedEdges.length > 0) {
+          latestMergeResult = mergeCurriculumProposals({
+            baseVersion: planDetail.version,
+            proposedTopics: [],
+            proposedEdges,
+            depth: request.depth,
+            handleToSourceRefIdMap: evidence.handleToSourceRefIdMap,
+          });
+          planDetail = await saveDraft({
+            planId: request.planId,
+            expectedDraftRevision: currentRevision,
+            nodes: latestMergeResult.nodes,
+            prerequisites: latestMergeResult.prerequisites,
+            sourceRefs: sourceInputsForDraft(latestMergeResult),
+          });
+          currentRevision = planDetail.plan.revision;
+        } else {
+          const current = await getPlan(request.planId);
+          if (current.plan.draftVersionId !== draftVersionId || current.plan.revision !== currentRevision) {
+            throw new StudyApiError({
+              code: 'stale_revision', messageKey: 'study_generation.error.plan_revision_changed', retryable: false,
+            });
+          }
+          signal?.throwIfAborted();
+        }
 
         // Complete step — final step marks status awaiting-review
         const progress = await completeStep({
@@ -610,7 +607,9 @@ export async function runCurriculumCoordinator(
           progress: {
             completed: plannedSteps.length,
             total: plannedSteps.length,
-            labelKey: 'study_generation.progress.prerequisites_complete',
+            labelKey: prerequisitesUnavailable
+              ? 'study_generation.progress.prerequisites_unavailable'
+              : 'study_generation.progress.prerequisites_complete',
             execution: { ...execution },
           },
           status: 'awaiting-review',
@@ -628,6 +627,7 @@ export async function runCurriculumCoordinator(
       execution,
     };
   } catch (err) {
+    const error = err instanceof AIError ? new StudyApiError(modelFailure(err)) : err;
     if (signal?.aborted) {
       try {
         await cancelJob(job.id, job.cancellationEpoch);
@@ -635,19 +635,17 @@ export async function runCurriculumCoordinator(
         // ignore secondary cancellation error
       }
     } else if (activeStepKey) {
-      const invalidOutput = err instanceof StudyApiError && err.code === 'invalid_model_output';
+      if (err instanceof AIError) logModelFailure(job.id, activeStepKey, err);
       await failStep({
         jobId: job.id,
         stepKey: activeStepKey,
         leaseOwner,
         cancellationEpoch: job.cancellationEpoch,
-        error: {
-          code: invalidOutput ? 'invalid_model_output' : 'invalid_state',
-          messageKey: invalidOutput ? 'study_generation.error.malformed_output' : 'study_generation.error.step_stopped',
-          retryable: true,
-        },
+        error: error instanceof StudyApiError
+          ? { code: error.code, messageKey: error.messageKey, retryable: error.retryable }
+          : { code: 'internal_error', messageKey: 'study_generation.error.step_stopped', retryable: true },
       }).catch(() => undefined);
     }
-    throw err;
+    throw error;
   }
 }

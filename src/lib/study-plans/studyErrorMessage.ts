@@ -32,9 +32,24 @@ const messages: Record<string, string> = {
   'study_grading.error.source_evidence_unavailable': 'The committed source passages are unavailable or changed. Review the answers manually.',
   'study_generation.error.cancelled': 'Generation was cancelled.',
   'study_generation.error.plan_revision_changed': 'The draft changed during generation. Reopen the plan and review the latest draft.',
+  'study.assessment.error.empty_paper': 'Add at least one valid question before publishing.',
+  'study.assessment.error.quota_shortfall': 'Fill the remaining question slots or accept a shorter paper.',
+  'study_generation.error.model_call_budget_exceeded': 'The question count exceeds the approved model-call budget. Review the budget and try again.',
+  'study.assessment.error.no_verified_passages': 'The plan has no verified passages for question generation. Generate a source-grounded curriculum or add questions manually.',
+  'study_generation.error.target_job_active': 'Generation is already running for this draft.',
+  'study_generation.error.no_included_topics': 'The draft has no included topics. Review the saved topics or try Source Outline.',
+  'study_generation.error.model_timeout': 'The selected model took too long to respond. Retry or use Source Outline.',
+  'study_generation.error.model_context_too_small': 'The selected model cannot fit the curriculum request. Use a model with a larger context window or try Source Outline.',
+  'study_generation.error.model_request_failed': 'The selected model could not complete the request. Check the provider or use Source Outline.',
+  'study_generation.error.model_declined': 'The selected model declined the request. Your saved draft is still available.',
+  'study_generation.error.output_truncated': 'The model response was cut off before the curriculum was complete. Try again or use Source Outline.',
   'study_generation.error.malformed_output': 'The model returned an invalid curriculum. Try another model or use Source Outline.',
 };
 
+export function studyErrorMessageForKey(messageKey: string): string | undefined {
+  return messages[messageKey];
+}
+
 export function studyErrorMessage(error: unknown, fallback: string): string {
-  return error instanceof StudyApiError ? messages[error.messageKey] ?? fallback : fallback;
+  return error instanceof StudyApiError ? studyErrorMessageForKey(error.messageKey) ?? fallback : fallback;
 }

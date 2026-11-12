@@ -73,11 +73,16 @@ export async function runPinnedStudyTask<I, O>(
 
   // Execute the pre-resolved task (which may be a reasoning twin) on the pinned provider
   // Passing options.provider explicitly suppresses runTask's internal fallback loop
+  // Study generation must use the output limit disclosed for the selected,
+  // frozen provider configuration. The task definition's static value is only
+  // a fallback for providers without a configured request policy.
+  const configuredOutputLimit = options.maxOutputTokens ?? route.provider.getRequestPolicy?.()?.maxOutputTokens;
   const rawResult = await runTask(
     route.task as unknown as AITaskDefinition<I, O>,
     input,
     {
       ...options,
+      ...(configuredOutputLimit != null && { maxOutputTokens: configuredOutputLimit }),
       provider: route.provider,
       ...(frozenPreflight.model && { streaming: false }),
     }

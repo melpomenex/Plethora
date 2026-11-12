@@ -35,7 +35,7 @@ export interface PerformStudyAiPreflightParams {
   costConsentAccepted?: boolean;
   inspectOnly?: boolean;
   selectedConfigId?: string;
-  estimateTokens?: { input: number; output: number };
+  estimateTokens?: { input: number; output: number | ((route: AITaskRoute) => number) };
   embeddingSettings?: {
     provider: string;
     ollamaBaseUrl?: string | null;
@@ -213,6 +213,11 @@ export async function performStudyAiPreflight(
   const maximumModelCalls = 2 * Math.max(1, plannedModelSteps);
   const config = pinnedConfigurations.get(route.provider);
   const pricing = config?.modelPricing?.[config.model]?.pricing;
+  const estimatedOutputTokens = estimateTokens && (
+    typeof estimateTokens.output === 'function'
+      ? estimateTokens.output(route)
+      : estimateTokens.output
+  );
 
   const preflight: StudyAiPreflight = {
     providerId: route.provider.id,
@@ -222,12 +227,12 @@ export async function performStudyAiPreflight(
     estimate: estimateTokens && {
       modelSteps: plannedModelSteps,
       inputTokens: estimateTokens.input,
-      outputTokens: estimateTokens.output,
+      outputTokens: estimatedOutputTokens ?? 0,
       inputPrice: pricing?.prompt,
       outputPrice: pricing?.completion,
       costUsd: !generationDestination.billable ? 0 : (
         pricing?.prompt != null && pricing.completion != null
-          ? (pricing.prompt * estimateTokens.input + pricing.completion * estimateTokens.output) / 1000 +
+          ? (pricing.prompt * estimateTokens.input + pricing.completion * (estimatedOutputTokens ?? 0)) / 1000 +
             (pricing.request ?? 0) * plannedModelSteps
           : undefined
       ),

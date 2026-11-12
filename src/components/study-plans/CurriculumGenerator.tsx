@@ -486,6 +486,11 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
         )}
         {step === 'preview' && (
           <>
+            {jobProgress?.labelKey === 'study_generation.progress.prerequisites_unavailable' && (
+              <p role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
+                The draft is ready to review. Prerequisite inference was unavailable, so the draft kept its saved topic order and prerequisites.
+              </p>
+            )}
             {diagnosticSlot}
             <CurriculumDraftPreview
               planDetail={currentPlanDetail}

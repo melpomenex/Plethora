@@ -108,7 +108,12 @@ export async function prepareCurriculumPreflight(
       // Up to one pass over bounded passages for each stage, plus task prompts and topic summaries.
       input: Math.ceil(EVIDENCE_LIMITS.MAX_GLOBAL_HITS * EVIDENCE_LIMITS.MAX_EXCERPT_CHARS * 2 / 4) +
         (maximumBatches + 1) * 600,
-      output: maximumBatches * CURRICULUM_DECOMPOSE_MAX_TOKENS + CURRICULUM_PREREQUISITE_MAX_TOKENS,
+      output: (route) => {
+        const configuredLimit = route.provider.getRequestPolicy?.()?.maxOutputTokens;
+        return configuredLimit != null
+          ? configuredLimit * (maximumBatches + 1)
+          : maximumBatches * CURRICULUM_DECOMPOSE_MAX_TOKENS + CURRICULUM_PREREQUISITE_MAX_TOKENS;
+      },
     },
   });
   result.preflight.modelSelection = selectedConfigId ?? '';

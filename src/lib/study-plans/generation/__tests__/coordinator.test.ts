@@ -16,6 +16,7 @@ import {
   type CoordinatorDependencies,
 } from '../coordinator';
 import { StudyJobController } from '../jobController';
+import { AIError } from '../../../ai/errors';
 import { computeRequestHash, sha256 } from '../requestHash';
 import type {
   CurriculumDecomposeBatchOutput,
@@ -245,7 +246,8 @@ describe('Curriculum Coordinator and Job Controller', () => {
     });
   });
 
-  it('executes full 2-step generation workflow and commits checkpoints', async () => {
+  it.each(['success', 'model-error', 'refusal'] as const)(
+    'checkpoints topics and handles prerequisite result: %s', async (scenario) => {
     let mockPlanDetail = createMockPlanDetail(1);
     const savedDrafts: SaveStudyPlanDraftInput[] = [];
     const completedSteps: string[] = [];
@@ -409,19 +411,25 @@ describe('Curriculum Coordinator and Job Controller', () => {
           validationOutcome: 'success',
         };
       } else {
+        if (scenario === 'model-error') {
+          throw new AIError('InvalidStructuredOutput', 'invalid provider JSON', {
+            completion: { attemptCount: 2, terminalFailureKind: 'output-limit' },
+          });
+        }
+        if (scenario === 'refusal') throw new AIError('SafetyBlocked', 'provider refusal');
         const prereqOutput: CurriculumPrerequisiteOutput = {
           schemaVersion: 1,
           edges: [
             {
-              prerequisiteHandle: 'b0_t_0',
-              dependentHandle: 'b0_t_1',
+              prerequisiteHandle: 't_0',
+              dependentHandle: 't_1',
               support: 'inferred',
               rationale: 'Process context required for memory translation',
               sourceHandles: ['src_h0'],
             },
             {
-              prerequisiteHandle: 'b0_t_1',
-              dependentHandle: 'b0_t_2',
+              prerequisiteHandle: 't_1',
+              dependentHandle: 't_2',
               support: 'inferred',
               rationale: 'Address translation required for page faults',
               sourceHandles: ['src_h1'],
@@ -441,9 +449,11 @@ describe('Curriculum Coordinator and Job Controller', () => {
       }
     });
 
+    const failStepFn = vi.fn().mockResolvedValue(undefined);
     const deps: CoordinatorDependencies = {
       ...testPreflightDeps(),
       startJobFn: mockStartJob,
+      failStepFn,
       claimStepFn: mockClaimStep,
       completeStepFn: mockCompleteStep,
       saveDraftFn: mockSaveDraft,
@@ -486,8 +496,19 @@ describe('Curriculum Coordinator and Job Controller', () => {
       ]),
     };
 
-    const result = await runCurriculumCoordinator(dummyRequest, dummyPreflight, { deps, creationKey: 'ck_1' });
+    const run = runCurriculumCoordinator(dummyRequest, dummyPreflight, { deps, creationKey: 'ck_1' });
+    if (scenario === 'refusal') {
+      await expect(run).rejects.toMatchObject({ messageKey: 'study_generation.error.model_declined' });
+      expect(failStepFn).toHaveBeenCalledWith(expect.objectContaining({
+        stepKey: 'prerequisites:0001',
+        error: expect.objectContaining({ retryable: false }),
+      }));
+      expect(completedSteps).toEqual(['decompose:0000']);
+      expect(savedDrafts).toHaveLength(1);
+      return;
+    }
 
+    const result = await run;
     expect(result.jobId).toBe('job_gen_1');
     expect(mockStartJob).toHaveBeenCalledWith(expect.objectContaining({
       steps: expect.arrayContaining([
@@ -496,11 +517,25 @@ describe('Curriculum Coordinator and Job Controller', () => {
       ]),
     }));
     expect(completedSteps).toEqual(['decompose:0000', 'prerequisites:0001']);
-    expect(savedDrafts.length).toBe(2);
+    expect(savedDrafts[0].nodes).toHaveLength(3);
+    expect(savedDrafts[0].prerequisites).toHaveLength(0);
+    expect(failStepFn).not.toHaveBeenCalled();
 
-    // First draft checkpoint has 3 nodes and 0 edges
-    expect(savedDrafts[0].nodes.length).toBe(3);
-    expect(savedDrafts[0].prerequisites.length).toBe(0);
+    if (scenario === 'model-error') {
+      expect(savedDrafts).toHaveLength(1);
+      expect(result.planDetail.version.nodes).toEqual(savedDrafts[0].nodes);
+      expect(result.planDetail.version.prerequisites).toHaveLength(0);
+      expect(mockCompleteStep).toHaveBeenLastCalledWith(expect.objectContaining({
+        status: 'awaiting-review',
+        progress: expect.objectContaining({
+          labelKey: 'study_generation.progress.prerequisites_unavailable',
+          execution: expect.objectContaining({ modelCalls: 3, corrections: 1 }),
+        }),
+      }));
+      return;
+    }
+
+    expect(savedDrafts).toHaveLength(2);
 
     // Second draft checkpoint has 3 nodes and 2 edges
     expect(savedDrafts[1].nodes.length).toBe(3);
@@ -907,7 +942,7 @@ describe('Curriculum Coordinator and Job Controller', () => {
       conceptSeeds: [],
     });
 
-    const mockRunPinnedTask = vi.fn().mockResolvedValue({
+    const mockRunPinnedTask = vi.fn<(task: unknown, input: unknown) => Promise<unknown>>().mockResolvedValue({
       output: {
         schemaVersion: 1,
         edges: [
@@ -916,7 +951,7 @@ describe('Curriculum Coordinator and Job Controller', () => {
             dependentHandle: 't_1',
             support: 'inferred',
             rationale: 'Process needed for scheduling',
-            sourceHandles: [],
+            sourceHandles: ['src_h0'],
           },
         ],
       },
@@ -959,7 +994,16 @@ describe('Curriculum Coordinator and Job Controller', () => {
     expect(startJobFn).not.toHaveBeenCalled();
     expect(mockRunPinnedTask).toHaveBeenCalledTimes(1);
     expect(claimedSteps).toEqual(['prerequisites:0001']);
-    expect(result.planDetail.version.prerequisites.length).toBe(1);
+    expect(mockRunPinnedTask.mock.calls[0][1]).toMatchObject({
+      topics: [
+        { handle: 't_0', sourceHandles: ['src_h0'] },
+        { handle: 't_1', sourceHandles: ['src_h0'] },
+      ],
+      sources: [{ handle: 'src_h0' }],
+    });
+    expect(result.planDetail.version.prerequisites).toMatchObject([
+      { prerequisiteNodeId: 'node_1', dependentNodeId: 'node_2', sourceRefIds: ['ssr_1'] },
+    ]);
     expect(result.planDetail.version.nodes.length).toBe(2);
   });
 

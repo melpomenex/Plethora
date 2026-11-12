@@ -293,7 +293,19 @@ describe('Curriculum Generation UI Components (C2-T09)', () => {
       expect(screen.getByText(/50%/)).toBeInTheDocument();
       expect(screen.getByText(/6 topics/i)).toBeInTheDocument();
       expect(screen.getByText(/Decomposing Topics/i)).toBeInTheDocument();
-      expect(screen.getByText(/Inferring Prerequisites/i)).toBeInTheDocument();
+      expect(screen.getByText('Inferring Prerequisites')).toBeInTheDocument();
+    });
+
+    it('identifies the failed prerequisite stage after multiple decomposition batches', () => {
+      render(<GenerationProgress status="failed" progress={{
+        completed: 2,
+        total: 3,
+        labelKey: 'study_generation.progress.decomposing_complete',
+      }} />);
+
+      expect(screen.getByText('Topics saved to the draft.')).toBeInTheDocument();
+      expect(screen.getByText('Inferring Prerequisites').parentElement).toHaveTextContent('Failed');
+      expect(screen.getByText('Validating Graph & Ordering').parentElement).toHaveTextContent('Pending');
     });
 
     it('opens confirmation dialog on cancel and invokes onCancel when confirmed', () => {
