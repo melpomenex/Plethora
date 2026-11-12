@@ -14,8 +14,8 @@ const source: ActionTarget = { key: 'a', owner: 'document:a', kind: 'selection',
 const resolve = (overrides: Partial<Parameters<typeof resolveActionTargets>[0]> = {}) => resolveActionTargets({ context, sections: [], messages: [], ...overrides });
 
 describe('context action contracts', () => {
-  it('defines all ten actions in stable primary order with scoped outcomes', () => {
-    expect(CONTEXT_ACTIONS.map(a => a.id)).toEqual(['summarize','explain','quiz','key-points','key-terms','translate','outline-document','example','analyze-argument','flashcards']);
+  it('defines all eleven actions in stable primary order with scoped outcomes', () => {
+    expect(CONTEXT_ACTIONS.map(a => a.id)).toEqual(['summarize','explain','quiz','socratic-tutor','key-points','key-terms','translate','outline-document','example','analyze-argument','flashcards']);
     for (const a of CONTEXT_ACTIONS) {
       expect(a.toolPolicy).toBe(a.id === 'flashcards' ? 'cards' : 'read-only');
       for (const scope of ['chat','document','library'] as const) {

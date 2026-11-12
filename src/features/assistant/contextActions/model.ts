@@ -1,7 +1,7 @@
 import type { AssistantScope } from '../../../lib/ai/assistant/scopes';
 import type { SectionSourceReference } from '../../../utils/sectionIndex';
 
-export type ActionId = 'summarize' | 'explain' | 'quiz' | 'key-points' | 'key-terms' | 'translate' | 'outline-document' | 'example' | 'analyze-argument' | 'flashcards';
+export type ActionId = 'summarize' | 'explain' | 'quiz' | 'socratic-tutor' | 'key-points' | 'key-terms' | 'translate' | 'outline-document' | 'example' | 'analyze-argument' | 'flashcards';
 export type TargetKind = 'selection' | 'sections' | 'passage' | 'document' | 'conversation';
 export type ActionGroup = 'understand' | 'think' | 'study';
 export interface ActionDefinition {
@@ -21,6 +21,7 @@ export const CONTEXT_ACTIONS: readonly ActionDefinition[] = [
   answer('summarize', 'TextAlignLeft'),
   answer('explain', 'Lightbulb'),
   { ...answer('quiz', 'Question', 'study'), outcome: 'quiz' },
+  answer('socratic-tutor', 'ChalkboardTeacher', 'study'),
   answer('key-points', 'ListBullets'),
   answer('key-terms', 'BookOpenText'),
   { ...answer('translate', 'Translate'), targets: ['selection', 'sections', 'passage'], parameter: 'language' },
@@ -101,6 +102,7 @@ const DIRECTIVES: Record<ActionId, string> = {
   summarize: 'Give a concise recap in at most about 150 words.',
   explain: 'Explain the supplied material in plain language and define necessary jargon. For a conversation, focus on the latest substantive answer with relevant preceding turns.',
   quiz: 'Return ONLY a JSON object with non-empty string fields "question" and "answer", and optional string "hint". Ask one short question testing understanding of the material. Do not put the answer in the question. No markdown or tools.',
+  'socratic-tutor': 'Begin a Socratic tutoring dialogue about the supplied material. Ask one focused, open-ended question and wait for the learner to respond; do not give a lecture or reveal the answer up front. In later turns, respond to the learner’s reasoning with brief, supportive feedback, correct misunderstandings using only the supplied source, and ask one next question at a time. Offer a progressively clearer hint if the learner is stuck. Distinguish what the source says from any inference, and say when the source does not contain enough information.',
   'key-points': 'List up to five main claims or takeaways.',
   'key-terms': 'Define up to five important terms as used in the supplied material.',
   translate: 'Translate the supplied passage faithfully, preserving meaning, names and structure.',

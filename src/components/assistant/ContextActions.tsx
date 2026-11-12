@@ -1,11 +1,11 @@
 import { useLayoutEffect, useRef, useState, type RefObject } from 'react';
-import { BookOpenText, Brain, DotsThree, Lightbulb, ListBullets, Question, Scales, Shapes, TextAlignLeft, Translate, TreeStructure } from '@phosphor-icons/react';
+import { BookOpenText, Brain, ChalkboardTeacher, DotsThree, Lightbulb, ListBullets, Question, Scales, Shapes, TextAlignLeft, Translate, TreeStructure } from '@phosphor-icons/react';
 import { useI18n } from '../../lib/i18n';
 import { CONTEXT_ACTIONS, actionBlockReason, type ActionId, type ActionParameters, type ActionTarget, type QuizQuestion } from '../../features/assistant/contextActions/model';
 import type { TargetResolution } from '../../features/assistant/contextActions/targets';
 import type { AssistantScope } from '../../lib/ai/assistant/scopes';
 
-const ICONS = { BookOpenText, Brain, Lightbulb, ListBullets, Question, Scales, Shapes, TextAlignLeft, Translate, TreeStructure };
+const ICONS = { BookOpenText, Brain, ChalkboardTeacher, Lightbulb, ListBullets, Question, Scales, Shapes, TextAlignLeft, Translate, TreeStructure };
 export const ACTION_CONTROL_CLASS = 'md-state min-h-10 [@media(pointer:coarse)]:min-h-12 rounded-lg px-2 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50';
 export function useTargetLabel() {
   const { t } = useI18n();

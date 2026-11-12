@@ -63,6 +63,7 @@ export const zh: Dict = {
   "assistant.actions.summarize": "总结",
   "assistant.actions.explain": "解释",
   "assistant.actions.quiz": "考考我",
+  "assistant.actions.socratic-tutor": "用苏格拉底式方法教我",
   "assistant.actions.key-points": "要点",
   "assistant.actions.key-terms": "关键术语",
   "assistant.actions.translate": "翻译",

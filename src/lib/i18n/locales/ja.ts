@@ -33,6 +33,7 @@ export const ja: Dict = {
   "assistant.actions.summarize": "要約する",
   "assistant.actions.explain": "説明する",
   "assistant.actions.quiz": "理解度チェック",
+  "assistant.actions.socratic-tutor": "ソクラテス式で教える",
   "assistant.actions.key-points": "要点",
   "assistant.actions.key-terms": "重要な用語",
   "assistant.actions.translate": "翻訳する",

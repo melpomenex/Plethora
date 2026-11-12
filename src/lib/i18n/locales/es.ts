@@ -33,6 +33,7 @@ export const es: Dict = {
   "assistant.actions.summarize": "Resumir",
   "assistant.actions.explain": "Explicar",
   "assistant.actions.quiz": "Ponme a prueba",
+  "assistant.actions.socratic-tutor": "Enséñame con el método socrático",
   "assistant.actions.key-points": "Puntos clave",
   "assistant.actions.key-terms": "Términos clave",
   "assistant.actions.translate": "Traducir",

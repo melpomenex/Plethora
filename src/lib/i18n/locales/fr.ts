@@ -33,6 +33,7 @@ export const fr: Dict = {
   "assistant.actions.summarize": "Résumer",
   "assistant.actions.explain": "Expliquer",
   "assistant.actions.quiz": "Me tester",
+  "assistant.actions.socratic-tutor": "Enseigne-moi par le dialogue socratique",
   "assistant.actions.key-points": "Points clés",
   "assistant.actions.key-terms": "Termes clés",
   "assistant.actions.translate": "Traduire",

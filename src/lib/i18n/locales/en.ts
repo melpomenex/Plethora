@@ -11,6 +11,7 @@ export const en: Dict = {
   "assistant.actions.summarize": "Summarize",
   "assistant.actions.explain": "Explain",
   "assistant.actions.quiz": "Quiz me",
+  "assistant.actions.socratic-tutor": "Teach me Socratically",
   "assistant.actions.key-points": "Key points",
   "assistant.actions.key-terms": "Key terms",
   "assistant.actions.translate": "Translate",

@@ -33,6 +33,7 @@ export const de: Dict = {
   "assistant.actions.summarize": "Zusammenfassen",
   "assistant.actions.explain": "Erklären",
   "assistant.actions.quiz": "Wissen testen",
+  "assistant.actions.socratic-tutor": "Sokratisch unterrichten",
   "assistant.actions.key-points": "Kernaussagen",
   "assistant.actions.key-terms": "Schlüsselbegriffe",
   "assistant.actions.translate": "Übersetzen",
