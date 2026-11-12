@@ -129,6 +129,7 @@ describe('Study Plan Persistence Integration & Regression Boundaries', () => {
         depth: input.depth,
         status: 'active',
         currentVersion: 0,
+        revision: 1,
         nodeCount: detail.version.nodes.length,
         completedNodeCount: 0,
         sourceDocumentCount: (input.sourceScope as StudySourceScopeV1).resolvedDocuments?.length || 0,

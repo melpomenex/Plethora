@@ -269,6 +269,7 @@ pub struct StudyPlanSummary {
     pub depth: StudyDepth,
     pub status: StudyPlanStatus,
     pub current_version: i64,
+    pub revision: i64,
     pub node_count: i64,
     pub completed_node_count: i64,
     pub source_document_count: i64,

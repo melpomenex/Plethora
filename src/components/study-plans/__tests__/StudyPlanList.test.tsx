@@ -32,6 +32,7 @@ describe('StudyPlanList', () => {
       depth: 'foundational',
       status: 'active',
       currentVersion: 1,
+      revision: 5,
       nodeCount: 5,
       completedNodeCount: 2,
       sourceDocumentCount: 2,
@@ -45,6 +46,7 @@ describe('StudyPlanList', () => {
       depth: 'deep',
       status: 'archived',
       currentVersion: 2,
+      revision: 2,
       nodeCount: 8,
       completedNodeCount: 8,
       sourceDocumentCount: 4,
@@ -98,5 +100,19 @@ describe('StudyPlanList', () => {
     // Clear search
     fireEvent.click(screen.getByRole('button', { name: /clear search/i }));
     expect(screen.getByText('Modern Cryptography')).toBeInTheDocument();
+  });
+
+  it('uses the current plan revision when deleting', async () => {
+    vi.mocked(api.listStudyPlans).mockResolvedValue(mockPlans);
+    vi.mocked(api.deleteStudyPlan).mockResolvedValue(undefined);
+
+    render(<StudyPlanList onCreateClick={vi.fn()} onOpenPlan={vi.fn()} />);
+    await screen.findByText('Modern Cryptography');
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delete plan' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Plan' }));
+
+    await waitFor(() => {
+      expect(api.deleteStudyPlan).toHaveBeenCalledWith('sp_1', 5);
+    });
   });
 });

@@ -75,7 +75,7 @@ export const StudyPlanList: React.FC<StudyPlanListProps> = ({
   });
 
   return (
-    <div className="max-w-5xl mx-auto p-6 space-y-6">
+    <div className="h-full min-h-0 overflow-y-auto overscroll-contain max-w-5xl mx-auto p-6 space-y-6">
       {/* Top Header Row */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-surface-200 dark:border-surface-700">
         <div>
@@ -217,9 +217,9 @@ export const StudyPlanList: React.FC<StudyPlanListProps> = ({
               key={plan.id}
               plan={plan}
               onOpen={onOpenPlan}
-              onArchive={() => handleArchiveToggle(plan.id, 1, false)}
-              onRestore={() => handleArchiveToggle(plan.id, 1, true)}
-              onDelete={() => handleDelete(plan.id, 1)}
+              onArchive={() => handleArchiveToggle(plan.id, plan.revision, false)}
+              onRestore={() => handleArchiveToggle(plan.id, plan.revision, true)}
+              onDelete={() => handleDelete(plan.id, plan.revision)}
             />
           ))}
         </div>

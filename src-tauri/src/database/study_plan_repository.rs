@@ -348,10 +348,10 @@ impl StudyPlanRepository {
         include_archived: bool,
     ) -> Result<Vec<StudyPlanSummary>, StudyCommandError> {
         let sql = if include_archived {
-            "SELECT id, title, goal, depth, status, current_version, current_version_id, draft_version_id, updated_at
+            "SELECT id, title, goal, depth, status, current_version, revision, current_version_id, draft_version_id, updated_at
              FROM study_plans ORDER BY updated_at DESC"
         } else {
-            "SELECT id, title, goal, depth, status, current_version, current_version_id, draft_version_id, updated_at
+            "SELECT id, title, goal, depth, status, current_version, revision, current_version_id, draft_version_id, updated_at
              FROM study_plans WHERE status = 'active' ORDER BY updated_at DESC"
         };
 
@@ -369,6 +369,7 @@ impl StudyPlanRepository {
             let depth_str: String = r.get("depth");
             let status_str: String = r.get("status");
             let current_version: i64 = r.get("current_version");
+            let revision: i64 = r.get("revision");
             let current_version_id: Option<String> = r.get("current_version_id");
             let draft_version_id: Option<String> = r.get("draft_version_id");
             let updated_at: String = r.get("updated_at");
@@ -417,6 +418,7 @@ impl StudyPlanRepository {
                 depth: depth_str.parse().unwrap_or(StudyDepth::Foundational),
                 status: status_str.parse().unwrap_or(StudyPlanStatus::Active),
                 current_version,
+                revision,
                 node_count,
                 completed_node_count,
                 source_document_count,

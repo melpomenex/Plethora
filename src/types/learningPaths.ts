@@ -203,6 +203,7 @@ export interface StudyPlanSummary {
   depth: StudyDepth;
   status: StudyPlanStatus;
   currentVersion: number;
+  revision: number;
   nodeCount: number;
   completedNodeCount: number;
   sourceDocumentCount: number;

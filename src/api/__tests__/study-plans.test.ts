@@ -119,6 +119,7 @@ describe('Study Plans and Sources API wrappers', () => {
           depth: 'deep',
           status: 'active',
           currentVersion: 1,
+          revision: 7,
           nodeCount: 5,
           completedNodeCount: 2,
           sourceDocumentCount: 3,

@@ -207,6 +207,7 @@ export const useLearningPathsStore = create<LearningPathsStoreState>()((set, get
           depth: detail.plan.depth,
           status: detail.plan.status,
           currentVersion: detail.plan.currentVersion,
+          revision: detail.plan.revision,
           nodeCount: detail.version.nodes.filter((n) => n.included).length,
           completedNodeCount: 0,
           sourceDocumentCount: 0,
