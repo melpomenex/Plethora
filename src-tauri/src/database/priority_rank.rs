@@ -303,7 +303,7 @@ fn legacy_rating_key(rating: i32) -> Option<f64> {
 
 /// The 0-100 slider a user should see for a stored row.
 ///
-/// This is deliberately *not* the order key. An explicit zero is a committed
+/// This is distinct from the Adaptive population rank key. An explicit zero is a committed
 /// user value and must read back as 0 rather than falling through to the
 /// legacy rating/default resolution.
 pub fn resolve_display_slider(

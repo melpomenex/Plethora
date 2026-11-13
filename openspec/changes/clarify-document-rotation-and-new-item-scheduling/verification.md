@@ -23,3 +23,12 @@
 
 - Command: `npm run bench:check`
 - Assert that calendar-day date parsing across 4,000 items executes in under 2ms.
+
+## Current Issue #6 acceptance
+
+
+| IDs | Task | Evidence |
+| --- | --- | --- |
+| D03 | 4.1 | Deck Manager defect verified in source. Browser/native visual and zone/DST assertions pending. |
+| D01–D02 | 4.2 | Settings consumers and current scheduler source audited. Run existing default 7, change to 14, native and browser reload, and explicit postpone cases. |
+| D04 | 4.3 | Existing new/future semantics inspected. Run seeded creation and first interaction for each kind on both adapters. |

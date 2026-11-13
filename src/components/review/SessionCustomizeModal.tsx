@@ -14,6 +14,7 @@ import { useState } from "react";
 import { useI18n } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useSavedQueueStore } from "../../stores/savedQueueStore";
+import { getQueueOrderingMode } from "../../stores/queueOrderingSettings";
 import type { SavedQueue } from "../../types/savedQueue";
 import { defaultDaqeKnobs, type DaqeKnobs } from "../../lib/daqe/knobs";
 import {
@@ -149,6 +150,7 @@ export function SessionCustomizeModal({
       sessionDurationMinutes: customization.sessionDurationMinutes,
       maxItems: customization.maxItems,
       sessionGoal: displayedGoal || undefined,
+      orderingMode: getQueueOrderingMode(),
     });
     setShowSaveAs(false);
     setSaveQueueName("");

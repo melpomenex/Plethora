@@ -74,6 +74,7 @@ pub async fn get_startup_snapshot(
     document_offset: Option<u32>,
     queue_limit: Option<u32>,
     queue_mode: Option<String>,
+    ordering_mode: Option<crate::algorithms::daqe::QueueOrderingMode>,
     progress_limit: Option<u32>,
     repo: State<'_, Repository>,
 ) -> Result<StartupSnapshot, String> {
@@ -112,6 +113,7 @@ pub async fn get_startup_snapshot(
                 Some(&active_collection_id),
                 queue_limit,
                 queue_mode.as_deref(),
+                ordering_mode,
             )
             .await
         } else {

@@ -9,17 +9,16 @@ platforms:
   - desktop-linux
   - mobile-android
   - mobile-ios
-summary: Granular 0-100 priority ranking system (0 = urgent top priority, 100 = lowest background priority) driving item scheduling and postponement.
-how_to: Press Alt+P or use the priority badge on any document or extract to enter a score from 0 to 100.
-why: Human time is strictly limited; explicit mathematical priority ensures crucial exam or project materials are reviewed before low-value background reading.
+summary: Saved 0–100 priority, with 100 highest. Strict Manual uses this value to order eligible items in the Reading Queue and Scroll Mode.
+how_to: Use the Set Priority shortcut or the priority badge to edit an item's value. Choose Strict Manual in Settings → Smart Queues → Queue Ordering Mode.
+why: Manual priority lets you put important material first within the current queue's filters.
 aliases:
   - priority ranking
   - importance score
   - queue priority
   - item weight
 settings:
-  - queue.defaultDocumentPriority
-  - queue.defaultExtractPriority
+  - smartQueue.queueOrderingMode
 actions:
   - id: action.queue.open
     label: Open Reading Queue
@@ -33,26 +32,25 @@ related:
 # 0-100 Priority Scoring
 
 ## Purpose
-Provides a standardized, continuous priority metric that determines item sampling frequency, interval spacing, and automatic workload postponement.
+Priority records how important an item is to you. Queue Ordering Mode controls how that value affects presentation.
 
 ## User-Facing Behavior
-- Visual color-coded priority badge on every document, extract, and card (Red = 0-20 High, Amber = 21-60 Medium, Blue/Gray = 61-100 Low).
-- Quick shortcut adjustments (`Alt+Up` increase priority / lower number, `Alt+Down` decrease priority).
-- Reading Queue can be sorted and filtered by priority thresholds.
+- The priority editor shows the last saved value. You can assign any whole number from 0 to 100.
+- Strict Manual presents higher priorities first in Reading Queue, saved queues, and Scroll Mode, within their current filters and composition limits.
+- Adaptive is the default. Its ranking can also use due dates, memory state, and your Smart Queue settings.
 
 ## Exact Behavioral Rules
-1. Priority `P` is a floating-point number in the range `[0.0, 100.0]`. Lower numbers represent higher priority.
-2. In priority queue generation, items with higher priority receive shorter initial intervals and higher selection probability.
-3. During queue overload, the Postpone Engine automatically postpones items with `P > 60` while protecting `P < 20` items.
+1. Strict Manual orders equal priorities by due instant, then by item type and ID. Missing due dates follow valid dates at the same priority.
+2. A saved zero is the lowest priority. Items without their own priority use the existing inherited value or legacy rating where available, then 50.
+3. When automatic postponement is enabled, Strict Manual protects items at priority 70 or higher. It keeps higher priorities in the remaining slots of the 50-item daily capacity and can move eligible lower-priority overflow. You can still postpone an item manually.
 
 ## Rationale
-Adopts continuous priority queue formulation, solving the fundamental incremental reading dilemma: having far more reading material than time permits.
+Strict Manual makes a priority edit directly visible in the order of eligible items. Adaptive combines priority with scheduling and session context.
 
 ## Settings & Defaults
 | Key | Default | Description |
 | :--- | :--- | :--- |
-| `queue.defaultDocumentPriority` | `30.0` | Default priority for newly imported documents |
-| `queue.defaultExtractPriority` | `20.0` | Default priority for newly created extracts |
+| `smartQueue.queueOrderingMode` | Adaptive | Orders eligible queue items using Adaptive or Strict Manual. |
 
 ## Platform Behavior
-- **All Platforms**: Consistent priority algorithms evaluated in Rust backend.
+- The desktop and browser queues use the same Strict Manual tie-break rules.

@@ -142,6 +142,7 @@ export function MobileQueueView({
   const toast = useToast();
   // Resolved, not cast: the stored id is one of nine strategies and only five of
   // them are PriorityPresets. See `resolvePriorityPresetId`.
+  const orderingMode = useSettingsStore((s) => s.settings.smartQueue?.queueOrderingMode);
   const queueStrategyPreset = useSettingsStore((state) =>
     resolvePriorityPresetId(state.settings.smartQueue.queueStrategyPreset),
   );
@@ -322,9 +323,9 @@ export function MobileQueueView({
       );
     }
 
-    const ordered = orderQueueItems(applyFilters(result, savedQueue ? sessionCustomization : undefined), queueStrategyPreset);
+    const ordered = orderQueueItems(applyFilters(result, savedQueue ? sessionCustomization : undefined), queueStrategyPreset, orderingMode);
     return savedQueue ? ordered.slice(0, sessionCustomization.maxItems) : ordered;
-  }, [items, activeTab, searchQuery, queueStrategyPreset, savedQueue, sessionCustomization]);
+  }, [items, activeTab, searchQuery, queueStrategyPreset, savedQueue, sessionCustomization, orderingMode]);
 
   useEffect(() => {
     if (!hasCompletedFirstLoad || isLoading || error || !isNativeAndroid() || !isActiveTab) return;

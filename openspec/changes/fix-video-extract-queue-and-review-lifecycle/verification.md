@@ -225,3 +225,7 @@ Planning inventory at proposal completion: 5 capability deltas (1 new, 4 modifie
 The 8.5 acceptance workflow is exercised at the browser persistence boundary (create/queue/seen/rate/parent invariance/remove/re-add/restart/advance cutoff/rate again) and at the native repository/queue boundary. A full interactive GUI run of the 20 visual steps on Linux/Windows/macOS/Android/iOS remains a platform acceptance item, not a claim made here.
 
 Task checklist: **49/49 complete**. No production data was migrated outside test fixtures; the migration runs on application upgrade. The implementation touched only the video-extract lifecycle, queue routing/visibility, the existing Extracts IA, browser persistence, tests, translations, and the relevant handbook section.
+
+## Current Issue #6 acceptance
+
+V01 and V02 → task 8.9. Existing queue membership, independent receipt and playback semantics are the implementation to exercise. Use three distinct observable states (New, Seen, Reviewed), unchanged parent sentinel, and native plus supported browser persistence after restart. Historical targeted passes do not cover the final advertised platform matrix. Track current wider-suite failures through the shared closure register.

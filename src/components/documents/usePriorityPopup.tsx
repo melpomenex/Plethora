@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Flag } from "@phosphor-icons/react";
 import { useModal } from "../common/Modal";
 import { useI18n } from "../../lib/i18n";
+import { useQueueStore } from "../../stores/queueStore";
 import {
   bulkSetDocumentPriority,
   updateDocumentPriority,
@@ -102,6 +103,13 @@ export function usePriorityPopup(api?: UsePriorityPopupApi) {
           ? resolveDisplaySlider(seedDoc)
           : 50;
 
+      const refreshQueue = () => {
+        const queue = useQueueStore.getState();
+        if (!queue.hasCompletedFirstLoad && !queue.isLoading) return;
+        queue.invalidateQueueGeneration();
+        void queue.reloadForCurrentMode();
+      };
+
       let value = seed;
       let errorSetter: ((err: string | null) => void) | null = null;
       let committedSlider: number | null = null;
@@ -127,6 +135,7 @@ export function usePriorityPopup(api?: UsePriorityPopupApi) {
           cancelText: t("priority.cancel"),
           onConfirm: async () => {
             const slider = Math.max(0, Math.min(100, Math.round(value)));
+            let hasCommittedChanges = false;
             try {
               if (options?.onCommit) {
                 await options.onCommit(slider);
@@ -135,9 +144,9 @@ export function usePriorityPopup(api?: UsePriorityPopupApi) {
               }
 
               if (learningItemIds.length > 0) {
-                // Sequential writes for cards; one failure must not lose the rest.
                 for (const cardId of learningItemIds) {
                   await updateLearningItemPriority(cardId, slider);
+                  hasCommittedChanges = true;
                 }
               }
 
@@ -148,6 +157,7 @@ export function usePriorityPopup(api?: UsePriorityPopupApi) {
 
               if (useBulkPath) {
                 const bulk = await bulkSetDocumentPriority(ids, slider);
+                hasCommittedChanges ||= bulk.succeeded.length > 0;
                 const failedCount = bulk.failed.length;
                 if (failedCount > 0) {
                   await modal.alert(
@@ -157,10 +167,13 @@ export function usePriorityPopup(api?: UsePriorityPopupApi) {
                     }),
                     t("priority.setTitle"),
                   );
+                  errorSetter?.(bulk.errors.join("\n"));
+                  return false;
                 }
               } else {
                 // slider is authoritative; server derives rating; pass 0.
                 const updated = await updateDocumentPriority(ids[0], 0, slider);
+                hasCommittedChanges = true;
                 api?.updateDocument(ids[0], {
                   priorityRating: updated.priorityRating,
                   prioritySlider: updated.prioritySlider,
@@ -175,6 +188,8 @@ export function usePriorityPopup(api?: UsePriorityPopupApi) {
               const msg = error instanceof Error ? error.message : String(error);
               errorSetter?.(msg);
               throw error;
+            } finally {
+              if (hasCommittedChanges) refreshQueue();
             }
           },
         },

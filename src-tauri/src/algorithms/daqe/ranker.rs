@@ -26,82 +26,75 @@ pub enum QueueOrderingMode {
     StrictManual,
 }
 
-/// Score an item strictly using its manual priority evidence:
-/// `canonical_priority` if available, else `priority_slider / 100` if available,
-/// else `priority_rating / 5` if available, else `priority / 10` if available,
-/// clamped to `0.0..=1.0`.
-pub fn resolve_manual_priority(item: &QueueItem) -> f64 {
-    let raw = if let Some(cp) = item.canonical_priority.filter(|v| v.is_finite()) {
-        cp
-    } else if let Some(slider) = item.priority_slider {
-        (slider as f64) / 100.0
-    } else if let Some(rating) = item.priority_rating {
-        (rating as f64) / 5.0
-    } else {
-        item.priority / 10.0
-    };
-    if raw.is_finite() {
-        raw.clamp(0.0, 1.0)
-    } else {
-        0.0
+/// Use the same persisted slider value displayed in the queue, including inheritance.
+pub fn resolve_manual_priority(item: &QueueItem) -> i32 {
+    if let Some(slider) = item.priority_display_slider {
+        return slider.clamp(0, 100);
     }
+    if matches!(item.item_type.as_str(), "extract" | "video-extract") {
+        return item.priority_slider.unwrap_or(50).clamp(0, 100);
+    }
+    let explicit = item
+        .priority_explicitly_set
+        .unwrap_or(item.item_type == "learning-item" && item.priority_slider.is_some());
+    crate::database::priority_rank::resolve_display_slider(
+        item.priority_slider.unwrap_or_default(),
+        item.priority_rating.unwrap_or_default(),
+        explicit,
+    )
 }
 
-/// Rank items strictly in descending order of their manual priority score.
-///
-/// Tie-breaking order:
-/// 1. score descending
-/// 2. due_date (earlier due date first, Some before None)
-/// 3. item_type (lexicographical)
-/// 4. id (lexicographical)
+fn compare_manual_priority(left: &QueueItem, right: &QueueItem) -> std::cmp::Ordering {
+    resolve_manual_priority(right)
+        .cmp(&resolve_manual_priority(left))
+        .then_with(|| {
+            let left_due = terms::parse_due(left.due_date.as_deref());
+            let right_due = terms::parse_due(right.due_date.as_deref());
+            (left_due.is_none(), left_due).cmp(&(right_due.is_none(), right_due))
+        })
+        .then_with(|| {
+            left.item_type
+                .encode_utf16()
+                .cmp(right.item_type.encode_utf16())
+        })
+        .then_with(|| left.id.encode_utf16().cmp(right.id.encode_utf16()))
+}
+
+pub fn sort_strict_manual(items: &mut [QueueItem]) {
+    items.sort_by(compare_manual_priority);
+}
+
+/// Rank by manual priority descending, then due instant, type and ID.
 pub fn rank_strict_manual(items: &[QueueItem]) -> Vec<RankedItem> {
-    let ranked: Vec<RankedItem> = items
-        .iter()
-        .enumerate()
-        .map(|(input_index, item)| {
-            let score = resolve_manual_priority(item);
-            let breakdown = TermBreakdown {
-                srs_urgency: crate::models::daqe::TermValue::measured(score),
-                srs_weight: 1.0,
-                goal_relevance: crate::models::daqe::TermValue::unavailable(),
-                goal_weight: 0.0,
-                energy_fit: crate::models::daqe::TermValue::unavailable(),
-                energy_weight: 0.0,
-                interleave_penalty: crate::models::daqe::TermValue::unavailable(),
-                interleave_weight: 0.0,
-                friction_penalty: crate::models::daqe::TermValue::unavailable(),
-                friction_weight: 0.0,
-                effective_energy_target: 3.0,
-                energy_downshift_reason: None,
-                interleave_against: Vec::new(),
-            };
+    let mut order: Vec<usize> = (0..items.len()).collect();
+    order.sort_by(|&a, &b| compare_manual_priority(&items[a], &items[b]));
+    order
+        .into_iter()
+        .map(|input_index| {
+            let score = f64::from(resolve_manual_priority(&items[input_index])) / 100.0;
+            let unavailable = crate::models::daqe::TermValue::unavailable;
             RankedItem {
-                item: item.clone(),
+                item: items[input_index].clone(),
                 score,
-                breakdown,
+                breakdown: TermBreakdown {
+                    srs_urgency: crate::models::daqe::TermValue::measured(score),
+                    srs_weight: 1.0,
+                    goal_relevance: unavailable(),
+                    goal_weight: 0.0,
+                    energy_fit: unavailable(),
+                    energy_weight: 0.0,
+                    interleave_penalty: unavailable(),
+                    interleave_weight: 0.0,
+                    friction_penalty: unavailable(),
+                    friction_weight: 0.0,
+                    effective_energy_target: 3.0,
+                    energy_downshift_reason: None,
+                    interleave_against: Vec::new(),
+                },
                 input_index,
             }
         })
-        .collect();
-
-    let mut order: Vec<usize> = (0..ranked.len()).collect();
-    order.sort_by(|&a, &b| {
-        let (left, right) = (&ranked[a], &ranked[b]);
-        right
-            .score
-            .partial_cmp(&left.score)
-            .unwrap_or(std::cmp::Ordering::Equal)
-            .then_with(|| match (&left.item.due_date, &right.item.due_date) {
-                (Some(d_left), Some(d_right)) => d_left.cmp(d_right),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                (None, None) => std::cmp::Ordering::Equal,
-            })
-            .then_with(|| left.item.item_type.cmp(&right.item.item_type))
-            .then_with(|| left.item.id.cmp(&right.item.id))
-            .then_with(|| left.input_index.cmp(&right.input_index))
-    });
-    order.into_iter().map(|i| ranked[i].clone()).collect()
+        .collect()
 }
 
 /// Rank items with an explicit ordering mode: strict manual priority order,
@@ -1042,62 +1035,43 @@ mod tests {
 
     #[test]
     fn rank_strict_manual_priority_cascade_and_clamping() {
-        let mut item1 = item("i1", "document", 5.0, 0);
-        item1.canonical_priority = Some(0.85);
-        item1.priority_slider = Some(50);
-        item1.priority_rating = Some(2);
-        assert_eq!(resolve_manual_priority(&item1), 0.85);
+        let mut row = item("i", "document", 9.9, 0);
+        row.canonical_priority = Some(0.95);
+        assert_eq!(resolve_manual_priority(&row), 50);
 
-        let mut item2 = item("i2", "document", 5.0, 0);
-        item2.canonical_priority = None;
-        item2.priority_slider = Some(75);
-        item2.priority_rating = Some(2);
-        assert_eq!(resolve_manual_priority(&item2), 0.75);
+        row.priority_rating = Some(4);
+        row.priority_slider = Some(0);
+        row.priority_explicitly_set = Some(false);
+        assert_eq!(resolve_manual_priority(&row), 70);
 
-        let mut item3 = item("i3", "document", 5.0, 0);
-        item3.canonical_priority = None;
-        item3.priority_slider = None;
-        item3.priority_rating = Some(4);
-        assert_eq!(resolve_manual_priority(&item3), 0.8);
+        row.priority_explicitly_set = Some(true);
+        assert_eq!(resolve_manual_priority(&row), 0);
+        row.priority_slider = Some(120);
+        assert_eq!(resolve_manual_priority(&row), 100);
 
-        let mut item4 = item("i4", "document", 6.0, 0);
-        item4.canonical_priority = None;
-        item4.priority_slider = None;
-        item4.priority_rating = None;
-        assert_eq!(resolve_manual_priority(&item4), 0.6);
-
-        // Clamping upper and lower bounds
-        let mut item_high = item("i_high", "document", 15.0, 0);
-        item_high.canonical_priority = Some(2.5);
-        assert_eq!(resolve_manual_priority(&item_high), 1.0);
-
-        let mut item_low = item("i_low", "document", -5.0, 0);
-        item_low.canonical_priority = Some(-0.5);
-        assert_eq!(resolve_manual_priority(&item_low), 0.0);
-
-        // NaN handling
-        let mut item_nan = item("i_nan", "document", 3.0, 0);
-        item_nan.canonical_priority = Some(f64::NAN);
-        item_nan.priority_slider = Some(40);
-        assert_eq!(resolve_manual_priority(&item_nan), 0.4);
+        row.item_type = "extract".into();
+        row.priority_slider = None;
+        row.priority_explicitly_set = None;
+        row.priority_display_slider = Some(25);
+        assert_eq!(resolve_manual_priority(&row), 25);
     }
 
     #[test]
     fn rank_strict_manual_ordering_and_tie_breaking() {
         let mut a = item("item-a", "document", 0.0, 2);
-        a.canonical_priority = Some(0.9);
+        a.priority_display_slider = Some(90);
 
         let mut b = item("item-b", "document", 0.0, 5); // earlier due date (5 days ago vs 2 days ago)
-        b.canonical_priority = Some(0.5);
+        b.priority_display_slider = Some(50);
 
         let mut c = item("item-c", "document", 0.0, 1);
-        c.canonical_priority = Some(0.5);
+        c.priority_display_slider = Some(50);
 
         let mut d = item("item-d", "flashcard", 0.0, 1); // same score & due date as c, but flashcard > document
-        d.canonical_priority = Some(0.5);
+        d.priority_display_slider = Some(50);
 
         let mut e = item("item-e", "document", 0.0, 1); // same score, due date, item_type as c, but id 'item-e' > 'item-c'
-        e.canonical_priority = Some(0.5);
+        e.priority_display_slider = Some(50);
 
         let items = vec![e.clone(), d.clone(), c.clone(), b.clone(), a.clone()];
         let ranked = rank_strict_manual(&items);
@@ -1124,9 +1098,9 @@ mod tests {
     #[test]
     fn rank_with_mode_dispatches_properly() {
         let mut a = item("item-a", "document", 0.0, 0);
-        a.canonical_priority = Some(0.9);
+        a.priority_display_slider = Some(90);
         let mut b = item("item-b", "document", 0.0, 0);
-        b.canonical_priority = Some(0.1);
+        b.priority_display_slider = Some(10);
 
         let items = vec![b.clone(), a.clone()];
         let knobs = DaqeKnobs::default();

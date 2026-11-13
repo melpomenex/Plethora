@@ -1,26 +1,7 @@
-# Tasks: Selectable Strict Manual Queue Ordering
+## 4. Current baseline, implementation and acceptance
 
-## 1. Backend Core & Queue Algorithms
-
-- [ ] 1.1 Define `QueueOrderingMode` enum (`Adaptive`, `StrictManual`, `SrsPriority`) with Serde serialization in `src-tauri/src/models/queue.rs`.
-- [ ] 1.2 Implement `rank_strict_manual` pure function in `src-tauri/src/algorithms/daqe/ranker.rs` ordering items by $P$ descending with due date and stable identity tie-breaking.
-- [ ] 1.3 Add `rank_with_mode` dispatcher in `src-tauri/src/algorithms/daqe/ranker.rs` supporting all three modes.
-- [ ] 1.4 Update `QueueSelector::sort_queue_items_at` in `src-tauri/src/algorithms/queue_selector.rs` to support strict manual ordering without bucketing when requested.
-- [ ] 1.5 Update Tauri command `get_ranked_queue` in `src-tauri/src/commands/queue.rs` to accept `mode: Option<QueueOrderingMode>` and forward to ranker.
-- [ ] 1.6 Add Rust unit tests in `src-tauri/src/algorithms/daqe/ranker.rs` verifying that items with higher $P$ are never displaced by lower $P$ items in `StrictManual` mode.
-
-## 2. Frontend Store & Queue Scroll Order
-
-- [ ] 2.1 Add `queueOrderingMode: QueueOrderingMode` to `UserSettings` interface in `src/stores/settingsStore.ts` with default `"adaptive"`.
-- [ ] 2.2 Update `src/utils/queueScrollOrder.ts` `orderScrollItemsByPriority` to accept `strictManual` flag and bypass variety guard deferrals.
-- [ ] 2.3 Update `src/stores/queueStore.ts` `refreshQueue` to supply the configured `queueOrderingMode` to backend invoke calls.
-- [ ] 2.4 Update `src/pages/QueueScrollPage.tsx` to pass `queueOrderingMode === "strict-manual"` to `orderScrollItemsByPriority`.
-- [ ] 2.5 Add frontend unit tests in `src/utils/__tests__/queueScrollOrder.test.ts` verifying that strict manual mode preserves runs of 4+ same-type high-priority items without deferral.
-
-## 3. Settings UI & Search Catalog Coverage
-
-- [ ] 3.1 Add Queue Ordering Mode dropdown selector to `src/components/settings/sections/ReviewSettings.tsx` with localized label and descriptive help text.
-- [ ] 3.2 Add stable DOM `id="setting-queue-ordering-mode"` to the control container in `ReviewSettings.tsx`.
-- [ ] 3.3 Register `setting-queue-ordering-mode` in `src/components/settings/search/settingsSearchCatalog.ts` under `SettingsTab.Review`.
-- [ ] 3.4 Add search coverage assertion in `src/components/settings/search/__tests__/settingsSearchCatalog.test.ts` verifying catalog entry resolution and keyword matching.
-- [ ] 3.5 Run `npm run bench:check` to ensure no regression on queue ranking and settings catalog lookup budgets.
+- [x] 4.1 Reproduce current ranking-parity failures in `src/test/issue6/rankingParity.test.ts`. Freeze clock and trace each vector to canonical DAQE terms versus legacy queue selection in `terms.rs`, `queue.rs`, `queue_selector.rs` and `src/lib/browser-backend.ts`. Publish dated 0/1/14/30/200-day vectors, future/new/recall cases, and update the Queue help with actual current inputs. Preserve adaptive snapshots or document the measured intentional change.
+- [x] 4.2 Trace registered priority shortcut, pointer popup and bulk mutations from `DocumentsView.tsx`, `usePriorityPopup.tsx` and `QueueScrollPage.tsx` through `src/api/queue.ts`, `models/queue.rs` and browser adapters. Reuse explicit flag and nullable readback, remove composite fallback from strict resolver, and reconcile delayed response/failure. Pass seeded mixed-type comparator vectors and SQLite/IndexedDB restart with keyboard/pointer 0/25/50/75/100, inheritance and a rejected write.
+- [x] 4.3 Thread mode through `queueStore.ts`, `daqeRankingClient.ts`, `api/queue.ts`, `queue_daqe.rs`, `queue_daqe_decision.rs`, `queue.rs`, `queue_selector.rs` and browser equivalents. Cover startup preview, next/count, due-only, playlist intersperse, saved/custom and list fallback. In `QueueScrollPage.tsx` select on rank before quotas and apply strict final order after RSS/podcast assembly. Guard all build/refill/recompose paths and keep anchor stable. Verify exact order through real IPC and browser entry points, after settings hydration/restart, filtering, rating and reprioritizing. Existing Settings Search rows remain verified under their stable IDs.
+- [x] 4.4 Update `commands/auto_postpone.rs`, `algorithms/postpone.rs` and browser candidate/apply adapters to use strict comparator and validate a stale preview before mutation. Add protected-over-capacity, inverse-urgency, zero, same-priority, manual override, rollback and retry tests. Compare capacity outcomes and actual stored dates after reopen.
+- [x] 4.5 Run targeted ranking/store/browser tests, native queue integration and `npm run bench:check`. Record fixture IDs, sorted rows, due/collection exclusions and budget deltas in verification.

@@ -57,3 +57,16 @@ Evidence codes: **V** = directly verified in the inspected source; **L** = likel
 | 15 | Re-add | Membership true; retained date reused; history intact |
 
 No row is closed merely because a function or component exists. Every row above requires the named implementation and regression test.
+
+## Current Issue #6 crosswalk
+
+V01 and V02 → task 8.9. Existing queue membership, independent receipt and playback semantics are the implementation to exercise. Use three distinct observable states (New, Seen, Reviewed), unchanged parent sentinel, and native plus supported browser persistence after restart. Historical targeted passes do not cover the final advertised platform matrix. Track current wider-suite failures through the shared closure register.
+
+The [current matrix](../../planning/issue-6-final-traceability.md) links the source anchors and reporter evidence. The [shared release gates](../qualify-issue-6-remediation/verification.md) define how to record results.
+
+## Spec requirements
+
+| IDs | OpenSpec requirement |
+| --- | --- |
+| V01 | [Opening a queue item plays the intended segment](specs/video-extract-queue-lifecycle/spec.md#requirement-opening-a-queue-item-plays-the-intended-segment) |
+| V02 | [Rating an extract from any queue surface changes only the extract](specs/video-extract-queue-lifecycle/spec.md#requirement-rating-an-extract-from-any-queue-surface-changes-only-the-extract) |

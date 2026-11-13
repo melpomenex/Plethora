@@ -81,6 +81,7 @@ impl SavedQueueRepository {
             session_goal: Self::row_opt_str(row, "session_goal"),
             is_default: is_default_i64 != 0,
             sort_order: row.get("sort_order"),
+            ordering_mode: Self::row_opt_str(row, "ordering_mode"),
             created_at,
             updated_at,
         })
@@ -162,8 +163,8 @@ impl SavedQueueRepository {
             INSERT INTO saved_queues (
                 id, name, icon, collection_id, filters_json, item_types_json,
                 session_duration_minutes, max_items, daqe_preset_id, session_goal,
-                is_default, sort_order, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+                is_default, sort_order, ordering_mode, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
             "#,
         )
         .bind(&id)
@@ -178,6 +179,7 @@ impl SavedQueueRepository {
         .bind(session_goal.as_deref())
         .bind(if is_default { 1i64 } else { 0i64 })
         .bind(max_order)
+        .bind(input.ordering_mode.as_deref())
         .bind(&now)
         .bind(&now)
         .execute(&mut *tx)
@@ -258,8 +260,8 @@ impl SavedQueueRepository {
                 name = ?1, icon = ?2, collection_id = ?3, filters_json = ?4,
                 item_types_json = ?5, session_duration_minutes = ?6, max_items = ?7,
                 daqe_preset_id = ?8, session_goal = ?9, is_default = ?10,
-                sort_order = ?11, updated_at = ?12
-            WHERE id = ?13
+                sort_order = ?11, ordering_mode = ?12, updated_at = ?13
+            WHERE id = ?14
             "#,
         )
         .bind(&name)
@@ -273,6 +275,7 @@ impl SavedQueueRepository {
         .bind(session_goal.as_deref())
         .bind(if is_default { 1i64 } else { 0i64 })
         .bind(sort_order)
+        .bind(input.ordering_mode.as_deref())
         .bind(&now)
         .bind(id)
         .execute(&mut *tx)
@@ -363,9 +366,12 @@ mod tests {
                 daqe_preset_id: None,
                 session_goal: None,
                 is_default: None,
+                ordering_mode: Some("strict_manual".into()),
             })
             .await
             .expect("create");
+
+        assert_eq!(created.ordering_mode.as_deref(), Some("strict_manual"));
 
         let updated = repo
             .update_saved_queue(
@@ -382,6 +388,7 @@ mod tests {
                     session_goal: None,
                     is_default: Some(true),
                     sort_order: None,
+                    ordering_mode: Some("adaptive".into()),
                 },
             )
             .await
@@ -389,5 +396,6 @@ mod tests {
 
         assert_eq!(updated.name, "Updated Name");
         assert!(updated.is_default);
+        assert_eq!(updated.ordering_mode.as_deref(), Some("adaptive"));
     }
 }

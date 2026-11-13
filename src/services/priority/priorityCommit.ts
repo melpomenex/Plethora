@@ -25,6 +25,8 @@ import type { LearningItem } from "../../api/learning-items";
 import type { BulkOperationResult } from "../../api/extract-bulk";
 import type { QueuePriorityTarget } from "../../api/queue";
 import type { QueueItem } from "../../types/queue";
+import { resolveDisplaySlider } from "../../utils/queueManualOrder";
+export { resolveDisplaySlider, resolveQueueItemDisplaySlider } from "../../utils/queueManualOrder";
 
 export type PriorityTarget =
   | { kind: "document"; id: string }
@@ -87,25 +89,6 @@ export function sliderToRating(slider: number): number {
   return 0;
 }
 
-/**
- * Resolve display slider, honoring explicit zero.
- */
-export function resolveDisplaySlider(doc: {
-  prioritySlider?: number;
-  priorityRating?: number;
-  priorityExplicitlySet?: boolean;
-}): number {
-  if (doc.priorityExplicitlySet) {
-    return Math.max(0, Math.min(100, doc.prioritySlider ?? 0));
-  }
-  if ((doc.prioritySlider ?? 0) > 0) return doc.prioritySlider!;
-  const rating = doc.priorityRating ?? 0;
-  if (rating > 0) {
-    return ([0, 10, 30, 50, 70, 90] as const)[Math.min(5, Math.max(0, rating))];
-  }
-  return 50;
-}
-
 /** Legacy extract keys only identify inheritance when they match the parent. */
 export function resolveExtractDisplaySlider(
   extract: { priority_slider?: number | null; priority_score?: number },
@@ -116,36 +99,6 @@ export function resolveExtractDisplaySlider(
     return resolveDisplaySlider(parent);
   }
   return 50;
-}
-
-/**
- * Authoritative 0–100 readback for a queue row.
- *
- * Prefers the backend's resolved display slider (which includes inherited
- * extract values), then falls back to the row's own explicit fields so older
- * rows and browser-backed queues still render a committed zero or slider.
- */
-export function resolveQueueItemDisplaySlider(item: {
-  itemType: string;
-  priorityDisplaySlider?: number;
-  prioritySlider?: number;
-  priorityRating?: number;
-  priorityExplicitlySet?: boolean;
-}): number {
-  if (typeof item.priorityDisplaySlider === "number" && Number.isFinite(item.priorityDisplaySlider)) {
-    return Math.max(0, Math.min(100, Math.round(item.priorityDisplaySlider)));
-  }
-  if (item.itemType === "extract") {
-    return item.prioritySlider != null
-      ? Math.max(0, Math.min(100, Math.round(item.prioritySlider)))
-      : 50;
-  }
-  return resolveDisplaySlider({
-    prioritySlider: item.prioritySlider,
-    priorityRating: item.priorityRating,
-    priorityExplicitlySet:
-      item.priorityExplicitlySet ?? (item.itemType === "learning-item" && item.prioritySlider != null),
-  });
 }
 
 /**

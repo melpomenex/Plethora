@@ -1,3 +1,4 @@
+import { getQueueOrderingMode } from "../stores/queueOrderingSettings";
 import { invokeCommand, isNativeAndroid, isTauri } from "../lib/tauri";
 import {
   classifyAndroidStartupFailure,
@@ -65,6 +66,7 @@ export async function getStartupSnapshot(options: {
     documentOffset: options.documentOffset ?? 0,
     queueLimit: STARTUP_QUEUE_LIMIT,
     queueMode: options.queueMode,
+    ...(surface === "queue" && { orderingMode: getQueueOrderingMode() }),
     progressLimit: STARTUP_PROGRESS_LIMIT,
   };
   if (isNativeAndroid()) {

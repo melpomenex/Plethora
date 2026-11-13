@@ -1,3 +1,5 @@
+import { useSettingsStore } from "../../stores/settingsStore";
+import { resolveQueueItemDisplaySlider } from "../../utils/queueManualOrder";
 import { useState, type ReactNode } from "react";
 import {
   BookOpen,
@@ -63,6 +65,7 @@ export function QueueItemActionSheet({
   configuredEnergyTarget,
 }: QueueItemActionSheetProps) {
   const { t } = useI18n();
+  const strictManual = useSettingsStore((state) => state.settings.smartQueue?.queueOrderingMode === "strict_manual");
   const [busyAction, setBusyAction] = useState<QueueItemSheetAction | null>(null);
 
   if (!item) return null;
@@ -149,7 +152,11 @@ export function QueueItemActionSheet({
       presentation="auto"
       className="max-w-lg"
     >
-      {rankBreakdown ? (
+      {strictManual ? (
+        <p className="mb-3 text-sm text-muted-foreground">
+          {t("queue.strictManualPriorityExplanation", { priority: resolveQueueItemDisplaySlider(item) })}
+        </p>
+      ) : rankBreakdown ? (
         <div className="mb-3 rounded-lg border border-border bg-muted/30 p-3">
           <DaqeScoreBreakdown
             breakdown={rankBreakdown}

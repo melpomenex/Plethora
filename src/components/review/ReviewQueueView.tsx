@@ -205,6 +205,8 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     coerceStoredPresetId(useSettingsStore.getState().settings.smartQueue.queueStrategyPreset) ??
       "maximize-retention"
   );
+  const orderingMode = useSettingsStore((s) => s.settings.smartQueue?.queueOrderingMode);
+  const strictManual = orderingMode === "strict_manual";
   const daqeSettings = useSettingsStore((s) => s.settings.daqe);
   // Per-item ranking breakdowns from the last adaptive snapshot. Selected as a
   // stable reference so the popover re-renders only when the map actually
@@ -594,9 +596,9 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       semanticStudy: sessionCustomization.semanticStudy,
     };
     const filtered = applyFilters(searchedItems, customizationOptions);
-    const allOrdered = orderQueueItems(filtered, resolvePriorityPresetId(preset));
+    const allOrdered = orderQueueItems(filtered, resolvePriorityPresetId(preset), orderingMode);
     const ordered = activeSavedQueue ? allOrdered.slice(0, sessionCustomization.maxItems) : allOrdered;
-    if (queueSortMode === "overdue-desc") {
+    if (!strictManual && queueSortMode === "overdue-desc") {
       return [...ordered].sort((a, b) => {
         const now = Date.now();
         const overdueA = a.dueDate ? Math.max(0, (now - new Date(a.dueDate).getTime()) / (1000 * 60 * 60 * 24)) : 0;
@@ -605,7 +607,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       });
     }
     return ordered;
-  }, [items, queueMode, queueFilterMode, preset, searchQuery, selectedFileType, sessionCustomization, effectiveItemTypes, customSubset, queueSortMode, activeSavedQueue]);
+  }, [items, queueMode, queueFilterMode, preset, searchQuery, selectedFileType, sessionCustomization, effectiveItemTypes, customSubset, queueSortMode, activeSavedQueue, orderingMode, strictManual]);
 
   useEffect(() => {
     const container = queueScrollRef.current;
@@ -721,6 +723,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
           }
           const result = await bulkUpdateTypedItemPriorities(targets, slider);
           if (result.succeeded.length) {
+            useQueueStore.getState().invalidateQueueGeneration();
             try {
               await refreshQueue();
             } catch (error) {
@@ -1354,7 +1357,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
               </button>
             </div>
           )}
-          {queueMode === "reading" && (
+          {queueMode === "reading" && !strictManual && (
             <select
               value={queueSortMode}
               onChange={(e) => setQueueSortMode(e.target.value as "priority" | "overdue-desc")}
@@ -1436,6 +1439,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
             type="button"
             onClick={() => setShowDaqeKnobs((prev) => !prev)}
             aria-pressed={showDaqeKnobs}
+            disabled={strictManual}
             className={`px-3 py-2 rounded-md text-sm transition-colors flex items-center gap-1.5 ${
               showDaqeKnobs
                 ? "bg-primary text-primary-foreground font-medium"
@@ -1455,7 +1459,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
         </div>
       </div>
 
-      {showDaqeKnobs && (
+      {!strictManual && showDaqeKnobs && (
         <div className="mx-4 mt-2 mb-2 p-4 bg-card border border-border rounded-xl shadow-sm">
           <div className="flex items-center justify-between mb-3 border-b border-border/50 pb-2">
             <div className="flex items-center gap-2">
@@ -1687,7 +1691,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                     renderItem={(item) => {
                       const isExpanded = expandedIds.has(item.id);
                       const status = getQueueStatus(item);
-                      const priorityVector = getPriorityVector(item);
+                      const priorityVector = strictManual ? null : getPriorityVector(item);
                       const estimateRange = getTimeEstimateRange(item);
                       const learningHint = getLearningHint(item);
                       return (
@@ -1841,7 +1845,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                               </div>
                             </div>
                             <div className="flex items-center gap-3">
-                              <PriorityGlyph vector={priorityVector} />
+                              {priorityVector && <PriorityGlyph vector={priorityVector} />}
 
                               <button
                                 type="button"
@@ -1973,7 +1977,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                   visibleItems?.map((item) => {
                     const isExpanded = expandedIds.has(item.id);
                     const status = getQueueStatus(item);
-                    const priorityVector = getPriorityVector(item);
+                    const priorityVector = strictManual ? null : getPriorityVector(item);
                     const estimateRange = getTimeEstimateRange(item);
                     const learningHint = getLearningHint(item);
                     return (
@@ -2091,7 +2095,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                             </div>
                           </div>
                           <div className="flex items-center gap-3">
-                            <PriorityGlyph vector={priorityVector} />
+                            {priorityVector && <PriorityGlyph vector={priorityVector} />}
 
                             <button
                               type="button"

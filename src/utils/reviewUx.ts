@@ -1,4 +1,5 @@
-import type { QueueItem } from "../types/queue";
+import { compareManualQueueItems } from "./queueManualOrder";
+import type { QueueItem, QueueOrderingMode } from "../types/queue";
 import { scoreFocalTopic } from "./semanticRelations";
 import { QUEUE_LIST_SORT_CONFIG, orderScrollItemsByCombinedCriterion } from "./queueScrollOrder";
 
@@ -217,18 +218,21 @@ function toScrollType(itemType: QueueItem["itemType"]): "document" | "extract" |
 export function orderQueueItems(
   items: QueueItem[],
   preset: PriorityPreset = "maximize-retention",
+  orderingMode?: QueueOrderingMode,
 ): OrderedQueueItem[] {
-  const ordered = orderScrollItemsByCombinedCriterion(
-    items.map((item) => ({
-      id: item.id,
-      type: toScrollType(item.itemType),
-      engagementScore: getPriorityScore(item, preset),
-      item,
-    })),
-    QUEUE_LIST_SORT_CONFIG,
-  );
+  const ordered = orderingMode === "strict_manual"
+    ? [...items].sort(compareManualQueueItems)
+    : orderScrollItemsByCombinedCriterion(
+        items.map((item) => ({
+          id: item.id,
+          type: toScrollType(item.itemType),
+          engagementScore: getPriorityScore(item, preset),
+          item,
+        })),
+        QUEUE_LIST_SORT_CONFIG,
+      ).map(({ item }) => item);
 
-  return ordered.map(({ item }, index) => ({
+  return ordered.map((item, index) => ({
     ...item,
     queuePosition: index + 1,
     queueTotal: ordered.length,

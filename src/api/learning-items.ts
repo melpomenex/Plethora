@@ -91,8 +91,8 @@ export interface CardVersionEntry {
 /**
  * Get learning items that are due for review
  */
-export async function getDueItems(): Promise<LearningItem[]> {
-  return await invokeCommand<LearningItem[]>("get_due_items");
+export async function getDueItems(collectionId?: string): Promise<LearningItem[]> {
+  return await invokeCommand<LearningItem[]>("get_due_items", collectionId ? { collectionId } : undefined);
 }
 
 /**

@@ -3,6 +3,7 @@ import { t } from "./i18n";
 import { localDateKey } from "./scheduleViewModel";
 import { parseScheduleDate, toDateString } from "./scheduleUtils";
 import { whenBackendReady } from "./tauri";
+import { getQueueOrderingMode } from "../stores/queueOrderingSettings";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useStartupStore } from "../stores/startupStore";
 import { useCollectionStore } from "../stores/collectionStore";
@@ -19,6 +20,7 @@ const skipReasonTranslation: Record<ReportedSkipReason, string> = {
   dismissed: "postpone.autoPostponeReasonDismissed",
   inactive: "postpone.autoPostponeReasonInactive",
   "postpone-rules": "postpone.autoPostponeReasonRules",
+  "strict-manual-kept": "postpone.autoPostponeReasonStrictManualKept",
   "changed-before-commit": "postpone.autoPostponeReasonChanged",
 };
 
@@ -151,8 +153,18 @@ async function runSession(): Promise<AutoPostponeSessionResult> {
     // The planner still admits only tomorrow through day +30; this broad
     // native query bound absorbs timestamp offset differences at the boundary.
     const windowEnd = localMidnightIso(new Date(today.getFullYear(), today.getMonth(), today.getDate() + 32));
-    const candidateSet = await getAutoPostponeCandidates(collectionId, windowStart, windowEnd);
-    const plan = planAutoPostpone(candidateSet.candidates, candidateSet.scheduledDates, today, settings.learning.postpone);
+    const strictManual = getQueueOrderingMode() === "strict_manual";
+    const candidateSet = strictManual
+      ? await getAutoPostponeCandidates(collectionId, windowStart, windowEnd, true)
+      : await getAutoPostponeCandidates(collectionId, windowStart, windowEnd);
+    const strictCheck = strictManual && candidateSet.revision
+      ? { windowStart, windowEnd, revision: candidateSet.revision }
+      : undefined;
+    if (strictManual && (!strictCheck || !candidateSet.strictPolicy)) {
+      throw new Error("Strict Manual recovery requires a current queue snapshot.");
+    }
+    const plan = planAutoPostpone(candidateSet.candidates, candidateSet.scheduledDates, today,
+      settings.learning.postpone, strictManual ? candidateSet.strictPolicy : undefined);
     discovered = plan.discovered;
     skipped = plan.skipped;
     skipReasons = { ...plan.skipReasons };
@@ -162,9 +174,16 @@ async function runSession(): Promise<AutoPostponeSessionResult> {
     // On transaction failure the plan is atomic, so every planned item is
     // still overdue and is reported as failed.
     failed = plan.items.length;
-    const applied = plan.items.length > 0
-      ? await applyAutoPostponePlan(collectionId, plan.items)
-      : { outcomes: [] };
+    const policyChanged = strictManual !== (getQueueOrderingMode() === "strict_manual") ||
+      settings.learning.postpone !== useSettingsStore.getState().settings.learning.postpone ||
+      collectionId !== useCollectionStore.getState().activeCollectionId;
+    const applied = policyChanged
+      ? { outcomes: plan.items.map(() => ({ status: "skipped" as const })) }
+      : plan.items.length === 0
+        ? { outcomes: [] }
+        : strictCheck
+          ? await applyAutoPostponePlan(collectionId, plan.items, strictCheck)
+          : await applyAutoPostponePlan(collectionId, plan.items);
     postponed = applied.outcomes.filter((outcome) => outcome.status === "postponed").length;
     const staleSkipped = applied.outcomes.filter((outcome) => outcome.status === "skipped").length;
     skipped += staleSkipped;
@@ -179,7 +198,9 @@ async function runSession(): Promise<AutoPostponeSessionResult> {
     }
     if (plan.items.length > 0) {
       try {
-        const remaining = await getAutoPostponeCandidates(collectionId, windowStart, windowEnd);
+        const remaining = strictManual
+          ? await getAutoPostponeCandidates(collectionId, windowStart, windowEnd, true)
+          : await getAutoPostponeCandidates(collectionId, windowStart, windowEnd);
         remainingOverdue = countOverdue(remaining.candidates, todayKey);
       } catch (error) {
         console.warn("Could not refresh the remaining auto-postpone count:", error);

@@ -10,6 +10,7 @@ import { useCollectionStore } from "./collectionStore";
 import { useDocumentStore } from "./documentStore";
 import { useQueueStore } from "./queueStore";
 import { useSavedQueueStore } from "./savedQueueStore";
+import { getQueueOrderingMode } from "./queueOrderingSettings";
 
 export type StartupStatus = "idle" | "loading" | "ready" | "error";
 
@@ -20,6 +21,7 @@ interface StartupState {
   collectionId: string | null;
   lastSurface: StartupSurface | null;
   lastQueueMode: "due-today" | "due-all" | null;
+  lastOrderingMode?: ReturnType<typeof getQueueOrderingMode>;
   ensureStartup: (surface: StartupSurface, options?: { queueMode?: "due-today" | "due-all" }) => Promise<StartupSnapshot | null>;
   retryStartup: (surface?: StartupSurface) => Promise<StartupSnapshot | null>;
 }
@@ -37,7 +39,7 @@ const ANDROID_STARTUP_RETRY_DELAYS_MS = [1_000, 3_000] as const;
 const SNAPSHOT_TIMEOUT = Symbol("snapshot-timeout");
 
 function requestKey(collectionId: string, surface: StartupSurface, queueMode?: string): string {
-  return `${collectionEpoch}:${collectionId}:${surface === "queue" ? `queue:${queueMode ?? "due-all"}` : "base"}`;
+  return `${collectionEpoch}:${collectionId}:${surface === "queue" ? `queue:${queueMode ?? "due-all"}:${getQueueOrderingMode()}` : "base"}`;
 }
 
 function delay(ms: number): Promise<void> {
@@ -90,6 +92,7 @@ export const useStartupStore = create<StartupState>((set, get) => ({
 
   ensureStartup: (surface, options) => {
     const collectionId = useCollectionStore.getState().activeCollectionId;
+    const orderingMode = getQueueOrderingMode();
     const key = requestKey(collectionId, surface, options?.queueMode);
     const existing = inflight.get(key);
     if (existing) return existing;
@@ -100,6 +103,7 @@ export const useStartupStore = create<StartupState>((set, get) => ({
       current.collectionId === collectionId &&
       (surface !== "queue" || (
         current.lastQueueMode === (options?.queueMode ?? "due-all") &&
+        current.lastOrderingMode === orderingMode &&
         (current.snapshot?.queue.items.length !== 0 || current.snapshot?.queue.total === 0)
       ));
     if (alreadyReady && current.snapshot) return Promise.resolve(current.snapshot);
@@ -109,6 +113,7 @@ export const useStartupStore = create<StartupState>((set, get) => ({
       error: null,
       lastSurface: surface,
       lastQueueMode: surface === "queue" ? (options?.queueMode ?? "due-all") : null,
+      lastOrderingMode: orderingMode,
     });
     const generation = (requestGenerations.get(key) ?? 0) + 1;
     requestGenerations.set(key, generation);
@@ -133,6 +138,7 @@ export const useStartupStore = create<StartupState>((set, get) => ({
     const isCurrentRequest = () =>
       requestGenerations.get(key) === generation &&
       surfaceGenerations.get(surfaceKey) === surfaceGeneration &&
+      (surface !== "queue" || getQueueOrderingMode() === orderingMode) &&
       key.startsWith(`${collectionEpoch}:`);
 
     const applySnapshot = async (snapshot: StartupSnapshot): Promise<StartupSnapshot | null> => {
@@ -170,6 +176,7 @@ export const useStartupStore = create<StartupState>((set, get) => ({
         collectionId: snapshot.activeCollectionId,
         lastSurface: surface,
         lastQueueMode: surface === "queue" ? (options?.queueMode ?? "due-all") : null,
+        lastOrderingMode: orderingMode,
       });
       return snapshot;
     };

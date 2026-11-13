@@ -9,6 +9,8 @@ export type DocumentFileType =
   | 'audio'
   | 'audiobook';
 
+export type QueueOrderingMode = "adaptive" | "strict_manual";
+
 export interface QueueItem {
   id: string;
   documentId: string;
@@ -33,7 +35,7 @@ export interface QueueItem {
   prioritySlider?: number;
   /**
    * Authoritative 0–100 slider readback for display, including inherited
-   * extract values and legacy rating fallbacks. Never the queue rank key.
+   * extract values and legacy rating fallbacks. Used for Strict Manual order.
    */
   priorityDisplaySlider?: number;
   /** Inherited priority score (0–100) from the parent document; present on extract items. */

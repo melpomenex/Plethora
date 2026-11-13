@@ -27,3 +27,23 @@ The system SHALL treat document and extract scheduling as incremental reading ro
 - **THEN** the system SHALL offer reading interval options (e.g. Next in 3 days, Next in 7 days, Finished)
 - **AND** the system SHALL NOT prompt for Again/Hard/Good/Easy recall ratings
 - **AND** the document's reading position SHALL be preserved in SQLite
+
+### Requirement: Configured document revisit interval
+
+Standard reading revisit SHALL use the persisted validated 1–365 day interval, default 7. Continuing reading SHALL preserve existing dates. Explicit postpone dates SHALL take precedence.
+
+#### Scenario: Changing the default revisit interval
+
+- **GIVEN** a document with a saved future date
+- **WHEN** the user changes the interval to 14, restarts, and explicitly requests a standard revisit on a different document
+- **THEN** the second document is scheduled 14 days from the action, the first date is preserved and neither change updates flashcard recall history
+
+### Requirement: New items retain immediate eligible availability
+
+New in-queue documents, cards, clozes and extracts SHALL be eligible immediately under current filters when they have no future schedule. Opt-outs and explicit future dates SHALL be respected.
+
+#### Scenario: First interaction after import
+
+- **WHEN** the user imports a new in-queue document and creates a card
+- **THEN** both are available for their initial activity when eligible
+- **AND** reading progress and first card recall are recorded by their respective workflows

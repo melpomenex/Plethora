@@ -1,3 +1,4 @@
+import { compareManualQueueOrder, resolveDisplaySlider } from "../utils/queueManualOrder";
 import { parseOpenAICompletion, parseAnthropicCompletion } from "../api/llm/response";
 /**
  * Browser backend command handlers
@@ -698,16 +699,11 @@ function priorityReadback(
     rating?: number | null,
     explicitlySet?: boolean | number | null,
 ): number {
-    if (explicitlySet === true || explicitlySet === 1) {
-        return Math.max(0, Math.min(100, Math.round(slider ?? 0)));
-    }
-    if (slider != null && slider > 0) {
-        return Math.max(0, Math.min(100, Math.round(slider)));
-    }
-    if (rating != null && rating > 0) {
-        return [0, 10, 30, 50, 70, 90][Math.min(5, Math.max(0, Math.round(rating)))];
-    }
-    return 50;
+    return resolveDisplaySlider({
+        prioritySlider: slider ?? undefined,
+        priorityRating: rating ?? undefined,
+        priorityExplicitlySet: explicitlySet === true || explicitlySet === 1,
+    });
 }
 
 /** Extract readback: own slider, or the parent's while the rank key matches. */
@@ -724,8 +720,26 @@ function extractPriorityReadback(
     return 50;
 }
 
+interface BrowserQueueRow extends Record<string, unknown> {
+    id: string;
+    item_type: string;
+    priority_display_slider: number;
+    due_date?: string | null;
+}
+
+function orderBrowserQueue(rows: BrowserQueueRow[], mode: unknown): BrowserQueueRow[] {
+    if (mode !== "strict_manual") return rows;
+    const key = (row: BrowserQueueRow) => ({
+        id: row.id,
+        itemType: row.item_type,
+        priority: row.priority_display_slider,
+        dueDate: row.due_date,
+    });
+    return rows.sort((left, right) => compareManualQueueOrder(key(left), key(right)));
+}
+
 /** Build browser video-extract queue rows with the canonical candidate policy. */
-async function browserVideoQueueItems(collectionId?: string): Promise<unknown[]> {
+async function browserVideoQueueItems(collectionId?: string): Promise<BrowserQueueRow[]> {
     const candidates = await listBrowserVideoExtractCandidates(undefined, new Date(), collectionId);
     if (candidates.length === 0) return [];
     const priorities = new Map(
@@ -733,7 +747,7 @@ async function browserVideoQueueItems(collectionId?: string): Promise<unknown[]>
             .filter((entry) => entry.kind === 'video-extract')
             .map((entry) => [entry.itemId, entry.slider]),
     );
-    const rows: unknown[] = [];
+    const rows: BrowserQueueRow[] = [];
     for (const extract of candidates) {
         const doc = await db.getDocument(extract.document_id);
         if (!doc) continue;
@@ -1038,9 +1052,12 @@ const commandHandlers: Record<string, CommandHandler> = {
         const rawWindowEnd = String(args.windowEnd ?? '');
         const windowStart = localScheduleKey(rawWindowStart) ?? rawWindowStart;
         const windowEnd = localScheduleKey(rawWindowEnd) ?? rawWindowEnd;
-        const [documents, extracts, learningItems] = await Promise.all([
+        const strictManual = args.strictManual === true;
+        const [documents, extracts, learningItems, videos] = await Promise.all([
             db.getDocuments(), db.getAllExtracts(), db.getAllLearningItems(),
+            strictManual ? db.getBrowserAutoPostponeVideos() : [],
         ]);
+        const scopedVideos = strictManual ? db.scopedAutoPostponeVideos(collectionId, documents, videos) : [];
         const documentById = new Map(documents.map((document) => [document.id, document]));
         const inCandidateWindow = (value?: string) => {
             if (!value) return false;
@@ -1048,6 +1065,23 @@ const commandHandlers: Record<string, CommandHandler> = {
             return key === null || key < windowEnd;
         };
         const candidates = [
+            ...scopedVideos.filter((video) => inCandidateWindow(video.next_review_date)).map((video) => ({
+                id: video.id,
+                entityType: 'video-extract',
+                dueDate: video.next_review_date ?? null,
+                lastReviewDate: video.last_review_date ?? null,
+                interval: 0,
+                priorityScore: null,
+                manualPriority: null,
+                stability: null,
+                difficulty: null,
+                reviewCount: video.review_count,
+                lapses: 0,
+                isSuspended: false,
+                isArchived: false,
+                isDismissed: false,
+                isInactive: false,
+            })),
             ...learningItems
                 .filter((item) => isInBrowserCollection(item, collectionId) && inCandidateWindow(item.due_date))
                 .map((item) => {
@@ -1059,6 +1093,7 @@ const commandHandlers: Record<string, CommandHandler> = {
                         lastReviewDate: item.last_review_date ?? null,
                         interval: item.interval ?? null,
                         priorityScore: 50,
+                        manualPriority: priorityReadback(item.priority_slider, undefined, item.priority_explicitly_set),
                         stability: item.memory_state?.stability ?? null,
                         difficulty: item.memory_state?.difficulty ?? item.difficulty ?? null,
                         reviewCount: item.review_count ?? 0,
@@ -1078,6 +1113,7 @@ const commandHandlers: Record<string, CommandHandler> = {
                     lastReviewDate: document.date_last_reviewed ?? null,
                     interval: 0,
                     priorityScore: document.priority_score ?? 50,
+                    manualPriority: priorityReadback(document.priority_slider, document.priority_rating, document.priority_explicitly_set),
                     stability: document.stability ?? null,
                     difficulty: document.difficulty ?? null,
                     reviewCount: document.reps ?? document.reading_count ?? 0,
@@ -1098,18 +1134,20 @@ const commandHandlers: Record<string, CommandHandler> = {
                         lastReviewDate: extract.last_review_date ?? null,
                         interval: 0,
                         priorityScore: 50,
+                        manualPriority: extractPriorityReadback(extract, parent),
                         stability: extract.memory_state?.stability ?? null,
                         difficulty: extract.memory_state?.difficulty ?? null,
                         reviewCount: extract.review_count ?? 0,
                         lapses: 0,
                         isSuspended: false,
                         isArchived: !!parent?.is_archived,
-                        isDismissed: !!parent?.is_dismissed,
+                        isDismissed: !!extract.is_dismissed || !!parent?.is_dismissed,
                         isInactive: !parent || !isInBrowserCollection(parent, collectionId),
                     };
                 }),
         ];
         const scheduledDates = [
+            ...scopedVideos.map((video) => video.next_review_date),
             ...learningItems
                 .filter((item) => {
                     if (!isInBrowserCollection(item, collectionId) || item.is_suspended) return false;
@@ -1123,7 +1161,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             ...extracts
                 .filter((extract) => {
                     const parent = documentById.get(extract.document_id);
-                    return isInBrowserCollection(extract, collectionId) && !!parent && isInBrowserCollection(parent, collectionId) && !parent.is_archived && !parent.is_dismissed;
+                    return !extract.is_dismissed && isInBrowserCollection(extract, collectionId) && !!parent && isInBrowserCollection(parent, collectionId) && !parent.is_archived && !parent.is_dismissed;
                 })
                 .map((extract) => extract.next_review_date),
         ].filter((value): value is string => {
@@ -1131,11 +1169,22 @@ const commandHandlers: Record<string, CommandHandler> = {
             const key = localScheduleKey(value);
             return key !== null && key >= windowStart && key < windowEnd;
         });
-        return { candidates, scheduledDates };
+        return {
+            candidates,
+            scheduledDates,
+            ...(strictManual && {
+                strictPolicy: { dailyCapacity: 50, protectedPriority: 70 },
+                revision: db.browserAutoPostponeRevision(collectionId, documents, extracts, learningItems, videos),
+            }),
+        };
     },
     apply_auto_postpone_plan: async (args) => {
         const plan = (args.plan ?? []) as db.BrowserAutoPostponePlanItem[];
-        const outcomes = await db.applyBrowserAutoPostponePlan(plan, String(args.collectionId ?? 'default'));
+        const collectionId = String(args.collectionId ?? 'default');
+        const strictCheck = args.strictCheck as { revision: string } | undefined;
+        const outcomes = strictCheck
+            ? await db.applyBrowserAutoPostponePlan(plan, collectionId, strictCheck.revision)
+            : await db.applyBrowserAutoPostponePlan(plan, collectionId);
         return { outcomes };
     },
     get_language_knowledge_state: async (args) => {
@@ -1687,8 +1736,8 @@ const commandHandlers: Record<string, CommandHandler> = {
         let queueTotal = 0;
         if (includeQueue) {
             const allQueue = await (args.queueMode === 'due-today'
-                ? commandHandlers.get_due_documents_only({})
-                : commandHandlers.get_due_queue_items({})) as any[];
+                ? commandHandlers.get_due_documents_only({ collectionId: activeCollectionId, orderingMode: args.orderingMode })
+                : commandHandlers.get_due_queue_items({ collectionId: activeCollectionId, orderingMode: args.orderingMode })) as any[];
             queueTotal = Array.isArray(allQueue) ? allQueue.length : 0;
             queue = Array.isArray(allQueue) ? allQueue.slice(0, queueLimit) : [];
         }
@@ -2836,13 +2885,18 @@ const commandHandlers: Record<string, CommandHandler> = {
 
     get_queue: async (args) => {
         const collectionId = args?.collectionId as string | undefined;
-        const docs = (await db.getDocuments()).filter((doc) => !doc.is_archived);
+        const strict = args.orderingMode === "strict_manual";
+        const inScope = (row: { collection_id?: string }) =>
+            !strict || !collectionId || isInBrowserCollection(row, collectionId);
+        const docs = (await db.getDocuments()).filter((doc) =>
+            !doc.is_archived && (!strict || !doc.is_dismissed) && inScope(doc),
+        );
         const activeDocIds = new Set(docs.map((doc) => doc.id));
         const dueExtracts = await db.getDueExtracts();
         const dueLearningItems = await db.getDueLearningItems();
 
         // Convert to queue item format expected by the frontend
-        const items: unknown[] = [];
+        const items: BrowserQueueRow[] = [];
 
         for (const doc of docs) {
             items.push({
@@ -2867,7 +2921,7 @@ const commandHandlers: Record<string, CommandHandler> = {
         }
 
         for (const ext of dueExtracts) {
-            if (!activeDocIds.has(ext.document_id)) {
+            if (!activeDocIds.has(ext.document_id) || !inScope(ext) || (strict && ext.is_dismissed)) {
                 continue;
             }
             const doc = await db.getDocument(ext.document_id);
@@ -2895,7 +2949,7 @@ const commandHandlers: Record<string, CommandHandler> = {
         items.push(...await browserVideoQueueItems(collectionId));
 
         for (const item of dueLearningItems) {
-            if (item.document_id && !activeDocIds.has(item.document_id)) {
+            if (!inScope(item) || (strict && item.is_suspended) || (item.document_id && !activeDocIds.has(item.document_id))) {
                 continue;
             }
             const doc = item.document_id ? await db.getDocument(item.document_id) : null;
@@ -2925,11 +2979,16 @@ const commandHandlers: Record<string, CommandHandler> = {
         }
 
         // Note: snake_case for queue items as expected by API
-        return items;
+        return orderBrowserQueue(items, args.orderingMode);
     },
 
-    get_due_documents_only: async () => {
-        const docs = (await db.getDocuments()).filter((doc) => !doc.is_archived);
+    get_due_documents_only: async (args) => {
+        const collectionId = args.collectionId as string | undefined;
+        const strict = args.orderingMode === "strict_manual";
+        const docs = (await db.getDocuments()).filter((doc) =>
+            !doc.is_archived && (!strict || (!doc.is_dismissed &&
+                (!collectionId || isInBrowserCollection(doc, collectionId)))),
+        );
         const now = new Date().toISOString();
         
         // Smart filtering:
@@ -2979,7 +3038,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             return dueA.localeCompare(dueB);
         });
         
-        return sortedDocs.map((doc) => ({
+        const items = sortedDocs.map((doc) => ({
             id: doc.id,
             document_id: doc.id,
             document_title: doc.title || 'Untitled',
@@ -2998,18 +3057,24 @@ const commandHandlers: Record<string, CommandHandler> = {
             category: doc.category,
             progress: doc.current_scroll_percent ?? 0,
         }));
+        return orderBrowserQueue(items, args.orderingMode);
     },
 
     get_due_queue_items: async (args) => {
         const collectionId = args?.collectionId as string | undefined;
-        const docs = (await db.getDocuments()).filter((doc) => !doc.is_archived);
+        const strict = args.orderingMode === "strict_manual";
+        const inScope = (row: { collection_id?: string }) =>
+            !strict || !collectionId || isInBrowserCollection(row, collectionId);
+        const docs = (await db.getDocuments()).filter((doc) =>
+            !doc.is_archived && (!strict || !doc.is_dismissed) && inScope(doc),
+        );
         const activeDocIds = new Set(docs.map((doc) => doc.id));
         const now = new Date().toISOString();
         const dueDocs = docs.filter((doc) => !doc.next_reading_date || doc.next_reading_date <= now);
         const dueExtracts = await db.getDueExtracts();
         const dueLearningItems = await db.getDueLearningItems();
 
-        const items: unknown[] = [];
+        const items: BrowserQueueRow[] = [];
 
         for (const doc of dueDocs) {
             items.push({
@@ -3034,7 +3099,7 @@ const commandHandlers: Record<string, CommandHandler> = {
         }
 
         for (const ext of dueExtracts) {
-            if (!activeDocIds.has(ext.document_id)) {
+            if (!activeDocIds.has(ext.document_id) || !inScope(ext) || (strict && ext.is_dismissed)) {
                 continue;
             }
             const doc = await db.getDocument(ext.document_id);
@@ -3062,7 +3127,7 @@ const commandHandlers: Record<string, CommandHandler> = {
         items.push(...await browserVideoQueueItems(collectionId));
 
         for (const item of dueLearningItems) {
-            if (item.document_id && !activeDocIds.has(item.document_id)) {
+            if (!inScope(item) || (strict && item.is_suspended) || (item.document_id && !activeDocIds.has(item.document_id))) {
                 continue;
             }
             const doc = item.document_id ? await db.getDocument(item.document_id) : null;
@@ -3091,8 +3156,25 @@ const commandHandlers: Record<string, CommandHandler> = {
             });
         }
 
-        return items;
+        return orderBrowserQueue(items, args.orderingMode);
     },
+
+    get_next_queue_item: async (args) => {
+        const items = await commandHandlers.get_queue(args) as BrowserQueueRow[];
+        return items[0] ?? null;
+    },
+
+    get_queue_items: async (args) => {
+        const items = await commandHandlers.get_queue(args) as BrowserQueueRow[];
+        return items.slice(0, Math.max(0, Number(args.count ?? 10)));
+    },
+
+    get_queued_items: async (args) => {
+        const items = await commandHandlers.get_queue(args) as BrowserQueueRow[];
+        return items.filter((item) => item.item_type === "document" || item.item_type === "learning-item");
+    },
+
+    get_queue_with_playlist_intersperse: async (args) => commandHandlers.get_queue(args),
 
     get_queue_stats: async () => {
         const docs = (await db.getDocuments()).filter((doc) => !doc.is_archived);
@@ -3115,12 +3197,24 @@ const commandHandlers: Record<string, CommandHandler> = {
         };
     },
 
-    get_due_items: async () => {
+    get_reviewable_extracts: async (args) => {
+        const collectionId = args.collectionId as string | undefined;
+        const now = new Date().toISOString();
+        return (await db.getAllExtracts()).filter((extract) =>
+            !extract.is_dismissed &&
+            (!extract.next_review_date || extract.next_review_date <= now) &&
+            (!collectionId || isInBrowserCollection(extract, collectionId)),
+        );
+    },
+
+    get_due_items: async (args) => {
+        const collectionId = args.collectionId as string | undefined;
         const items = await db.getDueLearningItems();
         const prereqMap = readPrerequisites();
         const allItems = await db.getAllLearningItems();
         const byId = new Map(allItems.map((item) => [item.id, item]));
         const filtered = items.filter((item) => {
+            if (collectionId && !isInBrowserCollection(item, collectionId)) return false;
             const prereqIds = prereqMap[item.id] || [];
             return prereqIds.every((prereqId) => {
                 const prereq = byId.get(prereqId);

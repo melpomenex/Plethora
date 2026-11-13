@@ -19,6 +19,10 @@ pub struct PostponeCandidate {
     pub do_not_postpone: bool,
 }
 
+/// Shared policy defaults also sent to the Strict Manual recovery planner.
+pub const DEFAULT_DAILY_CAPACITY: usize = 50;
+pub const DEFAULT_PROTECTED_PRIORITY: f64 = 70.0;
+
 /// Configuration for the postpone decision.
 #[derive(Debug, Clone)]
 pub struct PostponeConfig {
@@ -36,8 +40,8 @@ pub struct PostponeConfig {
 impl Default for PostponeConfig {
     fn default() -> Self {
         Self {
-            daily_capacity: 50,
-            priority_threshold: 70.0,
+            daily_capacity: DEFAULT_DAILY_CAPACITY,
+            priority_threshold: DEFAULT_PROTECTED_PRIORITY,
             respect_difficulty: true,
         }
     }

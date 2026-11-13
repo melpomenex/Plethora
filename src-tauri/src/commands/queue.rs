@@ -1,5 +1,6 @@
 //! Queue commands
 
+use crate::algorithms::daqe::ranker::{sort_strict_manual, QueueOrderingMode};
 use crate::algorithms::daqe::terms::calculate_canonical_urgency;
 use crate::algorithms::{calculate_fsrs_document_priority, resolve_priority_slider, QueueSelector};
 use crate::database::priority_rank::{
@@ -45,7 +46,7 @@ fn is_default_collection_scope(cid: Option<&str>) -> bool {
 }
 
 /// Whether a row with `row_collection` is visible under `cid` (None = all).
-fn collection_allows(cid: Option<&str>, row_collection: &str) -> bool {
+pub(crate) fn collection_allows(cid: Option<&str>, row_collection: &str) -> bool {
     let Some(cid) = cid else {
         return true;
     };
@@ -125,9 +126,14 @@ pub struct PlaylistInterspersionConfig {
 pub async fn get_next_queue_item(
     randomness: Option<f32>,
     collection_id: Option<String>,
+    ordering_mode: Option<QueueOrderingMode>,
     repo: State<'_, Repository>,
 ) -> Result<Option<QueueItem>> {
-    let queue = get_queue_with_collection(repo, collection_id.as_deref()).await?;
+    let mut queue = get_queue_with_collection(repo, collection_id.as_deref()).await?;
+    if ordering_mode == Some(QueueOrderingMode::StrictManual) {
+        sort_strict_manual(&mut queue);
+        return Ok(queue.into_iter().next());
+    }
     if queue.is_empty() {
         return Ok(None);
     }
@@ -142,10 +148,17 @@ pub async fn get_queue_items(
     count: Option<usize>,
     randomness: Option<f32>,
     collection_id: Option<String>,
+    ordering_mode: Option<QueueOrderingMode>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<QueueItem>> {
-    let queue = get_queue_with_collection(repo, collection_id.as_deref()).await?;
+    let mut queue = get_queue_with_collection(repo, collection_id.as_deref()).await?;
     let count = count.unwrap_or(10).min(queue.len());
+
+    if ordering_mode == Some(QueueOrderingMode::StrictManual) {
+        sort_strict_manual(&mut queue);
+        queue.truncate(count);
+        return Ok(queue);
+    }
 
     let selector = QueueSelector::new(randomness.unwrap_or(0.3));
     Ok(selector
@@ -487,12 +500,16 @@ pub(crate) async fn get_startup_queue_preview_from_repo(
     collection_id: Option<&str>,
     limit: u32,
     mode: Option<&str>,
+    ordering_mode: Option<QueueOrderingMode>,
 ) -> Result<(Vec<QueueItem>, i64)> {
     let mut queue = if mode == Some("due-today") {
         get_due_documents_only_from_repo(repo, collection_id).await?
     } else {
         get_due_queue_items_from_repo(repo, collection_id, None).await?
     };
+    if ordering_mode == Some(QueueOrderingMode::StrictManual) {
+        sort_strict_manual(&mut queue);
+    }
     let total = queue.len() as i64;
     queue.truncate(limit.min(50) as usize);
     Ok((queue, total))
@@ -588,9 +605,13 @@ fn apply_slim(items: &mut [QueueItem], slim: Option<bool>) {
 pub async fn get_queue(
     collection_id: Option<String>,
     slim: Option<bool>,
+    ordering_mode: Option<QueueOrderingMode>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<QueueItem>> {
     let mut items = get_queue_items_from_repo(repo.inner(), collection_id.as_deref()).await?;
+    if ordering_mode == Some(QueueOrderingMode::StrictManual) {
+        sort_strict_manual(&mut items);
+    }
     apply_slim(&mut items, slim);
     Ok(items)
 }
@@ -603,6 +624,7 @@ pub async fn get_queued_items(
     randomness: Option<f32>,
     collection_id: Option<String>,
     slim: Option<bool>,
+    ordering_mode: Option<QueueOrderingMode>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<QueueItem>> {
     let queue = get_queue_with_collection(repo, collection_id.as_deref()).await?;
@@ -615,7 +637,11 @@ pub async fn get_queued_items(
         .cloned()
         .collect();
 
-    selector.sort_queue_items(&mut queued_items);
+    if ordering_mode == Some(QueueOrderingMode::StrictManual) {
+        sort_strict_manual(&mut queued_items);
+    } else {
+        selector.sort_queue_items(&mut queued_items);
+    }
     apply_slim(&mut queued_items, slim);
     Ok(queued_items)
 }
@@ -990,9 +1016,15 @@ pub(crate) async fn due_candidate_pool(
 pub async fn get_due_queue_items(
     randomness: Option<f32>,
     collection_id: Option<String>,
+    ordering_mode: Option<QueueOrderingMode>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<QueueItem>> {
-    get_due_queue_items_from_repo(repo.inner(), collection_id.as_deref(), randomness).await
+    let mut items =
+        get_due_queue_items_from_repo(repo.inner(), collection_id.as_deref(), randomness).await?;
+    if ordering_mode == Some(QueueOrderingMode::StrictManual) {
+        sort_strict_manual(&mut items);
+    }
+    Ok(items)
 }
 
 /// Get only due documents (excluding learning items and extracts)
@@ -1076,9 +1108,15 @@ async fn get_due_documents_only_from_repo(
 #[tauri::command]
 pub async fn get_due_documents_only(
     collection_id: Option<String>,
+    ordering_mode: Option<QueueOrderingMode>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<QueueItem>> {
-    get_due_documents_only_from_repo(repo.inner(), collection_id.as_deref()).await
+    let mut items =
+        get_due_documents_only_from_repo(repo.inner(), collection_id.as_deref()).await?;
+    if ordering_mode == Some(QueueOrderingMode::StrictManual) {
+        sort_strict_manual(&mut items);
+    }
+    Ok(items)
 }
 
 /// Get queue with playlist videos interspersed
@@ -1089,9 +1127,16 @@ pub async fn get_due_documents_only(
 pub async fn get_queue_with_playlist_intersperse(
     _randomness: Option<f32>,
     collection_id: Option<String>,
+    ordering_mode: Option<QueueOrderingMode>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<QueueItem>> {
-    get_queue_with_playlist_intersperse_from_repo(repo.inner(), collection_id.as_deref()).await
+    let mut items =
+        get_queue_with_playlist_intersperse_from_repo(repo.inner(), collection_id.as_deref())
+            .await?;
+    if ordering_mode == Some(QueueOrderingMode::StrictManual) {
+        sort_strict_manual(&mut items);
+    }
+    Ok(items)
 }
 
 pub async fn get_queue_with_playlist_intersperse_from_repo(
@@ -1675,6 +1720,110 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn strict_manual_startup_sorts_before_limiting_and_survives_reopen() {
+        use crate::issue6_test_support::{
+            issue6_repository_at, CARD_IDS, DOCUMENT_ID, EXTRACT_ID, VIDEO_EXTRACT_ID,
+        };
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("strict-manual.sqlite");
+        let repo = issue6_repository_at(path.clone()).await;
+        repo.update_document_priority(DOCUMENT_ID, 5, 100, 100.0)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE learning_items SET priority_slider = 25, priority_explicitly_set = 1 WHERE id = ?")
+            .bind(CARD_IDS[0]).execute(repo.pool()).await.unwrap();
+        sqlx::query("UPDATE extracts SET priority_slider = 50 WHERE id = ?")
+            .bind(EXTRACT_ID)
+            .execute(repo.pool())
+            .await
+            .unwrap();
+
+        sqlx::query("INSERT INTO queue_external_priorities (kind, item_id, slider) VALUES ('video-extract', ?, 0)")
+            .bind(VIDEO_EXTRACT_ID).execute(repo.pool()).await.unwrap();
+
+        repo.pool().close().await;
+        let db = Database::new(path).await.unwrap();
+        let reopened = Repository::new(db.pool().clone());
+        let (rows, total) = get_startup_queue_preview_from_repo(
+            &reopened,
+            None,
+            2,
+            None,
+            Some(QueueOrderingMode::StrictManual),
+        )
+        .await
+        .unwrap();
+        assert!(total > 2);
+        assert_eq!(rows[0].id, DOCUMENT_ID);
+        assert_eq!(rows[0].priority_display_slider, Some(100));
+        assert_eq!(rows[1].priority_display_slider, Some(75));
+
+        let mut mixed = due_candidate_pool(&reopened, None)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|row| {
+                [DOCUMENT_ID, EXTRACT_ID, CARD_IDS[0], VIDEO_EXTRACT_ID].contains(&row.id.as_str())
+            })
+            .collect::<Vec<_>>();
+        sort_strict_manual(&mut mixed);
+        assert_eq!(
+            mixed.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+            [DOCUMENT_ID, EXTRACT_ID, CARD_IDS[0], VIDEO_EXTRACT_ID]
+        );
+
+        let app = tauri::test::mock_builder()
+            .manage(reopened)
+            .invoke_handler(tauri::generate_handler![
+                get_next_queue_item,
+                get_queue_items,
+                get_due_queue_items
+            ])
+            .build(tauri::test::mock_context(tauri::test::noop_assets()))
+            .unwrap();
+        let webview = tauri::WebviewWindowBuilder::new(&app, "main", Default::default())
+            .build()
+            .unwrap();
+        let invoke = |command: &str, args: serde_json::Value| {
+            tauri::test::get_ipc_response(
+                &webview,
+                tauri::webview::InvokeRequest {
+                    cmd: command.into(),
+                    callback: tauri::ipc::CallbackFn(0),
+                    error: tauri::ipc::CallbackFn(1),
+                    url: "tauri://localhost".parse().unwrap(),
+                    body: tauri::ipc::InvokeBody::Json(args),
+                    headers: Default::default(),
+                    invoke_key: tauri::test::INVOKE_KEY.into(),
+                },
+            )
+            .unwrap()
+        };
+        let args = serde_json::json!({"orderingMode": "strict_manual", "count": 2});
+        let next: QueueItem = invoke("get_next_queue_item", args.clone())
+            .deserialize()
+            .unwrap();
+        assert_eq!(next.id, DOCUMENT_ID);
+        let first_two: Vec<QueueItem> = invoke("get_queue_items", args.clone())
+            .deserialize()
+            .unwrap();
+        assert_eq!(first_two.len(), 2);
+        assert_eq!(first_two[0].id, DOCUMENT_ID);
+        assert_eq!(first_two[1].priority_display_slider, Some(75));
+        let due: Vec<QueueItem> = invoke("get_due_queue_items", args).deserialize().unwrap();
+        let ids = due
+            .iter()
+            .map(|row| row.id.as_str())
+            .filter(|id| [DOCUMENT_ID, EXTRACT_ID, CARD_IDS[0], VIDEO_EXTRACT_ID].contains(id))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ids,
+            [DOCUMENT_ID, EXTRACT_ID, CARD_IDS[0], VIDEO_EXTRACT_ID]
+        );
+    }
+
+    #[tokio::test]
     async fn startup_queue_preview_is_collection_scoped_and_bounded() {
         let repo = setup_repo().await;
         for index in 0..3 {
@@ -1686,6 +1835,7 @@ mod tests {
             Some(crate::models::DEFAULT_COLLECTION_ID),
             2,
             Some("due-today"),
+            None,
         )
         .await
         .expect("startup queue preview");

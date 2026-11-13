@@ -446,7 +446,7 @@ pub fn friction_penalty(signals: Option<&ItemSignals>) -> TermValue {
 
 /// `QueueItem.due_date` is an RFC 3339 string on the wire. An unparseable or
 /// absent date means "new item", never a silently wrong urgency.
-fn parse_due(value: Option<&str>) -> Option<DateTime<Utc>> {
+pub(super) fn parse_due(value: Option<&str>) -> Option<DateTime<Utc>> {
     let raw = value?;
     DateTime::parse_from_rfc3339(raw)
         .ok()

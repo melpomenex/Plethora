@@ -23,7 +23,7 @@ pub struct QueueItem {
     pub priority_slider: Option<i32>,
     /// Authoritative 0-100 slider readback for display. Unlike
     /// `priority_slider` this includes inherited values and legacy rating
-    /// fallbacks, so it is never a rank key.
+    /// fallbacks. Strict Manual uses this value; Adaptive uses canonical urgency.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub priority_display_slider: Option<i32>,
     pub priority: f64,

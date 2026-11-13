@@ -759,6 +759,8 @@ Create custom focused queues by filtering your collection by category, element t
 
 ---
 
+Choose **Strict Manual** in **Settings → Smart Queues → Queue Ordering Mode** to order eligible items by their saved 0–100 priority. Equal priorities are ordered by due instant and then item type and ID. Saved Queue filters and Optimal Session composition still control which items can appear. Explicit priority zero is the lowest value. When automatic recovery is enabled, Strict Manual keeps up to 50 active items outstanding and protects priorities of 70 and above, even if that exceeds capacity.
+
 #### Adaptive Ranking (Dynamic Adaptive Queue Engine)
 
 While filters decide *membership* (what enters the session), Adaptive Ranking decides *order* (what you should read right now).
@@ -777,12 +779,10 @@ $$S(i) = w_{\text{srs}} \cdot R_{\text{srs}}(i) + w_{\text{goal}} \cdot M_{\text
 
 Every term is normalized to the unit interval $[0, 1]$ before its weight is applied, preventing any single factor from silently dominating:
 
-1. **Memory Urgency ($R_{\text{srs}}$)**:
-   Measures spaced-repetition recall urgency:
-   $$R_{\text{srs}}(i) = 0.5 \cdot \text{Urgency}(i) + 0.3 \cdot \text{Overdue}(i) + 0.2 \cdot \text{UserPriority}(i)$$
-   - $\text{Urgency}$: How close the item is to being forgotten ($1 - \text{Retrievability}$ based on the forgetting curve $R = 0.9^{t/S}$; for documents, calculated from FSRS document priority).
-   - $\text{Overdue}$: Days past due, normalized up to a 14-day ceiling.
-   - $\text{UserPriority}$: The item's 0–100% priority slider.
+1. **Memory Urgency ($R_{\text{srs}}$)** is $0.8T + 0.2P$, where $T$ is temporal urgency and $P$ is the Adaptive priority signal. Desktop DAQE uses the item's priority standing in the library when available and can fall back to its saved slider or legacy rating. Strict Manual uses the saved 0–100 value for presentation.
+   - **Reading rotation** (documents and extracts) uses the due date. New items start at neutral urgency. Future items have zero temporal urgency.
+   - **Recall** (flashcards) also considers the scheduler's estimated retrievability. For a due card, temporal urgency takes the higher of recall risk and overdue readiness.
+   - Overdue readiness grows smoothly with elapsed days. Fourteen days is the curve's time constant. There is no cutoff at day 14.
 2. **Goal Relevance ($M_{\text{relevance}}$)**:
    Measures topical alignment with your active **Session Goal** (e.g. *"Quantum Computing foundations & entanglement proofs"*). Evaluated in three tiers:
    - *Tier 1 (Measured)*: Continuous 0–1 score from a connected AI decision model (`evaluateScore`).

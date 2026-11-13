@@ -100,6 +100,7 @@ mod tests {
             Some(crate::models::DEFAULT_COLLECTION_ID),
             50,
             None,
+            None,
         )
         .await
         .unwrap();

@@ -57,9 +57,13 @@ pub async fn rank_queue_with_decision(
     knobs: DaqeKnobs,
     decision: Option<DecisionConfig>,
     candidates: Option<usize>,
+    ordering_mode: Option<crate::algorithms::daqe::QueueOrderingMode>,
     repo: State<'_, Repository>,
     key_store: State<'_, AIKeyStore>,
 ) -> Result<Option<QueueSnapshot>> {
+    if ordering_mode == Some(crate::algorithms::daqe::QueueOrderingMode::StrictManual) {
+        return Ok(None);
+    }
     let knobs = knobs.validated().map_err(PlethoraError::InvalidInput)?;
     let Some(decision) = decision else {
         return Ok(None);

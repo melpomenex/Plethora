@@ -428,6 +428,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.settingsState.settings.smartQueue.queueOrderingMode = "adaptive";
   sessionStorage.clear();
   localStorage.clear();
 
@@ -473,6 +474,24 @@ afterEach(() => {
 });
 
 describe("QueueScrollPage session rebuild stability (optimal path)", () => {
+  it("ranks the composed session by stored priority instead of interleaving", async () => {
+    mocks.settingsState.settings.smartQueue.queueOrderingMode = "strict_manual";
+    api.getDueItems.mockResolvedValue([{ ...card1, priority_slider: 100, priority_explicitly_set: true }]);
+    useDocumentStore.setState({
+      documents: [
+        { ...doc1, prioritySlider: 0, priorityExplicitlySet: true },
+        { ...doc2, prioritySlider: 75, priorityExplicitlySet: true },
+      ],
+    });
+
+    render(<QueueScrollPage />);
+    await awaitFlashcardCurrent();
+    await revealAndRateFlashcard();
+    await awaitDocumentCurrent("doc-2");
+    await rateCurrentViaKeyboard("3");
+    await awaitDocumentCurrent("doc-1");
+  }, 20000);
+
   it("6.2/6.3: keeps the flashcard across a post-rating documents reload, then rates it into the next epub", async () => {
     render(<QueueScrollPage />);
 
@@ -560,6 +579,24 @@ describe("QueueScrollPage session rebuild stability (queue-list path)", () => {
       ],
     };
   });
+
+  it("ranks a saved subset without topping up from outside it", async () => {
+    mocks.settingsState.settings.smartQueue.queueOrderingMode = "strict_manual";
+    mocks.tabsState.tabs[0].data.customQueueItems =
+      mocks.tabsState.tabs[0].data.customQueueItems.filter((item: { documentId: string }) => item.documentId !== "doc-2");
+    api.getDueItems.mockResolvedValue([{ ...card1, priority_slider: 100, priority_explicitly_set: true }]);
+    useDocumentStore.setState({
+      documents: [
+        { ...doc1, prioritySlider: 25, priorityExplicitlySet: true },
+        { ...doc2, prioritySlider: 90, priorityExplicitlySet: true },
+      ],
+    });
+
+    render(<QueueScrollPage />);
+    await awaitFlashcardCurrent();
+    await revealAndRateFlashcard();
+    await awaitDocumentCurrent("doc-1");
+  }, 20000);
 
   it("saves and reopens the current flashcard priority", async () => {
     render(<QueueScrollPage />);

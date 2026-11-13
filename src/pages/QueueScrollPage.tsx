@@ -1,3 +1,5 @@
+import { getQueueOrderingMode } from "../stores/queueOrderingSettings";
+import { compareManualQueueOrder, resolveQueueItemDisplaySlider, type ManualQueueOrderKey } from "../utils/queueManualOrder";
 import { freezeAssistantSource } from "../lib/ai/assistant/sourceEnvelope";
 import { highestOverlayPriority } from "../lib/overlayStack";
 import { useRegisterMobileAssistant, useMobileAssistantController } from "../components/assistant/mobile/MobileAssistantContext";
@@ -31,6 +33,7 @@ import { lookupDictionary, type DictionaryResult } from "../utils/dictionaryLook
 import { getStoredAssistantProvider, persistAssistantProvider, type AssistantProviderId } from "../utils/assistantProvider";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useQueueStore } from "../stores/queueStore";
+import { useCollectionStore } from "../stores/collectionStore";
 import type { QueueItem } from "../types/queue";
 import { useDocumentStore } from "../stores/documentStore";
 import { defaultSettings, useSettingsStore } from "../stores/settingsStore";
@@ -260,6 +263,7 @@ interface ScrollItem {
   estimatedTime?: number;
   /** Priority for engagement ordering */
   engagementScore?: number;
+  queuePriority?: number;
   /** RSS relevance score (0.0-1.0) from classifier-based scoring */
   relevanceScore?: number;
   /** Semantic preference info (exemplar-driven reason) for the indicator */
@@ -286,6 +290,58 @@ const getQueueItemConversationKey = (item?: ScrollItem): string | undefined => {
   if (item.type === "rss" && item.rssItem) return `web:${item.rssItem.link || item.rssItem.id || item.id}`;
   return `queue-item:${item.id}`;
 };
+
+function scrollManualKey(
+  item: ScrollItem,
+  documents: ReadonlyMap<string, Document>,
+  externalPriorities: Readonly<Record<string, number>>,
+): ManualQueueOrderKey {
+  if (item.type === "flashcard" && item.learningItem) {
+    const card = item.learningItem;
+    return {
+      id: card.id,
+      itemType: "learning-item",
+      priority: resolveQueueItemDisplaySlider({
+        itemType: "learning-item",
+        prioritySlider: card.priority_slider,
+        priorityExplicitlySet: card.priority_explicitly_set,
+      }),
+      dueDate: card.due_date,
+    };
+  }
+  if (item.type === "extract" && item.extract) {
+    const extract = item.extract;
+    return {
+      id: extract.id,
+      itemType: "extract",
+      priority: resolveExtractDisplaySlider(extract, documents.get(extract.document_id)),
+      dueDate: extract.next_review_date,
+    };
+  }
+  if (item.type === "video-extract" && item.videoExtract) {
+    const video = item.videoExtract;
+    const parent = documents.get(video.documentId);
+    return {
+      id: video.id,
+      itemType: "video-extract",
+      priority: externalPriorities[`video-extract:${video.id}`] ??
+        item.queuePriority ?? (parent ? resolveDisplaySlider(parent) : 50),
+      dueDate: video.nextReviewDate,
+    };
+  }
+  if (item.type === "rss" || item.type === "podcast") {
+    const itemType = item.type === "rss" ? "rss-article" : "podcast-episode";
+    const id = item.rssItem?.id ?? item.podcastEpisode?.id ?? item.id.replace(/^rss-/, "");
+    return { id, itemType, priority: externalPriorities[`${itemType}:${id}`] ?? item.queuePriority ?? 50 };
+  }
+  const doc = item.documentId ? documents.get(item.documentId) : undefined;
+  return {
+    id: item.documentId ?? item.id,
+    itemType: "document",
+    priority: doc ? resolveDisplaySlider(doc) : item.queuePriority ?? 50,
+    dueDate: doc?.nextReadingDate,
+  };
+}
 
 /**
  * Map due flashcards to scroll items. Shared by the optimal path and the
@@ -385,6 +441,7 @@ function toVideoExtractScrollItems(
         category: item.category ?? doc?.category ?? "video",
         estimatedTime: item.estimatedTime ?? 5,
         engagementScore: (item.priority ?? 5) + stableRandom(extractId, 3) * 1.5,
+        queuePriority: resolveQueueItemDisplaySlider(item),
       };
     })
     .filter((item): item is ScrollItem => item !== null);
@@ -578,17 +635,22 @@ export function QueueScrollPage() {
   const [scrollItems, setScrollItems] = useState<ScrollItem[]>([]);
   const [externalPriorities, setExternalPriorities] = useState<Record<string, number>>({});
   const externalPriorityRevision = useRef(0);
+  const [externalPrioritiesLoaded, setExternalPrioritiesLoaded] = useState(false);
+  const needsExternalPriorities = Boolean(
+    settings.rssQueue?.includeInQueue || settings.podcastQueue?.includeInQueue ||
+    activeTabQueueData.customQueueItems?.some((item) => item.itemType === "rss-article" || item.itemType === "video-extract") ||
+    allQueueItems.some((item) => item.itemType === "video-extract")
+  );
   useEffect(() => {
-    if (!settings.rssQueue?.includeInQueue && !settings.podcastQueue?.includeInQueue &&
-      !activeTabQueueData.customQueueItems?.some((item) => item.itemType === "rss-article" || item.itemType === "video-extract") &&
-      !allQueueItems.some((item) => item.itemType === "video-extract")) return;
+    if (!needsExternalPriorities) return;
     let cancelled = false;
     const revision = externalPriorityRevision.current;
     void getQueueExternalPriorities().then((rows) => {
       if (!cancelled && revision === externalPriorityRevision.current) setExternalPriorities(Object.fromEntries(rows.map((row) => [`${row.kind}:${row.itemId}`, row.slider])));
-    }).catch((error) => console.warn("Failed to load feed priorities:", error));
+    }).catch((error) => console.warn("Failed to load feed priorities:", error))
+      .finally(() => { if (!cancelled) setExternalPrioritiesLoaded(true); });
     return () => { cancelled = true; };
-  }, [settings.rssQueue?.includeInQueue, settings.podcastQueue?.includeInQueue, activeTabQueueData.customQueueItems, allQueueItems]);
+  }, [needsExternalPriorities, allQueueItems]);
 
   useEffect(() => {
     return cardMutationCoordinator.registerReconciler((updated) => {
@@ -634,6 +696,9 @@ export function QueueScrollPage() {
   // seeded at the item the user was reading) instead of the normal queue.
   // The pre-neural snapshot is restored on exit so the user returns to exactly
   // where they were — the priority queue is never mutated.
+  const strictManual = settings.smartQueue?.queueOrderingMode === "strict_manual";
+  const activeCollectionId = useCollectionStore((state) => state.activeCollectionId);
+  const strictCollectionId = strictManual ? activeCollectionId : undefined;
   const [isNeuralMode, setIsNeuralMode] = useState(false);
   const [isNeuralLoading, setIsNeuralLoading] = useState(false);
   const [neuralRemaining, setNeuralRemaining] = useState<number | null>(null);
@@ -1010,7 +1075,7 @@ export function QueueScrollPage() {
       if (ratedDocumentIds.has(item.documentId)) return false;
       const doc = documentsMap.get(item.documentId);
       if (!doc) return false;
-      if (doc.isDismissed) return false;
+      if (doc.isDismissed || doc.isArchived) return false;
       return true;
     });
   }, [allQueueItems, customSubset, documentsMap, ratedDocumentIds]);
@@ -1058,6 +1123,7 @@ export function QueueScrollPage() {
   // IMPORTANT: Await loadDocuments() to prevent race condition in YouTube filter
   // Now uses smart start position for variety
   useEffect(() => {
+    let cancelled = false;
     const loadAllData = async () => {
       setIsLoadingData(true);
 
@@ -1069,19 +1135,21 @@ export function QueueScrollPage() {
         }
 
         const [dueItems, extracts] = await Promise.all([
-          getDueItems(),
-          getDueExtracts()
+          getDueItems(strictCollectionId),
+          getDueExtracts(strictCollectionId),
         ]);
+        if (cancelled) return;
         setDueFlashcards(dueItems.map(normalizeLearningItem).filter((item): item is LearningItem => item !== null && !item.is_suspended));
         setDueExtracts(extracts);
       } catch (error) {
         console.error("Failed to load review items:", error);
       } finally {
-        setIsLoadingData(false);
+        if (!cancelled) setIsLoadingData(false);
       }
     };
-    loadAllData();
-  }, []); // Only run on mount
+    void loadAllData();
+    return () => { cancelled = true; };
+  }, [strictCollectionId]);
 
   // Restore the exact last-viewed position once items are loaded, falling back to
   // the backend "smart start" (engagement-variety) algorithm only for a genuinely
@@ -1090,7 +1158,7 @@ export function QueueScrollPage() {
   // (position is persisted into tab.data + sessionStorage on every index change).
   const restoredPositionRef = useRef(false);
   useEffect(() => {
-    if (scrollItems.length === 0 || currentIndex !== 0 || restoredPositionRef.current) {
+    if (strictManual || scrollItems.length === 0 || currentIndex !== 0 || restoredPositionRef.current) {
       return;
     }
 
@@ -1140,7 +1208,7 @@ export function QueueScrollPage() {
         }
       }
     });
-  }, [scrollItems.length, currentIndex, calculateSmartStart, activeTabId, patchTabData, toast, activeTabQueueData.persistedCurrentIndex]);
+  }, [strictManual, scrollItems.length, currentIndex, calculateSmartStart, activeTabId, patchTabData, toast, activeTabQueueData.persistedCurrentIndex]);
 
   useEffect(() => {
     sessionStorage.setItem(SESSION_KEYS.LAST_POSITION, String(currentIndex));
@@ -1358,7 +1426,7 @@ export function QueueScrollPage() {
     if (
       currentId === null ||
       barrierFiltered.some((it) => it.id === currentId) ||
-      canPresentItem(current)
+      (!strictManual && canPresentItem(current))
     ) {
       const reconciled = reanchorSessionPosition(prevItems, currentId, barrierFiltered);
       items = reconciled.items;
@@ -1371,7 +1439,7 @@ export function QueueScrollPage() {
     setScrollItems(items);
     setCurrentIndex(nextIndex);
     setRenderedIndex(nextIndex);
-  }, [canPresentItem]);
+  }, [canPresentItem, strictManual]);
 
   useEffect(() => {
     const wasRating = wasRatingOnLastBuildEffectRunRef.current;
@@ -1383,15 +1451,20 @@ export function QueueScrollPage() {
     // element, not composed). This early return is what keeps the re-anchor
     // on this side of the boundary; it re-runs when neural mode is exited
     // (isNeuralMode flips to false, restoring the snapshot separately).
-    if (isNeuralMode) return;
+    if (isNeuralMode || (strictManual && (isLoadingData || (needsExternalPriorities && !externalPrioritiesLoaded)))) return;
     let cancelled = false;
+
+    const orderManual = (items: ScrollItem[]) => items
+      .map((item) => ({ item, key: scrollManualKey(item, documentsMap, externalPriorities) }))
+      .sort((a, b) => compareManualQueueOrder(a.key, b.key))
+      .map(({ item }) => item);
 
     const buildScrollItems = async () => {
       const customQueueItems = activeTabQueueData.customQueueItems;
       const queueScrollMode = activeTabQueueData.queueScrollMode;
 
       if (queueScrollMode === "queue-list" || (customQueueItems && customQueueItems.length > 0)) {
-        const sourceQueueItems = customQueueItems ?? documentQueueItems;
+        const sourceQueueItems = customQueueItems ?? (strictManual ? allQueueItems : documentQueueItems);
 
         const extractsMap = new Map(dueExtracts.map((e) => [e.id, e]));
         const flashcardsMap = new Map(dueFlashcards.map((f) => [f.id, f]));
@@ -1414,6 +1487,8 @@ export function QueueScrollPage() {
 
         const sequentialItems: ScrollItem[] = sourceQueueItems
           .map((item) => {
+            const sourceDocument = documentsMap.get(item.documentId);
+            if (strictManual && (sourceDocument?.isArchived || sourceDocument?.isDismissed)) return null;
             if (item.itemType === "extract") {
               // Skip extracts already reviewed/dismissed this session — without
               // this, the rebuild re-inserts them (customQueueItems is static).
@@ -1433,6 +1508,7 @@ export function QueueScrollPage() {
                 category: item.category ?? doc?.category ?? "extracts",
                 estimatedTime: item.estimatedTime ?? 3,
                 engagementScore: item.priority ?? 5,
+                queuePriority: resolveQueueItemDisplaySlider(item),
               } as ScrollItem;
             }
 
@@ -1465,6 +1541,7 @@ export function QueueScrollPage() {
                 category: item.tags?.[0] ?? "flashcards",
                 estimatedTime: item.estimatedTime ?? 2,
                 engagementScore: item.priority ?? 5,
+                queuePriority: resolveQueueItemDisplaySlider(item),
               } as ScrollItem;
             }
 
@@ -1478,6 +1555,7 @@ export function QueueScrollPage() {
                 category: (item as any).rssFeed?.category ?? "rss",
                 estimatedTime: item.estimatedTime ?? 5,
                 engagementScore: 10,
+                queuePriority: resolveQueueItemDisplaySlider(item),
               } as ScrollItem;
             }
 
@@ -1505,6 +1583,7 @@ export function QueueScrollPage() {
                 category: item.category ?? doc?.category ?? "video",
                 estimatedTime: item.estimatedTime ?? 5,
                 engagementScore: item.priority ?? 5,
+                queuePriority: resolveQueueItemDisplaySlider(item),
               } as ScrollItem;
             }
 
@@ -1523,6 +1602,7 @@ export function QueueScrollPage() {
               category: doc?.category ?? item.tags?.[0] ?? "uncategorized",
               estimatedTime: item.estimatedTime ?? 10,
               engagementScore: item.priority ?? 5,
+              queuePriority: resolveQueueItemDisplaySlider(item),
               hasAudioEdition: item.hasAudioEdition,
               audioEditionId: item.audioEditionId,
             } as ScrollItem;
@@ -1536,6 +1616,12 @@ export function QueueScrollPage() {
           sequentialItems,
           activeTabQueueData.itemTypes,
         );
+
+        if (strictManual) {
+          applySessionItems(orderManual(dedupeById(gatedSequentialItems)));
+          setCompositionReport(null);
+          return;
+        }
 
         // Partition the source rows into the three composition pools. RSS
         // articles draw from the Documents share, mirroring the optimal path.
@@ -1670,12 +1756,18 @@ export function QueueScrollPage() {
       const subsetDocIds = customSubset
         ? new Set(customSubset.map(item => item.documentId))
         : null;
-      const activeFlashcards = subsetDocIds
-        ? dueFlashcards.filter(item => subsetDocIds.has(item.document_id))
-        : dueFlashcards;
-      const activeExtracts = subsetDocIds
-        ? dueExtracts.filter(ex => subsetDocIds.has(ex.document_id))
-        : dueExtracts;
+      const parentIsActive = (documentId: string) => {
+        const parent = documentsMap.get(documentId);
+        return !!parent && !parent.isArchived && !parent.isDismissed;
+      };
+      const activeFlashcards = dueFlashcards.filter((item) =>
+        (!subsetDocIds || subsetDocIds.has(item.document_id)) &&
+        (!strictManual || !item.document_id || parentIsActive(item.document_id)),
+      );
+      const activeExtracts = dueExtracts.filter((extract) =>
+        (!subsetDocIds || subsetDocIds.has(extract.document_id)) &&
+        (!strictManual || parentIsActive(extract.document_id)),
+      );
 
       // Honour the composition shares: a type participates iff its share is
       // above 0. Gated at the source lists so composeSession and
@@ -1937,9 +2029,13 @@ export function QueueScrollPage() {
       } else {
         composed = clampCompositionToAvailability(snapshot.counts, available);
       }
-      const limitedDocuments = nonReviewItems.slice(0, composed.documents);
-      const limitedFlashcards = flashcardItems.slice(0, composed.flashcards);
-      const limitedExtracts = extractItems.slice(0, composed.extracts);
+      const limitPool = (items: ScrollItem[], limit: number) =>
+        (strictManual ? orderManual(items) : items).slice(0, limit);
+      const composedItems = [
+        ...limitPool(nonReviewItems, composed.documents),
+        ...limitPool(flashcardItems, composed.flashcards),
+        ...limitPool(extractItems, composed.extracts),
+      ];
 
       // The session's presentation order tracks the configured mix: the
       // combined-criterion sort's proportion bias targets the topic share of
@@ -1954,12 +2050,8 @@ export function QueueScrollPage() {
         composedTotal > 0
           ? (composed.documents + composed.extracts) / composedTotal
           : 0.5;
-      const mixedItems = orderScrollItemsByCombinedCriterion(
-        [
-          ...limitedDocuments,
-          ...limitedFlashcards,
-          ...limitedExtracts,
-        ],
+      const mixedItems = strictManual ? orderManual(composedItems) : orderScrollItemsByCombinedCriterion(
+        composedItems,
         {
           ...DEFAULT_COMBINED_SORT_CONFIG,
           targetTopicShare,
@@ -1975,7 +2067,7 @@ export function QueueScrollPage() {
           },
           shortfall: composed.shortfall,
         });
-        applySessionItems(orderFeedPriorities(mixedItems, externalPriorities));
+        applySessionItems(strictManual ? mixedItems : orderFeedPriorities(mixedItems, externalPriorities));
       }
     };
 
@@ -1983,7 +2075,7 @@ export function QueueScrollPage() {
     return () => {
       cancelled = true;
     };
-  }, [documentQueueItems, documentsMap, dueFlashcards, dueExtracts, externalPriorities, isRating, isNeuralMode, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, activeTabQueueData.itemTypes, ratedFlashcardIds, ratedExtractIds, ratedVideoExtractIds, ratedDocumentIds, customSubset, videoExtractQueueItems]);
+  }, [allQueueItems, strictManual, isLoadingData, needsExternalPriorities, externalPrioritiesLoaded, documentQueueItems, documentsMap, dueFlashcards, dueExtracts, externalPriorities, isRating, isNeuralMode, readRssItemIds, settings.scrollQueue, settings.rssQueue, settings.podcastQueue, activeTabQueueData.customQueueItems, activeTabQueueData.queueScrollMode, activeTabQueueData.itemTypes, ratedFlashcardIds, ratedExtractIds, ratedVideoExtractIds, ratedDocumentIds, customSubset, videoExtractQueueItems]);
 
   // Current item (for display during transition)
   const currentItem = scrollItems[currentIndex];
@@ -2034,29 +2126,9 @@ export function QueueScrollPage() {
         ? (currentDocument.reps ?? currentDocument.readingCount ?? 0) <= 0
           && !currentDocument.dateLastReviewed
         : false;
-  const currentPrioritySlider = useMemo(() => {
-    if (!currentItem) return undefined;
-    if (currentItem.type === "video-extract" && currentItem.videoExtract) {
-      const parentDoc = documentsMap.get(currentItem.videoExtract.documentId);
-      return externalPriorities[`video-extract:${currentItem.videoExtract.id}`]
-        ?? (parentDoc ? resolveDisplaySlider(parentDoc) : 50);
-    }
-    if (currentItem.type === "document") {
-      return currentDocument ? resolveDisplaySlider(currentDocument) : 50;
-    }
-    if (currentItem.type === "extract" && currentItem.extract) {
-      const extract = currentItem.extract;
-      const parentDoc = documents.find((doc) => doc.id === extract.document_id);
-      return resolveExtractDisplaySlider(extract, parentDoc);
-    }
-    if (currentItem.type === "flashcard" && currentItem.learningItem) {
-      const card = currentItem.learningItem;
-      return card.priority_explicitly_set ? card.priority_slider ?? 0 : card.priority_slider ?? 50;
-    }
-    if (currentItem.type === "rss" && currentItem.rssItem) return externalPriorities[`rss-article:${currentItem.rssItem.id}`] ?? 50;
-    if (currentItem.type === "podcast" && currentItem.podcastEpisode) return externalPriorities[`podcast-episode:${currentItem.podcastEpisode.id}`] ?? 50;
-    return undefined;
-  }, [currentItem, currentDocument, documents, documentsMap, externalPriorities]);
+  const currentPrioritySlider = currentItem
+    ? scrollManualKey(currentItem, documentsMap, externalPriorities).priority
+    : undefined;
 
   const handlePriorityChange = useCallback(async (slider: number) => {
     const activeItem = currentItem;
@@ -2064,6 +2136,7 @@ export function QueueScrollPage() {
 
     if (activeItem.type === "document" && activeItem.documentId) {
       await dispatchPriorityCommit({ kind: "document", id: activeItem.documentId }, slider);
+      useQueueStore.getState().invalidateQueueGeneration();
       const [documentsResult, queueResult] = await Promise.allSettled([
         loadDocuments(),
         loadQueue(),
@@ -2080,6 +2153,7 @@ export function QueueScrollPage() {
     if (activeItem.type === "extract" && activeItem.extract) {
       const extractId = activeItem.extract.id;
       await dispatchPriorityCommit({ kind: "extract", id: extractId }, slider);
+      useQueueStore.getState().invalidateQueueGeneration();
       const updated = await getExtract(extractId);
       if (!updated) throw new Error("Could not read the updated extract priority");
       setDueExtracts((prev) =>
@@ -2098,6 +2172,7 @@ export function QueueScrollPage() {
     if (activeItem.type === "flashcard" && activeItem.learningItem) {
       const cardId = activeItem.learningItem.id;
       const result = await dispatchPriorityCommit({ kind: "learningItem", id: cardId }, slider);
+      useQueueStore.getState().invalidateQueueGeneration();
       const updated = normalizeLearningItem(result.learningItem);
       if (!updated) throw new Error("Could not read the updated flashcard priority");
       setDueFlashcards((prev) => prev.map((card) => card.id === cardId ? updated : card));
@@ -2123,6 +2198,7 @@ export function QueueScrollPage() {
     if (target) {
       const result = await bulkUpdateTypedItemPriorities([target], slider);
       if (result.failed.length) throw new Error(result.errors.join("; "));
+      useQueueStore.getState().invalidateQueueGeneration();
       externalPriorityRevision.current += 1;
       setExternalPriorities((previous) => ({ ...previous, [`${target.kind}:${target.id}`]: Math.max(0, Math.min(100, Math.round(slider))) }));
     }
@@ -4493,6 +4569,7 @@ export function QueueScrollPage() {
    * queue is never mutated — neural mode only reads it.
    */
   const handleGoNeural = useCallback(async () => {
+    if (getQueueOrderingMode() === "strict_manual") return;
     const seed = neuralSeedFromItem(currentItem);
     if (!seed) return; // RSS/podcast have no element_tree node.
     setIsNeuralLoading(true);
@@ -4536,6 +4613,7 @@ export function QueueScrollPage() {
         toast.info(t("neural.reviewMode"), t("queueScroll.noContentToSummarize"));
         return;
       }
+      if (getQueueOrderingMode() === "strict_manual") return;
       // Snapshot the reading session for a clean exit.
       setPreNeuralScrollItems(scrollItems);
       setPreNeuralIndex(currentIndex);
@@ -4577,10 +4655,10 @@ export function QueueScrollPage() {
   // Auto-exit neural review once every queued element has been consumed — the
   // session is complete. Restores the reading session the user came from.
   useEffect(() => {
-    if (isNeuralMode && scrollItems.length === 0 && !isNeuralLoading) {
+    if (isNeuralMode && (strictManual || (scrollItems.length === 0 && !isNeuralLoading))) {
       handleExitNeural();
     }
-  }, [isNeuralMode, scrollItems.length, isNeuralLoading, handleExitNeural]);
+  }, [isNeuralMode, strictManual, scrollItems.length, isNeuralLoading, handleExitNeural]);
 
   if (isLoadingData) {
     return (
@@ -5511,7 +5589,7 @@ export function QueueScrollPage() {
         isNeuralMode={isNeuralMode}
         neuralRemaining={neuralRemaining}
         isNeuralLoading={isNeuralLoading}
-        canGoNeural={!!currentItem && (currentItem.type === "document" || currentItem.type === "flashcard" || currentItem.type === "extract")}
+        canGoNeural={!strictManual && !!currentItem && (currentItem.type === "document" || currentItem.type === "flashcard" || currentItem.type === "extract")}
         onGoNeural={handleGoNeural}
         onExitNeural={handleExitNeural}
         detailsButton={detailsTarget ? (

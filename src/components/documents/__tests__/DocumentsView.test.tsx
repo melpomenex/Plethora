@@ -9,8 +9,7 @@ const modalMock = vi.hoisted(() => ({
   prompt: vi.fn<(message: string, defaultValue?: string, title?: string) => Promise<string | null>>(),
   confirm: vi.fn(),
   alert: vi.fn<(message: string, title?: string) => Promise<boolean>>().mockResolvedValue(true),
-  // The priority popup opens via modal.custom; resolving true simulates "Apply".
-  custom: vi.fn((): Promise<boolean> => Promise.resolve(true)),
+  custom: vi.fn<(_body: unknown, options: { onConfirm?: () => Promise<boolean> }) => Promise<boolean>>(),
 }));
 
 const documentsApiMock = vi.hoisted(() => ({
@@ -144,7 +143,7 @@ beforeEach(() => {
     errors: [],
   });
   modalMock.custom.mockReset();
-  modalMock.custom.mockResolvedValue(true);
+  modalMock.custom.mockImplementation(async (_body, options) => options.onConfirm ? options.onConfirm() : true);
   collectionsMock.createCollection.mockClear();
   collectionsMock.createCollectionInBackground.mockClear();
   collectionsMock.switchCollection.mockClear();

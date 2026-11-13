@@ -1,4 +1,5 @@
-import type { AutoPostponeCandidate, AutoPostponePlanItem } from "../api/autoPostpone";
+import type { AutoPostponeCandidate, AutoPostponePlanItem, AutoPostponeStrictPolicy } from "../api/autoPostpone";
+import { compareManualQueueOrder } from "../utils/queueManualOrder";
 import type { PostponeSettings } from "../stores/settingsStore";
 import { computePriority, defaultPostponeConfig, postponeElement, type PostponeConfig, type PostponeInput } from "./postpone";
 import { localDateKey } from "./scheduleViewModel";
@@ -19,7 +20,8 @@ export type AutoPostponeSkipReason =
   | "archived"
   | "dismissed"
   | "inactive"
-  | "postpone-rules";
+  | "postpone-rules"
+  | "strict-manual-kept";
 
 function dayNumber(dateKey: string): number {
   const [year, month, day] = dateKey.split("-").map(Number);
@@ -87,6 +89,16 @@ function toPostponeInput(candidate: AutoPostponeCandidate, today: string): Postp
   };
 }
 
+function candidateSkipReason(candidate: AutoPostponeCandidate, strictManual: boolean): AutoPostponeSkipReason | undefined {
+  if (!validDateKey(candidate.dueDate)) return "invalid-date";
+  if (!strictManual && candidate.entityType === "video-extract") return "unsupported-video-extract";
+  if (candidate.isSuspended) return "suspended";
+  if (candidate.isArchived) return "archived";
+  if (candidate.isDismissed) return "dismissed";
+  if (candidate.isInactive) return "inactive";
+  if (candidate.entityType === "video-extract") return "unsupported-video-extract";
+}
+
 /**
  * Deterministically assigns overdue items to the least-loaded local date over
  * the next 30 days. Existing Schedule semantics are used for every date key.
@@ -96,49 +108,50 @@ export function planAutoPostpone(
   scheduledDates: string[],
   today: Date,
   settings: PostponeSettings,
+  strictPolicy?: AutoPostponeStrictPolicy,
 ): AutoPostponePlan {
   const todayKey = localDateKey(today);
   const config = settingsConfig(settings);
+  if (strictPolicy) {
+    // Manual priority governs who stays. Existing interval bounds still
+    // provide the preferred date for the overflow.
+    config.checkItemSkip = false;
+    config.checkTopicSkip = false;
+    config.skipTopics = false;
+    config.randomize = false;
+  }
   const overdue = candidates.filter((candidate) => {
     if (!candidate.dueDate) return false;
     const dueKey = validDateKey(candidate.dueDate);
     return dueKey === null || dueKey < todayKey;
   });
   const eligible: Array<{ candidate: AutoPostponeCandidate; preferredOffset: number; priority: number }> = [];
+  let kept = strictPolicy
+    ? scheduledDates.filter((value) => validDateKey(value) === todayKey).length
+    : 0;
   let skipped = 0;
   const skipReasons: Partial<Record<AutoPostponeSkipReason, number>> = {};
-  const skip = (reason: AutoPostponeSkipReason) => {
-    skipped += 1;
-    skipReasons[reason] = (skipReasons[reason] ?? 0) + 1;
+  const skip = (reason: AutoPostponeSkipReason, count = 1) => {
+    skipped += count;
+    skipReasons[reason] = (skipReasons[reason] ?? 0) + count;
   };
 
   for (const candidate of overdue) {
-    const dueKey = validDateKey(candidate.dueDate);
-    if (!dueKey) {
-      skip("invalid-date");
-      continue;
-    }
-    if (candidate.entityType === "video-extract") {
-      skip("unsupported-video-extract");
-      continue;
-    }
-    if (candidate.isSuspended) {
-      skip("suspended");
-      continue;
-    }
-    if (candidate.isArchived) {
-      skip("archived");
-      continue;
-    }
-    if (candidate.isDismissed) {
-      skip("dismissed");
-      continue;
-    }
-    if (candidate.isInactive) {
-      skip("inactive");
+    const reason = candidateSkipReason(candidate, !!strictPolicy);
+    if (reason) {
+      if (strictPolicy && reason === "unsupported-video-extract") kept += 1;
+      skip(reason);
       continue;
     }
     const input = toPostponeInput(candidate, todayKey);
+    if (strictPolicy) {
+      input.priority = candidate.manualPriority ?? 50;
+      if (input.priority >= strictPolicy.protectedPriority) {
+        kept += 1;
+        skip("strict-manual-kept");
+        continue;
+      }
+    }
     const decision = postponeElement(input, config);
     if (!decision.postponed) {
       skip("postpone-rules");
@@ -158,11 +171,23 @@ export function planAutoPostpone(
     if (key && workload.has(key)) workload.set(key, (workload.get(key) ?? 0) + 1);
   }
 
-  eligible.sort((a, b) =>
-    b.priority - a.priority ||
-    a.candidate.entityType.localeCompare(b.candidate.entityType) ||
-    a.candidate.id.localeCompare(b.candidate.id),
-  );
+  if (strictPolicy) {
+    const key = ({ candidate, priority }: typeof eligible[number]) => ({
+      id: candidate.id, itemType: candidate.entityType, dueDate: candidate.dueDate, priority,
+    });
+    eligible.sort((a, b) => compareManualQueueOrder(key(a), key(b)));
+    const toKeep = Math.min(eligible.length, Math.max(0, strictPolicy.dailyCapacity - kept));
+    if (toKeep > 0) {
+      eligible.splice(0, toKeep);
+      skip("strict-manual-kept", toKeep);
+    }
+  } else {
+    eligible.sort((a, b) =>
+      b.priority - a.priority ||
+      a.candidate.entityType.localeCompare(b.candidate.entityType) ||
+      a.candidate.id.localeCompare(b.candidate.id),
+    );
+  }
 
   const items: AutoPostponePlanItem[] = [];
   const distribution: Record<string, number> = {};

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { QueueItem } from "../../types/queue";
 import {
   getPriorityScore,
@@ -24,6 +24,13 @@ function makeItem(overrides: Partial<QueueItem>): QueueItem {
 }
 
 describe("R01/R02 Ranking Parity and Mathematical Counterexamples", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(now);
+  });
+
+  afterEach(() => vi.useRealTimers());
+
   it("verifies missing/invalid/extreme memory and date handling", () => {
     // 1. Invalid date string
     const invalidDateItem = makeItem({
@@ -98,7 +105,7 @@ describe("R01/R02 Ranking Parity and Mathematical Counterexamples", () => {
       priority: undefined,
     });
     const unsetVec = getPriorityVector(unsetZero);
-    expect(unsetVec.userIntent).toBe(10);
+    expect(unsetVec.userIntent).toBe(50);
   });
 
   it("verifies Unicode identities and equal-state deterministic ordering", () => {
@@ -125,11 +132,50 @@ describe("R01/R02 Ranking Parity and Mathematical Counterexamples", () => {
     expect(orderedForward.map((i) => i.id)).toEqual(["карточка-я", "карточка-а"]);
   });
 
+  it("preserves the Adaptive reference order and sorts by saved priority in Strict Manual", () => {
+    const rows = [
+      makeItem({ id: "v00", itemType: "video-extract", priority: 100, priorityDisplaySlider: 0 }),
+      makeItem({ id: "c25", itemType: "learning-item", prioritySlider: 25 }),
+      makeItem({ id: "e50b", itemType: "extract", priorityDisplaySlider: 50, dueDate: "2026-10-28T23:00:00+01:00" }),
+      makeItem({ id: "e50", itemType: "extract", priorityDisplaySlider: 50, dueDate: "2026-10-28T22:00:00Z" }),
+      makeItem({ id: "d75", prioritySlider: 75 }),
+      makeItem({ id: "d100", prioritySlider: 100, dueDate: "2026-10-30T12:00:00Z" }),
+    ];
+    expect(orderQueueItems(rows, "aggressive-catchup", "adaptive").map(({ id }) => id))
+      .toEqual(["d75", "c25", "e50", "e50b", "v00", "d100"]);
+    expect(orderQueueItems(rows, "aggressive-catchup", "strict_manual").map(({ id }) => id))
+      .toEqual(["d100", "d75", "e50", "e50b", "c25", "v00"]);
+  });
+
+  it("orders explicit 0/25/50/75/100 priorities deterministically with inheritance and unset neutrals", () => {
+    // This mirrors the persisted readback after a restart: slider values are
+    // stored for documents/learning items (explicit flag) and extracts (nullable
+    // display slider with inheritance fallback). Unset rows fall back to neutral 50.
+    const rows = [
+      makeItem({ id: "doc-0", prioritySlider: 0, priorityExplicitlySet: true }),
+      makeItem({ id: "card-25", itemType: "learning-item", prioritySlider: 25, priorityExplicitlySet: true }),
+      makeItem({ id: "ext-50-inherit", itemType: "extract", priorityDisplaySlider: undefined, prioritySlider: undefined }),
+      makeItem({ id: "doc-50", prioritySlider: 50, priorityExplicitlySet: true }),
+      makeItem({ id: "doc-75", prioritySlider: 75, priorityExplicitlySet: true }),
+      makeItem({ id: "doc-100", prioritySlider: 100, priorityExplicitlySet: true }),
+      makeItem({ id: "doc-unset", prioritySlider: 0, priorityExplicitlySet: false }),
+    ];
+    const ordered = orderQueueItems(rows, "aggressive-catchup", "strict_manual").map(({ id }) => id);
+    expect(ordered[0]).toBe("doc-100");
+    expect(ordered[1]).toBe("doc-75");
+    // Explicit 50 is before the 75 group and the neutral/unset rows land in the
+    // same 50 band; the explicit zero must sort last and never be treated as 50.
+    expect(ordered.indexOf("doc-50")).toBeGreaterThan(ordered.indexOf("doc-75"));
+    expect(ordered.indexOf("doc-unset")).toBeLessThan(ordered.indexOf("doc-0"));
+    expect(ordered.indexOf("ext-50-inherit")).toBeLessThan(ordered.indexOf("doc-0"));
+    expect(ordered[ordered.length - 1]).toBe("doc-0");
+  });
+
   it("verifies bounded monotonic results as overdue days increase", () => {
     let prevOverdue = -1;
     let prevRetention = -1;
 
-    for (let d = 0; d <= 90; d += 5) {
+    for (const d of [0, 1, 14, 30, 200]) {
       const due = new Date(now - d * 86_400_000).toISOString();
       const item = makeItem({
         dueDate: due,

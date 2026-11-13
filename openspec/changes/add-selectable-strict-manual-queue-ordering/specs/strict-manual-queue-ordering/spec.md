@@ -1,35 +1,47 @@
-## Purpose
-
-Provide a user-controlled strict manual queue ordering mode where user-assigned priority strictly governs presentation order, while preserving adaptive DAQE and classic SRS options without data mutations.
-
 ## ADDED Requirements
 
 ### Requirement: User-selectable queue ordering mode
-The system SHALL support three distinct queue ordering modes: `adaptive`, `strict-manual`, and `srs-priority`. The active mode SHALL be configurable in Settings and persist across application restarts.
 
-#### Scenario: Switching to strict manual mode
-- **GIVEN** a queue containing item A (Priority 90%, due in 5 days) and item B (Priority 30%, due today)
-- **WHEN** the user selects `strict-manual` ordering mode
-- **THEN** item A SHALL precede item B in the ranked queue and in Scroll Mode sessions
-- **AND** no due dates, memory states, or review intervals SHALL be altered
+The application SHALL persist Adaptive as the default and expose Strict Manual in Review Settings. All learning queue and session producers SHALL apply the active mode to the eligible set.
 
-#### Scenario: Preserving DAQE adaptive behavior by default
-- **GIVEN** default settings where `queueOrderingMode` is `adaptive`
-- **WHEN** the queue is ranked
-- **THEN** DAQE composite scoring combining temporal urgency, goal alignment, energy, friction, and diversity SHALL be applied
+#### Scenario: Restart in Strict Manual
 
-### Requirement: Strict manual ordering bypasses synthetic interleaving
-When `strict-manual` ordering mode is active, the system SHALL NOT apply the Scroll Mode variety guard cap (`MAX_SAME_TYPE_CONSECUTIVE`) or algorithmic energy/friction penalties to displace high-priority items.
+- **GIVEN** priority-90 and priority-30 items eligible for the same collection and queue view, with the latter older overdue
+- **WHEN** the user selects Strict Manual and restarts
+- **THEN** the priority-90 item precedes the priority-30 item in Queue, Scroll, saved/custom and Optimal sessions wherever both are eligible
+- **AND** the setting does not change item dates or recall state
 
-#### Scenario: Consecutive same-type items in strict manual mode
-- **GIVEN** a set of 5 consecutive document items all assigned 100% priority, followed by flashcard items assigned 50% priority
-- **WHEN** the queue is ordered in `strict-manual` mode
-- **THEN** all 5 documents SHALL be presented first in their priority order without any item being deferred behind lower-priority flashcards
+### Requirement: Canonical manual priority and deterministic presentation
+
+Strict Manual SHALL use effective manual priority 0–100, preserving explicitly assigned zero and ordering ties by due instant, type and ID. Adaptive score, randomization, relevance, interleaving, energy and friction SHALL NOT displace an eligible higher-priority item.
+
+#### Scenario: Mixed session with exclusions
+
+- **GIVEN** a filtered session with five eligible priority-100 documents, lower-priority cards, and one excluded priority-100 row
+- **WHEN** the session is composed or recomposed in Strict Manual
+- **THEN** within the configured candidate quotas, eligible priority-100 rows come first and the excluded row stays absent
+
+#### Scenario: Failed priority write
+
+- **WHEN** a keyboard or pointer priority edit fails
+- **THEN** the last confirmed priority remains visible, the queue retains confirmed ordering, and retry is available
+
+### Requirement: Strict automatic postponement
+
+Automatic capacity recovery SHALL preserve higher-priority postponable items ahead of lower-priority postponable items in Strict Manual and preserve explicit protections.
+
+#### Scenario: Capacity exceeded
+
+- **GIVEN** one free slot, a more overdue low-priority item and a high-priority item
+- **WHEN** a valid Strict Manual recovery plan is applied
+- **THEN** the higher-priority item keeps its date and the lower-priority item is postponed
+- **AND** the user can still postpone either eligible item explicitly
 
 ### Requirement: Settings search discoverability
-The Queue Ordering Mode setting SHALL have a stable DOM identifier `setting-queue-ordering-mode` and SHALL be indexed in `settingsSearchCatalog.ts` with relevant search terms.
 
-#### Scenario: Searching for queue ordering in settings
-- **GIVEN** the user opens Settings Search
-- **WHEN** the user queries "manual priority" or "queue order"
-- **THEN** the search results SHALL surface `setting-queue-ordering-mode` linking directly to the Review settings tab
+Settings Search SHALL reveal the existing ordering control by the stable target `setting-queue-ordering-mode`.
+
+#### Scenario: Search for manual priority
+
+- **WHEN** the user searches Settings for manual priority
+- **THEN** the result reveals and focuses the ordering control on Review Settings

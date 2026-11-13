@@ -27,7 +27,9 @@
 //!
 //! An empty pool means an empty library, not an error.
 
-use crate::algorithms::daqe::ranker::{rank, rank_with_top_n};
+use crate::algorithms::daqe::ranker::{
+    rank, rank_strict_manual, rank_with_top_n, QueueOrderingMode, TOP_N,
+};
 use crate::algorithms::daqe::{local_goal_alignment, ItemSignals, RankContext, RecentItem};
 use crate::database::repository::Repository;
 use crate::error::{PlethoraError, Result};
@@ -89,9 +91,27 @@ pub async fn rank_queue(
     focus_tags: Option<Vec<String>>,
     knobs: DaqeKnobs,
     model_inputs: Option<Vec<ModelInput>>,
+    ordering_mode: Option<QueueOrderingMode>,
     repo: State<'_, Repository>,
 ) -> Result<QueueSnapshot> {
     let knobs = knobs.validated().map_err(PlethoraError::InvalidInput)?;
+    if ordering_mode == Some(QueueOrderingMode::StrictManual) {
+        let pool =
+            crate::commands::queue::due_candidate_pool(repo.inner(), collection_id.as_deref())
+                .await?;
+        let ranked = rank_strict_manual(&pool);
+        let top10 = ranked.iter().take(TOP_N).cloned().collect();
+        return Ok(QueueSnapshot {
+            id: Uuid::new_v4().to_string(),
+            collection_id,
+            profile: "strict_manual".to_string(),
+            knobs,
+            ranked,
+            top10,
+            computed_at: Utc::now(),
+            rubric_version: crate::models::daqe::RANKER_RUBRIC_VERSION,
+        });
+    }
 
     let snapshot = build_snapshot(
         repo.inner(),

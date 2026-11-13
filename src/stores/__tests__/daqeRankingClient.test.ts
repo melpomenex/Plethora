@@ -119,6 +119,22 @@ describe("daqeRankingClient", () => {
     expect(args.focusTags).toBeNull();
   });
 
+  it("forwards the active queue ordering mode when provided", async () => {
+    invokeCommand.mockResolvedValue(snapshotFor(["a"], defaultDaqeKnobs()));
+    await rankQueue(defaultDaqeKnobs(), [], null, null, "strict_manual");
+
+    const [, args] = invokeCommand.mock.calls[0];
+    expect(args.orderingMode).toBe("strict_manual");
+  });
+
+  it("omits ordering mode when absent so legacy cals are unchanged", async () => {
+    invokeCommand.mockResolvedValue(snapshotFor(["a"], defaultDaqeKnobs()));
+    await rankQueue(defaultDaqeKnobs());
+
+    const [, args] = invokeCommand.mock.calls[0];
+    expect(args.orderingMode).toBeUndefined();
+  });
+
   it("passes a model goal-alignment verdict across", async () => {
     invokeCommand.mockResolvedValue(snapshotFor(["a"], defaultDaqeKnobs()));
     await rankQueue(defaultDaqeKnobs(), [{ itemId: "a", goalAlignment: 0.8 }]);

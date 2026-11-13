@@ -5,7 +5,9 @@ import { useSettingsStore } from "../../stores/settingsStore";
 import { cn } from "../../utils";
 import { Brain, SlidersHorizontal } from "@phosphor-icons/react";
 
-export type QueueOrderingMode = "adaptive" | "strict_manual";
+import type { QueueOrderingMode } from "../../types/queue";
+import { resolveQueueOrderingMode } from "../../utils/queueManualOrder";
+export type { QueueOrderingMode } from "../../types/queue";
 
 export interface ReviewSettingsProps {
   value?: QueueOrderingMode;
@@ -25,7 +27,7 @@ export function ReviewSettings({
   const [localMode, setLocalMode] = React.useState<QueueOrderingMode>("adaptive");
   const [rotationInterval, setRotationInterval] = React.useState<number>(storeRotationInterval);
 
-  const currentMode = propValue ?? storeMode ?? localMode;
+  const currentMode = resolveQueueOrderingMode(propValue ?? storeMode ?? localMode);
 
   const handleRotationChange = (val: number) => {
     const clamped = Math.max(1, Math.min(365, val));

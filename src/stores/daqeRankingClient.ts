@@ -5,6 +5,7 @@ import {
   type ProjectedQueue,
 } from "../lib/daqe/snapshot";
 import type { DaqeKnobs } from "../lib/daqe/knobs";
+import type { QueueOrderingMode } from "../types/queue";
 import type { DaqeHttpProvider } from "../api/ai";
 
 /**
@@ -82,6 +83,7 @@ export async function rankQueue(
   modelInputs: ModelInput[] = [],
   collectionId?: string | null,
   sessionGoal?: RankGoal | null,
+  orderingMode?: QueueOrderingMode,
 ): Promise<DaqeQueueSnapshot | null> {
   if (!isTauri()) return null;
   try {
@@ -91,6 +93,7 @@ export async function rankQueue(
       focusTags: sessionGoal?.focusTags ?? null,
       knobs: knobsPayload(knobs),
       modelInputs,
+      ...(orderingMode && { orderingMode }),
     });
     return isSnapshotShape(snapshot) ? snapshot : null;
   } catch {
@@ -193,6 +196,7 @@ export async function rankQueueWithDecision(
   sessionGoal?: RankGoal | null,
   collectionId?: string | null,
   candidates?: number,
+  orderingMode?: QueueOrderingMode,
 ): Promise<DaqeQueueSnapshot | null> {
   if (!isTauri()) return null;
   try {
@@ -203,6 +207,7 @@ export async function rankQueueWithDecision(
       knobs: knobsPayload(knobs),
       decision: { ...decision, cloudflareAccountId: decision.cloudflareAccountId ?? null },
       candidates: candidates ?? null,
+      ...(orderingMode && { orderingMode }),
     });
     return isSnapshotShape(snapshot) ? snapshot : null;
   } catch {

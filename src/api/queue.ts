@@ -1,3 +1,4 @@
+import { getQueueOrderingMode } from "../stores/queueOrderingSettings";
 import { invokeCommand } from "../lib/tauri";
 import type { QueueItem } from "../types/queue";
 
@@ -117,7 +118,7 @@ export function convertQueueItem(item: RustQueueItem): QueueItem {
  * Get all queue items
  */
 export async function getQueue(collectionId?: string): Promise<QueueItem[]> {
-  const items = await invokeCommand<RustQueueItem[] | null>("get_queue", { collectionId });
+  const items = await invokeCommand<RustQueueItem[] | null>("get_queue", { collectionId, orderingMode: getQueueOrderingMode() });
   if (!Array.isArray(items)) {
     console.warn("[queue] get_queue returned non-array result", items);
     return [];
@@ -130,7 +131,7 @@ export async function getQueue(collectionId?: string): Promise<QueueItem[]> {
  * This provides a "Due Today" view focused specifically on documents
  */
 export async function getDueDocumentsOnly(collectionId?: string): Promise<QueueItem[]> {
-  const items = await invokeCommand<RustQueueItem[] | null>("get_due_documents_only", { collectionId });
+  const items = await invokeCommand<RustQueueItem[] | null>("get_due_documents_only", { collectionId, orderingMode: getQueueOrderingMode() });
   if (!Array.isArray(items)) {
     console.warn("[queue] get_due_documents_only returned non-array result", items);
     return [];
@@ -143,7 +144,7 @@ export async function getDueDocumentsOnly(collectionId?: string): Promise<QueueI
  * (includes documents, extracts, and learning items)
  */
 export async function getDueQueueItems(randomness?: number, collectionId?: string): Promise<QueueItem[]> {
-  const items = await invokeCommand<RustQueueItem[] | null>("get_due_queue_items", { randomness, collectionId });
+  const items = await invokeCommand<RustQueueItem[] | null>("get_due_queue_items", { randomness, collectionId, orderingMode: getQueueOrderingMode() });
   if (!Array.isArray(items)) {
     console.warn("[queue] get_due_queue_items returned non-array result", items);
     return [];
@@ -179,7 +180,7 @@ export async function getPriorityStanding(id: string): Promise<PriorityStanding 
  * Get next item from the queue
  */
 export async function getNextQueueItem(randomness?: number, collectionId?: string): Promise<QueueItem | null> {
-  const item = await invokeCommand<RustQueueItem | null>("get_next_queue_item", { randomness, collectionId });
+  const item = await invokeCommand<RustQueueItem | null>("get_next_queue_item", { randomness, collectionId, orderingMode: getQueueOrderingMode() });
   return item ? convertQueueItem(item) : null;
 }
 
@@ -187,7 +188,7 @@ export async function getNextQueueItem(randomness?: number, collectionId?: strin
  * Get multiple items from the queue
  */
 export async function getQueueItems(count?: number, randomness?: number, collectionId?: string): Promise<QueueItem[]> {
-  const items = await invokeCommand<RustQueueItem[] | null>("get_queue_items", { count, randomness, collectionId });
+  const items = await invokeCommand<RustQueueItem[] | null>("get_queue_items", { count, randomness, collectionId, orderingMode: getQueueOrderingMode() });
   if (!Array.isArray(items)) {
     console.warn("[queue] get_queue_items returned non-array result", items);
     return [];
@@ -314,7 +315,7 @@ export async function exportQueue(): Promise<QueueExportItem[]> {
  * Playlist videos are inserted at regular intervals based on subscription settings
  */
 export async function getQueueWithPlaylistIntersperse(randomness?: number): Promise<QueueItem[]> {
-  const items = await invokeCommand<RustQueueItem[] | null>("get_queue_with_playlist_intersperse", { randomness });
+  const items = await invokeCommand<RustQueueItem[] | null>("get_queue_with_playlist_intersperse", { randomness, orderingMode: getQueueOrderingMode() });
   if (!Array.isArray(items)) {
     console.warn("[queue] get_queue_with_playlist_intersperse returned non-array result", items);
     return [];

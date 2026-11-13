@@ -24,6 +24,8 @@ export interface SavedQueue {
   sessionGoal?: string;
   isDefault: boolean;
   sortOrder: number;
+  /** Pinned queue ordering mode: "adaptive" | "strict_manual"; undefined = Adaptive. */
+  orderingMode?: 'adaptive' | 'strict_manual';
   createdAt: string;
   updatedAt: string;
 }
@@ -39,6 +41,7 @@ export interface CreateSavedQueueInput {
   daqePresetId?: string;
   sessionGoal?: string;
   isDefault?: boolean;
+  orderingMode?: 'adaptive' | 'strict_manual';
 }
 
 export interface UpdateSavedQueueInput {
@@ -53,4 +56,5 @@ export interface UpdateSavedQueueInput {
   sessionGoal?: string;
   isDefault?: boolean;
   sortOrder?: number;
+  orderingMode?: 'adaptive' | 'strict_manual';
 }

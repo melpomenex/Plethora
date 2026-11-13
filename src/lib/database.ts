@@ -5,6 +5,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import type { PdfSelectionContext } from '../types/selection';
+import type { VideoExtract } from '../api/video-extracts';
 import { isMarketingCaptureNamespace } from './marketingCapture/namespace';
 import { DEFAULT_COLLECTION_ID } from '../types/collection';
 
@@ -720,6 +721,7 @@ export interface Extract {
     sync_version?: number;
     priority_score?: number;
     priority_slider?: number | null;
+    is_dismissed?: boolean;
     _deleted?: boolean;
 }
 
@@ -1113,6 +1115,59 @@ export async function updateLearningItem(id: string, updates: Partial<LearningIt
     return put(STORES.learningItems, updated);
 }
 
+function inAutoPostponeCollection(record: { collection_id?: string }, collectionId: string): boolean {
+    const defaults = ['default', '00000000-0000-0000-0000-000000000001'];
+    const recordCollection = record.collection_id || 'default';
+    return recordCollection === collectionId ||
+        (defaults.includes(collectionId) && defaults.includes(recordCollection));
+}
+
+export function getBrowserAutoPostponeVideos(): Promise<VideoExtract[]> {
+    return getAll<VideoExtract>(STORES.videoExtracts);
+}
+
+export function scopedAutoPostponeVideos(
+    collectionId: string,
+    documents: Document[],
+    videos: VideoExtract[],
+): VideoExtract[] {
+    const parents = new Set(documents.filter((doc) =>
+        !doc._deleted && !doc.is_archived && !doc.is_dismissed && inAutoPostponeCollection(doc, collectionId),
+    ).map((doc) => doc.id));
+    return videos.filter((video) => parents.has(video.document_id) &&
+        video.queue_status !== 'not_queued' && !!video.next_review_date);
+}
+
+export function browserAutoPostponeRevision(
+    collectionId: string,
+    documents: Document[],
+    extracts: Extract[],
+    cards: LearningItem[],
+    videos: VideoExtract[],
+): string {
+    const scoped = <T extends { id: string; collection_id?: string; _deleted?: boolean }>(rows: T[]) =>
+        rows.filter((row) => !row._deleted && inAutoPostponeCollection(row, collectionId))
+            .sort((a, b) => a.id === b.id ? 0 : a.id < b.id ? -1 : 1);
+    return JSON.stringify([
+        scoped(documents).map((doc) => [
+            doc.id, doc.next_reading_date, doc.is_archived, doc.is_dismissed,
+            doc.priority_slider, doc.priority_explicitly_set, doc.priority_rating, doc.priority_score,
+            doc.date_modified,
+        ]),
+        scoped(extracts).map((extract) => [
+            extract.id, extract.document_id, extract.next_review_date, extract.is_dismissed,
+            extract.priority_slider, extract.priority_score, extract.date_modified,
+        ]),
+        scoped(cards).map((card) => [
+            card.id, card.document_id, card.due_date, card.is_suspended, card.priority_slider,
+            card.priority_explicitly_set, card.date_modified,
+        ]),
+        scopedAutoPostponeVideos(collectionId, documents, videos)
+            .sort((a, b) => a.id.localeCompare(b.id))
+            .map((video) => [video.id, video.next_review_date]),
+    ]);
+}
+
 export interface BrowserAutoPostponePlanItem {
     id: string;
     entityType: "learning-item" | "document" | "extract" | "video-extract";
@@ -1128,11 +1183,14 @@ export interface BrowserAutoPostponePlanItem {
 export async function applyBrowserAutoPostponePlan(
     plan: BrowserAutoPostponePlanItem[],
     collectionId: string,
+    expectedRevision?: string,
 ): Promise<Array<{ id: string; status: "postponed" | "skipped"; reason?: string }>> {
     if (plan.length === 0) return [];
     return withRetry((database) => new Promise((resolve, reject) => {
         const tx = database.transaction(
-            [STORES.documents, STORES.extracts, STORES.learningItems],
+            expectedRevision === undefined
+                ? [STORES.documents, STORES.extracts, STORES.learningItems]
+                : [STORES.documents, STORES.extracts, STORES.learningItems, STORES.videoExtracts],
             'readwrite',
         );
         const docs = tx.objectStore(STORES.documents);
@@ -1142,7 +1200,7 @@ export async function applyBrowserAutoPostponePlan(
         const outcomes = new Map<string, { id: string; status: "postponed" | "skipped"; reason?: string }>();
 
         const skip = (item: BrowserAutoPostponePlanItem, reason: string) => {
-            outcomes.set(item.id, { id: item.id, status: "skipped", reason });
+            outcomes.set(`${item.entityType}:${item.id}`, { id: item.id, status: "skipped", reason });
         };
         const storeTarget = (item: BrowserAutoPostponePlanItem) => {
             if (item.entityType === "learning-item") return learningItems;
@@ -1153,58 +1211,74 @@ export async function applyBrowserAutoPostponePlan(
         const dueField = (item: BrowserAutoPostponePlanItem) =>
             item.entityType === "document" ? "next_reading_date" :
                 item.entityType === "extract" ? "next_review_date" : "due_date";
-        const inCollection = (record: { collection_id?: string }) => {
-            const defaultScope = collectionId === 'default' || collectionId === '00000000-0000-0000-0000-000000000001';
-            if (!record.collection_id) return defaultScope;
-            return record.collection_id === collectionId ||
-                (defaultScope && (record.collection_id === 'default' || record.collection_id === '00000000-0000-0000-0000-000000000001'));
-        };
+        const inCollection = (record: { collection_id?: string }) =>
+            inAutoPostponeCollection(record, collectionId);
 
-        for (const item of plan) {
-            const store = storeTarget(item);
-            if (!store) {
-                skip(item, "unsupported-entity");
-                continue;
-            }
-            const request = store.get(item.id);
-            request.onerror = () => tx.abort();
-            request.onsuccess = () => {
-                const record = request.result as (Document | Extract | LearningItem | undefined);
-                const field = dueField(item);
-                if (!record || record._deleted || !inCollection(record) || record[field as keyof typeof record] !== item.expectedDueDate) {
-                    skip(item, "changed-or-missing-before-commit");
-                    return;
+        const applyItems = () => {
+            for (const item of plan) {
+                const store = storeTarget(item);
+                if (!store) {
+                    skip(item, "unsupported-entity");
+                    continue;
                 }
-                if (item.entityType === "document") {
-                    const doc = record as Document;
-                    if (doc.is_archived || doc.is_dismissed) {
-                        skip(item, "inactive-before-commit");
+                const request = store.get(item.id);
+                request.onerror = () => tx.abort();
+                request.onsuccess = () => {
+                    const record = request.result as (Document | Extract | LearningItem | undefined);
+                    const field = dueField(item);
+                    if (!record || record._deleted || !inCollection(record) || record[field as keyof typeof record] !== item.expectedDueDate) {
+                        skip(item, "changed-or-missing-before-commit");
                         return;
                     }
-                    docs.put({
-                        ...doc,
-                        next_reading_date: item.targetDueDate,
-                        date_modified: now,
-                        sync_version: (doc.sync_version ?? 0) + 1,
-                    });
-                    outcomes.set(item.id, { id: item.id, status: "postponed" });
-                } else if (item.entityType === "learning-item") {
-                    const learningItem = record as LearningItem;
-                    if (learningItem.is_suspended) {
-                        skip(item, "inactive-before-commit");
-                        return;
-                    }
-                    const apply = () => {
-                        learningItems.put({
-                            ...learningItem,
-                            due_date: item.targetDueDate,
+                    if (item.entityType === "document") {
+                        const doc = record as Document;
+                        if (doc.is_archived || doc.is_dismissed) {
+                            skip(item, "inactive-before-commit");
+                            return;
+                        }
+                        docs.put({
+                            ...doc,
+                            next_reading_date: item.targetDueDate,
                             date_modified: now,
-                            sync_version: (learningItem.sync_version ?? 0) + 1,
+                            sync_version: (doc.sync_version ?? 0) + 1,
                         });
-                        outcomes.set(item.id, { id: item.id, status: "postponed" });
-                    };
-                    if (learningItem.document_id) {
-                        const parentRequest = docs.get(learningItem.document_id);
+                        outcomes.set(`${item.entityType}:${item.id}`, { id: item.id, status: "postponed" });
+                    } else if (item.entityType === "learning-item") {
+                        const learningItem = record as LearningItem;
+                        if (learningItem.is_suspended) {
+                            skip(item, "inactive-before-commit");
+                            return;
+                        }
+                        const apply = () => {
+                            learningItems.put({
+                                ...learningItem,
+                                due_date: item.targetDueDate,
+                                date_modified: now,
+                                sync_version: (learningItem.sync_version ?? 0) + 1,
+                            });
+                            outcomes.set(`${item.entityType}:${item.id}`, { id: item.id, status: "postponed" });
+                        };
+                        if (learningItem.document_id) {
+                            const parentRequest = docs.get(learningItem.document_id);
+                            parentRequest.onerror = () => tx.abort();
+                            parentRequest.onsuccess = () => {
+                                const parent = parentRequest.result as Document | undefined;
+                                if (!parent || parent._deleted || !inCollection(parent) || parent.is_archived || parent.is_dismissed) {
+                                    skip(item, "inactive-before-commit");
+                                    return;
+                                }
+                                apply();
+                            };
+                        } else {
+                            apply();
+                        }
+                    } else {
+                        const extract = record as Extract;
+                        if (extract.is_dismissed) {
+                            skip(item, "inactive-before-commit");
+                            return;
+                        }
+                        const parentRequest = docs.get(extract.document_id);
                         parentRequest.onerror = () => tx.abort();
                         parentRequest.onsuccess = () => {
                             const parent = parentRequest.result as Document | undefined;
@@ -1212,34 +1286,40 @@ export async function applyBrowserAutoPostponePlan(
                                 skip(item, "inactive-before-commit");
                                 return;
                             }
-                            apply();
+                            extracts.put({
+                                ...extract,
+                                next_review_date: item.targetDueDate,
+                                date_modified: now,
+                                sync_version: (extract.sync_version ?? 0) + 1,
+                            });
+                            outcomes.set(`${item.entityType}:${item.id}`, { id: item.id, status: "postponed" });
                         };
-                    } else {
-                        apply();
                     }
-                } else {
-                    const extract = record as Extract;
-                    const parentRequest = docs.get(extract.document_id);
-                    parentRequest.onerror = () => tx.abort();
-                    parentRequest.onsuccess = () => {
-                        const parent = parentRequest.result as Document | undefined;
-                        if (!parent || parent._deleted || !inCollection(parent) || parent.is_archived || parent.is_dismissed) {
-                            skip(item, "inactive-before-commit");
-                            return;
-                        }
-                        extracts.put({
-                            ...extract,
-                            next_review_date: item.targetDueDate,
-                            date_modified: now,
-                            sync_version: (extract.sync_version ?? 0) + 1,
-                        });
-                        outcomes.set(item.id, { id: item.id, status: "postponed" });
-                    };
-                }
+                };
+            }
+        };
+
+        if (expectedRevision === undefined) {
+            applyItems();
+        } else {
+            const documentRows = docs.getAll();
+            const extractRows = extracts.getAll();
+            const cardRows = learningItems.getAll();
+            const videoRows = tx.objectStore(STORES.videoExtracts).getAll();
+            for (const request of [documentRows, extractRows, cardRows, videoRows]) {
+                request.onerror = () => tx.abort();
+            }
+            // Requests execute in issue order inside the same transaction.
+            videoRows.onsuccess = () => {
+                const actual = browserAutoPostponeRevision(
+                    collectionId, documentRows.result, extractRows.result, cardRows.result, videoRows.result,
+                );
+                if (actual === expectedRevision) applyItems();
+                else for (const item of plan) skip(item, "changed-before-commit");
             };
         }
 
-        tx.oncomplete = () => resolve(plan.map((item) => outcomes.get(item.id) ?? {
+        tx.oncomplete = () => resolve(plan.map((item) => outcomes.get(`${item.entityType}:${item.id}`) ?? {
             id: item.id,
             status: "skipped" as const,
             reason: "transaction-did-not-return-an-outcome",

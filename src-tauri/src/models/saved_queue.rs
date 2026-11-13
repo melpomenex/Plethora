@@ -83,6 +83,9 @@ pub struct SavedQueue {
     pub session_goal: Option<String>,
     pub is_default: bool,
     pub sort_order: i64,
+    /// Pinned queue ordering mode: "adaptive" | "strict_manual"; NULL = Adaptive.
+    #[serde(default)]
+    pub ordering_mode: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -100,6 +103,8 @@ pub struct CreateSavedQueueInput {
     pub daqe_preset_id: Option<String>,
     pub session_goal: Option<String>,
     pub is_default: Option<bool>,
+    #[serde(default)]
+    pub ordering_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -116,4 +121,6 @@ pub struct UpdateSavedQueueInput {
     pub session_goal: Option<String>,
     pub is_default: Option<bool>,
     pub sort_order: Option<i64>,
+    #[serde(default)]
+    pub ordering_mode: Option<String>,
 }

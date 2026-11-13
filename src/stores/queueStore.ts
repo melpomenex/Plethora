@@ -1,3 +1,4 @@
+import { getQueueOrderingMode } from "./queueOrderingSettings";
 import { create } from "zustand";
 import {
   getQueue,
@@ -23,6 +24,7 @@ import { useCollectionStore } from "./collectionStore";
 import type { QueueItem, SortOptions, SearchFilters } from "../types";
 import { useDocumentStore } from "./documentStore";
 import { useSettingsStore } from "./settingsStore";
+import { compareManualQueueItems } from "../utils/queueManualOrder";
 import { resolveQueuePriorityTarget } from "../services/priority/priorityCommit";
 import { storeDueCountForSW } from "../utils/pushSubscription";
 import { updateDueBadgeCount } from "../lib/feedback";
@@ -88,6 +90,21 @@ function dedupeLoad(key: string, run: () => Promise<void>): Promise<void> {
   });
   inflightLoads.set(key, p);
   return p;
+}
+
+function captureQueueLoad(get: () => QueueState) {
+  const collectionId = useCollectionStore.getState().activeCollectionId;
+  const revision = get().queryRevision;
+  const orderingMode = getQueueOrderingMode();
+  return {
+    collectionId,
+    orderingMode,
+    key: `${collectionId ?? "default"}:${revision}:${orderingMode}`,
+    isCurrent: () =>
+      revision === get().queryRevision &&
+      orderingMode === getQueueOrderingMode() &&
+      collectionId === useCollectionStore.getState().activeCollectionId,
+  };
 }
 
 type DocRef = { id: string; isArchived?: boolean; isDismissed?: boolean };
@@ -367,8 +384,8 @@ export const useQueueStore = create<QueueState>((set, get) => ({
   // Actions
   loadQueue: async (forceAllItems?: boolean) => {
     const mode = forceAllItems ? "all-items" : get().queueFilterMode;
-    const collectionId = useCollectionStore.getState().activeCollectionId;
-    return dedupeLoad(`loadQueue:${mode}:${collectionId ?? "default"}:${get().queryRevision}`, async () => {
+    const { collectionId, orderingMode, key, isCurrent } = captureQueueLoad(get);
+    return dedupeLoad(`loadQueue:${mode}:${key}`, async () => {
       set({ isLoading: true, error: null });
       try {
         let items: QueueItem[] = [];
@@ -386,6 +403,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
             break;
         }
         items = await enrichQueueItemsWithAudio(items);
+        if (!isCurrent()) return;
         set({
           items,
           isLoading: false,
@@ -404,10 +422,11 @@ export const useQueueStore = create<QueueState>((set, get) => ({
         // the first pass orders immediately under the current knobs and the
         // decision model (e.g. Clef) refines it via scheduleDecisionRerank.
         // Off by default — when rankingEnabled is false the listing above stands.
-        if (settings.daqe.rankingEnabled) {
+        if (orderingMode === "adaptive" && settings.daqe.rankingEnabled) {
           void get().applyRankSnapshot(settings.daqe.knobs);
         }
       } catch (error) {
+        if (!isCurrent()) return;
         set({
           error: error instanceof Error ? error.message : "Failed to load queue",
           isLoading: false,
@@ -429,12 +448,13 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
   // Load only due documents (FSRS-scheduled with next_reading_date <= now or never read)
   loadDueDocumentsOnly: async () => {
-    const collectionId = useCollectionStore.getState().activeCollectionId;
-    return dedupeLoad(`loadDueDocumentsOnly:${collectionId ?? "default"}:${get().queryRevision}`, async () => {
+    const { collectionId, orderingMode, key, isCurrent } = captureQueueLoad(get);
+    return dedupeLoad(`loadDueDocumentsOnly:${key}`, async () => {
       set({ isLoading: true, error: null });
       try {
         let items = await getDueDocumentsOnly(collectionId);
         items = await enrichQueueItemsWithAudio(items);
+        if (!isCurrent()) return;
         set({
           items,
           isLoading: false,
@@ -446,10 +466,11 @@ export const useQueueStore = create<QueueState>((set, get) => ({
         get().applyFilters();
         // See loadQueue: structure the pool under the knobs when opted in.
         const daqeDocuments = useSettingsStore.getState().settings.daqe;
-        if (daqeDocuments.rankingEnabled) {
+        if (orderingMode === "adaptive" && daqeDocuments.rankingEnabled) {
           void get().applyRankSnapshot(daqeDocuments.knobs);
         }
       } catch (error) {
+        if (!isCurrent()) return;
         set({
           error: error instanceof Error ? error.message : "Failed to load due documents",
           isLoading: false,
@@ -460,12 +481,13 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
   // Load due queue items (includes documents, extracts, and learning items)
   loadDueQueueItems: async () => {
-    const collectionId = useCollectionStore.getState().activeCollectionId;
-    return dedupeLoad(`loadDueQueueItems:${collectionId ?? "default"}:${get().queryRevision}`, async () => {
+    const { collectionId, orderingMode, key, isCurrent } = captureQueueLoad(get);
+    return dedupeLoad(`loadDueQueueItems:${key}`, async () => {
       set({ isLoading: true, error: null });
       try {
         let items = await getDueQueueItems(undefined, collectionId);
         items = await enrichQueueItemsWithAudio(items);
+        if (!isCurrent()) return;
         set({
           items,
           isLoading: false,
@@ -477,10 +499,11 @@ export const useQueueStore = create<QueueState>((set, get) => ({
         get().applyFilters();
         // See loadQueue: structure the pool under the knobs when opted in.
         const daqeDue = useSettingsStore.getState().settings.daqe;
-        if (daqeDue.rankingEnabled) {
+        if (orderingMode === "adaptive" && daqeDue.rankingEnabled) {
           void get().applyRankSnapshot(daqeDue.knobs);
         }
       } catch (error) {
+        if (!isCurrent()) return;
         set({
           error: error instanceof Error ? error.message : "Failed to load due items",
           isLoading: false,
@@ -496,7 +519,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     // otherwise force a full backend refetch — and thus a visible
     // reload/reorder of the list — for a selection that never changed.
     if (get().queueFilterMode === mode) return;
-    set({ queueFilterMode: mode });
+    set((state) => ({ queueFilterMode: mode, queryRevision: state.queryRevision + 1 }));
     // Reload queue based on the new filter mode, through the shared chokepoint
     // so the mode→loader mapping lives in exactly one place.
     await get().reloadForCurrentMode();
@@ -518,6 +541,9 @@ export const useQueueStore = create<QueueState>((set, get) => ({
    * an ordering the user's current settings do not imply.
    */
   applyRankSnapshot: async (knobs: DaqeKnobs, focusTags: string[] = []) => {
+    if (getQueueOrderingMode() === "strict_manual") return;
+    const mode = getQueueOrderingMode();
+    const revision = get().queryRevision;
     const current = get().rankBreakdownKnobs;
     if (current && !isSnapshotCurrent({ knobs: current } as never, knobs)) {
       // The knobs moved: the held breakdown no longer describes this queue.
@@ -531,8 +557,11 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     const snapshot = await rankQueue(knobs, [], collectionId, {
       goal: sessionGoal || null,
       focusTags,
-    });
-    if (!snapshot || !isSnapshotCurrent(snapshot, knobs)) return;
+    }, mode);
+    if (!snapshot || getQueueOrderingMode() === "strict_manual" ||
+        revision !== get().queryRevision ||
+        collectionId !== useCollectionStore.getState().activeCollectionId ||
+        !isSnapshotCurrent(snapshot, knobs)) return;
 
     const projected = projectSnapshot(get().items, snapshot);
     const items = projected.ordered;
@@ -554,16 +583,19 @@ export const useQueueStore = create<QueueState>((set, get) => ({
    * because a slider drag would otherwise fire a request per pixel.
    */
   scheduleDecisionRerank: (knobs: DaqeKnobs, focusTags: string[] = []) => {
+    if (getQueueOrderingMode() === "strict_manual") return;
+    const revision = get().queryRevision;
+    const collectionId = useCollectionStore.getState().activeCollectionId;
     const previous = get().decisionRerankTimer;
     if (previous) clearTimeout(previous);
 
     const timer = setTimeout(() => {
       void (async () => {
         const daqe = useSettingsStore.getState().settings.daqe;
-        if (!daqe.rankingEnabled) return;
+        if (getQueueOrderingMode() === "strict_manual" || !daqe.rankingEnabled) return;
         const config = decisionConfigFrom(daqe);
         if (!config) return;
-        if (!(await decisionModelAvailability(config))) return;
+        if (!(await decisionModelAvailability(config)) || getQueueOrderingMode() === "strict_manual") return;
 
         const snapshot = await rankQueueWithDecision(
           knobs,
@@ -572,11 +604,16 @@ export const useQueueStore = create<QueueState>((set, get) => ({
             goal: coerceSessionGoal(daqe.sessionGoal) || null,
             focusTags,
           },
-          useCollectionStore.getState().activeCollectionId,
+          collectionId,
+          undefined,
+          getQueueOrderingMode(),
         );
         // The knobs may have moved again while the model was thinking; a snapshot
         // that describes an ordering the current settings do not imply is discarded.
-        if (!snapshot || !isSnapshotCurrent(snapshot, useSettingsStore.getState().settings.daqe.knobs)) {
+        if (!snapshot || getQueueOrderingMode() === "strict_manual" ||
+            revision !== get().queryRevision ||
+            collectionId !== useCollectionStore.getState().activeCollectionId ||
+            !isSnapshotCurrent(snapshot, useSettingsStore.getState().settings.daqe.knobs)) {
           return;
         }
         const refined = projectSnapshot(get().items, snapshot);
@@ -784,7 +821,9 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 
     const field = sortOptions.field;
     const dir = sortOptions.direction === "asc" ? 1 : -1;
-    if (field === "priority") {
+    if (getQueueOrderingMode() === "strict_manual") {
+      filtered.sort(compareManualQueueItems);
+    } else if (field === "priority") {
       filtered.sort((a, b) => dir * (a.priority - b.priority));
     } else if (field === "overdue") {
       // Whole days past due, same expression as reviewUx.ts. Items due today,
@@ -1288,6 +1327,7 @@ export const useQueueStore = create<QueueState>((set, get) => ({
         errors: [...response.errors, ...unsupported.map((entry) => `${entry.id}: priority is unavailable`)],
       };
     });
+    if (result.succeeded.length > 0) get().invalidateQueueGeneration();
     try { await get().reloadForCurrentMode(); }
     catch (error) { console.warn("Failed to refresh queue after priority update:", error); }
     return result;
@@ -1385,3 +1425,20 @@ function decisionConfigFrom(
     timeoutMs: daqe.decisionEngine?.timeoutMs,
   };
 }
+
+useSettingsStore.subscribe?.((current, previous) => {
+  const wasStrict = previous.settings.smartQueue?.queueOrderingMode === "strict_manual";
+  const isStrict = current.settings.smartQueue?.queueOrderingMode === "strict_manual";
+  if (wasStrict === isStrict) return;
+
+  const queue = useQueueStore.getState();
+  if (queue.decisionRerankTimer) clearTimeout(queue.decisionRerankTimer);
+  useQueueStore.setState({
+    rankBreakdowns: new Map(),
+    rankBreakdownKnobs: null,
+    decisionRerankTimer: null,
+  });
+  queue.invalidateQueueGeneration();
+  queue.applyFilters();
+  if (queue.hasCompletedFirstLoad || queue.isLoading) void queue.reloadForCurrentMode();
+});

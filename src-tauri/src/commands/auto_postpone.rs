@@ -7,7 +7,8 @@ use crate::models::collection::DEFAULT_COLLECTION_ID;
 use crate::sync::journal::notify_after_commit;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
-use sqlx::{Row, Sqlite};
+use sha2::{Digest, Sha256};
+use sqlx::{Row, Sqlite, SqliteConnection};
 use tauri::State;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -28,6 +29,7 @@ pub struct AutoPostponeCandidate {
     pub last_review_date: Option<String>,
     pub interval: Option<f64>,
     pub priority_score: Option<f64>,
+    pub manual_priority: Option<i32>,
     pub stability: Option<f64>,
     pub difficulty: Option<f64>,
     pub review_count: i32,
@@ -45,6 +47,25 @@ pub struct AutoPostponeCandidateSet {
     /// Raw persisted dates for active scheduled items inside the planning window.
     /// The client groups these with Schedule's local-calendar date semantics.
     pub scheduled_dates: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub strict_policy: Option<AutoPostponeStrictPolicy>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub revision: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoPostponeStrictPolicy {
+    pub daily_capacity: usize,
+    pub protected_priority: f64,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AutoPostponeStrictCheck {
+    pub window_start: String,
+    pub window_end: String,
+    pub revision: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -106,6 +127,36 @@ fn decode_candidate(
     row: &sqlx::sqlite::SqliteRow,
     entity_type: AutoPostponeEntityType,
 ) -> Result<AutoPostponeCandidate> {
+    let slider = row
+        .try_get::<Option<i32>, _>("priority_slider")
+        .unwrap_or(None);
+    let explicit = row
+        .try_get::<bool, _>("priority_explicitly_set")
+        .unwrap_or(false);
+    let rating = row.try_get::<i32, _>("priority_rating").unwrap_or(0);
+    let readback = crate::database::priority_rank::resolve_display_slider;
+    let manual_priority = match entity_type {
+        AutoPostponeEntityType::Document | AutoPostponeEntityType::LearningItem => {
+            readback(slider.unwrap_or(0), rating, explicit)
+        }
+        AutoPostponeEntityType::Extract => {
+            slider.map(|value| value.clamp(0, 100)).unwrap_or_else(|| {
+                let parent_score = optional_number(row, "parent_priority_score").unwrap_or(0.0);
+                let score = optional_number(row, "priority_score").unwrap_or(0.0);
+                if (score - parent_score).abs() < 0.001 {
+                    readback(
+                        row.try_get::<i32, _>("parent_priority_slider").unwrap_or(0),
+                        row.try_get::<i32, _>("parent_priority_rating").unwrap_or(0),
+                        row.try_get::<bool, _>("parent_priority_explicitly_set")
+                            .unwrap_or(false),
+                    )
+                } else {
+                    50
+                }
+            })
+        }
+        AutoPostponeEntityType::VideoExtract => 50,
+    };
     Ok(AutoPostponeCandidate {
         id: row.try_get("id")?,
         entity_type,
@@ -113,6 +164,7 @@ fn decode_candidate(
         last_review_date: row.try_get("last_review_date")?,
         interval: optional_number(row, "interval"),
         priority_score: optional_number(row, "priority_score"),
+        manual_priority: Some(manual_priority),
         stability: optional_number(row, "stability"),
         difficulty: optional_number(row, "difficulty"),
         review_count: row.try_get("review_count").unwrap_or(0),
@@ -137,7 +189,7 @@ fn optional_number(row: &sqlx::sqlite::SqliteRow, column: &str) -> Option<f64> {
 }
 
 async fn append_candidates(
-    repo: &Repository,
+    conn: &mut SqliteConnection,
     collection_id: Option<&str>,
     horizon_end: &str,
     candidates: &mut Vec<AutoPostponeCandidate>,
@@ -145,7 +197,7 @@ async fn append_candidates(
     let scope = collection_predicate("li.collection_id", collection_id);
     let parent_scope = collection_predicate("parent.collection_id", collection_id);
     let sql = format!(
-        "SELECT li.id, li.due_date, li.last_review_date, li.interval, li.priority_score, \
+        "SELECT li.id, li.due_date, li.last_review_date, li.interval, li.priority_score, li.priority_slider, li.priority_explicitly_set, \
                 li.memory_state_stability AS stability, li.difficulty, li.review_count, li.lapses, \
                 li.is_suspended, 0 AS is_archived, 0 AS is_dismissed, \
                 CASE WHEN li.document_id IS NOT NULL AND li.document_id != '' AND d.id IS NULL THEN 1 \
@@ -160,7 +212,7 @@ async fn append_candidates(
     query = bind_collection(query, collection_id);
     query = query.bind(horizon_end);
     query = bind_collection(query, collection_id);
-    for row in query.fetch_all(repo.pool()).await? {
+    for row in query.fetch_all(&mut *conn).await? {
         candidates.push(decode_candidate(
             &row,
             AutoPostponeEntityType::LearningItem,
@@ -170,7 +222,8 @@ async fn append_candidates(
     let scope = collection_predicate("d.collection_id", collection_id);
     let sql = format!(
         "SELECT d.id, d.next_reading_date AS due_date, d.date_last_reviewed AS last_review_date, \
-                0.0 AS interval, d.priority_score, d.stability, d.difficulty, d.reps AS review_count, \
+                0.0 AS interval, d.priority_score, d.priority_slider, d.priority_rating, d.priority_explicitly_set, \
+                d.stability, d.difficulty, d.reps AS review_count, \
                 0 AS lapses, 0 AS is_suspended, d.is_archived, d.is_dismissed, 0 AS is_inactive \
          FROM documents d WHERE d.next_reading_date IS NOT NULL \
            AND (d.next_reading_date < ? OR date(d.next_reading_date) IS NULL) \
@@ -178,7 +231,7 @@ async fn append_candidates(
     );
     let mut query = sqlx::query(&sql).bind(horizon_end);
     query = bind_collection(query, collection_id);
-    for row in query.fetch_all(repo.pool()).await? {
+    for row in query.fetch_all(&mut *conn).await? {
         candidates.push(decode_candidate(&row, AutoPostponeEntityType::Document)?);
     }
 
@@ -186,7 +239,9 @@ async fn append_candidates(
     let parent_scope = collection_predicate("parent.collection_id", collection_id);
     let sql = format!(
         "SELECT e.id, e.next_review_date AS due_date, e.last_review_date, 0.0 AS interval, \
-                e.priority_score, e.memory_state_stability AS stability, e.memory_state_difficulty AS difficulty, \
+                e.priority_score, e.priority_slider, d.priority_score AS parent_priority_score, \
+                d.priority_slider AS parent_priority_slider, d.priority_rating AS parent_priority_rating, \
+                d.priority_explicitly_set AS parent_priority_explicitly_set, e.memory_state_stability AS stability, e.memory_state_difficulty AS difficulty, \
                 e.review_count, 0 AS lapses, 0 AS is_suspended, COALESCE(d.is_archived, 0) AS is_archived, \
                 CASE WHEN COALESCE(e.is_dismissed, 0) != 0 OR COALESCE(d.is_dismissed, 0) != 0 THEN 1 ELSE 0 END AS is_dismissed, \
                 CASE WHEN d.id IS NULL THEN 1 \
@@ -201,7 +256,7 @@ async fn append_candidates(
     query = bind_collection(query, collection_id);
     query = query.bind(horizon_end);
     query = bind_collection(query, collection_id);
-    for row in query.fetch_all(repo.pool()).await? {
+    for row in query.fetch_all(&mut *conn).await? {
         candidates.push(decode_candidate(&row, AutoPostponeEntityType::Extract)?);
     }
 
@@ -222,7 +277,7 @@ async fn append_candidates(
     );
     let mut query = sqlx::query(&sql).bind(horizon_end);
     query = bind_collection(query, collection_id);
-    for row in query.fetch_all(repo.pool()).await? {
+    for row in query.fetch_all(&mut *conn).await? {
         candidates.push(decode_candidate(
             &row,
             AutoPostponeEntityType::VideoExtract,
@@ -233,7 +288,7 @@ async fn append_candidates(
 }
 
 async fn append_scheduled_dates(
-    repo: &Repository,
+    conn: &mut SqliteConnection,
     collection_id: Option<&str>,
     window_start: &str,
     window_end: &str,
@@ -283,7 +338,7 @@ async fn append_scheduled_dates(
             query = bind_collection(query, collection_id);
         }
         query = bind_collection(query, collection_id);
-        for row in query.fetch_all(repo.pool()).await? {
+        for row in query.fetch_all(&mut *conn).await? {
             if let Ok(date) = row.try_get::<String, _>("due_date") {
                 dates.push(date);
             }
@@ -299,12 +354,55 @@ async fn append_scheduled_dates(
     );
     let mut query = sqlx::query(&sql).bind(window_start).bind(window_end);
     query = bind_collection(query, collection_id);
-    for row in query.fetch_all(repo.pool()).await? {
+    for row in query.fetch_all(&mut *conn).await? {
         if let Ok(date) = row.try_get::<String, _>("due_date") {
             dates.push(date);
         }
     }
     Ok(())
+}
+
+async fn load_candidate_set(
+    conn: &mut SqliteConnection,
+    collection_id: Option<&str>,
+    window_start: &str,
+    window_end: &str,
+    strict: bool,
+) -> Result<AutoPostponeCandidateSet> {
+    let mut candidates = Vec::new();
+    append_candidates(conn, collection_id, window_end, &mut candidates).await?;
+    let mut scheduled_dates = Vec::new();
+    append_scheduled_dates(
+        conn,
+        collection_id,
+        window_start,
+        window_end,
+        &mut scheduled_dates,
+    )
+    .await?;
+    let (strict_policy, revision) = if strict {
+        let config = crate::algorithms::postpone::PostponeConfig::default();
+        let policy = AutoPostponeStrictPolicy {
+            daily_capacity: config.daily_capacity,
+            protected_priority: config.priority_threshold,
+        };
+        candidates.sort_by(|a, b| {
+            a.id.cmp(&b.id)
+                .then_with(|| (a.entity_type as u8).cmp(&(b.entity_type as u8)))
+        });
+        scheduled_dates.sort();
+        let payload = serde_json::to_vec(&(&candidates, &scheduled_dates, &policy))
+            .map_err(|error| crate::error::PlethoraError::Internal(error.to_string()))?;
+        (Some(policy), Some(format!("{:x}", Sha256::digest(payload))))
+    } else {
+        (None, None)
+    };
+    Ok(AutoPostponeCandidateSet {
+        candidates,
+        scheduled_dates,
+        strict_policy,
+        revision,
+    })
 }
 
 /// Return compact persisted candidates and existing workload for one collection.
@@ -313,29 +411,20 @@ pub async fn get_auto_postpone_candidates(
     collection_id: Option<String>,
     window_start: String,
     window_end: String,
+    strict_manual: Option<bool>,
     repo: State<'_, Repository>,
 ) -> Result<AutoPostponeCandidateSet> {
-    let mut candidates = Vec::new();
-    append_candidates(
-        repo.inner(),
-        collection_id.as_deref(),
-        &window_end,
-        &mut candidates,
-    )
-    .await?;
-    let mut scheduled_dates = Vec::new();
-    append_scheduled_dates(
-        repo.inner(),
+    let mut tx = repo.pool().begin().await?;
+    let result = load_candidate_set(
+        &mut tx,
         collection_id.as_deref(),
         &window_start,
         &window_end,
-        &mut scheduled_dates,
+        strict_manual.unwrap_or(false),
     )
     .await?;
-    Ok(AutoPostponeCandidateSet {
-        candidates,
-        scheduled_dates,
-    })
+    tx.commit().await?;
+    Ok(result)
 }
 
 async fn apply_one_plan_item(
@@ -425,11 +514,43 @@ async fn apply_one_plan_item(
 pub async fn apply_auto_postpone_plan(
     collection_id: Option<String>,
     plan: Vec<AutoPostponePlanItem>,
+    strict_check: Option<AutoPostponeStrictCheck>,
     repo: State<'_, Repository>,
+) -> Result<AutoPostponeApplyResult> {
+    apply_auto_postpone_plan_from_repo(repo.inner(), collection_id, plan, strict_check).await
+}
+
+async fn apply_auto_postpone_plan_from_repo(
+    repo: &Repository,
+    collection_id: Option<String>,
+    plan: Vec<AutoPostponePlanItem>,
+    strict_check: Option<AutoPostponeStrictCheck>,
 ) -> Result<AutoPostponeApplyResult> {
     let now = Utc::now().to_rfc3339();
     let mut outcomes = Vec::with_capacity(plan.len());
     let mut tx = repo.pool().begin().await?;
+    if let Some(check) = strict_check {
+        let current = load_candidate_set(
+            &mut tx,
+            collection_id.as_deref(),
+            &check.window_start,
+            &check.window_end,
+            true,
+        )
+        .await?;
+        if current.revision.as_deref() != Some(check.revision.as_str()) {
+            return Ok(AutoPostponeApplyResult {
+                outcomes: plan
+                    .into_iter()
+                    .map(|item| AutoPostponeItemOutcome {
+                        id: item.id,
+                        status: AutoPostponeOutcomeStatus::Skipped,
+                        reason: Some("changed-or-inactive-before-commit".to_string()),
+                    })
+                    .collect(),
+            });
+        }
+    }
 
     for item in &plan {
         let applied = apply_one_plan_item(&mut tx, item, collection_id.as_deref(), &now).await?;
@@ -479,6 +600,179 @@ mod tests {
         .await
         .expect("document")
         .id
+    }
+
+    #[tokio::test]
+    async fn strict_manual_rejects_stale_policy_inputs_and_repeated_apply() {
+        let repo = setup_repo().await;
+        let high = make_document(&repo, "High priority").await;
+        let low = make_document(&repo, "Low priority").await;
+        let due = "2026-10-12T00:00:00Z";
+        let target = "2026-11-13T00:00:00Z";
+        let start = "2026-11-12T00:00:00Z";
+        let end = "2026-12-12T00:00:00Z";
+        for (id, priority) in [(&high, 90), (&low, 0)] {
+            sqlx::query("UPDATE documents SET next_reading_date = ?, priority_slider = ?, priority_explicitly_set = 1 WHERE id = ?")
+                .bind(due).bind(priority).bind(id).execute(repo.pool()).await.unwrap();
+        }
+
+        let mut conn = repo.pool().acquire().await.unwrap();
+        let preview = load_candidate_set(&mut conn, None, start, end, true)
+            .await
+            .unwrap();
+        let low_candidate = preview
+            .candidates
+            .iter()
+            .find(|item| item.id == low)
+            .unwrap();
+        assert_eq!(low_candidate.manual_priority, Some(0));
+        drop(conn);
+        let check = |revision: String| AutoPostponeStrictCheck {
+            window_start: start.into(),
+            window_end: end.into(),
+            revision,
+        };
+        let plan = vec![AutoPostponePlanItem {
+            id: low.clone(),
+            entity_type: AutoPostponeEntityType::Document,
+            expected_due_date: due.into(),
+            target_due_date: target.into(),
+        }];
+        sqlx::query("UPDATE documents SET priority_slider = 100 WHERE id = ?")
+            .bind(&high)
+            .execute(repo.pool())
+            .await
+            .unwrap();
+        let stale = apply_auto_postpone_plan_from_repo(
+            &repo,
+            None,
+            plan.clone(),
+            Some(check(preview.revision.unwrap())),
+        )
+        .await
+        .unwrap();
+        assert_eq!(stale.outcomes[0].status, AutoPostponeOutcomeStatus::Skipped);
+
+        let mut conn = repo.pool().acquire().await.unwrap();
+        let fresh = load_candidate_set(&mut conn, None, start, end, true)
+            .await
+            .unwrap();
+        drop(conn);
+        let check = check(fresh.revision.unwrap());
+        let applied =
+            apply_auto_postpone_plan_from_repo(&repo, None, plan.clone(), Some(check.clone()))
+                .await
+                .unwrap();
+        assert_eq!(
+            applied.outcomes[0].status,
+            AutoPostponeOutcomeStatus::Postponed
+        );
+        let retry = apply_auto_postpone_plan_from_repo(&repo, None, plan, Some(check))
+            .await
+            .unwrap();
+        assert_eq!(retry.outcomes[0].status, AutoPostponeOutcomeStatus::Skipped);
+        let saved: String =
+            sqlx::query_scalar("SELECT next_reading_date FROM documents WHERE id = ?")
+                .bind(low)
+                .fetch_one(repo.pool())
+                .await
+                .unwrap();
+        assert_eq!(saved, target);
+    }
+
+    #[tokio::test]
+    async fn strict_manual_orders_candidates_and_persists_dates_after_reopen() {
+        let repo = setup_repo().await;
+        let high = make_document(&repo, "High priority").await;
+        let low = make_document(&repo, "Low priority").await;
+        let high_due = "2026-11-01T00:00:00Z";
+        let low_due = "2026-10-01T00:00:00Z";
+        let target = "2026-11-13T00:00:00Z";
+        let start = "2026-11-12T00:00:00Z";
+        let end = "2026-12-12T00:00:00Z";
+        for (id, due, priority) in [(&high, high_due, 90), (&low, low_due, 0)] {
+            sqlx::query(
+                "UPDATE documents SET next_reading_date = ?, priority_slider = ?, priority_explicitly_set = 1 WHERE id = ?",
+            )
+            .bind(due)
+            .bind(priority)
+            .bind(id)
+            .execute(repo.pool())
+            .await
+            .unwrap();
+        }
+
+        let mut conn = repo.pool().acquire().await.unwrap();
+        let preview = load_candidate_set(&mut conn, None, start, end, true)
+            .await
+            .unwrap();
+        drop(conn);
+        assert_eq!(preview.candidates.len(), 2);
+        let high_index = preview
+            .candidates
+            .iter()
+            .position(|item| item.id == high)
+            .unwrap();
+        let low_index = preview
+            .candidates
+            .iter()
+            .position(|item| item.id == low)
+            .unwrap();
+        // Strict order: higher effective priority first, regardless of urgency.
+        assert!(high_index < low_index);
+        assert_eq!(preview.candidates[high_index].manual_priority, Some(90));
+        assert_eq!(preview.candidates[low_index].manual_priority, Some(0));
+
+        // Postpone only the lowest-priority eligible item.
+        let plan = vec![AutoPostponePlanItem {
+            id: low.clone(),
+            entity_type: AutoPostponeEntityType::Document,
+            expected_due_date: low_due.into(),
+            target_due_date: target.into(),
+        }];
+        let applied = apply_auto_postpone_plan_from_repo(
+            &repo,
+            None,
+            plan,
+            Some(AutoPostponeStrictCheck {
+                window_start: start.into(),
+                window_end: end.into(),
+                revision: preview.revision.unwrap(),
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(applied.outcomes[0].status, AutoPostponeOutcomeStatus::Postponed);
+
+        // Reopen: the high-priority record keeps its date; only low was postponed.
+        let high_saved: String =
+            sqlx::query_scalar("SELECT next_reading_date FROM documents WHERE id = ?")
+                .bind(&high)
+                .fetch_one(repo.pool())
+                .await
+                .unwrap();
+        let low_saved: String =
+            sqlx::query_scalar("SELECT next_reading_date FROM documents WHERE id = ?")
+                .bind(&low)
+                .fetch_one(repo.pool())
+                .await
+                .unwrap();
+        assert_eq!(high_saved, high_due);
+        assert_eq!(low_saved, target);
+
+        // The reloaded candidate set reflects the new stored date and keeps the
+        // strict order for the remaining candidate.
+        let mut conn = repo.pool().acquire().await.unwrap();
+        let reopened = load_candidate_set(&mut conn, None, start, end, true)
+            .await
+            .unwrap();
+        drop(conn);
+        let reopened_high = reopened
+            .candidates
+            .iter()
+            .find(|item| item.id == high)
+            .unwrap();
+        assert_eq!(reopened_high.due_date.as_deref(), Some(high_due));
     }
 
     #[tokio::test]
@@ -590,7 +884,7 @@ mod tests {
 
         let mut candidates = Vec::new();
         append_candidates(
-            &repo,
+            &mut *repo.pool().acquire().await.unwrap(),
             Some(DEFAULT_COLLECTION_ID),
             &(Utc::now() + Duration::days(32)).to_rfc3339(),
             &mut candidates,
@@ -632,7 +926,7 @@ mod tests {
         );
         let mut scheduled_dates = Vec::new();
         append_scheduled_dates(
-            &repo,
+            &mut *repo.pool().acquire().await.unwrap(),
             Some(DEFAULT_COLLECTION_ID),
             &(Utc::now() + Duration::days(1)).to_rfc3339(),
             &(Utc::now() + Duration::days(32)).to_rfc3339(),
@@ -683,7 +977,7 @@ mod tests {
 
         let mut candidates = Vec::new();
         append_candidates(
-            &repo,
+            &mut *repo.pool().acquire().await.unwrap(),
             Some("other"),
             &(Utc::now() + Duration::days(32)).to_rfc3339(),
             &mut candidates,
@@ -730,7 +1024,7 @@ mod tests {
 
         let mut wrong_collection_dates = Vec::new();
         append_scheduled_dates(
-            &repo,
+            &mut *repo.pool().acquire().await.unwrap(),
             Some("other"),
             &(Utc::now() + Duration::days(1)).to_rfc3339(),
             &(Utc::now() + Duration::days(32)).to_rfc3339(),

@@ -143,12 +143,13 @@ export function Queue() {
   const confirmDialog = useConfirmDialog();
   // Resolved, not cast: the stored id is one of nine strategies and only five of
   // them are PriorityPresets. See `resolvePriorityPresetId`.
+  const orderingMode = useSettingsStore((s) => s.settings.smartQueue?.queueOrderingMode);
   const queueStrategyPreset = useSettingsStore((state) =>
     resolvePriorityPresetId(state.settings.smartQueue.queueStrategyPreset),
   );
   const orderedItems = useMemo(
-    () => orderQueueItems(filteredItems, queueStrategyPreset),
-    [filteredItems, queueStrategyPreset],
+    () => orderQueueItems(filteredItems, queueStrategyPreset, orderingMode),
+    [filteredItems, queueStrategyPreset, orderingMode],
   );
 
   useEffect(() => {

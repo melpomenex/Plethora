@@ -117,6 +117,30 @@ describe("planAutoPostpone", () => {
     expect(plan.items.map((item) => item.id)).toEqual(["eligible"]);
   });
 
+  it("keeps higher manual priorities before moving overflow", () => {
+    const today = new Date(2026, 9, 30, 12);
+    const due = localDateKey(addDays(today, -1));
+    const earlier = localDateKey(addDays(today, -20));
+    const entries = [
+      candidate("protected", due, { manualPriority: 80 }),
+      candidate("older-tie", earlier, { manualPriority: 40, stability: 100 }),
+      candidate("later-tie", due, { manualPriority: 40, stability: 1 }),
+      candidate("explicit-zero", earlier, { manualPriority: 0, priorityScore: 100 }),
+      candidate("suspended", earlier, { manualPriority: 100, isSuspended: true }),
+    ];
+    const plan = planAutoPostpone(entries, [localDateKey(today)], today, settings, {
+      dailyCapacity: 3, protectedPriority: 70,
+    });
+    expect(plan.items.map(({ id }) => id)).toEqual(["later-tie", "explicit-zero"]);
+    expect(plan.skipReasons).toEqual({ "strict-manual-kept": 2, suspended: 1 });
+
+    const protectedOverflow = planAutoPostpone(entries, [localDateKey(today)], today, settings, {
+      dailyCapacity: 1, protectedPriority: 70,
+    });
+    expect(protectedOverflow.items.map(({ id }) => id)).toEqual(["older-tie", "later-tie", "explicit-zero"]);
+    expect(protectedOverflow.skipReasons["strict-manual-kept"]).toBe(1);
+  });
+
   it("treats timestamp offsets using the same local date normalization as Schedule", () => {
     const today = new Date(2026, 2, 1, 12);
     const todayLocalMidnightUtc = new Date(2026, 2, 1, 0).toISOString();
