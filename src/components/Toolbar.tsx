@@ -43,6 +43,7 @@ import {
   DiceFive,
   FileArrowUp,
   Gear,
+  GraduationCap,
   Graph,
   Headphones,
   Link,
@@ -773,7 +774,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
     },
     {
       id: "study-plans",
-      icon: Compass,
+      icon: GraduationCap,
       label: t("studyPlans.title"),
       shortcut: "",
       action: handleStudyPlans,

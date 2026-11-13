@@ -39,9 +39,9 @@ import {
   Check,
   CircleNotch,
   Code,
-  Compass,
   Copy,
   Gear,
+  GraduationCap,
   Images,
   PaperPlaneTilt,
   Plus,
@@ -4535,7 +4535,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                       }}
                       title="Create Study Plan from this scope"
                     >
-                      <Compass className="inline w-3 h-3 mr-1" />
+                      <GraduationCap className="inline w-3 h-3 mr-1" />
                       Plan
                     </button>
                   )}

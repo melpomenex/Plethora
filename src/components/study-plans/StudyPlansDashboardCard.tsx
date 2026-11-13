@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Compass, ArrowRight, Plus } from '@phosphor-icons/react';
+import { ArrowRight, GraduationCap, Plus } from '@phosphor-icons/react';
 import { listStudyPlans } from '../../api/study-plans';
 import { requestDestinationAction } from '../../commandPalette/destinationActions';
 import { isTauri } from '../../lib/tauri';
@@ -84,7 +84,7 @@ export const StudyPlansDashboardCard: React.FC<StudyPlansDashboardCardProps> = (
         {navigationError && <p role="alert" className="text-xs text-destructive mb-2">{navigationError}</p>}
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
-            <Compass className="w-5 h-5 text-primary" />
+            <GraduationCap className="w-5 h-5 text-primary" />
             <h3 className="font-semibold text-foreground text-base">Study Plans</h3>
           </div>
           <button

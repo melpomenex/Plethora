@@ -22,6 +22,7 @@ import {
   Files,
   Gear,
   Globe,
+  GraduationCap,
   Graph,
   Headphones,
   Image,
@@ -70,7 +71,7 @@ export const TAB_TYPE_ICONS: Record<TabType, Icon> = {
   audiobook: Headphones,
   extracts: Scissors,
   "import-needs-review": Stack,
-  "study-plans": Compass,
+  "study-plans": GraduationCap,
 };
 
 /**
@@ -113,6 +114,7 @@ export {
   Files,
   Gear,
   Globe,
+  GraduationCap,
   Graph,
   Headphones,
   Image,

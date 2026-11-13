@@ -95,7 +95,7 @@ export const TAB_TYPE_ICONS: Record<string, string> = {
   "queue-scroll": "📜", "audiobook-epub-sync": "🎧",
   audiobook: "🎧",
   "import-needs-review": "🧭",
-  "study-plans": "🧭",
+  "study-plans": "🎓",
 };
 
 export const tabContentRegistry: Record<TabType, { content: ComponentType; title: string; icon: string; closable: boolean }> = {
@@ -123,7 +123,7 @@ export const tabContentRegistry: Record<TabType, { content: ComponentType; title
   audiobook: { content: AudiobooksTab, title: "Audiobooks", icon: "🎧", closable: true },
   extracts: { content: ExtractsTab, title: "Extracts", icon: "✂️", closable: true },
   "import-needs-review": { content: ImportNeedsReviewTab, title: "Import Needs Review", icon: "🧭", closable: true },
-  "study-plans": { content: StudyPlansTab, title: "Study Plans", icon: "🧭", closable: true },
+  "study-plans": { content: StudyPlansTab, title: "Study Plans", icon: "🎓", closable: true },
 };
 
 export function createCanonicalTab(type: TabType): Omit<Tab, "id"> {

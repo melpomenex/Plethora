@@ -8,9 +8,9 @@ import {
   ArrowSquareOut,
   Brain,
   CaretRight,
-  Compass,
   DotsThree,
   Folder,
+  GraduationCap,
   Hash,
   Link,
   PencilSimple,
@@ -334,7 +334,7 @@ export function NodeDetailView({
               }}
               className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-muted rounded-lg transition-colors"
             >
-              <Compass className="w-4 h-4" />
+              <GraduationCap className="w-4 h-4" />
               Create Study Plan
             </button>
             <button

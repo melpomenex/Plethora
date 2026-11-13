@@ -14,7 +14,6 @@
 import type { Icon } from "@phosphor-icons/react";
 import {
   ChalkboardTeacher,
-  Compass,
   Copy,
   GraduationCap,
   Graph,
@@ -165,7 +164,7 @@ export const SELECTION_ACTIONS: readonly SelectionActionDescriptor[] = [
   },
   {
     id: "studyPlan",
-    icon: Compass,
+    icon: GraduationCap,
     labelKeys: { bar: "studyPlans.title", menu: "studyPlans.title", sheet: "studyPlans.title" },
     order: { menu: 12, sheet: 9 },
     menuGroup: 4,

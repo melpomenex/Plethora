@@ -14,9 +14,9 @@ import {
   CircleNotch,
   Clock,
   Columns,
-  Compass,
   DotsThree,
   Download,
+  GraduationCap,
   TextT as FileTextIcon,
   FolderOpen,
   Funnel,
@@ -1704,7 +1704,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
             {
               id: "study-plan",
               label: "Create Study Plan",
-              icon: <Compass className="w-3.5 h-3.5" />,
+              icon: <GraduationCap className="w-3.5 h-3.5" />,
               onClick: () => {
                 const ids = Array.from(selectedIds);
                 if (ids.length > 24) {
@@ -2086,7 +2086,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                     });
                   }}
                 >
-                  <Compass className="h-3.5 w-3.5 text-muted-foreground" />
+                  <GraduationCap className="h-3.5 w-3.5 text-muted-foreground" />
                   Create Study Plan
                 </button>
                 {/* Library-side category editing (the second surface the
@@ -4159,7 +4159,7 @@ function LibraryCard({
     } as { label: string; icon: React.ReactNode; color?: string; divider?: boolean; action: () => void }] : []),
     {
       label: "Create Study Plan",
-      icon: <Compass className="h-3.5 w-3.5 text-muted-foreground" />,
+      icon: <GraduationCap className="h-3.5 w-3.5 text-muted-foreground" />,
       action: () => {
         void requestDestinationAction({
           destination: "study-plans",
