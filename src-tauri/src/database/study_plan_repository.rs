@@ -519,6 +519,96 @@ impl StudyPlanRepository {
         Ok(normalized)
     }
 
+    /// Renames a plan without changing its version or draft revision.
+    pub async fn rename_study_plan(
+        &self,
+        plan_id: &str,
+        title: &str,
+        expected_title: &str,
+        expected_plan_revision: i64,
+    ) -> Result<StudyPlan, StudyCommandError> {
+        let title = title.trim();
+        if title.is_empty() || title.len() > MAX_PLAN_TITLE_CHARS {
+            return Err(StudyCommandError::invalid_input(
+                "study_plan.error.invalid_title_length",
+                vec![FieldIssue {
+                    path: "title".to_string(),
+                    code: "invalid_title_length".to_string(),
+                    message_key: "study_plan.error.invalid_title_length".to_string(),
+                }],
+            ));
+        }
+
+        let now = Utc::now().to_rfc3339();
+        let mut tx = self
+            .pool
+            .begin()
+            .await
+            .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+        let updated = sqlx::query(
+            "UPDATE study_plans SET title = ?1, updated_at = ?2
+             WHERE id = ?3 AND revision = ?4 AND title = ?5",
+        )
+        .bind(title)
+        .bind(now)
+        .bind(plan_id)
+        .bind(expected_plan_revision)
+        .bind(expected_title)
+        .execute(&mut *tx)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+
+        if updated.rows_affected() == 0 {
+            let revision = sqlx::query("SELECT revision FROM study_plans WHERE id = ?1 LIMIT 1")
+                .bind(plan_id)
+                .fetch_optional(&mut *tx)
+                .await
+                .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?
+                .ok_or_else(|| StudyCommandError::not_found("study_plan.error.plan_not_found"))?;
+            let actual_revision: i64 = revision.get("revision");
+            let mut details = StudyCommandErrorDetails::default();
+            details.expected_revision = Some(expected_plan_revision);
+            details.actual_revision = Some(actual_revision);
+            return Err(StudyCommandError {
+                code: StudyErrorCode::StaleRevision,
+                message_key: "study_plan.error.stale_revision".to_string(),
+                retryable: true,
+                field_issues: None,
+                details: Some(details),
+            });
+        }
+
+        let row = sqlx::query(
+            "SELECT id, title, goal, depth, status, current_version_id, draft_version_id,
+                    current_version, revision, created_at, updated_at
+             FROM study_plans WHERE id = ?1 LIMIT 1",
+        )
+        .bind(plan_id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+        let depth: String = row.get("depth");
+        let status: String = row.get("status");
+
+        let plan = StudyPlan {
+            id: row.get("id"),
+            title: row.get("title"),
+            goal: row.get("goal"),
+            depth: depth.parse().unwrap_or(StudyDepth::Foundational),
+            status: status.parse().unwrap_or(StudyPlanStatus::Active),
+            current_version_id: row.get("current_version_id"),
+            current_version: row.get("current_version"),
+            draft_version_id: row.get("draft_version_id"),
+            revision: row.get("revision"),
+            created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
+        };
+        tx.commit()
+            .await
+            .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+        Ok(plan)
+    }
+
     /// Lists study plan summaries.
     pub async fn list_study_plans(
         &self,

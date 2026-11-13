@@ -24,7 +24,7 @@ describe('research adapter (web-research 1.1/1.2)', () => {
     expect(() => assertResearchConsent(off)).toThrow();
   });
 
-  it('refuses private/local destinations and private redirects', async () => {
+  it('refuses private/local result destinations', async () => {
     expect(isPublicDestination('https://api.search.brave.com/res/v1/web/search')).toBe(true);
     expect(isPublicDestination('http://127.0.0.1:8000/')).toBe(false);
     expect(isPublicDestination('http://localhost/')).toBe(false);
@@ -35,27 +35,21 @@ describe('research adapter (web-research 1.1/1.2)', () => {
     const approved = discloseResearchQuery('q', { approved: true });
     await expect(
       runBoundedResearch({ query: 'q' }, approved, {
-        fetchImpl: async () => ({ ok: true, url: 'http://10.0.0.5/', status: 200, bytes: 10 }),
-      })
-    ).rejects.toMatchObject({ code: 'privacy_denied' });
-
-    await expect(
-      runBoundedResearch({ query: 'q' }, approved, {
-        fetchImpl: async () => ({ ok: true, url: 'https://api.search.brave.com/res/v1/web/search', redirected: 'http://192.168.1.1/', status: 301, bytes: 10 }),
+        searchImpl: async () => [{ id: 'x', title: 'Local', url: 'http://10.0.0.5/', snippet: 'private' }],
       })
     ).rejects.toMatchObject({ code: 'privacy_denied' });
   });
 
-  it('honors cancellation and quota, and never retries automatically', async () => {
+  it('honors cancellation and makes one provider request without hidden retries', async () => {
     const controller = new AbortController();
     controller.abort();
     const approved = discloseResearchQuery('q', { approved: true });
     await expect(runBoundedResearch({ query: 'q', signal: controller.signal }, approved)).rejects.toMatchObject({ code: 'cancelled' });
 
-    const fetchImpl = vi.fn().mockRejectedValue(new Error('boom'));
+    const searchImpl = vi.fn().mockRejectedValue(new Error('boom'));
     await expect(
-      runBoundedResearch({ query: 'q' }, approved, { fetchImpl })
+      runBoundedResearch({ query: 'q' }, approved, { searchImpl })
     ).rejects.toMatchObject({ code: 'provider_unavailable' });
-    expect(fetchImpl).toHaveBeenCalledTimes(1); // no hidden retries
+    expect(searchImpl).toHaveBeenCalledTimes(1); // no hidden retries
   });
 });

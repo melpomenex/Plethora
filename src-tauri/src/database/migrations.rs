@@ -5598,6 +5598,60 @@ pub const MIGRATIONS: &[Migration] = &[
         ADD COLUMN preferences_json TEXT NOT NULL DEFAULT '{}';
         "#,
     ),
+    Migration::new(
+        "148_study_plan_research_snapshots",
+        r#"
+        CREATE TABLE study_plan_research_snapshots (
+            id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL REFERENCES study_plans(id) ON DELETE CASCADE,
+            plan_version_id TEXT NOT NULL REFERENCES study_plan_versions(id) ON DELETE CASCADE,
+            query TEXT NOT NULL CHECK(length(query) BETWEEN 1 AND 300),
+            url TEXT NOT NULL,
+            title TEXT NOT NULL,
+            publisher TEXT NOT NULL,
+            fetched_at TEXT NOT NULL,
+            revision_hash TEXT NOT NULL,
+            locator_kind TEXT NOT NULL DEFAULT 'page',
+            locator_value TEXT NOT NULL DEFAULT 'Captured readable text',
+            excerpt TEXT NOT NULL CHECK(length(excerpt) BETWEEN 1 AND 12000),
+            status TEXT NOT NULL DEFAULT 'candidate' CHECK(status IN ('candidate','accepted')),
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX study_plan_research_snapshots_version
+            ON study_plan_research_snapshots(plan_id, plan_version_id, status, fetched_at DESC);
+        "#,
+    ),
+    Migration::new(
+        "149_study_plan_research_stale_snapshots",
+        r#"
+        CREATE TABLE study_plan_research_snapshots_new (
+            id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL REFERENCES study_plans(id) ON DELETE CASCADE,
+            plan_version_id TEXT NOT NULL REFERENCES study_plan_versions(id) ON DELETE CASCADE,
+            query TEXT NOT NULL CHECK(length(query) BETWEEN 1 AND 300),
+            url TEXT NOT NULL,
+            title TEXT NOT NULL,
+            publisher TEXT NOT NULL,
+            fetched_at TEXT NOT NULL,
+            revision_hash TEXT NOT NULL,
+            locator_kind TEXT NOT NULL DEFAULT 'page',
+            locator_value TEXT NOT NULL DEFAULT 'Captured readable text',
+            excerpt TEXT NOT NULL CHECK(length(excerpt) BETWEEN 1 AND 12000),
+            status TEXT NOT NULL DEFAULT 'candidate' CHECK(status IN ('candidate','accepted','stale')),
+            created_at TEXT NOT NULL
+        );
+        INSERT INTO study_plan_research_snapshots_new
+            (id, plan_id, plan_version_id, query, url, title, publisher, fetched_at,
+             revision_hash, locator_kind, locator_value, excerpt, status, created_at)
+        SELECT id, plan_id, plan_version_id, query, url, title, publisher, fetched_at,
+               revision_hash, locator_kind, locator_value, excerpt, status, created_at
+        FROM study_plan_research_snapshots;
+        DROP TABLE study_plan_research_snapshots;
+        ALTER TABLE study_plan_research_snapshots_new RENAME TO study_plan_research_snapshots;
+        CREATE INDEX study_plan_research_snapshots_version
+            ON study_plan_research_snapshots(plan_id, plan_version_id, status, fetched_at DESC);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

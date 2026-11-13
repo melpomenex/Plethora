@@ -69,10 +69,16 @@ pub async fn publish_assessment_blueprint(
     revision_id: String,
     expected_revision: i64,
     shortfall_accepted: bool,
+    external_evidence_accepted: bool,
     repo: State<'_, Repository>,
 ) -> Result<BlueprintDetail, StudyCommandError> {
     repository(&repo)
-        .publish_assessment_blueprint(&revision_id, expected_revision, shortfall_accepted)
+        .publish_assessment_blueprint(
+            &revision_id,
+            expected_revision,
+            shortfall_accepted,
+            external_evidence_accepted,
+        )
         .await
 }
 

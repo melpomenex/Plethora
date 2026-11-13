@@ -342,6 +342,15 @@ pub struct CreateStudyPlanInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct RenameStudyPlanInput {
+    pub plan_id: String,
+    pub title: String,
+    pub expected_title: String,
+    pub expected_plan_revision: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SaveStudyPlanDraftInput {
     pub plan_id: String,
     pub expected_draft_revision: i64,

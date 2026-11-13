@@ -10,7 +10,7 @@
  * relabels history.
  */
 
-import { getSnapshot, type ExternalSnapshot } from './snapshots';
+import type { ExternalSnapshot } from './snapshots';
 import { verifyClaim, type ClaimVerificationResult } from './verification';
 
 export interface VerifiedRevisionRequest {
@@ -20,6 +20,8 @@ export interface VerifiedRevisionRequest {
   answerKey: string;
   rubric?: { criteria: string[] };
   snapshotIds: string[];
+  /** Loaded from the app's durable Study Plan repository. */
+  snapshots: ExternalSnapshot[];
   liveRevisions?: Record<string, string>;
   explicitAcceptance: boolean;
 }
@@ -39,10 +41,11 @@ export interface PublicationGateResult {
   verification?: ClaimVerificationResult;
 }
 
-function resolveSnapshots(snapshotIds: string[]): ExternalSnapshot[] {
+function resolveSnapshots(snapshotIds: string[], available: ExternalSnapshot[]): ExternalSnapshot[] {
+  const byId = new Map(available.map((snapshot) => [snapshot.id, snapshot]));
   return snapshotIds
-    .map((id) => getSnapshot(id))
-    .filter((s): s is ExternalSnapshot => Boolean(s && s.status === 'accepted'));
+    .map((id) => byId.get(id))
+    .filter((snapshot): snapshot is ExternalSnapshot => Boolean(snapshot && snapshot.status === 'accepted'));
 }
 
 export async function publishVerifiedRevision(
@@ -55,17 +58,19 @@ export async function publishVerifiedRevision(
   if (request.snapshotIds.length === 0) {
     return { ok: false, blockedReasonKey: 'research.publish.insufficient_sources' };
   }
-  const snapshots = resolveSnapshots(request.snapshotIds);
+  const snapshots = resolveSnapshots(request.snapshotIds, request.snapshots);
   if (snapshots.length < request.snapshotIds.length) {
     return { ok: false, blockedReasonKey: 'research.publish.unaccepted_snapshot' };
   }
 
   const questionVerification = verifyClaim(request.questionText, {
     snapshotIds: snapshots.map((s) => s.id),
+    snapshots,
     liveRevisions: request.liveRevisions,
   });
   const keyVerification = verifyClaim(request.answerKey, {
     snapshotIds: snapshots.map((s) => s.id),
+    snapshots,
     liveRevisions: request.liveRevisions,
   });
 
@@ -80,6 +85,7 @@ export async function publishVerifiedRevision(
   if (request.rubric && request.rubric.criteria.length > 0) {
     const rubricCheck = verifyClaim(request.rubric.criteria.join(' '), {
       snapshotIds: snapshots.map((s) => s.id),
+      snapshots,
       liveRevisions: request.liveRevisions,
     });
     if (rubricCheck.verdict !== 'verified') {

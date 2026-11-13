@@ -6,8 +6,9 @@
 
 use crate::database::{Repository, StudyPlanRepository};
 use crate::models::{
-    CreateStudyPlanInput, LegacyImportResult, NodeActivity, SaveStudyPlanDraftInput,
-    StudyCommandError, StudyPlanDetail, StudyPlanPreferences, StudyPlanSummary,
+    CreateStudyPlanInput, LegacyImportResult, NodeActivity, RenameStudyPlanInput,
+    SaveStudyPlanDraftInput, StudyCommandError, StudyPlan, StudyPlanDetail,
+    StudyPlanPreferences, StudyPlanSummary,
 };
 use tauri::State;
 
@@ -69,6 +70,21 @@ pub async fn save_study_plan_draft(
     repo: State<'_, Repository>,
 ) -> Result<StudyPlanDetail, StudyCommandError> {
     repository(&repo).save_study_plan_draft(input).await
+}
+
+#[tauri::command]
+pub async fn rename_study_plan(
+    input: RenameStudyPlanInput,
+    repo: State<'_, Repository>,
+) -> Result<StudyPlan, StudyCommandError> {
+    repository(&repo)
+        .rename_study_plan(
+            &input.plan_id,
+            &input.title,
+            &input.expected_title,
+            input.expected_plan_revision,
+        )
+        .await
 }
 
 #[tauri::command]

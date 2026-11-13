@@ -1413,6 +1413,7 @@ pub fn run() {
                 app.manage(cloud_auth_provider.clone());
                 app.manage(auth_store.clone());
                 app.manage(ai_key_store.clone());
+                app.manage(commands::study_plan_research::StudyPlanResearchRequestState::default());
                 app.manage(pocket_tts::PocketTTSInstallState::default());
                 app.manage(tts::SherpaTtsState::default());
                 app.manage(Arc::new(tts::chatterbox::ChatterboxSupervisor::new()));
@@ -2641,6 +2642,7 @@ pub fn run() {
             commands::list_study_plans,
             commands::get_study_plan,
             commands::save_study_plan_draft,
+            commands::rename_study_plan,
             commands::get_study_plan_preferences,
             commands::update_study_plan_preferences,
             commands::publish_study_plan_version,
@@ -2649,6 +2651,11 @@ pub fn run() {
             commands::archive_study_plan,
             commands::delete_study_plan,
             commands::import_legacy_study_plans,
+            commands::search_study_plan_web,
+            commands::capture_study_plan_research_snapshot,
+            commands::list_study_plan_research_snapshots,
+            commands::accept_study_plan_research_snapshot,
+            commands::cancel_study_plan_research_request,
             commands::create_study_plan_lesson,
             commands::get_study_plan_lesson,
             commands::list_study_plan_lessons_for_node,

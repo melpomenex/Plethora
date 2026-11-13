@@ -48,6 +48,8 @@ export function encodeQuestionRevision(
     difficulty: question.difficulty,
     learningObjectives: question.learningObjectives,
     sourceRefIds: question.sourceRefIds,
+    externalSnapshotIds: question.externalSnapshotIds ?? [],
+    externalEvidenceReviewed: question.externalEvidenceReviewed ?? false,
     explanation: question.explanation,
     maxPoints: question.maxPoints,
     applicationLevel: question.applicationLevel,

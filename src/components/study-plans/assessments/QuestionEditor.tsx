@@ -28,10 +28,12 @@ import type {
   ApplicationLevel,
 } from '../../../types/assessmentQuestions';
 import type { StudySourceRefV1 } from '../../../types/studySource';
+import type { ExternalSnapshot } from '../../../lib/study-plans/webresearch/snapshots';
 
 export interface QuestionEditorProps {
   initialQuestion: AssessmentQuestion;
   availableSourceRefs?: StudySourceRefV1[];
+  availableExternalSnapshots?: ExternalSnapshot[];
   onSave: (question: AssessmentQuestion) => Promise<void>;
   onClose: () => void;
   isSaving?: boolean;
@@ -47,11 +49,33 @@ const APPLICATION_LEVELS: ApplicationLevel[] = [
 export const QuestionEditor: React.FC<QuestionEditorProps> = ({
   initialQuestion,
   availableSourceRefs,
+  availableExternalSnapshots = [],
   onSave,
   onClose,
   isSaving = false,
 }) => {
-  const [question, setQuestion] = useState<AssessmentQuestion>(initialQuestion);
+  const [question, setQuestionState] = useState<AssessmentQuestion>(initialQuestion);
+  const setQuestion: React.Dispatch<React.SetStateAction<AssessmentQuestion>> = (update) => {
+    setQuestionState((current) => {
+      const next = typeof update === 'function' ? update(current) : update;
+      const hasExternalEvidence = (current.externalSnapshotIds?.length ?? 0) > 0 ||
+        (next.externalSnapshotIds?.length ?? 0) > 0;
+      const evidenceBasis = (value: AssessmentQuestion) => JSON.stringify({
+        ...value,
+        externalEvidenceReviewed: false,
+        externalSnapshotIds: [],
+        sourceRefIds: [],
+      });
+      if (
+        hasExternalEvidence &&
+        current.externalEvidenceReviewed &&
+        evidenceBasis(current) !== evidenceBasis(next)
+      ) {
+        return { ...next, externalEvidenceReviewed: false };
+      }
+      return next;
+    });
+  };
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
   // Live validation
@@ -106,9 +130,24 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
     setQuestion((prev) => ({ ...prev, sourceRefIds }));
   };
 
+  const handleExternalSourcesChange = (externalSnapshotIds: string[]) => {
+    setQuestion((prev) => ({ ...prev, externalSnapshotIds, externalEvidenceReviewed: false }));
+  };
+
   const handleSaveClick = async () => {
     if (!validationResult.valid) {
       setErrorBanner('Please resolve all validation constraints before saving.');
+      return;
+    }
+    if ((question.externalSnapshotIds ?? []).some((snapshotId) => {
+      const snapshot = availableExternalSnapshots.find((item) => item.id === snapshotId);
+      return snapshot?.status !== 'accepted';
+    })) {
+      setErrorBanner('A cited web source is stale or unavailable. Remove it and attach a current accepted snapshot before saving.');
+      return;
+    }
+    if ((question.externalSnapshotIds?.length ?? 0) > 0 && !question.externalEvidenceReviewed) {
+      setErrorBanner('Review the saved web excerpts and confirm they support the question before saving.');
       return;
     }
     setErrorBanner(null);
@@ -256,6 +295,13 @@ export const QuestionEditor: React.FC<QuestionEditorProps> = ({
             selectedSourceRefIds={question.sourceRefIds}
             availableSourceRefs={availableSourceRefs}
             onChange={handleSourcesChange}
+            selectedExternalSnapshotIds={question.externalSnapshotIds ?? []}
+            availableExternalSnapshots={availableExternalSnapshots}
+            externalEvidenceReviewed={question.externalEvidenceReviewed ?? false}
+            onExternalChange={handleExternalSourcesChange}
+            onExternalEvidenceReviewedChange={(externalEvidenceReviewed) =>
+              setQuestion((prev) => ({ ...prev, externalEvidenceReviewed }))
+            }
           />
 
           {/* 5. Precommitted Hints (0..3) */}

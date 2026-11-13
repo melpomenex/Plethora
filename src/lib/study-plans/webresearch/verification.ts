@@ -8,7 +8,7 @@
  * visibly unverified.
  */
 
-import { getSnapshot, type ExternalSnapshot } from './snapshots';
+import type { ExternalSnapshot } from './snapshots';
 
 export type SupportVerdict = 'verified' | 'unverified' | 'contradicted';
 
@@ -33,7 +33,9 @@ function supportsClaim(snapshot: ExternalSnapshot, claimTerms: string[]): boolea
 }
 
 export interface ClaimEvidenceInput {
-  snapshotIds: string[];
+  snapshotIds?: string[];
+  /** Snapshots supplied by the durable native Study Plans repository. */
+  snapshots?: ExternalSnapshot[];
   /** Current revision hashes (live) — null/unknown treated as stale. */
   liveRevisions?: Record<string, string>;
 }
@@ -44,9 +46,10 @@ export function verifyClaim(
 ): ClaimVerificationResult {
   const claimTerms = claim.split(/\s+/).filter((t) => t.length >= 4);
   const perSnapshot: PerSnapshotVerdict[] = [];
-  const accepted = input.snapshotIds
-    .map((id) => getSnapshot(id))
-    .filter((s): s is ExternalSnapshot => Boolean(s && s.status === 'accepted'));
+  const requestedIds = input.snapshotIds ? new Set(input.snapshotIds) : null;
+  const accepted = (input.snapshots ?? [])
+    .filter((snapshot) => snapshot.status === 'accepted')
+    .filter((snapshot) => !requestedIds || requestedIds.has(snapshot.id));
 
   let anyVerified = false;
   let anyContradiction = false;

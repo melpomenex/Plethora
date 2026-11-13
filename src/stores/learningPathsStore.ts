@@ -16,6 +16,7 @@ import type {
   LearningPathNode,
   NodeActivity,
   PathNodeStatus,
+  RenameStudyPlanInput,
   SaveStudyPlanDraftInput,
   StudyCommandError,
   StudyPlanDetail,
@@ -42,6 +43,7 @@ export interface LearningPathsStoreState {
   loadPlans: (includeArchived?: boolean) => Promise<StudyPlanSummary[]>;
   selectPlan: (planId: string | null, versionId?: string | null) => Promise<StudyPlanDetail | null>;
   createStudyPlan: (input: CreateStudyPlanInput) => Promise<StudyPlanDetail>;
+  renamePlan: (input: RenameStudyPlanInput) => Promise<void>;
   saveDraft: (input: SaveStudyPlanDraftInput) => Promise<StudyPlanDetail>;
   publishVersion: (
     planId: string,
@@ -230,6 +232,33 @@ export const useLearningPathsStore = create<LearningPathsStoreState>()((set, get
       if (get().lastRunToken === token) {
         set({ error: err, isLoading: false });
       }
+      throw err;
+    }
+  },
+
+  renamePlan: async (input: RenameStudyPlanInput) => {
+    try {
+      const plan = await api.renameStudyPlan(input);
+      const activePlanDetail = get().activePlanDetail;
+      set({
+        plans: get().plans
+          .map((summary) =>
+            summary.id === plan.id
+              ? { ...summary, title: plan.title, updatedAt: plan.updatedAt }
+              : summary
+          )
+          .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)),
+        paths: get().paths.map((path) =>
+          path.id === plan.id ? { ...path, title: plan.title, updatedAt: plan.updatedAt } : path
+        ),
+        activePlanDetail:
+          activePlanDetail?.plan.id === plan.id
+            ? { ...activePlanDetail, plan }
+            : activePlanDetail,
+        error: null,
+      });
+    } catch (err: any) {
+      set({ error: err });
       throw err;
     }
   },

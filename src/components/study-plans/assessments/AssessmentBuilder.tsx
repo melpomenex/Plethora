@@ -33,6 +33,7 @@ import { refreshCurriculumScope } from '../../../lib/study-plans/generation/curr
 import { GenerationPrivacySummary } from '../GenerationPrivacySummary';
 import { studyQuestionTask } from '../../../lib/ai/tasks/definitions/studyQuestionTasks';
 import { startExamAttempt } from '../../../api/exam-sessions';
+import { listStudyPlanResearchSnapshots } from '../../../api/study-plan-research';
 import type {
   AssessmentConfigV1,
   BlueprintDetail,
@@ -44,6 +45,7 @@ import type {
 import type { StudySourceRefV1 } from '../../../types/studySource';
 import type { StudyAiPreflight, StudyJobProgress } from '../../../lib/study-plans/generation/types';
 import type { StudyPlanDetail } from '../../../types/learningPaths';
+import type { ExternalSnapshot } from '../../../lib/study-plans/webresearch/snapshots';
 
 export interface AssessmentBuilderProps {
   planDetail?: StudyPlanDetail | null;
@@ -152,6 +154,8 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   const [isSavingQuestion, setIsSavingQuestion] = useState(false);
   const [cloudDisclosureAccepted, setCloudDisclosureAccepted] = useState(false);
   const [costConsentAccepted, setCostConsentAccepted] = useState(false);
+  const [externalEvidenceAccepted, setExternalEvidenceAccepted] = useState(false);
+  const [externalSnapshots, setExternalSnapshots] = useState<ExternalSnapshot[]>([]);
   const [preflightRoute, setPreflightRoute] = useState<StudyPreflightResult['route'] | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -176,6 +180,12 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   };
   const canGenerate = !!(preflight && preflightRoute && preflight.featureAllowed);
   const hasValidQuestions = detail?.questions.some((question) => question.validation === 'valid');
+  const hasExternalEvidence = detail?.questions.some((question) => (question.question.externalSnapshotIds?.length ?? 0) > 0) ?? false;
+  const hasUnavailableExternalEvidence = detail?.questions.some(({ question }) =>
+    (question.externalSnapshotIds ?? []).some((snapshotId) =>
+      externalSnapshots.find((snapshot) => snapshot.id === snapshotId)?.status !== 'accepted'
+    )
+  ) ?? false;
   const configuredSlots = config && detail ? planQuotaSlots(config, detail.revision.id) : [];
   const quotaReport = generationReport ?? (detail && hasValidQuestions
     ? evaluateQuotaReport(configuredSlots, detail.questions)
@@ -217,6 +227,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       const refreshed = await BlueprintService.getBlueprintRevision(detail.revision.id);
       setDetail(refreshed);
       setGenerationReport(null);
+      setExternalEvidenceAccepted(false);
       setManualQuestion(undefined);
     } finally {
       setIsSavingQuestion(false);
@@ -333,6 +344,20 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
     initBlueprint();
   }, [initBlueprint]);
 
+  useEffect(() => {
+    let active = true;
+    const researchPlanId = detail?.blueprint.planId || planDetail?.plan.id;
+    const researchVersionId = detail?.revision.planVersionId || planDetail?.version.id;
+    if (!researchPlanId || !researchVersionId) {
+      setExternalSnapshots([]);
+      return () => { active = false; };
+    }
+    void listStudyPlanResearchSnapshots(researchPlanId, researchVersionId)
+      .then((items) => { if (active) setExternalSnapshots(items); })
+      .catch(() => { if (active) setExternalSnapshots([]); });
+    return () => { active = false; };
+  }, [detail?.blueprint.planId, detail?.revision.planVersionId, planDetail?.plan.id, planDetail?.version.id]);
+
   // Save Draft modifications
   const handleSaveDraft = async () => {
     if (!detail || !config) return null;
@@ -361,6 +386,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
     setState('generating');
     setErrorBanner(null);
     setGenerationReport(null);
+    setExternalEvidenceAccepted(false);
     setProgress({ completed: 0, total: 1, labelKey: 'Initializing generation…' });
 
     const controller = new AbortController();
@@ -408,17 +434,27 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   };
 
   // Publish Blueprint Paper
-  const handlePublish = async (acceptShortfall = false) => {
+  const handlePublish = async (acceptShortfall = false, acceptExternalEvidence = externalEvidenceAccepted) => {
     if (!detail || !hasValidQuestions || abortControllerRef.current) return;
+    if (hasUnavailableExternalEvidence) {
+      setErrorBanner('A cited web source is stale or unavailable. Replace it with a current accepted snapshot before publishing.');
+      return;
+    }
+    if (hasExternalEvidence && !acceptExternalEvidence) {
+      setErrorBanner('Review and accept the cited web evidence before publishing this assessment.');
+      return;
+    }
     setIsPublishing(true);
     setErrorBanner(null);
     try {
       const published = await BlueprintService.publishBlueprint(
         detail.revision.id,
         detail.blueprint.revision,
-        acceptShortfall
+        acceptShortfall,
+        acceptExternalEvidence
       );
       setDetail(published);
+      setExternalEvidenceAccepted(false);
       setState('ready');
       onPublished?.(published);
     } catch (err: any) {
@@ -530,7 +566,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               variant="filled"
               size="sm"
               onClick={() => handlePublish(false)}
-              disabled={isPublishing || state === 'generating'}
+              disabled={isPublishing || state === 'generating' || hasUnavailableExternalEvidence || (hasExternalEvidence && !externalEvidenceAccepted)}
               className="bg-emerald-600 hover:bg-emerald-700 text-white"
             >
               <CheckCircle className="w-4 h-4 mr-1.5" />
@@ -551,6 +587,23 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
           )}
         </div>
       </div>
+
+      {hasExternalEvidence && state !== 'ready' && (
+        <label className="flex items-start gap-2.5 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-3 text-xs leading-relaxed text-amber-950 dark:text-amber-100">
+          <input
+            type="checkbox"
+            checked={externalEvidenceAccepted}
+            onChange={(event) => setExternalEvidenceAccepted(event.target.checked)}
+            className="mt-0.5 rounded border-amber-500 text-amber-700 focus:ring-amber-500"
+          />
+          <span>I reviewed the cited saved excerpts for every question and accept this new assessment revision for publication. Earlier attempts keep their original trust status.</span>
+        </label>
+      )}
+      {hasUnavailableExternalEvidence && state !== 'ready' && (
+        <p role="alert" className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-3 text-xs text-amber-950 dark:text-amber-100">
+          At least one cited web source has changed or is unavailable. Edit that question, replace the source with a current accepted snapshot, and review it again before publishing.
+        </p>
+      )}
 
       {/* Error / Notice Banner */}
       {errorBanner && (
@@ -615,7 +668,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             <div key={revision.id} className="flex items-center justify-between gap-3 rounded-lg border border-surface-200 dark:border-surface-700 p-3">
               <div className="min-w-0">
                 <p className="truncate text-sm">{revision.question.prompt}</p>
-                <p className="text-xs text-surface-500">{revision.question.kind} · slot {revision.slotKey}</p>
+                <p className="text-xs text-surface-500">{revision.question.kind} · slot {revision.slotKey}{revision.question.externalSnapshotIds?.length ? ` · ${revision.question.externalSnapshotIds.length} web source${revision.question.externalSnapshotIds.length === 1 ? '' : 's'}` : ''}</p>
               </div>
               {detail.revision.state !== 'ready' && (
                 <Button variant="outlined" size="sm" onClick={() => setManualQuestion(revision)} disabled={state === 'generating'}>
@@ -682,6 +735,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             key={manualQuestion?.id ?? `new-${slot.slotKey}`}
             initialQuestion={initialQuestion}
             availableSourceRefs={availableSourceRefs}
+            availableExternalSnapshots={externalSnapshots}
             onSave={saveManualQuestion}
             onClose={() => setManualQuestion(undefined)}
             isSaving={isSavingQuestion}

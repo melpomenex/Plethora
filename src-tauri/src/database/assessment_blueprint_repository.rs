@@ -733,9 +733,11 @@ impl AssessmentBlueprintRepository {
         revision_id: &str,
         expected_revision: i64,
         shortfall_accepted: bool,
+        external_evidence_accepted: bool,
     ) -> Result<BlueprintDetail, StudyCommandError> {
         let rev_row = sqlx::query(
-            "SELECT r.id, r.blueprint_id, r.state, r.config_json, r.quota_json, b.revision
+            "SELECT r.id, r.blueprint_id, r.plan_version_id, r.state, r.config_json,
+                    r.quota_json, b.revision, b.plan_id
              FROM assessment_blueprint_revisions r
              JOIN assessment_blueprints b ON r.blueprint_id = b.id
              WHERE r.id = ?",
@@ -761,7 +763,7 @@ impl AssessmentBlueprintRepository {
 
         // 1. Check all question revisions for this blueprint revision
         let q_rows = sqlx::query(
-            "SELECT id, validation
+            "SELECT id, validation, payload_json
              FROM assessment_question_revisions
              WHERE blueprint_revision_id = ?",
         )
@@ -777,6 +779,96 @@ impl AssessmentBlueprintRepository {
                 return Err(StudyCommandError::invalid_state(
                     "study.assessment.error.invalid_question_in_paper",
                 ));
+            }
+
+            let payload: serde_json::Value =
+                serde_json::from_str(&q.get::<String, _>("payload_json"))
+                    .unwrap_or(serde_json::Value::Null);
+            let external_ids = payload
+                .get("externalSnapshotIds")
+                .and_then(serde_json::Value::as_array)
+                .cloned()
+                .unwrap_or_default();
+            if external_ids.is_empty() {
+                continue;
+            }
+            if external_ids.len() > 4
+                || payload
+                    .get("externalEvidenceReviewed")
+                    .and_then(serde_json::Value::as_bool)
+                    != Some(true)
+            {
+                return Err(StudyCommandError::invalid_state(
+                    "study.assessment.error.external_evidence_not_reviewed",
+                ));
+            }
+            let library_source_count: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*) FROM assessment_question_sources WHERE question_revision_id = ?",
+            )
+            .bind(q.get::<String, _>("id"))
+            .fetch_one(&self.pool)
+            .await
+            .map_err(|e| storage_err("Failed to count question evidence", e))?;
+            if external_ids.len() as i64 + library_source_count > 4 {
+                return Err(StudyCommandError::invalid_state(
+                    "study.assessment.error.too_many_question_sources",
+                ));
+            }
+            if !external_evidence_accepted {
+                return Err(StudyCommandError::invalid_state(
+                    "study.assessment.error.external_evidence_acceptance_required",
+                ));
+            }
+            let plan_id: Option<String> = rev_row.get("plan_id");
+            let plan_version_id: Option<String> = rev_row.get("plan_version_id");
+            let (Some(plan_id), Some(plan_version_id)) = (plan_id, plan_version_id) else {
+                return Err(StudyCommandError::invalid_state(
+                    "study.assessment.error.external_evidence_plan_required",
+                ));
+            };
+            let authority_row = sqlx::query(
+                "SELECT knowledge_authority_json FROM study_plan_versions
+                 WHERE id = ? AND plan_id = ?",
+            )
+            .bind(&plan_version_id)
+            .bind(&plan_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| storage_err("Failed to validate external evidence plan", e))?
+            .ok_or_else(|| {
+                StudyCommandError::invalid_state(
+                    "study.assessment.error.external_evidence_plan_required",
+                )
+            })?;
+            let authority: serde_json::Value =
+                serde_json::from_str(&authority_row.get::<String, _>("knowledge_authority_json"))
+                    .unwrap_or(serde_json::Value::Null);
+            if authority.get("kind").and_then(serde_json::Value::as_str) != Some("model-only") {
+                return Err(StudyCommandError::invalid_state(
+                    "study.assessment.error.external_evidence_model_only_only",
+                ));
+            }
+            for external_id in external_ids {
+                let Some(external_id) = external_id.as_str() else {
+                    return Err(StudyCommandError::invalid_state(
+                        "study.assessment.error.external_evidence_unavailable",
+                    ));
+                };
+                let exists: Option<i64> = sqlx::query_scalar(
+                    "SELECT 1 FROM study_plan_research_snapshots
+                     WHERE id = ? AND plan_id = ? AND plan_version_id = ? AND status = 'accepted'",
+                )
+                .bind(external_id)
+                .bind(&plan_id)
+                .bind(&plan_version_id)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(|e| storage_err("Failed to validate cited web evidence", e))?;
+                if exists.is_none() {
+                    return Err(StudyCommandError::invalid_state(
+                        "study.assessment.error.external_evidence_unavailable",
+                    ));
+                }
             }
         }
 
@@ -1082,7 +1174,12 @@ mod tests {
         assert_eq!(detail.questions.len(), 0);
 
         let error = repo
-            .publish_assessment_blueprint(&detail.revision.id, detail.blueprint.revision, true)
+            .publish_assessment_blueprint(
+                &detail.revision.id,
+                detail.blueprint.revision,
+                true,
+                false,
+            )
             .await
             .expect_err("an empty paper cannot be published");
         assert_eq!(error.message_key, "study.assessment.error.empty_paper");
@@ -1225,14 +1322,14 @@ mod tests {
 
         // Try to publish without accepting shortfall (1 accepted < 2 requested)
         let pub_fail = repo
-            .publish_assessment_blueprint(&detail.revision.id, 1, false)
+            .publish_assessment_blueprint(&detail.revision.id, 1, false, false)
             .await;
         assert!(pub_fail.is_err());
         assert_eq!(pub_fail.unwrap_err().code, StudyErrorCode::QuotaShortfall);
 
         // Publish WITH shortfall_accepted = true -> Must succeed!
         let pub_ok = repo
-            .publish_assessment_blueprint(&detail.revision.id, 1, true)
+            .publish_assessment_blueprint(&detail.revision.id, 1, true, false)
             .await
             .expect("publish with shortfall accepted");
 

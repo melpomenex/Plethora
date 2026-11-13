@@ -3,7 +3,7 @@
  *
  * Research is a distinct consent boundary: ordinary plan generation, lessons and
  * retries NEVER invoke it. Every request carries an explicit approval token, an
- * exact transmitted query, disclosed endpoint/budget, and hard bounds (bytes,
+ * exact transmitted query, disclosed endpoint/limits, and hard bounds (bytes,
  * time, results, redirects, attempts). Private/local destinations are refused
  * before and after redirects; cancellation and quota are honored; there are no
  * hidden retries, and payloads never include library/learner data.
@@ -17,7 +17,6 @@ export const RESEARCH_MAX_QUERY_CHARS = 300;
 export const RESEARCH_MAX_RESULTS = 5;
 export const RESEARCH_MAX_REDIRECTS = 2;
 export const RESEARCH_MAX_ATTEMPTS = 1; // explicit retries only; never automatic
-export const RESEARCH_BUDGET_USD = 0.02;
 
 export type ResearchDisclosureState = 'approved' | 'declined' | 'off' | 'error';
 
@@ -38,20 +37,16 @@ export interface ResearchRequest {
 
 export interface ResearchResponse {
   items: Array<{ id: string; url: string; title: string; snippet: string }>;
-  usedBudgetUsd: number;
+  usedBudgetUsd: number | null;
   attempts: number;
 }
 
-export interface ResearchFetchResult {
-  ok: boolean;
-  url: string;
-  redirected?: string;
-  status: number;
-  bytes: number;
-}
-
 export interface ResearchAdapterDeps {
-  fetchImpl?: (request: ResearchRequest, url: string) => Promise<ResearchFetchResult>;
+  searchImpl?: (request: {
+    query: string;
+    maxResults: number;
+    approved: true;
+  }) => Promise<Array<{ id: string; url: string; title: string; snippet: string }>>;
 }
 
 function fail(code: StudyErrorCode, messageKey: string, retryable = false): StudyApiError {
@@ -118,7 +113,7 @@ export function discloseResearchQuery(
     state: 'approved',
     queryPreview: query,
     endpoint: RESEARCH_ENDPOINT,
-    budgetUsd: opts.budgetUsd ?? RESEARCH_BUDGET_USD,
+    budgetUsd: opts.budgetUsd ?? null,
   };
 }
 
@@ -135,45 +130,24 @@ export async function runBoundedResearch(
     throw fail('invalid_input', 'research.error.invalid_query');
   }
   const maxResults = Math.min(request.maxResults ?? RESEARCH_MAX_RESULTS, RESEARCH_MAX_RESULTS);
-  const budgetUsd = request.budgetUsd ?? disclosure.budgetUsd ?? RESEARCH_BUDGET_USD;
-  if (budgetUsd !== null && budgetUsd > RESEARCH_BUDGET_USD * 2) {
-    throw fail('cost_consent_required', 'research.error.budget_exceeded');
-  }
+  const budgetUsd = request.budgetUsd ?? disclosure.budgetUsd ?? null;
   if (request.signal?.aborted) throw fail('cancelled', 'research.error.cancelled');
-
-  const fetchImpl = deps.fetchImpl ?? (async (req, url) => {
-    const signal = req.signal;
-    if (signal?.aborted) throw fail('cancelled', 'research.error.cancelled');
-    return { ok: true, url, status: 200, bytes: 0 };
-  });
-
-  let attempts = 0;
-  let result: ResearchFetchResult;
-  // Exactly one attempt unless the caller asks to retry — no hidden retries.
-  attempts += 1;
+  if (!deps.searchImpl) {
+    throw fail('provider_unavailable', 'research.error.adapter_not_configured');
+  }
   try {
-    result = await fetchImpl(request, RESEARCH_ENDPOINT);
-  } catch (e) {
+    const items = await deps.searchImpl({ query, maxResults, approved: true });
     if (request.signal?.aborted) throw fail('cancelled', 'research.error.cancelled');
-    throw fail('provider_unavailable', 'research.error.fetch_failed', true);
+    if (items.length > RESEARCH_MAX_RESULTS || items.some((item) => !isPublicDestination(item.url))) {
+      throw fail('privacy_denied', 'research.error.invalid_search_results');
+    }
+    return { items: items.slice(0, maxResults), usedBudgetUsd: budgetUsd, attempts: 1 };
+  } catch (e) {
+    if (e instanceof Error && 'code' in e) throw e;
+    if (request.signal?.aborted) throw fail('cancelled', 'research.error.cancelled');
+    const reason = e instanceof Error && e.message ? e.message : 'Web Research provider request failed.';
+    throw fail('provider_unavailable', reason, true);
   }
-
-  if (request.signal?.aborted) throw fail('cancelled', 'research.error.cancelled');
-  if (!isPublicDestination(result.url)) {
-    throw fail('privacy_denied', 'research.error.private_destination');
-  }
-  if (result.redirected && !isPublicDestination(result.redirected)) {
-    throw fail('privacy_denied', 'research.error.redirect_private_destination');
-  }
-  for (const item of [result]) {
-    if (!item.ok) throw fail('provider_unavailable', 'research.error.fetch_failed', true);
-  }
-  if (result.bytes > 200_000) throw fail('invalid_input', 'research.error.response_too_large');
-
-  const items = [
-    { id: 'r1', url: result.url, title: 'Result 1', snippet: result.url },
-  ].slice(0, maxResults);
-  return { items, usedBudgetUsd: budgetUsd ?? 0, attempts };
 }
 
 /** Guard: ordinary generation paths never enter research without explicit approval. */

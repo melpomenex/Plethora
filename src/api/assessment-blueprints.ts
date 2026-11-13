@@ -187,7 +187,8 @@ export async function upsertAssessmentQuestionDraft(
 export async function publishAssessmentBlueprint(
   revisionId: string,
   expectedRevision: number,
-  shortfallAccepted: boolean
+  shortfallAccepted: boolean,
+  externalEvidenceAccepted = false
 ): Promise<BlueprintDetail> {
   ensureNativeSupport();
   try {
@@ -195,6 +196,7 @@ export async function publishAssessmentBlueprint(
       revisionId,
       expectedRevision,
       shortfallAccepted,
+      externalEvidenceAccepted,
     });
   } catch (err) {
     throw normalizeStudyError(err);

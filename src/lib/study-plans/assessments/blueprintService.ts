@@ -191,9 +191,15 @@ export class BlueprintService {
   static async publishBlueprint(
     revisionId: string,
     expectedRevision: number,
-    shortfallAccepted = false
+    shortfallAccepted = false,
+    externalEvidenceAccepted = false
   ): Promise<BlueprintDetail> {
-    return normalizeBlueprintDetail(await publishAssessmentBlueprint(revisionId, expectedRevision, shortfallAccepted));
+    return normalizeBlueprintDetail(await publishAssessmentBlueprint(
+      revisionId,
+      expectedRevision,
+      shortfallAccepted,
+      externalEvidenceAccepted,
+    ));
   }
 
   /**

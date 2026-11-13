@@ -1,105 +1,81 @@
-import { beforeEach, describe, expect, it } from 'vitest';
-import { createSnapshot, listSnapshots, getSnapshot, storeSnapshot, acceptSnapshot, checkRevalidation } from '../snapshots';
+import { describe, expect, it } from 'vitest';
+import type { ExternalSnapshot } from '../snapshots';
+import { checkRevalidation, resolveNavigation } from '../snapshots';
 import { verifyClaim } from '../verification';
 
-function snap(over: Partial<Parameters<typeof createSnapshot>[0]> = {}) {
-  return createSnapshot({
+function snap(over: Partial<ExternalSnapshot> = {}): ExternalSnapshot {
+  return {
+    id: 'wrs_1',
+    planId: 'sp_1',
+    planVersionId: 'spv_1',
+    query: 'photosynthesis',
+    title: 'Photosynthesis',
     url: 'https://example.org/article',
     publisher: 'Example Org',
     fetchedAt: '2026-11-13T10:00:00Z',
     revisionHash: 'h1',
-    locator: { kind: 'page', value: '12' },
+    locator: { kind: 'page', value: 'Captured readable text' },
     excerpt: 'Photosynthesis converts light energy into chemical energy in plants.',
+    status: 'accepted',
     ...over,
-  });
+  };
 }
 
-describe('external snapshots (web-research 2.1)', () => {
-  beforeEach(() => {
-    localStorage.clear();
+describe('external snapshot references (web-research 2.1)', () => {
+  it('opens a pinned excerpt with source and revision metadata', () => {
+    const snapshot = snap();
+    expect(resolveNavigation(snapshot)).toEqual({
+      source: 'pinned-excerpt',
+      locator: { kind: 'page', value: 'Captured readable text' },
+      excerpt: snapshot.excerpt,
+      url: snapshot.url,
+    });
   });
 
-  it('stores candidates distinctly and accepts them without losing fields', () => {
-    const candidate = snap();
-    storeSnapshot(candidate);
-    expect(listSnapshots('candidate')).toHaveLength(1);
-    expect(listSnapshots('accepted')).toHaveLength(0);
-
-    const accepted = acceptSnapshot(candidate.id)!;
-    expect(accepted.status).toBe('accepted');
-    expect(accepted.url).toBe('https://example.org/article');
-    expect(accepted.publisher).toBe('Example Org');
-    expect(accepted.revisionHash).toBe('h1');
-    expect(accepted.locator).toEqual({ kind: 'page', value: '12' });
-    expect(getSnapshot(candidate.id)?.status).toBe('accepted');
-  });
-
-  it('link change prompts revalidation but preserves the historical snapshot', () => {
-    const candidate = snap();
-    storeSnapshot(candidate);
-    acceptSnapshot(candidate.id);
-    const status = checkRevalidation(getSnapshot(candidate.id)!, 'h2');
+  it('detects a changed revision without rewriting the historical snapshot', () => {
+    const snapshot = snap();
+    const status = checkRevalidation(snapshot, 'h2');
     expect(status.changed).toBe(true);
     expect(status.current).toBe(false);
-    // Historical snapshot preserved with original revision/locator.
-    expect(getSnapshot(candidate.id)?.revisionHash).toBe('h1');
-  });
-
-  it('missing snapshot keeps stored data but has no navigation source of its own', () => {
-    const candidate = snap();
-    storeSnapshot(candidate);
-    expect(getSnapshot('missing')).toBeNull();
-    expect(listSnapshots()).toHaveLength(1);
+    expect(snapshot.revisionHash).toBe('h1');
   });
 });
 
-describe('claim verification (web-research 2.2)', () => {
-  beforeEach(() => {
-    localStorage.clear();
-  });
-
-  it('supports a claim only when an accepted current excerpt contains the terms', () => {
-    const candidate = snap();
-    storeSnapshot(candidate);
-    acceptSnapshot(candidate.id);
+describe('claim evidence review (web-research 2.2)', () => {
+  it('marks a passage-supported claim from an accepted snapshot', () => {
+    const snapshot = snap();
     const result = verifyClaim('Photosynthesis converts light energy', {
-      snapshotIds: [candidate.id],
-      liveRevisions: { [candidate.id]: 'h1' },
+      snapshotIds: [snapshot.id],
+      snapshots: [snapshot],
+      liveRevisions: { [snapshot.id]: 'h1' },
     });
     expect(result.verdict).toBe('verified');
     expect(result.perSnapshot[0].status).toBe('verified');
   });
 
-  it('rejects missing passage support, stale and forged evidence as unverified', () => {
-    const candidate = snap({ excerpt: 'Completely unrelated content about gardening.' });
-    storeSnapshot(candidate);
-    acceptSnapshot(candidate.id);
-
-    const missing = verifyClaim('Photosynthesis converts light energy', { snapshotIds: [candidate.id] });
+  it('keeps missing, stale, forged, and candidate evidence unverified', () => {
+    const snapshot = snap({ excerpt: 'Completely unrelated content about gardening.' });
+    const missing = verifyClaim('Photosynthesis converts light energy', { snapshotIds: [snapshot.id], snapshots: [snapshot] });
     expect(missing.verdict).toBe('unverified');
     expect(missing.perSnapshot[0].reasonKey).toBe('research.verify.passage_missing');
 
     const stale = verifyClaim('Photosynthesis converts light energy', {
-      snapshotIds: [candidate.id],
-      liveRevisions: { [candidate.id]: 'h-new' },
+      snapshotIds: [snapshot.id], snapshots: [snapshot], liveRevisions: { [snapshot.id]: 'h-new' },
     });
     expect(stale.verdict).toBe('unverified');
     expect(stale.perSnapshot[0].reasonKey).toBe('research.verify.stale');
 
-    // Candidate (not accepted) snapshots are never evidence.
-    const candidateOnly = snap();
-    storeSnapshot(candidateOnly);
-    const notAccepted = verifyClaim('Photosynthesis converts light energy', { snapshotIds: [candidateOnly.id] });
-    expect(notAccepted.verdict).toBe('unverified');
+    const candidate = snap({ status: 'candidate' });
+    const unaccepted = verifyClaim('Photosynthesis converts light energy', {
+      snapshotIds: [candidate.id], snapshots: [candidate],
+    });
+    expect(unaccepted.verdict).toBe('unverified');
   });
 
-  it('surfaces contradiction when accepted evidence actively disagrees', () => {
-    const candidate = snap({ excerpt: 'Photosynthesis does not convert light energy; the claim is false.' });
-    storeSnapshot(candidate);
-    acceptSnapshot(candidate.id);
+  it('surfaces contradictory evidence', () => {
+    const snapshot = snap({ excerpt: 'Photosynthesis does not convert light energy; the claim is false.' });
     const result = verifyClaim('Photosynthesis converts light energy', {
-      snapshotIds: [candidate.id],
-      liveRevisions: { [candidate.id]: 'h1' },
+      snapshotIds: [snapshot.id], snapshots: [snapshot], liveRevisions: { [snapshot.id]: 'h1' },
     });
     expect(result.verdict).toBe('contradicted');
     expect(result.perSnapshot[0].status).toBe('contradicted');

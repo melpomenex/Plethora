@@ -251,6 +251,13 @@ export interface SaveStudyPlanDraftInput {
   prerequisites: PlanPrerequisite[];
 }
 
+export interface RenameStudyPlanInput {
+  planId: string;
+  title: string;
+  expectedTitle: string;
+  expectedPlanRevision: number;
+}
+
 export interface LegacyImportResult {
   planId: string;
   importedNodeCount: number;

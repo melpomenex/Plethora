@@ -11,8 +11,10 @@ import type {
   CreateStudyPlanInput,
   LegacyImportResult,
   NodeActivity,
+  RenameStudyPlanInput,
   SaveStudyPlanDraftInput,
   StudyCommandError,
+  StudyPlan,
   StudyPlanDetail,
   StudyPlanSummary,
 } from '../types/learningPaths';
@@ -96,6 +98,15 @@ export async function saveStudyPlanDraft(input: SaveStudyPlanDraftInput): Promis
   ensureNativeSupport();
   try {
     return await invokeCommand<StudyPlanDetail>('save_study_plan_draft', { input });
+  } catch (err) {
+    throw normalizeStudyError(err);
+  }
+}
+
+export async function renameStudyPlan(input: RenameStudyPlanInput): Promise<StudyPlan> {
+  ensureNativeSupport();
+  try {
+    return await invokeCommand<StudyPlan>('rename_study_plan', { input });
   } catch (err) {
     throw normalizeStudyError(err);
   }

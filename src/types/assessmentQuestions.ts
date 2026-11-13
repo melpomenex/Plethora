@@ -177,6 +177,10 @@ interface QuestionCommon<K extends QuestionKind> {
   difficulty: Difficulty;
   learningObjectives: string[]; // 0..6 items, each 1..240
   sourceRefIds: string[]; // 0..4 items, max 4
+  /** Accepted external snapshots cited by this question (AI Knowledge Only plans). */
+  externalSnapshotIds?: string[];
+  /** Author confirmation that the saved excerpts support the question, key, and rubric. */
+  externalEvidenceReviewed?: boolean;
   explanation: string; // 0..4000 chars
   maxPoints: number; // integer 1..20
   applicationLevel: ApplicationLevel;

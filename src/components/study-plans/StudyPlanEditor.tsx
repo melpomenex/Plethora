@@ -6,7 +6,7 @@
  * - openspec/changes/establish-persistent-study-plans/tasks.md (C1-T09)
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useId } from 'react';
 import {
   ArrowLeft,
   FloppyDisk,
@@ -22,6 +22,7 @@ import {
   Sparkle,
   Link,
   GraduationCap,
+  PencilSimple,
 } from '@phosphor-icons/react';
 import { useLearningPathsStore } from '../../stores/learningPathsStore';
 import type {
@@ -59,6 +60,7 @@ import { Button } from '../md3/Button';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { studyErrorMessage } from '../../lib/study-plans/studyErrorMessage';
 import { AssessmentList } from './assessments/AssessmentList';
+import { WebResearchPanel } from './WebResearchPanel';
 import type { AssessmentConfigV1 } from '../../types/assessmentQuestions';
 
 export interface StudyPlanEditorProps {
@@ -88,7 +90,10 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
   diagnosticSlot,
 }) => {
   const originTabId = useTabId();
+  const ignorePlanTitleBlurRef = useRef(false);
+  const planTitleErrorId = useId();
   const selectPlan = useLearningPathsStore((state) => state.selectPlan);
+  const renamePlanAction = useLearningPathsStore((state) => state.renamePlan);
   const saveDraftAction = useLearningPathsStore((s) => s.saveDraft);
   const publishVersionAction = useLearningPathsStore((s) => s.publishVersion);
   const discardDraftAction = useLearningPathsStore((s) => s.discardDraft);
@@ -146,6 +151,10 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
   const [isPublishing, setIsPublishing] = useState(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [saveSuccessNotice, setSaveSuccessNotice] = useState<string | null>(null);
+  const [isEditingPlanTitle, setIsEditingPlanTitle] = useState(false);
+  const [planTitleDraft, setPlanTitleDraft] = useState(planDetail.plan.title);
+  const [isRenamingPlanTitle, setIsRenamingPlanTitle] = useState(false);
+  const [planTitleError, setPlanTitleError] = useState<string | null>(null);
 
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [showPublishDiffModal, setShowPublishDiffModal] = useState(false);
@@ -195,6 +204,14 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
     setIsDirty(false);
   }, [planDetail.version.id, planDetail.version.state, planDetail.plan.revision]);
 
+  useEffect(() => {
+    if (!isEditingPlanTitle) setPlanTitleDraft(planDetail.plan.title);
+  }, [isEditingPlanTitle, planDetail.plan.id, planDetail.plan.title]);
+
+  useEffect(() => {
+    if (!isEditingPlanTitle) ignorePlanTitleBlurRef.current = false;
+  }, [isEditingPlanTitle]);
+
   const handleNodesChange = (updatedNodes: StudyPlanVersionNode[]) => {
     setNodes(updatedNodes);
     setIsDirty(true);
@@ -207,6 +224,39 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
     setIsDirty(true);
     setSaveSuccessNotice(null);
     setErrorBanner(null);
+  };
+
+  const handleRenamePlanTitle = async () => {
+    if (isRenamingPlanTitle) return;
+    const title = planTitleDraft.trim();
+    if (!title) {
+      setPlanTitleError('Enter a title for this plan.');
+      return;
+    }
+    if (title === planDetail.plan.title) {
+      setIsEditingPlanTitle(false);
+      setPlanTitleError(null);
+      return;
+    }
+
+    setIsRenamingPlanTitle(true);
+    setPlanTitleError(null);
+    setErrorBanner(null);
+    try {
+      await renamePlanAction({
+        planId: planDetail.plan.id,
+        title,
+        expectedTitle: planDetail.plan.title,
+        expectedPlanRevision: planDetail.plan.revision,
+      });
+      setPlanTitleDraft(title);
+      setIsEditingPlanTitle(false);
+      setSaveSuccessNotice('Plan title updated.');
+    } catch (err: unknown) {
+      setErrorBanner(studyErrorMessage(err, 'Could not rename the plan. Your title is still here.'));
+    } finally {
+      setIsRenamingPlanTitle(false);
+    }
   };
 
   const handleNodeUpdate = (updatedNode: StudyPlanVersionNode) => {
@@ -384,7 +434,7 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
     <div className="h-full min-h-0 overflow-y-auto overscroll-contain max-w-6xl mx-auto p-6 space-y-6">
       {/* Top Header Row */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-surface-200 dark:border-surface-700">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
           <Button
             variant="text"
             size="iconSm"
@@ -393,7 +443,7 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
           >
             <ArrowLeft size={18} />
           </Button>
-          <div>
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap mb-0.5">
               <span
                 className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${
@@ -414,9 +464,72 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
               )}
           </div>
 
-            <h1 className="text-xl font-bold text-surface-900 dark:text-surface-100">
-              {planDetail.plan.title}
-            </h1>
+            {isEditingPlanTitle ? (
+              <>
+                <h1 className="text-xl font-bold text-surface-900 dark:text-surface-100">
+                  <input
+                    autoFocus
+                    type="text"
+                    maxLength={120}
+                    value={planTitleDraft}
+                    aria-label="Plan title"
+                    aria-invalid={Boolean(planTitleError)}
+                    aria-describedby={planTitleError ? planTitleErrorId : undefined}
+                    disabled={isRenamingPlanTitle}
+                    onChange={(event) => {
+                      setPlanTitleDraft(event.target.value);
+                      setPlanTitleError(null);
+                    }}
+                    onBlur={() => {
+                      if (ignorePlanTitleBlurRef.current) {
+                        ignorePlanTitleBlurRef.current = false;
+                        return;
+                      }
+                      void handleRenamePlanTitle();
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault();
+                        event.currentTarget.blur();
+                      } else if (event.key === 'Escape') {
+                        event.preventDefault();
+                        ignorePlanTitleBlurRef.current = true;
+                        setPlanTitleDraft(planDetail.plan.title);
+                        setPlanTitleError(null);
+                        setIsEditingPlanTitle(false);
+                      }
+                    }}
+                    className="w-full max-w-[32rem] rounded-md border border-primary/60 bg-surface-50 px-2 py-1 text-xl font-bold text-surface-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary dark:bg-surface-800 dark:text-surface-100"
+                  />
+                </h1>
+                {planTitleError && (
+                  <span id={planTitleErrorId} role="alert" className="mt-1 block text-xs font-normal text-error">
+                    {planTitleError}
+                  </span>
+                )}
+              </>
+            ) : (
+              <h1 className="text-xl font-bold text-surface-900 dark:text-surface-100">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPlanTitleDraft(planDetail.plan.title);
+                    setPlanTitleError(null);
+                    setIsEditingPlanTitle(true);
+                  }}
+                  aria-label={`Rename plan: ${planDetail.plan.title}`}
+                  title="Click to edit plan title"
+                  className="group inline-flex max-w-full items-baseline gap-1.5 rounded-sm text-left hover:text-primary dark:hover:text-primary-dark focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                >
+                  <span className="break-words">{planDetail.plan.title}</span>
+                  <PencilSimple
+                    size={14}
+                    aria-hidden="true"
+                    className="shrink-0 self-center text-surface-500 opacity-70 transition-opacity group-hover:opacity-100"
+                  />
+                </button>
+              </h1>
+            )}
             <p className="text-xs text-surface-500 line-clamp-1">{planDetail.plan.goal}</p>
         </div>
       </div>
@@ -784,14 +897,21 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
       {activeTab === 'sources' && (
         <div className="max-w-3xl space-y-4">
           <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100">
-            Grounded Material References
+            Source Material
           </h3>
-          <PlanSourceList
-            sourceRefIds={Object.keys(planDetail.sourceRefs)}
-            sourceResolutions={planDetail.sourceRefs}
-            onOpenSource={handleOpenSource}
-            isReadOnly={true}
-          />
+          {planDetail.version.knowledgeAuthority.kind === 'model-only' ? (
+            <WebResearchPanel
+              planId={planDetail.plan.id}
+              planVersionId={planDetail.version.id}
+            />
+          ) : (
+            <PlanSourceList
+              sourceRefIds={Object.keys(planDetail.sourceRefs)}
+              sourceResolutions={planDetail.sourceRefs}
+              onOpenSource={handleOpenSource}
+              isReadOnly={true}
+            />
+          )}
       </div>
       )}
 
