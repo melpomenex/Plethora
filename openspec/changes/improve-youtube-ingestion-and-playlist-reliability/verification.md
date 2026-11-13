@@ -28,3 +28,11 @@
 
 - Command: `npm run bench:check`
 - Assert that cookie file validation and playlist draft reconciliation adds zero overhead to media playback start times.
+
+## Current Issue #6 acceptance
+
+
+| IDs | Task | Evidence |
+| --- | --- | --- |
+| Y01 | 4.1 | Existing manager persistence suite covers component behavior. Native save/refresh/import/restart remains pending. |
+| Y02 | 4.2 | Version/JS health command exists without a frontend caller. Cookie setter is process-local and startup has no restore. Actual command classification, first-launch hydration and restricted-content qualification remain pending. |

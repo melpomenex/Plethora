@@ -34,8 +34,8 @@ describe("LocalVideoPlayer video context parity", () => {
 
   it("calls onVideoContextChange with formatted transcript when transcript exists", async () => {
     vi.mocked(videoExtractsApi.getVideoTranscript).mockResolvedValue({
-      id: "tr-1",
-      documentId: "doc-local-1",
+      document_id: "doc-local-1",
+      transcript: "Opening remarks of the local recording. Detailed explanation of the local video content.",
       segments: [
         { time: 0, end: 15, text: "Opening remarks of the local recording." },
         { time: 15, end: 45, text: "Detailed explanation of the local video content." },

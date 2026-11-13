@@ -5,13 +5,13 @@ Enable reliable authenticated YouTube video and transcript ingestion using custo
 ## ADDED Requirements
 
 ### Requirement: Custom YouTube cookies.txt file authentication
-The system SHALL support configuring an exported Netscape-format `cookies.txt` file path in Settings. When configured, `yt-dlp` commands SHALL execute with `--cookies <path>` to access age-restricted or subscriber-only content.
+The system SHALL support configuring an exported Netscape-format `cookies.txt` file path in Settings. For authorized imports the configured valid cookie source SHALL be available after restart to metadata, playlist and transcript commands. Diagnostic output SHALL omit credentials and cookie paths.
 
 #### Scenario: Ingesting an age-restricted YouTube video
 - **GIVEN** a configured and valid `cookies.txt` file path in Settings
 - **WHEN** the user imports an age-restricted YouTube URL
 - **THEN** `yt-dlp` SHALL execute with the `--cookies` argument
-- **AND** the transcript and metadata SHALL be successfully fetched without sign-in block errors
+- **AND** the application SHALL distinguish authorized success from authentication denial, unavailable media and runtime failure
 
 ### Requirement: YouTube runtime health diagnostics
 The system SHALL probe `yt-dlp` binary version age and JavaScript engine availability. When `yt-dlp` is older than 90 days or no JavaScript engine is found, the system SHALL surface an advisory banner with remediation instructions.
@@ -21,12 +21,11 @@ The system SHALL probe `yt-dlp` binary version age and JavaScript engine availab
 - **WHEN** the user opens Media Settings or attempts a YouTube import
 - **THEN** the system SHALL display an advisory notice recommending an update to prevent `n-sig` extraction failures
 
-### Requirement: Disambiguated video extract states
-The system SHALL record separate timestamps for opening/viewing a video extract (`last_viewed_at`) and rating it in review (`last_reviewed_at`). Opening an extract SHALL transition it from `New` to `Seen`, but SHALL NOT classify it as `Reviewed`.
+### Requirement: Playlist defaults persist and apply to new imports
 
-#### Scenario: Watching a video extract without rating
-- **GIVEN** a video extract with status `New`
-- **WHEN** the user opens and plays the video extract for 10 seconds
-- **THEN** `last_viewed_at` SHALL be populated
-- **AND** the status SHALL update to `Seen`
-- **AND** the extract SHALL NOT be marked `Reviewed` until rated in a review session
+Playlist default interval and priority SHALL persist after successful save and SHALL seed newly created subscriptions. Future imports SHALL use the active subscription configuration. A failed save SHALL retain the draft and last confirmed values.
+
+#### Scenario: Restart after editing playlist defaults
+
+- **WHEN** the user updates defaults, restarts, creates a subscription and imports one of its videos
+- **THEN** the newly imported item uses the saved defaults while earlier items retain their state

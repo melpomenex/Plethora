@@ -1,23 +1,5 @@
-# Tasks: Improve YouTube Ingestion & Playlist Reliability
+## 4. Current baseline, implementation and acceptance
 
-## 1. Cookie Authentication & Ingestion Robustness
-
-- [ ] 1.1 Add `youtube_cookie_file_path: Option<String>` to settings in `src-tauri/src/models/settings.rs` and `src/stores/settingsStore.ts`.
-- [ ] 1.2 Update `try_with_browser_cookies` and `ytdlp_command` in `src-tauri/src/youtube.rs` to prioritize `--cookies <path>` when a cookie file is configured.
-- [ ] 1.3 Add Tauri command `check_youtube_runtime_health` in `src-tauri/src/commands/video.rs` probing `yt-dlp` version age and JS engine availability.
-- [ ] 1.4 Add Rust unit tests in `src-tauri/src/youtube.rs` verifying that valid cookie paths generate appropriate `--cookies` arguments.
-
-## 2. Playlist Settings Drafts & Video Extract State
-
-- [ ] 2.1 Refactor `src/components/media/YouTubePlaylistManager.tsx` to use local draft state with explicit save and 800ms debounce for interval and priority sliders.
-- [ ] 2.2 Add `last_viewed_at` column tracking to video extracts in `src-tauri/src/commands/video.rs`.
-- [ ] 2.3 Update queue queries in `src-tauri/src/commands/queue.rs` to distinguish `New`, `Seen`, and `Reviewed` video extracts.
-- [ ] 2.4 Add component test in `src/components/media/__tests__/YouTubePlaylistManager.draft.test.tsx` verifying slider typing does not trigger race condition resets.
-
-## 3. Settings UI & Search Catalog Coverage
-
-- [ ] 3.1 Add YouTube Cookie File picker and Runtime Health status indicator in `src/components/settings/sections/MediaSettings.tsx`.
-- [ ] 3.2 Add stable DOM `id="setting-youtube-cookie-file"`.
-- [ ] 3.3 Register `setting-youtube-cookie-file` in `src/components/settings/search/settingsSearchCatalog.ts` under `SettingsTab.Media`.
-- [ ] 3.4 Add search coverage test in `src/components/settings/search/__tests__/settingsSearchCatalog.test.ts`.
-- [ ] 3.5 Run `npm run bench:check` to ensure no performance regression.
+- [ ] 4.1 Verify `YouTubePlaylistManager.tsx` → `src/api/youtubePlaylist.ts` → `commands/youtube_playlist.rs` with real temp SQLite. Save changed interval/priority, restart, create a new synthetic subscription and import one row, then verify persisted defaults and effective priority. Confirm an existing subscription keeps its override. Force rejected save and duplicate refresh/manual import. Preserve previously imported rows.
+- [ ] 4.2 Align `src-tauri/src/youtube.rs`, `commands/video.rs`, `commands/youtube_playlist.rs` and `IntegrationSettings.tsx` on the actual runtime command and typed diagnostic mapping. Cookie path currently uses a process-local setter and localStorage UI. Persist/reapply safely at first use after restart, validate file without logging paths/contents, preserve explicit credential choice. Add injected test subprocess vectors for installed/missing/stale binary, JS runtime variants, unreadable/malformed/expired file, sign-in denial, network, and success for metadata/transcript/playlist. Run one authorized restricted-media qualification on supported native targets and record denial distinctly from configuration failure.
+- [ ] 4.3 Verify localized copy, Settings Search coverage for changed controls, packaging differences and browser capability messaging. Use current yt-dlp release/channel data at implementation time and record actual version/runtime in evidence.
