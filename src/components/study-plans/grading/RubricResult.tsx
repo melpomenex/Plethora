@@ -18,6 +18,8 @@ import { RubricCriterionResult } from './RubricCriterionResult';
 import { GradeProvenance } from './GradeProvenance';
 import { GradeLimitations } from './GradeLimitations';
 import { GradeHistory } from './GradeHistory';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface RubricResultProps {
   question: ShortAnswerQuestion | EssayQuestion;
@@ -34,7 +36,8 @@ export const RubricResult: React.FC<RubricResultProps> = ({
   onManualReviewClick,
   className = '',
 }) => {
-  const assessment = grade.assessment;
+        useI18n();
+        const assessment = grade.assessment;
   const criteriaResults = grade.criteria || [];
   const criteriaMap = new Map(criteriaResults.map((c) => [c.criterionId, c]));
 
@@ -53,8 +56,7 @@ export const RubricResult: React.FC<RubricResultProps> = ({
         <div className="space-y-0.5">
           <div className="flex items-center gap-2">
             <span className="font-bold text-sm text-on-surface">
-              Rubric Assessment
-            </span>
+              {translateRecentFeature("studyPlans.ui.rubric-assessment.7890b78d")}</span>
             <span
               className={`text-xs px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
                 isFinal
@@ -64,16 +66,20 @@ export const RubricResult: React.FC<RubricResultProps> = ({
                   : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30'
               }`}
             >
-              {grade.state}
+              {grade.state === 'final'
+                ? translateRecentFeature("studyPlans.ui.final.c535ed76")
+                : grade.state === 'needs-review'
+                ? translateRecentFeature("studyPlans.ui.needs-review.5b4ea576")
+                : translateRecentFeature("studyPlans.ui.failed.82e58636")}
             </span>
           </div>
 
           <p className="text-xs text-on-surface-variant">
             {isFinal
-              ? 'Criteria evaluations confirmed; points officially awarded.'
+              ? translateRecentFeature("studyPlans.ui.criteria-evaluations-confirm.f82a430a")
               : isNeedsReview
-              ? 'Evaluation flagged for human educator review. Official points pending.'
-              : 'Automated evaluation could not complete.'}
+              ? translateRecentFeature("studyPlans.ui.evaluation-flagged-for-human.2a397c30")
+              : translateRecentFeature("studyPlans.ui.automated-evaluation-could-n.121d8d1c")}
           </p>
         </div>
 
@@ -83,12 +89,10 @@ export const RubricResult: React.FC<RubricResultProps> = ({
               {grade.points !== null ? grade.points : '\u2014'}
             </span>
             <span className="text-xs text-on-surface-variant font-medium">
-              {' '}/ {grade.maxPoints} pts
-            </span>
+              {' '}{translateRecentFeature("studyPlans.ui.var0-pts.b9b87d13", {var0: grade.maxPoints})}</span>
             {isNeedsReview && (
               <span className="block text-[11px] text-amber-600 dark:text-amber-400 font-medium">
-                (Awaiting Review)
-              </span>
+                {translateRecentFeature("studyPlans.ui.awaiting-review.6e15ac5c")}</span>
             )}
           </div>
 
@@ -99,8 +103,7 @@ export const RubricResult: React.FC<RubricResultProps> = ({
               className="px-3 py-1.5 rounded-lg border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 text-xs font-semibold flex items-center gap-1.5 transition-colors"
             >
               <PencilSimple size={14} weight="bold" />
-              Manual Review
-            </button>
+              {translateRecentFeature("studyPlans.ui.manual-review.d870dbe1")}</button>
           )}
         </div>
       </div>
@@ -114,8 +117,7 @@ export const RubricResult: React.FC<RubricResultProps> = ({
           <div className="flex flex-wrap items-center justify-between gap-2">
             <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-1.5">
               <Sparkle size={14} className="text-primary" weight="fill" />
-              Overall Feedback
-            </span>
+              {translateRecentFeature("studyPlans.ui.overall-feedback.98a9eb2a")}</span>
 
             <span
               className={`text-xs px-2.5 py-0.5 rounded-full font-bold capitalize ${
@@ -140,8 +142,7 @@ export const RubricResult: React.FC<RubricResultProps> = ({
             <div className="p-2.5 rounded-lg bg-surface-container-high/40 dark:bg-surface-container-high-dark/40 border border-outline-variant/20 text-xs text-on-surface-variant space-y-0.5">
               <span className="font-semibold text-on-surface flex items-center gap-1 text-[11px]">
                 <Lightbulb size={12} weight="fill" className="text-amber-500" />
-                Correction / Guidance:
-              </span>
+                {translateRecentFeature("studyPlans.ui.correction-guidance.bfd2f5ce")}</span>
               <p className="italic">{assessment.suggestedCorrection}</p>
             </div>
           )}
@@ -150,9 +151,7 @@ export const RubricResult: React.FC<RubricResultProps> = ({
 
       {/* Per-Criterion Evaluated Cards */}
       <div className="space-y-3">
-        <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant block">
-          Committed Rubric Criteria ({question.rubric.criteria.length})
-        </span>
+        <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant block">{translateRecentFeature("studyPlans.ui.committed-rubric-criteria-va.947b12f6", {var0: question.rubric.criteria.length})}</span>
 
         <div className="space-y-2.5">
           {question.rubric.criteria.map((crit) => (

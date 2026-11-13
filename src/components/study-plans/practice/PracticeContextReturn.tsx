@@ -1,4 +1,6 @@
 import React from 'react';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface PracticeReturnContext {
   planId?: string | null;
@@ -14,11 +16,12 @@ export interface PracticeContextReturnProps {
 }
 
 export const PracticeContextReturn: React.FC<PracticeContextReturnProps> = ({ context, onReturn }) => {
-  if (!context || (!context.planId && !context.nodeId && !context.gapId)) return null;
+        useI18n();
+        if (!context || (!context.planId && !context.nodeId && !context.gapId)) return null;
   return (
     <div data-testid="practice-context-return" className="rounded-xl border border-outline-variant/30 p-3">
       <p className="text-xs">
-        Return context: plan {context.planId ?? '—'}, node {context.nodeId ?? '—'}, gap {context.gapId ?? '—'}
+        {translateRecentFeature("studyPlans.ui.return-context-plan.fa789fc6")}{context.planId ?? '—'}{translateRecentFeature("studyPlans.ui.node.eddadd59")}{context.nodeId ?? '—'}{translateRecentFeature("studyPlans.ui.gap.1e310263")}{context.gapId ?? '—'}
       </p>
       <button
         type="button"
@@ -26,8 +29,7 @@ export const PracticeContextReturn: React.FC<PracticeContextReturnProps> = ({ co
         onClick={() => onReturn?.()}
         className="text-xs underline min-h-[32px]"
       >
-        Return to plan
-      </button>
+        {translateRecentFeature("studyPlans.ui.return-to-plan.1c81213c")}</button>
     </div>
   );
 };

@@ -10,6 +10,8 @@ import React from 'react';
 import { Files, Trash, FileText, ArrowSquareOut } from '@phosphor-icons/react';
 import type { StudySourceRefV1 } from '../../../types/studySource';
 import type { ExternalSnapshot } from '../../../lib/study-plans/webresearch/snapshots';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface QuestionSourceEditorProps {
   selectedSourceRefIds: string[];
@@ -36,7 +38,8 @@ export const QuestionSourceEditor: React.FC<QuestionSourceEditorProps> = ({
   disabled = false,
   className = '',
 }) => {
-  const handleAddSource = (sourceRefId: string) => {
+        useI18n();
+        const handleAddSource = (sourceRefId: string) => {
     if (selectedSourceRefIds.length + selectedExternalSnapshotIds.length >= 4 || selectedSourceRefIds.includes(sourceRefId)) {
       return;
     }
@@ -71,22 +74,19 @@ export const QuestionSourceEditor: React.FC<QuestionSourceEditorProps> = ({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Files className="w-4 h-4 text-primary-600 dark:text-primary-400" />
-          <h4 className="text-xs font-semibold uppercase tracking-wider text-surface-500 dark:text-surface-400">
-            Grounding Sources ({totalSelected} / 4 max)
-          </h4>
+          <h4 className="text-xs font-semibold uppercase tracking-wider text-surface-500 dark:text-surface-400">{translateRecentFeature("studyPlans.ui.grounding-sources-var0-4-max.dc82b8ed", {var0: totalSelected})}</h4>
         </div>
-        <span className="text-xs text-surface-400">At least 1 required for valid questions</span>
+        <span className="text-xs text-surface-400">{translateRecentFeature("studyPlans.ui.at-least-1-required-for-vali.26a69cdf")}</span>
       </div>
 
       {totalSelected === 0 ? (
         <div className="p-3 text-center text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 rounded-lg border border-amber-200 dark:border-amber-800/50">
-          No grounding source attached. Questions must cite at least one source excerpt.
-        </div>
+          {translateRecentFeature("studyPlans.ui.no-grounding-source-attached.0d2b51b3")}</div>
       ) : (
         <div className="space-y-2">
           {selectedSourceRefIds.map((sourceId, index) => {
-            const ref = availableSourceRefs.find((r) => r.id === sourceId);
-            const role = index === 0 ? 'Primary Source' : 'Supporting Source';
+                        const ref = availableSourceRefs.find((r) => r.id === sourceId);
+            const role = index === 0 ? translateRecentFeature("studyPlans.ui.primary-source.39de8ebf") : translateRecentFeature("studyPlans.ui.supporting-source.7c713fa2");
 
             return (
               <div
@@ -114,7 +114,7 @@ export const QuestionSourceEditor: React.FC<QuestionSourceEditorProps> = ({
                   <button
                     type="button"
                     onClick={() => handleRemoveSource(sourceId)}
-                    title="Remove Source"
+                    title={translateRecentFeature("studyPlans.ui.remove-source.307ed95c")}
                     className="p-1 rounded text-surface-400 hover:text-red-600 hover:bg-surface-100 dark:hover:bg-surface-700 flex-shrink-0"
                   >
                     <Trash className="w-4 h-4" />
@@ -129,7 +129,7 @@ export const QuestionSourceEditor: React.FC<QuestionSourceEditorProps> = ({
       {selectedExternalSnapshotIds.length > 0 && (
         <div className="space-y-2">
           {selectedExternalSnapshotIds.map((snapshotId) => {
-            const snapshot = availableExternalSnapshots.find((item) => item.id === snapshotId);
+                        const snapshot = availableExternalSnapshots.find((item) => item.id === snapshotId);
             return (
               <div key={snapshotId} className="space-y-2 rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 p-3 text-xs">
                 <div className="flex items-start justify-between gap-3">
@@ -138,20 +138,20 @@ export const QuestionSourceEditor: React.FC<QuestionSourceEditorProps> = ({
                       <FileText className="h-4 w-4 flex-shrink-0 text-primary-600 dark:text-primary-400" />
                       <span className="font-semibold text-surface-900 dark:text-surface-100">{snapshot?.title || snapshotId}</span>
                       <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${snapshot?.status === 'accepted' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300' : 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200'}`}>
-                        {snapshot?.status === 'accepted' ? 'Accepted web source' : snapshot?.status === 'stale' ? 'Stale web source' : 'Unavailable web source'}
+                        {snapshot?.status === 'accepted' ? translateRecentFeature("studyPlans.ui.accepted-web-source.a1b5e834") : snapshot?.status === 'stale' ? translateRecentFeature("studyPlans.ui.stale-web-source.afe4fc50") : translateRecentFeature("studyPlans.ui.unavailable-web-source.51e8e0c7")}
                       </span>
                     </div>
                     {snapshot && <p className="text-[11px] text-surface-600 dark:text-surface-300">{snapshot.publisher} · {new Date(snapshot.fetchedAt).toLocaleDateString()} · {snapshot.revisionHash}</p>}
                   </div>
                   {!disabled && (
-                    <button type="button" onClick={() => handleRemoveExternalSnapshot(snapshotId)} title="Remove web source" className="rounded p-1 text-surface-500 hover:bg-surface-100 hover:text-red-700 dark:hover:bg-surface-700 dark:hover:text-red-300">
+                    <button type="button" onClick={() => handleRemoveExternalSnapshot(snapshotId)} title={translateRecentFeature("studyPlans.ui.remove-web-source.30f7e2c7")} className="rounded p-1 text-surface-500 hover:bg-surface-100 hover:text-red-700 dark:hover:bg-surface-700 dark:hover:text-red-300">
                       <Trash className="h-4 w-4" />
                     </button>
                   )}
                 </div>
-                {snapshot?.status !== 'accepted' && <p className="text-[11px] text-amber-900 dark:text-amber-200">Replace this citation with an accepted current snapshot before saving.</p>}
+                {snapshot?.status !== 'accepted' && <p className="text-[11px] text-amber-900 dark:text-amber-200">{translateRecentFeature("studyPlans.ui.replace-this-citation-with-a.40afdc7c")}</p>}
                 {snapshot && <blockquote className="rounded-md bg-surface-50 dark:bg-surface-900/70 p-2 text-[11px] leading-relaxed text-surface-700 dark:text-surface-200">{snapshot.excerpt}</blockquote>}
-                {snapshot && <a href={snapshot.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary-700 underline underline-offset-2 dark:text-primary-300">Open captured source <ArrowSquareOut className="h-3 w-3" /></a>}
+                {snapshot && <a href={snapshot.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary-700 underline underline-offset-2 dark:text-primary-300">{translateRecentFeature("studyPlans.ui.open-captured-source.3ef4cdb6")}<ArrowSquareOut className="h-3 w-3" /></a>}
               </div>
             );
           })}
@@ -168,9 +168,9 @@ export const QuestionSourceEditor: React.FC<QuestionSourceEditorProps> = ({
               }}
               defaultValue=""
               className="w-full h-8 px-2 text-xs rounded border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 text-surface-800 dark:text-surface-200"
-              aria-label="Add library grounding source"
+              aria-label={translateRecentFeature("studyPlans.ui.add-library-grounding-source.e309d534")}
             >
-              <option value="" disabled>+ Attach library source excerpt…</option>
+              <option value="" disabled>{translateRecentFeature("studyPlans.ui.attach-library-source-excerp.c5fd8a28")}</option>
               {unselectedRefs.map((ref) => (
                 <option key={ref.id} value={ref.id}>{ref.documentTitle} — {ref.excerpt.slice(0, 50)}…</option>
               ))}
@@ -184,9 +184,9 @@ export const QuestionSourceEditor: React.FC<QuestionSourceEditorProps> = ({
               }}
               defaultValue=""
               className="w-full h-8 px-2 text-xs rounded border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 text-surface-800 dark:text-surface-200"
-              aria-label="Add accepted web source"
+              aria-label={translateRecentFeature("studyPlans.ui.add-accepted-web-source.f6479122")}
             >
-              <option value="" disabled>+ Attach accepted web source…</option>
+              <option value="" disabled>{translateRecentFeature("studyPlans.ui.attach-accepted-web-source.127798dc")}</option>
               {unselectedExternalSnapshots.map((snapshot) => (
                 <option key={snapshot.id} value={snapshot.id}>{snapshot.title} — {snapshot.publisher}</option>
               ))}
@@ -203,7 +203,7 @@ export const QuestionSourceEditor: React.FC<QuestionSourceEditorProps> = ({
             onChange={(event) => onExternalEvidenceReviewedChange?.(event.target.checked)}
             className="mt-0.5 rounded border-amber-500 text-amber-700 focus:ring-amber-500"
           />
-          <span>I reviewed each saved excerpt and confirm it supports this question, its answer key, and its rubric.</span>
+          <span>{translateRecentFeature("studyPlans.ui.i-reviewed-each-saved-excerp.85461e67")}</span>
         </label>
       )}
     </div>

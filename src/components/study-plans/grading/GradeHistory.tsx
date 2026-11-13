@@ -15,6 +15,8 @@ import {
   CaretUp,
 } from '@phosphor-icons/react';
 import type { GradeRecord } from '../../../types/assessmentSessions';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface GradeHistoryProps {
   grades: GradeRecord[];
@@ -25,7 +27,8 @@ export const GradeHistory: React.FC<GradeHistoryProps> = ({
   grades,
   className = '',
 }) => {
-  const [isOpen, setIsOpen] = useState(false);
+        useI18n();
+        const [isOpen, setIsOpen] = useState(false);
 
   if (!grades || grades.length <= 1) {
     return null; // Don't clutter UI if only a single grade exists
@@ -43,9 +46,7 @@ export const GradeHistory: React.FC<GradeHistoryProps> = ({
         aria-expanded={isOpen}
       >
         <span className="flex items-center gap-1.5">
-          <ClockCounterClockwise size={15} />
-          Evaluation History ({grades.length} revisions)
-        </span>
+          <ClockCounterClockwise size={15} />{translateRecentFeature("studyPlans.ui.evaluation-history-var0-revi.422a8df5", {var0: grades.length})}</span>
         {isOpen ? <CaretUp size={14} /> : <CaretDown size={14} />}
       </button>
 
@@ -70,13 +71,11 @@ export const GradeHistory: React.FC<GradeHistoryProps> = ({
                       {isManual ? (
                         <>
                           <ShieldCheck size={14} className="text-primary" />
-                          Manual Override
-                        </>
+                          {translateRecentFeature("studyPlans.ui.manual-override.6c29d1a1")}</>
                       ) : isAI ? (
                         <>
                           <Cpu size={14} className="text-secondary" />
-                          AI Evaluation
-                        </>
+                          {translateRecentFeature("studyPlans.ui.ai-evaluation.5290ad87")}</>
                       ) : (
                         'Deterministic'
                       )}
@@ -84,8 +83,7 @@ export const GradeHistory: React.FC<GradeHistoryProps> = ({
 
                     {grade.isCurrent && (
                       <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary text-on-primary">
-                        CURRENT
-                      </span>
+                        {translateRecentFeature("studyPlans.ui.current.b85e45e8")}</span>
                     )}
 
                     <span
@@ -97,19 +95,21 @@ export const GradeHistory: React.FC<GradeHistoryProps> = ({
                           : 'bg-rose-500/10 text-rose-600 dark:text-rose-400'
                       }`}
                     >
-                      {grade.state}
+                      {grade.state === 'final'
+                        ? translateRecentFeature("studyPlans.ui.final.c535ed76")
+                        : grade.state === 'needs-review'
+                        ? translateRecentFeature("studyPlans.ui.needs-review.5b4ea576")
+                        : translateRecentFeature("studyPlans.ui.failed.82e58636")}
                     </span>
                   </div>
 
                   <span className="font-bold text-on-surface">
-                    {grade.points !== null ? `${grade.points}/${grade.maxPoints} pts` : 'Pending'}
+                    {grade.points !== null ? translateRecentFeature("i18nAudit.ui.var0-var1-pts.423d6a4c", {var0: grade.points, var1: grade.maxPoints}) : translateRecentFeature("studyPlans.ui.pending.92e21aca")}
                   </span>
                 </div>
 
                 {isManual && grade.manualReason && (
-                  <p className="text-on-surface-variant italic text-[11px]">
-                    Reason: &ldquo;{grade.manualReason}&rdquo;
-                  </p>
+                  <p className="text-on-surface-variant italic text-[11px]">{translateRecentFeature("studyPlans.ui.reason-var0.75c1f7f8", {var0: grade.manualReason})}</p>
                 )}
 
                 <div className="text-[10px] text-on-surface-variant/70">

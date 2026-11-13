@@ -16,6 +16,8 @@ import {
   FloppyDisk,
 } from '@phosphor-icons/react';
 import { Button } from '../../md3/Button';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface CriterionConfirmationItem {
   criterionId: string;
@@ -51,7 +53,8 @@ export const ManualGradeConfirmation: React.FC<ManualGradeConfirmationProps> = (
   onBack,
   className = '',
 }) => {
-  const percentage = maxPoints > 0 ? Math.round((calculatedPoints / maxPoints) * 100) : 0;
+        useI18n();
+        const percentage = maxPoints > 0 ? Math.round((calculatedPoints / maxPoints) * 100) : 0;
 
   return (
     <div
@@ -62,8 +65,7 @@ export const ManualGradeConfirmation: React.FC<ManualGradeConfirmationProps> = (
       <div className="space-y-1">
         <h3 className="text-base font-bold text-on-surface flex items-center gap-2">
           <CheckCircle size={20} className="text-primary" weight="fill" />
-          Confirm Authoritative Manual Grade
-        </h3>
+          {translateRecentFeature("studyPlans.ui.confirm-authoritative-manual.7f32ac82")}</h3>
         {questionTitle && (
           <p className="text-xs text-on-surface-variant font-medium">
             {questionTitle}
@@ -75,13 +77,9 @@ export const ManualGradeConfirmation: React.FC<ManualGradeConfirmationProps> = (
       <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs flex items-start gap-2.5">
         <WarningCircle size={18} className="shrink-0 mt-0.5" weight="fill" />
         <div className="space-y-0.5">
-          <span className="font-bold">Authoritative Override</span>
+          <span className="font-bold">{translateRecentFeature("studyPlans.ui.authoritative-override.3f21fc90")}</span>
           <p className="text-xs leading-relaxed">
-            Committing this evaluation permanently records a human educator grade
-            with state <code className="px-1 py-0.5 bg-amber-500/20 rounded font-mono">final</code> and
-            origin <code className="px-1 py-0.5 bg-amber-500/20 rounded font-mono">manual</code>.
-            It cannot be automatically displaced by future AI retries.
-          </p>
+            {translateRecentFeature("studyPlans.ui.committing-this-evaluation-p.55cfe236")}<code className="px-1 py-0.5 bg-amber-500/20 rounded font-mono">{translateRecentFeature("studyPlans.ui.final.052f23d0")}</code> {translateRecentFeature("studyPlans.ui.and-origin.c65f84b3")}<code className="px-1 py-0.5 bg-amber-500/20 rounded font-mono">{translateRecentFeature("studyPlans.ui.manual.c6e2933d")}</code>{translateRecentFeature("studyPlans.ui.it-cannot-be-automatically-d.50438269")}</p>
         </div>
       </div>
 
@@ -89,11 +87,8 @@ export const ManualGradeConfirmation: React.FC<ManualGradeConfirmationProps> = (
       <div className="flex items-center justify-between p-4 rounded-xl bg-surface-container/60 dark:bg-surface-container-dark/60 border border-outline-variant/30">
         <div>
           <span className="text-xs font-semibold text-on-surface-variant block uppercase tracking-wider">
-            Calculated Award
-          </span>
-          <span className="text-xs text-on-surface-variant">
-            {percentage}% of maximum points
-          </span>
+            {translateRecentFeature("studyPlans.ui.calculated-award.1d7db40e")}</span>
+          <span className="text-xs text-on-surface-variant">{translateRecentFeature("studyPlans.ui.var0-of-maximum-points.9c77f99e", {var0: percentage})}</span>
         </div>
 
         <div className="text-right">
@@ -101,19 +96,18 @@ export const ManualGradeConfirmation: React.FC<ManualGradeConfirmationProps> = (
             {calculatedPoints}
           </span>
           <span className="text-sm font-semibold text-on-surface-variant">
-            {' '}/ {maxPoints} pts
-          </span>
+            {' '}{translateRecentFeature("studyPlans.ui.var0-pts.b9b87d13", {var0: maxPoints})}</span>
         </div>
       </div>
 
       {/* Criteria Breakdown */}
       <div className="space-y-2">
         <span className="text-xs font-bold uppercase tracking-wider text-on-surface-variant block">
-          Criteria Summary
-        </span>
+          {translateRecentFeature("studyPlans.ui.criteria-summary.f7015651")}</span>
 
         <div className="divide-y divide-outline-variant/20 rounded-xl border border-outline-variant/30 overflow-hidden bg-surface-container-low/40 dark:bg-surface-container-low-dark/40">
-          {criteria.map((c) => (
+          {criteria.map((c) => {
+                        return (
             <div key={c.criterionId} className="p-3 text-xs flex flex-wrap items-center justify-between gap-2">
               <div className="space-y-0.5 max-w-[70%]">
                 <span className="font-semibold text-on-surface block">
@@ -127,23 +121,19 @@ export const ManualGradeConfirmation: React.FC<ManualGradeConfirmationProps> = (
               </div>
 
               <div className="text-right">
-                <span className="font-bold text-on-surface block">
-                  Level {c.level}/4
-                </span>
-                <span className="text-[11px] text-on-surface-variant">
-                  +{c.pointsContribution} pts (w: {c.weight})
-                </span>
+                <span className="font-bold text-on-surface block">{translateRecentFeature("studyPlans.ui.level-var0-4.e8de2f4e", {var0: c.level})}</span>
+                <span className="text-[11px] text-on-surface-variant">{translateRecentFeature("studyPlans.ui.var0-pts-w-var1.c967f25b", {var0: c.pointsContribution, var1: c.weight})}</span>
               </div>
             </div>
-          ))}
+          );
+          })}
         </div>
       </div>
 
       {/* Mandatory Reason */}
       <div className="space-y-1.5 p-3.5 rounded-xl bg-surface-container-low dark:bg-surface-container-low-dark border border-outline-variant/30 text-xs">
         <span className="font-bold uppercase tracking-wider text-on-surface-variant block text-[10px]">
-          Recorded Justification / Reason:
-        </span>
+          {translateRecentFeature("studyPlans.ui.recorded-justification-reaso.9adc844f")}</span>
         <p className="text-xs text-on-surface italic leading-relaxed whitespace-pre-wrap">
           "{manualReason}"
         </p>
@@ -165,8 +155,7 @@ export const ManualGradeConfirmation: React.FC<ManualGradeConfirmationProps> = (
           className="min-h-[40px] px-4 text-xs font-semibold"
         >
           <ArrowLeft size={16} className="mr-1.5 inline" />
-          Back to Editing
-        </Button>
+          {translateRecentFeature("studyPlans.ui.back-to-editing.89727b71")}</Button>
 
         <Button
           variant="filled"
@@ -175,7 +164,7 @@ export const ManualGradeConfirmation: React.FC<ManualGradeConfirmationProps> = (
           className="min-h-[40px] px-5 text-xs font-bold shadow-sm"
         >
           <FloppyDisk size={16} className={`mr-1.5 inline ${isSubmitting ? 'animate-spin' : ''}`} />
-          {isSubmitting ? 'Saving...' : 'Confirm & Commit Manual Grade'}
+          {isSubmitting ? translateRecentFeature("common.saving") : translateRecentFeature("studyPlans.ui.confirm-commit-manual-grade.eb6a853d")}
         </Button>
       </div>
     </div>

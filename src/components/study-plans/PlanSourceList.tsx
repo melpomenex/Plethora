@@ -20,6 +20,8 @@ import type { StudySourceResolution } from '../../types/studySource';
 import { Button } from '../md3/Button';
 import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from '../common/ContextMenu';
 import { useStudyPlanContextMenu } from './useStudyPlanContextMenu';
+import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
+
 
 const contextMenuId = 'study-plan-source-context-menu';
 
@@ -38,51 +40,46 @@ export const PlanSourceList: React.FC<PlanSourceListProps> = ({
   onRemoveSource,
   isReadOnly = false,
 }) => {
-  const contextMenu = useStudyPlanContextMenu(contextMenuId);
+        useI18n();
+        const contextMenu = useStudyPlanContextMenu(contextMenuId);
 
   if (sourceRefIds.length === 0) {
     return (
       <div className="py-4 text-center text-xs text-surface-500 border border-dashed border-surface-200 dark:border-surface-700 rounded-xl">
-        No source material linked to this topic.
-      </div>
+        {translateRecentFeature("studyPlans.ui.no-source-material-linked-to.eb745b27")}</div>
     );
   }
 
   const renderStatusBadge = (status?: StudySourceResolution['status']) => {
-    switch (status) {
+        switch (status) {
       case 'current':
         return (
           <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
             <CheckCircle size={12} weight="fill" />
-            Current
-          </span>
+            {translateRecentFeature("studyPlans.ui.current.e40f6471")}</span>
         );
       case 'stale':
         return (
           <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
             <Warning size={12} weight="fill" />
-            Stale revision
-          </span>
+            {translateRecentFeature("studyPlans.ui.stale-revision.75e5ea66")}</span>
         );
       case 'missing':
         return (
           <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20">
             <XCircle size={12} weight="fill" />
-            Document missing
-          </span>
+            {translateRecentFeature("studyPlans.ui.document-missing.61f55161")}</span>
         );
       case 'ambiguous':
         return (
           <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400 border border-purple-500/20">
             <Question size={12} weight="fill" />
-            Multiple matches
-          </span>
+            {translateRecentFeature("studyPlans.ui.multiple-matches.15aecfea")}</span>
         );
       default:
         return (
           <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-surface-200 dark:bg-surface-700 text-surface-600 dark:text-surface-300">
-            Unverified
-          </span>
+            {translateRecentFeature("studyPlans.ui.unverified.f00b7954")}</span>
         );
     }
   };
@@ -90,16 +87,16 @@ export const PlanSourceList: React.FC<PlanSourceListProps> = ({
   return (
     <div ref={contextMenu.ownerRef} tabIndex={-1} className="space-y-2">
       {sourceRefIds.map((refId) => {
-        const resolution = sourceResolutions[refId];
-        const title = resolution?.ref?.documentTitle || `Source Ref ${refId.slice(0, 8)}`;
+                const resolution = sourceResolutions[refId];
+        const title = resolution?.ref?.documentTitle || translateRecentFeature("studyPlans.ui.source-reference-var0.36273e58", {var0: refId.slice(0, 8)});
         const excerpt = resolution?.ref?.excerpt;
         const jump = resolution?.ref?.jump;
         let locatorLabel: string | null = null;
         if (jump) {
           if (jump.kind === 'pdf') {
-            locatorLabel = `Page ${jump.pageNumber}`;
+            locatorLabel = translateRecentFeature("studyPlans.ui.page-var0.cc5cd104", {var0: jump.pageNumber});
           } else if (jump.kind === 'epub') {
-            locatorLabel = 'EPUB Section';
+            locatorLabel = translateRecentFeature("studyPlans.ui.epub-section.d8890a2e");
           } else if (jump.kind === 'youtube' || jump.kind === 'audio') {
             locatorLabel = `${Math.floor(jump.timeSeconds)}s`;
           } else if (jump.kind === 'markdown' || jump.kind === 'html') {
@@ -113,7 +110,7 @@ export const PlanSourceList: React.FC<PlanSourceListProps> = ({
         if (onOpenSource && resolution?.status !== 'missing') {
           menuItems.push({
             id: 'open-source',
-            label: 'Open source',
+            label: translateRecentFeature("audio.openSource"),
             icon: <ArrowSquareOut size={16} />,
             onClick: () => onOpenSource(refId, resolution),
           });
@@ -122,7 +119,7 @@ export const PlanSourceList: React.FC<PlanSourceListProps> = ({
           menuItems.push({
             id: 'remove-link',
             type: ContextMenuItemType.Danger,
-            label: 'Remove link',
+            label: translateRecentFeature("studyPlans.ui.remove-link.b8cff531"),
             icon: <Trash size={16} />,
             onClick: () => onRemoveSource(refId),
           });
@@ -162,10 +159,10 @@ export const PlanSourceList: React.FC<PlanSourceListProps> = ({
                   variant="text"
                   size="sm"
                   onClick={() => onOpenSource(refId, resolution)}
-                  title="Open source in reader"
+                  title={translateRecentFeature("studyPlans.ui.open-source-in-reader.057f9bf3")}
                 >
                   <ArrowSquareOut size={15} />
-                  <span>Open</span>
+                  <span>{translateRecentFeature("mainLayout.open")}</span>
                 </Button>
               )}
               {!isReadOnly && onRemoveSource && (
@@ -173,8 +170,8 @@ export const PlanSourceList: React.FC<PlanSourceListProps> = ({
                   variant="text"
                   size="iconSm"
                   onClick={() => onRemoveSource(refId)}
-                  title="Remove source link"
-                  aria-label="Remove source link"
+                  title={translateRecentFeature("studyPlans.ui.remove-source-link.3399ed49")}
+                  aria-label={translateRecentFeature("studyPlans.ui.remove-source-link.3399ed49")}
                 >
                   <Trash size={15} className="text-red-500" />
                 </Button>

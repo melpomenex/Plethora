@@ -16,6 +16,8 @@ import type {
   KeyFact,
   AnalyticRubric,
 } from '../../../types/assessmentQuestions';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface FreeResponseEditorProps {
   question: ShortAnswerQuestion | EssayQuestion;
@@ -30,7 +32,8 @@ export const FreeResponseEditor: React.FC<FreeResponseEditorProps> = ({
   disabled = false,
   className = '',
 }) => {
-  const isEssay = question.kind === 'essay';
+        useI18n();
+        const isEssay = question.kind === 'essay';
 
   const handleRubricChange = (updatedRubric: AnalyticRubric) => {
     onChange({
@@ -60,10 +63,10 @@ export const FreeResponseEditor: React.FC<FreeResponseEditorProps> = ({
   };
 
   const handleAddKeyFact = () => {
-    const shortQ = question as ShortAnswerQuestion;
+        const shortQ = question as ShortAnswerQuestion;
     const newFact: KeyFact = {
       id: `kf_${Date.now()}`,
-      text: 'New essential fact',
+      text: translateRecentFeature("studyPlans.ui.new-essential-fact.886df973"),
       required: true,
     };
     onChange({
@@ -104,66 +107,61 @@ export const FreeResponseEditor: React.FC<FreeResponseEditorProps> = ({
       {isEssay ? (
         <div className="space-y-1.5">
           <label className="text-xs font-semibold uppercase tracking-wider text-surface-500 dark:text-surface-400 block">
-            Expected Model Reasoning / Standard Solution
-          </label>
+            {translateRecentFeature("studyPlans.ui.expected-model-reasoning-sta.8483df1a")}</label>
           <textarea
             rows={4}
             value={(question as EssayQuestion).expectedReasoning}
             disabled={disabled}
             onChange={(e) => handleExpectedReasoningChange(e.target.value)}
-            placeholder="Comprehensive description of the expected reasoning, core steps, and conceptual argument…"
+            placeholder={translateRecentFeature("studyPlans.ui.comprehensive-description-of.1f866034")}
             className="w-full p-2.5 text-xs rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 text-surface-900 dark:text-surface-100"
-            aria-label="Expected reasoning"
+            aria-label={translateRecentFeature("studyPlans.ui.expected-reasoning.bdc1464b")}
           />
         </div>
       ) : (
         <div className="space-y-4">
           <div className="space-y-1.5">
             <label className="text-xs font-semibold uppercase tracking-wider text-surface-500 dark:text-surface-400 block">
-              Reference Model Answer
-            </label>
+              {translateRecentFeature("studyPlans.ui.reference-model-answer.e5117a76")}</label>
             <textarea
               rows={3}
               value={(question as ShortAnswerQuestion).referenceAnswer}
               disabled={disabled}
               onChange={(e) => handleReferenceAnswerChange(e.target.value)}
-              placeholder="Canonical model answer…"
+              placeholder={translateRecentFeature("studyPlans.ui.canonical-model-answer.5f4edb89")}
               className="w-full p-2.5 text-xs rounded-lg border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 text-surface-900 dark:text-surface-100"
-              aria-label="Reference answer"
+              aria-label={translateRecentFeature("studyPlans.ui.reference-answer.aa5ac4f3")}
             />
           </div>
 
           <div className="space-y-1.5">
             <label className="text-xs font-semibold uppercase tracking-wider text-surface-500 dark:text-surface-400 block">
-              Exact Accepted Short Answers (Comma-separated)
-            </label>
+              {translateRecentFeature("studyPlans.ui.exact-accepted-short-answers.37352fef")}</label>
             <input
               type="text"
               value={(question as ShortAnswerQuestion).acceptedAnswers?.join(', ') || ''}
               disabled={disabled}
               onChange={(e) => handleAcceptedAnswersChange(e.target.value)}
-              placeholder="e.g. Raft, Raft Consensus, AppendEntries"
+              placeholder={translateRecentFeature("studyPlans.ui.e-g-raft-raft-consensus-appe.37cf8e69")}
               className="w-full h-8 px-2.5 text-xs rounded border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 text-surface-900 dark:text-surface-100"
-              aria-label="Accepted short answers"
+              aria-label={translateRecentFeature("studyPlans.ui.accepted-short-answers.7f4bc2be")}
             />
           </div>
 
           {/* Key Facts */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-surface-500 dark:text-surface-400">
-                Key Facts Checklist ({(question as ShortAnswerQuestion).keyFacts.length})
-              </span>
+              <span className="text-xs font-semibold uppercase tracking-wider text-surface-500 dark:text-surface-400">{translateRecentFeature("studyPlans.ui.key-facts-checklist-var0.60c44da0", {var0: (question as ShortAnswerQuestion).keyFacts.length})}</span>
               {!disabled && (
                 <Button variant="outlined" size="sm" onClick={handleAddKeyFact} className="text-xs">
                   <Plus className="w-3.5 h-3.5 mr-1" />
-                  Add Fact
-                </Button>
+                  {translateRecentFeature("studyPlans.ui.add-fact.94026522")}</Button>
               )}
             </div>
 
             <div className="space-y-2">
-              {(question as ShortAnswerQuestion).keyFacts.map((fact, fIdx) => (
+              {(question as ShortAnswerQuestion).keyFacts.map((fact, fIdx) => {
+                                return (
                 <div
                   key={fact.id}
                   className="p-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800/40 flex items-center gap-3 text-xs"
@@ -178,7 +176,7 @@ export const FreeResponseEditor: React.FC<FreeResponseEditorProps> = ({
                       }
                       className="rounded border-surface-300"
                     />
-                    <span>Required</span>
+                    <span>{translateRecentFeature("studyPlans.ui.required.0bafe5f2")}</span>
                   </label>
 
                   <input
@@ -188,9 +186,9 @@ export const FreeResponseEditor: React.FC<FreeResponseEditorProps> = ({
                     onChange={(e) =>
                       handleUpdateKeyFact(fIdx, { ...fact, text: e.target.value })
                     }
-                    placeholder="Fact description…"
+                    placeholder={translateRecentFeature("studyPlans.ui.fact-description.4701f201")}
                     className="flex-1 h-7 px-2 text-xs rounded border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800"
-                    aria-label={`Key fact ${fIdx + 1} text`}
+                    aria-label={translateRecentFeature("studyPlans.ui.key-fact-var0-text.555ffcc3", {var0: fIdx + 1})}
                   />
 
                   {!disabled && (
@@ -198,13 +196,14 @@ export const FreeResponseEditor: React.FC<FreeResponseEditorProps> = ({
                       type="button"
                       onClick={() => handleRemoveKeyFact(fact.id)}
                       className="p-1 text-surface-400 hover:text-red-600"
-                      title="Remove fact"
+                      title={translateRecentFeature("studyPlans.ui.remove-fact.abbde5fb")}
                     >
                       <Trash className="w-3.5 h-3.5" />
                     </button>
                   )}
                 </div>
-              ))}
+              );
+              })}
             </div>
           </div>
         </div>

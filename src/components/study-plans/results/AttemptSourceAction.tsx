@@ -10,6 +10,8 @@ import React, { useState } from 'react';
 import { BookOpen, WarningCircle } from '@phosphor-icons/react';
 import { openStudySource } from '../../../lib/study-plans/openStudySource';
 import type { StudySourceRefV1 } from '../../../types/studySource';
+import { useI18n } from "../../../lib/i18n";
+import { studyErrorMessage } from "../../../lib/study-plans/studyErrorMessage";
 
 export interface AttemptSourceActionProps {
   sourceRef: StudySourceRefV1;
@@ -20,6 +22,7 @@ export const AttemptSourceAction: React.FC<AttemptSourceActionProps> = ({
   sourceRef,
   className = '',
 }) => {
+  const { t } = useI18n();
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [opening, setOpening] = useState(false);
 
@@ -31,10 +34,10 @@ export const AttemptSourceAction: React.FC<AttemptSourceActionProps> = ({
     try {
       const outcome = await openStudySource(sourceRef);
       if (!outcome.success && 'message' in outcome) {
-        setErrorMsg(outcome.message);
+        setErrorMsg(studyErrorMessage(outcome.message, t("studyPlans.ui.operation-failed")));
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Failed to open source document');
+      setErrorMsg(studyErrorMessage(err, t("studyPlans.ui.operation-failed")));
     } finally {
       setOpening(false);
     }
@@ -63,7 +66,7 @@ export const AttemptSourceAction: React.FC<AttemptSourceActionProps> = ({
         onClick={handleOpen}
         disabled={opening}
         className="min-h-[36px] inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-surface-container-high dark:bg-surface-container-high-dark hover:bg-surface-container-highest border border-outline-variant/40 text-xs font-medium text-primary dark:text-primary-dark transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-        aria-label={`Open source: ${docTitle}${locationLabel ? ` (${locationLabel})` : ''}`}
+        aria-label={t("studyPlans.ui.open-source-var0-var1.770ca666", { var0: docTitle, var1: locationLabel ? ` (${locationLabel})` : '' })}
       >
         <BookOpen size={14} className="shrink-0" />
         <span className="truncate max-w-[200px]">{docTitle}</span>

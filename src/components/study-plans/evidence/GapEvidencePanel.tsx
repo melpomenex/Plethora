@@ -1,5 +1,7 @@
 import React from 'react';
 import type { KnowledgeGapView } from '../../../types/learningEvidence';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface GapEvidencePanelProps {
   gap: KnowledgeGapView;
@@ -7,16 +9,17 @@ export interface GapEvidencePanelProps {
 }
 
 export const GapEvidencePanel: React.FC<GapEvidencePanelProps> = ({ gap, onOpenSource }) => {
-  if (gap.evidence.length === 0) {
+        useI18n();
+        if (gap.evidence.length === 0) {
     return (
       <p data-testid="gap-evidence-empty" className="text-xs text-on-surface-variant">
-        No linked evidence rows — dismissal preserves this state.
-      </p>
+        {translateRecentFeature("studyPlans.ui.no-linked-evidence-rows-dism.c8c27d8a")}</p>
     );
   }
   return (
-    <ul aria-label="Gap evidence" className="space-y-1 text-xs">
-      {gap.evidence.map((e) => (
+    <ul aria-label={translateRecentFeature("studyPlans.ui.gap-evidence.3efdc588")} className="space-y-1 text-xs">
+      {gap.evidence.map((e) => {
+                return (
         <li key={`${e.recordId}-${e.kind}`} data-testid={`gap-evidence-${e.recordId}`}>
           <span data-testid="gap-evidence-desc">{e.description}</span>{' '}
           <span className="text-on-surface-variant">({e.kind})</span>
@@ -27,11 +30,11 @@ export const GapEvidencePanel: React.FC<GapEvidencePanelProps> = ({ gap, onOpenS
               onClick={() => onOpenSource?.(e.sourceRefId)}
               className="underline ml-1"
             >
-              Open source
-            </button>
+              {translateRecentFeature("audio.openSource")}</button>
           )}
         </li>
-      ))}
+      );
+      })}
     </ul>
   );
 };

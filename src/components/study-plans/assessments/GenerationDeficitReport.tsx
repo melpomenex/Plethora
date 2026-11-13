@@ -11,6 +11,8 @@ import { Warning, ArrowCounterClockwise, Check, Copy } from '@phosphor-icons/rea
 import { Button } from '../../md3/Button';
 import { studyErrorMessageForKey } from '../../../lib/study-plans/studyErrorMessage';
 import type { QuotaReport } from '../../../types/assessmentQuestions';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface GenerationDeficitReportProps {
   quotaReport: QuotaReport;
@@ -31,7 +33,8 @@ export const GenerationDeficitReport: React.FC<GenerationDeficitReportProps> = (
   isPublishing = false,
   className = '',
 }) => {
-  const { requested, accepted, deficits, duplicateQuestionFingerprints, validationIssues } =
+        useI18n();
+        const { requested, accepted, deficits, duplicateQuestionFingerprints, validationIssues } =
     quotaReport;
   const deficitCount = requested - accepted;
 
@@ -47,13 +50,11 @@ export const GenerationDeficitReport: React.FC<GenerationDeficitReportProps> = (
         <div className="flex items-start gap-2.5">
           <Warning className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
           <div>
-            <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-100">
-              Quota Shortfall Detected ({accepted} of {requested} accepted)
-            </h4>
+            <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-100">{translateRecentFeature("studyPlans.ui.quota-shortfall-detected-var.83959d54", {var0: accepted, var1: requested})}</h4>
             <p className="text-xs text-amber-800 dark:text-amber-200 mt-0.5">
               {accepted === 0
-                ? 'No questions passed validation. Review the issues below or add a question manually.'
-                : `${deficitCount} requested question${deficitCount === 1 ? '' : 's'} could not be filled.`}
+                ? translateRecentFeature("studyPlans.ui.no-questions-passed-validati.832fadff")
+                : translateRecentFeature(deficitCount === 1 ? "studyPlans.ui.var0-requested-question-coul.0b1a4ead" : "studyPlans.ui.var0-requested-questions-cou.cfa2832b", {var0: deficitCount})}
             </p>
           </div>
         </div>
@@ -68,8 +69,7 @@ export const GenerationDeficitReport: React.FC<GenerationDeficitReportProps> = (
               className="text-xs text-amber-900 dark:text-amber-100 border-amber-300 dark:border-amber-700"
             >
               <ArrowCounterClockwise className={`w-3.5 h-3.5 mr-1.5 ${isRetrying ? 'animate-spin' : ''}`} />
-              Retry Deficits
-            </Button>
+              {translateRecentFeature("studyPlans.ui.retry-deficits.4746729d")}</Button>
           )}
 
           {onAcceptShortfall && accepted > 0 && deficitCount > 0 && (
@@ -80,9 +80,7 @@ export const GenerationDeficitReport: React.FC<GenerationDeficitReportProps> = (
               disabled={isPublishing}
               className="text-xs bg-amber-600 hover:bg-amber-700 text-white"
             >
-              <Check className="w-3.5 h-3.5 mr-1.5" />
-              Accept {accepted}-Question Paper
-            </Button>
+              <Check className="w-3.5 h-3.5 mr-1.5" />{translateRecentFeature("studyPlans.ui.accept-var0-question-paper.78b23506", {var0: accepted})}</Button>
           )}
         </div>
       </div>
@@ -91,10 +89,10 @@ export const GenerationDeficitReport: React.FC<GenerationDeficitReportProps> = (
       {deficits.length > 0 && (
         <div className="space-y-1.5">
           <span className="text-xs font-medium text-amber-900 dark:text-amber-200 block">
-            Unfulfilled Slots Breakdown:
-          </span>
+            {translateRecentFeature("studyPlans.ui.unfulfilled-slots-breakdown.d19d62ef")}</span>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-            {deficits.map((d, idx) => (
+            {deficits.map((d, idx) => {
+                            return (
               <div
                 key={`${d.kind}-${d.topicIndex}-${d.difficulty}-${idx}`}
                 className="p-2 rounded bg-white/60 dark:bg-surface-800/60 border border-amber-200 dark:border-amber-800 flex items-center justify-between"
@@ -103,15 +101,12 @@ export const GenerationDeficitReport: React.FC<GenerationDeficitReportProps> = (
                   <span className="font-semibold text-surface-900 dark:text-surface-100 uppercase text-[10px] mr-1.5 px-1 py-0.5 rounded bg-surface-100 dark:bg-surface-700">
                     {d.kind}
                   </span>
-                  <span className="text-surface-600 dark:text-surface-300">
-                    Topic {d.topicIndex + 1} (Diff {d.difficulty})
-                  </span>
+                  <span className="text-surface-600 dark:text-surface-300">{translateRecentFeature("studyPlans.ui.topic-var0-diff-var1.89e73a5e", {var0: d.topicIndex + 1, var1: d.difficulty})}</span>
                 </div>
-                <span className="text-xs font-mono font-bold text-amber-700 dark:text-amber-300">
-                  {d.count} missing
-                </span>
+                <span className="text-xs font-mono font-bold text-amber-700 dark:text-amber-300">{translateRecentFeature("studyPlans.ui.var0-missing.a937646c", {var0: d.count})}</span>
               </div>
-            ))}
+            );
+            })}
           </div>
         </div>
       )}
@@ -120,16 +115,14 @@ export const GenerationDeficitReport: React.FC<GenerationDeficitReportProps> = (
       {duplicateQuestionFingerprints.length > 0 && (
         <div className="flex items-center gap-2 text-xs text-amber-800 dark:text-amber-300 bg-white/40 dark:bg-surface-800/40 p-2 rounded">
           <Copy className="w-3.5 h-3.5 flex-shrink-0" />
-          <span>
-            {duplicateQuestionFingerprints.length} candidate{duplicateQuestionFingerprints.length === 1 ? '' : 's'} rejected as exact or near duplicates.
-          </span>
+          <span>{translateRecentFeature(duplicateQuestionFingerprints.length === 1 ? "studyPlans.ui.var0-candidate-was-rejected-.b098e6de" : "studyPlans.ui.var0-candidates-were-rejecte.3c006b4f", {var0: duplicateQuestionFingerprints.length})}</span>
         </div>
       )}
 
       {/* Validation issues */}
       {validationIssues.length > 0 && (
         <div className="text-xs text-amber-800 dark:text-amber-300 space-y-1">
-          <span className="font-medium block">Validation Issues:</span>
+          <span className="font-medium block">{translateRecentFeature("studyPlans.ui.validation-issues.6f0ad08f")}</span>
           <ul className="list-disc list-inside space-y-0.5 text-[11px]">
             {validationIssues.slice(0, 4).map((iss, i) => (
               <li key={i} className="truncate">

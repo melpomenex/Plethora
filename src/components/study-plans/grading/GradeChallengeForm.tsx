@@ -17,6 +17,9 @@ import {
 } from '@phosphor-icons/react';
 import { Button } from '../../md3/Button';
 import type { GradeRecord } from '../../../types/assessmentSessions';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+import { studyErrorMessage } from "../../../lib/study-plans/studyErrorMessage";
+
 
 export interface GradeChallengeFormProps {
   questionTitle?: string;
@@ -35,15 +38,16 @@ export const GradeChallengeForm: React.FC<GradeChallengeFormProps> = ({
   isSubmitting = false,
   className = '',
 }) => {
-  const [reason, setReason] = useState('');
+        useI18n();
+        const [reason, setReason] = useState('');
   const [notes, setNotes] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+        e.preventDefault();
     const trimmedReason = reason.trim();
     if (!trimmedReason) {
-      setError('Please provide an explanation for challenging this grade.');
+      setError(translateRecentFeature("studyPlans.ui.please-provide-an-explanatio.b756877f"));
       return;
     }
 
@@ -54,7 +58,7 @@ export const GradeChallengeForm: React.FC<GradeChallengeFormProps> = ({
         notes: notes.trim() || undefined,
       });
     } catch (err: any) {
-      setError(err?.message || 'Failed to submit grade challenge. Please try again.');
+      setError(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")));
     }
   };
 
@@ -68,8 +72,7 @@ export const GradeChallengeForm: React.FC<GradeChallengeFormProps> = ({
         <div className="space-y-0.5">
           <h3 className="text-base font-bold text-on-surface flex items-center gap-2">
             <ChatText size={20} className="text-primary" weight="bold" />
-            Request Grade Review / Challenge
-          </h3>
+            {translateRecentFeature("studyPlans.ui.request-grade-review-challen.068fa153")}</h3>
           {questionTitle && (
             <p className="text-xs text-on-surface-variant font-medium">
               {questionTitle}
@@ -82,7 +85,7 @@ export const GradeChallengeForm: React.FC<GradeChallengeFormProps> = ({
           onClick={onClose}
           disabled={isSubmitting}
           className="p-1 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container/50 transition-colors"
-          aria-label="Close challenge form"
+          aria-label={translateRecentFeature("studyPlans.ui.close-challenge-form.02da456e")}
         >
           <X size={18} />
         </button>
@@ -92,22 +95,17 @@ export const GradeChallengeForm: React.FC<GradeChallengeFormProps> = ({
       {currentGrade && (
         <div className="flex items-center justify-between p-3 rounded-xl bg-surface-container/40 dark:bg-surface-container-dark/40 border border-outline-variant/30 text-xs">
           <span className="text-on-surface-variant font-medium">
-            Current Award:{' '}
+            {translateRecentFeature("studyPlans.ui.current-award.93b1cf0d")}{' '}
             <strong className="text-on-surface font-bold">
-              {currentGrade.points !== null ? currentGrade.points : '\u2014'} / {currentGrade.maxPoints} pts
-            </strong>
+              {currentGrade.points !== null ? currentGrade.points : '\u2014'}{translateRecentFeature("studyPlans.ui.var0-pts.b9b87d13", {var0: currentGrade.maxPoints})}</strong>
           </span>
-          <span className="capitalize px-2 py-0.5 rounded-full text-[11px] font-bold bg-surface-container-high text-on-surface-variant">
-            State: {currentGrade.state}
-          </span>
+          <span className="capitalize px-2 py-0.5 rounded-full text-[11px] font-bold bg-surface-container-high text-on-surface-variant">{translateRecentFeature("studyPlans.ui.state-var0.16b83a2f", {var0: currentGrade.state})}</span>
         </div>
       )}
 
       {/* Notice */}
       <p className="text-xs text-on-surface-variant leading-relaxed">
-        If you believe an automated assessment misunderstood your response, missed a valid alternative phrasing,
-        or awarded points incorrectly according to the rubric, describe your reasoning below for manual review.
-      </p>
+        {translateRecentFeature("studyPlans.ui.if-you-believe-an-automated-.9023af03")}</p>
 
       {/* Challenge Form */}
       <form onSubmit={handleSubmit} className="space-y-3.5">
@@ -116,7 +114,7 @@ export const GradeChallengeForm: React.FC<GradeChallengeFormProps> = ({
             htmlFor="challenge-reason-input"
             className="block text-xs font-bold text-on-surface uppercase tracking-wider"
           >
-            Reason for Challenge / Re-evaluation <span className="text-error">*</span>
+            {translateRecentFeature("studyPlans.ui.reason-for-challenge-re-eval.4fbad206")}<span className="text-error">*</span>
           </label>
           <textarea
             id="challenge-reason-input"
@@ -128,9 +126,9 @@ export const GradeChallengeForm: React.FC<GradeChallengeFormProps> = ({
               setReason(e.target.value);
               if (error) setError(null);
             }}
-            placeholder="Explain why you are requesting re-evaluation (e.g., specific evidence or rubric criteria)..."
+            placeholder={translateRecentFeature("studyPlans.ui.explain-why-you-are-requesti.2481f1fb")}
             className="w-full text-xs p-3 rounded-xl border border-outline-variant/40 bg-surface-container-low dark:bg-surface-container-low-dark text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all resize-y"
-            aria-label="Grade challenge explanation"
+            aria-label={translateRecentFeature("studyPlans.ui.grade-challenge-explanation.5b1e1776")}
             required
           />
         </div>
@@ -140,17 +138,16 @@ export const GradeChallengeForm: React.FC<GradeChallengeFormProps> = ({
             htmlFor="challenge-notes-input"
             className="block text-xs font-semibold text-on-surface-variant uppercase tracking-wider text-[11px]"
           >
-            Additional Citations or References (Optional)
-          </label>
+            {translateRecentFeature("studyPlans.ui.additional-citations-or-refe.5d63ffa4")}</label>
           <textarea
             id="challenge-notes-input"
             rows={2}
             value={notes}
             disabled={isSubmitting}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Include any section references, book titles, or source handles..."
+            placeholder={translateRecentFeature("studyPlans.ui.include-any-section-referenc.9c36e3c8")}
             className="w-full text-xs p-2.5 rounded-xl border border-outline-variant/40 bg-surface-container-low dark:bg-surface-container-low-dark text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all resize-y"
-            aria-label="Additional citations or references"
+            aria-label={translateRecentFeature("studyPlans.ui.additional-citations-or-refe.f20ace9a")}
           />
         </div>
 
@@ -171,8 +168,7 @@ export const GradeChallengeForm: React.FC<GradeChallengeFormProps> = ({
             disabled={isSubmitting}
             className="min-h-[40px] px-4 text-xs font-semibold"
           >
-            Cancel
-          </Button>
+            {translateRecentFeature("common.cancel")}</Button>
 
           <Button
             type="submit"
@@ -181,7 +177,7 @@ export const GradeChallengeForm: React.FC<GradeChallengeFormProps> = ({
             className="min-h-[40px] px-5 text-xs font-bold shadow-sm"
           >
             <PaperPlaneTilt size={16} className={`mr-1.5 inline ${isSubmitting ? 'animate-spin' : ''}`} />
-            {isSubmitting ? 'Submitting...' : 'Submit Challenge'}
+            {isSubmitting ? translateRecentFeature("studyPlans.ui.submitting.71afc058") : translateRecentFeature("studyPlans.ui.submit-challenge.3bc281d9")}
           </Button>
         </div>
       </form>

@@ -8,6 +8,7 @@
 
 import React, { useMemo } from 'react';
 import { Clock, WarningCircle } from '@phosphor-icons/react';
+import { useI18n } from "../../../lib/i18n";
 
 export interface AttemptTimerProps {
   remainingSeconds: number | null;
@@ -18,6 +19,7 @@ export const AttemptTimer: React.FC<AttemptTimerProps> = ({
   remainingSeconds,
   className = '',
 }) => {
+  const { t } = useI18n();
   if (remainingSeconds === null) {
     return null; // Untimed mode
   }
@@ -52,7 +54,7 @@ export const AttemptTimer: React.FC<AttemptTimerProps> = ({
           : 'bg-surface-container-high dark:bg-surface-container-high-dark text-on-surface dark:text-on-surface-dark'
       } ${className}`}
       role="timer"
-      aria-label={`Time remaining: ${formattedTime}`}
+      aria-label={t("studyPlans.ui.time-remaining-var0.65b18338", { var0: formattedTime })}
     >
       {isCritical || isExpired ? (
         <WarningCircle size={18} className="shrink-0" />
@@ -64,11 +66,11 @@ export const AttemptTimer: React.FC<AttemptTimerProps> = ({
       {/* Screen-reader milestone alert only (no second-by-second spam) */}
       <div className="sr-only" aria-live="polite">
         {isExpired
-          ? 'Time has expired. Submitting examination.'
+          ? t("studyPlans.ui.time-has-expired-submitting-.b02bdccc")
           : isCritical
-          ? 'Less than one minute remaining.'
+          ? t("studyPlans.ui.less-than-one-minute-remaini.ecf0fd44")
           : isWarning
-          ? 'Less than five minutes remaining.'
+          ? t("studyPlans.ui.less-than-five-minutes-remai.c1352124")
           : undefined}
       </div>
     </div>

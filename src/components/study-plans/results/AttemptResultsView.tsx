@@ -18,6 +18,9 @@ import { AttemptResults } from './AttemptResults';
 import { RubricGradingControls } from '../grading/RubricGradingControls';
 import { studyErrorMessage } from '../../../lib/study-plans/studyErrorMessage';
 import type { ReassessmentReturnContext } from '../remediation/returnContext';
+import { StudyPlansScrollContainer } from '../StudyPlansScrollContainer';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface AttemptResultsViewProps {
   attemptId: string;
@@ -35,19 +38,20 @@ export const AttemptResultsView: React.FC<AttemptResultsViewProps> = ({
   className = '',
   returnContext = null,
 }) => {
-  const [detail, setDetail] = useState<AttemptDetail | null>(null);
+    useI18n();
+    const [detail, setDetail] = useState<AttemptDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [diagEvidence, setDiagEvidence] = useState<CurriculumPriorEvidence | null>(null);
   const [diagPending, setDiagPending] = useState(false);
-  const [diagApplying, setDiagApplying] = useState(false);
+  const [, setDiagApplying] = useState(false);
   const [diagApplied, setDiagApplied] = useState(false);
 
   useEffect(() => {
     let active = true;
 
     async function load() {
-      setLoading(true);
+            setLoading(true);
       setError(null);
       try {
         const res = await getExamAttempt(attemptId);
@@ -66,7 +70,7 @@ export const AttemptResultsView: React.FC<AttemptResultsViewProps> = ({
         }
       } catch (err: any) {
         if (active) {
-          setError(studyErrorMessage(err, 'Could not load examination results.'));
+          setError(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.could-not-load-examination-r.aac5a5da")));
         }
       } finally {
         if (active) {
@@ -84,32 +88,35 @@ export const AttemptResultsView: React.FC<AttemptResultsViewProps> = ({
 
   if (loading) {
     return (
-      <div className={`p-12 text-center text-on-surface-variant dark:text-on-surface-variant-dark ${className}`}>
+      <StudyPlansScrollContainer className={`p-4 ${className}`} data-study-plans-scroll="attempt-results">
+      <div className="p-12 text-center text-on-surface-variant dark:text-on-surface-variant-dark">
         <div className="w-8 h-8 mx-auto mb-3 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm">Loading examination results...</p>
+        <p className="text-sm">{translateRecentFeature("studyPlans.ui.loading-examination-results.38422528")}</p>
       </div>
+      </StudyPlansScrollContainer>
     );
   }
 
   if (error || !detail) {
     return (
-      <div className={`max-w-md mx-auto p-6 bg-surface dark:bg-surface-dark border border-outline-variant/30 rounded-2xl text-center space-y-4 my-12 ${className}`}>
-        <p className="text-sm text-error">{error || 'Examination results not found'}</p>
+      <StudyPlansScrollContainer className={`p-4 ${className}`} data-study-plans-scroll="attempt-results">
+      <div className="max-w-md mx-auto p-6 bg-surface dark:bg-surface-dark border border-outline-variant/30 rounded-2xl text-center space-y-4 my-4">
+        <p className="text-sm text-error">{error || translateRecentFeature("i18nAudit.ui.examination-results-not-foun.9896fab8")}</p>
         <Button variant="text" onClick={onBack} className="min-h-[44px]">
           <ArrowLeft size={16} className="mr-1.5 inline" />
-          Go Back
-        </Button>
+          {translateRecentFeature("studyPlans.ui.go-back.a4138c28")}</Button>
       </div>
+      </StudyPlansScrollContainer>
     );
   }
 
   return (
+    <StudyPlansScrollContainer className={`p-4 ${className}`} data-study-plans-scroll="attempt-results">
     <div className="space-y-3">
       {returnContext && (
         <p data-testid="results-return-context" className="text-xs text-on-surface-variant">
-          Return context: plan {returnContext.planId ?? '—'} · node {returnContext.nodeId ?? '—'} · gap{' '}
-          {returnContext.gapId ?? '—'}. Reassessment recomputes C6 evidence/history; published plan unchanged.
-        </p>
+          {translateRecentFeature("studyPlans.ui.return-context-plan.fa789fc6")}{returnContext.planId ?? '—'} {translateRecentFeature("studyPlans.ui.node.a011c4f1")}{returnContext.nodeId ?? '—'} {translateRecentFeature("studyPlans.ui.gap.2af2aaf1")}{' '}
+          {returnContext.gapId ?? '—'}{translateRecentFeature("studyPlans.ui.reassessment-recomputes-c6-e.3c5f9584")}</p>
       )}
       <AttemptResults
         detail={detail}
@@ -117,7 +124,9 @@ export const AttemptResultsView: React.FC<AttemptResultsViewProps> = ({
         onRetake={onRetake}
         className={className}
         onGradeRecorded={() => {
-          void getExamAttempt(attemptId).then(setDetail, () => setError('Could not reload examination results.'));
+          void getExamAttempt(attemptId).then(setDetail, () => {
+                        return setError(translateRecentFeature("studyPlans.ui.could-not-reload-examination.65430937"));
+          });
         }}
       />
       {detail.attempt.mode === 'diagnostic' && returnContext?.planId && (
@@ -126,14 +135,14 @@ export const AttemptResultsView: React.FC<AttemptResultsViewProps> = ({
           hasPendingGrading={diagPending}
           applyDisabledReason={diagApplied ? 'Adaptation already applied to this draft.' : null}
           onApply={async () => {
-            if (!diagEvidence) return;
+                        if (!diagEvidence) return;
             setDiagApplying(true);
             setError(null);
             try {
               await applyDiagnosticAdaptation(returnContext.planId!, undefined, diagEvidence as never);
               setDiagApplied(true);
             } catch (err) {
-              setError(studyErrorMessage(err, 'Could not apply the diagnostic adaptation. The draft is unchanged.'));
+              setError(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.could-not-apply-the-diagnost.141f3c86")));
             } finally {
               setDiagApplying(false);
             }
@@ -143,5 +152,6 @@ export const AttemptResultsView: React.FC<AttemptResultsViewProps> = ({
       )}
       <RubricGradingControls key={attemptId} detail={detail} onUpdate={setDetail} />
     </div>
+    </StudyPlansScrollContainer>
   );
 };

@@ -15,6 +15,8 @@ import {
 } from '@phosphor-icons/react';
 import type { RubricCriterion, RubricLevel } from '../../../types/assessmentQuestions';
 import type { CriterionResult } from '../../../types/assessmentSessions';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface RubricCriterionResultProps {
   criterion: RubricCriterion;
@@ -27,7 +29,8 @@ export const RubricCriterionResult: React.FC<RubricCriterionResultProps> = ({
   result,
   className = '',
 }) => {
-  const isAssessed = result?.status === 'assessed';
+        useI18n();
+        const isAssessed = result?.status === 'assessed';
   const isNotAssessable = result?.status === 'not-assessable';
   const isManual = result?.status === 'manual';
 
@@ -49,9 +52,7 @@ export const RubricCriterionResult: React.FC<RubricCriterionResultProps> = ({
           <span className="font-semibold text-sm text-on-surface">
             {criterion.title}
           </span>
-          <span className="text-xs px-2 py-0.5 rounded-full bg-surface-container-high dark:bg-surface-container-high-dark text-on-surface-variant font-medium">
-            Weight: {criterion.weight}×
-          </span>
+          <span className="text-xs px-2 py-0.5 rounded-full bg-surface-container-high dark:bg-surface-container-high-dark text-on-surface-variant font-medium">{translateRecentFeature("studyPlans.ui.weight-var0.7809badc", {var0: criterion.weight})}</span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -64,31 +65,27 @@ export const RubricCriterionResult: React.FC<RubricCriterionResultProps> = ({
                   ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30'
                   : 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/30'
               }`}
-            >
-              Level {level}/4
-            </span>
+            >{translateRecentFeature("studyPlans.ui.level-var0-4.e8de2f4e", {var0: level})}</span>
           )}
 
           {isManual && (
             <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/30 flex items-center gap-1 font-medium">
               <UserCheck size={12} weight="bold" />
-              Manual Review
-            </span>
+              {translateRecentFeature("studyPlans.ui.manual-review.d870dbe1")}</span>
           )}
 
           {isNotAssessable && (
             <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30 flex items-center gap-1 font-medium">
               <WarningCircle size={12} weight="bold" />
-              Not Assessable
-            </span>
+              {translateRecentFeature("studyPlans.ui.not-assessable.4ff48553")}</span>
           )}
         </div>
       </div>
 
       {/* Level Ladder 0..4 */}
-      <div className="flex items-center gap-1.5 pt-1" aria-label="Level ladder">
+      <div className="flex items-center gap-1.5 pt-1" aria-label={translateRecentFeature("studyPlans.ui.level-ladder.1fd85e44")}>
         {([0, 1, 2, 3, 4] as RubricLevel[]).map((lvl) => {
-          const isActive = level === lvl;
+                    const isActive = level === lvl;
           return (
             <div
               key={lvl}
@@ -97,9 +94,7 @@ export const RubricCriterionResult: React.FC<RubricCriterionResultProps> = ({
                   ? 'bg-primary text-on-primary font-bold shadow-sm'
                   : 'bg-surface-container-high/40 dark:bg-surface-container-high-dark/40 text-on-surface-variant/70'
               }`}
-            >
-              L{lvl}
-            </div>
+            >{translateRecentFeature("studyPlans.ui.l-var0.ca4e6af2", {var0: lvl})}</div>
           );
         })}
       </div>
@@ -116,8 +111,7 @@ export const RubricCriterionResult: React.FC<RubricCriterionResultProps> = ({
         <div className="space-y-1">
           <span className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-1">
             <Quotes size={12} weight="fill" />
-            Learner Evidence Quote:
-          </span>
+            {translateRecentFeature("studyPlans.ui.learner-evidence-quote.222035ce")}</span>
           <div className="text-xs font-mono bg-surface-container-highest/30 dark:bg-surface-container-highest-dark/30 p-2.5 rounded-lg border border-outline-variant/30 text-on-surface">
             &ldquo;{result.answerEvidence}&rdquo;
           </div>
@@ -127,7 +121,7 @@ export const RubricCriterionResult: React.FC<RubricCriterionResultProps> = ({
       {/* Grader Rationale */}
       {isAssessed && result.rationale && (
         <div className="text-xs text-on-surface-variant space-y-1">
-          <span className="font-semibold text-on-surface">Rationale: </span>
+          <span className="font-semibold text-on-surface">{translateRecentFeature("studyPlans.ui.rationale.80248f25")}</span>
           <span>{result.rationale}</span>
         </div>
       )}
@@ -135,7 +129,7 @@ export const RubricCriterionResult: React.FC<RubricCriterionResultProps> = ({
       {/* Not Assessable Reason */}
       {isNotAssessable && result.reason && (
         <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-700 dark:text-amber-300">
-          <span className="font-bold">Cannot Assess: </span>
+          <span className="font-bold">{translateRecentFeature("studyPlans.ui.cannot-assess.e348412c")}</span>
           {result.reason}
         </div>
       )}
@@ -145,14 +139,14 @@ export const RubricCriterionResult: React.FC<RubricCriterionResultProps> = ({
         <div className="flex flex-wrap gap-2 pt-1">
           {result.missingConcepts && result.missingConcepts.length > 0 && (
             <div className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded-md border border-amber-500/20">
-              <span className="font-semibold">Missing:</span>
+              <span className="font-semibold">{translateRecentFeature("studyPlans.ui.missing.da3e608c")}</span>
               <span>{result.missingConcepts.join(', ')}</span>
             </div>
           )}
 
           {result.misconception && (
             <div className="flex items-center gap-1 text-xs text-rose-600 dark:text-rose-400 bg-rose-500/10 px-2 py-0.5 rounded-md border border-rose-500/20">
-              <span className="font-semibold">Misconception:</span>
+              <span className="font-semibold">{translateRecentFeature("studyPlans.ui.misconception.958fc748")}</span>
               <span>{result.misconception}</span>
             </div>
           )}

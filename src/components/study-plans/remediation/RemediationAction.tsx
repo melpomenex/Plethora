@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import type { RemediationRecommendation } from '../../../types/learningEvidence';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface RemediationActionProps {
   recommendation: RemediationRecommendation;
@@ -14,6 +16,7 @@ export const RemediationAction: React.FC<RemediationActionProps> = ({
   actionLabel,
   disabledReason = null,
 }) => {
+    useI18n();
   const [isBusy, setIsBusy] = useState(false);
   const defaultLabel =
     recommendation.kind === 'open-source'
@@ -52,7 +55,7 @@ export const RemediationAction: React.FC<RemediationActionProps> = ({
         title={disabledReason ?? undefined}
         className="text-xs underline disabled:opacity-50 min-h-[32px]"
       >
-        {isBusy ? 'Working…' : (actionLabel ?? defaultLabel)}
+        {isBusy ? translateRecentFeature("studyPlans.ui.working.6e7573df") : (actionLabel ?? defaultLabel)}
       </button>
     </div>
   );

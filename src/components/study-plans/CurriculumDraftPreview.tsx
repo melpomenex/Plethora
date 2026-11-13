@@ -27,6 +27,8 @@ import { GenerationIssueList } from './GenerationIssueList';
 import { RulesOnlyNotice } from './RulesOnlyNotice';
 import type { StudyPlanDetail, StudyPlanVersionNode } from '../../types/learningPaths';
 import type { MergeCurriculumResult } from '../../lib/study-plans/generation/merge';
+import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
+
 
 export interface CurriculumDraftPreviewProps {
   planDetail: StudyPlanDetail;
@@ -59,7 +61,8 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
   error = null,
   diagnosticSlot,
 }) => {
-  const [activeTab, setActiveTab] = useState<PreviewTab>('outline');
+        useI18n();
+        const [activeTab, setActiveTab] = useState<PreviewTab>('outline');
   const [showDiscardConfirm, setShowDiscardConfirm] = useState(false);
   const [lockConflictsAcknowledged, setLockConflictsAcknowledged] = useState(false);
 
@@ -73,12 +76,12 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
 
   const authority = planDetail.version.knowledgeAuthority;
   const authorityLabel = authority.kind === 'model-only'
-    ? 'AI Knowledge Only'
+    ? translateRecentFeature("studyPlans.ui.ai-knowledge-only.c613843f")
     : authority.kind === 'manual'
-      ? 'Manual'
+      ? translateRecentFeature("studyPlans.ui.manual.5eefa28f")
       : authority.policy === 'source-plus-model-knowledge'
-        ? 'Library + AI Knowledge'
-        : 'Library Only';
+        ? translateRecentFeature("studyPlans.ui.library-ai-knowledge.f5ace319")
+        : translateRecentFeature("studyPlans.ui.library-only.3ec89751");
 
   /** Claim-level attribution for a topic's material support. */
   function materialSupportLabel(support: StudyPlanVersionNode['materialSupport']): string {
@@ -106,7 +109,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
 
   return (
     <div
-      aria-label="Curriculum draft preview container"
+      aria-label={translateRecentFeature("studyPlans.ui.curriculum-draft-preview-con.a22e5813")}
       className="max-w-5xl mx-auto p-6 space-y-6"
     >
       {diagnosticSlot}
@@ -114,26 +117,22 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-surface-200 dark:border-surface-700">
         <div>
           <div className="flex items-center gap-2 flex-wrap mb-1">
-            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-primary-500/30 text-primary-600 dark:text-primary-400 bg-primary-500/10">
-              Draft Preview v{planDetail.version.version}
-            </span>
+            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-primary-500/30 text-primary-600 dark:text-primary-400 bg-primary-500/10">{translateRecentFeature("studyPlans.ui.draft-preview-v-var0.89eabe22", {var0: planDetail.version.version})}</span>
             {isRulesOnly ? (
               <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-blue-500/30 text-blue-600 dark:text-blue-400 bg-blue-500/10 flex items-center gap-1">
                 <ShieldCheck size={12} />
-                <span>Deterministic Outline</span>
+                <span>{translateRecentFeature("studyPlans.ui.deterministic-outline.2395a52d")}</span>
               </span>
             ) : (
               <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-purple-500/30 text-purple-600 dark:text-purple-400 bg-purple-500/10 flex items-center gap-1">
                 <Sparkle size={12} />
-                <span>AI-Generated</span>
+                <span>{translateRecentFeature("studyPlans.ui.ai-generated.8c7ee24e")}</span>
               </span>
             )}
             <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-surface-300 dark:border-surface-600 text-surface-600 dark:text-surface-400 capitalize">
               {authorityLabel}
             </span>
-            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-surface-300 dark:border-surface-600 text-surface-600 dark:text-surface-400 capitalize">
-              {planDetail.plan.depth} Depth
-            </span>
+            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-surface-300 dark:border-surface-600 text-surface-600 dark:text-surface-400 capitalize">{translateRecentFeature("studyPlans.ui.var0-depth.8ada55a6", {var0: planDetail.plan.depth})}</span>
           </div>
 
           <h1 className="text-xl font-bold text-surface-900 dark:text-surface-100">
@@ -149,10 +148,10 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
             size="sm"
             onClick={() => setShowDiscardConfirm(true)}
             disabled={isDiscarding || isAccepting}
-            aria-label="Discard generated draft"
+            aria-label={translateRecentFeature("studyPlans.ui.discard-generated-draft.3bd7cb13")}
           >
             <Trash size={16} />
-            <span>Discard</span>
+            <span>{translateRecentFeature("screenshot.discard")}</span>
           </Button>
 
           {onEditInEditor && (
@@ -161,10 +160,10 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
               size="sm"
               onClick={onEditInEditor}
               disabled={isAccepting || isDiscarding}
-              aria-label="Open in full editor"
+              aria-label={translateRecentFeature("studyPlans.ui.open-in-full-editor.8db34f08")}
             >
               <PencilSimple size={16} />
-              <span>Edit in Editor</span>
+              <span>{translateRecentFeature("studyPlans.ui.edit-in-editor.b7bc1bf5")}</span>
             </Button>
           )}
 
@@ -173,14 +172,14 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
             size="sm"
             onClick={onAccept}
             disabled={!canAccept || isAccepting || isDiscarding}
-            aria-label="Accept and publish curriculum draft"
+            aria-label={translateRecentFeature("studyPlans.ui.accept-and-publish-curriculu.45fcfdfb")}
           >
             {isAccepting ? (
               <SpinnerGap size={16} className="animate-spin" />
             ) : (
               <CheckCircle size={16} />
             )}
-            <span>{isAccepting ? 'Publishing…' : 'Accept & Publish'}</span>
+            <span>{isAccepting ? translateRecentFeature("studyPlans.ui.publishing.3ef5cb82") : translateRecentFeature("studyPlans.ui.accept-publish.a111f0cb")}</span>
           </Button>
         </div>
       </div>
@@ -205,8 +204,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
         <div className="p-3 rounded-xl bg-surface-50 dark:bg-surface-800 border border-surface-200 dark:border-surface-700">
           <div className="text-[10px] font-bold uppercase tracking-wider text-surface-500 mb-0.5">
-            Total Topics
-          </div>
+            {translateRecentFeature("studyPlans.ui.total-topics.950920e0")}</div>
           <div className="text-lg font-bold text-surface-900 dark:text-surface-100">
             {nodes.length}
           </div>
@@ -214,8 +212,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
 
         <div className="p-3 rounded-xl bg-surface-50 dark:bg-surface-800 border border-surface-200 dark:border-surface-700">
           <div className="text-[10px] font-bold uppercase tracking-wider text-surface-500 mb-0.5">
-            Prerequisite Links
-          </div>
+            {translateRecentFeature("studyPlans.ui.prerequisite-links.364c1470")}</div>
           <div className="text-lg font-bold text-surface-900 dark:text-surface-100">
             {prerequisites.length}
           </div>
@@ -223,8 +220,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
 
         <div className="p-3 rounded-xl bg-surface-50 dark:bg-surface-800 border border-surface-200 dark:border-surface-700">
           <div className="text-[10px] font-bold uppercase tracking-wider text-surface-500 mb-0.5">
-            Grounded Material
-          </div>
+            {translateRecentFeature("studyPlans.ui.grounded-material.3604c1d5")}</div>
           <div className="text-lg font-bold text-surface-900 dark:text-surface-100">
             {nodes.length - unsupportedCount} / {nodes.length}
           </div>
@@ -232,8 +228,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
 
         <div className="p-3 rounded-xl bg-surface-50 dark:bg-surface-800 border border-surface-200 dark:border-surface-700">
           <div className="text-[10px] font-bold uppercase tracking-wider text-surface-500 mb-0.5">
-            Preserved Locks
-          </div>
+            {translateRecentFeature("studyPlans.ui.preserved-locks.f7afefbe")}</div>
           <div className="text-lg font-bold text-surface-900 dark:text-surface-100">
             {lockedCount}
           </div>
@@ -243,7 +238,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
       {/* Navigation tabs */}
       <div
         role="tablist"
-        aria-label="Preview tabs"
+        aria-label={translateRecentFeature("studyPlans.ui.preview-tabs.aa75360e")}
         className="flex items-center gap-1 border-b border-surface-200 dark:border-surface-700 text-xs font-semibold"
       >
         <button
@@ -257,7 +252,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
           }`}
         >
           <ListNumbers size={16} />
-          <span>Curriculum Outline ({nodes.length})</span>
+          <span>{translateRecentFeature("studyPlans.ui.curriculum-outline-var0.e2fb96e7", {var0: nodes.length})}</span>
         </button>
 
         {diff && (
@@ -272,7 +267,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
             }`}
           >
             <GitDiff size={16} />
-            <span>Version Diff</span>
+            <span>{translateRecentFeature("studyPlans.ui.version-diff.4b3d2659")}</span>
           </button>
         )}
       </div>
@@ -282,7 +277,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
         <div className="space-y-4">
           <div className="space-y-3">
             {nodes.map((node, index) => {
-              // Prerequisite nodes
+                            // Prerequisite nodes
               const nodePrereqs = prerequisites
                 .filter((p) => p.dependentNodeId === node.nodeId)
                 .map((p) => nodes.find((n) => n.nodeId === p.prerequisiteNodeId))
@@ -306,11 +301,11 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
                           </h3>
                           {node.locked && (
                             <span
-                              title="Locked position"
+                              title={translateRecentFeature("studyPlans.ui.locked-position.d1d3ebd9")}
                               className="text-amber-500 flex items-center gap-0.5 text-[11px] font-semibold"
                             >
                               <Lock size={12} weight="fill" />
-                              <span>Locked</span>
+                              <span>{translateRecentFeature("studyPlans.ui.locked.784cd9a0")}</span>
                             </span>
                           )}
                           <span
@@ -326,7 +321,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
                         </div>
                         {node.conceptLabel && (
                           <div className="text-[11px] text-on-surface-variant">
-                            Concept: <span className="font-semibold">{node.conceptLabel}</span>
+                            {translateRecentFeature("studyPlans.ui.concept.5b44e87e")}<span className="font-semibold">{node.conceptLabel}</span>
                           </div>
                         )}
                       </div>
@@ -344,8 +339,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
                   {node.learningObjectives.length > 0 && (
                     <div className="pl-8 space-y-1">
                       <div className="text-[10px] font-bold uppercase tracking-wider text-on-surface-variant">
-                        Learning Objectives
-                      </div>
+                        {translateRecentFeature("studyPlans.ui.learning-objectives.998ffd65")}</div>
                       <ul className="list-disc list-inside space-y-0.5 text-[11px] text-on-surface-variant">
                         {node.learningObjectives.map((obj, i) => (
                           <li key={i}>{obj}</li>
@@ -359,7 +353,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
                     {node.sourceRefIds.length > 0 && (
                       <div className="flex items-center gap-1 flex-wrap text-on-surface-variant">
                         <Link size={13} />
-                        <span>{node.sourceRefIds.length} source reference(s)</span>
+                        <span>{translateRecentFeature("studyPlans.ui.var0-source-reference-s.22b762ba", {var0: node.sourceRefIds.length})}</span>
                         {node.sourceRefIds.map((refId) => {
                           const resolution = planDetail.sourceRefs?.[refId];
                           const status = resolution?.status ?? 'missing';
@@ -370,14 +364,14 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
                               type="button"
                               onClick={() => onOpenSource?.(refId)}
                               disabled={!onOpenSource}
-                              title={exactNav ? 'Open exact source location' : 'Open source (coarse)'}
+                              title={exactNav ? translateRecentFeature("studyPlans.ui.open-exact-source-location.faf64705") : translateRecentFeature("studyPlans.ui.open-source-coarse.f7abdecb")}
                               className={`px-1.5 py-0.5 rounded font-semibold text-[10px] border disabled:opacity-60 ${
                                 status === 'current'
                                   ? 'border-emerald-500/30 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20'
                                   : 'border-amber-500/30 text-amber-700 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20'
                               }`}
                             >
-                              {status === 'current' ? (exactNav ? 'Exact' : 'Open') : status}
+                              {status === 'current' ? (exactNav ? translateRecentFeature("studyPlans.ui.exact.71c7d433") : translateRecentFeature("mainLayout.open")) : status}
                             </button>
                           );
                         })}
@@ -387,8 +381,8 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
                     {nodePrereqs.length > 0 && (
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <GitFork size={13} className="text-primary-500" />
-                          <span className="text-on-surface-variant">Prerequisites:</span>
-                        {nodePrereqs.map((p, i) => {
+                          <span className="text-on-surface-variant">{translateRecentFeature("studyPlans.ui.prerequisites.2324f297")}</span>
+                        {nodePrereqs.map((p, _i) => {
                           const edge = prerequisites.find(
                             (candidate) => candidate.dependentNodeId === node.nodeId &&
                               candidate.prerequisiteNodeId === p!.nodeId
@@ -417,9 +411,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
                     )}
 
                     {node.whyHere && (
-                      <div className="text-[10px] text-on-surface-variant italic">
-                        Proposal note: {node.whyHere}
-                      </div>
+                      <div className="text-[10px] text-on-surface-variant italic">{translateRecentFeature("studyPlans.ui.proposal-note-var0.4b58ec3b", {var0: node.whyHere})}</div>
                     )}
                   </div>
                 </div>
@@ -444,10 +436,10 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
         isOpen={showDiscardConfirm}
         onClose={() => setShowDiscardConfirm(false)}
         onConfirm={handleConfirmDiscard}
-        title="Discard Generated Draft?"
-        message="Are you sure you want to discard this generated curriculum draft? All unaccepted topics and prerequisite proposals will be permanently removed."
-        confirmLabel="Discard Draft"
-        cancelLabel="Keep Reviewing"
+        title={translateRecentFeature("studyPlans.ui.discard-generated-draft.fdb298dc")}
+        message={translateRecentFeature("studyPlans.ui.are-you-sure-you-want-to-dis.5bc76627")}
+        confirmLabel={translateRecentFeature("studyPlans.ui.discard-draft.539f3389")}
+        cancelLabel={translateRecentFeature("studyPlans.ui.keep-reviewing.20727b5d")}
         variant="danger"
       />
     </div>

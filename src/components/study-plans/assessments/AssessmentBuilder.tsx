@@ -18,6 +18,7 @@ import {
   Plus,
 } from '@phosphor-icons/react';
 import { Button } from '../../md3/Button';
+import { StudyPlansScrollContainer } from '../StudyPlansScrollContainer';
 import { BlueprintSourceScope } from './BlueprintSourceScope';
 import { BlueprintQuotaControls } from './BlueprintQuotaControls';
 import { BlueprintProviderSummary } from './BlueprintProviderSummary';
@@ -46,6 +47,8 @@ import type { StudySourceRefV1 } from '../../../types/studySource';
 import type { StudyAiPreflight, StudyJobProgress } from '../../../lib/study-plans/generation/types';
 import type { StudyPlanDetail } from '../../../types/learningPaths';
 import type { ExternalSnapshot } from '../../../lib/study-plans/webresearch/snapshots';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface AssessmentBuilderProps {
   planDetail?: StudyPlanDetail | null;
@@ -70,28 +73,28 @@ function createManualQuestion(slot: QuotaSlot, points: number, sourceRefId?: str
   const sourceRefIds = sourceRefId ? [sourceRefId] : [];
   const common = {
     schemaVersion: 1 as const,
-    prompt: 'Write the question prompt',
+    prompt: translateRecentFeature("studyPlans.ui.write-the-question-prompt.86dec8e5"),
     difficulty: slot.difficulty,
     learningObjectives,
     sourceRefIds,
-    explanation: 'Explain the answer using the selected source material.',
+    explanation: translateRecentFeature("studyPlans.ui.explain-the-answer-using-the.7dc00f56"),
     maxPoints: points,
     applicationLevel: 'recall' as const,
     hints: [],
   };
   if (slot.kind === 'single-select') return {
     ...common, kind: slot.kind,
-    options: [{ id: 'option_a', text: 'Option A' }, { id: 'option_b', text: 'Option B' }],
+    options: [{ id: 'option_a', text: translateRecentFeature("studyPlans.ui.option-a.0c734e7d") }, { id: 'option_b', text: translateRecentFeature("studyPlans.ui.option-b.d444bc79") }],
     correctOptionId: 'option_a',
   };
   if (slot.kind === 'multi-select') return {
     ...common, kind: slot.kind,
-    options: [{ id: 'option_a', text: 'Option A' }, { id: 'option_b', text: 'Option B' }, { id: 'option_c', text: 'Option C' }],
+    options: [{ id: 'option_a', text: translateRecentFeature("studyPlans.ui.option-a.0c734e7d") }, { id: 'option_b', text: translateRecentFeature("studyPlans.ui.option-b.d444bc79") }, { id: 'option_c', text: translateRecentFeature("studyPlans.ui.option-c.8ddd5f1b") }],
     correctOptionIds: ['option_a', 'option_b'],
   };
   if (slot.kind === 'cloze') return {
     ...common, kind: slot.kind,
-    prompt: 'Complete the sentence: {{blank_1}}.',
+    prompt: translateRecentFeature("studyPlans.ui.complete-the-sentence-blank-.c9b332fa"),
     segments: [{ kind: 'blank', blankId: 'blank_1' }],
     blanks: [{ id: 'blank_1', acceptedAnswers: ['answer'], caseSensitive: false }],
   };
@@ -100,13 +103,13 @@ function createManualQuestion(slot: QuotaSlot, points: number, sourceRefId?: str
     return {
       ...common, kind: slot.kind,
       referenceAnswer: 'Write the expected answer.',
-      keyFacts: [{ id: keyFactId, text: 'Expected key fact', required: true }],
+      keyFacts: [{ id: keyFactId, text: translateRecentFeature("studyPlans.ui.expected-key-fact.bff1d85f"), required: true }],
       acceptedAnswers: [],
       rubric: {
         schemaVersion: 1,
         expectedConcepts: [],
         gradingConstraints: [],
-        criteria: [{ id: 'criterion_1', title: 'Key fact', assessmentInstruction: 'Identify the key fact.', weight: 100,
+        criteria: [{ id: 'criterion_1', title: translateRecentFeature("studyPlans.ui.key-fact.7586883d"), assessmentInstruction: 'Identify the key fact.', weight: 100,
           grounding: sourceRefId ? 'source' : 'reasoning', sourceRefIds, keyFactIds: [keyFactId],
           levels: { '0': 'Absent', '1': 'Weak', '2': 'Partial', '3': 'Mostly correct', '4': 'Accurate' } }],
       },
@@ -140,7 +143,8 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   onStartedAttempt,
   returnContext = null,
 }) => {
-  const [detail, setDetail] = useState<BlueprintDetail | null>(null);
+    useI18n();
+    const [detail, setDetail] = useState<BlueprintDetail | null>(null);
   const [title, setTitle] = useState('');
   const [config, setConfig] = useState<AssessmentConfigV1 | null>(null);
   const [state, setState] = useState<BuilderState>('loading');
@@ -335,7 +339,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
         setPreflightRoute(null);
       }
     } catch (err: any) {
-      setErrorBanner(err?.messageKey || err?.message || 'Failed to initialize assessment');
+      setErrorBanner(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")));
       setState('error');
     }
   }, [initialRevisionId, planDetail, initialConfig, initialTitle, batchSize]);
@@ -373,7 +377,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       setDetail(updated);
       return updated;
     } catch (err: any) {
-      setErrorBanner(err?.messageKey || err?.message || 'Failed to save draft');
+      setErrorBanner(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")));
       return null;
     } finally {
       setIsSaving(false);
@@ -382,12 +386,12 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
   // Run AI Question Generation
   const handleGenerate = async () => {
-    if (!detail || !config || !preflight || !canGenerate || abortControllerRef.current || detail.revision.state === 'ready') return;
+        if (!detail || !config || !preflight || !canGenerate || abortControllerRef.current || detail.revision.state === 'ready') return;
     setState('generating');
     setErrorBanner(null);
     setGenerationReport(null);
     setExternalEvidenceAccepted(false);
-    setProgress({ completed: 0, total: 1, labelKey: 'Initializing generation…' });
+    setProgress({ completed: 0, total: 1, labelKey: 'studyPlans.ui.initializing-generation' });
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
@@ -396,7 +400,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       // First persist current parameters to draft
       const savedDetail = await handleSaveDraft();
       if (!savedDetail) {
-        setErrorBanner('Draft could not be saved. Generation was not started.');
+        setErrorBanner(translateRecentFeature("studyPlans.ui.draft-could-not-be-saved-gen.179cbe89"));
         setState('idle');
         return;
       }
@@ -422,9 +426,9 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       const latest = await BlueprintService.getBlueprintRevision(detail.revision.id).catch(() => null);
       if (latest) setDetail(latest);
       if (err?.code === 'cancelled') {
-        setErrorBanner('Generation cancelled. Partial drafts remain intact.');
+        setErrorBanner(translateRecentFeature("studyPlans.ui.generation-cancelled-partial.2e2c3459"));
       } else {
-        setErrorBanner(studyErrorMessage(err, 'Question generation stopped. Saved questions are available in the draft.'));
+        setErrorBanner(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.question-generation-stopped-.05435e6d")));
       }
       setState('idle');
     } finally {
@@ -435,13 +439,13 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
   // Publish Blueprint Paper
   const handlePublish = async (acceptShortfall = false, acceptExternalEvidence = externalEvidenceAccepted) => {
-    if (!detail || !hasValidQuestions || abortControllerRef.current) return;
+        if (!detail || !hasValidQuestions || abortControllerRef.current) return;
     if (hasUnavailableExternalEvidence) {
-      setErrorBanner('A cited web source is stale or unavailable. Replace it with a current accepted snapshot before publishing.');
+        setErrorBanner(translateRecentFeature("studyPlans.ui.a-cited-web-source-is-stale-.e5335e56"));
       return;
     }
     if (hasExternalEvidence && !acceptExternalEvidence) {
-      setErrorBanner('Review and accept the cited web evidence before publishing this assessment.');
+        setErrorBanner(translateRecentFeature("studyPlans.ui.review-and-accept-the-cited-.f1c8254b"));
       return;
     }
     setIsPublishing(true);
@@ -458,7 +462,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       setState('ready');
       onPublished?.(published);
     } catch (err: any) {
-      setErrorBanner(studyErrorMessage(err, 'Failed to publish assessment.'));
+      setErrorBanner(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.failed-to-publish-assessment.59b797f5")));
     } finally {
       setIsPublishing(false);
     }
@@ -475,23 +479,21 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       onStartAssessment?.(attemptDetail.attempt.id);
       onStartedAttempt?.(attemptDetail.attempt.id);
     } catch (err: any) {
-      setErrorBanner(err?.messageKey || err?.message || 'Failed to start assessment');
+      setErrorBanner(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")));
     }
   };
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto overscroll-contain">
+    <StudyPlansScrollContainer data-study-plans-scroll="assessment-builder">
       <div className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
       {returnContext && (
         <p data-testid="builder-return-context" className="text-xs text-on-surface-variant">
-          Follow-up context: plan {returnContext.planId ?? '—'} · gap {returnContext.gapId ?? '—'}. No
-          automatic Start; published plan stays unchanged.
-        </p>
+          {translateRecentFeature("studyPlans.ui.follow-up-context-plan.7e40308f")}{returnContext.planId ?? '—'} {translateRecentFeature("studyPlans.ui.gap.2af2aaf1")}{returnContext.gapId ?? '—'}{translateRecentFeature("studyPlans.ui.no-automatic-start-published.f406a1b4")}</p>
       )}
       {/* Header Row */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-surface-200 dark:border-surface-700">
         <div className="flex items-center gap-3">
-          <Button variant="text" size="iconSm" onClick={onClose} aria-label="Back">
+          <Button variant="text" size="iconSm" onClick={onClose} aria-label={translateRecentFeature("common.back")}>
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div>
@@ -502,14 +504,13 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                 value={title}
                 disabled={state === 'generating' || state === 'ready'}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="Assessment Title"
+                placeholder={translateRecentFeature("studyPlans.ui.assessment-title.be801601")}
                 className="text-lg font-bold text-surface-900 dark:text-surface-100 bg-transparent border-b border-transparent hover:border-surface-300 dark:hover:border-surface-600 focus:border-primary-500 outline-none px-1 py-0.5 rounded"
-                aria-label="Assessment Title"
+                aria-label={translateRecentFeature("studyPlans.ui.assessment-title.be801601")}
               />
             </div>
             <p className="text-xs text-surface-500 dark:text-surface-400 mt-0.5">
-              Source-Grounded Examination Paper Builder
-            </p>
+              {translateRecentFeature("studyPlans.ui.source-grounded-examination-.b0f13345")}</p>
           </div>
         </div>
 
@@ -522,8 +523,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             disabled={isSaving || state === 'generating' || state === 'ready'}
           >
             <FloppyDisk className="w-4 h-4 mr-1.5" />
-            Save Draft
-          </Button>
+            {translateRecentFeature("studyPlans.ui.save-draft.b400769b")}</Button>
 
           {detail && state !== 'ready' && (
             <Button
@@ -534,9 +534,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
                 : nextManualSlot && setManualQuestion(null)}
               disabled={state === 'generating' || (!onOpenQuestionEditor && !nextManualSlot)}
             >
-              <Pencil className="w-4 h-4 mr-1.5" />
-              Manual Question Editor ({detail.questions.length})
-            </Button>
+              <Pencil className="w-4 h-4 mr-1.5" />{translateRecentFeature("studyPlans.ui.manual-question-editor-var0.f912c8be", {var0: detail.questions.length})}</Button>
           )}
           {detail && state !== 'ready' && nextManualSlot && (
             <Button
@@ -545,8 +543,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               onClick={() => setManualQuestion(null)}
               disabled={state === 'generating'}
             >
-              <Plus className="w-4 h-4 mr-1.5" /> Add Manual Question
-            </Button>
+              <Plus className="w-4 h-4 mr-1.5" /> {translateRecentFeature("studyPlans.ui.add-manual-question.48c4f263")}</Button>
           )}
 
           {preflight && (
@@ -557,8 +554,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               disabled={state === 'generating' || state === 'ready' || !canGenerate}
             >
               <Sparkle className="w-4 h-4 mr-1.5" />
-              Generate Questions
-            </Button>
+              {translateRecentFeature("studyPlans.ui.generate-questions.6e1ac806")}</Button>
           )}
 
           {state !== 'ready' && hasValidQuestions && (
@@ -570,8 +566,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               className="bg-emerald-600 hover:bg-emerald-700 text-white"
             >
               <CheckCircle className="w-4 h-4 mr-1.5" />
-              Publish Paper
-            </Button>
+              {translateRecentFeature("studyPlans.ui.publish-paper.5dd999d5")}</Button>
           )}
 
           {state === 'ready' && detail && (
@@ -582,8 +577,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               className="bg-primary-600 hover:bg-primary-700 text-white"
             >
               <GraduationCap className="w-4 h-4 mr-1.5" />
-              Start Assessment
-            </Button>
+              {translateRecentFeature("studyPlans.ui.start-assessment.535a5c9b")}</Button>
           )}
         </div>
       </div>
@@ -596,13 +590,12 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             onChange={(event) => setExternalEvidenceAccepted(event.target.checked)}
             className="mt-0.5 rounded border-amber-500 text-amber-700 focus:ring-amber-500"
           />
-          <span>I reviewed the cited saved excerpts for every question and accept this new assessment revision for publication. Earlier attempts keep their original trust status.</span>
+          <span>{translateRecentFeature("studyPlans.ui.i-reviewed-the-cited-saved-e.dd94e00c")}</span>
         </label>
       )}
       {hasUnavailableExternalEvidence && state !== 'ready' && (
         <p role="alert" className="rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-3 text-xs text-amber-950 dark:text-amber-100">
-          At least one cited web source has changed or is unavailable. Edit that question, replace the source with a current accepted snapshot, and review it again before publishing.
-        </p>
+          {translateRecentFeature("studyPlans.ui.at-least-one-cited-web-sourc.05e7bc22")}</p>
       )}
 
       {/* Error / Notice Banner */}
@@ -625,16 +618,14 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
           <div className="flex items-center justify-between">
             <span className="text-sm font-semibold text-primary-900 dark:text-primary-100 flex items-center gap-2">
               <Sparkle className="w-4 h-4 animate-spin text-primary-600" />
-              Generating Questions…
-            </span>
+              {translateRecentFeature("studyPlans.ui.generating-questions.b2d59393")}</span>
             <Button
               variant="outlined"
               size="sm"
               onClick={() => abortControllerRef.current?.abort()}
               className="text-xs border-primary-300 dark:border-primary-700"
             >
-              Cancel
-            </Button>
+              {translateRecentFeature("common.cancel")}</Button>
           </div>
           <div className="w-full h-2 rounded-full bg-surface-200 dark:bg-surface-700 overflow-hidden">
             <div
@@ -644,9 +635,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
               }}
             />
           </div>
-          <span className="text-xs text-primary-700 dark:text-primary-300 block">
-            Batch {Math.min(progress.completed + 1, progress.total)} of {progress.total}
-          </span>
+          <span className="text-xs text-primary-700 dark:text-primary-300 block">{translateRecentFeature("studyPlans.ui.batch-var0-of-var1.adae2408", {var0: Math.min(progress.completed + 1, progress.total), var1: progress.total})}</span>
         </div>
       )}
 
@@ -662,21 +651,22 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       )}
 
       {detail && detail.questions.length > 0 && (
-        <section aria-label="Saved questions" className="space-y-2">
-          <h2 className="text-sm font-semibold">Questions ({detail.questions.length}/{config?.requestedCount ?? detail.revision.config.requestedCount})</h2>
-          {detail.questions.map((revision) => (
+        <section aria-label={translateRecentFeature("studyPlans.ui.saved-questions.a28cdbf8")} className="space-y-2">
+          <h2 className="text-sm font-semibold">{translateRecentFeature("studyPlans.ui.questions-var0-var1.b09be608", {var0: detail.questions.length, var1: config?.requestedCount ?? detail.revision.config.requestedCount})}</h2>
+          {detail.questions.map((revision) => {
+                        return (
             <div key={revision.id} className="flex items-center justify-between gap-3 rounded-lg border border-surface-200 dark:border-surface-700 p-3">
               <div className="min-w-0">
                 <p className="truncate text-sm">{revision.question.prompt}</p>
-                <p className="text-xs text-surface-500">{revision.question.kind} · slot {revision.slotKey}{revision.question.externalSnapshotIds?.length ? ` · ${revision.question.externalSnapshotIds.length} web source${revision.question.externalSnapshotIds.length === 1 ? '' : 's'}` : ''}</p>
+                <p className="text-xs text-surface-500">{translateRecentFeature("studyPlans.ui.var0-slot-var1.ea709e08", {var0: revision.question.kind, var1: revision.slotKey})}{revision.question.externalSnapshotIds?.length ? ` · ${translateRecentFeature(revision.question.externalSnapshotIds.length === 1 ? "studyPlans.ui.var0-web-source.41410ad7" : "studyPlans.ui.var0-web-sources.a1fb00bf", {var0: revision.question.externalSnapshotIds.length})}` : ''}</p>
               </div>
               {detail.revision.state !== 'ready' && (
                 <Button variant="outlined" size="sm" onClick={() => setManualQuestion(revision)} disabled={state === 'generating'}>
-                  <Pencil className="w-4 h-4 mr-1" /> Edit
-                </Button>
+                  <Pencil className="w-4 h-4 mr-1" /> {translateRecentFeature("common.edit")}</Button>
               )}
             </div>
-          ))}
+          );
+          })}
         </section>
       )}
 
@@ -743,6 +733,6 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
         );
       })()}
       </div>
-    </div>
+    </StudyPlansScrollContainer>
   );
 };

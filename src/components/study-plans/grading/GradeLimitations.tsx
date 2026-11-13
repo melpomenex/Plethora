@@ -9,31 +9,32 @@
 import React from 'react';
 import { Warning, Info } from '@phosphor-icons/react';
 import type { RubricLimitation } from '../../../types/assessmentSessions';
+import { t as translateRecentFeature, useI18n } from '../../../lib/i18n';
 
 export interface GradeLimitationsProps {
   limitations?: (RubricLimitation | string)[] | null;
   className?: string;
 }
 
-const LIMITATION_DESCRIPTIONS: Record<string, { label: string; detail: string; severity: 'warning' | 'info' }> = {
+const LIMITATION_DESCRIPTIONS: Record<string, { labelKey: string; detailKey: string; severity: 'warning' | 'info' }> = {
   'ambiguous-answer': {
-    label: 'Ambiguous Student Response',
-    detail: 'The answer is semantically ambiguous; manual educator review is strongly recommended.',
+    labelKey: 'studyPlans.ui.ambiguous-student-response.cb980a76',
+    detailKey: 'studyPlans.ui.the-answer-is-semantically-a.8c833c29',
     severity: 'warning',
   },
   'non-reasoning-fallback': {
-    label: 'Non-Reasoning Model Fallback',
-    detail: 'An essay answer was evaluated using standard model fallback without multi-step reasoning.',
+    labelKey: 'studyPlans.ui.non-reasoning-model-fallback.58404ddb',
+    detailKey: 'studyPlans.ui.an-essay-answer-was-evaluate.6510cfc4',
     severity: 'warning',
   },
   'model-capability': {
-    label: 'Model Capability Constraint',
-    detail: 'The AI provider reported context or complexity limitations while grading.',
+    labelKey: 'studyPlans.ui.model-capability-constraint.b491e10a',
+    detailKey: 'studyPlans.ui.the-ai-provider-reported-con.10a273b4',
     severity: 'info',
   },
   'insufficient-source': {
-    label: 'Source Grounding Limitation',
-    detail: 'One or more required source references were unavailable during evaluation.',
+    labelKey: 'studyPlans.ui.source-grounding-limitation.8029e77a',
+    detailKey: 'studyPlans.ui.one-or-more-required-source-.b9119372',
     severity: 'warning',
   },
 };
@@ -42,7 +43,8 @@ export const GradeLimitations: React.FC<GradeLimitationsProps> = ({
   limitations,
   className = '',
 }) => {
-  if (!limitations || limitations.length === 0) {
+  useI18n();
+    if (!limitations || limitations.length === 0) {
     return null;
   }
 
@@ -51,7 +53,7 @@ export const GradeLimitations: React.FC<GradeLimitationsProps> = ({
       {limitations.map((lim, idx) => {
         const meta = LIMITATION_DESCRIPTIONS[lim] || {
           label: lim,
-          detail: 'Assessment limitation noted during evaluation.',
+          detail: translateRecentFeature('studyPlans.ui.assessment-limitation-noted-.829ae1ac'),
           severity: 'info',
         };
 
@@ -72,8 +74,8 @@ export const GradeLimitations: React.FC<GradeLimitationsProps> = ({
               <Info size={16} weight="bold" className="shrink-0 mt-0.5" />
             )}
             <div className="space-y-0.5">
-              <span className="font-semibold block">{meta.label}</span>
-              <p className="text-on-surface-variant/90">{meta.detail}</p>
+              <span className="font-semibold block">{'labelKey' in meta ? translateRecentFeature(meta.labelKey) : meta.label}</span>
+              <p className="text-on-surface-variant/90">{'detailKey' in meta ? translateRecentFeature(meta.detailKey) : meta.detail}</p>
             </div>
           </div>
         );

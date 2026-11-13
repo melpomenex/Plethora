@@ -23,6 +23,8 @@ import {
 import { Button } from '../md3/Button';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import type { StudyJobProgress, StudyJobStatus } from '../../lib/study-plans/generation/types';
+import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
+
 
 export type GeneratorStatus = StudyJobStatus | 'idle' | 'cancelling' | 'paused' | 'running';
 
@@ -38,46 +40,46 @@ export interface GenerationProgressProps {
 
 interface StepInfo {
   index: number;
-  label: string;
-  subtext: string;
+  labelKey: string;
+  subtextKey: string;
   icon: React.ComponentType<{ size?: number; className?: string }>;
 }
 
 const STAGES: StepInfo[] = [
   {
     index: 0,
-    label: 'Decomposing Topics',
-    subtext: 'Extracting grounded core topics and learning objectives from sources',
+    labelKey: 'studyPlans.ui.decomposing-topics.53033910',
+    subtextKey: 'studyPlans.ui.extracting-grounded-core-top.9bdcbd64',
     icon: ListNumbers,
   },
   {
     index: 1,
-    label: 'Inferring Prerequisites',
-    subtext: 'Analyzing prerequisite dependencies and concept relationships',
+    labelKey: 'studyPlans.ui.inferring-prerequisites.4a71ef60',
+    subtextKey: 'studyPlans.ui.analyzing-prerequisite-depen.2dee0d8b',
     icon: GitFork,
   },
   {
     index: 2,
-    label: 'Validating Graph & Ordering',
-    subtext: 'Enforcing Kahn cycle-pruning and topological sequence invariants',
+    labelKey: 'studyPlans.ui.validating-graph-ordering.801c8e18',
+    subtextKey: 'studyPlans.ui.enforcing-kahn-cycle-pruning.f6a1e15a',
     icon: TreeStructure,
   },
   {
     index: 3,
-    label: 'Checkpointing Draft',
-    subtext: 'Merging with existing draft, preserving locks and user modifications',
+    labelKey: 'studyPlans.ui.checkpointing-draft.56defb93',
+    subtextKey: 'studyPlans.ui.merging-with-existing-draft-.0b44fe54',
     icon: FloppyDisk,
   },
 ];
 
-const PROGRESS_LABELS: Record<string, string> = {
-  'study_generation.progress.queued': 'Waiting to generate topics.',
-  'study_generation.step.decompose': 'Building the source outline.',
-  'study_generation.step.prerequisites': 'Inferring prerequisites from saved topics.',
-  'study_generation.progress.decomposing_complete': 'Topics saved to the draft.',
-  'study_generation.progress.prerequisites_complete': 'Draft ready for review.',
-  'study_generation.progress.prerequisites_unavailable': 'Draft ready for review. Prerequisite inference was unavailable.',
-};
+const PROGRESS_LABEL_KEYS = new Set([
+  'study_generation.progress.queued',
+  'study_generation.step.decompose',
+  'study_generation.step.prerequisites',
+  'study_generation.progress.decomposing_complete',
+  'study_generation.progress.prerequisites_complete',
+  'study_generation.progress.prerequisites_unavailable',
+]);
 
 export const GenerationProgress: React.FC<GenerationProgressProps> = ({
   progress,
@@ -88,7 +90,8 @@ export const GenerationProgress: React.FC<GenerationProgressProps> = ({
   onResume,
   isCancelling = false,
 }) => {
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+        useI18n();
+        const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   const completedSteps = progress?.completed ?? (progress as any)?.completedSteps ?? 0;
   const totalSteps = Math.max(1, progress?.total ?? (progress as any)?.totalSteps ?? 2);
@@ -108,7 +111,7 @@ export const GenerationProgress: React.FC<GenerationProgressProps> = ({
 
   return (
     <div
-      aria-label="Generation progress container"
+      aria-label={translateRecentFeature("studyPlans.ui.generation-progress-containe.88143e6d")}
       className="p-5 rounded-2xl border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800/80 space-y-5 text-xs"
     >
       {/* Header and status */}
@@ -135,22 +138,24 @@ export const GenerationProgress: React.FC<GenerationProgressProps> = ({
             )}
             <span>
               {isCancelling || status === 'cancelling'
-                ? 'Cancelling Generation…'
+                ? translateRecentFeature("studyPlans.ui.cancelling-generation.37bb9b95")
                 : status === 'paused'
-                  ? 'Generation Paused'
+                  ? translateRecentFeature("studyPlans.ui.generation-paused.70d03ddb")
                   : status === 'completed'
-                    ? 'Curriculum Generated Successfully'
+                    ? translateRecentFeature("studyPlans.ui.curriculum-generated-success.2dbee8f3")
                     : status === 'interrupted'
-                      ? 'Generation Interrupted'
+                      ? translateRecentFeature("studyPlans.ui.generation-interrupted.e78ea97e")
                       : status === 'failed'
-                        ? 'Generation Failed'
-                        : 'Generating Curriculum…'}
+                        ? translateRecentFeature("studyPlans.ui.generation-failed.7e231811")
+                        : translateRecentFeature("studyPlans.ui.generating-curriculum.dcf10675")}
             </span>
           </h3>
           <p className="text-[11px] text-surface-500 mt-0.5">
-            {(progress && PROGRESS_LABELS[progress.labelKey]) ||
+            {(progress?.labelKey && PROGRESS_LABEL_KEYS.has(progress.labelKey)
+              ? translateRecentFeature(progress.labelKey)
+              : null) ||
               (progress as any)?.message ||
-              (status === 'paused' ? 'Paused by user.' : 'Executing bounded generation steps.')}
+              (status === 'paused' ? translateRecentFeature("studyPlans.ui.paused-by-user.a5f200b8") : translateRecentFeature("studyPlans.ui.executing-bounded-generation.892c0e9d"))}
           </p>
         </div>
 
@@ -162,10 +167,10 @@ export const GenerationProgress: React.FC<GenerationProgressProps> = ({
               size="sm"
               onClick={onPause}
               disabled={isCancelling}
-              aria-label="Pause generation"
+              aria-label={translateRecentFeature("studyPlans.ui.pause-generation.9fb4f90c")}
             >
               <Pause size={14} />
-              <span>Pause</span>
+              <span>{translateRecentFeature("audio.pause")}</span>
             </Button>
           )}
 
@@ -175,10 +180,10 @@ export const GenerationProgress: React.FC<GenerationProgressProps> = ({
               size="sm"
               onClick={onResume}
               disabled={isCancelling}
-              aria-label="Resume generation"
+              aria-label={translateRecentFeature("studyPlans.ui.resume-generation.2afbbf29")}
             >
               <Play size={14} />
-              <span>Resume</span>
+              <span>{translateRecentFeature("aiLibrary.indexResume")}</span>
             </Button>
           )}
 
@@ -188,10 +193,10 @@ export const GenerationProgress: React.FC<GenerationProgressProps> = ({
               size="sm"
               onClick={handleCancelClick}
               disabled={isCancelling}
-              aria-label="Cancel generation"
+              aria-label={translateRecentFeature("studyPlans.ui.cancel-generation.a48ebe85")}
             >
               <XCircle size={14} />
-              <span>{isCancelling ? 'Cancelling…' : 'Cancel'}</span>
+              <span>{isCancelling ? translateRecentFeature("studyPlans.ui.cancelling.5748af1e") : translateRecentFeature("common.cancel")}</span>
             </Button>
           )}
         </div>
@@ -200,9 +205,7 @@ export const GenerationProgress: React.FC<GenerationProgressProps> = ({
       {/* Progress bar */}
       <div className="space-y-1.5">
         <div className="flex items-center justify-between text-[11px] font-semibold text-surface-600 dark:text-surface-400">
-          <span>
-            Step {Math.min(completedSteps + 1, totalSteps)} of {totalSteps}
-          </span>
+          <span>{translateRecentFeature("studyPlans.ui.step-var0-of-var1.1fa277f9", {var0: Math.min(completedSteps + 1, totalSteps), var1: totalSteps})}</span>
           <span>{percent}%</span>
         </div>
         <div
@@ -210,7 +213,7 @@ export const GenerationProgress: React.FC<GenerationProgressProps> = ({
           aria-valuenow={percent}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-label="Curriculum generation progress"
+          aria-label={translateRecentFeature("studyPlans.ui.curriculum-generation-progre.4ca7061b")}
           className="w-full h-2 rounded-full bg-surface-200 dark:bg-surface-700 overflow-hidden"
         >
           <div
@@ -229,18 +232,15 @@ export const GenerationProgress: React.FC<GenerationProgressProps> = ({
       {/* Topic Count Pill if available */}
       {topicCount !== undefined && topicCount > 0 && (
         <div className="flex items-center gap-2 text-[11px] text-surface-600 dark:text-surface-400">
-          <span className="font-semibold">Proposed topics so far:</span>
-          <span className="px-2 py-0.5 rounded-full bg-primary-500/10 text-primary-600 dark:text-primary-400 font-bold border border-primary-500/20">
-            {topicCount} topics
-          </span>
+          <span className="font-semibold">{translateRecentFeature("studyPlans.ui.proposed-topics-so-far.8738fc10")}</span>
+          <span className="px-2 py-0.5 rounded-full bg-primary-500/10 text-primary-600 dark:text-primary-400 font-bold border border-primary-500/20">{translateRecentFeature("studyPlans.ui.var0-topics.d382639b", {var0: topicCount})}</span>
         </div>
       )}
 
       {/* Stages Stepper */}
       <div className="space-y-2 pt-2 border-t border-surface-200 dark:border-surface-700">
         <div className="text-[10px] font-bold uppercase tracking-wider text-surface-500">
-          Generation Pipeline Stages
-        </div>
+          {translateRecentFeature("studyPlans.ui.generation-pipeline-stages.a15feb8c")}</div>
         <div className="space-y-2">
           {STAGES.map((s) => {
             const Icon = s.icon;
@@ -270,12 +270,12 @@ export const GenerationProgress: React.FC<GenerationProgressProps> = ({
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between">
-                    <span className="font-bold text-xs">{s.label}</span>
+                    <span className="font-bold text-xs">{translateRecentFeature(s.labelKey)}</span>
                     <span className="text-[10px] font-semibold text-surface-400">
-                      {isDone ? 'Completed' : isCurrent ? 'In progress' : failed ? 'Failed' : 'Pending'}
+                      {isDone ? translateRecentFeature("studyPlans.ui.completed.b0775abf") : isCurrent ? translateRecentFeature("studyPlans.ui.in-progress.3850f9d6") : failed ? translateRecentFeature("common.failed") : translateRecentFeature("studyPlans.ui.pending.92e21aca")}
                     </span>
                   </div>
-                  <p className="text-[11px] text-surface-500 line-clamp-1">{s.subtext}</p>
+                  <p className="text-[11px] text-surface-500 line-clamp-1">{translateRecentFeature(s.subtextKey)}</p>
                 </div>
               </div>
             );
@@ -288,10 +288,10 @@ export const GenerationProgress: React.FC<GenerationProgressProps> = ({
         isOpen={showCancelConfirm}
         onClose={() => setShowCancelConfirm(false)}
         onConfirm={handleConfirmCancel}
-        title="Stop Outstanding Model Work?"
-        message="Are you sure you want to cancel curriculum generation? Completed steps and partial checkpoints will be preserved."
-        confirmLabel="Cancel Generation"
-        cancelLabel="Continue Generating"
+        title={translateRecentFeature("studyPlans.ui.stop-outstanding-model-work.60a2baa5")}
+        message={translateRecentFeature("studyPlans.ui.are-you-sure-you-want-to-can.696bbbbc")}
+        confirmLabel={translateRecentFeature("studyPlans.ui.cancel-generation.12d3ed5c")}
+        cancelLabel={translateRecentFeature("studyPlans.ui.continue-generating.979fe91f")}
         variant="warning"
       />
     </div>

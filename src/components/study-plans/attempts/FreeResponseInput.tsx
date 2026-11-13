@@ -13,6 +13,8 @@ import type {
   LearnerConfidence,
 } from '../../../types/assessmentQuestions';
 import { ConfidenceSelector } from './ConfidenceSelector';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface FreeResponseInputProps {
   question: ShortAnswerQuestion | EssayQuestion;
@@ -33,7 +35,8 @@ export const FreeResponseInput: React.FC<FreeResponseInputProps> = ({
   disabled = false,
   className = '',
 }) => {
-  const isEssay = question.kind === 'essay';
+        useI18n();
+        const isEssay = question.kind === 'essay';
   const maxChars = isEssay ? 60000 : 20000;
   const currentChars = text.length;
 
@@ -45,7 +48,7 @@ export const FreeResponseInput: React.FC<FreeResponseInputProps> = ({
           {question.prompt}
         </h3>
         <span className="text-xs text-on-surface-variant dark:text-on-surface-variant-dark">
-          {isEssay ? 'Long-form essay response' : 'Short concise answer'}
+          {isEssay ? translateRecentFeature("studyPlans.ui.long-form-essay-response.3b825f2b") : translateRecentFeature("studyPlans.ui.short-concise-answer.da56c042")}
         </span>
       </div>
 
@@ -56,15 +59,13 @@ export const FreeResponseInput: React.FC<FreeResponseInputProps> = ({
           value={text}
           onChange={(e) => onChangeText(e.target.value.slice(0, maxChars))}
           disabled={disabled}
-          placeholder={isEssay ? 'Compose your essay response here...' : 'Type your answer here...'}
+          placeholder={isEssay ? translateRecentFeature("studyPlans.ui.compose-your-essay-response-.c5957a7d") : translateRecentFeature("studyPlans.ui.type-your-answer-here.cb698ac1")}
           className="w-full min-h-[120px] p-4 bg-surface-container-low dark:bg-surface-container-low-dark border border-outline-variant/60 rounded-xl text-sm leading-relaxed text-on-surface dark:text-on-surface-dark focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary disabled:opacity-60 resize-y"
-          aria-label={isEssay ? 'Essay answer' : 'Short answer'}
+          aria-label={isEssay ? translateRecentFeature("studyPlans.ui.essay-answer.82c53aac") : translateRecentFeature("studyPlans.ui.short-answer.e137a7c1")}
         />
 
         <div className="flex justify-end text-xs text-on-surface-variant dark:text-on-surface-variant-dark font-mono">
-          <span>
-            {currentChars.toLocaleString()} / {maxChars.toLocaleString()} characters
-          </span>
+          <span>{translateRecentFeature("studyPlans.ui.var0-var1-characters.18f44fcb", {var0: currentChars.toLocaleString(), var1: maxChars.toLocaleString()})}</span>
         </div>
       </div>
 

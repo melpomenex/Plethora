@@ -17,6 +17,8 @@ import {
   CheckCircle,
 } from '@phosphor-icons/react';
 import type { PlanVersionDiff as PlanVersionDiffType } from '../../types/learningPaths';
+import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
+
 
 export interface PlanVersionDiffProps {
   diff: PlanVersionDiffType | null;
@@ -29,11 +31,11 @@ export const PlanVersionDiff: React.FC<PlanVersionDiffProps> = ({
   onAcknowledgeLockConflicts,
   lockConflictsAcknowledged = false,
 }) => {
-  if (!diff) {
+        useI18n();
+        if (!diff) {
     return (
       <div className="py-6 text-center text-xs text-surface-500">
-        No structural diff available for this version.
-      </div>
+        {translateRecentFeature("studyPlans.ui.no-structural-diff-available.cf382966")}</div>
     );
   }
 
@@ -50,7 +52,7 @@ export const PlanVersionDiff: React.FC<PlanVersionDiffProps> = ({
     return (
       <div className="py-6 text-center text-xs text-surface-500 flex items-center justify-center gap-2">
         <CheckCircle size={16} className="text-emerald-500" />
-        <span>No changes detected from previous version.</span>
+        <span>{translateRecentFeature("studyPlans.ui.no-changes-detected-from-pre.1f0e5392")}</span>
       </div>
     );
   }
@@ -65,19 +67,17 @@ export const PlanVersionDiff: React.FC<PlanVersionDiffProps> = ({
         >
           <div className="flex items-center gap-2 font-bold">
             <Lock size={16} weight="fill" className="text-amber-600 dark:text-amber-400" />
-            <span>Lock-Position Conflicts ({diff.lockConflicts.length})</span>
+            <span>{translateRecentFeature("studyPlans.ui.lock-position-conflicts-var0.89454345", {var0: diff.lockConflicts.length})}</span>
           </div>
           <p className="text-[11px] leading-relaxed">
-            The following locked topics were moved because prerequisite topological ordering
-            required it:
-          </p>
+            {translateRecentFeature("studyPlans.ui.the-following-locked-topics-.55571a1d")}</p>
           <ul className="list-disc list-inside space-y-0.5 text-[11px]">
-            {diff.lockConflicts.map((c, i) => (
+            {diff.lockConflicts.map((c, i) => {
+                            return (
               <li key={i}>
-                Topic <span className="font-mono">{c.nodeId.slice(0, 8)}</span>: moved from position{' '}
-                {c.previousPosition + 1} to {c.actualPosition + 1}
-              </li>
-            ))}
+                {translateRecentFeature("tagSuggestions.category.topic")}<span className="font-mono">{c.nodeId.slice(0, 8)}</span>{translateRecentFeature("studyPlans.ui.moved-from-position.c93037c9")}{' '}{translateRecentFeature("studyPlans.ui.var0-to-var1.70c63dcb", {var0: c.previousPosition + 1, var1: c.actualPosition + 1})}</li>
+            );
+            })}
           </ul>
           {onAcknowledgeLockConflicts && (
             <label className="flex items-center gap-2 pt-1 font-semibold cursor-pointer">
@@ -87,7 +87,7 @@ export const PlanVersionDiff: React.FC<PlanVersionDiffProps> = ({
                 onChange={onAcknowledgeLockConflicts}
                 className="text-amber-600 focus:ring-amber-500 rounded"
               />
-              <span>I reviewed and acknowledge these {diff.lockConflicts.length} position changes</span>
+              <span>{translateRecentFeature("studyPlans.ui.i-reviewed-and-acknowledge-t.4155444c", {var0: diff.lockConflicts.length})}</span>
             </label>
           )}
         </div>
@@ -98,7 +98,7 @@ export const PlanVersionDiff: React.FC<PlanVersionDiffProps> = ({
         <div className="p-3 rounded-xl bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700">
           <div className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-400 font-bold mb-1">
             <PlusCircle size={15} />
-            <span>Added</span>
+            <span>{translateRecentFeature("imageRegistry.added")}</span>
           </div>
           <div className="text-lg font-bold text-surface-900 dark:text-surface-100">
             {diff.addedNodeIds.length}
@@ -108,7 +108,7 @@ export const PlanVersionDiff: React.FC<PlanVersionDiffProps> = ({
         <div className="p-3 rounded-xl bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700">
           <div className="flex items-center gap-1.5 text-red-600 dark:text-red-400 font-bold mb-1">
             <MinusCircle size={15} />
-            <span>Removed</span>
+            <span>{translateRecentFeature("studyPlans.ui.removed.253c680d")}</span>
           </div>
           <div className="text-lg font-bold text-surface-900 dark:text-surface-100">
             {diff.removedNodeIds.length}
@@ -118,7 +118,7 @@ export const PlanVersionDiff: React.FC<PlanVersionDiffProps> = ({
         <div className="p-3 rounded-xl bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700">
           <div className="flex items-center gap-1.5 text-blue-600 dark:text-blue-400 font-bold mb-1">
             <PencilSimple size={15} />
-            <span>Modified</span>
+            <span>{translateRecentFeature("studyPlans.ui.modified.9f201b77")}</span>
           </div>
           <div className="text-lg font-bold text-surface-900 dark:text-surface-100">
             {diff.modifiedNodeIds.length}
@@ -128,7 +128,7 @@ export const PlanVersionDiff: React.FC<PlanVersionDiffProps> = ({
         <div className="p-3 rounded-xl bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700">
           <div className="flex items-center gap-1.5 text-purple-600 dark:text-purple-400 font-bold mb-1">
             <ArrowsDownUp size={15} />
-            <span>Reordered</span>
+            <span>{translateRecentFeature("studyPlans.ui.reordered.d56f5487")}</span>
           </div>
           <div className="text-lg font-bold text-surface-900 dark:text-surface-100">
             {diff.reorderedNodeIds.length}
@@ -141,17 +141,13 @@ export const PlanVersionDiff: React.FC<PlanVersionDiffProps> = ({
         <div className="p-3 rounded-xl bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700 space-y-1.5">
           <div className="flex items-center gap-1.5 font-bold text-surface-800 dark:text-surface-200">
             <GitFork size={15} />
-            <span>Prerequisite Edge Changes</span>
+            <span>{translateRecentFeature("studyPlans.ui.prerequisite-edge-changes.125582e9")}</span>
           </div>
           {diff.addedPrerequisites.length > 0 && (
-            <p className="text-emerald-600 dark:text-emerald-400">
-              +{diff.addedPrerequisites.length} prerequisite relationship(s) added
-            </p>
+            <p className="text-emerald-600 dark:text-emerald-400">{translateRecentFeature("studyPlans.ui.var0-prerequisite-relationsh.e786c9b6", {var0: diff.addedPrerequisites.length})}</p>
           )}
           {diff.removedPrerequisites.length > 0 && (
-            <p className="text-red-600 dark:text-red-400">
-              -{diff.removedPrerequisites.length} prerequisite relationship(s) removed
-            </p>
+            <p className="text-red-600 dark:text-red-400">{translateRecentFeature("studyPlans.ui.var0-prerequisite-relationsh.a336a6ad", {var0: diff.removedPrerequisites.length})}</p>
           )}
         </div>
       )}

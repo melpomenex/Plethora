@@ -25,6 +25,8 @@ import { GradingRecoveryPanel } from '../grading/GradingRecoveryPanel';
 import { ManualGradeReview } from '../grading/ManualGradeReview';
 import type { AssessmentQuestionRevision } from '../../../types/assessmentQuestions';
 import type { GradeRecord, GradeSettlementOutcome } from '../../../types/assessmentSessions';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface AttemptResultsProps {
   detail: AttemptDetail;
@@ -43,7 +45,8 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
   onGradeRecorded,
   className = '',
 }) => {
-  const [filter, setFilter] = useState<ResultFilter>('all');
+    useI18n();
+    const [filter, setFilter] = useState<ResultFilter>('all');
   const [isRetaking, setIsRetaking] = useState(false);
   const [isUnverifiedModelOnly, setIsUnverifiedModelOnly] = useState(false);
   const [reviewingItem, setReviewingItem] = useState<{
@@ -126,9 +129,9 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
 
   return (
     <div
-      className={`max-w-4xl mx-auto flex flex-col gap-6 p-4 sm:p-6 bg-surface dark:bg-surface-dark min-h-screen ${className}`}
+      className={`max-w-4xl mx-auto flex flex-col gap-6 p-4 sm:p-6 bg-surface dark:bg-surface-dark ${className}`}
       role="main"
-      aria-label="Examination Results"
+      aria-label={translateRecentFeature("studyPlans.ui.examination-results.6f3c2d7c")}
     >
       {isUnverifiedModelOnly && (
         <div
@@ -137,8 +140,7 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
         >
           <Warning size={16} className="flex-shrink-0 mt-0.5" />
           <span>
-            Unverified model-only self-check — this result is displayed for practice only and never counts as demonstrated evidence.
-          </span>
+            {translateRecentFeature("studyPlans.ui.unverified-model-only-self-c.a0b3d1fc")}</span>
         </div>
       )}
       {/* Top Header */}
@@ -147,7 +149,7 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
             variant="text"
             onClick={onBack}
             className="min-h-[44px] min-w-[44px] p-2"
-            aria-label="Back to examination list"
+            aria-label={translateRecentFeature("studyPlans.ui.back-to-examination-list.1ff4e0a5")}
           >
             <ArrowLeft size={20} />
           </Button>
@@ -155,11 +157,8 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
           <div>
             <h1 className="text-base sm:text-lg font-bold text-on-surface dark:text-on-surface-dark flex items-center gap-2">
               <GraduationCap size={20} className="text-primary dark:text-primary-dark" />
-              {attempt.blueprintTitle || 'Assessment Paper'} — Results
-            </h1>
-            <span className="text-xs text-on-surface-variant dark:text-on-surface-variant-dark capitalize">
-              {attempt.mode} Assessment Completed
-            </span>
+              {attempt.blueprintTitle || translateRecentFeature("i18nAudit.ui.assessment-paper.8988f64f")} {translateRecentFeature("studyPlans.ui.results.40266d34")}</h1>
+            <span className="text-xs text-on-surface-variant dark:text-on-surface-variant-dark capitalize">{translateRecentFeature("studyPlans.ui.var0-assessment-completed.d76d4c60", {var0: attempt.mode})}</span>
           </div>
         </div>
 
@@ -171,7 +170,7 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
             className="min-h-[44px] px-4 font-semibold shadow-sm"
           >
             <ArrowsCounterClockwise size={16} className={`mr-1.5 inline ${isRetaking ? 'animate-spin' : ''}`} />
-            {isRetaking ? 'Preparing...' : 'Retake Paper'}
+            {isRetaking ? translateRecentFeature("studyPlans.ui.preparing.a18f0810") : translateRecentFeature("studyPlans.ui.retake-paper.5fd1fe4c")}
           </Button>
         )}
       </header>
@@ -188,10 +187,7 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
         data-testid="results-evidence-note"
         className="text-xs text-on-surface-variant dark:text-on-surface-variant-dark rounded-xl border border-outline-variant/30 p-3"
       >
-        Official totals include Final grades only. Demonstrated evidence, coverage and activity are
-        shown separately in the plan Evidence &amp; Gaps tab — no score here is a mastery
-        probability.
-      </div>
+        {translateRecentFeature("studyPlans.ui.official-totals-include-fina.19ba98cb")}</div>
 
       {/* Subjective Grading Recovery & Review Banner */}
       <GradingRecoveryPanel status={recoveryStatus} />
@@ -203,9 +199,7 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
           size="sm"
           onClick={() => setFilter('all')}
           className="min-h-[36px] text-xs font-semibold"
-        >
-          All Questions ({questionResults.length})
-        </Button>
+        >{translateRecentFeature("studyPlans.ui.all-questions-var0.1709400a", {var0: questionResults.length})}</Button>
 
         <Button
           variant={filter === 'incorrect' ? 'filled' : 'text'}
@@ -213,7 +207,7 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
           onClick={() => setFilter('incorrect')}
           className="min-h-[36px] text-xs font-semibold"
         >
-          Incorrect Only ({questionResults.filter((r) => r.grade?.outcome === 'incorrect').length})
+          {translateRecentFeature("studyPlans.ui.incorrect-only.cca1adcb")}{questionResults.filter((r) => r.grade?.outcome === 'incorrect').length})
         </Button>
 
         <Button
@@ -221,9 +215,7 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
           size="sm"
           onClick={() => setFilter('finalized')}
           className="min-h-[36px] text-xs font-semibold"
-        >
-          Finalized ({scoreSummary.finalQuestions})
-        </Button>
+        >{translateRecentFeature("studyPlans.ui.finalized-var0.7674a141", {var0: scoreSummary.finalQuestions})}</Button>
 
         {scoreSummary.pendingQuestions > 0 && (
           <Button
@@ -231,9 +223,7 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
             size="sm"
             onClick={() => setFilter('pending')}
             className="min-h-[36px] text-xs font-semibold"
-          >
-            Pending ({scoreSummary.pendingQuestions})
-          </Button>
+          >{translateRecentFeature("studyPlans.ui.pending-var0.eb1d4ba7", {var0: scoreSummary.pendingQuestions})}</Button>
         )}
       </div>
 
@@ -241,8 +231,7 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
       <div className="space-y-4">
         {filteredResults.length === 0 ? (
           <div className="p-8 text-center text-on-surface-variant dark:text-on-surface-variant-dark text-sm bg-surface-container-low dark:bg-surface-container-low-dark rounded-xl">
-            No questions match the selected filter.
-          </div>
+            {translateRecentFeature("studyPlans.ui.no-questions-match-the-selec.0fd53eb1")}</div>
         ) : (
           filteredResults.map((item) => {
             const submission = submissions.find((s) => s.questionRevisionId === item.question.id);

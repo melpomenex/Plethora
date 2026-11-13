@@ -9,6 +9,8 @@
 import React from 'react';
 import { XCircle } from '@phosphor-icons/react';
 import type { FieldIssue } from '../../../types/learningPaths';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface QuestionValidationIssuesProps {
   issues: FieldIssue[];
@@ -19,7 +21,8 @@ export const QuestionValidationIssues: React.FC<QuestionValidationIssuesProps> =
   issues,
   className = '',
 }) => {
-  if (issues.length === 0) return null;
+        useI18n();
+        if (issues.length === 0) return null;
 
   return (
     <div
@@ -28,13 +31,13 @@ export const QuestionValidationIssues: React.FC<QuestionValidationIssuesProps> =
     >
       <div className="flex items-center gap-1.5 font-semibold text-red-900 dark:text-red-200">
         <XCircle className="w-4 h-4 flex-shrink-0 text-red-600 dark:text-red-400" />
-        <span>Validation Constraints ({issues.length} issue{issues.length === 1 ? '' : 's'})</span>
+        <span>{translateRecentFeature(issues.length === 1 ? "studyPlans.ui.var0-validation-constraint.0e71e521" : "studyPlans.ui.var0-validation-constraints.ed03ac3a", {var0: issues.length})}</span>
       </div>
       <ul className="list-disc list-inside space-y-1 text-red-800 dark:text-red-300">
         {issues.map((issue, idx) => (
           <li key={`${issue.path}-${issue.code}-${idx}`} className="break-words">
             <span className="font-mono text-[11px] font-semibold">{issue.path}: </span>
-            <span>{issue.messageKey}</span>
+            <span>{translateRecentFeature(issue.messageKey)}</span>
           </li>
         ))}
       </ul>

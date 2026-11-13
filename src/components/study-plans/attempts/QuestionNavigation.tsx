@@ -11,6 +11,8 @@ import { ArrowLeft, ArrowRight, Flag } from '@phosphor-icons/react';
 import { Button } from '../../md3/Button';
 import type { ResponseSlotState } from '../../../lib/study-plans/attempts/attemptController';
 import type { AssessmentQuestionRevision } from '../../../types/assessmentQuestions';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface QuestionNavigationProps {
   questions: AssessmentQuestionRevision[];
@@ -27,12 +29,13 @@ export const QuestionNavigation: React.FC<QuestionNavigationProps> = ({
   onSelectIndex,
   className = '',
 }) => {
-  const total = questions.length;
+        useI18n();
+        const total = questions.length;
   const hasPrev = selectedIndex > 0;
   const hasNext = selectedIndex < total - 1;
 
   return (
-    <div className={`space-y-4 ${className}`} role="navigation" aria-label="Question Navigation">
+    <div className={`space-y-4 ${className}`} role="navigation" aria-label={translateRecentFeature("studyPlans.ui.question-navigation.7c913e50")}>
       {/* Sequential Next / Prev Controls */}
       <div className="flex items-center justify-between gap-2">
         <Button
@@ -40,11 +43,10 @@ export const QuestionNavigation: React.FC<QuestionNavigationProps> = ({
           onClick={() => onSelectIndex(selectedIndex - 1)}
           disabled={!hasPrev}
           className="min-h-[44px] min-w-[44px] px-4"
-          aria-label="Previous Question"
+          aria-label={translateRecentFeature("studyPlans.ui.previous-question.c2d1b456")}
         >
           <ArrowLeft size={18} className="mr-1.5 inline" />
-          Previous
-        </Button>
+          {translateRecentFeature("common.previous")}</Button>
 
         <span className="text-xs font-semibold text-on-surface-variant dark:text-on-surface-variant-dark">
           {selectedIndex + 1} / {total}
@@ -55,10 +57,9 @@ export const QuestionNavigation: React.FC<QuestionNavigationProps> = ({
           onClick={() => onSelectIndex(selectedIndex + 1)}
           disabled={!hasNext}
           className="min-h-[44px] min-w-[44px] px-4"
-          aria-label="Next Question"
+          aria-label={translateRecentFeature("studyPlans.ui.next-question.68f2bb83")}
         >
-          Next
-          <ArrowRight size={18} className="ml-1.5 inline" />
+          {translateRecentFeature("common.next")}<ArrowRight size={18} className="ml-1.5 inline" />
         </Button>
       </div>
 
@@ -66,15 +67,15 @@ export const QuestionNavigation: React.FC<QuestionNavigationProps> = ({
       <div
         className="flex flex-wrap gap-2 p-3 bg-surface-container-low dark:bg-surface-container-low-dark rounded-xl border border-outline-variant/30 max-h-48 overflow-y-auto"
         role="group"
-        aria-label="Question Map"
+        aria-label={translateRecentFeature("studyPlans.ui.question-map.4d570f7b")}
       >
         {questions.map((q, idx) => {
-          const slot = slots[q.id];
+                    const slot = slots[q.id];
           const isSelected = idx === selectedIndex;
           const isAnswered = slot?.mark === 'answered';
           const isSkipped = slot?.mark === 'skipped';
 
-          let stateLabel = 'Unanswered';
+          let stateLabel = translateRecentFeature("studyPlans.ui.unanswered.fd2bab1f");
           if (isAnswered) stateLabel = 'Answered';
           if (isSkipped) stateLabel = 'Skipped';
 
@@ -92,7 +93,7 @@ export const QuestionNavigation: React.FC<QuestionNavigationProps> = ({
                   ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30'
                   : 'bg-surface-container-high dark:bg-surface-container-high-dark text-on-surface hover:bg-surface-container-highest border border-outline-variant/40'
               }`}
-              aria-label={`Question ${idx + 1}: ${stateLabel}${isSelected ? ' (Current)' : ''}`}
+              aria-label={translateRecentFeature("studyPlans.ui.question-var0-var1-var2.13be59ea", {var0: idx + 1, var1: stateLabel, var2: isSelected ? (" " + translateRecentFeature("studyPlans.ui.current.1a97fe48")) : ''})}
               aria-current={isSelected ? 'true' : undefined}
             >
               <span>{idx + 1}</span>

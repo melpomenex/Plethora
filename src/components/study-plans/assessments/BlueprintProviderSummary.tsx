@@ -10,6 +10,8 @@ import React from 'react';
 import { ShieldCheck, HardDrives, Cloud, WarningCircle } from '@phosphor-icons/react';
 import type { StudyAiPreflight } from '../../../lib/study-plans/generation/types';
 import { calculateModelCallBudget, resolveBatchSize } from '../../../lib/study-plans/assessments/evidencePlanner';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface BlueprintProviderSummaryProps {
   preflight: StudyAiPreflight | null;
@@ -24,7 +26,8 @@ export const BlueprintProviderSummary: React.FC<BlueprintProviderSummaryProps> =
   isMobile,
   className = '',
 }) => {
-  const batchSize = resolveBatchSize(isMobile);
+        useI18n();
+        const batchSize = resolveBatchSize(isMobile);
   const callBudget = calculateModelCallBudget(requestedCount, batchSize);
 
   if (!preflight) {
@@ -34,9 +37,8 @@ export const BlueprintProviderSummary: React.FC<BlueprintProviderSummaryProps> =
       >
         <WarningCircle className="w-5 h-5 flex-shrink-0 text-amber-600" />
         <div>
-          <span className="font-semibold block">AI Provider Unavailable</span>
-          No local or configured AI provider is available. Manual authoring is supported offline.
-        </div>
+          <span className="font-semibold block">{translateRecentFeature("studyPlans.ui.ai-provider-unavailable.187627bc")}</span>
+          {translateRecentFeature("studyPlans.ui.no-local-or-configured-ai-pr.a20ed7a1")}</div>
       </div>
     );
   }
@@ -55,8 +57,7 @@ export const BlueprintProviderSummary: React.FC<BlueprintProviderSummaryProps> =
             <Cloud className="w-4 h-4 text-primary-600 dark:text-primary-400" />
           )}
           <span className="text-xs font-semibold text-surface-900 dark:text-surface-100">
-            AI Execution & Call Budget
-          </span>
+            {translateRecentFeature("studyPlans.ui.ai-execution-call-budget.98e7c487")}</span>
         </div>
         <span
           className={`inline-flex items-center gap-1 text-[11px] font-medium px-2 py-0.5 rounded-full border ${
@@ -66,33 +67,29 @@ export const BlueprintProviderSummary: React.FC<BlueprintProviderSummaryProps> =
           }`}
         >
           <ShieldCheck className="w-3.5 h-3.5" />
-          {isLocal ? 'Local-Only (Private)' : 'Remote Provider'}
+          {isLocal ? translateRecentFeature("studyPlans.ui.local-only-private.34409e88") : translateRecentFeature("studyPlans.ui.remote-provider.41928ffe")}
         </span>
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
         <div className="p-2 rounded-lg bg-surface-100 dark:bg-surface-700/40">
-          <span className="text-surface-400 block text-[10px]">Provider</span>
+          <span className="text-surface-400 block text-[10px]">{translateRecentFeature("notebooklm.provider")}</span>
           <span className="font-mono text-surface-800 dark:text-surface-200 truncate block">
-            {preflight.providerId || 'Default'}
+            {preflight.providerId || translateRecentFeature("i18nAudit.ui.default.b8844e3d")}
           </span>
         </div>
         <div className="p-2 rounded-lg bg-surface-100 dark:bg-surface-700/40">
-          <span className="text-surface-400 block text-[10px]">Batch Size</span>
-          <span className="font-semibold text-surface-800 dark:text-surface-200 block">
-            {batchSize} items / call
-          </span>
+          <span className="text-surface-400 block text-[10px]">{translateRecentFeature("studyPlans.ui.batch-size.7c3b92cc")}</span>
+          <span className="font-semibold text-surface-800 dark:text-surface-200 block">{translateRecentFeature("studyPlans.ui.var0-items-call.c48d4065", {var0: batchSize})}</span>
         </div>
         <div className="p-2 rounded-lg bg-surface-100 dark:bg-surface-700/40">
-          <span className="text-surface-400 block text-[10px]">Call Budget Cap</span>
-          <span className="font-semibold text-surface-800 dark:text-surface-200 block">
-            Max {callBudget} calls
-          </span>
+          <span className="text-surface-400 block text-[10px]">{translateRecentFeature("studyPlans.ui.call-budget-cap.44fe0acd")}</span>
+          <span className="font-semibold text-surface-800 dark:text-surface-200 block">{translateRecentFeature("studyPlans.ui.max-var0-calls.81202816", {var0: callBudget})}</span>
         </div>
         <div className="p-2 rounded-lg bg-surface-100 dark:bg-surface-700/40">
-          <span className="text-surface-400 block text-[10px]">Cost / Tier</span>
+          <span className="text-surface-400 block text-[10px]">{translateRecentFeature("studyPlans.ui.cost-tier.d0413c98")}</span>
           <span className="font-semibold text-surface-800 dark:text-surface-200 block">
-            {preflight.billable ? 'Billable' : 'Free / Local'}
+            {preflight.billable ? translateRecentFeature("studyPlans.ui.billable.8f34e60e") : translateRecentFeature("studyPlans.ui.free-local.d7391ff1")}
           </span>
         </div>
       </div>

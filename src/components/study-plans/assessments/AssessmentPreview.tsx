@@ -21,6 +21,9 @@ import type {
   BlueprintDetail,
   AssessmentQuestionRevision,
 } from '../../../types/assessmentQuestions';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+import { studyErrorMessage } from "../../../lib/study-plans/studyErrorMessage";
+
 
 export interface AssessmentPreviewProps {
   blueprintDetail: BlueprintDetail;
@@ -41,7 +44,8 @@ export const AssessmentPreview: React.FC<AssessmentPreviewProps> = ({
   isPublishing = false,
   className = '',
 }) => {
-  const { blueprint, revision, questions } = blueprintDetail;
+        useI18n();
+        const { blueprint, revision, questions } = blueprintDetail;
   const isReady = revision.state === 'ready';
   const isExam = revision.config.mode === 'exam';
 
@@ -69,14 +73,14 @@ export const AssessmentPreview: React.FC<AssessmentPreviewProps> = ({
 
   const handlePublishClick = async () => {
     if (hasShortfall && !shortfallAcknowledged) {
-      setErrorBanner('Please acknowledge and accept the quota shortfall before publishing.');
+      setErrorBanner(translateRecentFeature("studyPlans.ui.please-acknowledge-and-accep.e2000ce8"));
       return;
     }
     setErrorBanner(null);
     try {
       await onPublish(hasShortfall);
     } catch (err: any) {
-      setErrorBanner(err?.messageKey || err?.message || 'Failed to publish assessment');
+      setErrorBanner(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")));
     }
   };
 
@@ -100,9 +104,8 @@ export const AssessmentPreview: React.FC<AssessmentPreviewProps> = ({
                 {blueprint.title}
               </h2>
             </div>
-            <p className="text-xs text-surface-500 mt-1">
-              Revision v{blueprint.revision} • Published At:{' '}
-              {revision.publishedAt ? new Date(revision.publishedAt).toLocaleString() : 'Unpublished Draft'}
+            <p className="text-xs text-surface-500 mt-1">{translateRecentFeature("studyPlans.ui.revision-v-var0-published-at.56f899ed", {var0: blueprint.revision})}{' '}
+              {revision.publishedAt ? new Date(revision.publishedAt).toLocaleString() : translateRecentFeature("studyPlans.ui.unpublished-draft.b2cba00b")}
             </p>
           </div>
 
@@ -120,41 +123,35 @@ export const AssessmentPreview: React.FC<AssessmentPreviewProps> = ({
               ) : (
                 <BookOpen className="w-4 h-4 mr-1.5" />
               )}
-              {isExam ? 'Start Examination' : 'Start Practice'}
+              {isExam ? translateRecentFeature("studyPlans.ui.start-examination.47dd8cec") : translateRecentFeature("studyPlans.ui.start-practice.be207895")}
             </Button>
           </div>
         </div>
 
         {/* Paper Statistics Grid */}
         <p data-testid="preview-hint-policy" className="text-xs text-surface-500">
-          Committed hints are authored per question and revealed only in Practice mode, one at a time.
-          Exam/Diagnostic previews never expose hints or correctness before submission.
-        </p>
+          {translateRecentFeature("studyPlans.ui.committed-hints-are-authored.3e78fee8")}</p>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
           <div className="p-2.5 rounded-lg bg-surface-100 dark:bg-surface-700/50">
-            <span className="text-surface-400 block text-[10px]">Paper Mode</span>
+            <span className="text-surface-400 block text-[10px]">{translateRecentFeature("studyPlans.ui.paper-mode.d3dca8e5")}</span>
             <span className="font-semibold text-surface-800 dark:text-surface-200 capitalize">
               {revision.config.mode}
             </span>
           </div>
           <div className="p-2.5 rounded-lg bg-surface-100 dark:bg-surface-700/50">
-            <span className="text-surface-400 block text-[10px]">Questions</span>
-            <span className="font-semibold text-surface-800 dark:text-surface-200">
-              {acceptedCount} of {requestedCount} items
-            </span>
+            <span className="text-surface-400 block text-[10px]">{translateRecentFeature("studyPlans.ui.questions.391023b3")}</span>
+            <span className="font-semibold text-surface-800 dark:text-surface-200">{translateRecentFeature("studyPlans.ui.var0-of-var1-items.913e6dde", {var0: acceptedCount, var1: requestedCount})}</span>
           </div>
           <div className="p-2.5 rounded-lg bg-surface-100 dark:bg-surface-700/50">
-            <span className="text-surface-400 block text-[10px]">Total Score</span>
-            <span className="font-semibold text-surface-800 dark:text-surface-200">
-              {totalPoints} Points
-            </span>
+            <span className="text-surface-400 block text-[10px]">{translateRecentFeature("studyPlans.ui.total-score.6f4c0cce")}</span>
+            <span className="font-semibold text-surface-800 dark:text-surface-200">{translateRecentFeature("studyPlans.ui.var0-points.09a2c5af", {var0: totalPoints})}</span>
           </div>
           <div className="p-2.5 rounded-lg bg-surface-100 dark:bg-surface-700/50">
-            <span className="text-surface-400 block text-[10px]">Timer</span>
+            <span className="text-surface-400 block text-[10px]">{translateRecentFeature("studyPlans.ui.timer.360df2e3")}</span>
             <span className="font-semibold text-surface-800 dark:text-surface-200">
               {revision.config.timeLimitSeconds
-                ? `${Math.round(revision.config.timeLimitSeconds / 60)} Minutes`
-                : 'Untimed'}
+                ? translateRecentFeature("i18nAudit.ui.var0-minutes.f7937a35", {var0: Math.round(revision.config.timeLimitSeconds / 60)})
+                : translateRecentFeature("studyPlans.ui.untimed.9e853fe7")}
             </span>
           </div>
         </div>
@@ -171,7 +168,7 @@ export const AssessmentPreview: React.FC<AssessmentPreviewProps> = ({
         <div className="p-4 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 space-y-3">
           <div className="flex items-center gap-2 text-amber-900 dark:text-amber-100 font-semibold text-xs">
             <Warning className="w-4 h-4 text-amber-600" />
-            <span>Shortfall Notice ({acceptedCount} of {requestedCount} questions accepted)</span>
+            <span>{translateRecentFeature("studyPlans.ui.shortfall-notice-var0-of-var.607e51ef", {var0: acceptedCount, var1: requestedCount})}</span>
           </div>
           <label className="flex items-start gap-2.5 text-xs text-amber-800 dark:text-amber-200 cursor-pointer">
             <input
@@ -180,9 +177,7 @@ export const AssessmentPreview: React.FC<AssessmentPreviewProps> = ({
               onChange={(e) => setShortfallAcknowledged(e.target.checked)}
               className="mt-0.5 rounded border-amber-400 text-amber-600 focus:ring-amber-500"
             />
-            <span>
-              I acknowledge and accept the shortfall of {requestedCount - acceptedCount} question{requestedCount - acceptedCount === 1 ? '' : 's'} to publish this examination paper in ready state.
-            </span>
+            <span>{translateRecentFeature("studyPlans.ui.i-acknowledge-and-accept-the.87636096", {var0: requestedCount - acceptedCount})}</span>
           </label>
         </div>
       )}
@@ -190,9 +185,7 @@ export const AssessmentPreview: React.FC<AssessmentPreviewProps> = ({
       {/* Questions Itemized Cards */}
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-surface-500 dark:text-surface-400">
-            Examination Paper Questions ({questions.length})
-          </h3>
+          <h3 className="text-sm font-semibold uppercase tracking-wider text-surface-500 dark:text-surface-400">{translateRecentFeature("studyPlans.ui.examination-paper-questions-.e235b1f7", {var0: questions.length})}</h3>
 
           {!isReady && (
             <Button
@@ -203,18 +196,17 @@ export const AssessmentPreview: React.FC<AssessmentPreviewProps> = ({
               className="bg-emerald-600 hover:bg-emerald-700 text-white"
             >
               <CheckCircle className="w-4 h-4 mr-1.5" />
-              {isPublishing ? 'Publishing…' : 'Publish Examination Paper'}
+              {isPublishing ? translateRecentFeature("studyPlans.ui.publishing.3ef5cb82") : translateRecentFeature("studyPlans.ui.publish-examination-paper.4ce15e51")}
             </Button>
           )}
         </div>
 
         {questions.length === 0 ? (
           <div className="p-8 text-center text-xs text-surface-400 bg-surface-50 dark:bg-surface-800/20 rounded-xl border border-dashed border-surface-200 dark:border-surface-700">
-            No questions generated or added to this paper yet.
-          </div>
+            {translateRecentFeature("studyPlans.ui.no-questions-generated-or-ad.f6d43062")}</div>
         ) : (
           questions.map((qr, index) => {
-            const isExpanded = expandedKeys.has(qr.id);
+                        const isExpanded = expandedKeys.has(qr.id);
             const q = qr.question || (typeof (qr as any).payload === 'object' ? (qr as any).payload : JSON.parse((qr as any).payload || '{}'));
             const kind = q.kind || (qr as any).kind;
             const diff = q.difficulty || (qr as any).difficulty;
@@ -234,11 +226,8 @@ export const AssessmentPreview: React.FC<AssessmentPreviewProps> = ({
                     <span className="text-[10px] uppercase font-mono font-bold px-2 py-0.5 rounded bg-surface-100 dark:bg-surface-700 text-surface-700 dark:text-surface-300">
                       {kind}
                     </span>
-                    <span className="text-[10px] px-2 py-0.5 rounded bg-surface-100 dark:bg-surface-700 text-surface-500">
-                      Diff {diff}
-                    </span>
-                    <span className="text-[10px] font-semibold text-primary-600 dark:text-primary-400">
-                      {points} Pt{points === 1 ? '' : 's'}
+                    <span className="text-[10px] px-2 py-0.5 rounded bg-surface-100 dark:bg-surface-700 text-surface-500">{translateRecentFeature("studyPlans.ui.diff-var0.1c1655a1", {var0: diff})}</span>
+                    <span className="text-[10px] font-semibold text-primary-600 dark:text-primary-400">{translateRecentFeature(points === 1 ? "studyPlans.ui.var0-point.d1410fcd" : "studyPlans.ui.var0-points.0bcbc704", {var0: points})}
                     </span>
                   </div>
 
@@ -248,8 +237,8 @@ export const AssessmentPreview: React.FC<AssessmentPreviewProps> = ({
                         type="button"
                         onClick={() => onEditQuestion(qr)}
                         className="p-1 rounded text-surface-400 hover:text-surface-700 hover:bg-surface-100 dark:hover:bg-surface-700"
-                        title="Edit question"
-                        aria-label="Edit question"
+                        title={translateRecentFeature("studyPlans.ui.edit-question.06052955")}
+                        aria-label={translateRecentFeature("studyPlans.ui.edit-question.06052955")}
                       >
                         <Pencil className="w-4 h-4" />
                       </button>
@@ -259,8 +248,8 @@ export const AssessmentPreview: React.FC<AssessmentPreviewProps> = ({
                       type="button"
                       onClick={() => toggleExpand(qr.id)}
                       className="p-1 rounded text-surface-400 hover:text-surface-700 hover:bg-surface-100 dark:hover:bg-surface-700"
-                      title={isExpanded ? 'Hide private details' : 'Show private details'}
-                      aria-label={isExpanded ? 'Hide answer key' : 'View answer key'}
+                      title={isExpanded ? translateRecentFeature("studyPlans.ui.hide-private-details.ea5e5686") : translateRecentFeature("studyPlans.ui.show-private-details.fd06024d")}
+                      aria-label={isExpanded ? translateRecentFeature("studyPlans.ui.hide-answer-key.91b7cceb") : translateRecentFeature("studyPlans.ui.view-answer-key.55023633")}
                     >
                       {isExpanded ? <EyeSlash className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                     </button>
@@ -269,14 +258,14 @@ export const AssessmentPreview: React.FC<AssessmentPreviewProps> = ({
 
                 {/* Prompt */}
                 <p className="text-xs font-medium text-surface-900 dark:text-surface-100 leading-relaxed">
-                  {q?.prompt || 'No prompt specified'}
+                  {q?.prompt || translateRecentFeature("i18nAudit.ui.no-prompt-specified.8cd9190b")}
                 </p>
 
                 {/* Options / blanks preview */}
                 {Array.isArray(q?.options) && (
                   <div className="space-y-1 pl-4 pt-1">
                     {q.options.map((opt: any, optIdx: number) => {
-                      const isCorrect =
+                                            const isCorrect =
                         q.correctOptionId === opt.id ||
                         q.correctOptionIds?.includes(opt.id);
 
@@ -295,8 +284,7 @@ export const AssessmentPreview: React.FC<AssessmentPreviewProps> = ({
                           <span>{opt.text}</span>
                           {isExpanded && isCorrect && (
                             <span className="text-[10px] px-1 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950/60 font-normal">
-                              Correct Key
-                            </span>
+                              {translateRecentFeature("studyPlans.ui.correct-key.ce144e67")}</span>
                           )}
                         </div>
                       );
@@ -309,9 +297,7 @@ export const AssessmentPreview: React.FC<AssessmentPreviewProps> = ({
                   <div className="pt-3 border-t border-surface-200 dark:border-surface-700 space-y-2.5 text-xs bg-surface-50/50 dark:bg-surface-900/40 p-3 rounded-lg">
                     {q.kind === 'essay' && q.rubric && (
                       <div>
-                        <span className="font-semibold text-surface-500 block text-[10px] uppercase">
-                          Committed Analytic Rubric ({q.rubric.criteria?.length || 0} criteria)
-                        </span>
+                        <span className="font-semibold text-surface-500 block text-[10px] uppercase">{translateRecentFeature("studyPlans.ui.committed-analytic-rubric-va.d6c144d0", {var0: q.rubric.criteria?.length || 0})}</span>
                         <div className="space-y-1 mt-1">
                           {q.rubric.criteria?.map((c: any) => (
                             <div key={c.id} className="text-[11px] p-2 rounded bg-surface-100 dark:bg-surface-800">
@@ -326,8 +312,7 @@ export const AssessmentPreview: React.FC<AssessmentPreviewProps> = ({
                     {q?.explanation && (
                       <div>
                         <span className="font-semibold text-surface-500 block text-[10px] uppercase">
-                          Pedagogical Explanation
-                        </span>
+                          {translateRecentFeature("studyPlans.ui.pedagogical-explanation.f47d9cf4")}</span>
                         <p className="text-surface-700 dark:text-surface-300 italic text-[11px] mt-0.5">
                           {q.explanation}
                         </p>
@@ -336,7 +321,7 @@ export const AssessmentPreview: React.FC<AssessmentPreviewProps> = ({
 
                     {q.sourceRefIds && q.sourceRefIds.length > 0 && (
                       <div className="flex items-center gap-2 text-[11px] text-surface-500">
-                        <span className="font-semibold uppercase text-[10px]">Sources Cited:</span>
+                        <span className="font-semibold uppercase text-[10px]">{translateRecentFeature("studyPlans.ui.sources-cited.4ccaca24")}</span>
                         <span>{q.sourceRefIds.join(', ')}</span>
                       </div>
                     )}

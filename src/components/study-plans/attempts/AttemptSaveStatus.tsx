@@ -8,6 +8,8 @@
 
 import React from 'react';
 import { Check, ArrowsClockwise, WarningCircle } from '@phosphor-icons/react';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface AttemptSaveStatusProps {
   isSaving: boolean;
@@ -24,7 +26,8 @@ export const AttemptSaveStatus: React.FC<AttemptSaveStatusProps> = ({
   onRetry,
   className = '',
 }) => {
-  return (
+        useI18n();
+        return (
     <div
       className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full ${
         error
@@ -40,32 +43,31 @@ export const AttemptSaveStatus: React.FC<AttemptSaveStatusProps> = ({
       {error ? (
         <>
           <WarningCircle size={14} className="shrink-0 text-error" />
-          <span>Save failed</span>
+          <span>{translateRecentFeature("notebooklmChat.saveFailedTitle")}</span>
           {onRetry && (
             <button
               type="button"
               onClick={onRetry}
               className="ml-1 underline font-semibold hover:opacity-80 focus:outline-none min-h-[32px] px-1"
-              aria-label="Retry saving draft response"
+              aria-label={translateRecentFeature("studyPlans.ui.retry-saving-draft-response.9953dd4b")}
             >
-              Retry
-            </button>
+              {translateRecentFeature("assistant.actions.retry")}</button>
           )}
         </>
       ) : isSaving ? (
         <>
           <ArrowsClockwise size={14} className="shrink-0 animate-spin" />
-          <span>Saving...</span>
+          <span>{translateRecentFeature("common.saving")}</span>
         </>
       ) : hasUnsavedChanges ? (
         <>
           <span className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0" />
-          <span>Unsaved</span>
+          <span>{translateRecentFeature("extractScrollItem.unsaved")}</span>
         </>
       ) : (
         <>
           <Check size={14} className="shrink-0 text-emerald-500" />
-          <span>Saved</span>
+          <span>{translateRecentFeature("extractScrollItem.saved")}</span>
         </>
       )}
     </div>

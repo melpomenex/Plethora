@@ -2,6 +2,8 @@ import React from 'react';
 import type { KnowledgeGapView } from '../../../types/learningEvidence';
 import type { TargetedPracticeOptions } from '../../../lib/study-plans/remediation/remediationService';
 import { KnowledgeGapCard } from './KnowledgeGapCard';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface GapHistoryProps {
   gaps: KnowledgeGapView[];
@@ -24,14 +26,13 @@ export const GapHistory: React.FC<GapHistoryProps> = ({
   onRefresh,
   isRefreshing = false,
 }) => {
-  const active = gaps.filter((g) => g.status === 'active');
+        useI18n();
+        const active = gaps.filter((g) => g.status === 'active');
   const past = gaps.filter((g) => g.status !== 'active');
   return (
-    <section aria-label="Knowledge gap history" data-testid="gap-history" className="space-y-3">
+    <section aria-label={translateRecentFeature("studyPlans.ui.knowledge-gap-history.c92828f6")} data-testid="gap-history" className="space-y-3">
       <div className="flex items-center justify-between">
-        <h3 className="font-medium text-sm">
-          Gaps ({active.length} active, {past.length} dismissed/resolved)
-        </h3>
+        <h3 className="font-medium text-sm">{translateRecentFeature("studyPlans.ui.gaps-var0-active-var1-dismis.068f1d4a", {var0: active.length, var1: past.length})}</h3>
         {onRefresh && (
           <button
             type="button"
@@ -41,14 +42,13 @@ export const GapHistory: React.FC<GapHistoryProps> = ({
             aria-live="polite"
             className="text-xs underline disabled:opacity-50"
           >
-            {isRefreshing ? 'Refreshing…' : 'Refresh locally'}
+            {isRefreshing ? translateRecentFeature("studyPlans.ui.refreshing.0267c45b") : translateRecentFeature("studyPlans.ui.refresh-locally.b6bad4fa")}
           </button>
         )}
       </div>
       {active.length === 0 && (
         <p data-testid="gap-history-empty" className="text-xs text-on-surface-variant">
-          No active gaps. Dismissed gaps stay suppressed until materially new evidence arrives.
-        </p>
+          {translateRecentFeature("studyPlans.ui.no-active-gaps-dismissed-gap.8274c031")}</p>
       )}
       <div className="space-y-2">
         {active.map((g) => (
@@ -58,9 +58,7 @@ export const GapHistory: React.FC<GapHistoryProps> = ({
       </div>
       {past.length > 0 && (
         <details data-testid="gap-history-past">
-          <summary className="text-xs underline cursor-pointer">
-            Dismissed/resolved ({past.length})
-          </summary>
+          <summary className="text-xs underline cursor-pointer">{translateRecentFeature("studyPlans.ui.dismissed-resolved-var0.fefed159", {var0: past.length})}</summary>
           <div className="space-y-2 mt-2">
             {past.map((g) => (
               <KnowledgeGapCard key={g.id} gap={g} onOpenSource={onOpenSource} />

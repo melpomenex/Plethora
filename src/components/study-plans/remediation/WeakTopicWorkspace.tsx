@@ -1,6 +1,8 @@
 import React from 'react';
 import type { ReassessmentReturnContext } from './returnContext';
 import { ReassessmentChoice } from './ReassessmentChoice';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface WeakTopicWorkspaceProps {
   planId: string;
@@ -43,17 +45,17 @@ export const WeakTopicWorkspace: React.FC<WeakTopicWorkspaceProps> = ({
   sourceState = 'ok',
   recomputeNote = null,
 }) => {
-  return (
-    <section aria-label="Weak topic workspace" data-testid="weak-topic-workspace" className="space-y-3">
-      <p className="text-xs text-on-surface-variant" data-testid="weak-topic-context">
-        Weak topic: plan {planId}, node {nodeId ?? '—'}, gap {gapId ?? '—'}, from attempt {sourceAttemptId ?? '—'}.
+        useI18n();
+        return (
+    <section aria-label={translateRecentFeature("studyPlans.ui.weak-topic-workspace.c1ce3665")} data-testid="weak-topic-workspace" className="space-y-3">
+      <p className="text-xs text-on-surface-variant" data-testid="weak-topic-context">{translateRecentFeature("studyPlans.ui.weak-topic-plan-var0-node.56580044", {var0: planId})}{nodeId ?? '—'}{translateRecentFeature("studyPlans.ui.gap.1e310263")}{gapId ?? '—'}{translateRecentFeature("studyPlans.ui.from-attempt.470f01ba")}{sourceAttemptId ?? '—'}.
       </p>
       <div className="flex flex-wrap gap-2">
-        <button type="button" data-testid="weak-open-source" disabled={!onOpenSource} onClick={() => onOpenSource?.()} className="text-xs underline min-h-[32px] disabled:opacity-50">Open source</button>
-        <button type="button" data-testid="weak-open-tutor" disabled={!onOpenTutor} onClick={() => onOpenTutor?.()} className="text-xs underline min-h-[32px] disabled:opacity-50">Scoped tutor</button>
-        <button type="button" data-testid="weak-open-practice" disabled={!onOpenPractice} onClick={() => onOpenPractice?.()} className="text-xs underline min-h-[32px] disabled:opacity-50">Practice</button>
-        <button type="button" data-testid="weak-open-cards" disabled={!onOpenCards} onClick={() => onOpenCards?.()} className="text-xs underline min-h-[32px] disabled:opacity-50">Cards</button>
-        <button type="button" data-testid="weak-dismiss" disabled={!onDismissGap} onClick={() => onDismissGap?.()} className="text-xs underline min-h-[32px] disabled:opacity-50">Dismiss</button>
+        <button type="button" data-testid="weak-open-source" disabled={!onOpenSource} onClick={() => onOpenSource?.()} className="text-xs underline min-h-[32px] disabled:opacity-50">{translateRecentFeature("audio.openSource")}</button>
+        <button type="button" data-testid="weak-open-tutor" disabled={!onOpenTutor} onClick={() => onOpenTutor?.()} className="text-xs underline min-h-[32px] disabled:opacity-50">{translateRecentFeature("studyPlans.ui.scoped-tutor.a92c7518")}</button>
+        <button type="button" data-testid="weak-open-practice" disabled={!onOpenPractice} onClick={() => onOpenPractice?.()} className="text-xs underline min-h-[32px] disabled:opacity-50">{translateRecentFeature("studyPlans.ui.practice.e7940d9b")}</button>
+        <button type="button" data-testid="weak-open-cards" disabled={!onOpenCards} onClick={() => onOpenCards?.()} className="text-xs underline min-h-[32px] disabled:opacity-50">{translateRecentFeature("reviewComplete.cards")}</button>
+        <button type="button" data-testid="weak-dismiss" disabled={!onDismissGap} onClick={() => onDismissGap?.()} className="text-xs underline min-h-[32px] disabled:opacity-50">{translateRecentFeature("queue.dismiss")}</button>
       </div>
       <ReassessmentChoice
         readyRevisionId={readyRevisionId}
@@ -69,9 +71,7 @@ export const WeakTopicWorkspace: React.FC<WeakTopicWorkspaceProps> = ({
         <p role="status" data-testid="weak-recompute-note" className="text-xs">{recomputeNote}</p>
       )}
       <p className="text-xs text-on-surface-variant" data-testid="weak-history-note">
-        Same-revision rows are same-paper with memory effects; different revisions are descriptive cross-paper
-        history without equivalence claims. Evidence recomputes when reassessment finishes.
-      </p>
+        {translateRecentFeature("studyPlans.ui.same-revision-rows-are-same-.0245e4e5")}</p>
     </section>
   );
 };

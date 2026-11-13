@@ -18,6 +18,8 @@ import {
 } from '@phosphor-icons/react';
 import { Button } from '../../md3/Button';
 import type { AssessmentMode } from '../../../types/assessmentQuestions';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface AttemptStartConfirmationProps {
   title: string;
@@ -42,14 +44,15 @@ export const AttemptStartConfirmation: React.FC<AttemptStartConfirmationProps> =
   isStarting = false,
   className = '',
 }) => {
-  const isExam = mode === 'exam';
+        useI18n();
+        const isExam = mode === 'exam';
   const timeLimitMinutes = timeLimitSeconds ? Math.round(timeLimitSeconds / 60) : null;
 
   return (
     <div
       className={`max-w-2xl mx-auto p-6 bg-surface dark:bg-surface-dark border border-outline-variant/30 rounded-2xl shadow-lg ${className}`}
       role="region"
-      aria-label="Assessment Start Confirmation"
+      aria-label={translateRecentFeature("studyPlans.ui.assessment-start-confirmatio.7c4041c8")}
     >
       {/* Header */}
       <div className="flex items-center gap-3 mb-6">
@@ -72,40 +75,33 @@ export const AttemptStartConfirmation: React.FC<AttemptStartConfirmationProps> =
                 ? 'bg-primary/10 text-primary dark:bg-primary-dark/20 dark:text-primary-dark'
                 : 'bg-secondary/10 text-secondary dark:bg-secondary-dark/20 dark:text-secondary-dark'
             }`}
-          >
-            {mode} Mode
-          </span>
+          >{translateRecentFeature("studyPlans.ui.var0-mode.0548e82e", {var0: mode})}</span>
         </div>
       </div>
 
       {/* Overview Stats */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 min-[360px]:grid-cols-3 gap-3 sm:gap-4 mb-6">
         <div className="p-4 bg-surface-container-low dark:bg-surface-container-low-dark rounded-xl text-center">
           <span className="text-xs text-on-surface-variant dark:text-on-surface-variant-dark block mb-1">
-            Questions
-          </span>
+            {translateRecentFeature("studyPlans.ui.questions.391023b3")}</span>
           <span className="text-2xl font-bold text-on-surface dark:text-on-surface-dark">
             {questionCount}
           </span>
         </div>
         <div className="p-4 bg-surface-container-low dark:bg-surface-container-low-dark rounded-xl text-center">
           <span className="text-xs text-on-surface-variant dark:text-on-surface-variant-dark block mb-1">
-            Max Points
-          </span>
+            {translateRecentFeature("studyPlans.ui.max-points.7ba61ea7")}</span>
           <span className="text-2xl font-bold text-on-surface dark:text-on-surface-dark">
             {totalPoints}
           </span>
         </div>
         <div className="p-4 bg-surface-container-low dark:bg-surface-container-low-dark rounded-xl text-center">
           <span className="text-xs text-on-surface-variant dark:text-on-surface-variant-dark block mb-1">
-            Time Limit
-          </span>
+            {translateRecentFeature("studyPlans.ui.time-limit.05484e6d")}</span>
           <span className="text-2xl font-bold text-on-surface dark:text-on-surface-dark flex items-center justify-center gap-1">
             {timeLimitMinutes ? (
               <>
-                <Clock size={20} className="inline" />
-                {timeLimitMinutes}m
-              </>
+                <Clock size={20} className="inline" />{translateRecentFeature("studyPlans.ui.var0-m.eb6cdffd", {var0: timeLimitMinutes})}</>
             ) : (
               'Untimed'
             )}
@@ -117,22 +113,22 @@ export const AttemptStartConfirmation: React.FC<AttemptStartConfirmationProps> =
       <div className="p-4 bg-surface-container-highest/40 dark:bg-surface-container-highest-dark/40 rounded-xl mb-6 space-y-2.5 text-sm text-on-surface-variant dark:text-on-surface-variant-dark">
         <h3 className="font-semibold text-on-surface dark:text-on-surface-dark flex items-center gap-2">
           {isExam ? <Warning size={18} className="text-amber-500" /> : <CheckCircle size={18} className="text-emerald-500" />}
-          {isExam ? 'Examination Rules' : 'Practice Guidelines'}
+          {isExam ? translateRecentFeature("studyPlans.ui.examination-rules.e3f552df") : translateRecentFeature("studyPlans.ui.practice-guidelines.5cface46")}
         </h3>
         {isExam ? (
           <ul className="list-disc list-inside space-y-1 text-xs">
-            <li>Answers are hidden until you complete and submit the examination.</li>
-            <li>Your progress is continuously auto-saved. If interrupted, you can resume.</li>
+            <li>{translateRecentFeature("studyPlans.ui.answers-are-hidden-until-you.3a4ab732")}</li>
+            <li>{translateRecentFeature("studyPlans.ui.your-progress-is-continuousl.43f15049")}</li>
             {timeLimitMinutes && (
-              <li>The timer will run continuously. When time expires, your exam will automatically submit.</li>
+              <li>{translateRecentFeature("studyPlans.ui.the-timer-will-run-continuou.041b10c1")}</li>
             )}
-            <li>All questions must be reviewed and submitted as your final attempt.</li>
+            <li>{translateRecentFeature("studyPlans.ui.all-questions-must-be-review.0422e91e")}</li>
           </ul>
         ) : (
           <ul className="list-disc list-inside space-y-1 text-xs">
-            <li>You can check your answers immediately after attempting each question.</li>
-            <li>Explanations, sample outlines, and hints are available as you practice.</li>
-            <li>Take as much time as you need to master each concept.</li>
+            <li>{translateRecentFeature("studyPlans.ui.you-can-check-your-answers-i.80b2b168")}</li>
+            <li>{translateRecentFeature("studyPlans.ui.explanations-sample-outlines.b2bb8231")}</li>
+            <li>{translateRecentFeature("studyPlans.ui.take-as-much-time-as-you-nee.e0e7b3f5")}</li>
           </ul>
         )}
       </div>
@@ -146,8 +142,7 @@ export const AttemptStartConfirmation: React.FC<AttemptStartConfirmationProps> =
           className="min-h-[44px] min-w-[44px]"
         >
           <ArrowLeft size={18} className="mr-2 inline" />
-          Cancel
-        </Button>
+          {translateRecentFeature("common.cancel")}</Button>
         <Button
           variant="filled"
           onClick={onStart}
@@ -158,7 +153,7 @@ export const AttemptStartConfirmation: React.FC<AttemptStartConfirmationProps> =
             'Starting...'
           ) : (
             <>
-              {isExam ? 'Start Examination' : 'Start Practice'}
+              {isExam ? translateRecentFeature("studyPlans.ui.start-examination.47dd8cec") : translateRecentFeature("studyPlans.ui.start-practice.be207895")}
               <ArrowRight size={18} className="ml-2 inline" />
             </>
           )}

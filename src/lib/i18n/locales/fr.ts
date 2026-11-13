@@ -1,4 +1,5 @@
 import { Dict, en } from "./en";
+import { recentFeatureFr } from "./recentFeatures/fr";
 
 export const fr: Dict = {
   "qaGeneration.empty": "Des sources ont été trouvées, mais le modèle d’IA n’a renvoyé aucune réponse. Réessayez ou vérifiez les paramètres de l’IA.",
@@ -6629,4 +6630,5 @@ export const fr: Dict = {
   "palette.destination.studyPlansDesc": "Parcours d'apprentissage structurés, plans de cours et évaluations de sujets",
   "studyPlans.title": "Plans d'étude",
   "studyPlans.navLabel": "Plans d'étude",
+  ...recentFeatureFr,
 };

@@ -1,6 +1,8 @@
 import React from 'react';
 import type { ConceptMasterySummary } from '../../../types/learningEvidence';
 import { UncertaintyReasons } from './UncertaintyReasons';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface EvidenceSummaryCardProps {
   summary: ConceptMasterySummary;
@@ -8,14 +10,19 @@ export interface EvidenceSummaryCardProps {
 }
 
 function formatObserved(mean: number | null): string {
-  if (mean === null || !Number.isFinite(mean)) return 'No scored evidence';
-  return `${(mean * 100).toFixed(2)}% weighted observed performance`;
+  if (mean === null || !Number.isFinite(mean)) {
+    return translateRecentFeature("studyPlans.ui.no-scored-evidence.c6d3b79c");
+  }
+  return translateRecentFeature("studyPlans.ui.weighted-observed-performanc.7d230705", {
+    var0: (mean * 100).toFixed(2),
+  });
 }
 
 export const EvidenceSummaryCard: React.FC<EvidenceSummaryCardProps> = ({ summary, conceptLabel }) => {
-  return (
+        useI18n();
+        return (
     <section
-      aria-label={`Demonstrated evidence${conceptLabel ? ` for ${conceptLabel}` : ''}`}
+      aria-label={translateRecentFeature("studyPlans.ui.demonstrated-evidence-var0.b0eb4970", {var0: conceptLabel ?? summary.conceptId})}
       data-testid={`evidence-summary-${summary.conceptId}`}
       className="rounded-xl border border-outline-variant/30 p-4 space-y-2"
     >
@@ -31,16 +38,13 @@ export const EvidenceSummaryCard: React.FC<EvidenceSummaryCardProps> = ({ summar
       <p data-testid="evidence-observed" className="text-sm">
         {formatObserved(summary.observedMean)}
       </p>
-      <p className="text-xs text-on-surface-variant" data-testid="evidence-counts">
-        {summary.independentSessions} independent session(s), {summary.distinctDays} day(s)
-        {summary.minimumObserved !== null && summary.maximumObserved !== null
-          ? `, range ${(summary.minimumObserved * 100).toFixed(0)}–${(summary.maximumObserved * 100).toFixed(0)}%`
+      <p className="text-xs text-on-surface-variant" data-testid="evidence-counts">{translateRecentFeature("studyPlans.ui.var0-independent-session-s-v.0e3bc379", {var0: summary.independentSessions, var1: summary.distinctDays})}{summary.minimumObserved !== null && summary.maximumObserved !== null
+          ? translateRecentFeature("i18nAudit.ui.range-var0-var1.06b9005b", {var0: (summary.minimumObserved * 100).toFixed(0), var1: (summary.maximumObserved * 100).toFixed(0)})
           : ''}
-        {`, weight ${summary.evidenceWeight.toFixed(2)}`}
+        {translateRecentFeature("studyPlans.ui.weight-var0.98fd489c", {var0: summary.evidenceWeight.toFixed(2)})}
       </p>
       <p className="text-xs text-on-surface-variant">
-        Weighted observed performance, not a probability of mastery.
-      </p>
+        {translateRecentFeature("studyPlans.ui.weighted-observed-performanc.e0614ef0")}</p>
       <UncertaintyReasons reasons={summary.uncertainty} compact />
     </section>
   );

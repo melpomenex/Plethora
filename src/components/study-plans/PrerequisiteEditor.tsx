@@ -11,6 +11,8 @@ import { Plus, Trash, Warning, GitFork } from '@phosphor-icons/react';
 import type { PlanPrerequisite, StudyPlanVersionNode } from '../../types/learningPaths';
 import { orderStudyPlan } from '../../lib/study-plans/topology';
 import { Button } from '../md3/Button';
+import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
+
 
 export interface PrerequisiteEditorProps {
   currentNodeId: string;
@@ -27,7 +29,8 @@ export const PrerequisiteEditor: React.FC<PrerequisiteEditorProps> = ({
   onChange,
   isReadOnly = false,
 }) => {
-  const [selectedPrereqId, setSelectedPrereqId] = useState<string>('');
+        useI18n();
+        const [selectedPrereqId, setSelectedPrereqId] = useState<string>('');
   const [cycleError, setCycleError] = useState<string | null>(null);
 
   // Prerequisites where currentNode is the DEPENDENT: prereq -> currentNode
@@ -94,11 +97,11 @@ export const PrerequisiteEditor: React.FC<PrerequisiteEditorProps> = ({
 
       {incomingPrereqs.length === 0 ? (
         <p className="text-xs text-surface-500 italic py-1">
-          No prerequisite topics required. This topic can be studied independently.
-        </p>
+          {translateRecentFeature("studyPlans.ui.no-prerequisite-topics-requi.7df1bdb8")}</p>
       ) : (
         <div className="space-y-1.5">
-          {incomingPrereqs.map((p) => (
+          {incomingPrereqs.map((p) => {
+                        return (
             <div
               key={p.prerequisiteNodeId}
               className="flex items-center justify-between p-2.5 rounded-xl bg-surface-100 dark:bg-surface-800 text-xs border border-surface-200 dark:border-surface-700"
@@ -118,14 +121,15 @@ export const PrerequisiteEditor: React.FC<PrerequisiteEditorProps> = ({
                   variant="text"
                   size="iconSm"
                   onClick={() => handleRemovePrereq(p.prerequisiteNodeId)}
-                  title="Remove prerequisite"
-                  aria-label="Remove prerequisite"
+                  title={translateRecentFeature("studyPlans.ui.remove-prerequisite.affc06f6")}
+                  aria-label={translateRecentFeature("studyPlans.ui.remove-prerequisite.affc06f6")}
                 >
                   <Trash size={14} className="text-red-500" />
                 </Button>
               )}
             </div>
-          ))}
+          );
+          })}
         </div>
       )}
 
@@ -139,9 +143,9 @@ export const PrerequisiteEditor: React.FC<PrerequisiteEditorProps> = ({
               setCycleError(null);
             }}
             className="flex-1 px-3 py-1.5 text-xs rounded-xl border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-surface-900 dark:text-surface-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
-            aria-label="Select prerequisite topic"
+            aria-label={translateRecentFeature("studyPlans.ui.select-prerequisite-topic.c0d089f4")}
           >
-            <option value="">Select a prerequisite topic to add…</option>
+            <option value="">{translateRecentFeature("studyPlans.ui.select-a-prerequisite-topic-.4deec3e7")}</option>
             {eligibleCandidates.map((n) => (
               <option key={n.nodeId} value={n.nodeId}>
                 {n.title}
@@ -156,7 +160,7 @@ export const PrerequisiteEditor: React.FC<PrerequisiteEditorProps> = ({
             onClick={handleAddPrereq}
           >
             <Plus size={15} />
-            <span>Add</span>
+            <span>{translateRecentFeature("common.add")}</span>
           </Button>
         </div>
       )}

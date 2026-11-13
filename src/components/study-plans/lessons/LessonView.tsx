@@ -22,6 +22,8 @@ import {
 } from '../../../api/study-lessons';
 import { StudyTutorHost } from '../tutoring/StudyTutorHost';
 import { studyErrorMessage } from '../../../lib/study-plans/studyErrorMessage';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface LessonViewProps {
   planDetail: StudyPlanDetail;
@@ -50,7 +52,8 @@ export const LessonView: React.FC<LessonViewProps> = ({
   onClose,
   onHandoff,
 }) => {
-  const node = planDetail.version.nodes.find((n) => n.nodeId === nodeId);
+        useI18n();
+        const node = planDetail.version.nodes.find((n) => n.nodeId === nodeId);
   const authority = planDetail.version.knowledgeAuthority;
   const isModelOnly = authority.kind === 'model-only';
 
@@ -63,7 +66,7 @@ export const LessonView: React.FC<LessonViewProps> = ({
   const savingRef = useRef(false);
 
   const ensureLesson = useCallback(async () => {
-    try {
+        try {
       const input: CreateStudyPlanLessonInput = {
         planId: planDetail.plan.id,
         planVersionId: planDetail.version.id,
@@ -78,7 +81,7 @@ export const LessonView: React.FC<LessonViewProps> = ({
       setLesson(created);
       setDraft(created.answerDraft);
     } catch (e) {
-      setError(studyErrorMessage(e, 'Could not start the lesson.'));
+      setError(studyErrorMessage(e, translateRecentFeature("studyPlans.ui.could-not-start-the-lesson.6f721045")));
     } finally {
       setLoading(false);
     }
@@ -90,7 +93,7 @@ export const LessonView: React.FC<LessonViewProps> = ({
 
   const checkpoint = useCallback(
     async (patch: Partial<StudyPlanLesson>, requestId: string) => {
-      if (!lesson || savingRef.current) return;
+            if (!lesson || savingRef.current) return;
       savingRef.current = true;
       setSaving(true);
       try {
@@ -114,9 +117,9 @@ export const LessonView: React.FC<LessonViewProps> = ({
           const fresh = await getStudyPlanLesson(lesson.id);
           setLesson(fresh);
           setDraft(fresh.answerDraft);
-          setError('Lesson state refreshed from the latest checkpoint.');
+          setError(translateRecentFeature("studyPlans.ui.lesson-state-refreshed-from-.1f6b6801"));
         } catch {
-          setError(studyErrorMessage(e, 'Could not save the lesson checkpoint.'));
+          setError(studyErrorMessage(e, translateRecentFeature("studyPlans.ui.could-not-save-the-lesson-ch.0c94e844")));
         }
       } finally {
         savingRef.current = false;
@@ -166,9 +169,9 @@ export const LessonView: React.FC<LessonViewProps> = ({
       <div className="p-6 space-y-3 text-sm">
         <div className="flex items-center gap-2 text-red-600 dark:text-red-400">
           <Warning size={16} />
-          <span>{error ?? 'Lesson unavailable.'}</span>
+          <span>{error ?? translateRecentFeature("i18nAudit.ui.lesson-unavailable.e6931b0b")}</span>
         </div>
-        <Button variant="text" size="sm" onClick={onClose}>Close</Button>
+        <Button variant="text" size="sm" onClick={onClose}>{translateRecentFeature("common.close")}</Button>
       </div>
     );
   }
@@ -182,29 +185,28 @@ export const LessonView: React.FC<LessonViewProps> = ({
   return (
     <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-4">
       <div className="flex items-center gap-3 pb-3 border-b border-surface-200 dark:border-surface-700">
-        <Button variant="text" size="iconSm" onClick={onClose} aria-label="Close lesson">
+        <Button variant="text" size="iconSm" onClick={onClose} aria-label={translateRecentFeature("studyPlans.ui.close-lesson.69113ec3")}>
           <ArrowLeft size={18} />
         </Button>
         <div className="min-w-0">
           <h2 className="text-base font-bold text-surface-900 dark:text-surface-100 truncate">
-            {node?.title ?? 'Lesson'}
+            {node?.title ?? translateRecentFeature("i18nAudit.ui.lesson.e576e3fa")}
           </h2>
           <p className="text-xs text-surface-500">
-            {isModelOnly ? 'AI Knowledge Only · unverified' : 'Library-backed · pinned authority'} · objective {objectiveIndex + 1}
-          </p>
+            {isModelOnly ? translateRecentFeature("studyPlans.ui.ai-knowledge-only-unverified.d562ef98") : translateRecentFeature("studyPlans.ui.library-backed-pinned-author.322190e1")}{translateRecentFeature("studyPlans.ui.objective-var0.ac8c14a9", {var0: objectiveIndex + 1})}</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <label className="text-xs text-surface-500" htmlFor="lesson-style">Style</label>
+          <label className="text-xs text-surface-500" htmlFor="lesson-style">{translateRecentFeature("studyPlans.ui.style.8c1182dc")}</label>
           <select
             id="lesson-style"
             value={lesson.style}
             onChange={(e) => handleStyleChange(e.target.value as LessonStyle)}
             className="h-8 px-2 text-xs rounded border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800"
-            aria-label="Lesson style"
+            aria-label={translateRecentFeature("studyPlans.ui.lesson-style.6434a15e")}
           >
-            <option value="guided">Guided Socratic</option>
-            <option value="explain-check">Explain + Check</option>
-            <option value="challenge">Challenge Me</option>
+            <option value="guided">{translateRecentFeature("studyPlans.ui.guided-socratic.1ce2d15e")}</option>
+            <option value="explain-check">{translateRecentFeature("studyPlans.ui.explain-check.83e5cb5b")}</option>
+            <option value="challenge">{translateRecentFeature("studyPlans.ui.challenge-me.5eb003a5")}</option>
           </select>
         </div>
       </div>
@@ -212,7 +214,7 @@ export const LessonView: React.FC<LessonViewProps> = ({
       {sourceChanged && (
         <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200">
           <Warning size={16} />
-          <span>Sources changed since this lesson started. Review the pinned references or start a new lesson.</span>
+          <span>{translateRecentFeature("studyPlans.ui.sources-changed-since-this-l.77dffc68")}</span>
         </div>
       )}
 
@@ -226,19 +228,19 @@ export const LessonView: React.FC<LessonViewProps> = ({
         <div className="flex items-start gap-2 text-sm">
           <ChatsCircle size={18} className="text-primary-500 flex-shrink-0 mt-0.5" />
           <p className="text-on-surface dark:text-on-surface-dark">
-            {lesson.promptText || node?.title || 'Focus question'}
+            {lesson.promptText || node?.title || translateRecentFeature("i18nAudit.ui.focus-question.ee9fd551")}
           </p>
         </div>
 
         <label className="block space-y-1 text-xs">
-          <span className="font-semibold text-surface-600 dark:text-surface-300">Your reasoning</span>
+          <span className="font-semibold text-surface-600 dark:text-surface-300">{translateRecentFeature("studyPlans.ui.your-reasoning.41a32f8e")}</span>
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             rows={3}
             className="w-full px-3 py-2 text-sm rounded-xl border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 resize-none"
-            aria-label="Reasoning answer"
-            placeholder="Write your answer or reasoning here…"
+            aria-label={translateRecentFeature("studyPlans.ui.reasoning-answer.d70c281b")}
+            placeholder={translateRecentFeature("studyPlans.ui.write-your-answer-or-reasoni.426627f7")}
           />
         </label>
       </div>
@@ -246,7 +248,7 @@ export const LessonView: React.FC<LessonViewProps> = ({
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="tonal" size="sm" onClick={handleSaveDraft} disabled={saving}>
           {saving ? <SpinnerGap size={16} className="animate-spin" /> : null}
-          <span>Save progress</span>
+          <span>{translateRecentFeature("studyPlans.ui.save-progress.b54c0deb")}</span>
         </Button>
         <Button
           variant="outlined"
@@ -254,31 +256,30 @@ export const LessonView: React.FC<LessonViewProps> = ({
           onClick={handleRevealHint}
           disabled={!lesson || lesson.hintCount >= MAX_HINTS || saving}
         >
-          <span>Hint ({lesson.hintCount}/{MAX_HINTS})</span>
+          <span>{translateRecentFeature("studyPlans.ui.hint-var0-var1.9fa6ddc7", {var0: lesson.hintCount, var1: MAX_HINTS})}</span>
         </Button>
         <Button variant="outlined" size="sm" onClick={handleExplain} disabled={saving}>
-          <span>Explain directly</span>
+          <span>{translateRecentFeature("studyPlans.ui.explain-directly.5b05b037")}</span>
         </Button>
         <Button variant="text" size="sm" onClick={handleSkip} disabled={saving}>
-          <span>Skip</span>
+          <span>{translateRecentFeature("common.skip")}</span>
         </Button>
         {onHandoff && (
           <Button variant="filled" size="sm" onClick={onHandoff}>
-            <span>Practice independently</span>
+            <span>{translateRecentFeature("studyPlans.ui.practice-independently.fec1a98a")}</span>
           </Button>
         )}
         {!isModelOnly && sourceRefs.length > 0 && (
           <Button variant="filled" size="sm" onClick={() => setShowTutor(true)}>
             <Sparkle size={16} />
-            <span>Open scoped tutor</span>
+            <span>{translateRecentFeature("studyPlans.ui.open-scoped-tutor.fec03c7f")}</span>
           </Button>
         )}
       </div>
 
       {!isModelOnly && sourceRefs.length === 0 && (
         <p className="text-xs text-surface-500">
-          No verified references on this topic yet — the scoped tutor is unavailable until sources are attached.
-        </p>
+          {translateRecentFeature("studyPlans.ui.no-verified-references-on-th.baffa533")}</p>
       )}
 
       {showTutor && (

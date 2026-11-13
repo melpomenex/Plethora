@@ -813,6 +813,50 @@
     );
   }
 
+  .study-plan-editor-tabs {
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: thin;
+  }
+
+  .study-plans-scroll {
+    padding-bottom: calc(
+      var(--adaptive-sticky-height, 0px) + var(--app-keyboard-height, 0px) +
+        var(--study-plans-bottom-clearance, 0px)
+    );
+  }
+
+  .study-plans-dialog-wide {
+    width: min(100%, 56rem);
+  }
+
+  @media (max-width: 767px) {
+    .study-plans-scroll {
+      padding-bottom: calc(
+        var(--adaptive-sticky-height, 0px) + var(--app-keyboard-height, 0px) +
+          max(
+            var(--study-plans-bottom-clearance, 0px),
+            max(5rem, var(--shell-mobile-nav-height, 0px))
+          )
+      );
+    }
+  }
+
+  @media (max-width: 1023px) {
+    .study-plans-scroll :is(button, select, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea),
+    .study-plans-dialog :is(button, select, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea),
+    .study-plans-dialog-wide :is(button, select, input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]), textarea) {
+      min-height: 44px;
+    }
+
+    .study-plans-scroll button[aria-label],
+    .study-plans-dialog button[aria-label],
+    .study-plans-dialog-wide button[aria-label] {
+      min-width: 44px;
+    }
+  }
+
   .adaptive-sticky-actions {
     position: sticky;
     right: 0;

@@ -1,4 +1,5 @@
 import { Dict, en } from "./en";
+import { recentFeatureJa } from "./recentFeatures/ja";
 
 export const ja: Dict = {
   "qaGeneration.empty": "資料は見つかりましたが、AIモデルから回答が返されませんでした。再試行するか、AI設定を確認してください。",
@@ -6540,4 +6541,5 @@ export const ja: Dict = {
   "palette.destination.studyPlansDesc": "構造化された学習パス、カリキュラムの概要、およびトピックの評価",
   "studyPlans.title": "学習プラン",
   "studyPlans.navLabel": "学習プラン",
+  ...recentFeatureJa,
 };

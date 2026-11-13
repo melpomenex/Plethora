@@ -12,6 +12,8 @@ import type { StudyPlanVersion } from '../../types/learningPaths';
 import { Button } from '../md3/Button';
 import { ContextMenu, type ContextMenuItem } from '../common/ContextMenu';
 import { useStudyPlanContextMenu } from './useStudyPlanContextMenu';
+import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
+
 
 const contextMenuId = 'study-plan-version-context-menu';
 
@@ -40,35 +42,32 @@ export const PlanVersionHistory: React.FC<PlanVersionHistoryProps> = ({
   onCopyToDraft,
   canCreateDraft = true,
 }) => {
-  const contextMenu = useStudyPlanContextMenu(contextMenuId);
+        useI18n();
+        const contextMenu = useStudyPlanContextMenu(contextMenuId);
 
   if (versions.length === 0) {
     return (
       <div className="py-8 text-center text-xs text-surface-500">
-        No version history available for this study plan.
-      </div>
+        {translateRecentFeature("studyPlans.ui.no-version-history-available.bf9bcd82")}</div>
     );
   }
 
   const renderStateBadge = (state: StudyPlanVersion['state']) => {
-    switch (state) {
+        switch (state) {
       case 'published':
         return (
           <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-            Published Head
-          </span>
+            {translateRecentFeature("studyPlans.ui.published-head.272b8a22")}</span>
         );
       case 'draft':
         return (
           <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-            Draft
-          </span>
+            {translateRecentFeature("studyPlans.ui.draft.ae10641e")}</span>
         );
       case 'superseded':
         return (
           <span className="text-[10px] font-medium uppercase tracking-wider px-2 py-0.5 rounded-full bg-surface-200 dark:bg-surface-700 text-surface-600 dark:text-surface-400">
-            Superseded
-          </span>
+            {translateRecentFeature("studyPlans.ui.superseded.89355c10")}</span>
         );
     }
   };
@@ -76,18 +75,16 @@ export const PlanVersionHistory: React.FC<PlanVersionHistoryProps> = ({
   return (
     <div ref={contextMenu.ownerRef} tabIndex={-1} className="space-y-3">
       <div className="text-xs text-surface-500 pb-1">
-        Historical versions are immutable. You can copy an older version into an active draft to
-        revert or make modifications.
-      </div>
+        {translateRecentFeature("studyPlans.ui.historical-versions-are-immu.2b53e4f8")}</div>
 
       <div className="space-y-2">
         {versions.map((v) => {
-          const isSelected = activeVersionId === v.id;
+                    const isSelected = activeVersionId === v.id;
           const menuItems: ContextMenuItem[] = [];
           if (!isSelected) {
             menuItems.push({
               id: 'view-version',
-              label: 'View',
+              label: translateRecentFeature("mainLayout.view"),
               icon: <Eye size={16} />,
               onClick: () => onSelectVersion(v.id),
             });
@@ -95,7 +92,7 @@ export const PlanVersionHistory: React.FC<PlanVersionHistoryProps> = ({
           if (v.state !== 'draft' && onCopyToDraft && canCreateDraft) {
             menuItems.push({
               id: 'copy-version-to-draft',
-              label: 'Copy to draft',
+              label: translateRecentFeature("studyPlans.ui.copy-to-draft.98a50fcc"),
               icon: <Copy size={16} />,
               onClick: () => onCopyToDraft(v.id),
             });
@@ -114,21 +111,17 @@ export const PlanVersionHistory: React.FC<PlanVersionHistoryProps> = ({
             >
               <div className="space-y-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-bold text-surface-900 dark:text-surface-100">
-                    Version {v.version}
-                  </span>
+                  <span className="font-bold text-surface-900 dark:text-surface-100">{translateRecentFeature("studyPlans.ui.version-var0.d4ff2e52", {var0: v.version})}</span>
                   {renderStateBadge(v.state)}
-                  <span className="text-[11px] text-surface-400 font-mono">
-                    via {v.createdBy}
-                  </span>
+                  <span className="text-[11px] text-surface-400 font-mono">{translateRecentFeature("studyPlans.ui.via-var0.90b2206a", {var0: v.createdBy})}</span>
                 </div>
 
                 <div className="flex items-center gap-3 text-[11px] text-surface-500">
-                  <span>{v.nodeCount} topics</span>
+                  <span>{translateRecentFeature("studyPlans.ui.var0-topics.d382639b", {var0: v.nodeCount})}</span>
                   {v.publishedAt ? (
-                    <span>Published {new Date(v.publishedAt).toLocaleDateString()}</span>
+                    <span>{translateRecentFeature("studyPlans.ui.published-var0.102583cc", {var0: new Date(v.publishedAt).toLocaleDateString()})}</span>
                   ) : (
-                    <span>Created {new Date(v.createdAt).toLocaleDateString()}</span>
+                    <span>{translateRecentFeature("studyPlans.ui.created-var0.64e5a37e", {var0: new Date(v.createdAt).toLocaleDateString()})}</span>
                   )}
                 </div>
               </div>
@@ -140,7 +133,7 @@ export const PlanVersionHistory: React.FC<PlanVersionHistoryProps> = ({
                   onClick={() => onSelectVersion(v.id)}
                 >
                   <Eye size={15} />
-                  <span>{isSelected ? 'Viewing' : 'View'}</span>
+                  <span>{isSelected ? translateRecentFeature("studyPlans.ui.viewing.5db6eb6d") : translateRecentFeature("mainLayout.view")}</span>
                 </Button>
 
                 {v.state !== 'draft' && onCopyToDraft && canCreateDraft && (
@@ -148,10 +141,10 @@ export const PlanVersionHistory: React.FC<PlanVersionHistoryProps> = ({
                     variant="text"
                     size="sm"
                     onClick={() => onCopyToDraft(v.id)}
-                    title="Copy this version as active draft"
+                    title={translateRecentFeature("studyPlans.ui.copy-this-version-as-active-.14241bcf")}
                   >
                     <Copy size={15} />
-                    <span>Copy to draft</span>
+                    <span>{translateRecentFeature("studyPlans.ui.copy-to-draft.98a50fcc")}</span>
                   </Button>
                 )}
               </div>

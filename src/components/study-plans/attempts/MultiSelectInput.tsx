@@ -13,6 +13,8 @@ import type {
   LearnerConfidence,
 } from '../../../types/assessmentQuestions';
 import { ConfidenceSelector } from './ConfidenceSelector';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface MultiSelectInputProps {
   question: MultiSelectQuestion;
@@ -33,12 +35,13 @@ export const MultiSelectInput: React.FC<MultiSelectInputProps> = ({
   disabled = false,
   className = '',
 }) => {
-  return (
+        useI18n();
+        return (
     <div className={`space-y-6 ${className}`}>
       {/* Notice about all-or-nothing grading */}
       <div className="flex items-center gap-2 px-3 py-2 bg-surface-container-high/60 dark:bg-surface-container-high-dark/60 rounded-lg text-xs text-on-surface-variant dark:text-on-surface-variant-dark border border-outline-variant/30">
         <Info size={16} className="text-primary dark:text-primary-dark shrink-0" />
-        <span>Select all that apply. Scoring is all-or-nothing (all correct options required for credit).</span>
+        <span>{translateRecentFeature("studyPlans.ui.select-all-that-apply-scorin.57c04b2a")}</span>
       </div>
 
       {/* Fieldset with Checkboxes */}
@@ -47,7 +50,7 @@ export const MultiSelectInput: React.FC<MultiSelectInputProps> = ({
           {question.prompt}
         </legend>
 
-        <div className="space-y-2.5" role="group" aria-label="Answer options">
+        <div className="space-y-2.5" role="group" aria-label={translateRecentFeature("studyPlans.ui.answer-options.3691f852")}>
           {question.options.map((option, index) => {
             const isChecked = selectedOptionIds.includes(option.id);
             const letter = String.fromCharCode(65 + index);

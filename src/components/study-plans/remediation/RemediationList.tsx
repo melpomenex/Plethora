@@ -12,6 +12,9 @@ import {
   createTargetedPracticeDraft,
   type RemediationClients,
 } from '../../../lib/study-plans/remediation/remediationService';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+import { studyErrorMessage } from "../../../lib/study-plans/studyErrorMessage";
+
 
 export interface RemediationListProps {
   gap: KnowledgeGapView;
@@ -28,12 +31,13 @@ export const RemediationList: React.FC<RemediationListProps> = ({
   planRevision = 0,
   onDraftCreated,
 }) => {
+  useI18n();
   const [notice, setNotice] = useState<string | null>(null);
   const [items, setItems] = useState(recommendations);
 
   const handleAction = async (rec: RemediationRecommendation) => {
-    if (!clients) {
-      setNotice('Draft creation unavailable here — no native client.');
+        if (!clients) {
+      setNotice(translateRecentFeature("studyPlans.ui.draft-creation-unavailable-h.911fd374"));
       return;
     }
     const ctx = contextFromGap(gap);
@@ -41,59 +45,59 @@ export const RemediationList: React.FC<RemediationListProps> = ({
       if (rec.kind === 'open-source') {
         const first = rec.sourceRefIds[0];
         if (!first) {
-          setNotice('Source unavailable — historical excerpt preserved.');
+          setNotice(translateRecentFeature("studyPlans.ui.source-unavailable-historica.b1ba9c19"));
           return;
         }
         await clients.openSource(first);
-        setNotice('Source opened in current revision context.');
+        setNotice(translateRecentFeature("studyPlans.ui.source-opened-in-current-rev.c26adbb2"));
         return;
       }
       if (rec.kind === 'targeted-practice') {
         if (!ctx.sourceScope) {
-          setNotice('Practice draft needs a frozen source scope — open the plan progress tab.');
+          setNotice(translateRecentFeature("studyPlans.ui.practice-draft-needs-a-froze.dcbdcd39"));
           return;
         }
         const out = await createTargetedPracticeDraft(ctx, clients);
         await clients.recordDisposition(rec.id, 'accepted');
         setItems((prev) => prev.map((r) => (r.id === rec.id ? { ...r, status: 'accepted' as const } : r)));
         onDraftCreated?.(out.revisionId, rec.kind);
-        setNotice(`Practice draft created (${out.revisionId}). No attempt auto-started.`);
+        setNotice(translateRecentFeature("studyPlans.ui.practice-draft-created-var0-.86fbbba8", {var0: out.revisionId}));
         return;
       }
       if (rec.kind === 'follow-up-exam') {
         if (!ctx.sourceScope) {
-          setNotice('Follow-up draft needs a frozen source scope — open the plan progress tab.');
+          setNotice(translateRecentFeature("studyPlans.ui.follow-up-draft-needs-a-froz.c9000206"));
           return;
         }
         const out = await createFollowUpExamDraft(ctx, clients);
         await clients.recordDisposition(rec.id, 'accepted');
         setItems((prev) => prev.map((r) => (r.id === rec.id ? { ...r, status: 'accepted' as const } : r)));
         onDraftCreated?.(out.revisionId, rec.kind);
-        setNotice(`Follow-up draft created (${out.revisionId}). Review and publish explicitly.`);
+        setNotice(translateRecentFeature("studyPlans.ui.follow-up-draft-created-var0.5ed5c435", {var0: out.revisionId}));
         return;
       }
       if (rec.kind === 'plan-adjustment') {
         await createPlanAdjustmentDraft(ctx, clients, planRevision);
         await clients.recordDisposition(rec.id, 'accepted');
         setItems((prev) => prev.map((r) => (r.id === rec.id ? { ...r, status: 'accepted' as const } : r)));
-        setNotice('Plan-adjustment draft requested. Review the diff before publishing.');
+        setNotice(translateRecentFeature("studyPlans.ui.plan-adjustment-draft-reques.1e2f5de5"));
         return;
       }
-      setNotice(`Tutor, hints and cards land in Change 7 — “${rec.kind}” is not completed here.`);
+      setNotice(translateRecentFeature("studyPlans.ui.tutor-hints-and-cards-land-i.eb981e1d", {var0: rec.kind}));
     } catch (err) {
-      setNotice(err instanceof Error ? err.message : String(err));
+      setNotice(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")));
     }
   };
 
   const handleDisposition = (rec: RemediationRecommendation) => async (status: 'accepted' | 'dismissed' | 'completed') => {
-    if (!clients) {
+        if (!clients) {
       setItems((prev) => prev.map((r) => (r.id === rec.id ? { ...r, status } : r)));
-      setNotice('Disposition recorded locally — native unavailable.');
+      setNotice(translateRecentFeature("studyPlans.ui.disposition-recorded-locally.1ebd7075"));
       return;
     }
     const updated = await clients.recordDisposition(rec.id, status);
     setItems((prev) => prev.map((r) => (r.id === rec.id ? { ...r, status: updated.status } : r)));
-    setNotice(`Disposition ${status} persisted; evidence preserved${status === 'dismissed' ? ' and reversible' : ''}.`);
+    setNotice(translateRecentFeature("studyPlans.ui.disposition-var0-persisted-e.d550167f", {var0: status, var1: status === 'dismissed' ? ' and reversible' : ''}));
   };
 
   return (

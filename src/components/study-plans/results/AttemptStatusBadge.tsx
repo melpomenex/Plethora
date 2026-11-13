@@ -9,6 +9,8 @@
 import React from 'react';
 import type { AttemptStatus } from '../../../types/assessmentSessions';
 import type { AssessmentMode } from '../../../types/assessmentQuestions';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface AttemptStatusBadgeProps {
   status: AttemptStatus;
@@ -21,37 +23,38 @@ export const AttemptStatusBadge: React.FC<AttemptStatusBadgeProps> = ({
   mode,
   className = '',
 }) => {
+  useI18n();
   const getStatusConfig = (st: AttemptStatus) => {
-    switch (st) {
+        switch (st) {
       case 'complete':
         return {
-          label: 'Completed',
+          label: translateRecentFeature("studyPlans.ui.completed.b0775abf"),
           bg: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 border-emerald-500/30',
         };
       case 'in-progress':
         return {
-          label: 'In Progress',
+          label: translateRecentFeature("studyPlans.ui.in-progress.fd8773c8"),
           bg: 'bg-primary/10 text-primary dark:bg-primary-dark/20 dark:text-primary-dark border-primary/30',
         };
       case 'grading':
       case 'submitted':
         return {
-          label: 'Grading',
+          label: translateRecentFeature("studyPlans.ui.grading.fa025a95"),
           bg: 'bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/30',
         };
       case 'partially-graded':
         return {
-          label: 'Partially Graded',
+          label: translateRecentFeature("studyPlans.ui.partially-graded.0b74cb6f"),
           bg: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30',
         };
       case 'grading-failed':
         return {
-          label: 'Grading Failed',
+          label: translateRecentFeature("studyPlans.ui.grading-failed.e2a70910"),
           bg: 'bg-error/10 text-error dark:bg-error-dark/20 dark:text-error-dark border-error/30',
         };
       case 'cancelled':
         return {
-          label: 'Cancelled',
+          label: translateRecentFeature("studyPlans.ui.cancelled.cd408c66"),
           bg: 'bg-surface-container-high dark:bg-surface-container-high-dark text-on-surface-variant border-outline-variant/40',
         };
     }

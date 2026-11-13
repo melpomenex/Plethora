@@ -4,6 +4,9 @@ import type { StudyTutorContext } from '../../../types/learningEvidence';
 import type { StudySourceRefV1 } from '../../../types/studySource';
 import { buildStudyTutorContext, buildStudyTutorMaterial } from './studyTutorContext';
 import { checkStudyTutorPrivacy } from './studyTutorPrivacy';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+import { studyErrorMessage } from "../../../lib/study-plans/studyErrorMessage";
+
 
 export interface StudyTutorHostProps {
   open: boolean;
@@ -50,7 +53,8 @@ export const StudyTutorHost: React.FC<StudyTutorHostProps> = ({
   documentTitle,
   onClose,
 }) => {
-  const built = useMemo(() => {
+        useI18n();
+        const built = useMemo(() => {
     try {
       const context: StudyTutorContext = buildStudyTutorContext({
         planId,
@@ -75,7 +79,10 @@ export const StudyTutorHost: React.FC<StudyTutorHostProps> = ({
       });
       return { context, error: null as string | null };
     } catch (err) {
-      return { context: null as StudyTutorContext | null, error: err instanceof Error ? err.message : String(err) };
+      return {
+        context: null as StudyTutorContext | null,
+        error: studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")),
+      };
     }
   }, [planId, planVersionId, nodeId, conceptId, gapId, sourceRefs, objectives, misconception, evidenceSummary, documentFlags, generationSendsOffDevice, strictLocalOnly, cloudDisclosureAccepted, costConsentAccepted, billable]);
 
@@ -87,11 +94,8 @@ export const StudyTutorHost: React.FC<StudyTutorHostProps> = ({
   if (!open) return null;
   if (!built.context) {
     return (
-      <div role="alert" data-testid="study-tutor-refused" className="p-4 text-sm">
-        Study tutor refused: {built.error} (no global fallback; no transcript graded).
-        <button type="button" onClick={onClose} className="underline ml-2 min-h-[32px]">
-          Close
-        </button>
+      <div role="alert" data-testid="study-tutor-refused" className="p-4 text-sm">{translateRecentFeature("studyPlans.ui.study-tutor-refused-var0-no-.65ea726c", {var0: built.error})}<button type="button" onClick={onClose} className="underline ml-2 min-h-[32px]">
+          {translateRecentFeature("common.close")}</button>
       </div>
     );
   }

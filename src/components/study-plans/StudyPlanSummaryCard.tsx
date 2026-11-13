@@ -17,6 +17,8 @@ import {
 import type { StudyPlanSummary } from '../../types/learningPaths';
 import { Button } from '../md3/Button';
 import { ConfirmDialog } from '../common/ConfirmDialog';
+import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
+
 
 export interface StudyPlanSummaryCardProps {
   plan: StudyPlanSummary;
@@ -33,7 +35,8 @@ export const StudyPlanSummaryCard: React.FC<StudyPlanSummaryCardProps> = ({
   onRestore,
   onDelete,
 }) => {
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+        useI18n();
+        const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const depthColor =
     plan.depth === 'deep'
@@ -47,7 +50,7 @@ export const StudyPlanSummaryCard: React.FC<StudyPlanSummaryCardProps> = ({
   return (
     <div
       role="article"
-      aria-label={`Study plan ${plan.title}`}
+      aria-label={translateRecentFeature("studyPlans.ui.study-plan-var0.e049ebb2", {var0: plan.title})}
       className="group relative flex flex-col justify-between p-5 rounded-2xl bg-surface-50 dark:bg-surface-800/60 border border-surface-200 dark:border-surface-700/80 hover:border-primary-500/40 transition-all shadow-sm hover:shadow"
     >
       <div>
@@ -61,16 +64,14 @@ export const StudyPlanSummaryCard: React.FC<StudyPlanSummaryCardProps> = ({
             </span>
             {isArchived && (
               <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-surface-200 dark:bg-surface-700 text-surface-600 dark:text-surface-300">
-                Archived
-              </span>
+                {translateRecentFeature("viewer.archived")}</span>
             )}
             {plan.hasDraft && (
               <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
-                Draft active
-              </span>
+                {translateRecentFeature("studyPlans.ui.draft-active.00736535")}</span>
             )}
             <span className="text-xs text-surface-500">
-              {plan.currentVersion > 0 ? `v${plan.currentVersion}` : 'Not yet published'}
+              {plan.currentVersion > 0 ? translateRecentFeature("i18nAudit.ui.v-var0.21a5b169", {var0: plan.currentVersion}) : translateRecentFeature("studyPlans.ui.not-yet-published.027f16c2")}
             </span>
           </div>
         </div>
@@ -88,15 +89,13 @@ export const StudyPlanSummaryCard: React.FC<StudyPlanSummaryCardProps> = ({
 
         {/* Stats row */}
         <div className="flex items-center gap-4 text-xs text-surface-500 dark:text-surface-400 mb-4 flex-wrap">
-          <div className="flex items-center gap-1.5" title="Topics completed / total">
+          <div className="flex items-center gap-1.5" title={translateRecentFeature("studyPlans.ui.topics-completed-total.97fc5355")}>
             <CheckCircle size={15} className="text-emerald-500" />
-            <span>
-              {plan.completedNodeCount} / {plan.nodeCount} topics
-            </span>
+            <span>{translateRecentFeature("studyPlans.ui.var0-var1-topics.03737d81", {var0: plan.completedNodeCount, var1: plan.nodeCount})}</span>
           </div>
-          <div className="flex items-center gap-1.5" title="Source documents">
+          <div className="flex items-center gap-1.5" title={translateRecentFeature("studyPlans.ui.source-documents.716e72f0")}>
             <FileText size={15} className="text-blue-500" />
-            <span>{plan.sourceDocumentCount} docs</span>
+            <span>{translateRecentFeature("studyPlans.ui.var0-docs.b4a5e24c", {var0: plan.sourceDocumentCount})}</span>
           </div>
         </div>
       </div>
@@ -104,8 +103,7 @@ export const StudyPlanSummaryCard: React.FC<StudyPlanSummaryCardProps> = ({
       {/* Action buttons footer */}
       <div className="flex items-center justify-between gap-2 pt-3 border-t border-surface-200 dark:border-surface-700/60">
         <Button variant="filled" size="sm" onClick={() => onOpen(plan.id)}>
-          Open Plan
-        </Button>
+          {translateRecentFeature("studyPlans.ui.open-plan.627ca3b7")}</Button>
 
         <div className="flex items-center gap-1">
           {isArchived ? (
@@ -114,10 +112,10 @@ export const StudyPlanSummaryCard: React.FC<StudyPlanSummaryCardProps> = ({
                 variant="text"
                 size="sm"
                 onClick={() => onRestore(plan.id)}
-                title="Restore from archive"
+                title={translateRecentFeature("studyPlans.ui.restore-from-archive.d47ec105")}
               >
                 <ArrowCounterClockwise size={16} />
-                <span>Restore</span>
+                <span>{translateRecentFeature("mainLayout.restore")}</span>
               </Button>
             )
           ) : (
@@ -126,10 +124,10 @@ export const StudyPlanSummaryCard: React.FC<StudyPlanSummaryCardProps> = ({
                 variant="text"
                 size="sm"
                 onClick={() => onArchive(plan.id)}
-                title="Archive plan"
+                title={translateRecentFeature("studyPlans.ui.archive-plan.49c28a81")}
               >
                 <Archive size={16} />
-                <span>Archive</span>
+                <span>{translateRecentFeature("cardContextMenu.archive")}</span>
               </Button>
             )
           )}
@@ -138,8 +136,8 @@ export const StudyPlanSummaryCard: React.FC<StudyPlanSummaryCardProps> = ({
               variant="text"
               size="iconSm"
               onClick={() => setShowDeleteConfirm(true)}
-              title="Delete plan"
-              aria-label="Delete plan"
+              title={translateRecentFeature("studyPlans.ui.delete-plan.d3e27551")}
+              aria-label={translateRecentFeature("studyPlans.ui.delete-plan.d3e27551")}
             >
               <Trash size={16} className="text-red-500" />
             </Button>
@@ -154,9 +152,9 @@ export const StudyPlanSummaryCard: React.FC<StudyPlanSummaryCardProps> = ({
           setShowDeleteConfirm(false);
           onDelete?.(plan.id);
         }}
-        title={`Delete "${plan.title}"?`}
-        message="This will delete this study plan, its versions, and its topic activity. Your original library documents and any examination history will remain intact."
-        confirmLabel="Delete Plan"
+        title={translateRecentFeature("studyPlans.ui.delete-var0.0f83b5b5", {var0: plan.title})}
+        message={translateRecentFeature("studyPlans.ui.this-will-delete-this-study-.7bd42e1b")}
+        confirmLabel={translateRecentFeature("studyPlans.ui.delete-plan.c935cbb5")}
         variant="danger"
       />
     </div>

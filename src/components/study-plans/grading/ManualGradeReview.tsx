@@ -35,6 +35,9 @@ import { calculateRubricScore } from '../../../lib/study-plans/grading/rubricAgg
 import { recordManualGrade } from '../../../api/exam-grading';
 import { ManualCriterionInput } from './ManualCriterionInput';
 import { ManualGradeConfirmation } from './ManualGradeConfirmation';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+import { studyErrorMessage } from "../../../lib/study-plans/studyErrorMessage";
+
 
 export interface ManualGradeReviewProps {
   isOpen: boolean;
@@ -65,7 +68,8 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
   recordManualGradeFn = recordManualGrade,
   className = '',
 }) => {
-  const q = questionRevision.question as any;
+    useI18n();
+    const q = questionRevision.question as any;
   const rubric = q.rubric as AnalyticRubric | undefined;
   const maxPoints = q.maxPoints ?? 0;
 
@@ -186,18 +190,18 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
     for (const c of rubric.criteria) {
       const lvl = selectedLevels[c.id];
       if (lvl === null || lvl === undefined) {
-        newErrors[c.id] = `Please assign a level (0–4) for "${c.title}".`;
+        newErrors[c.id] = translateRecentFeature("studyPlans.ui.grade-criterion-level-required", { title: c.title });
       }
     }
 
     // 2. Verify nonempty manualReason
     if (!manualReason.trim()) {
-      newErrors['manualReason'] = 'A justification or reason is required for manual grading.';
+      newErrors['manualReason'] = translateRecentFeature("studyPlans.ui.grade-reason-required");
     }
 
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
-      setGeneralError('Please select all criterion levels and provide a justification.');
+      setGeneralError(translateRecentFeature("studyPlans.ui.grade-review-fields-required"));
       return;
     }
 
@@ -238,9 +242,9 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
       const msg = err?.message || String(err);
       if (msg.includes('stale') || err?.code === 'stale_attempt_revision') {
         setIsStaleRevision(true);
-        setGeneralError('The attempt was modified concurrently. Please reload results to see the latest version.');
+        setGeneralError(translateRecentFeature("studyPlans.ui.attempt-changed-reload-results"));
       } else {
-        setGeneralError(msg || 'Failed to save manual grade override.');
+        setGeneralError(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")));
       }
     }
   };
@@ -267,12 +271,12 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
 
     return (
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto"
+        className="adaptive-dialog-layer bg-black/60 backdrop-blur-sm"
         role="dialog"
         aria-modal="true"
         aria-labelledby="manual-review-confirmation-title"
       >
-        <div className="w-full max-w-2xl my-8">
+        <div className="adaptive-dialog-panel adaptive-dialog-centered study-plans-dialog-wide w-full max-w-2xl my-8 overflow-y-auto rounded-2xl">
           <ManualGradeConfirmation
             questionTitle={q.prompt}
             calculatedPoints={computedScore.points}
@@ -292,13 +296,13 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
   // Render Edit Form Step
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm overflow-y-auto"
+      className="adaptive-dialog-layer bg-black/60 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-labelledby="manual-review-title"
     >
       <div
-        className={`w-full max-w-3xl my-8 bg-surface dark:bg-surface-dark rounded-2xl border border-outline-variant/40 shadow-2xl overflow-hidden flex flex-col max-h-[90vh] ${className}`}
+        className={`adaptive-dialog-panel adaptive-dialog-centered study-plans-dialog-wide w-full max-w-3xl bg-surface dark:bg-surface-dark rounded-2xl border border-outline-variant/40 shadow-2xl overflow-hidden flex flex-col ${className}`}
         data-testid="manual-grade-review-modal"
       >
         {/* Header */}
@@ -309,11 +313,9 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
               className="text-base sm:text-lg font-bold text-on-surface flex items-center gap-2"
             >
               <PencilSimple size={20} className="text-primary" weight="bold" />
-              Manual Grade Review & Override
-            </h2>
+              {translateRecentFeature("studyPlans.ui.manual-grade-review-override.38f427f4")}</h2>
             <p className="text-xs text-on-surface-variant font-medium">
-              Review committed rubric criteria and record an authoritative grade.
-            </p>
+              {translateRecentFeature("studyPlans.ui.review-committed-rubric-crit.aea7fb52")}</p>
           </div>
 
           <button
@@ -321,7 +323,7 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
             onClick={onClose}
             disabled={isSubmitting}
             className="p-1.5 rounded-lg text-on-surface-variant hover:text-on-surface hover:bg-surface-container/50 transition-colors"
-            aria-label="Close manual review"
+            aria-label={translateRecentFeature("studyPlans.ui.close-manual-review.b4cd9d29")}
           >
             <X size={20} />
           </button>
@@ -334,8 +336,7 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
             <div className="p-3.5 rounded-xl bg-error/10 border border-error/30 text-error text-xs flex items-center gap-2">
               <WarningCircle size={18} weight="fill" className="shrink-0" />
               <span>
-                The examination attempt was modified concurrently. Please reload results.
-              </span>
+                {translateRecentFeature("studyPlans.ui.the-examination-attempt-was-.13c981d9")}</span>
             </div>
           )}
 
@@ -351,8 +352,7 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
           <div className="space-y-1.5 p-4 rounded-xl bg-surface-container-low/60 dark:bg-surface-container-low-dark/60 border border-outline-variant/30">
             <span className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-1.5">
               <BookOpen size={14} className="text-primary" />
-              Question Prompt
-            </span>
+              {translateRecentFeature("studyPlans.ui.question-prompt.042a80b4")}</span>
             <p className="text-xs sm:text-sm font-medium text-on-surface leading-relaxed">
               {q.prompt}
             </p>
@@ -362,14 +362,13 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
           <div className="space-y-1.5 p-4 rounded-xl bg-surface-container/40 dark:bg-surface-container-dark/40 border border-outline-variant/30">
             <span className="text-[11px] font-bold uppercase tracking-wider text-on-surface-variant flex items-center gap-1.5">
               <User size={14} className="text-primary" />
-              Learner's Submitted Response
-            </span>
+              {translateRecentFeature("studyPlans.ui.learner-s-submitted-response.36a97cb5")}</span>
             <div
               className="text-xs sm:text-sm font-mono p-3 rounded-lg bg-surface dark:bg-surface-dark border border-outline-variant/20 text-on-surface whitespace-pre-wrap leading-relaxed select-text"
               data-testid="student-response-verbatim"
             >
               {typeof studentResponse === 'string'
-                ? studentResponse || '(No response provided)'
+                ? studentResponse || translateRecentFeature("i18nAudit.ui.no-response-provided.796a757d")
                 : JSON.stringify(studentResponse, null, 2)}
             </div>
           </div>
@@ -378,8 +377,7 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
           {sourceContext && (
             <div className="space-y-1 p-3 rounded-xl bg-surface-container-low dark:bg-surface-container-low-dark border border-outline-variant/20 text-xs">
               <span className="font-semibold text-on-surface-variant text-[11px] uppercase tracking-wider">
-                Grounding Source Reference:
-              </span>
+                {translateRecentFeature("studyPlans.ui.grounding-source-reference.f5afc4cd")}</span>
               <p className="text-on-surface-variant italic leading-relaxed">
                 {sourceContext}
               </p>
@@ -391,8 +389,7 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
             <div className="p-3 rounded-xl bg-primary/5 dark:bg-primary/10 border border-primary/20 text-xs text-on-surface-variant flex items-center gap-2">
               <Sparkle size={16} className="text-primary shrink-0" weight="fill" />
               <span>
-                Previous automated evaluation is advisory. Human manual grading takes precedence.
-              </span>
+                {translateRecentFeature("studyPlans.ui.previous-automated-evaluatio.d85a8fd7")}</span>
             </div>
           )}
 
@@ -400,23 +397,19 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
           <div className="space-y-4">
             <div className="flex items-center justify-between pb-1">
               <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-on-surface">
-                Committed Rubric Criteria
-              </h3>
+                {translateRecentFeature("studyPlans.ui.committed-rubric-criteria.41670486")}</h3>
 
               <div className="text-right">
                 <span className="text-xs text-on-surface-variant font-medium">
-                  Projected Score:{' '}
+                  {translateRecentFeature("studyPlans.ui.projected-score.bab7c2fd")}{' '}
                 </span>
-                <span className="text-sm font-bold text-on-surface">
-                  {computedScore.points} / {maxPoints} pts
-                </span>
+                <span className="text-sm font-bold text-on-surface">{translateRecentFeature("studyPlans.ui.var0-var1-pts.097b763a", {var0: computedScore.points, var1: maxPoints})}</span>
               </div>
             </div>
 
             {(!rubric || !rubric.criteria || rubric.criteria.length === 0) ? (
               <p className="text-xs text-error font-medium p-3 rounded-lg bg-error/5 border border-error/20">
-                No rubric defined for this question.
-              </p>
+                {translateRecentFeature("studyPlans.ui.no-rubric-defined-for-this-q.7cf715f8")}</p>
             ) : (
               rubric.criteria.map((c) => (
                 <ManualCriterionInput
@@ -439,11 +432,10 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
               htmlFor="manual-reason-input"
               className="block text-xs font-bold text-on-surface uppercase tracking-wider"
             >
-              Authoritative Reason / Justification <span className="text-error">*</span>
+              {translateRecentFeature("studyPlans.ui.authoritative-reason-justifi.d133327d")}<span className="text-error">*</span>
             </label>
             <p className="text-xs text-on-surface-variant">
-              Required explanation describing why this manual score or override is being committed.
-            </p>
+              {translateRecentFeature("studyPlans.ui.required-explanation-describ.b43606c6")}</p>
             <textarea
               id="manual-reason-input"
               data-testid="manual-reason-input"
@@ -459,13 +451,13 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
                   return next;
                 });
               }}
-              placeholder="e.g. Correct reasoning provided using alternative phrasing not recognized by automated prompt..."
+              placeholder={translateRecentFeature("studyPlans.ui.e-g-correct-reasoning-provid.ba7c4b67")}
               className={`w-full text-xs p-3 rounded-xl border bg-surface-container-low dark:bg-surface-container-low-dark text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all resize-y ${
                 errors.manualReason
                   ? 'border-error/60 bg-error/5'
                   : 'border-outline-variant/40'
               }`}
-              aria-label="Authoritative justification"
+              aria-label={translateRecentFeature("studyPlans.ui.authoritative-justification.f1d966e1")}
               required
             />
             {errors.manualReason && (
@@ -481,17 +473,16 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
               htmlFor="manual-feedback-input"
               className="block text-xs font-semibold text-on-surface-variant uppercase tracking-wider text-[11px]"
             >
-              Learner Feedback (Optional)
-            </label>
+              {translateRecentFeature("studyPlans.ui.learner-feedback-optional.ae5119d9")}</label>
             <textarea
               id="manual-feedback-input"
               rows={2}
               value={feedback}
               disabled={isSubmitting || isStaleRevision}
               onChange={(e) => setFeedback(e.target.value)}
-              placeholder="Guidance or commentary for the learner..."
+              placeholder={translateRecentFeature("studyPlans.ui.guidance-or-commentary-for-t.0c791ecd")}
               className="w-full text-xs p-2.5 rounded-xl border border-outline-variant/40 bg-surface-container-low dark:bg-surface-container-low-dark text-on-surface placeholder:text-on-surface-variant/50 focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all resize-y"
-              aria-label="Learner feedback"
+              aria-label={translateRecentFeature("studyPlans.ui.learner-feedback.ba377b6d")}
             />
           </div>
         </div>
@@ -505,8 +496,7 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
             disabled={isSubmitting}
             className="min-h-[40px] px-4 text-xs font-semibold"
           >
-            Cancel
-          </Button>
+            {translateRecentFeature("common.cancel")}</Button>
 
           <Button
             type="button"
@@ -515,7 +505,7 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
             disabled={isSubmitting || isStaleRevision}
             className="min-h-[40px] px-5 text-xs font-bold shadow-sm"
           >
-            <span>Proceed to Confirmation</span>
+            <span>{translateRecentFeature("studyPlans.ui.proceed-to-confirmation.ac0f8c7f")}</span>
             <ArrowRight size={16} className="ml-1.5 inline" />
           </Button>
         </div>

@@ -26,6 +26,8 @@ import {
   DIFFICULTY_STABLE_ORDER,
   type AllocationDimension,
 } from '../../../lib/study-plans/assessments/quotaPlanner';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface BlueprintQuotaControlsProps {
   config: AssessmentConfigV1;
@@ -34,19 +36,19 @@ export interface BlueprintQuotaControlsProps {
 }
 
 const KIND_LABELS: Record<QuestionKind, string> = {
-  'single-select': 'Single Choice',
-  'multi-select': 'Multi Choice',
-  cloze: 'Cloze (Fill-in-blank)',
-  'short-answer': 'Short Answer',
-  essay: 'Essay (Long-form)',
+  'single-select': 'studyPlans.ui.single-choice.2df25485',
+  'multi-select': 'studyPlans.ui.multi-choice.9e905ca2',
+  cloze: 'studyPlans.ui.cloze-fill-in-blank.54e91d0d',
+  'short-answer': 'studyPlans.ui.short-answer.514e62aa',
+  essay: 'studyPlans.ui.essay-long-form.ac24f40b',
 };
 
 const DIFFICULTY_LABELS: Record<Difficulty, string> = {
-  1: 'Introductory (1)',
-  2: 'Easy (2)',
-  3: 'Medium (3)',
-  4: 'Hard (4)',
-  5: 'Expert (5)',
+  1: 'studyPlans.ui.introductory-1.46ebf45c',
+  2: 'studyPlans.ui.easy-2.5f50e294',
+  3: 'studyPlans.ui.medium-3.ae91dbbb',
+  4: 'studyPlans.ui.hard-4.37e122dd',
+  5: 'studyPlans.ui.expert-5.091e5eaa',
 };
 
 export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
@@ -54,7 +56,8 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
   onChange,
   disabled = false,
 }) => {
-  // Live normalized calculation
+        useI18n();
+        // Live normalized calculation
   const normalizedPreview = useMemo(() => {
     try {
       const typeEntries: Array<AllocationDimension<QuestionKind>> = [];
@@ -133,14 +136,13 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
       {/* 1. Mode Selection */}
       <div className="space-y-2">
         <label className="text-xs font-semibold uppercase tracking-wider text-surface-500 dark:text-surface-400 block">
-          Assessment Mode
-        </label>
-        <div className="grid grid-cols-3 gap-3">
+          {translateRecentFeature("studyPlans.ui.assessment-mode.088ad919")}</label>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <button
             type="button"
             disabled={disabled}
             onClick={() => handleModeChange('exam')}
-            className={`p-3 rounded-xl border text-left transition-all ${
+            className={`min-h-11 p-3 rounded-xl border text-left transition-all ${
               config.mode === 'exam'
                 ? 'border-primary-500 bg-primary-50/50 dark:bg-primary-950/30 ring-1 ring-primary-500'
                 : 'border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800/40 hover:bg-surface-100 dark:hover:bg-surface-700/50'
@@ -148,11 +150,9 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
           >
             <div className="flex items-center gap-2 font-medium text-surface-900 dark:text-surface-100 text-sm">
               <GraduationCap className="w-4 h-4 text-primary-600 dark:text-primary-400" />
-              Examination
-            </div>
+              {translateRecentFeature("studyPlans.ui.examination.4be2c338")}</div>
             <p className="text-xs text-surface-500 dark:text-surface-400 mt-1">
-              Timed, strict scoring, no hints revealed during attempt.
-            </p>
+              {translateRecentFeature("studyPlans.ui.timed-strict-scoring-no-hint.1d001347")}</p>
           </button>
 
           <button
@@ -167,11 +167,9 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
           >
             <div className="flex items-center gap-2 font-medium text-surface-900 dark:text-surface-100 text-sm">
               <BookOpen className="w-4 h-4 text-primary-600 dark:text-primary-400" />
-              Practice
-            </div>
+              {translateRecentFeature("studyPlans.ui.practice.e7940d9b")}</div>
             <p className="text-xs text-surface-500 dark:text-surface-400 mt-1">
-              Untimed, hints available, targeted self-paced study.
-            </p>
+              {translateRecentFeature("studyPlans.ui.untimed-hints-available-targ.444b8b38")}</p>
           </button>
 
           <button
@@ -180,14 +178,12 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
             className="p-3 rounded-xl border border-surface-200 dark:border-surface-800 bg-surface-100/50 dark:bg-surface-800/20 text-left opacity-60 cursor-not-allowed"
           >
             <div className="flex items-center justify-between text-sm font-medium text-surface-500">
-              <span>Diagnostic</span>
+              <span>{translateRecentFeature("studyPlans.ui.diagnostic.891ca684")}</span>
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-200 dark:bg-surface-700 font-normal">
-                Change 7
-              </span>
+                {translateRecentFeature("studyPlans.ui.change-7.d2dbac31")}</span>
             </div>
             <p className="text-xs text-surface-400 dark:text-surface-500 mt-1">
-              Curriculum placement & prerequisite baseline testing.
-            </p>
+              {translateRecentFeature("studyPlans.ui.curriculum-placement-prerequ.8684b697")}</p>
           </button>
         </div>
       </div>
@@ -197,13 +193,10 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Sliders className="w-4 h-4 text-primary-600 dark:text-primary-400" />
-            <span className="text-sm font-semibold text-surface-900 dark:text-surface-100">
-              Total Questions Quota: {config.requestedCount}
-            </span>
+            <span className="text-sm font-semibold text-surface-900 dark:text-surface-100">{translateRecentFeature("studyPlans.ui.total-questions-quota-var0.d3b45757", {var0: config.requestedCount})}</span>
           </div>
           <span className="text-xs text-surface-500 dark:text-surface-400">
-            Allowed range: 1 to 40
-          </span>
+            {translateRecentFeature("studyPlans.ui.allowed-range-1-to-40.dd594d92")}</span>
         </div>
         <input
           type="range"
@@ -213,7 +206,7 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
           disabled={disabled}
           onChange={(e) => handleCountChange(Number(e.target.value))}
           className="w-full h-2 bg-surface-200 dark:bg-surface-700 rounded-lg appearance-none cursor-pointer accent-primary-600"
-          aria-label="Question count slider"
+          aria-label={translateRecentFeature("studyPlans.ui.question-count-slider.85fbfba4")}
         />
       </div>
 
@@ -221,14 +214,13 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
       <div className="space-y-3">
         <div className="flex items-center justify-between">
           <h4 className="text-xs font-semibold uppercase tracking-wider text-surface-500 dark:text-surface-400">
-            Format Distribution & Max Points
-          </h4>
-          <span className="text-xs text-surface-400">Relative weights & points per kind</span>
+            {translateRecentFeature("studyPlans.ui.format-distribution-max-poin.6c1e2dc0")}</h4>
+          <span className="text-xs text-surface-400">{translateRecentFeature("studyPlans.ui.relative-weights-points-per-.26a7d54c")}</span>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {KIND_STABLE_ORDER.map((kind) => {
-            const weight = config.typeWeights[kind] ?? 0;
+                        const weight = config.typeWeights[kind] ?? 0;
             const points = config.pointsByKind[kind] ?? 1;
             const allocatedCount = normalizedPreview?.typeAlloc.get(kind) ?? 0;
 
@@ -239,16 +231,14 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
               >
                 <div className="min-w-0">
                   <span className="text-xs font-medium text-surface-900 dark:text-surface-100 block truncate">
-                    {KIND_LABELS[kind]}
+                    {translateRecentFeature(KIND_LABELS[kind])}
                   </span>
-                  <span className="text-[11px] text-primary-600 dark:text-primary-400 font-mono">
-                    Allocated: {allocatedCount} questions
-                  </span>
+                  <span className="text-[11px] text-primary-600 dark:text-primary-400 font-mono">{translateRecentFeature("studyPlans.ui.allocated-var0-questions.04a6c86e", {var0: allocatedCount})}</span>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  <div className="flex items-center gap-1" title="Relative weight">
-                    <span className="text-[10px] text-surface-400">Wt:</span>
+                  <div className="flex items-center gap-1" title={translateRecentFeature("studyPlans.ui.relative-weight.1fe821d9")}>
+                    <span className="text-[10px] text-surface-400">{translateRecentFeature("studyPlans.ui.wt.ea407251")}</span>
                     <input
                       type="number"
                       min={0}
@@ -257,11 +247,11 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
                       disabled={disabled}
                       onChange={(e) => handleTypeWeightChange(kind, Number(e.target.value))}
                       className="w-12 h-7 px-1.5 text-xs text-center rounded border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800"
-                      aria-label={`${KIND_LABELS[kind]} weight`}
+                      aria-label={translateRecentFeature("studyPlans.ui.var0-weight.d32922c4", {var0: translateRecentFeature(KIND_LABELS[kind])})}
                     />
                   </div>
-                  <div className="flex items-center gap-1" title="Points (1..20)">
-                    <span className="text-[10px] text-surface-400">Pts:</span>
+                  <div className="flex items-center gap-1" title={translateRecentFeature("studyPlans.ui.points-1-20.5bae3cf6")}>
+                    <span className="text-[10px] text-surface-400">{translateRecentFeature("studyPlans.ui.pts.22bb2ac1")}</span>
                     <input
                       type="number"
                       min={1}
@@ -270,7 +260,7 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
                       disabled={disabled}
                       onChange={(e) => handlePointsChange(kind, Number(e.target.value))}
                       className="w-12 h-7 px-1.5 text-xs text-center rounded border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800"
-                      aria-label={`${KIND_LABELS[kind]} points`}
+                      aria-label={translateRecentFeature("studyPlans.ui.var0-points.0bcbc704", {var0: translateRecentFeature(KIND_LABELS[kind])})}
                     />
                   </div>
                 </div>
@@ -283,11 +273,10 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
       {/* 4. Difficulties Distribution */}
       <div className="space-y-3">
         <h4 className="text-xs font-semibold uppercase tracking-wider text-surface-500 dark:text-surface-400">
-          Difficulty Distribution
-        </h4>
+          {translateRecentFeature("studyPlans.ui.difficulty-distribution.c12b3242")}</h4>
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
           {DIFFICULTY_STABLE_ORDER.map((diff) => {
-            const weight = config.difficultyWeights[diff] ?? 0;
+                        const weight = config.difficultyWeights[diff] ?? 0;
             const allocatedCount = normalizedPreview?.diffAlloc.get(diff) ?? 0;
 
             return (
@@ -296,11 +285,9 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
                 className="p-2.5 rounded-lg border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800/30 text-center"
               >
                 <span className="text-xs font-medium text-surface-800 dark:text-surface-200 block">
-                  {DIFFICULTY_LABELS[diff]}
+                  {translateRecentFeature(DIFFICULTY_LABELS[diff])}
                 </span>
-                <span className="text-[11px] text-primary-600 dark:text-primary-400 font-mono block mt-0.5">
-                  {allocatedCount} items
-                </span>
+                <span className="text-[11px] text-primary-600 dark:text-primary-400 font-mono block mt-0.5">{translateRecentFeature("studyPlans.ui.var0-items.54ffb798", {var0: allocatedCount})}</span>
                 <input
                   type="number"
                   min={0}
@@ -309,7 +296,7 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
                   disabled={disabled}
                   onChange={(e) => handleDiffWeightChange(diff, Number(e.target.value))}
                   className="w-14 h-6 text-xs text-center mt-1.5 rounded border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800"
-                  aria-label={`Difficulty ${diff} weight`}
+                  aria-label={translateRecentFeature("studyPlans.ui.difficulty-var0-weight.ab0892b3", {var0: diff})}
                 />
               </div>
             );
@@ -324,8 +311,7 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
             <div className="flex items-center gap-2">
               <Timer className="w-4 h-4 text-primary-600 dark:text-primary-400" />
               <span className="text-xs font-semibold text-surface-900 dark:text-surface-100">
-                Exam Time Limit (Minutes)
-              </span>
+                {translateRecentFeature("studyPlans.ui.exam-time-limit-minutes.a11298ef")}</span>
             </div>
             <div className="flex items-center gap-2">
               <input
@@ -341,11 +327,9 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
                   })
                 }
                 className="w-20 h-8 px-2 text-xs rounded border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800"
-                aria-label="Exam time limit in minutes"
+                aria-label={translateRecentFeature("studyPlans.ui.exam-time-limit-in-minutes.bec455e9")}
               />
-              <span className="text-xs text-surface-500">
-                ({Math.round((config.timeLimitSeconds ?? 1800) / 60)} mins / range: 5 to 240 mins)
-              </span>
+              <span className="text-xs text-surface-500">{translateRecentFeature("studyPlans.ui.var0-mins-range-5-to-240-min.29acc34e", {var0: Math.round((config.timeLimitSeconds ?? 1800) / 60)})}</span>
             </div>
           </div>
         )}
@@ -354,8 +338,7 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
           <div className="flex items-center gap-2">
             <Sparkle className="w-4 h-4 text-primary-600 dark:text-primary-400" />
             <span className="text-xs font-semibold text-surface-900 dark:text-surface-100">
-              Knowledge Policy
-            </span>
+              {translateRecentFeature("studyPlans.ui.knowledge-policy.e386ba3b")}</span>
           </div>
           <select
             value={config.knowledgePolicy}
@@ -367,22 +350,19 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
               })
             }
             className="w-full h-8 px-2 text-xs rounded border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 text-surface-900 dark:text-surface-100"
-            aria-label="Knowledge policy selector"
+            aria-label={translateRecentFeature("studyPlans.ui.knowledge-policy-selector.11b39538")}
           >
-            <option value="source-only">Source-Only (Strict Grounding)</option>
+            <option value="source-only">{translateRecentFeature("studyPlans.ui.source-only-strict-grounding.7511baad")}</option>
             <option value="source-plus-model-knowledge">
-              Source-Plus-Model-Knowledge (Broad Context)
-            </option>
+              {translateRecentFeature("studyPlans.ui.source-plus-model-knowledge-.72a1e588")}</option>
             {config.mode !== 'exam' && (
               <option value="model-only">
-                Model-Only (Unverified Self-Check)
-              </option>
+                {translateRecentFeature("studyPlans.ui.model-only-unverified-self-c.b132c8e3")}</option>
             )}
           </select>
           {config.knowledgePolicy === 'model-only' && (
             <p className="text-[11px] text-amber-600 dark:text-amber-400">
-              Unverified: results never become demonstrated evidence and cannot be published as a verified exam.
-            </p>
+              {translateRecentFeature("studyPlans.ui.unverified-results-never-bec.7dd1c06a")}</p>
           )}
         </div>
       </div>

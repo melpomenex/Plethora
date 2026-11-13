@@ -17,6 +17,8 @@ import {
 } from '@phosphor-icons/react';
 import { Button } from '../md3/Button';
 import type { StudyGenerationJob } from '../../lib/study-plans/generation/types';
+import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
+
 
 export interface StudyJobRecoveryListProps {
   jobs: StudyGenerationJob[];
@@ -31,31 +33,29 @@ export const StudyJobRecoveryList: React.FC<StudyJobRecoveryListProps> = ({
   onCancelJob,
   isLoading = false,
 }) => {
-  if (jobs.length === 0) return null;
+        useI18n();
+        if (jobs.length === 0) return null;
 
   return (
     <div
-      aria-label="Recoverable interrupted generation jobs"
+      aria-label={translateRecentFeature("studyPlans.ui.recoverable-interrupted-gene.1aff0bb6")}
       className="p-4 rounded-xl border border-amber-500/30 bg-amber-500/10 dark:bg-amber-500/5 space-y-3 text-xs"
     >
       <div className="flex items-center justify-between pb-2 border-b border-amber-500/20">
         <div className="flex items-center gap-2 font-bold text-amber-800 dark:text-amber-200">
           <Hourglass size={18} className="text-amber-500 flex-shrink-0" />
-          <span>Interrupted Generation Jobs ({jobs.length})</span>
+          <span>{translateRecentFeature("studyPlans.ui.interrupted-generation-jobs-.56b1eb60", {var0: jobs.length})}</span>
         </div>
         <span className="text-[10px] text-amber-700 dark:text-amber-300">
-          Recovered from interruption or restart
-        </span>
+          {translateRecentFeature("studyPlans.ui.recovered-from-interruption-.c7e8a28c")}</span>
       </div>
 
       <p className="text-[11px] text-amber-800 dark:text-amber-200">
-        Review the model and privacy settings before resuming. If the source passages or model changed,
-        open the saved draft and start a new run.
-      </p>
+        {translateRecentFeature("studyPlans.ui.review-the-model-and-privacy.52eedc1d")}</p>
 
       <div className="space-y-2">
         {jobs.map((job) => {
-          const completedSteps = job.progress?.completed ?? job.nextStepIndex;
+                    const completedSteps = job.progress?.completed ?? job.nextStepIndex;
           const totalSteps = job.progress?.total ?? 0;
           const kindLabel = job.kind.replaceAll('-', ' ');
 
@@ -78,13 +78,11 @@ export const StudyJobRecoveryList: React.FC<StudyJobRecoveryListProps> = ({
                     <Clock size={12} />
                     <span>{new Date(job.updatedAt).toLocaleTimeString()}</span>
                   </span>
-                  <span>
-                    Progress: Step {completedSteps} of {totalSteps}
-                  </span>
+                  <span>{translateRecentFeature("studyPlans.ui.progress-step-var0-of-var1.1c764a98", {var0: completedSteps, var1: totalSteps})}</span>
                   {job.lastError && (
                     <span className="text-red-500 flex items-center gap-1">
                       <Warning size={12} />
-                      <span className="truncate max-w-[200px]">Previous run stopped</span>
+                      <span className="truncate max-w-[200px]">{translateRecentFeature("studyPlans.ui.previous-run-stopped.b6abd527")}</span>
                     </span>
                   )}
                 </div>
@@ -97,24 +95,24 @@ export const StudyJobRecoveryList: React.FC<StudyJobRecoveryListProps> = ({
                   size="sm"
                   onClick={() => onCancelJob(job)}
                   disabled={isLoading}
-                  aria-label={`Discard interrupted job ${job.id}`}
+                  aria-label={translateRecentFeature("studyPlans.ui.discard-interrupted-job-var0.fa0d5ccd", {var0: job.id})}
                 >
                   <Trash size={14} />
-                  <span>Discard</span>
+                  <span>{translateRecentFeature("screenshot.discard")}</span>
                 </Button>
                 <Button
                   variant="filled"
                   size="sm"
                   onClick={() => onResumeJob(job)}
                   disabled={isLoading}
-                  aria-label={`Resume interrupted job ${job.id}`}
+                  aria-label={translateRecentFeature("studyPlans.ui.resume-interrupted-job-var0.f7c3f299", {var0: job.id})}
                 >
                   {isLoading ? (
                     <SpinnerGap size={14} className="animate-spin" />
                   ) : (
                     <Play size={14} />
                   )}
-                  <span>Resume Job</span>
+                  <span>{translateRecentFeature("studyPlans.ui.resume-job.092ea55b")}</span>
                 </Button>
               </div>
             </div>

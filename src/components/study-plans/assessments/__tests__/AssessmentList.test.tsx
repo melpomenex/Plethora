@@ -78,14 +78,14 @@ describe('AssessmentList context menu', () => {
     expect(onSelectBlueprint).not.toHaveBeenCalled();
   });
 
-  it('keeps assessment service errors visible through the menu action', async () => {
+  it('keeps a localized fallback visible when a menu action fails', async () => {
     vi.mocked(BlueprintService.archiveBlueprint).mockRejectedValueOnce(new Error('Archive failed'));
     render(<AssessmentList onSelectBlueprint={vi.fn()} onCreateNew={vi.fn()} />);
     const card = (await screen.findByText('Practice assessment')).closest('[tabindex="0"]')!;
     fireEvent.contextMenu(card);
     fireEvent.click(screen.getByRole('menuitem', { name: 'Archive' }));
 
-    expect(await screen.findByText('Archive failed')).toBeInTheDocument();
+    expect(await screen.findByText(/that action could not be completed/i)).toBeInTheDocument();
     expect(listBlueprintCalls).toBe(1);
   });
 });

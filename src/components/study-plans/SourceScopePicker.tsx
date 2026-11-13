@@ -14,6 +14,9 @@ import type { Document } from '../../types/document';
 import type { SelectedSourceScope } from '../../types/studySource';
 import { StudyPlanStateNotice } from './StudyPlanStateNotice';
 import { Button } from '../md3/Button';
+import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
+import { studyErrorMessage } from "../../lib/study-plans/studyErrorMessage";
+
 
 export interface SourceScopePickerProps {
   selectedScope: SelectedSourceScope;
@@ -26,7 +29,8 @@ export const SourceScopePicker: React.FC<SourceScopePickerProps> = ({
   onChange,
   maxDocuments = 24,
 }) => {
-  const [documents, setDocuments] = useState<Document[]>([]);
+        useI18n();
+        const [documents, setDocuments] = useState<Document[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -38,7 +42,7 @@ export const SourceScopePicker: React.FC<SourceScopePickerProps> = ({
       const docs = await getDocuments();
       setDocuments(docs || []);
     } catch (err: any) {
-      setError(err?.message || 'Failed to load library documents');
+      setError(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")));
     } finally {
       setIsLoading(false);
     }
@@ -76,34 +80,29 @@ export const SourceScopePicker: React.FC<SourceScopePickerProps> = ({
   return (
     <fieldset className="min-w-0 w-full border border-surface-200 dark:border-surface-700/80 rounded-2xl p-5 bg-surface-50/50 dark:bg-surface-800/30">
       <legend className="max-w-full px-2 text-sm font-semibold text-surface-900 dark:text-surface-100">
-        Source Material Scope (Optional)
-      </legend>
+        {translateRecentFeature("studyPlans.ui.source-material-scope-option.d9e5626e")}</legend>
 
       <div className="flex items-center justify-between gap-3 mb-3">
         <p className="text-xs text-surface-600 dark:text-surface-400">
-          Select material from your library to ground this study plan.
-        </p>
+          {translateRecentFeature("studyPlans.ui.select-material-from-your-li.4b689a08")}</p>
         <span
           className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
             isAtLimit
               ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
               : 'text-surface-500'
           }`}
-        >
-          {selectedCount} / {maxDocuments} documents
-        </span>
+        >{translateRecentFeature("studyPlans.ui.var0-var1-documents.dcc2737f", {var0: selectedCount, var1: maxDocuments})}</span>
       </div>
 
       {selectedScope.extractIds.length > 0 && (
         <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-          <span>{selectedScope.extractIds.length} selected {selectedScope.extractIds.length === 1 ? 'extract' : 'extracts'}</span>
+          <span>{translateRecentFeature("studyPlans.ui.var0-selected.288ff143", {var0: selectedScope.extractIds.length})}{selectedScope.extractIds.length === 1 ? translateRecentFeature("studyPlans.ui.extract.29271d92") : translateRecentFeature("studyPlans.ui.extracts.8c508ae6")}</span>
           <button
             type="button"
             className="min-h-10 rounded-md px-2 text-primary focus-visible:ring-2 focus-visible:ring-primary"
             onClick={() => onChange({ ...selectedScope, extractIds: [] })}
           >
-            Clear extracts
-          </button>
+            {translateRecentFeature("studyPlans.ui.clear-extracts.4e69fc26")}</button>
         </div>
       )}
 
@@ -113,15 +112,14 @@ export const SourceScopePicker: React.FC<SourceScopePickerProps> = ({
           className="mb-3 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2"
         >
           <Warning size={16} className="flex-shrink-0" />
-          <span>Maximum {maxDocuments} source documents reached. Deselect one to add another.</span>
+          <span>{translateRecentFeature("studyPlans.ui.maximum-var0-source-document.a096ddb6", {var0: maxDocuments})}</span>
         </div>
       )}
 
       {/* Loading state */}
       {isLoading && (
         <div className="py-8 text-center text-xs text-surface-500 animate-pulse">
-          Loading library material…
-        </div>
+          {translateRecentFeature("studyPlans.ui.loading-library-material.0fe0b0ea")}</div>
       )}
 
       {/* Error state */}
@@ -130,7 +128,7 @@ export const SourceScopePicker: React.FC<SourceScopePickerProps> = ({
           <p className="text-xs text-red-500 mb-2">{error}</p>
           <Button variant="tonal" size="sm" onClick={loadDocs}>
             <ArrowClockwise size={14} />
-            <span>Retry</span>
+            <span>{translateRecentFeature("assistant.actions.retry")}</span>
           </Button>
         </div>
       )}
@@ -139,7 +137,7 @@ export const SourceScopePicker: React.FC<SourceScopePickerProps> = ({
       {!isLoading && !error && documents.length === 0 && (
         <StudyPlanStateNotice
           type="empty_library"
-          message="No documents found in your library. You can create a custom study plan now and add source references later."
+          message={translateRecentFeature("studyPlans.ui.no-documents-found-in-your-l.b0099c7a")}
         />
       )}
 
@@ -156,17 +154,16 @@ export const SourceScopePicker: React.FC<SourceScopePickerProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search library documents…"
+              placeholder={translateRecentFeature("studyPlans.ui.search-library-documents.3fb17892")}
               className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-surface-200 dark:border-surface-700 bg-surface-100 dark:bg-surface-800 text-surface-900 dark:text-surface-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
-              aria-label="Search documents to select"
+              aria-label={translateRecentFeature("studyPlans.ui.search-documents-to-select.f924dd8e")}
             />
           </div>
 
-          <div aria-label="Source documents list" className="max-h-56 overflow-y-auto space-y-1 pr-1">
+          <div aria-label={translateRecentFeature("studyPlans.ui.source-documents-list.f7507224")} className="max-h-56 overflow-y-auto space-y-1 pr-1">
             {filteredDocs.length === 0 ? (
               <div className="py-4 text-center text-xs text-surface-500">
-                No matching documents found.
-              </div>
+                {translateRecentFeature("studyPlans.ui.no-matching-documents-found.560ef294")}</div>
             ) : (
               filteredDocs.map((doc) => {
                 const isSelected = selectedScope.documentIds.includes(doc.id);
@@ -189,11 +186,11 @@ export const SourceScopePicker: React.FC<SourceScopePickerProps> = ({
                         checked={isSelected}
                         disabled={disabled}
                         onChange={() => handleToggleDoc(doc.id)}
-                        aria-label={doc.title || 'Untitled Document'}
+                        aria-label={doc.title || translateRecentFeature("i18nAudit.ui.untitled-document.63e74bd4")}
                         className="rounded text-primary-600 focus:ring-primary-500"
                       />
                       <FileText size={16} aria-hidden="true" className="text-surface-400 flex-shrink-0" />
-                      <span className="truncate font-medium">{doc.title || 'Untitled Document'}</span>
+                      <span className="truncate font-medium">{doc.title || translateRecentFeature("i18nAudit.ui.untitled-document.63e74bd4")}</span>
                     </div>
                   </label>
                 );

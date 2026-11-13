@@ -24,6 +24,8 @@ import type { GradeRecord, ResponseMark } from '../../../types/assessmentSession
 import type { StudySourceRefV1 } from '../../../types/studySource';
 import { AttemptSourceAction } from './AttemptSourceAction';
 import { RubricResult } from '../grading/RubricResult';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface QuestionResultCardProps {
   questionNumber: number;
@@ -48,7 +50,8 @@ export const QuestionResultCard: React.FC<QuestionResultCardProps> = ({
   sourceRefs = [],
   className = '',
 }) => {
-  const qData = questionRevision.question;
+        useI18n();
+        const qData = questionRevision.question;
   const outcome = grade?.outcome || (responseMark === 'skipped' ? 'skipped' : 'pending');
 
   const isCorrect = outcome === 'correct';
@@ -74,23 +77,17 @@ export const QuestionResultCard: React.FC<QuestionResultCardProps> = ({
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-outline-variant/30">
         <div className="flex items-center gap-2.5">
-          <span className="px-2.5 py-1 bg-surface-container-high dark:bg-surface-container-high-dark font-bold text-xs rounded-lg text-on-surface">
-            Question {questionNumber}
-          </span>
+          <span className="px-2.5 py-1 bg-surface-container-high dark:bg-surface-container-high-dark font-bold text-xs rounded-lg text-on-surface">{translateRecentFeature("studyPlans.ui.question-var0.55fd818d", {var0: questionNumber})}</span>
           <span className="text-xs text-on-surface-variant capitalize">
             {qData.kind.replace('-', ' ')}
           </span>
-          <span className="text-xs text-on-surface-variant font-medium">
-            (Diff: {qData.difficulty})
-          </span>
+          <span className="text-xs text-on-surface-variant font-medium">{translateRecentFeature("studyPlans.ui.diff-var0.57707f84", {var0: qData.difficulty})}</span>
         </div>
 
         {/* Outcome & Points Badge */}
         <div className="flex items-center gap-3">
           {confidencePercent && (
-            <span className="text-xs text-on-surface-variant font-medium">
-              Stated confidence: {confidencePercent}
-            </span>
+            <span className="text-xs text-on-surface-variant font-medium">{translateRecentFeature("studyPlans.ui.stated-confidence-var0.fe57efa3", {var0: confidencePercent})}</span>
           )}
 
           <div className="flex items-center gap-1.5">
@@ -101,7 +98,7 @@ export const QuestionResultCard: React.FC<QuestionResultCardProps> = ({
             ) : isIncorrect ? (
               <XCircle size={18} className="text-error shrink-0" weight="fill" />
             ) : isSkipped ? (
-              <span className="text-xs font-bold text-on-surface-variant">Skipped</span>
+              <span className="text-xs font-bold text-on-surface-variant">{translateRecentFeature("studyPlans.ui.skipped.76bc3e23")}</span>
             ) : (
               <Clock size={18} className="text-primary dark:text-primary-dark shrink-0" />
             )}
@@ -124,8 +121,8 @@ export const QuestionResultCard: React.FC<QuestionResultCardProps> = ({
 
             <span className="text-xs font-bold text-on-surface dark:text-on-surface-dark ml-1">
               {grade?.points !== null && grade?.points !== undefined
-                ? `${grade.points} / ${qData.maxPoints} pts`
-                : `-- / ${qData.maxPoints} pts`}
+                ? translateRecentFeature("i18nAudit.ui.var0-var1-pts.67bf563a", {var0: grade.points, var1: qData.maxPoints})
+                : translateRecentFeature("i18nAudit.ui.var0-pts.ec48db9e", {var0: qData.maxPoints})}
             </span>
           </div>
         </div>
@@ -139,14 +136,13 @@ export const QuestionResultCard: React.FC<QuestionResultCardProps> = ({
       {/* Learner's Submitted Response */}
       <div className="p-3.5 bg-surface-container-low dark:bg-surface-container-low-dark rounded-xl border border-outline-variant/30 space-y-1.5 text-xs">
         <span className="font-semibold text-on-surface-variant dark:text-on-surface-variant-dark block">
-          Your Response:
-        </span>
+          {translateRecentFeature("studyPlans.ui.your-response.f10036a4")}</span>
 
         {responseDraft.kind === 'single-select' && (
           <p className="text-sm font-medium text-on-surface dark:text-on-surface-dark">
             {qData.kind === 'single-select' && responseDraft.optionId
               ? qData.options.find((o) => o.id === responseDraft.optionId)?.text || responseDraft.optionId
-              : 'No option selected'}
+              : translateRecentFeature("studyPlans.ui.no-option-selected.bac3433e")}
           </p>
         )}
 
@@ -158,24 +154,25 @@ export const QuestionResultCard: React.FC<QuestionResultCardProps> = ({
                 return <li key={optId}>{optText}</li>;
               })
             ) : (
-              <li>No options selected</li>
+              <li>{translateRecentFeature("studyPlans.ui.no-options-selected.08e22b42")}</li>
             )}
           </ul>
         )}
 
         {responseDraft.kind === 'cloze' && (
           <div className="text-sm font-medium text-on-surface dark:text-on-surface-dark space-y-1">
-            {Object.entries(responseDraft.answers).map(([bId, ans], bIdx) => (
-              <span key={bId} className="inline-block mr-3">
-                Blank {bIdx + 1}: <strong className="font-semibold">{ans || '(empty)'}</strong>
+            {Object.entries(responseDraft.answers).map(([bId, ans], bIdx) => {
+                            return (
+              <span key={bId} className="inline-block mr-3">{translateRecentFeature("studyPlans.ui.blank-var0.8538d746", {var0: bIdx + 1})}<strong className="font-semibold">{ans || translateRecentFeature("i18nAudit.ui.empty.70c9be9c")}</strong>
               </span>
-            ))}
+            );
+            })}
           </div>
         )}
 
         {(responseDraft.kind === 'short-answer' || responseDraft.kind === 'essay') && (
           <p className="text-sm leading-relaxed text-on-surface dark:text-on-surface-dark whitespace-pre-wrap">
-            {responseDraft.text || '(empty)'}
+            {responseDraft.text || translateRecentFeature("i18nAudit.ui.empty.70c9be9c")}
           </p>
         )}
       </div>
@@ -183,8 +180,7 @@ export const QuestionResultCard: React.FC<QuestionResultCardProps> = ({
       {/* Expected Answer / Committed Solution */}
       <div className="p-3.5 bg-surface-container-high/40 dark:bg-surface-container-high-dark/40 rounded-xl space-y-1 text-xs">
         <span className="font-semibold text-on-surface-variant dark:text-on-surface-variant-dark block">
-          Expected Answer:
-        </span>
+          {translateRecentFeature("studyPlans.ui.expected-answer.6f018c59")}</span>
         {qData.kind === 'single-select' && (
           <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
             {qData.options.find((o) => o.id === qData.correctOptionId)?.text || qData.correctOptionId}
@@ -201,23 +197,24 @@ export const QuestionResultCard: React.FC<QuestionResultCardProps> = ({
 
         {qData.kind === 'cloze' && (
           <div className="text-sm font-semibold text-emerald-700 dark:text-emerald-300 space-y-0.5">
-            {qData.blanks.map((b, bIdx) => (
-              <span key={b.id} className="inline-block mr-3">
-                Blank {bIdx + 1}: {b.acceptedAnswers.join(' / ')}
+            {qData.blanks.map((b, bIdx) => {
+                            return (
+              <span key={b.id} className="inline-block mr-3">{translateRecentFeature("studyPlans.ui.blank-var0.8538d746", {var0: bIdx + 1})}{b.acceptedAnswers.join(' / ')}
               </span>
-            ))}
+            );
+            })}
           </div>
         )}
 
         {qData.kind === 'short-answer' && (
           <p className="text-sm font-medium text-on-surface dark:text-on-surface-dark">
-            Reference Answer: <span className="font-semibold text-emerald-700 dark:text-emerald-300">{qData.referenceAnswer}</span>
+            {translateRecentFeature("studyPlans.ui.reference-answer.1b3250e3")}<span className="font-semibold text-emerald-700 dark:text-emerald-300">{qData.referenceAnswer}</span>
           </p>
         )}
 
         {qData.kind === 'essay' && (
           <p className="text-sm font-medium text-on-surface dark:text-on-surface-dark">
-            Expected Reasoning: <span className="font-normal">{qData.expectedReasoning}</span>
+            {translateRecentFeature("studyPlans.ui.expected-reasoning.b28678d4")}<span className="font-normal">{qData.expectedReasoning}</span>
           </p>
         )}
       </div>
@@ -226,8 +223,7 @@ export const QuestionResultCard: React.FC<QuestionResultCardProps> = ({
       {qData.explanation && (
         <div className="space-y-1 text-xs">
           <span className="font-semibold text-on-surface-variant dark:text-on-surface-variant-dark block uppercase tracking-wider text-[10px]">
-            Explanation
-          </span>
+            {translateRecentFeature("studyPlans.ui.explanation.60cbf6b2")}</span>
           <p className="text-xs leading-relaxed text-on-surface dark:text-on-surface-dark">
             {qData.explanation}
           </p>
@@ -249,8 +245,7 @@ export const QuestionResultCard: React.FC<QuestionResultCardProps> = ({
         <div className="pt-2 border-t border-outline-variant/30 space-y-2">
           <span className="text-[11px] font-bold text-on-surface-variant dark:text-on-surface-variant-dark flex items-center gap-1.5 uppercase">
             <BookOpen size={14} className="text-primary dark:text-primary-dark" />
-            Grounding Sources
-          </span>
+            {translateRecentFeature("studyPlans.ui.grounding-sources.59d3db36")}</span>
           <div className="flex flex-wrap gap-2">
             {sourceRefs.map((ref) => (
               <AttemptSourceAction key={ref.id} sourceRef={ref} />

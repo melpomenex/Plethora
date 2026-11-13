@@ -15,6 +15,7 @@ import {
   CheckCircle,
 } from '@phosphor-icons/react';
 import { Button } from '../../md3/Button';
+import { StudyPlansScrollContainer } from '../StudyPlansScrollContainer';
 import type { AttemptDetail } from '../../../types/assessmentSessions';
 import type { AssessmentQuestionRevision } from '../../../types/assessmentQuestions';
 import type { StudySourceResolution } from '../../../types/studySource';
@@ -32,6 +33,8 @@ import { PracticeCheckPanel } from './PracticeCheckPanel';
 import { PracticeHintControl } from '../practice/PracticeHintControl';
 import { PracticeGuidancePanel } from '../practice/PracticeGuidancePanel';
 import { PracticeContextReturn, type PracticeReturnContext } from '../practice/PracticeContextReturn';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface AttemptRunnerProps {
   detail: AttemptDetail;
@@ -57,7 +60,8 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
   sourceRefs = {},
   sourceRefsLoading = false,
 }) => {
-  const [showSubmitModal, setShowSubmitModal] = useState(false);
+    useI18n();
+    const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [hintLevels, setHintLevels] = useState<Record<string, number>>({});
   const [sourceMaterialOpen, setSourceMaterialOpen] = useState(detail.attempt.mode === 'practice');
 
@@ -119,8 +123,7 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
   if (!currentQuestion) {
     return (
       <div className="p-8 text-center text-on-surface-variant dark:text-on-surface-variant-dark">
-        No questions available for this assessment.
-      </div>
+        {translateRecentFeature("studyPlans.ui.no-questions-available-for-t.f4279582")}</div>
     );
   }
 
@@ -131,10 +134,11 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
     .filter((source): source is StudySourceResolution => source?.status === 'current');
 
   return (
-    <div
-      className={`max-w-4xl mx-auto flex h-full min-h-0 flex-col gap-6 overflow-y-auto overscroll-contain p-4 sm:p-6 bg-surface dark:bg-surface-dark ${className}`}
+    <StudyPlansScrollContainer
+      className={`max-w-4xl mx-auto flex flex-col gap-6 p-4 sm:p-6 bg-surface dark:bg-surface-dark ${className}`}
+      data-study-plans-scroll="attempt-runner"
       role="main"
-      aria-label="Examination Session"
+      aria-label={translateRecentFeature("studyPlans.ui.examination-session.14e879ce")}
     >
       {/* Top App Bar */}
       <header className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-outline-variant/30">
@@ -143,7 +147,7 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
             variant="text"
             onClick={onExit}
             className="min-h-[44px] min-w-[44px] p-2"
-            aria-label="Exit assessment"
+            aria-label={translateRecentFeature("studyPlans.ui.exit-assessment.03c3c858")}
           >
             <ArrowLeft size={20} />
           </Button>
@@ -151,11 +155,9 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
           <div>
             <h1 className="text-base sm:text-lg font-bold text-on-surface dark:text-on-surface-dark flex items-center gap-2">
               {isExam ? <GraduationCap size={20} className="text-primary dark:text-primary-dark" /> : <BookOpen size={20} className="text-secondary dark:text-secondary-dark" />}
-              {attempt.blueprintTitle || 'Examination Paper'}
+              {attempt.blueprintTitle || translateRecentFeature("i18nAudit.ui.examination-paper.76181499")}
             </h1>
-            <span className="text-xs text-on-surface-variant dark:text-on-surface-variant-dark capitalize">
-              {attempt.mode} Mode
-            </span>
+            <span className="text-xs text-on-surface-variant dark:text-on-surface-variant-dark capitalize">{translateRecentFeature("studyPlans.ui.var0-mode.0548e82e", {var0: attempt.mode})}</span>
           </div>
         </div>
 
@@ -176,8 +178,7 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
             className="min-h-[44px] min-w-[44px] px-4 font-semibold shadow-sm"
           >
             <CheckCircle size={18} className="mr-1.5 inline" />
-            Submit
-          </Button>
+            {translateRecentFeature("studyPlans.ui.submit.8b5dbca1")}</Button>
         </div>
       </header>
 
@@ -193,15 +194,11 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
         {/* Question Header */}
         <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-outline-variant/30">
           <div className="flex items-center gap-2.5">
-            <span className="px-2.5 py-1 bg-primary/10 text-primary dark:bg-primary-dark/20 dark:text-primary-dark font-bold text-xs rounded-lg">
-              Question {selectedIndex + 1}
-            </span>
+            <span className="px-2.5 py-1 bg-primary/10 text-primary dark:bg-primary-dark/20 dark:text-primary-dark font-bold text-xs rounded-lg">{translateRecentFeature("studyPlans.ui.question-var0.55fd818d", {var0: selectedIndex + 1})}</span>
             <span className="text-xs text-on-surface-variant dark:text-on-surface-variant-dark font-medium">
-              {qData.maxPoints} {qData.maxPoints === 1 ? 'Point' : 'Points'}
+              {qData.maxPoints} {qData.maxPoints === 1 ? translateRecentFeature("studyPlans.ui.point.718b6b2c") : translateRecentFeature("studyPlans.ui.points.5b197377")}
             </span>
-            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-surface-container-high dark:bg-surface-container-high-dark text-on-surface-variant capitalize">
-              Diff: {qData.difficulty}
-            </span>
+            <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-surface-container-high dark:bg-surface-container-high-dark text-on-surface-variant capitalize">{translateRecentFeature("studyPlans.ui.diff-var0.82fbf82e", {var0: qData.difficulty})}</span>
           </div>
 
           {/* Skip / Revisit Action */}
@@ -214,10 +211,10 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
                 ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300'
                 : 'text-on-surface-variant'
             }`}
-            aria-label={currentSlot?.mark === 'skipped' ? 'Unmark skip' : 'Mark as skipped to review later'}
+            aria-label={currentSlot?.mark === 'skipped' ? translateRecentFeature("studyPlans.ui.unmark-skip.d64feec4") : translateRecentFeature("studyPlans.ui.mark-as-skipped-to-review-la.01db70d2")}
           >
             <Flag size={16} weight={currentSlot?.mark === 'skipped' ? 'fill' : 'regular'} className="mr-1.5 inline text-amber-500" />
-            {currentSlot?.mark === 'skipped' ? 'Skipped (Click to unskip)' : 'Skip for now'}
+            {currentSlot?.mark === 'skipped' ? translateRecentFeature("studyPlans.ui.skipped-click-to-unskip.76382d77") : translateRecentFeature("studyPlans.ui.skip-for-now.ccdcdf98")}
           </Button>
         </div>
 
@@ -231,15 +228,14 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
             >
               <span className="flex items-center gap-2">
                 <BookOpen size={17} className="text-primary" />
-                Provided text
-                <span className="text-xs font-normal text-on-surface-variant">
+                {translateRecentFeature("studyPlans.ui.provided-text.b60816ac")}<span className="text-xs font-normal text-on-surface-variant">
                   {currentQuestionSources.length > 0
-                    ? `${currentQuestionSources.length} passage${currentQuestionSources.length === 1 ? '' : 's'}`
+                    ? translateRecentFeature(currentQuestionSources.length === 1 ? "studyPlans.ui.var0-passage.63c4e058" : "studyPlans.ui.var0-passages.8ec2d38a", {var0: currentQuestionSources.length})
                     : ''}
                 </span>
               </span>
               <span className="text-xs text-primary">
-                {sourceMaterialOpen ? 'Hide' : 'Show'}
+                {sourceMaterialOpen ? translateRecentFeature("studyPlans.ui.hide.d22eed2f") : translateRecentFeature("studyPlans.ui.show.b7496f77")}
               </span>
             </button>
             {sourceMaterialOpen && (
@@ -256,12 +252,11 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
                   </article>
                 ))}
                 {sourceRefsLoading && currentQuestionSources.length === 0 && (
-                  <p className="text-sm text-on-surface-variant">Loading the verified passage…</p>
+                  <p className="text-sm text-on-surface-variant">{translateRecentFeature("studyPlans.ui.loading-the-verified-passage.4b874675")}</p>
                 )}
                 {!sourceRefsLoading && currentQuestionSources.length === 0 && (
                   <p className="text-sm text-on-surface-variant">
-                    The passage could not be loaded or verified. Check the source in the study plan before answering.
-                  </p>
+                    {translateRecentFeature("studyPlans.ui.the-passage-could-not-be-loa.edab0fbb")}</p>
                 )}
               </div>
             )}
@@ -393,7 +388,7 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
       {/* Submit Confirmation Dialog Modal */}
       {showSubmitModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fadeIn"
+          className="adaptive-dialog-layer bg-black/50 backdrop-blur-sm animate-fadeIn"
           role="presentation"
         >
           <SubmitAttemptPanel
@@ -406,6 +401,6 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
           />
         </div>
       )}
-    </div>
+    </StudyPlansScrollContainer>
   );
 };

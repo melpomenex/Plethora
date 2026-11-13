@@ -1,4 +1,5 @@
 import { Dict, en } from "./en";
+import { recentFeatureZh } from "./recentFeatures/zh";
 
 export const zh: Dict = {
   "qaGeneration.empty": "已找到资料，但 AI 模型未返回回答。请重试或检查 AI 设置。",
@@ -6519,4 +6520,5 @@ export const zh: Dict = {
   "palette.destination.studyPlansDesc": "结构化学习路径、课程大纲和主题评估",
   "studyPlans.title": "学习计划",
   "studyPlans.navLabel": "学习计划",
+  ...recentFeatureZh,
 };

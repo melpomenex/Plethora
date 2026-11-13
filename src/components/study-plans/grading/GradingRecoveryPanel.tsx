@@ -13,6 +13,8 @@ import {
   PencilSimple,
 } from '@phosphor-icons/react';
 import type { GradingRecoveryStatus } from '../../../lib/study-plans/grading/gradingRecovery';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface GradingRecoveryPanelProps {
   status: GradingRecoveryStatus;
@@ -29,7 +31,8 @@ export const GradingRecoveryPanel: React.FC<GradingRecoveryPanelProps> = ({
   isRetrying = false,
   className = '',
 }) => {
-  if (status.isFullyFinal) {
+        useI18n();
+        if (status.isFullyFinal) {
     return null;
   }
 
@@ -48,14 +51,12 @@ export const GradingRecoveryPanel: React.FC<GradingRecoveryPanelProps> = ({
           <Warning size={20} weight="bold" className="text-amber-600 dark:text-amber-400 shrink-0" />
           <div>
             <h4 className="text-sm font-bold text-on-surface">
-              Subjective Evaluation Pending Review
-            </h4>
+              {translateRecentFeature("studyPlans.ui.subjective-evaluation-pendin.5fb74bcd")}</h4>
             <p className="text-xs text-on-surface-variant">
               {status.needsReviewCount > 0 && `${status.needsReviewCount} question(s) flagged for educator review. `}
               {status.failedCount > 0 && `${status.failedCount} question(s) failed automated grading. `}
               {status.pendingCount > 0 && `${status.pendingCount} question(s) pending grading. `}
-              Official total points remain pending until resolved.
-            </p>
+              {translateRecentFeature("studyPlans.ui.official-total-points-remain.eb38d6a6")}</p>
           </div>
         </div>
 
@@ -68,7 +69,7 @@ export const GradingRecoveryPanel: React.FC<GradingRecoveryPanelProps> = ({
               className="px-3.5 py-1.5 rounded-xl bg-primary text-on-primary hover:bg-primary/90 text-xs font-semibold flex items-center gap-1.5 shadow-sm transition-colors disabled:opacity-60"
             >
               <ArrowClockwise size={14} className={isRetrying ? 'animate-spin' : ''} />
-              {isRetrying ? 'Retrying...' : 'Retry Failed'}
+              {isRetrying ? translateRecentFeature("studyPlans.ui.retrying.66a9ed21") : translateRecentFeature("studyPlans.ui.retry-failed.f2574dc6")}
             </button>
           )}
 
@@ -79,8 +80,7 @@ export const GradingRecoveryPanel: React.FC<GradingRecoveryPanelProps> = ({
               className="px-3.5 py-1.5 rounded-xl border border-primary/40 bg-surface dark:bg-surface-dark text-primary hover:bg-primary/10 text-xs font-semibold flex items-center gap-1.5 transition-colors"
             >
               <PencilSimple size={14} weight="bold" />
-              Manual Review
-            </button>
+              {translateRecentFeature("studyPlans.ui.manual-review.d870dbe1")}</button>
           )}
         </div>
       </div>

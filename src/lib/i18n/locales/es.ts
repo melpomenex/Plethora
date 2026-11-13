@@ -1,4 +1,5 @@
 import { Dict, en } from "./en";
+import { recentFeatureEs } from "./recentFeatures/es";
 
 export const es: Dict = {
   "qaGeneration.empty": "Se encontraron fuentes, pero el modelo de IA no devolvió ninguna respuesta. Inténtalo de nuevo o revisa los ajustes de IA.",
@@ -6625,4 +6626,5 @@ export const es: Dict = {
   "palette.destination.studyPlansDesc": "Rutas de aprendizaje estructuradas, esquemas curriculares y evaluaciones",
   "studyPlans.title": "Planes de estudio",
   "studyPlans.navLabel": "Planes de estudio",
+  ...recentFeatureEs,
 };

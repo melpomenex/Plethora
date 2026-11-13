@@ -21,6 +21,8 @@ import {
   runBoundedResearch,
 } from '../../lib/study-plans/webresearch/researchAdapter';
 import type { ExternalSnapshot } from '../../lib/study-plans/webresearch/snapshots';
+import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
+
 
 interface WebResearchPanelProps {
   planId: string;
@@ -37,7 +39,8 @@ function createRequestId(): string {
 }
 
 export const WebResearchPanel: React.FC<WebResearchPanelProps> = ({ planId, planVersionId }) => {
-  const [query, setQuery] = useState('');
+        useI18n();
+        const [query, setQuery] = useState('');
   const [approved, setApproved] = useState(false);
   const [results, setResults] = useState<Array<{ id: string; title: string; url: string; snippet: string }>>([]);
   const [snapshots, setSnapshots] = useState<ExternalSnapshot[]>([]);
@@ -71,7 +74,7 @@ export const WebResearchPanel: React.FC<WebResearchPanelProps> = ({ planId, plan
   };
 
   const handleSearch = async () => {
-    if (!canSearch) return;
+        if (!canSearch) return;
     const requestId = createRequestId();
     setActiveRequestId(requestId);
     setIsLoading(true);
@@ -84,7 +87,7 @@ export const WebResearchPanel: React.FC<WebResearchPanelProps> = ({ planId, plan
         { searchImpl: ({ query: authorizedQuery }) => searchStudyPlanWeb(authorizedQuery, requestId) }
       );
       setResults(response.items);
-      if (response.items.length === 0) setNotice('No public results matched this query. Try a narrower or more specific phrase.');
+      if (response.items.length === 0) setNotice(translateRecentFeature("studyPlans.ui.no-public-results-matched-th.4b8fe3e5"));
     } catch (searchError) {
       setError(searchError instanceof Error ? searchError.message : 'Search failed. Check the connection and try again.');
     } finally {
@@ -140,12 +143,12 @@ export const WebResearchPanel: React.FC<WebResearchPanelProps> = ({ planId, plan
   };
 
   const handleAccept = async (snapshot: ExternalSnapshot) => {
-    setAcceptingId(snapshot.id);
+        setAcceptingId(snapshot.id);
     setError(null);
     try {
       const accepted = await acceptStudyPlanResearchSnapshot(snapshot.id, planId, planVersionId);
       setSnapshots((current) => current.map((item) => item.id === accepted.id ? accepted : item));
-      setNotice('Accepted source is now available to cite in assessment questions.');
+      setNotice(translateRecentFeature("studyPlans.ui.accepted-source-is-now-avail.d4f49445"));
     } catch (acceptError) {
       setError(acceptError instanceof Error ? acceptError.message : 'Could not accept this source.');
     } finally {
@@ -156,17 +159,13 @@ export const WebResearchPanel: React.FC<WebResearchPanelProps> = ({ planId, plan
   return (
     <section className="space-y-5 rounded-2xl border border-surface-200 dark:border-surface-700 p-4 sm:p-5">
       <div className="space-y-1">
-        <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100">Web Research</h3>
+        <h3 className="text-sm font-bold text-surface-900 dark:text-surface-100">{translateRecentFeature("studyPlans.ui.web-research.6f6a4f5d")}</h3>
         <p className="text-xs leading-relaxed text-surface-600 dark:text-surface-300">
-          Search the public web, capture a source excerpt, then choose which sources may be cited in assessment questions.
-          Search snippets are previews only; captured excerpts are the evidence you review.
-        </p>
+          {translateRecentFeature("studyPlans.ui.search-the-public-web-captur.ee94caac")}</p>
       </div>
 
       <div className="space-y-3">
-        <label className="block text-xs font-semibold text-surface-700 dark:text-surface-200" htmlFor="study-plan-web-query">
-          Search query ({trimmedQuery.length}/{RESEARCH_MAX_QUERY_CHARS})
-        </label>
+        <label className="block text-xs font-semibold text-surface-700 dark:text-surface-200" htmlFor="study-plan-web-query">{translateRecentFeature("studyPlans.ui.search-query-var0-var1.8cbf9f65", {var0: trimmedQuery.length, var1: RESEARCH_MAX_QUERY_CHARS})}</label>
         <textarea
           id="study-plan-web-query"
           rows={2}
@@ -174,12 +173,12 @@ export const WebResearchPanel: React.FC<WebResearchPanelProps> = ({ planId, plan
           value={query}
           disabled={isLoading || capturingId !== null}
           onChange={(event) => handleQueryChange(event.target.value)}
-          placeholder="Enter the exact topic or claim you want to research"
+          placeholder={translateRecentFeature("studyPlans.ui.enter-the-exact-topic-or-cla.e1115958")}
           className="w-full rounded-xl border border-surface-300 dark:border-surface-600 bg-white dark:bg-surface-900 px-3 py-2 text-sm text-surface-900 dark:text-surface-100 placeholder:text-surface-500 focus:outline-none focus:ring-2 focus:ring-primary-500"
         />
         <div className="rounded-xl bg-surface-50 dark:bg-surface-800/60 p-3 text-xs leading-relaxed text-surface-700 dark:text-surface-200">
-          <p className="font-semibold">What will happen when you search</p>
-        <p className="mt-1">Plethora sends this exact query to Brave Search at <span className="break-all">{RESEARCH_ENDPOINT}</span>. It makes one request, allows up to 8 seconds, and returns up to {RESEARCH_MAX_RESULTS} results. Plan text, library content, and your answers are not sent. Provider pricing depends on your Brave API plan and is not shown by the app.</p>
+          <p className="font-semibold">{translateRecentFeature("studyPlans.ui.what-will-happen-when-you-se.2bd444e9")}</p>
+        <p className="mt-1">{translateRecentFeature("studyPlans.ui.plethora-sends-this-exact-qu.db38a354")}<span className="break-all">{RESEARCH_ENDPOINT}</span>{translateRecentFeature("studyPlans.ui.it-makes-one-request-allows-.bf0fa838", {var0: RESEARCH_MAX_RESULTS})}</p>
         </div>
         <label className="flex items-start gap-2.5 text-xs leading-relaxed text-surface-700 dark:text-surface-200">
           <input
@@ -192,9 +191,9 @@ export const WebResearchPanel: React.FC<WebResearchPanelProps> = ({ planId, plan
               setApproved(next);
             }}
             className="mt-0.5 rounded border-surface-400 text-primary-600 focus:ring-primary-500"
-            aria-label="Approve sending this exact query to Brave Search"
+            aria-label={translateRecentFeature("studyPlans.ui.approve-sending-this-exact-q.7cebcee9")}
           />
-          <span>I approve sending the exact query shown above to Brave Search.</span>
+          <span>{translateRecentFeature("studyPlans.ui.i-approve-sending-the-exact-.8eabc212")}</span>
         </label>
         <button
           type="button"
@@ -203,37 +202,36 @@ export const WebResearchPanel: React.FC<WebResearchPanelProps> = ({ planId, plan
           className="inline-flex h-9 items-center gap-2 rounded-full bg-primary-600 px-4 text-xs font-semibold text-white hover:bg-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isLoading ? <SpinnerGap className="h-4 w-4 animate-spin" /> : <MagnifyingGlass className="h-4 w-4" />}
-          {isLoading ? 'Searching…' : 'Search web'}
+          {isLoading ? translateRecentFeature("studyPlans.ui.searching.d598dfcb") : translateRecentFeature("studyPlans.ui.search-web.aee35e40")}
         </button>
         {isLoading && (
           <button type="button" onClick={() => void handleCancelRequest()} className="ml-2 h-9 rounded-full border border-surface-300 dark:border-surface-600 px-4 text-xs font-semibold text-surface-800 dark:text-surface-100 hover:bg-surface-100 dark:hover:bg-surface-800">
-            Cancel search
-          </button>
+            {translateRecentFeature("studyPlans.ui.cancel-search.c1f91a2a")}</button>
         )}
       </div>
 
       <p className="text-[11px] leading-relaxed text-surface-600 dark:text-surface-300">
-        Capturing a selected result separately fetches that public page with no cookies or app data. Each capture is limited to 1 MB, 12 seconds total, and two redirects; Plethora saves up to 12,000 characters with the capture date and revision hash.
-      </p>
+        {translateRecentFeature("studyPlans.ui.capturing-a-selected-result-.3bd92f2a")}</p>
 
       {error && (
         <div role="alert" className="flex items-start gap-2 rounded-xl border border-red-300 dark:border-red-800 bg-red-50 dark:bg-red-950/30 p-3 text-xs text-red-800 dark:text-red-200">
           <WarningCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-          <span>{error} You can change the query or retry the action.</span>
+          <span>{translateRecentFeature("studyPlans.ui.var0-you-can-change-the-quer.c05bcee9", {var0: error})}</span>
         </div>
       )}
       {notice && <p role="status" className="text-xs text-emerald-800 dark:text-emerald-300">{notice}</p>}
 
       {results.length > 0 && (
         <div className="space-y-3">
-          <h4 className="text-xs font-semibold text-surface-800 dark:text-surface-100">Search results</h4>
-          {results.map((result) => (
+          <h4 className="text-xs font-semibold text-surface-800 dark:text-surface-100">{translateRecentFeature("flashcardStudio.contextModeSearchSummary")}</h4>
+          {results.map((result) => {
+                        return (
             <article key={result.id} className="space-y-2 border-t border-surface-200 dark:border-surface-700 pt-3">
               <a href={result.url} target="_blank" rel="noreferrer" className="text-sm font-semibold text-primary-700 dark:text-primary-300 underline underline-offset-2">
                 {result.title}
               </a>
               <p className="break-all text-[11px] text-surface-600 dark:text-surface-300">{result.url}</p>
-              <p className="text-xs leading-relaxed text-surface-700 dark:text-surface-200">{result.snippet || 'No search snippet was supplied.'}</p>
+              <p className="text-xs leading-relaxed text-surface-700 dark:text-surface-200">{result.snippet || translateRecentFeature("i18nAudit.ui.no-search-snippet-was-suppli.5fe5342a")}</p>
               <button
                 type="button"
                 onClick={() => void handleCapture(result)}
@@ -241,47 +239,48 @@ export const WebResearchPanel: React.FC<WebResearchPanelProps> = ({ planId, plan
                 className="inline-flex h-8 items-center gap-1.5 rounded-full border border-surface-300 dark:border-surface-600 px-3 text-xs font-semibold text-surface-800 dark:text-surface-100 hover:bg-surface-100 dark:hover:bg-surface-800 disabled:opacity-50"
               >
                 {capturingId === result.id ? <SpinnerGap className="h-3.5 w-3.5 animate-spin" /> : <ArrowSquareOut className="h-3.5 w-3.5" />}
-                {capturingId === result.id ? 'Capturing…' : 'Capture source'}
+                {capturingId === result.id ? translateRecentFeature("studyPlans.ui.capturing.a99b986b") : translateRecentFeature("studyPlans.ui.capture-source.35f67201")}
               </button>
               {capturingId === result.id && (
                 <button type="button" onClick={() => void handleCancelRequest()} className="ml-2 h-8 rounded-full border border-surface-300 dark:border-surface-600 px-3 text-xs font-semibold text-surface-800 dark:text-surface-100 hover:bg-surface-100 dark:hover:bg-surface-800">
-                  Cancel capture
-                </button>
+                  {translateRecentFeature("studyPlans.ui.cancel-capture.52a7c394")}</button>
               )}
             </article>
-          ))}
+          );
+          })}
         </div>
       )}
 
       <div className="space-y-3 border-t border-surface-200 dark:border-surface-700 pt-4">
         <div>
-          <h4 className="text-xs font-semibold text-surface-800 dark:text-surface-100">Saved source snapshots</h4>
-          <p className="mt-1 text-[11px] text-surface-600 dark:text-surface-300">Candidates need your review and acceptance before they can be cited. Acceptance stores a source; it does not automatically verify a claim.</p>
+          <h4 className="text-xs font-semibold text-surface-800 dark:text-surface-100">{translateRecentFeature("studyPlans.ui.saved-source-snapshots.1bc28622")}</h4>
+          <p className="mt-1 text-[11px] text-surface-600 dark:text-surface-300">{translateRecentFeature("studyPlans.ui.candidates-need-your-review-.fa274ed6")}</p>
         </div>
         {snapshots.length === 0 ? (
-          <p className="text-xs text-surface-600 dark:text-surface-300">No sources captured for this plan version yet.</p>
-        ) : snapshots.map((snapshot) => (
+          <p className="text-xs text-surface-600 dark:text-surface-300">{translateRecentFeature("studyPlans.ui.no-sources-captured-for-this.443f0900")}</p>
+        ) : snapshots.map((snapshot) => {
+                    return (
           <article key={snapshot.id} className="space-y-2 border-t border-surface-200 dark:border-surface-700 pt-3">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
               <h5 className="text-sm font-semibold text-surface-900 dark:text-surface-100">{snapshot.title}</h5>
               <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${snapshot.status === 'accepted' ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/50 dark:text-emerald-300' : snapshot.status === 'stale' ? 'bg-surface-200 text-surface-700 dark:bg-surface-700 dark:text-surface-200' : 'bg-amber-100 text-amber-900 dark:bg-amber-950/50 dark:text-amber-200'}`}>
-                {snapshot.status === 'accepted' ? 'Accepted' : snapshot.status === 'stale' ? 'Stale' : 'Candidate'}
+                {snapshot.status === 'accepted' ? translateRecentFeature("studyPlans.ui.accepted.32a9ff39") : snapshot.status === 'stale' ? translateRecentFeature("studyPlans.ui.stale.16083edb") : translateRecentFeature("studyPlans.ui.candidate.412fa04d")}
               </span>
             </div>
-            <p className="text-[11px] text-surface-600 dark:text-surface-300">{snapshot.publisher} · Captured {formatDate(snapshot.fetchedAt)} · {snapshot.revisionHash}</p>
-            <p className="break-words text-[11px] text-surface-600 dark:text-surface-300">Search query: {snapshot.query}</p>
-            {snapshot.status === 'stale' && <p className="text-xs text-amber-900 dark:text-amber-200">The page changed after this capture. This revision stays in your history but cannot be used for new assessment publications.</p>}
+            <p className="text-[11px] text-surface-600 dark:text-surface-300">{translateRecentFeature("studyPlans.ui.var0-captured-var1-var2.3aabe75a", {var0: snapshot.publisher, var1: formatDate(snapshot.fetchedAt), var2: snapshot.revisionHash})}</p>
+            <p className="break-words text-[11px] text-surface-600 dark:text-surface-300">{translateRecentFeature("studyPlans.ui.search-query-var0.c024beb5", {var0: snapshot.query})}</p>
+            {snapshot.status === 'stale' && <p className="text-xs text-amber-900 dark:text-amber-200">{translateRecentFeature("studyPlans.ui.the-page-changed-after-this-.fbafb10d")}</p>}
             <blockquote className="rounded-lg bg-surface-50 dark:bg-surface-800/60 p-3 text-xs leading-relaxed text-surface-800 dark:text-surface-100">{snapshot.excerpt}</blockquote>
             <div className="flex flex-wrap items-center gap-3">
               <a href={snapshot.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-semibold text-primary-700 dark:text-primary-300 underline underline-offset-2">
-                Open source page <ArrowSquareOut className="h-3.5 w-3.5" />
+                {translateRecentFeature("studyPlans.ui.open-source-page.1bb75ce1")}<ArrowSquareOut className="h-3.5 w-3.5" />
               </a>
               {snapshot.status === 'candidate' ? (
                 <button type="button" onClick={() => void handleAccept(snapshot)} disabled={acceptingId !== null} className="inline-flex h-8 items-center gap-1.5 rounded-full bg-surface-200 dark:bg-surface-700 px-3 text-xs font-semibold text-surface-900 dark:text-surface-100 hover:bg-surface-300 dark:hover:bg-surface-600 disabled:opacity-50">
                   {acceptingId === snapshot.id ? <SpinnerGap className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle className="h-3.5 w-3.5" />}
-                  {acceptingId === snapshot.id ? 'Accepting…' : 'Accept for citation'}
+                  {acceptingId === snapshot.id ? translateRecentFeature("studyPlans.ui.accepting.99a801a5") : translateRecentFeature("studyPlans.ui.accept-for-citation.3219213b")}
                 </button>
-              ) : snapshot.status === 'accepted' ? <span className="text-[11px] text-emerald-800 dark:text-emerald-300">Available in assessment source lists</span> : null}
+              ) : snapshot.status === 'accepted' ? <span className="text-[11px] text-emerald-800 dark:text-emerald-300">{translateRecentFeature("studyPlans.ui.available-in-assessment-sour.6223fb51")}</span> : null}
               <button
                 type="button"
                 onClick={() => void handleCapture({ id: snapshot.id, title: snapshot.title, url: snapshot.url }, snapshot.query)}
@@ -289,12 +288,13 @@ export const WebResearchPanel: React.FC<WebResearchPanelProps> = ({ planId, plan
                 className="inline-flex h-8 items-center gap-1.5 rounded-full border border-surface-300 dark:border-surface-600 px-3 text-xs font-semibold text-surface-800 dark:text-surface-100 hover:bg-surface-100 dark:hover:bg-surface-800 disabled:opacity-50"
               >
                 {capturingId === snapshot.id ? <SpinnerGap className="h-3.5 w-3.5 animate-spin" /> : <ArrowSquareOut className="h-3.5 w-3.5" />}
-                {capturingId === snapshot.id ? 'Checking…' : 'Re-check page'}
+                {capturingId === snapshot.id ? translateRecentFeature("studyPlans.ui.checking.94d897be") : translateRecentFeature("studyPlans.ui.re-check-page.d31d9fe1")}
               </button>
-              {capturingId === snapshot.id && <button type="button" onClick={() => void handleCancelRequest()} className="h-8 rounded-full border border-surface-300 dark:border-surface-600 px-3 text-xs font-semibold text-surface-800 dark:text-surface-100 hover:bg-surface-100 dark:hover:bg-surface-800">Cancel check</button>}
+              {capturingId === snapshot.id && <button type="button" onClick={() => void handleCancelRequest()} className="h-8 rounded-full border border-surface-300 dark:border-surface-600 px-3 text-xs font-semibold text-surface-800 dark:text-surface-100 hover:bg-surface-100 dark:hover:bg-surface-800">{translateRecentFeature("studyPlans.ui.cancel-check.db74a885")}</button>}
             </div>
           </article>
-        ))}
+        );
+        })}
       </div>
     </section>
   );

@@ -6,9 +6,12 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowLeft } from '@phosphor-icons/react';
 import { Button } from '../../md3/Button';
+import { StudyPlansScrollContainer } from '../StudyPlansScrollContainer';
 import { PlanHomeView } from './PlanHomeView';
 import { getWorkloadData } from '../../../api/analytics';
 import type { StudyPlanDetail } from '../../../types/learningPaths';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface PlanHomeTabProps {
   planDetail: StudyPlanDetail;
@@ -29,7 +32,8 @@ export const PlanHomeTab: React.FC<PlanHomeTabProps> = ({
   onOpenPath,
   onOpenReview,
 }) => {
-  const [dueReviewCount, setDueReviewCount] = useState<number | null>(null);
+    useI18n();
+    const [dueReviewCount, setDueReviewCount] = useState<number | null>(null);
 
   useEffect(() => {
     let stale = false;
@@ -48,14 +52,14 @@ export const PlanHomeTab: React.FC<PlanHomeTabProps> = ({
   }, []);
 
   return (
-    <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-4">
+    <StudyPlansScrollContainer className="max-w-3xl mx-auto p-4 sm:p-6 space-y-4" data-study-plans-scroll="plan-home">
       <div className="flex items-center gap-3 pb-3 border-b border-surface-200 dark:border-surface-700">
-        <Button variant="text" size="iconSm" onClick={onBack} aria-label="Back to plan">
+        <Button variant="text" size="iconSm" onClick={onBack} aria-label={translateRecentFeature("studyPlans.ui.back-to-plan.2822cd13")}>
           <ArrowLeft size={18} />
         </Button>
         <div>
           <h2 className="text-base font-bold text-surface-900 dark:text-surface-100">{planDetail.plan.title}</h2>
-          <p className="text-xs text-surface-500">Plan Home · Today</p>
+          <p className="text-xs text-surface-500">{translateRecentFeature("studyPlans.ui.plan-home-today.1c76014c")}</p>
         </div>
       </div>
       <PlanHomeView
@@ -65,6 +69,6 @@ export const PlanHomeTab: React.FC<PlanHomeTabProps> = ({
         onOpenReview={onOpenReview}
         onOpenPath={onOpenPath}
       />
-    </div>
+    </StudyPlansScrollContainer>
   );
 };

@@ -8,12 +8,15 @@ import { studyErrorMessage } from '../../../lib/study-plans/studyErrorMessage';
 import type { AttemptDetail } from '../../../types/assessmentSessions';
 import { Button } from '../../md3/Button';
 import { GenerationPrivacySummary } from '../GenerationPrivacySummary';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export function RubricGradingControls({ detail, onUpdate }: {
   detail: AttemptDetail;
   onUpdate: (updated: AttemptDetail) => void;
 }) {
-  const [preflight, setPreflight] = useState<StudyAiPreflight>();
+        useI18n();
+        const [preflight, setPreflight] = useState<StudyAiPreflight>();
   const [approveTransfer, setApproveTransfer] = useState(false);
   const [approveCost, setApproveCost] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -32,7 +35,7 @@ export function RubricGradingControls({ detail, onUpdate }: {
     try {
       setPreflight((await prepareRubricGrading(detail)).preflight);
     } catch (error: unknown) {
-      setError(studyErrorMessage(error, 'AI grading is unavailable. You can review written answers manually.'));
+      setError(studyErrorMessage(error, translateRecentFeature("studyPlans.ui.ai-grading-is-unavailable-yo.b179295d")));
     } finally {
       setBusy(false);
     }
@@ -60,10 +63,10 @@ export function RubricGradingControls({ detail, onUpdate }: {
       });
       onUpdate(result.latestAttemptDetail);
       if (result.latestAttemptDetail.attempt.status === 'grading-failed') {
-        setError('Some written answers still need grading. You can retry or grade them manually.');
+        setError(translateRecentFeature("studyPlans.ui.some-written-answers-still-n.d9d2cdd2"));
       }
     } catch (error: unknown) {
-      setError(studyErrorMessage(error, 'Grading stopped. Saved grades and submitted answers remain available.'));
+      setError(studyErrorMessage(error, translateRecentFeature("studyPlans.ui.grading-stopped-saved-grades.8270d5aa")));
     } finally {
       setPreflight(undefined);
       setBusy(false);
@@ -72,8 +75,8 @@ export function RubricGradingControls({ detail, onUpdate }: {
   };
 
   return (
-    <section aria-label="Written answer grading" className="mx-auto max-w-5xl space-y-3 px-4">
-      {!preflight && <Button variant="outlined" onClick={inspect} disabled={busy}>Review AI grading options</Button>}
+    <section aria-label={translateRecentFeature("studyPlans.ui.written-answer-grading.574d3431")} className="mx-auto max-w-5xl space-y-3 px-4">
+      {!preflight && <Button variant="outlined" onClick={inspect} disabled={busy}>{translateRecentFeature("studyPlans.ui.review-ai-grading-options.c13f8676")}</Button>}
       {preflight && (
         <>
           <GenerationPrivacySummary
@@ -88,13 +91,12 @@ export function RubricGradingControls({ detail, onUpdate }: {
           <div className="flex flex-wrap gap-2">
             <Button variant="filled" onClick={grade}
               disabled={busy || preflight.sendsAnswersOffDevice && !approveTransfer || preflight.billable && !approveCost}>
-              Grade written answers
-            </Button>
-            <Button variant="text" onClick={() => busy ? activeRun.current?.abort() : setPreflight(undefined)}>Cancel</Button>
+              {translateRecentFeature("studyPlans.ui.grade-written-answers.19514c5f")}</Button>
+            <Button variant="text" onClick={() => busy ? activeRun.current?.abort() : setPreflight(undefined)}>{translateRecentFeature("common.cancel")}</Button>
           </div>
         </>
       )}
-      {busy && <p role="status" className="text-sm">Preparing or grading written answers…</p>}
+      {busy && <p role="status" className="text-sm">{translateRecentFeature("studyPlans.ui.preparing-or-grading-written.3b380b7e")}</p>}
       {error && <p role="alert" className="text-sm text-error">{error}</p>}
     </section>
   );

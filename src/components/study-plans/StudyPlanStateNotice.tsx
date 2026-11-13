@@ -9,6 +9,8 @@
 import React from 'react';
 import { WarningCircle, Database, BookOpen, ArrowClockwise } from '@phosphor-icons/react';
 import { Button } from '../md3/Button';
+import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
+
 
 export interface StudyPlanStateNoticeProps {
   type: 'unsupported_platform' | 'storage_failed' | 'empty_library' | 'generic_error';
@@ -27,22 +29,23 @@ export const StudyPlanStateNotice: React.FC<StudyPlanStateNoticeProps> = ({
   onAction,
   actionLabel,
 }) => {
-  if (type === 'unsupported_platform') {
+        useI18n();
+        if (type === 'unsupported_platform') {
     return (
       <div
         role="region"
-        aria-label="Study plans platform notice"
+        aria-label={translateRecentFeature("studyPlans.ui.study-plans-platform-notice.3413fc82")}
         className="flex flex-col items-center justify-center p-8 max-w-lg mx-auto text-center"
       >
         <div className="w-16 h-16 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center mb-4">
           <Database size={32} />
         </div>
         <h2 className="text-xl font-bold text-surface-900 dark:text-surface-100 mb-2">
-          {title || 'Desktop or Mobile App Required'}
+          {title || translateRecentFeature("i18nAudit.ui.desktop-or-mobile-app-requir.c5cf8f19")}
         </h2>
         <p className="text-sm text-surface-600 dark:text-surface-400 mb-6 leading-relaxed">
           {message ||
-            'Study Plans and source-grounded assessments require local-first SQLite persistence available in the Plethora desktop or native mobile applications. Web browser environments do not support durable study plan storage.'}
+            translateRecentFeature("i18nAudit.ui.study-plans-and-source-groun.0f62dd11")}
         </p>
       </div>
     );
@@ -52,18 +55,18 @@ export const StudyPlanStateNotice: React.FC<StudyPlanStateNoticeProps> = ({
     return (
       <div
         role="region"
-        aria-label="Empty library notice"
+        aria-label={translateRecentFeature("studyPlans.ui.empty-library-notice.97fa26f2")}
         className="flex flex-col items-center justify-center p-8 max-w-md mx-auto text-center bg-surface-50 dark:bg-surface-800/50 rounded-2xl border border-surface-200 dark:border-surface-700"
       >
         <div className="w-12 h-12 rounded-full bg-primary-500/10 text-primary-500 flex items-center justify-center mb-3">
           <BookOpen size={28} />
         </div>
         <h3 className="text-base font-semibold text-surface-900 dark:text-surface-100 mb-1">
-          {title || 'No Material in Library'}
+          {title || translateRecentFeature("i18nAudit.ui.no-material-in-library.c621b6f8")}
         </h3>
         <p className="text-xs text-surface-600 dark:text-surface-400 mb-4">
           {message ||
-            'You do not have any documents in your library. Add documents or extracts to create source-grounded study plans, or create a plan without documents.'}
+            translateRecentFeature("i18nAudit.ui.you-do-not-have-any-document.6c1c5517")}
         </p>
         {onAction && actionLabel && (
           <Button variant="tonal" onClick={onAction}>
@@ -84,15 +87,15 @@ export const StudyPlanStateNotice: React.FC<StudyPlanStateNoticeProps> = ({
         <WarningCircle size={28} />
       </div>
       <h3 className="text-base font-semibold text-red-600 dark:text-red-400 mb-1">
-        {title || 'Storage Error'}
+        {title || translateRecentFeature("i18nAudit.ui.storage-error.fb70f252")}
       </h3>
       <p className="text-xs text-surface-600 dark:text-surface-400 mb-4">
-        {message || 'Unable to communicate with the study plans database. Your progress has been preserved.'}
+        {message || translateRecentFeature("i18nAudit.ui.unable-to-communicate-with-t.7b673de8")}
       </p>
       {onRetry && (
         <Button variant="tonal" onClick={onRetry}>
           <ArrowClockwise size={16} />
-          <span>Retry</span>
+          <span>{translateRecentFeature("assistant.actions.retry")}</span>
         </Button>
       )}
     </div>

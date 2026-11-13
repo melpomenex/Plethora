@@ -10,6 +10,8 @@ import React from 'react';
 import { Plus, Trash, TextT } from '@phosphor-icons/react';
 import { Button } from '../../md3/Button';
 import type { ClozeQuestion, ClozeSegment, ClozeBlank } from '../../../types/assessmentQuestions';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface ClozeQuestionEditorProps {
   question: ClozeQuestion;
@@ -24,8 +26,9 @@ export const ClozeQuestionEditor: React.FC<ClozeQuestionEditorProps> = ({
   disabled = false,
   className = '',
 }) => {
-  const handleAddTextSegment = () => {
-    const newSeg: ClozeSegment = { kind: 'text', text: ' additional text' };
+        useI18n();
+        const handleAddTextSegment = () => {
+        const newSeg: ClozeSegment = { kind: 'text', text: translateRecentFeature("studyPlans.ui.additional-text.6a068830") };
     onChange({
       ...question,
       segments: [...question.segments, newSeg],
@@ -93,38 +96,35 @@ export const ClozeQuestionEditor: React.FC<ClozeQuestionEditorProps> = ({
     <div className={`space-y-4 ${className}`}>
       <div className="flex items-center justify-between">
         <label className="text-xs font-semibold uppercase tracking-wider text-surface-500 dark:text-surface-400 block">
-          Cloze Text Segments &amp; Fill-In Blanks
-        </label>
+          {translateRecentFeature("studyPlans.ui.cloze-text-segments-fill-in-.ba81a1cd")}</label>
         {!disabled && (
           <div className="flex items-center gap-2">
             <Button variant="outlined" size="sm" onClick={handleAddTextSegment} className="text-xs">
               <TextT className="w-3.5 h-3.5 mr-1" />
-              Add Text
-            </Button>
+              {translateRecentFeature("studyPlans.ui.add-text.5ce8cd90")}</Button>
             <Button variant="outlined" size="sm" onClick={handleAddBlank} className="text-xs">
               <Plus className="w-3.5 h-3.5 mr-1" />
-              Add Blank [___]
-            </Button>
+              {translateRecentFeature("studyPlans.ui.add-blank.80f988b2")}</Button>
           </div>
         )}
       </div>
 
       {/* Segments editor */}
       <div className="p-3.5 rounded-xl border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800/40 space-y-2">
-        <span className="text-[11px] font-semibold text-surface-500 block">Segments Flow:</span>
+        <span className="text-[11px] font-semibold text-surface-500 block">{translateRecentFeature("studyPlans.ui.segments-flow.d7e8efe8")}</span>
         <div className="space-y-2">
           {question.segments.map((seg, sIdx) => {
-            if (seg.kind === 'text') {
+                        if (seg.kind === 'text') {
               return (
                 <div key={`seg-text-${sIdx}`} className="flex items-center gap-2">
-                  <span className="text-[10px] text-surface-400 w-12 font-mono">TEXT:</span>
+                  <span className="text-[10px] text-surface-400 w-12 font-mono">{translateRecentFeature("studyPlans.ui.text.2d45dbb6")}</span>
                   <input
                     type="text"
                     value={seg.text}
                     disabled={disabled}
                     onChange={(e) => handleTextSegmentChange(sIdx, e.target.value)}
                     className="flex-1 h-7 px-2 text-xs rounded border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800"
-                    aria-label={`Text segment ${sIdx}`}
+                    aria-label={translateRecentFeature("studyPlans.ui.text-segment-var0.a19a0784", {var0: sIdx})}
                   />
                   {!disabled && question.segments.length > 1 && (
                     <button
@@ -147,9 +147,7 @@ export const ClozeQuestionEditor: React.FC<ClozeQuestionEditorProps> = ({
                 className="p-2.5 rounded-lg border border-primary-300 dark:border-primary-800 bg-primary-50/40 dark:bg-primary-950/20 space-y-2"
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold text-primary-700 dark:text-primary-300 font-mono">
-                    [BLANK: {seg.blankId}]
-                  </span>
+                  <span className="text-xs font-semibold text-primary-700 dark:text-primary-300 font-mono">{translateRecentFeature("studyPlans.ui.blank-var0.362b301b", {var0: seg.blankId})}</span>
                   <div className="flex items-center gap-3 text-xs">
                     <label className="flex items-center gap-1.5 cursor-pointer">
                       <input
@@ -159,7 +157,7 @@ export const ClozeQuestionEditor: React.FC<ClozeQuestionEditorProps> = ({
                         onChange={(e) => handleBlankCaseToggle(seg.blankId, e.target.checked)}
                         className="rounded border-surface-300"
                       />
-                      <span>Case Sensitive</span>
+                      <span>{translateRecentFeature("studyPlans.ui.case-sensitive.7d749560")}</span>
                     </label>
 
                     {!disabled && (
@@ -176,16 +174,15 @@ export const ClozeQuestionEditor: React.FC<ClozeQuestionEditorProps> = ({
 
                 <div className="space-y-1">
                   <span className="text-[11px] text-surface-600 dark:text-surface-400 block">
-                    Accepted Answers (Comma-separated synonyms):
-                  </span>
+                    {translateRecentFeature("studyPlans.ui.accepted-answers-comma-separ.4c770263")}</span>
                   <input
                     type="text"
                     value={blank?.acceptedAnswers.join(', ') ?? ''}
                     disabled={disabled}
                     onChange={(e) => handleBlankAnswersChange(seg.blankId, e.target.value)}
-                    placeholder="e.g. Raft, raft consensus"
+                    placeholder={translateRecentFeature("studyPlans.ui.e-g-raft-raft-consensus.fcd6c090")}
                     className="w-full h-7 px-2 text-xs rounded border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800"
-                    aria-label={`Blank ${seg.blankId} accepted answers`}
+                    aria-label={translateRecentFeature("studyPlans.ui.blank-var0-accepted-answers.58477b42", {var0: seg.blankId})}
                   />
                 </div>
               </div>

@@ -14,6 +14,8 @@ import type {
   MultiSelectQuestion,
   QuestionOption,
 } from '../../../types/assessmentQuestions';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface ChoiceQuestionEditorProps {
   question: SingleSelectQuestion | MultiSelectQuestion;
@@ -28,14 +30,15 @@ export const ChoiceQuestionEditor: React.FC<ChoiceQuestionEditorProps> = ({
   disabled = false,
   className = '',
 }) => {
-  const isMulti = question.kind === 'multi-select';
+        useI18n();
+        const isMulti = question.kind === 'multi-select';
 
   const handleAddOption = () => {
-    if (question.options.length >= 8) return;
+        if (question.options.length >= 8) return;
     const newId = `opt_${Date.now()}`;
     const newOption: QuestionOption = {
       id: newId,
-      text: `Option ${question.options.length + 1}`,
+      text: translateRecentFeature("studyPlans.ui.option-var0.c3149d96", {var0: question.options.length + 1}),
     };
     onChange({
       ...question,
@@ -99,19 +102,17 @@ export const ChoiceQuestionEditor: React.FC<ChoiceQuestionEditorProps> = ({
     <div className={`space-y-3 ${className}`}>
       <div className="flex items-center justify-between">
         <label className="text-xs font-semibold uppercase tracking-wider text-surface-500 dark:text-surface-400 block">
-          Options &amp; Correct Answer Key (2–8 options)
-        </label>
+          {translateRecentFeature("studyPlans.ui.options-correct-answer-key-2.e7c0b7ea")}</label>
         {!disabled && question.options.length < 8 && (
           <Button variant="outlined" size="sm" onClick={handleAddOption} className="text-xs">
             <Plus className="w-3.5 h-3.5 mr-1" />
-            Add Option
-          </Button>
+            {translateRecentFeature("studyPlans.ui.add-option.dc0e97dc")}</Button>
         )}
       </div>
 
       <div className="space-y-2">
         {question.options.map((opt, index) => {
-          const isCorrect = isMulti
+                    const isCorrect = isMulti
             ? (question as MultiSelectQuestion).correctOptionIds.includes(opt.id)
             : (question as SingleSelectQuestion).correctOptionId === opt.id;
 
@@ -133,7 +134,7 @@ export const ChoiceQuestionEditor: React.FC<ChoiceQuestionEditorProps> = ({
                     ? handleToggleCorrectMulti(opt.id)
                     : handleToggleCorrectSingle(opt.id)
                 }
-                title={isCorrect ? 'Correct option' : 'Mark as correct'}
+                title={isCorrect ? translateRecentFeature("studyPlans.ui.correct-option.564d2444") : translateRecentFeature("studyPlans.ui.mark-as-correct.eaaa99b3")}
                 className="p-1 text-surface-400 hover:text-emerald-600 focus:outline-none"
               >
                 {isMulti ? (
@@ -156,16 +157,16 @@ export const ChoiceQuestionEditor: React.FC<ChoiceQuestionEditorProps> = ({
                 value={opt.text}
                 disabled={disabled}
                 onChange={(e) => handleOptionTextChange(opt.id, e.target.value)}
-                placeholder={`Option text…`}
+                placeholder={translateRecentFeature("studyPlans.ui.option-text.222bb691")}
                 className="flex-1 h-7 px-2 text-xs rounded border border-surface-200 dark:border-surface-700 bg-transparent text-surface-900 dark:text-surface-100"
-                aria-label={`Option ${String.fromCharCode(65 + index)} text`}
+                aria-label={translateRecentFeature("studyPlans.ui.option-var0-text.d0e706fd", {var0: String.fromCharCode(65 + index)})}
               />
 
               {!disabled && question.options.length > 2 && (
                 <button
                   type="button"
                   onClick={() => handleRemoveOption(opt.id)}
-                  title="Remove option"
+                  title={translateRecentFeature("studyPlans.ui.remove-option.4280c352")}
                   className="p-1 rounded text-surface-400 hover:text-red-600 hover:bg-surface-100 dark:hover:bg-surface-700"
                 >
                   <Trash className="w-4 h-4" />
@@ -178,8 +179,7 @@ export const ChoiceQuestionEditor: React.FC<ChoiceQuestionEditorProps> = ({
 
       {isMulti && (question as MultiSelectQuestion).correctOptionIds.length < 2 && (
         <span className="text-[11px] text-amber-600 dark:text-amber-400 block">
-          Multi-select questions must have at least 2 correct options selected.
-        </span>
+          {translateRecentFeature("studyPlans.ui.multi-select-questions-must-.4ad024ee")}</span>
       )}
     </div>
   );

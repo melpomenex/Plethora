@@ -25,6 +25,9 @@ import { studyErrorMessage } from '../../lib/study-plans/studyErrorMessage';
 import { SourceScopePicker } from './SourceScopePicker';
 import { CurriculumGenerator } from './CurriculumGenerator';
 import { Button } from '../md3/Button';
+import { StudyPlansScrollContainer } from './StudyPlansScrollContainer';
+import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
+
 
 export interface StudyPlanCreateFormProps {
   onSuccess: (detail: StudyPlanDetail) => void;
@@ -51,7 +54,8 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
   initialPrefill,
   diagnosticSlot,
 }) => {
-  const createPlanAction = useLearningPathsStore((s) => s.createStudyPlan);
+    useI18n();
+    const createPlanAction = useLearningPathsStore((s) => s.createStudyPlan);
 
   const [title, setTitle] = useState(initialPrefill?.title || '');
   const [goal, setGoal] = useState(initialPrefill?.goal || initialPrefill?.conceptLabel || '');
@@ -84,7 +88,7 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
   const hasSelectedSources = sourceScope.documentIds.length + sourceScope.extractIds.length + sourceScope.collectionIds.length + sourceScope.tagIds.length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+        e.preventDefault();
     if (!canSubmit) return;
 
     const normalizedGoal = normalizeSessionGoal(goal);
@@ -95,11 +99,11 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
 
     try {
       if (knowledgePolicy !== 'model-only' && !hasSelectedSources) {
-        setError('Select material or explicitly choose AI Knowledge Only.');
+        setError(translateRecentFeature("studyPlans.ui.select-material-or-explicitl.320b7814"));
         return;
       }
       if (creationMethod === 'rules-only' && knowledgePolicy === 'model-only') {
-        setError('Source Outline requires selected library material. Choose a library policy or another creation method.');
+        setError(translateRecentFeature("studyPlans.ui.source-outline-requires-sele.d9ebfaf5"));
         return;
       }
       const resolvedSourceScope = knowledgePolicy === 'model-only'
@@ -124,7 +128,7 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
         setIsGeneratorOpen(true);
       }
     } catch (err: unknown) {
-      setError(studyErrorMessage(err, 'Failed to create study plan'));
+      setError(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.failed-to-create-study-plan.a6be77f3")));
     } finally {
       setIsSubmitting(false);
     }
@@ -132,9 +136,10 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
 
   return (
     <>
+      <StudyPlansScrollContainer data-study-plans-scroll="create">
       <form
         onSubmit={handleSubmit}
-        aria-label="Create study plan form"
+        aria-label={translateRecentFeature("studyPlans.ui.create-study-plan-form.bda84ac8")}
         className="w-full max-w-2xl mx-auto p-4 sm:p-6 space-y-6"
       >
         <div className="flex items-center gap-3 pb-4 border-b border-surface-200 dark:border-surface-700">
@@ -143,17 +148,15 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
             variant="text"
             size="iconSm"
             onClick={onCancel}
-            aria-label="Back to study plans"
+            aria-label={translateRecentFeature("studyPlans.ui.back-to-study-plans.e604d5b3")}
           >
             <ArrowLeft size={18} />
           </Button>
           <div>
             <h2 className="text-xl font-bold text-surface-900 dark:text-surface-100">
-              Create Study Plan
-            </h2>
+              {translateRecentFeature("studyPlans.ui.create-study-plan.e0316395")}</h2>
             <p className="text-xs text-surface-500">
-              Design a custom learning path grounded in your library material.
-            </p>
+              {translateRecentFeature("studyPlans.ui.design-a-custom-learning-pat.eb35b9e1")}</p>
           </div>
         </div>
 
@@ -171,19 +174,19 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <label htmlFor="plan-title" className="text-xs font-bold text-surface-800 dark:text-surface-200">
-              Plan Title <span className="text-red-500">*</span>
+              {translateRecentFeature("studyPlans.ui.plan-title.f7526ee7")}<span className="text-red-500">*</span>
             </label>
-            <span className="text-[11px] text-surface-400">{title.length} / 120</span>
+            <span className="text-[11px] text-surface-400">{translateRecentFeature("studyPlans.ui.var0-120.a4009e9e", {var0: title.length})}</span>
           </div>
           <input
             id="plan-title"
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="e.g. Modern Cryptography & Zero Knowledge Proofs"
+            placeholder={translateRecentFeature("studyPlans.ui.e-g-modern-cryptography-zero.6db93302")}
             maxLength={120}
             required
-            className="w-full px-3.5 py-2 text-sm rounded-xl border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-surface-900 dark:text-surface-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+            className="w-full min-h-11 px-3.5 py-2 text-base sm:text-sm rounded-xl border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-surface-900 dark:text-surface-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
           />
         </div>
 
@@ -191,15 +194,15 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">
             <label htmlFor="plan-goal" className="text-xs font-bold text-surface-800 dark:text-surface-200">
-              Learning Objective <span className="text-red-500">*</span>
+              {translateRecentFeature("studyPlans.ui.learning-objective.cd47e870")}<span className="text-red-500">*</span>
             </label>
-            <span className="text-[11px] text-surface-400">{goal.length} / 200</span>
+            <span className="text-[11px] text-surface-400">{translateRecentFeature("studyPlans.ui.var0-200.6b88f52c", {var0: goal.length})}</span>
           </div>
           <textarea
             id="plan-goal"
             value={goal}
             onChange={(e) => setGoal(e.target.value)}
-            placeholder="What do you want to learn or achieve with this plan?"
+            placeholder={translateRecentFeature("studyPlans.ui.what-do-you-want-to-learn-or.d9b6f9e8")}
             rows={3}
             maxLength={200}
             required
@@ -213,26 +216,24 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
         {/* Depth selector */}
         <fieldset className="space-y-2">
           <legend className="text-xs font-bold text-surface-800 dark:text-surface-200 mb-2">
-            Knowledge Source Policy
-          </legend>
+            {translateRecentFeature("studyPlans.ui.knowledge-source-policy.3ff36d4f")}</legend>
           <p className="text-[11px] text-surface-500 dark:text-surface-400">
-            This controls what AI may use as factual authority. It is separate from how you create the plan.
-          </p>
+            {translateRecentFeature("studyPlans.ui.this-controls-what-ai-may-us.d65203e6")}</p>
           <div className="grid grid-cols-1 gap-2">
             {([
               {
                 id: 'source-only' as const,
-                label: 'My Library Only',
+                label: translateRecentFeature("studyPlans.ui.my-library-only.18220acf"),
                 desc: 'Use selected material for course facts. The AI says when it cannot find support.',
               },
               {
                 id: 'source-plus-model-knowledge' as const,
-                label: 'My Library + AI Knowledge',
+                label: translateRecentFeature("studyPlans.ui.my-library-ai-knowledge.013ece5e"),
                 desc: 'Prioritize selected material and label explanations that are not verified by it.',
               },
               {
                 id: 'model-only' as const,
-                label: 'AI Knowledge Only',
+                label: translateRecentFeature("studyPlans.ui.ai-knowledge-only.c613843f"),
                 desc: 'Build without reading your library. Generated curriculum is unverified.',
               },
             ]).map((choice) => (
@@ -263,24 +264,23 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
 
         <fieldset className="space-y-2">
           <legend className="text-xs font-bold text-surface-800 dark:text-surface-200 mb-2">
-            Curriculum Depth
-          </legend>
+            {translateRecentFeature("studyPlans.ui.curriculum-depth.764fd5cf")}</legend>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {(
               [
                 {
                   id: 'survey',
-                  label: 'Survey',
+                  label: translateRecentFeature("studyPlans.ui.survey.12b368d7"),
                   desc: 'Broad high-level overview of key topics.',
                 },
                 {
                   id: 'foundational',
-                  label: 'Foundational',
+                  label: translateRecentFeature("studyPlans.ui.foundational.1443f7dc"),
                   desc: 'Core principles, prerequisite concepts, and relationships.',
                 },
                 {
                   id: 'deep',
-                  label: 'Deep',
+                  label: translateRecentFeature("studyPlans.ui.deep.e8cc92be"),
                   desc: 'Comprehensive multi-stage study with detailed objectives.',
                 },
               ] as const
@@ -315,25 +315,24 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
         {/* Creation Method Selector */}
         <fieldset className="space-y-2">
           <legend className="text-xs font-bold text-surface-800 dark:text-surface-200 mb-2">
-            Curriculum Creation Method
-          </legend>
+            {translateRecentFeature("studyPlans.ui.curriculum-creation-method.8f5738a1")}</legend>
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             {[
               {
                 id: 'manual' as const,
-                label: 'Manual Authoring',
+                label: translateRecentFeature("studyPlans.ui.manual-authoring.849fd611"),
                 desc: 'Add topics and prerequisite dependencies manually.',
                 icon: PencilSimple,
               },
               {
                 id: 'ai' as const,
-                label: 'Generate with AI',
+                label: translateRecentFeature("studyPlans.ui.generate-with-ai.65a96811"),
                 desc: 'Decompose source material into structured topics using AI.',
                 icon: Sparkle,
               },
               {
                 id: 'rules-only' as const,
-                label: 'Source Outline (No AI)',
+                label: translateRecentFeature("studyPlans.ui.source-outline-no-ai.2dd5747a"),
                 desc: 'Build an outline from confirmed concepts and document titles.',
                 icon: ShieldCheck,
               },
@@ -372,8 +371,7 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
         {/* Material Scope */}
         {knowledgePolicy === 'model-only' ? (
           <div className="rounded-xl border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 p-3 text-xs text-surface-600 dark:text-surface-300">
-            No material will be read from your library. Model-only curriculum and practice content are unverified.
-          </div>
+            {translateRecentFeature("studyPlans.ui.no-material-will-be-read-fro.f46edaa4")}</div>
         ) : (
           <SourceScopePicker selectedScope={sourceScope} onChange={setSourceScope} maxDocuments={24} />
         )}
@@ -382,27 +380,28 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
 
         {/* Form Buttons */}
         <div className="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-3 pt-4 border-t border-surface-200 dark:border-surface-700">
-          <Button type="button" variant="text" onClick={onCancel} disabled={isSubmitting}>
-            Cancel
-          </Button>
+          <Button type="button" variant="text" onClick={onCancel} disabled={isSubmitting} className="min-h-11 sm:w-auto">
+            {translateRecentFeature("common.cancel")}</Button>
           <Button
             type="submit"
             variant="filled"
             disabled={!canSubmit}
+            className="min-h-11 sm:w-auto"
           >
             {isSubmitting && <SpinnerGap size={16} className="animate-spin" />}
             <span>
               {isSubmitting
-                ? 'Creating Draft…'
+                ? translateRecentFeature("studyPlans.ui.creating-draft.3996abf8")
                 : creationMethod === 'manual'
-                  ? 'Create Draft Plan'
+                  ? translateRecentFeature("studyPlans.ui.create-draft-plan.01020421")
                   : creationMethod === 'ai'
-                    ? 'Continue to AI Generation'
-                    : 'Continue to Source Outline'}
+                    ? translateRecentFeature("studyPlans.ui.continue-to-ai-generation.3268c1ee")
+                    : translateRecentFeature("studyPlans.ui.continue-to-source-outline.1a614473")}
             </span>
           </Button>
         </div>
       </form>
+      </StudyPlansScrollContainer>
 
       {/* Curriculum Generator Modal */}
       {generatorPlanDetail && (

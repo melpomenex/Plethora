@@ -9,6 +9,8 @@
 import React from 'react';
 import { CheckCircle, XCircle, Clock, WarningCircle } from '@phosphor-icons/react';
 import type { ResponseSubmission, GradeRecord } from '../../../types/assessmentSessions';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface PracticeRoundItem {
   submission: ResponseSubmission;
@@ -24,17 +26,17 @@ export const PracticeRoundHistory: React.FC<PracticeRoundHistoryProps> = ({
   rounds,
   className = '',
 }) => {
-  if (rounds.length === 0) return null;
+        useI18n();
+        if (rounds.length === 0) return null;
 
   return (
     <div className={`space-y-3 pt-4 border-t border-outline-variant/30 ${className}`}>
-      <h4 className="text-xs font-bold text-on-surface-variant dark:text-on-surface-variant-dark uppercase tracking-wider">
-        Check History ({rounds.length} {rounds.length === 1 ? 'Round' : 'Rounds'})
+      <h4 className="text-xs font-bold text-on-surface-variant dark:text-on-surface-variant-dark uppercase tracking-wider">{translateRecentFeature("studyPlans.ui.check-history-var0.7546276a", {var0: rounds.length})}{rounds.length === 1 ? translateRecentFeature("studyPlans.ui.round.ea7ad26d") : translateRecentFeature("studyPlans.ui.rounds.7203c63c")})
       </h4>
 
       <div className="space-y-2">
         {rounds.map((round) => {
-          const { submission, grade } = round;
+                    const { submission, grade } = round;
           const isCorrect = grade?.outcome === 'correct';
           const isPartial = grade?.outcome === 'partial';
           const isIncorrect = grade?.outcome === 'incorrect';
@@ -62,9 +64,7 @@ export const PracticeRoundHistory: React.FC<PracticeRoundHistoryProps> = ({
                 )}
 
                 <div>
-                  <span className="font-semibold text-on-surface dark:text-on-surface-dark block">
-                    Round {submission.ordinal}
-                  </span>
+                  <span className="font-semibold text-on-surface dark:text-on-surface-dark block">{translateRecentFeature("studyPlans.ui.round-var0.a8ffd3a1", {var0: submission.ordinal})}</span>
                   <span className="text-[11px] text-on-surface-variant dark:text-on-surface-variant-dark">
                     {timeFormatted}
                   </span>
@@ -83,12 +83,10 @@ export const PracticeRoundHistory: React.FC<PracticeRoundHistoryProps> = ({
                       : 'bg-primary/10 text-primary dark:bg-primary-dark/20 dark:text-primary-dark'
                   }`}
                 >
-                  {grade?.outcome || 'Checked'}
+                  {grade?.outcome || translateRecentFeature("i18nAudit.ui.checked.27b57c4d")}
                 </span>
                 {grade && grade.points !== null && (
-                  <span className="block text-[11px] text-on-surface-variant font-medium mt-0.5">
-                    {grade.points} / {grade.maxPoints} pts
-                  </span>
+                  <span className="block text-[11px] text-on-surface-variant font-medium mt-0.5">{translateRecentFeature("studyPlans.ui.var0-var1-pts.097b763a", {var0: grade.points, var1: grade.maxPoints})}</span>
                 )}
               </div>
             </div>

@@ -9,6 +9,8 @@
 import React from 'react';
 import { Cpu, ShieldCheck, ArrowUUpLeft, Clock } from '@phosphor-icons/react';
 import type { GenerationProvenance } from '../../../types/assessmentQuestions';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface GradeProvenanceProps {
   provenance: GenerationProvenance | null | undefined;
@@ -23,15 +25,15 @@ export const GradeProvenance: React.FC<GradeProvenanceProps> = ({
   manualReason,
   className = '',
 }) => {
-  if (origin === 'manual') {
+        useI18n();
+        if (origin === 'manual') {
     return (
       <div
         className={`flex flex-wrap items-center gap-2 text-xs text-on-surface-variant bg-surface-container-high/40 dark:bg-surface-container-high-dark/40 px-3 py-1.5 rounded-lg border border-outline-variant/30 ${className}`}
       >
         <span className="font-semibold text-primary flex items-center gap-1">
           <ShieldCheck size={14} weight="bold" />
-          Human Manual Evaluation
-        </span>
+          {translateRecentFeature("studyPlans.ui.human-manual-evaluation.c8a1746a")}</span>
         {manualReason && (
           <span className="text-on-surface-variant">
             &mdash; &ldquo;{manualReason}&rdquo;
@@ -48,8 +50,7 @@ export const GradeProvenance: React.FC<GradeProvenanceProps> = ({
       >
         <span className="font-semibold text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
           <ShieldCheck size={14} weight="bold" />
-          Deterministic Exact Scoring
-        </span>
+          {translateRecentFeature("studyPlans.ui.deterministic-exact-scoring.47aee401")}</span>
       </div>
     );
   }
@@ -86,15 +87,12 @@ export const GradeProvenance: React.FC<GradeProvenanceProps> = ({
       {isFallback && (
         <span className="px-2 py-0.5 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 font-medium flex items-center gap-1 text-[11px]">
           <ArrowUUpLeft size={11} />
-          Fallback Grader
-        </span>
+          {translateRecentFeature("studyPlans.ui.fallback-grader.bb5b45cd")}</span>
       )}
 
       {pAny.latencyMs !== undefined && (
         <span className="flex items-center gap-1 text-[11px] text-on-surface-variant/70">
-          <Clock size={11} />
-          {pAny.latencyMs}ms
-        </span>
+          <Clock size={11} />{translateRecentFeature("studyPlans.ui.var0-ms.a4095ac8", {var0: pAny.latencyMs})}</span>
       )}
     </div>
   );

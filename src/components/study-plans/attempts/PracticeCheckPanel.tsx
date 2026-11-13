@@ -22,6 +22,9 @@ import type { AssessmentQuestionRevision } from '../../../types/assessmentQuesti
 import type { ResponseSlotState } from '../../../lib/study-plans/attempts/attemptController';
 import { checkPracticeResponse } from '../../../api/exam-sessions';
 import { PracticeRoundHistory, type PracticeRoundItem } from './PracticeRoundHistory';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+import { studyErrorMessage } from "../../../lib/study-plans/studyErrorMessage";
+
 
 export interface PracticeCheckPanelProps {
   questionRevision: AssessmentQuestionRevision;
@@ -44,7 +47,8 @@ export const PracticeCheckPanel: React.FC<PracticeCheckPanelProps> = ({
   disabled = false,
   className = '',
 }) => {
-  const [isChecking, setIsChecking] = useState(false);
+        useI18n();
+        const [isChecking, setIsChecking] = useState(false);
   const [latestResult, setLatestResult] = useState<PracticeCheckResult | null>(null);
   const [rounds, setRounds] = useState<PracticeRoundItem[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +83,7 @@ export const PracticeCheckPanel: React.FC<PracticeCheckPanelProps> = ({
       ]);
       onCheckSuccess?.(result);
     } catch (err: any) {
-      setError(err?.messageKey || err?.message || 'Failed to check practice response');
+      setError(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")));
     } finally {
       setIsChecking(false);
     }
@@ -97,8 +101,7 @@ export const PracticeCheckPanel: React.FC<PracticeCheckPanelProps> = ({
       {/* Check Action Button */}
       <div className="flex items-center justify-between gap-4">
         <span className="text-xs text-on-surface-variant dark:text-on-surface-variant-dark font-medium">
-          Practice Mode: Check your answer instantly without affecting exam history.
-        </span>
+          {translateRecentFeature("studyPlans.ui.practice-mode-check-your-ans.76f23887")}</span>
 
         <Button
           variant="filled"
@@ -109,13 +112,11 @@ export const PracticeCheckPanel: React.FC<PracticeCheckPanelProps> = ({
           {isChecking ? (
             <>
               <ArrowsClockwise size={16} className="mr-1.5 animate-spin" />
-              Checking...
-            </>
+              {translateRecentFeature("settings.checking")}</>
           ) : (
             <>
               <CheckCircle size={16} className="mr-1.5" />
-              Check Answer
-            </>
+              {translateRecentFeature("studyPlans.ui.check-answer.7f31a2ee")}</>
           )}
         </Button>
       </div>
@@ -155,12 +156,12 @@ export const PracticeCheckPanel: React.FC<PracticeCheckPanelProps> = ({
           <div className="space-y-1">
             <span className="font-bold block">
               {isCorrect
-                ? 'Correct!'
+                ? translateRecentFeature("studyPlans.ui.correct.f0ac4568")
                 : isPartial
-                ? 'Partially Correct'
+                ? translateRecentFeature("studyPlans.ui.partially-correct.4c95ae66")
                 : isIncorrect
-                ? 'Not Quite'
-                : 'Response Recorded'}
+                ? translateRecentFeature("studyPlans.ui.not-quite.917c9954")
+                : translateRecentFeature("studyPlans.ui.response-recorded.7ba9c02d")}
             </span>
             <p className="text-xs leading-relaxed opacity-90">
               {isCorrect && 'Great work! You scored full credit on this question.'}
@@ -177,8 +178,7 @@ export const PracticeCheckPanel: React.FC<PracticeCheckPanelProps> = ({
         <div className="p-4 bg-surface-container-low dark:bg-surface-container-low-dark rounded-xl border border-outline-variant/30 space-y-2">
           <h4 className="text-xs font-bold text-on-surface dark:text-on-surface-dark flex items-center gap-1.5 uppercase tracking-wide">
             <BookOpen size={16} className="text-primary dark:text-primary-dark" />
-            Committed Explanation
-          </h4>
+            {translateRecentFeature("studyPlans.ui.committed-explanation.02ab187f")}</h4>
           <p className="text-xs leading-relaxed text-on-surface-variant dark:text-on-surface-variant-dark whitespace-pre-line">
             {explanation}
           </p>

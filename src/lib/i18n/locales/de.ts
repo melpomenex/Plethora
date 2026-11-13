@@ -1,4 +1,5 @@
 import { Dict, en } from "./en";
+import { recentFeatureDe } from "./recentFeatures/de";
 
 export const de: Dict = {
   "qaGeneration.empty": "Quellen wurden gefunden, aber das KI-Modell hat keine Antwort zurückgegeben. Versuche es erneut oder prüfe die KI-Einstellungen.",
@@ -6681,4 +6682,5 @@ export const de: Dict = {
   "palette.destination.studyPlansDesc": "Strukturierte Lernpfade, Lehrpläne und Themenbewertungen",
   "studyPlans.title": "Lernpläne",
   "studyPlans.navLabel": "Lernpläne",
+  ...recentFeatureDe,
 };

@@ -15,6 +15,20 @@ import {
   type LegacyImportPreview,
 } from '../../lib/study-plans/legacyLearningPathsImport';
 import { Button } from '../md3/Button';
+import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
+import { studyErrorMessage } from "../../lib/study-plans/studyErrorMessage";
+
+function legacyDefectMessageKey(code: LegacyImportPreview["defects"][number]["code"]): string {
+  switch (code) {
+    case "newer_version": return "studyPlans.ui.legacy-import-newer-version";
+    case "unknown_goal": return "studyPlans.ui.legacy-import-unknown-goal";
+    case "duplicate_node": return "studyPlans.ui.legacy-import-duplicate-topic";
+    case "cycle": return "studyPlans.ui.legacy-import-cycle";
+    case "dangling_prerequisite": return "studyPlans.ui.legacy-import-dangling-prerequisite";
+    case "malformed_structure": return "studyPlans.ui.legacy-import-malformed-structure";
+  }
+}
+
 
 export interface LegacyStudyPlanImportProps {
   onImportSuccess?: () => void;
@@ -25,7 +39,8 @@ export const LegacyStudyPlanImport: React.FC<LegacyStudyPlanImportProps> = ({
   onImportSuccess,
   storage = typeof window !== 'undefined' ? window.localStorage : ({} as Storage),
 }) => {
-  const [preview, setPreview] = useState<LegacyImportPreview | null>(null);
+        useI18n();
+        const [preview, setPreview] = useState<LegacyImportPreview | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
 
@@ -52,18 +67,18 @@ export const LegacyStudyPlanImport: React.FC<LegacyStudyPlanImportProps> = ({
     try {
       const res = await executeLegacyLearningPathsImport(storage);
       if (res.ok) {
-        setStatusMessage(
-          `Successfully imported study plan with ${res.importedNodeCount ?? 0} topics.`
-        );
+        setStatusMessage(translateRecentFeature("studyPlans.ui.legacy-import-success", {
+          var0: res.importedNodeCount ?? 0,
+        }));
         onImportSuccess?.();
         // Refresh preview after successful import (backup key now created)
         const updated = previewLegacyLearningPathsImport(storage);
         setPreview(updated.hasData ? updated : null);
       } else {
-        setStatusMessage(res.error || 'Import failed. Your existing data remains safe.');
+        setStatusMessage(studyErrorMessage(res.error, translateRecentFeature("studyPlans.ui.operation-failed")));
       }
     } catch (err: any) {
-      setStatusMessage(err?.message || 'Import error occurred.');
+      setStatusMessage(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")));
     } finally {
       setIsImporting(false);
     }
@@ -72,7 +87,7 @@ export const LegacyStudyPlanImport: React.FC<LegacyStudyPlanImportProps> = ({
   return (
     <div
       role="region"
-      aria-label="Legacy learning paths import"
+      aria-label={translateRecentFeature("studyPlans.ui.legacy-learning-paths-import.e05d7475")}
       className="p-5 mb-6 rounded-2xl bg-amber-500/5 dark:bg-amber-500/10 border border-amber-500/30 shadow-sm"
     >
       <div className="flex items-start gap-4">
@@ -82,26 +97,21 @@ export const LegacyStudyPlanImport: React.FC<LegacyStudyPlanImportProps> = ({
 
         <div className="flex-1">
           <h4 className="text-base font-bold text-surface-900 dark:text-surface-100 mb-1">
-            Previous Learning Paths Detected
-          </h4>
-          <p className="text-xs text-surface-600 dark:text-surface-400 mb-3 leading-relaxed">
-            Found {preview.totalPaths} learning path(s) and {preview.totalGoals} goal(s) in local storage.
-            You can import them into persistent SQLite storage. Note: previous mastery numbers are preserved
-            as unverified legacy annotations.
-          </p>
+            {translateRecentFeature("studyPlans.ui.previous-learning-paths-dete.38ad2571")}</h4>
+          <p className="text-xs text-surface-600 dark:text-surface-400 mb-3 leading-relaxed">{translateRecentFeature("studyPlans.ui.found-var0-learning-path-s-a.43210da0", {var0: preview.totalPaths, var1: preview.totalGoals})}</p>
 
           {preview.defects.length > 0 && (
             <div className="mb-3 p-3 rounded-xl bg-surface-100 dark:bg-surface-800 text-xs text-amber-700 dark:text-amber-300">
               <div className="font-semibold mb-1 flex items-center gap-1.5">
                 <Warning size={14} />
-                <span>Issues noted in legacy data:</span>
+                <span>{translateRecentFeature("studyPlans.ui.issues-noted-in-legacy-data.ac404212")}</span>
               </div>
               <ul className="list-disc list-inside space-y-0.5 text-[11px]">
                 {preview.defects.slice(0, 3).map((d, i) => (
-                  <li key={i}>{d.message}</li>
+                  <li key={i}>{translateRecentFeature(legacyDefectMessageKey(d.code))}</li>
                 ))}
                 {preview.defects.length > 3 && (
-                  <li>...and {preview.defects.length - 3} more issues</li>
+                  <li>{translateRecentFeature("studyPlans.ui.and-var0-more-issues.4db2f3b8", {var0: preview.defects.length - 3})}</li>
                 )}
               </ul>
             </div>
@@ -125,12 +135,10 @@ export const LegacyStudyPlanImport: React.FC<LegacyStudyPlanImportProps> = ({
               ) : (
                 <ArrowRight size={16} />
               )}
-              <span>{isImporting ? 'Importing…' : 'Import Accepted Items'}</span>
+              <span>{isImporting ? translateRecentFeature("studyPlans.ui.importing.703bf845") : translateRecentFeature("studyPlans.ui.import-accepted-items.4ba671ed")}</span>
             </Button>
 
-            <span className="text-[11px] text-surface-500">
-              {preview.validPaths.length} of {preview.totalPaths} path(s) ready to import
-            </span>
+            <span className="text-[11px] text-surface-500">{translateRecentFeature("studyPlans.ui.var0-of-var1-path-s-ready-to.9b184d35", {var0: preview.validPaths.length, var1: preview.totalPaths})}</span>
           </div>
         </div>
       </div>

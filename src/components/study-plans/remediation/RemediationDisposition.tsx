@@ -1,4 +1,6 @@
 import React from 'react';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface RemediationDispositionProps {
   recommendationId: string;
@@ -11,11 +13,10 @@ export const RemediationDisposition: React.FC<RemediationDispositionProps> = ({
   status,
   onDisposition,
 }) => {
-  if (status !== 'suggested') {
+        useI18n();
+        if (status !== 'suggested') {
     return (
-      <span data-testid={`remediation-status-${recommendationId}`} className="text-xs">
-        Disposition: {status} (reversible — evidence preserved)
-      </span>
+      <span data-testid={`remediation-status-${recommendationId}`} className="text-xs">{translateRecentFeature("studyPlans.ui.disposition-var0-reversible-.2ebab084", {var0: status})}</span>
     );
   }
   return (
@@ -26,16 +27,14 @@ export const RemediationDisposition: React.FC<RemediationDispositionProps> = ({
         onClick={() => void onDisposition?.('accepted')}
         className="text-xs underline min-h-[32px]"
       >
-        Accept
-      </button>
+        {translateRecentFeature("studyPlans.ui.accept.20ea1c04")}</button>
       <button
         type="button"
         data-testid={`remediation-dismiss-${recommendationId}`}
         onClick={() => void onDisposition?.('dismissed')}
         className="text-xs underline min-h-[32px]"
       >
-        Reject
-      </button>
+        {translateRecentFeature("studyPlans.ui.reject.99208483")}</button>
     </div>
   );
 };

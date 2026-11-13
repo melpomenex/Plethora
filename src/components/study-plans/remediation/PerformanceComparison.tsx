@@ -1,5 +1,7 @@
 import React from 'react';
 import type { AttemptSummary } from '../../../types/assessmentSessions';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface PerformanceComparisonProps {
   attempts: AttemptSummary[];
@@ -11,12 +13,12 @@ export interface PerformanceComparisonProps {
  * cross-paper history, never an equivalence claim.
  */
 export const PerformanceComparison: React.FC<PerformanceComparisonProps> = ({ attempts }) => {
-  const complete = attempts.filter((a) => a.status === 'complete' && a.awardedPoints !== null);
+        useI18n();
+        const complete = attempts.filter((a) => a.status === 'complete' && a.awardedPoints !== null);
   if (complete.length === 0) {
     return (
       <p data-testid="performance-empty" className="text-xs text-on-surface-variant">
-        No Final scores yet — pending or failed items are not compared.
-      </p>
+        {translateRecentFeature("studyPlans.ui.no-final-scores-yet-pending-.70e149dc")}</p>
     );
   }
   const byRevision = new Map<string, AttemptSummary[]>();
@@ -28,7 +30,7 @@ export const PerformanceComparison: React.FC<PerformanceComparisonProps> = ({ at
   return (
     <div data-testid="performance-comparison" className="space-y-2 text-xs">
       {Array.from(byRevision.entries()).map(([rev, list]) => {
-        const sorted = [...list].sort((a, b) =>
+                const sorted = [...list].sort((a, b) =>
           (a.startedAt ?? a.id).localeCompare(b.startedAt ?? b.id),
         );
         const first = sorted[0];
@@ -44,13 +46,11 @@ export const PerformanceComparison: React.FC<PerformanceComparisonProps> = ({ at
             className="rounded-xl border border-outline-variant/30 p-3"
           >
             <p>
-              {sorted.length > 1 ? 'Same-paper' : 'Cross-paper'} · {sorted.length} Final attempt(s)
-              {delta !== null && sorted.length > 1 ? ` · delta ${delta >= 0 ? '+' : ''}${delta.toFixed(1)} pts` : ''}
+              {sorted.length > 1 ? translateRecentFeature("studyPlans.ui.same-paper.9b676326") : translateRecentFeature("studyPlans.ui.cross-paper.3e1f2a83")}{translateRecentFeature("studyPlans.ui.var0-final-attempt-s.effa888c", {var0: sorted.length})}{delta !== null && sorted.length > 1 ? translateRecentFeature("i18nAudit.ui.delta-var0-var1-pts.8b2ab15f", {var0: delta >= 0 ? '+' : '', var1: delta.toFixed(1)}) : ''}
             </p>
             {sorted.length > 1 && (
               <p className="text-on-surface-variant">
-                Same-paper retakes may include memory or familiarization effects.
-              </p>
+                {translateRecentFeature("studyPlans.ui.same-paper-retakes-may-inclu.b6a8c525")}</p>
             )}
           </div>
         );

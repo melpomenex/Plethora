@@ -5,6 +5,9 @@ import { getStudyPlanEvidence } from '../../../api/learning-evidence';
 import { useKnowledgeGapsStore } from '../../../stores/knowledgeGapsStore';
 import { NodeLearningProgressView } from './NodeLearningProgress';
 import { GapHistory } from './GapHistory';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+import { studyErrorMessage } from "../../../lib/study-plans/studyErrorMessage";
+
 
 export interface StudyPlanProgressProps {
   planId: string;
@@ -23,7 +26,8 @@ export const StudyPlanProgress: React.FC<StudyPlanProgressProps> = ({
   onOpenLesson,
   onProposeCards,
 }) => {
-  const [summary, setSummary] = useState<PlanEvidenceSummary | null>(null);
+        useI18n();
+        const [summary, setSummary] = useState<PlanEvidenceSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const gaps = useKnowledgeGapsStore((s) => s.gaps);
@@ -40,7 +44,7 @@ export const StudyPlanProgress: React.FC<StudyPlanProgressProps> = ({
       setSummary(s);
       await loadGaps(planId);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : String(err));
+      setLoadError(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")));
     } finally {
       setIsLoading(false);
     }
@@ -56,25 +60,23 @@ export const StudyPlanProgress: React.FC<StudyPlanProgressProps> = ({
       const s = await getStudyPlanEvidence(planId);
       setSummary(s);
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : String(err));
+      setLoadError(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")));
     }
   }, [planId, refreshGaps]);
 
   if (isLoading) {
     return (
       <div aria-live="polite" data-testid="plan-progress-loading" className="text-sm">
-        Loading demonstrated evidence…
-      </div>
+        {translateRecentFeature("studyPlans.ui.loading-demonstrated-evidenc.09e69b10")}</div>
     );
   }
 
   if (loadError) {
     return (
       <div role="alert" data-testid="plan-progress-error" className="text-sm space-y-2">
-        <p>Evidence unavailable offline or without native support: {loadError}</p>
+        <p>{translateRecentFeature("studyPlans.ui.evidence-unavailable-offline.76d8b0df", {var0: loadError})}</p>
         <button type="button" onClick={() => void load()} className="text-xs underline">
-          Retry
-        </button>
+          {translateRecentFeature("assistant.actions.retry")}</button>
       </div>
     );
   }
@@ -84,19 +86,18 @@ export const StudyPlanProgress: React.FC<StudyPlanProgressProps> = ({
   const handleDismiss = (id: string) => {
     const gap = planGaps.find((item) => item.id === id);
     if (!gap) return;
-    void dismissGapNative(id, gap.evidenceCutoff).catch(() => setLoadError('Could not dismiss the gap.'));
+    void dismissGapNative(id, gap.evidenceCutoff).catch(() =>
+      setLoadError(translateRecentFeature("studyPlans.ui.operation-failed")),
+    );
   };
 
   return (
     <div data-testid="plan-progress" className="space-y-4">
       <p className="text-xs text-on-surface-variant">
-        Three separate axes — content coverage, study activity, demonstrated evidence. No composite
-        score is shown and no value is a probability of mastery.
-      </p>
+        {translateRecentFeature("studyPlans.ui.three-separate-axes-content-.c23e3535")}</p>
       {nodes.length === 0 ? (
         <p data-testid="plan-progress-empty" className="text-sm text-on-surface-variant">
-          No node evidence yet. Coverage and activity alone are not mastery.
-        </p>
+          {translateRecentFeature("studyPlans.ui.no-node-evidence-yet-coverag.bdb44e67")}</p>
       ) : (
         <div className="space-y-3">
           {nodes.map((n) => (

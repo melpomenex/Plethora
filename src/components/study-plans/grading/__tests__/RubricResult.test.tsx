@@ -94,7 +94,7 @@ describe('RubricResult', () => {
     render(<RubricResult question={mockQuestion} grade={mockFinalGrade} />);
 
     expect(screen.getByText('Rubric Assessment')).toBeInTheDocument();
-    expect(screen.getByText('final')).toBeInTheDocument();
+    expect(screen.getByText('Final')).toBeInTheDocument();
     expect(screen.getByText('4')).toBeInTheDocument();
     expect(screen.getByText('/ 4 pts')).toBeInTheDocument();
     expect(
@@ -121,7 +121,7 @@ describe('RubricResult', () => {
       />
     );
 
-    expect(screen.getByText('needs-review')).toBeInTheDocument();
+    expect(screen.getByText('Needs review')).toBeInTheDocument();
     expect(screen.getByText('(Awaiting Review)')).toBeInTheDocument();
 
     const reviewBtn = screen.getByRole('button', { name: /manual review/i });

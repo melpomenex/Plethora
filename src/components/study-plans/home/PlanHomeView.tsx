@@ -14,6 +14,8 @@ import type { StudyPlanDetail } from '../../../types/learningPaths';
 import { projectPlanHome } from '../../../lib/study-plans/home/projection';
 import { ContextMenu, type ContextMenuItem } from '../../common/ContextMenu';
 import { useStudyPlanContextMenu } from '../useStudyPlanContextMenu';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 const contextMenuId = 'study-plan-home-context-menu';
 
@@ -32,19 +34,20 @@ export const PlanHomeView: React.FC<PlanHomeViewProps> = ({
   onOpenReview,
   onOpenPath,
 }) => {
-  const contextMenu = useStudyPlanContextMenu(contextMenuId);
+        useI18n();
+        const contextMenu = useStudyPlanContextMenu(contextMenuId);
   const projection = projectPlanHome(planDetail, { dueReviewCount });
   const { recommendation } = projection;
 
   return (
-    <div ref={contextMenu.ownerRef} tabIndex={-1} className="space-y-4" aria-label="Plan Home">
+    <div ref={contextMenu.ownerRef} tabIndex={-1} className="space-y-4" aria-label={translateRecentFeature("studyPlans.ui.plan-home.de5b1d7a")}>
       <section
         tabIndex={0}
         onContextMenu={(event) => {
-          const items: ContextMenuItem[] = recommendation.nodeId
+                    const items: ContextMenuItem[] = recommendation.nodeId
             ? [
-                { id: 'continue-topic', label: 'Continue', onClick: () => onContinue(recommendation.nodeId!) },
-                { id: 'browse-path', label: 'Browse path', onClick: onOpenPath },
+                { id: 'continue-topic', label: translateRecentFeature("studyPlans.ui.continue.41e55474"), onClick: () => onContinue(recommendation.nodeId!) },
+                { id: 'browse-path', label: translateRecentFeature("studyPlans.ui.browse-path.993988b0"), onClick: onOpenPath },
               ]
             : [];
           contextMenu.openMenu(event, items);
@@ -53,7 +56,7 @@ export const PlanHomeView: React.FC<PlanHomeViewProps> = ({
       >
         <div className="flex items-center gap-2 text-xs font-semibold text-primary-700 dark:text-primary-300 uppercase tracking-wide">
           <Sparkle size={14} />
-          <span>Today</span>
+          <span>{translateRecentFeature("dateRange.today")}</span>
         </div>
         {recommendation.nodeId ? (
           <>
@@ -62,23 +65,23 @@ export const PlanHomeView: React.FC<PlanHomeViewProps> = ({
                 {recommendation.title}
               </h3>
               <p className="text-sm text-surface-600 dark:text-surface-300">
-                {recommendation.reasonLabelKey}
+                {translateRecentFeature(recommendation.reasonLabelKey)}
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <Button variant="filled" size="sm" onClick={() => onContinue(recommendation.nodeId!)}>
-                <span>Continue</span>
+                <span>{translateRecentFeature("studyPlans.ui.continue.41e55474")}</span>
                 <ArrowRight size={16} />
               </Button>
               <Button variant="tonal" size="sm" onClick={onOpenPath}>
-                <span>Browse path</span>
+                <span>{translateRecentFeature("studyPlans.ui.browse-path.993988b0")}</span>
               </Button>
             </div>
             {recommendation.blockedDependents.length > 0 && (
               <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 text-xs text-amber-800 dark:text-amber-200">
                 <Warning size={14} className="flex-shrink-0 mt-0.5" />
                 <span>
-                  Waiting on this topic:{' '}
+                  {translateRecentFeature("studyPlans.ui.waiting-on-this-topic.3062c79e")}{' '}
                   {recommendation.blockedDependents.map((d) => d.title).join(', ')}
                 </span>
               </div>
@@ -86,29 +89,31 @@ export const PlanHomeView: React.FC<PlanHomeViewProps> = ({
           </>
         ) : (
           <p className="text-sm text-surface-600 dark:text-surface-300">
-            {recommendation.reasonLabelKey}
+            {translateRecentFeature(recommendation.reasonLabelKey)}
           </p>
         )}
       </section>
 
       <section
         tabIndex={0}
-        onContextMenu={(event) => contextMenu.openMenu(event, [
-          { id: 'review-due', label: 'Review', onClick: onOpenReview },
-        ])}
+        onContextMenu={(event) => {
+                    return contextMenu.openMenu(event, [
+          { id: 'review-due', label: translateRecentFeature("tabs.review"), onClick: onOpenReview },
+        ]);
+        }}
         className="rounded-2xl border border-surface-200 dark:border-surface-700 p-4 flex items-center justify-between gap-3"
       >
         <div className="flex items-center gap-2">
           <CalendarCheck size={18} className="text-primary-500" />
           <div>
-            <div className="text-xs font-semibold text-surface-700 dark:text-surface-200">Due reviews</div>
+            <div className="text-xs font-semibold text-surface-700 dark:text-surface-200">{translateRecentFeature("studyPlans.ui.due-reviews.fc994bca")}</div>
             <div className="text-sm text-surface-500">
-              {projection.dueReviewCount == null ? 'Unavailable' : `${projection.dueReviewCount} due`}
+              {projection.dueReviewCount == null ? translateRecentFeature("studyPlans.ui.unavailable.a79c5108") : translateRecentFeature("i18nAudit.ui.var0-due.f33c0abe", {var0: projection.dueReviewCount})}
             </div>
           </div>
         </div>
         <Button variant="outlined" size="sm" onClick={onOpenReview}>
-          <span>Review</span>
+          <span>{translateRecentFeature("tabs.review")}</span>
         </Button>
       </section>
       <ContextMenu

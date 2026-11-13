@@ -12,6 +12,8 @@ import type {
   LearnerConfidence,
 } from '../../../types/assessmentQuestions';
 import { ConfidenceSelector } from './ConfidenceSelector';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface SingleSelectInputProps {
   question: SingleSelectQuestion;
@@ -32,7 +34,8 @@ export const SingleSelectInput: React.FC<SingleSelectInputProps> = ({
   disabled = false,
   className = '',
 }) => {
-  return (
+        useI18n();
+        return (
     <div className={`space-y-6 ${className}`}>
       {/* Fieldset with Radio Options */}
       <fieldset className="space-y-3" disabled={disabled}>
@@ -40,7 +43,7 @@ export const SingleSelectInput: React.FC<SingleSelectInputProps> = ({
           {question.prompt}
         </legend>
 
-        <div className="space-y-2.5" role="radiogroup" aria-label="Answer options">
+        <div className="space-y-2.5" role="radiogroup" aria-label={translateRecentFeature("studyPlans.ui.answer-options.3691f852")}>
           {question.options.map((option, index) => {
             const isSelected = selectedOptionId === option.id;
             const letter = String.fromCharCode(65 + index); // A, B, C, D...

@@ -1,6 +1,8 @@
 import React from 'react';
 import type { NodeLearningProgress } from '../../../types/learningEvidence';
 import { EvidenceSummaryCard } from './EvidenceSummaryCard';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface NodeLearningProgressProps {
   progress: NodeLearningProgress;
@@ -13,9 +15,10 @@ export const NodeLearningProgressView: React.FC<NodeLearningProgressProps> = ({
   nodeTitle,
   onOpenSource,
 }) => {
-  return (
+        useI18n();
+        return (
     <section
-      aria-label={`Learning progress${nodeTitle ? ` for ${nodeTitle}` : ''}`}
+      aria-label={translateRecentFeature("studyPlans.ui.learning-progress-var0.b564bf35", {var0: nodeTitle ? ` for ${nodeTitle}` : ''})}
       data-testid={`node-progress-${progress.nodeId}`}
       className="rounded-xl border border-outline-variant/30 p-4 space-y-3"
     >
@@ -23,26 +26,23 @@ export const NodeLearningProgressView: React.FC<NodeLearningProgressProps> = ({
       <dl className="grid grid-cols-1 gap-2 text-sm">
         <div>
           <dt className="text-xs font-medium uppercase tracking-wide text-on-surface-variant">
-            Content coverage
-          </dt>
+            {translateRecentFeature("studyPlans.ui.content-coverage.ba917d5a")}</dt>
           <dd data-testid="axis-coverage">
             {typeof progress.contentCoverage === 'string'
               ? progress.contentCoverage
-              : 'Coverage computed — see library analysis'}
+              : translateRecentFeature("studyPlans.ui.coverage-computed-see-librar.c4e71df5")}
           </dd>
         </div>
         <div>
           <dt className="text-xs font-medium uppercase tracking-wide text-on-surface-variant">
-            Study activity
-          </dt>
+            {translateRecentFeature("studyPlans.ui.study-activity.cfeaf39a")}</dt>
           <dd data-testid="axis-activity">
             {typeof progress.activity === 'string' ? progress.activity : JSON.stringify(progress.activity)}
           </dd>
         </div>
         <div>
           <dt className="text-xs font-medium uppercase tracking-wide text-on-surface-variant">
-            Demonstrated evidence
-          </dt>
+            {translateRecentFeature("studyPlans.ui.demonstrated-evidence.c7f9323b")}</dt>
           <dd data-testid="axis-demonstrated">
             {progress.demonstrated ? (
               <EvidenceSummaryCard summary={progress.demonstrated} />
@@ -54,17 +54,17 @@ export const NodeLearningProgressView: React.FC<NodeLearningProgressProps> = ({
       </dl>
       {progress.sourceStatuses.length > 0 && (
         <div className="flex flex-wrap gap-1">
-          {progress.sourceStatuses.map((s, i) => (
+          {progress.sourceStatuses.map((s, i) => {
+                        return (
             <button
               key={`${s}-${i}`}
               type="button"
               data-testid={`source-status-${s}`}
               onClick={() => onOpenSource?.(s)}
               className="text-xs underline"
-            >
-              Source: {s}
-            </button>
-          ))}
+            >{translateRecentFeature("studyPlans.ui.source-var0.8b166fbd", {var0: s})}</button>
+          );
+          })}
         </div>
       )}
     </section>

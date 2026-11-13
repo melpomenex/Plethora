@@ -1,6 +1,8 @@
 import React from 'react';
 import type { CurriculumPriorEvidence } from '../../../lib/study-plans/generation/types';
 import type { ConceptMasterySummary } from '../../../types/learningEvidence';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface DiagnosticResultsAdapterProps {
   priorEvidence: CurriculumPriorEvidence | null;
@@ -19,33 +21,30 @@ export const DiagnosticResultsAdapter: React.FC<DiagnosticResultsAdapterProps> =
   onApply,
   onReject,
 }) => {
-  if (!priorEvidence) {
+        useI18n();
+        if (!priorEvidence) {
     return (
       <p data-testid="diagnostic-results-empty" className="text-xs text-on-surface-variant">
-        No diagnostic evidence — skipped or incomplete. Apply disabled; rejecting leaves the draft unchanged.
-      </p>
+        {translateRecentFeature("studyPlans.ui.no-diagnostic-evidence-skipp.648d0699")}</p>
     );
   }
   const disabled = hasPendingGrading || !!applyDisabledReason;
   return (
-    <section aria-label="Diagnostic results" data-testid="diagnostic-results" className="space-y-2 rounded-xl border border-outline-variant/30 p-4">
-      <p className="text-xs" data-testid="diagnostic-attempt">
-        Diagnostic {priorEvidence.diagnosticAttemptId}: {priorEvidence.concepts.length} concept(s).
-      </p>
+    <section aria-label={translateRecentFeature("studyPlans.ui.diagnostic-results.ee1010a6")} data-testid="diagnostic-results" className="space-y-2 rounded-xl border border-outline-variant/30 p-4">
+      <p className="text-xs" data-testid="diagnostic-attempt">{translateRecentFeature("studyPlans.ui.diagnostic-var0-var1-concept.fb91ff5b", {var0: priorEvidence.diagnosticAttemptId, var1: priorEvidence.concepts.length})}</p>
       <ul className="text-xs space-y-1">
         {priorEvidence.concepts.map((c) => (
           <li key={c.conceptId} data-testid={`diagnostic-concept-${c.conceptId}`}>
             {c.conceptId}: {c.level}
             {summaries.find((s) => s.conceptId === c.conceptId)?.observedMean !== undefined
-              ? ` (observed ${summaries.find((s) => s.conceptId === c.conceptId)?.observedMean ?? '—'})`
+              ? translateRecentFeature("i18nAudit.ui.observed-var0.6aaac7c1", {var0: summaries.find((s) => s.conceptId === c.conceptId)?.observedMean ?? '—'})
               : ''}
           </li>
         ))}
       </ul>
       {hasPendingGrading && (
         <p role="alert" data-testid="diagnostic-pending" className="text-xs">
-          Grading pending — Retry or Manual review required. Apply disabled until all official items are final.
-        </p>
+          {translateRecentFeature("studyPlans.ui.grading-pending-retry-or-man.10fb6c11")}</p>
       )}
       <div className="flex gap-2">
         <button
@@ -56,8 +55,7 @@ export const DiagnosticResultsAdapter: React.FC<DiagnosticResultsAdapterProps> =
           onClick={() => void onApply?.()}
           className="text-xs underline min-h-[32px] disabled:opacity-50"
         >
-          Apply to draft
-        </button>
+          {translateRecentFeature("studyPlans.ui.apply-to-draft.1a7a9004")}</button>
         {onReject && (
           <button
             type="button"
@@ -65,11 +63,10 @@ export const DiagnosticResultsAdapter: React.FC<DiagnosticResultsAdapterProps> =
             onClick={() => void onReject?.()}
             className="text-xs underline min-h-[32px]"
           >
-            Reject adaptation
-          </button>
+            {translateRecentFeature("studyPlans.ui.reject-adaptation.f527cf4a")}</button>
         )}
       </div>
-      <p className="text-xs text-on-surface-variant">Apply creates a reviewable Draft/diff with plan/head CAS; Publish stays explicit.</p>
+      <p className="text-xs text-on-surface-variant">{translateRecentFeature("studyPlans.ui.apply-creates-a-reviewable-d.8c2662ff")}</p>
     </section>
   );
 };

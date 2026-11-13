@@ -4,6 +4,9 @@ import type { RemediationRecommendation } from '../../../types/learningEvidence'
 import type { StudySourceRefV1 } from '../../../types/studySource';
 import { adaptRemediationToCardProposals } from '../../../lib/study-plans/remediation/cardProposalAdapter';
 import { acceptRemediationCards } from '../../../lib/study-plans/remediation/cardAcceptance';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+import { studyErrorMessage } from "../../../lib/study-plans/studyErrorMessage";
+
 
 export interface CardProposalHostProps {
   remediation: RemediationRecommendation;
@@ -26,7 +29,8 @@ export const CardProposalHost: React.FC<CardProposalHostProps> = ({
   onClose,
   onAccepted,
 }) => {
-  const [sheetOpen, setSheetOpen] = useState(open);
+        useI18n();
+        const [sheetOpen, setSheetOpen] = useState(open);
   const [notice, setNotice] = useState<string | null>(null);
 
   // Static preview only until explicit Accept; Reject writes nothing.
@@ -40,31 +44,28 @@ export const CardProposalHost: React.FC<CardProposalHostProps> = ({
         },
       ]);
     } catch (err) {
-      return { error: err instanceof Error ? err.message : String(err) } as const;
+      return { error: studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")) } as const;
     }
   }, [remediation, sourceRefs]);
 
   if (!open) return null;
   if ('error' in adapted) {
     return (
-      <div role="alert" data-testid="card-host-error" className="p-4 text-sm">
-        Card preview unavailable: {adapted.error}
-        <button type="button" onClick={onClose} className="underline ml-2 min-h-[32px]">Close</button>
+      <div role="alert" data-testid="card-host-error" className="p-4 text-sm">{translateRecentFeature("studyPlans.ui.card-preview-unavailable-var.cef20f70", {var0: adapted.error})}<button type="button" onClick={onClose} className="underline ml-2 min-h-[32px]">{translateRecentFeature("common.close")}</button>
       </div>
     );
   }
 
   return (
     <div data-testid="card-proposal-host" className="space-y-2">
-      <p className="text-xs">Preview only — Accept creates one ordinary scheduled card; Reject writes nothing.</p>
+      <p className="text-xs">{translateRecentFeature("studyPlans.ui.preview-only-accept-creates-.829290c7")}</p>
       <button
         type="button"
         data-testid="card-host-preview"
         onClick={() => setSheetOpen(true)}
         className="text-xs underline min-h-[32px]"
       >
-        Preview card proposals
-      </button>
+        {translateRecentFeature("studyPlans.ui.preview-card-proposals.7895965a")}</button>
       <LearnThisProposalSheet
         open={sheetOpen}
         text={passage}
@@ -87,7 +88,7 @@ export const CardProposalHost: React.FC<CardProposalHostProps> = ({
         type="button"
         data-testid="card-host-accept"
         onClick={async () => {
-          const res = await acceptRemediationCards(
+                    const res = await acceptRemediationCards(
             adapted.proposals.map((p) => p.candidate),
             {
               documentId,
@@ -100,13 +101,12 @@ export const CardProposalHost: React.FC<CardProposalHostProps> = ({
               allowClozeDuplicate: false,
             },
           );
-          setNotice(`Accepted ${res.created} card(s)${res.reconciled ? ' (reconciled)' : ''}.`);
+          setNotice(translateRecentFeature("studyPlans.ui.accepted-var0-card-s-var1.3f4454b0", {var0: res.created, var1: res.reconciled ? ' (reconciled)' : ''}));
           onAccepted?.(res.created);
         }}
         className="text-xs underline min-h-[32px]"
       >
-        Accept via adapter
-      </button>
+        {translateRecentFeature("studyPlans.ui.accept-via-adapter.df75b377")}</button>
       {notice && (
         <p role="status" data-testid="card-host-notice" className="text-xs">{notice}</p>
       )}

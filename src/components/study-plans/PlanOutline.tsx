@@ -32,6 +32,8 @@ import {
 import { Button } from '../md3/Button';
 import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from '../common/ContextMenu';
 import { useStudyPlanContextMenu } from './useStudyPlanContextMenu';
+import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
+
 
 const contextMenuId = 'study-plan-outline-context-menu';
 
@@ -58,7 +60,8 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
   onStartLesson,
   isReadOnly = false,
 }) => {
-  const [orderConflict, setOrderConflict] = useState<string | null>(null);
+        useI18n();
+        const [orderConflict, setOrderConflict] = useState<string | null>(null);
   const contextMenu = useStudyPlanContextMenu(contextMenuId);
 
   const includedNodes = nodes
@@ -68,9 +71,9 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
   const tombstoneNodes = nodes.filter((n) => !n.included);
 
   const getMoveResult = (nodeId: string, delta: number) => {
-    if (isReadOnly) return { ok: false as const, reason: 'This plan is read only.' };
+    if (isReadOnly) return { ok: false as const, reason: translateRecentFeature("studyPlans.ui.cannot-move-plan-read-only") };
     const node = includedNodes.find((n) => n.nodeId === nodeId);
-    if (!node) return { ok: false as const, reason: 'This topic is unavailable.' };
+    if (!node) return { ok: false as const, reason: translateRecentFeature("studyPlans.ui.topic-unavailable") };
 
     const targetPos = node.position + delta;
     const reorderResult = reorderStudyPlanNode(nodes, prerequisites, nodeId, targetPos);
@@ -81,10 +84,15 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
         const maxP = (reorderResult.error.details?.maxPosition ?? includedNodes.length - 1) + 1;
         return {
           ok: false as const,
-          reason: `Cannot move "${node.title}" to position ${targetPos + 1}. Use positions ${minP}–${maxP} so prerequisites remain first.`,
+          reason: translateRecentFeature("studyPlans.ui.cannot-move-topic-to-position", {
+            title: node.title,
+            position: targetPos + 1,
+            minPosition: minP,
+            maxPosition: maxP,
+          }),
         };
       }
-      return { ok: false as const, reason: reorderResult.error.messageKey };
+      return { ok: false as const, reason: translateRecentFeature(reorderResult.error.messageKey) };
     }
 
     const movedLockedNode = nodes.find((lockedNode) => {
@@ -95,7 +103,10 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
     if (movedLockedNode) {
       return {
         ok: false as const,
-        reason: `Cannot move this topic because "${movedLockedNode.title}" is locked to position ${movedLockedNode.position + 1}.`,
+        reason: translateRecentFeature("studyPlans.ui.topic-locked-to-position", {
+          title: movedLockedNode.title,
+          position: movedLockedNode.position + 1,
+        }),
       };
     }
 
@@ -121,15 +132,15 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
   };
 
   const buildTopicMenuItems = (node: StudyPlanVersionNode, included: boolean): ContextMenuItem[] => {
-    const items: ContextMenuItem[] = [
-      { id: 'open-topic', label: 'Open topic', onClick: () => onSelectNode(node.nodeId) },
+        const items: ContextMenuItem[] = [
+      { id: 'open-topic', label: translateRecentFeature("studyPlans.ui.open-topic.77ee1567"), onClick: () => onSelectNode(node.nodeId) },
     ];
 
     if (!included) {
       if (!isReadOnly) {
         items.push({
           id: 'restore-topic',
-          label: 'Restore',
+          label: translateRecentFeature("mainLayout.restore"),
           icon: <ArrowCounterClockwise size={16} />,
           onClick: () => handleRestoreTombstone(node.nodeId),
         });
@@ -138,7 +149,7 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
     }
 
     if (onStartLesson) {
-      items.push({ id: 'start-lesson', label: 'Start lesson', icon: <PlayCircle size={16} />, onClick: () => onStartLesson(node.nodeId) });
+      items.push({ id: 'start-lesson', label: translateRecentFeature("studyPlans.ui.start-lesson.a198f27f"), icon: <PlayCircle size={16} />, onClick: () => onStartLesson(node.nodeId) });
     }
 
     if (!isReadOnly) {
@@ -166,7 +177,7 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
         {
           id: 'remove-topic',
           type: ContextMenuItemType.Danger,
-          label: 'Remove from plan',
+          label: translateRecentFeature("studyPlans.ui.remove-from-plan.2085a375"),
           icon: <Trash size={16} />,
           onClick: () => handleNodeUpdate({ ...node, included: false, position: -1, userModified: true }),
         },
@@ -177,7 +188,7 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
   };
 
   const handleAddTopic = () => {
-    if (isReadOnly || nodes.length >= 100) return;
+        if (isReadOnly || nodes.length >= 100) return;
     setOrderConflict(null);
 
     const newId = `spn_manual_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
@@ -185,7 +196,7 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
 
     const newNode: StudyPlanVersionNode = {
       nodeId: newId,
-      title: `Topic ${newPosition + 1}`,
+      title: translateRecentFeature("studyPlans.ui.topic-var0.7b244fd9", {var0: newPosition + 1}),
       summary: '',
       learningObjectives: ['Learn topic fundamentals'],
       conceptId: null,
@@ -225,28 +236,28 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
   };
 
   const renderActivityIcon = (act?: NodeActivity) => {
-    switch (act) {
+        switch (act) {
       case 'completed':
         return (
-          <span title="Completed">
+          <span title={translateRecentFeature("studyPlans.ui.completed.b0775abf")}>
             <CheckCircle size={15} weight="fill" className="text-emerald-500" />
           </span>
         );
       case 'in-progress':
         return (
-          <span title="In progress">
+          <span title={translateRecentFeature("studyPlans.ui.in-progress.3850f9d6")}>
             <PlayCircle size={15} className="text-blue-500" />
           </span>
         );
       case 'skipped':
         return (
-          <span title="Skipped">
+          <span title={translateRecentFeature("studyPlans.ui.skipped.76bc3e23")}>
             <Prohibit size={15} className="text-amber-500" />
           </span>
         );
       default:
         return (
-          <span title="Not started">
+          <span title={translateRecentFeature("documentsView.notStarted")}>
             <Circle size={15} className="text-surface-400" />
           </span>
         );
@@ -269,24 +280,22 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
             onClick={() => setOrderConflict(null)}
             className="text-amber-600 dark:text-amber-400 font-bold hover:underline"
           >
-            Dismiss
-          </button>
+            {translateRecentFeature("queue.dismiss")}</button>
         </div>
       )}
 
       {/* Included ordered list */}
       <div
         role="list"
-        aria-label="Ordered study plan topics"
+        aria-label={translateRecentFeature("studyPlans.ui.ordered-study-plan-topics.a8de237a")}
         className="space-y-2"
       >
         {includedNodes.length === 0 ? (
           <div className="py-8 text-center text-xs text-surface-500 border border-dashed border-surface-200 dark:border-surface-700 rounded-2xl">
-            No active topics in this plan.
-          </div>
+            {translateRecentFeature("studyPlans.ui.no-active-topics-in-this-pla.479d6b03")}</div>
         ) : (
           includedNodes.map((n, idx) => {
-            const isSelected = selectedNodeId === n.nodeId;
+                        const isSelected = selectedNodeId === n.nodeId;
             const activity = activityByNodeId[n.nodeId] || 'not-started';
             const isFirst = idx === 0;
             const isLast = idx === includedNodes.length - 1;
@@ -323,13 +332,11 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
                         {n.title}
                       </span>
                       {n.locked && (
-                        <span title="Locked">
+                        <span title={translateRecentFeature("studyPlans.ui.locked.784cd9a0")}>
                           <Lock size={12} weight="fill" className="text-amber-500" />
                         </span>
                       )}
-                      <span className="text-[10px] text-surface-400 font-medium">
-                        {n.learningObjectives.length} obj
-                      </span>
+                      <span className="text-[10px] text-surface-400 font-medium">{translateRecentFeature("studyPlans.ui.var0-obj.2bd755bf", {var0: n.learningObjectives.length})}</span>
                     </div>
                   </div>
                 </div>
@@ -344,8 +351,8 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
                       disabled={isFirst || !moveEarlier.ok}
                       onClick={() => handleMove(n.nodeId, -1)}
                       className="p-1.5 rounded-lg text-surface-500 hover:text-surface-900 dark:hover:text-surface-100 hover:bg-surface-200 dark:hover:bg-surface-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                      title={moveEarlier.ok ? 'Move earlier (Up)' : moveEarlier.reason}
-                      aria-label={`Move ${n.title} earlier`}
+                      title={moveEarlier.ok ? translateRecentFeature("studyPlans.ui.move-earlier-up.15fc9147") : moveEarlier.reason}
+                      aria-label={translateRecentFeature("studyPlans.ui.move-var0-earlier.10d80193", {var0: n.title})}
                     >
                       <ArrowUp size={14} />
                     </button>
@@ -354,8 +361,8 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
                       disabled={isLast || !moveLater.ok}
                       onClick={() => handleMove(n.nodeId, 1)}
                       className="p-1.5 rounded-lg text-surface-500 hover:text-surface-900 dark:hover:text-surface-100 hover:bg-surface-200 dark:hover:bg-surface-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                      title={moveLater.ok ? 'Move later (Down)' : moveLater.reason}
-                      aria-label={`Move ${n.title} later`}
+                      title={moveLater.ok ? translateRecentFeature("studyPlans.ui.move-later-down.7d2ed06b") : moveLater.reason}
+                      aria-label={translateRecentFeature("studyPlans.ui.move-var0-later.2688aa0f", {var0: n.title})}
                     >
                       <ArrowDown size={14} />
                     </button>
@@ -375,18 +382,17 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
           onClick={handleAddTopic}
         >
           <Plus size={16} />
-          <span>Add Topic</span>
+          <span>{translateRecentFeature("studyPlans.ui.add-topic.00de0b4e")}</span>
         </Button>
       )}
 
       {/* Removed Topics (Tombstones) */}
       {tombstoneNodes.length > 0 && (
         <div className="pt-4 border-t border-surface-200 dark:border-surface-700">
-          <h4 className="text-xs font-bold text-surface-500 uppercase tracking-wider mb-2">
-            Removed Topics ({tombstoneNodes.length})
-          </h4>
+          <h4 className="text-xs font-bold text-surface-500 uppercase tracking-wider mb-2">{translateRecentFeature("studyPlans.ui.removed-topics-var0.49d8cbed", {var0: tombstoneNodes.length})}</h4>
           <div className="space-y-1.5">
-            {tombstoneNodes.map((n) => (
+            {tombstoneNodes.map((n) => {
+                            return (
               <div
                 key={n.nodeId}
                 tabIndex={0}
@@ -401,11 +407,12 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
                     onClick={() => handleRestoreTombstone(n.nodeId)}
                   >
                     <ArrowCounterClockwise size={14} className="text-emerald-500" />
-                    <span>Restore</span>
+                    <span>{translateRecentFeature("mainLayout.restore")}</span>
                   </Button>
                 )}
               </div>
-            ))}
+            );
+            })}
           </div>
         </div>
       )}

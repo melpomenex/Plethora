@@ -17,7 +17,10 @@ import { StudyPlanSummaryCard } from './StudyPlanSummaryCard';
 import { LegacyStudyPlanImport } from './LegacyStudyPlanImport';
 import { StudyPlanStateNotice } from './StudyPlanStateNotice';
 import { Button } from '../md3/Button';
+import { StudyPlansScrollContainer } from './StudyPlansScrollContainer';
 import { studyErrorMessage } from '../../lib/study-plans/studyErrorMessage';
+import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
+
 
 export interface StudyPlanListProps {
   onCreateClick: () => void;
@@ -30,7 +33,8 @@ export const StudyPlanList: React.FC<StudyPlanListProps> = ({
   onOpenPlan,
   onOpenAssessmentHistory,
 }) => {
-  const plans = useLearningPathsStore((s) => s.plans);
+    useI18n();
+    const plans = useLearningPathsStore((s) => s.plans);
   const isLoading = useLearningPathsStore((s) => s.isLoading);
   const error = useLearningPathsStore((s) => s.error);
   const loadPlans = useLearningPathsStore((s) => s.loadPlans);
@@ -75,25 +79,23 @@ export const StudyPlanList: React.FC<StudyPlanListProps> = ({
   });
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto overscroll-contain max-w-5xl mx-auto p-6 space-y-6">
+    <StudyPlansScrollContainer className="max-w-5xl mx-auto p-4 sm:p-6 space-y-6" data-study-plans-scroll="list">
       {/* Top Header Row */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-surface-200 dark:border-surface-700">
         <div>
           <h1 className="text-2xl font-bold text-surface-900 dark:text-surface-100">
-            Study Plans
-          </h1>
+            {translateRecentFeature("palette.destination.studyPlans")}</h1>
           <p className="text-xs text-surface-500 mt-0.5">
-            Structured, source-grounded learning curricula and mastery paths.
-          </p>
+            {translateRecentFeature("studyPlans.ui.structured-source-grounded-l.ef7fcec9")}</p>
         </div>
 
         <div className="flex flex-wrap gap-2">
           {onOpenAssessmentHistory && (
-            <Button variant="outlined" onClick={onOpenAssessmentHistory}>Assessment history</Button>
+            <Button variant="outlined" onClick={onOpenAssessmentHistory}>{translateRecentFeature("studyPlans.ui.assessment-history.1c6c7d5b")}</Button>
           )}
           <Button variant="filled" onClick={onCreateClick} data-testid="create-study-plan-btn">
             <Plus size={18} />
-            <span>Create Study Plan</span>
+            <span>{translateRecentFeature("studyPlans.ui.create-study-plan.e0316395")}</span>
           </Button>
         </div>
       </div>
@@ -105,7 +107,7 @@ export const StudyPlanList: React.FC<StudyPlanListProps> = ({
       {error && !isLoading && (
         <StudyPlanStateNotice
           type="storage_failed"
-          message={studyErrorMessage(error, 'Could not load Study Plans.')}
+          message={studyErrorMessage(error, translateRecentFeature("studyPlans.ui.could-not-load-study-plans.a1d235d8"))}
           onRetry={refreshPlans}
         />
       )}
@@ -122,40 +124,38 @@ export const StudyPlanList: React.FC<StudyPlanListProps> = ({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search plans by title or goal…"
+            placeholder={translateRecentFeature("studyPlans.ui.search-plans-by-title-or-goa.e59cfc74")}
             className="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 text-surface-900 dark:text-surface-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
-            aria-label="Search study plans"
+            aria-label={translateRecentFeature("studyPlans.ui.search-study-plans.702e19e4")}
           />
         </div>
 
         {/* Active vs Archived segmented button */}
         <div
           role="group"
-          aria-label="Filter study plans"
+          aria-label={translateRecentFeature("studyPlans.ui.filter-study-plans.137737c3")}
           className="flex p-0.5 rounded-xl bg-surface-100 dark:bg-surface-800 border border-surface-200 dark:border-surface-700 text-xs font-semibold"
         >
           <button
             type="button"
             onClick={() => setActiveTab('active')}
-            className={`px-3 py-1 rounded-lg transition-colors ${
+            className={`min-h-11 px-3 py-1 rounded-lg transition-colors ${
               activeTab === 'active'
                 ? 'bg-surface-0 dark:bg-surface-700 text-surface-900 dark:text-surface-100 shadow-sm'
                 : 'text-surface-500 hover:text-surface-800 dark:hover:text-surface-200'
             }`}
           >
-            Active Plans
-          </button>
+            {translateRecentFeature("studyPlans.ui.active-plans.6ae55b38")}</button>
           <button
             type="button"
             onClick={() => setActiveTab('archived')}
-            className={`px-3 py-1 rounded-lg transition-colors ${
+            className={`min-h-11 px-3 py-1 rounded-lg transition-colors ${
               activeTab === 'archived'
                 ? 'bg-surface-0 dark:bg-surface-700 text-surface-900 dark:text-surface-100 shadow-sm'
                 : 'text-surface-500 hover:text-surface-800 dark:hover:text-surface-200'
             }`}
           >
-            Archived
-          </button>
+            {translateRecentFeature("viewer.archived")}</button>
         </div>
       </div>
 
@@ -176,33 +176,27 @@ export const StudyPlanList: React.FC<StudyPlanListProps> = ({
         <div className="py-16 text-center">
           {searchQuery ? (
             <div className="space-y-3">
-              <p className="text-sm text-surface-500">
-                No study plans match &ldquo;{searchQuery}&rdquo;.
-              </p>
+              <p className="text-sm text-surface-500">{translateRecentFeature("studyPlans.ui.no-study-plans-match-var0.ef561db0", {var0: searchQuery})}</p>
               <Button variant="tonal" size="sm" onClick={() => setSearchQuery('')}>
-                Clear Search
-              </Button>
+                {translateRecentFeature("emptyState.clearSearch")}</Button>
             </div>
           ) : activeTab === 'archived' ? (
-            <p className="text-sm text-surface-500">No archived study plans.</p>
+            <p className="text-sm text-surface-500">{translateRecentFeature("studyPlans.ui.no-archived-study-plans.2c83bba4")}</p>
           ) : (
             <div className="max-w-md mx-auto space-y-4">
               <div className="w-16 h-16 rounded-2xl bg-primary-500/10 text-primary-500 mx-auto flex items-center justify-center">
                 <BookOpen size={32} />
               </div>
               <h3 className="text-lg font-bold text-surface-900 dark:text-surface-100">
-                No Study Plans Yet
-              </h3>
+                {translateRecentFeature("studyPlans.ui.no-study-plans-yet.7d59805a")}</h3>
               <p className="text-xs text-surface-600 dark:text-surface-400 leading-relaxed">
-                Create a study plan manually from your material; AI is optional. Plan topics,
-                manage prerequisites, track your study progress, and take diagnostic assessments.
-              </p>
+                {translateRecentFeature("studyPlans.ui.create-a-study-plan-manually.8065157b")}</p>
               <Button
                 variant="filled"
                 onClick={onCreateClick}
               >
                 <Plus size={18} />
-                <span>Create Your First Plan</span>
+                <span>{translateRecentFeature("studyPlans.ui.create-your-first-plan.10d51bbc")}</span>
               </Button>
             </div>
           )}
@@ -224,6 +218,6 @@ export const StudyPlanList: React.FC<StudyPlanListProps> = ({
           ))}
         </div>
       )}
-    </div>
+    </StudyPlansScrollContainer>
   );
 };

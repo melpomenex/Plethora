@@ -21,6 +21,9 @@ import type { BlueprintSummary } from '../../../types/assessmentQuestions';
 import { BlueprintService } from '../../../lib/study-plans/assessments/blueprintService';
 import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from '../../common/ContextMenu';
 import { useStudyPlanContextMenu } from '../useStudyPlanContextMenu';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+import { studyErrorMessage } from "../../../lib/study-plans/studyErrorMessage";
+
 
 const contextMenuId = 'study-plan-assessment-context-menu';
 
@@ -41,7 +44,8 @@ export const AssessmentList: React.FC<AssessmentListProps> = ({
   onCreateForTopic,
   className = '',
 }) => {
-  const contextMenu = useStudyPlanContextMenu(contextMenuId);
+        useI18n();
+        const contextMenu = useStudyPlanContextMenu(contextMenuId);
   const [blueprints, setBlueprints] = useState<BlueprintSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +57,7 @@ export const AssessmentList: React.FC<AssessmentListProps> = ({
       const list = await BlueprintService.listBlueprints(planId);
       setBlueprints(list);
     } catch (err: any) {
-      setError(err?.messageKey || err?.message || 'Failed to load assessments');
+      setError(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")));
     } finally {
       setLoading(false);
     }
@@ -69,7 +73,7 @@ export const AssessmentList: React.FC<AssessmentListProps> = ({
       await BlueprintService.archiveBlueprint(bp.id, bp.currentRevision);
       await loadBlueprints();
     } catch (err: any) {
-      setError(err?.messageKey || err?.message || 'Failed to archive assessment');
+      setError(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")));
     }
   };
 
@@ -79,7 +83,7 @@ export const AssessmentList: React.FC<AssessmentListProps> = ({
       await BlueprintService.deleteUnusedBlueprint(bp.id, bp.currentRevision);
       await loadBlueprints();
     } catch (err: any) {
-      setError(err?.messageKey || err?.message || 'Failed to delete assessment');
+      setError(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")));
     }
   };
 
@@ -89,40 +93,35 @@ export const AssessmentList: React.FC<AssessmentListProps> = ({
         <div>
           <h3 className="text-base font-semibold text-surface-900 dark:text-surface-100 flex items-center gap-2">
             <GraduationCap className="w-5 h-5 text-primary-600 dark:text-primary-400" />
-            Assessments & Examinations
-          </h3>
+            {translateRecentFeature("studyPlans.ui.assessments-examinations.e966bd86")}</h3>
           <p className="text-xs text-surface-500 dark:text-surface-400">
-            Saved papers stay with this study plan. Build one paper across the plan, or focus it on one topic.
-          </p>
+            {translateRecentFeature("studyPlans.ui.saved-papers-stay-with-this-.a0cff592")}</p>
         </div>
       </div>
 
       <div className="rounded-xl border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800/30 p-4 space-y-3">
         <div>
-          <h4 className="text-sm font-semibold text-surface-900 dark:text-surface-100">Create an assessment</h4>
+          <h4 className="text-sm font-semibold text-surface-900 dark:text-surface-100">{translateRecentFeature("studyPlans.ui.create-an-assessment.8f7f702f")}</h4>
           <p className="text-xs text-surface-500 dark:text-surface-400 mt-1">
-            A plan-wide paper draws questions from all included topics. Choose Source-Only or Source + Model Knowledge in the builder.
-          </p>
+            {translateRecentFeature("studyPlans.ui.a-plan-wide-paper-draws-ques.77225af0")}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button variant="filled" size="sm" onClick={onCreateNew}>
+          <Button variant="filled" size="sm" onClick={onCreateNew} className="min-h-11">
             <Plus className="w-4 h-4 mr-1.5" />
-            Create for all topics
-          </Button>
+            {translateRecentFeature("studyPlans.ui.create-for-all-topics.1e5dc94b")}</Button>
           {topics.length > 0 && onCreateForTopic && (
-            <label className="flex items-center gap-2 text-xs text-surface-600 dark:text-surface-300">
-              Or create for one topic
-              <select
-                aria-label="Create assessment for a topic"
+            <label className="flex w-full min-w-0 flex-col items-start gap-2 text-xs text-surface-600 dark:text-surface-300 sm:w-auto sm:flex-row sm:items-center">
+              {translateRecentFeature("studyPlans.ui.or-create-for-one-topic.5f3d4bd3")}<select
+                aria-label={translateRecentFeature("studyPlans.ui.create-assessment-for-a-topi.ac4c0f1b")}
                 defaultValue=""
                 onChange={(event) => {
                   const nodeId = event.currentTarget.value;
                   if (nodeId) onCreateForTopic(nodeId);
                   event.currentTarget.value = '';
                 }}
-                className="min-w-48 rounded-lg border border-surface-300 dark:border-surface-600 bg-surface-0 dark:bg-surface-900 px-3 py-2 text-xs text-surface-800 dark:text-surface-100"
+                className="min-h-11 min-w-0 w-full max-w-full rounded-lg border border-surface-300 dark:border-surface-600 bg-surface-0 dark:bg-surface-900 px-3 py-2 text-xs text-surface-800 dark:text-surface-100 sm:min-w-48 sm:w-auto"
               >
-                <option value="" disabled>Select a topic…</option>
+                <option value="" disabled>{translateRecentFeature("studyPlans.ui.select-a-topic.e06d9bdc")}</option>
                 {topics.map((topic) => <option key={topic.nodeId} value={topic.nodeId}>{topic.title}</option>)}
               </select>
             </label>
@@ -137,42 +136,40 @@ export const AssessmentList: React.FC<AssessmentListProps> = ({
       )}
 
       {loading ? (
-        <div className="p-8 text-center text-xs text-surface-400">Loading assessments…</div>
+        <div className="p-8 text-center text-xs text-surface-400">{translateRecentFeature("studyPlans.ui.loading-assessments.ffdc160d")}</div>
       ) : blueprints.length === 0 ? (
         <div className="p-10 text-center rounded-2xl border border-dashed border-surface-200 dark:border-surface-700 bg-surface-50/50 dark:bg-surface-800/20 space-y-3">
           <BookOpen className="w-10 h-10 mx-auto text-surface-300 dark:text-surface-600" />
           <div>
             <h4 className="text-sm font-semibold text-surface-800 dark:text-surface-200">
-              No Assessments Yet
-            </h4>
+              {translateRecentFeature("studyPlans.ui.no-assessments-yet.343d33ba")}</h4>
             <p className="text-xs text-surface-500 max-w-sm mx-auto mt-1">
-              Create an AI-generated or custom examination paper grounded directly in your study plan sources.
-            </p>
+              {translateRecentFeature("studyPlans.ui.create-an-ai-generated-or-cu.2543d907")}</p>
           </div>
-          <p className="text-xs text-surface-500">Choose an assessment scope above to get started.</p>
+          <p className="text-xs text-surface-500">{translateRecentFeature("studyPlans.ui.choose-an-assessment-scope-a.0eb7f8d6")}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {blueprints.map((bp) => {
-            const isExam = bp.mode === 'exam';
+                        const isExam = bp.mode === 'exam';
             const isReady = bp.state === 'ready';
             const menuItems: ContextMenuItem[] = [
               {
                 id: 'open-assessment',
-                label: 'Open',
+                label: translateRecentFeature("mainLayout.open"),
                 icon: <ArrowRight size={16} />,
                 onClick: () => onSelectBlueprint(bp.id, bp.currentRevisionId || undefined),
               },
               {
                 id: 'archive-assessment',
-                label: 'Archive',
+                label: translateRecentFeature("cardContextMenu.archive"),
                 icon: <Archive size={16} />,
                 onClick: () => void handleArchive(bp),
               },
               {
                 id: 'delete-unused-assessment',
                 type: ContextMenuItemType.Danger,
-                label: 'Delete unused assessment',
+                label: translateRecentFeature("studyPlans.ui.delete-unused-assessment.ef8c36d3"),
                 icon: <Trash size={16} />,
                 onClick: () => void handleDelete(bp),
               },
@@ -209,10 +206,10 @@ export const AssessmentList: React.FC<AssessmentListProps> = ({
                       ) : (
                         <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
                       )}
-                      {isExam ? 'Exam' : 'Practice'}
+                      {isExam ? translateRecentFeature("studyPlans.ui.exam.e3bdca7e") : translateRecentFeature("studyPlans.ui.practice.e7940d9b")}
                     </span>
                     <span>•</span>
-                    <span>{bp.questionCount} Questions</span>
+                    <span>{translateRecentFeature("studyPlans.ui.var0-questions.1fbbd3f3", {var0: bp.questionCount})}</span>
                     <span>•</span>
                     <span className="flex items-center gap-1 font-mono text-[11px]">
                       <Clock className="w-3 h-3" />
@@ -226,7 +223,7 @@ export const AssessmentList: React.FC<AssessmentListProps> = ({
                     <button
                       type="button"
                       onClick={(e) => handleArchive(bp, e)}
-                      title="Archive Assessment"
+                      title={translateRecentFeature("studyPlans.ui.archive-assessment.6e8e0b12")}
                       className="p-1 rounded text-surface-400 hover:text-surface-600 dark:hover:text-surface-300 hover:bg-surface-200 dark:hover:bg-surface-700"
                     >
                       <Archive className="w-3.5 h-3.5" />
@@ -234,7 +231,7 @@ export const AssessmentList: React.FC<AssessmentListProps> = ({
                     <button
                       type="button"
                       onClick={(e) => handleDelete(bp, e)}
-                      title="Delete Assessment"
+                      title={translateRecentFeature("studyPlans.ui.delete-assessment.0645f3e2")}
                       className="p-1 rounded text-surface-400 hover:text-red-600 hover:bg-surface-200 dark:hover:bg-surface-700"
                     >
                       <Trash className="w-3.5 h-3.5" />
@@ -242,7 +239,7 @@ export const AssessmentList: React.FC<AssessmentListProps> = ({
                   </div>
 
                   <span className="text-xs font-medium text-primary-600 dark:text-primary-400 flex items-center gap-1 group-hover:translate-x-0.5 transition-transform">
-                    Open <ArrowRight className="w-3 h-3" />
+                    {translateRecentFeature("mainLayout.open")}<ArrowRight className="w-3 h-3" />
                   </span>
                 </div>
               </div>

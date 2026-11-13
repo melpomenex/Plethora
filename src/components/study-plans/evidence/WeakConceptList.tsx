@@ -1,6 +1,8 @@
 import React from 'react';
 import type { ConceptMasterySummary } from '../../../types/learningEvidence';
 import { EvidenceSummaryCard } from './EvidenceSummaryCard';
+import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+
 
 export interface WeakConceptListProps {
   summaries: ConceptMasterySummary[];
@@ -8,18 +10,18 @@ export interface WeakConceptListProps {
 }
 
 export const WeakConceptList: React.FC<WeakConceptListProps> = ({ summaries, onSelectConcept }) => {
-  const weak = summaries.filter(
+        useI18n();
+        const weak = summaries.filter(
     (s) => s.level === 'needs-attention' || s.level === 'insufficient-evidence',
   );
   if (weak.length === 0) {
     return (
       <p data-testid="weak-concept-empty" className="text-sm text-on-surface-variant">
-        No weak concepts — sparse evidence is shown as insufficient, not as mastery.
-      </p>
+        {translateRecentFeature("studyPlans.ui.no-weak-concepts-sparse-evid.e837a888")}</p>
     );
   }
   return (
-    <ul aria-label="Weak concepts" className="space-y-2">
+    <ul aria-label={translateRecentFeature("studyPlans.ui.weak-concepts.ae35948a")} className="space-y-2">
       {weak.map((s) => (
         <li key={s.conceptId}>
           <button

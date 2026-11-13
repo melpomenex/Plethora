@@ -45,6 +45,8 @@ import type {
   StudyGenerationJob,
 } from '../../lib/study-plans/generation/types';
 import type { MergeCurriculumResult } from '../../lib/study-plans/generation/merge';
+import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
+
 
 export interface CurriculumGeneratorProps {
   planDetail: StudyPlanDetail;
@@ -74,7 +76,8 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
   onOpenSource,
   diagnosticSlot,
 }) => {
-  const publishVersionAction = useLearningPathsStore((s) => s.publishVersion);
+    useI18n();
+    const publishVersionAction = useLearningPathsStore((s) => s.publishVersion);
   const discardDraftAction = useLearningPathsStore((s) => s.discardDraft);
 
   const [mode, setMode] = useState<GeneratorMode>(initialMode);
@@ -156,8 +159,8 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
         }
       },
       (error: unknown) => {
-        if (stale) return;
-        setPreflightError(studyErrorMessage(error, 'Could not inspect the generation configuration. Check your AI settings or try Source Outline.'));
+                if (stale) return;
+        setPreflightError(studyErrorMessage(error, translateRecentFeature("studyPlans.ui.could-not-inspect-the-genera.8c8867d0")));
         setIsPreflighting(false);
       },
     );
@@ -174,7 +177,7 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
 
   // Execute Generation
   const handleStartGeneration = async () => {
-    if (!canGenerate || abortCtrlRef.current) return;
+        if (!canGenerate || abortCtrlRef.current) return;
     setExecutionError(null);
     setJobProgress(null);
     setRetrieval(undefined);
@@ -210,7 +213,7 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
         setJobStatus('completed');
       } catch (err: any) {
         setJobStatus('failed');
-        setExecutionError(studyErrorMessage(err, 'Could not build the outline. Open the saved draft and try again.'));
+        setExecutionError(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.could-not-build-the-outline-.ec22c369")));
       }
       return;
     }
@@ -272,7 +275,7 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
   };
 
   const handleAcceptPublish = async () => {
-    setIsAccepting(true);
+        setIsAccepting(true);
     setExecutionError(null);
     try {
       const published = await publishVersionAction(
@@ -282,14 +285,14 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
       );
       onSuccess(published);
     } catch (err: any) {
-      setExecutionError(studyErrorMessage(err, 'Could not publish the curriculum. Your draft is still available.'));
+      setExecutionError(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.could-not-publish-the-curric.36484aef")));
     } finally {
       setIsAccepting(false);
     }
   };
 
   const handleDiscard = async () => {
-    setIsDiscarding(true);
+        setIsDiscarding(true);
     setExecutionError(null);
     try {
       const reverted = await discardDraftAction(
@@ -298,7 +301,7 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
       );
       onSuccess(reverted);
     } catch (err: any) {
-      setExecutionError(studyErrorMessage(err, 'Could not discard the draft. Try again.'));
+      setExecutionError(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.could-not-discard-the-draft-.ec65c4eb")));
     } finally {
       setIsDiscarding(false);
     }
@@ -316,11 +319,11 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
       aria-modal="true"
       aria-labelledby={titleId}
       aria-describedby={descId}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto"
+      className="adaptive-dialog-layer bg-black/50 backdrop-blur-sm"
     >
       <div
         ref={dialogRef}
-        className={`${dialogSurface} max-w-4xl w-full max-h-[90vh] overflow-y-auto rounded-3xl p-6 space-y-6 shadow-2xl`}
+        className={`${dialogSurface} adaptive-dialog-panel adaptive-dialog-centered study-plans-dialog-wide max-w-4xl w-full overflow-y-auto rounded-3xl p-4 sm:p-6 space-y-6 shadow-2xl`}
       >
         {/* Top Header */}
         <div className="flex items-center justify-between pb-3 border-b border-surface-200 dark:border-surface-700">
@@ -330,17 +333,15 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
             </div>
             <div>
               <h2 id={titleId} className="text-lg font-bold text-surface-900 dark:text-surface-100">
-                Generate Curriculum
-              </h2>
+                {translateRecentFeature("studyPlans.ui.generate-curriculum.e5c7d8bf")}</h2>
               <p id={descId} className="text-xs text-surface-500">
-                Ground your study plan in selected library material with AI or deterministic rules.
-              </p>
+                {translateRecentFeature("studyPlans.ui.ground-your-study-plan-in-se.458a985f")}</p>
             </div>
           </div>
           <button
             type="button"
             onClick={closeWhenIdle}
-            aria-label="Close generator"
+            aria-label={translateRecentFeature("studyPlans.ui.close-generator.ce3a9e44")}
             disabled={jobStatus === 'running'}
             className="p-1.5 rounded-full hover:bg-surface-100 dark:hover:bg-surface-800 text-surface-500"
           >
@@ -366,17 +367,16 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
               >
                 <div className="flex items-center gap-2 font-bold text-sm mb-1">
                   <Sparkle size={18} className="text-primary-500" />
-                  <span>Generate with AI</span>
+                  <span>{translateRecentFeature("studyPlans.ui.generate-with-ai.65a96811")}</span>
                 </div>
                 <p className="text-xs text-surface-500">
                   {isModelOnly
-                    ? 'Builds an unverified study path from your goal using the selected AI model. Your library is not read.'
-                    : 'Decomposes source text into topics, objectives, and prerequisite dependencies using your selected AI model.'}
+                    ? translateRecentFeature("studyPlans.ui.builds-an-unverified-study-p.a95af898")
+                    : translateRecentFeature("studyPlans.ui.decomposes-source-text-into-.cb3acd18")}
                 </p>
                 {hasAiExcludedDoc && (
                   <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-2 font-semibold">
-                    Disabled: One or more selected sources are marked as AI-excluded.
-                  </p>
+                    {translateRecentFeature("studyPlans.ui.disabled-one-or-more-selecte.3ec5c23e")}</p>
                 )}
               </button>
 
@@ -392,11 +392,10 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
               >
                 <div className="flex items-center gap-2 font-bold text-sm mb-1">
                   <ShieldCheck size={18} className="text-blue-500" />
-                  <span>Source Outline (No AI)</span>
+                  <span>{translateRecentFeature("studyPlans.ui.source-outline-no-ai.2dd5747a")}</span>
                 </div>
                 <p className="text-xs text-surface-500">
-                  Builds an outline from confirmed library concepts and document titles. It uses no AI or passage retrieval.
-                </p>
+                  {translateRecentFeature("studyPlans.ui.builds-an-outline-from-confi.59a740ac")}</p>
               </button>
             </div>
 
@@ -410,24 +409,22 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
               <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2">
                 <Warning size={16} className="flex-shrink-0" />
                 <span>
-                  No documents selected in source scope. Please add at least one document to ground
-                  the curriculum.
-                </span>
+                  {translateRecentFeature("studyPlans.ui.no-documents-selected-in-sou.b85bd66b")}</span>
               </div>
             )}
 
             {mode === 'ai' && (hasSources || isModelOnly) && (
               <div className="space-y-4">
                 <label className="block space-y-1 text-sm font-medium">
-                  <span>Generation model</span>
+                  <span>{translateRecentFeature("studyPlans.ui.generation-model.ba5bde5b")}</span>
                   <select
                     value={selectedConfigId}
                     onChange={(event) => setSelectedConfigId(event.target.value)}
                     className="block w-full rounded-lg border border-border bg-surface-50 px-3 py-2.5 text-sm dark:bg-surface-800"
                   >
-                    <option value="">Use app default</option>
+                    <option value="">{translateRecentFeature("studyPlans.ui.use-app-default.0dcf2935")}</option>
                     {selectedConfigId && !usableProviders.some((config) => config.id === selectedConfigId) && (
-                      <option value={selectedConfigId} disabled>Previously selected model is unavailable</option>
+                      <option value={selectedConfigId} disabled>{translateRecentFeature("studyPlans.ui.previously-selected-model-is.d78ad167")}</option>
                     )}
                     {usableProviders.map((config) => (
                       <option key={config.id} value={config.id}>
@@ -436,7 +433,7 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
                     ))}
                   </select>
                 </label>
-                {isPreflighting && <p role="status" className="text-sm text-muted-foreground">Checking model, sources, and privacy…</p>}
+                {isPreflighting && <p role="status" className="text-sm text-muted-foreground">{translateRecentFeature("studyPlans.ui.checking-model-sources-and-p.0a469cf9")}</p>}
                 <GenerationPrivacySummary
                   preflight={preflight}
                   indexedSourceCount={indexedSourceCount}
@@ -448,13 +445,12 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
                 />
               </div>
             )}
-            <p className="text-sm text-muted-foreground">You can close this window and return to the saved draft.</p>
+            <p className="text-sm text-muted-foreground">{translateRecentFeature("studyPlans.ui.you-can-close-this-window-an.2e3ebe00")}</p>
 
             {/* Footer Buttons */}
             <div className="flex flex-wrap items-center justify-end gap-3 pt-4 border-t border-surface-200 dark:border-surface-700">
               <Button variant="text" onClick={closeWhenIdle}>
-                Cancel
-              </Button>
+                {translateRecentFeature("common.cancel")}</Button>
               <Button
                 variant="filled"
                 onClick={handleStartGeneration}
@@ -462,7 +458,7 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
               >
                 <Play size={16} />
                 <span>
-                  {mode === 'ai' ? recoveryJob ? 'Resume AI Generation' : 'Start AI Generation' : 'Build Deterministic Outline'}
+                  {mode === 'ai' ? recoveryJob ? translateRecentFeature("studyPlans.ui.resume-ai-generation.b7efe351") : translateRecentFeature("studyPlans.ui.start-ai-generation.e21b794c") : translateRecentFeature("studyPlans.ui.build-deterministic-outline.8343639b")}
                 </span>
                 <ArrowRight size={16} />
               </Button>
@@ -485,8 +481,7 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
                 <GenerationIssueList generalError={executionError} />
                 <div className="flex justify-end gap-2">
                   <Button variant="text" onClick={onClose}>
-                    Open Saved Draft
-                  </Button>
+                    {translateRecentFeature("studyPlans.ui.open-saved-draft.a412c3cb")}</Button>
                 </div>
               </div>
             )}
@@ -496,32 +491,31 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
         {/* Step 3: Preview & Acceptance */}
         {step === 'preview' && retrieval && (
           <details className="rounded-xl border border-border p-3 text-sm">
-            <summary className="cursor-pointer font-medium">Generation details</summary>
+            <summary className="cursor-pointer font-medium">{translateRecentFeature("studyPlans.ui.generation-details.df0b997d")}</summary>
             <p className="mt-2">
-              {retrieval.mode === 'semantic' ? 'Semantic retrieval'
-                : retrieval.mode === 'lexicalOnly' ? 'Lexical retrieval'
-                : retrieval.mode === 'mixed' ? 'Semantic and lexical retrieval' : 'Retrieval unavailable'}
+              {retrieval.mode === 'semantic' ? translateRecentFeature("studyPlans.ui.semantic-retrieval.7ca5e452")
+                : retrieval.mode === 'lexicalOnly' ? translateRecentFeature("studyPlans.ui.lexical-retrieval.33039ada")
+                : retrieval.mode === 'mixed' ? translateRecentFeature("studyPlans.ui.semantic-and-lexical-retriev.626cca8d") : translateRecentFeature("studyPlans.ui.retrieval-unavailable.7e415860")}
               {retrieval.embeddingModels.length ? ` · ${retrieval.embeddingModels.join(', ')}` : ''}
             </p>
-            <p>{retrieval.verifiedPassages} verified passages from {retrieval.documentsWithEvidence} of {currentPlanDetail.version.sourceScope?.resolvedDocuments.length ?? 0} selected documents.</p>
-            <p>{retrieval.queryCount} retrieval queries. {retrieval.failedQueries} failed.</p>
+            <p>{translateRecentFeature("studyPlans.ui.var0-verified-passages-from-.18057b34", {var0: retrieval.verifiedPassages, var1: retrieval.documentsWithEvidence, var2: currentPlanDetail.version.sourceScope?.resolvedDocuments.length ?? 0})}</p>
+            <p>{translateRecentFeature("studyPlans.ui.var0-retrieval-queries-var1-.de92f0ab", {var0: retrieval.queryCount, var1: retrieval.failedQueries})}</p>
             {execution && (
               <div className="mt-2">
-                <p>{execution.modelCalls} model calls, including {execution.corrections} corrections. {Math.round(execution.durationMs / 1000)} seconds.</p>
+                <p>{translateRecentFeature("studyPlans.ui.var0-model-calls-including-v.24a12db2", {var0: execution.modelCalls, var1: execution.corrections, var2: Math.round(execution.durationMs / 1000)})}</p>
                 {execution.responsesWithUsage > 0 && (
-                  <p>{execution.reportedInputTokens.toLocaleString()} input and {execution.reportedOutputTokens.toLocaleString()} output tokens reported for {execution.responsesWithUsage} of {execution.modelCalls} calls.</p>
+                  <p>{translateRecentFeature("studyPlans.ui.var0-input-and-var1-output-t.baf24b5b", {var0: execution.reportedInputTokens.toLocaleString(), var1: execution.reportedOutputTokens.toLocaleString(), var2: execution.responsesWithUsage, var3: execution.modelCalls})}</p>
                 )}
               </div>
             )}
-            <p className="text-muted-foreground">Retrieval searches for relevant passages and can miss sections of the selected material.</p>
+            <p className="text-muted-foreground">{translateRecentFeature("studyPlans.ui.retrieval-searches-for-relev.339d7f46")}</p>
           </details>
         )}
         {step === 'preview' && (
           <>
             {jobProgress?.labelKey === 'study_generation.progress.prerequisites_unavailable' && (
               <p role="status" className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-sm">
-                The draft is ready to review. Prerequisite inference was unavailable, so the draft kept its saved topic order and prerequisites.
-              </p>
+                {translateRecentFeature("studyPlans.ui.the-draft-is-ready-to-review.46692658")}</p>
             )}
             {diagnosticSlot}
             <CurriculumDraftPreview
