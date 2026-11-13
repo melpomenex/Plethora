@@ -548,21 +548,28 @@ function ensureWindowsWhisperVulkanRuntime(targetTriple) {
   }
 }
 
-const NEEDLE_VERSION = '3.1.0';
+// The needle3 Hub main branch is now model-only; Cactus publishes the current
+// runtime under its own repo and executable name. Pin the immutable Hub commit
+// so release builds do not depend on another mutable repository migration.
+// The app keeps the local `needle` name for compatibility with its Tauri
+// sidecar/resource paths and its existing Whistle invocation.
+const CACTUS_RUNTIME_VERSION = '4.1.0';
+const CACTUS_RUNTIME_REPO = 'Cactus-Compute/cactus';
+const CACTUS_RUNTIME_REVISION = '4e822c9036be2eb0e47ef556df32a818bb1572ef';
 
 function needleAssetForTarget(targetTriple) {
   if (targetTriple.includes('apple-darwin')) {
-    return { platformDir: 'macos-arm64', exe: 'needle' };
+    return { platformDir: 'macos-arm64', exe: 'cactus' };
   } else if (targetTriple.includes('linux')) {
     if (targetTriple.startsWith('aarch64')) {
-      return { platformDir: 'linux-arm64', exe: 'needle' };
+      return { platformDir: 'linux-arm64', exe: 'cactus' };
     }
-    return { platformDir: 'linux-x86_64', exe: 'needle' };
+    return { platformDir: 'linux-x86_64', exe: 'cactus' };
   } else if (targetTriple.includes('windows')) {
     if (targetTriple.startsWith('aarch64')) {
-      return { platformDir: 'windows-arm64', exe: 'needle.exe' };
+      return { platformDir: 'windows-arm64', exe: 'cactus.exe' };
     }
-    return { platformDir: 'windows-x86_64', exe: 'needle.exe' };
+    return { platformDir: 'windows-x86_64', exe: 'cactus.exe' };
   }
   return null;
 }
@@ -576,7 +583,7 @@ function ensureNeedleSidecar(targetTriple) {
     provisionedVersion = fs.readFileSync(versionMarker, 'utf8').trim();
   } catch {}
 
-  if (isUsableSidecar(needlePath) && provisionedVersion === NEEDLE_VERSION) {
+  if (isUsableSidecar(needlePath) && provisionedVersion === CACTUS_RUNTIME_VERSION) {
     return;
   }
 
@@ -586,10 +593,10 @@ function ensureNeedleSidecar(targetTriple) {
     return;
   }
 
-  const url = `https://huggingface.co/Cactus-Compute/needle3/resolve/main/${assetInfo.platformDir}/${assetInfo.exe}`;
+  const url = `https://huggingface.co/${CACTUS_RUNTIME_REPO}/resolve/${CACTUS_RUNTIME_REVISION}/releases/${CACTUS_RUNTIME_VERSION}/${assetInfo.platformDir}/${assetInfo.exe}`;
   const tmpFile = path.join(BIN_DIR, `.needle-${targetTriple}.tmp`);
   try {
-    console.log(`Downloading needle ${NEEDLE_VERSION} for ${targetTriple}...`);
+    console.log(`Downloading Cactus runtime ${CACTUS_RUNTIME_VERSION} for ${targetTriple}...`);
     execSync(`curl -fL --retry 3 --retry-delay 2 --max-time 180 ${shellQuote(url)} -o ${shellQuote(tmpFile)}`, { stdio: 'inherit' });
     fs.renameSync(tmpFile, needlePath);
     try {
@@ -600,7 +607,7 @@ function ensureNeedleSidecar(targetTriple) {
         execSync(`codesign --force --sign - ${shellQuote(needlePath)}`, { stdio: 'ignore' });
       } catch {}
     }
-    fs.writeFileSync(versionMarker, NEEDLE_VERSION, 'utf8');
+    fs.writeFileSync(versionMarker, CACTUS_RUNTIME_VERSION, 'utf8');
     console.log(`needle sidecar provisioned at ${needlePath}`);
   } catch (err) {
     try { fs.rmSync(tmpFile, { force: true }); } catch {}
