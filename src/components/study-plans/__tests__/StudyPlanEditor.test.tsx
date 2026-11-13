@@ -93,6 +93,21 @@ describe('StudyPlanEditor', () => {
     useLearningPathsStore.getState().clearPaths();
   });
 
+  it('opens untimed independent practice for the selected lesson topic', async () => {
+    const openAssessment = vi.fn();
+    render(<StudyPlanEditor planDetail={mockDetail} initialNodeId="n1" onBack={vi.fn()} onOpenAssessmentBuilder={openAssessment} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: /start lesson for the selected/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /practice independently/i }));
+
+    expect(openAssessment).toHaveBeenCalledWith('sp_1', 'spv_1', undefined, expect.objectContaining({
+      mode: 'practice',
+      timeLimitSeconds: null,
+      topicTargets: [{ nodeId: 'n1', conceptId: null, weight: 1 }],
+    }), 'Arithmetic Circuits Practice');
+    expect(screen.queryByRole('dialog', { name: 'Arithmetic Circuits' })).not.toBeInTheDocument();
+  });
+
   it('renders editor header, tabs, and topic details', () => {
     const onBack = vi.fn();
     render(<StudyPlanEditor planDetail={mockDetail} onBack={onBack} />);

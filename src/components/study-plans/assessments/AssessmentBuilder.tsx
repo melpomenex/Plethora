@@ -260,7 +260,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
 
         const baseConfig: AssessmentConfigV1 = {
           schemaVersion: 1,
-          mode: initialMode ?? 'exam',
+          mode: configOverride?.mode ?? initialMode ?? 'exam',
           requestedCount: configOverride?.requestedCount ?? 10,
           typeWeights: configOverride?.typeWeights ?? {
             'single-select': 4,
@@ -275,7 +275,7 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
             conceptId: n.conceptId || null,
             weight: 1,
           })),
-          timeLimitSeconds: configOverride?.timeLimitSeconds ?? 1800,
+          timeLimitSeconds: configOverride?.timeLimitSeconds === undefined ? 1800 : configOverride.timeLimitSeconds,
           knowledgePolicy: configOverride?.knowledgePolicy ?? 'source-only',
           excludedQuestionFingerprints: configOverride?.excludedQuestionFingerprints ?? [],
           pointsByKind: configOverride?.pointsByKind ?? {

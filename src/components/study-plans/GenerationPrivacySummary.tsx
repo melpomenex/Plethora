@@ -4,7 +4,7 @@ import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
 
 export interface GenerationPrivacySummaryProps {
   preflight: StudyAiPreflight | null;
-  purpose?: 'curriculum' | 'assessment' | 'rubric';
+  purpose?: 'curriculum' | 'assessment' | 'rubric' | 'lesson';
   indexedSourceCount?: number | null;
   cloudDisclosureAccepted?: boolean;
   onCloudDisclosureChange?: (accepted: boolean) => void;
@@ -39,6 +39,7 @@ export function GenerationPrivacySummary({
   const offDevice = preflight.sendsSourceOffDevice || remoteEmbedding;
   const providerName = model?.provider ?? preflight.providerId;
   const payload = purpose === 'rubric' ? translateRecentFeature("studyPlans.ui.submitted-written-answers-co.3e864e6d")
+    : purpose === 'lesson' ? translateRecentFeature("studyPlans.lesson.aiPayload")
     : purpose === 'assessment' ? translateRecentFeature("studyPlans.ui.assessment-topics-question-r.b2f72945")
     : translateRecentFeature("studyPlans.ui.your-learning-goal-selected-.67df2f23");
   const estimatedCost = estimate?.costUsd;

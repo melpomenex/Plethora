@@ -9,22 +9,27 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { LessonView } from "../LessonView";
 import type { StudyPlanDetail } from "../../../../types/learningPaths";
+import { createStudyPlanLesson, saveStudyPlanLessonCheckpoint, type StudyPlanLesson } from "../../../../api/study-lessons";
+import { prepareLessonHelp } from "../../../../lib/study-plans/lessonHelp";
+import { runTutorTurn } from "../../../../lib/ai/tasks/definitions/tutorTask";
+
+vi.mock("../../../../lib/study-plans/lessonHelp", () => ({ prepareLessonHelp: vi.fn() }));
+vi.mock("../../../../lib/ai/tasks/definitions/tutorTask", () => ({ runTutorTurn: vi.fn() }));
+
+const savedLesson = vi.hoisted((): StudyPlanLesson => ({
+  id: "spl_1", planId: "sp_1", planVersionId: "spv_1", nodeId: "n1", objectiveIndex: 0,
+  style: "guided", knowledgeAuthorityJson: '{"kind":"model-only"}', sourceRevisionSnapshot: "",
+  promptText: "Topic", answerDraft: "", hintCount: 0, turnCount: 0,
+  turnStateJson: "{}", revision: 1, lastTurnRequestId: null,
+  createdAt: "2026-11-12T00:00:00Z", updatedAt: "2026-11-12T00:00:00Z",
+}));
 
 vi.mock("../../../../api/study-lessons", () => ({
-  createStudyPlanLesson: vi.fn().mockResolvedValue({
-    id: "spl_1", planId: "sp_1", planVersionId: "spv_1", nodeId: "n1", objectiveIndex: 0,
-    style: "guided", knowledgeAuthorityJson: '{"kind":"model-only"}', sourceRevisionSnapshot: "",
-    promptText: "Topic", answerDraft: "", hintCount: 0, turnCount: 0,
-    turnStateJson: "{}", revision: 1, lastTurnRequestId: null,
-    createdAt: "2026-11-12T00:00:00Z", updatedAt: "2026-11-12T00:00:00Z",
-  }),
+  createStudyPlanLesson: vi.fn().mockResolvedValue(savedLesson),
   getStudyPlanLesson: vi.fn().mockResolvedValue(null),
   saveStudyPlanLessonCheckpoint: vi.fn().mockResolvedValue({
-    id: "spl_1", planId: "sp_1", planVersionId: "spv_1", nodeId: "n1", objectiveIndex: 0,
-    style: "guided", knowledgeAuthorityJson: '{"kind":"model-only"}', sourceRevisionSnapshot: "",
-    promptText: "Topic", answerDraft: "", hintCount: 0, turnCount: 0,
-    turnStateJson: "{}", revision: 2, lastTurnRequestId: null,
-    createdAt: "2026-11-12T00:00:00Z", updatedAt: "2026-11-12T00:00:00Z",
+    ...savedLesson,
+    revision: 2,
   }),
 }));
 
@@ -68,6 +73,115 @@ function libraryPlan(): StudyPlanDetail {
 describe("LessonView authority surface", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("uses the selected objective and repairs the old title prompt on save", async () => {
+    const plan = libraryPlan();
+    plan.version.nodes[0].learningObjectives = ["Define the terms", "Explain how the concepts relate"];
+    const create = vi.mocked(createStudyPlanLesson);
+    create.mockResolvedValueOnce({ ...savedLesson, objectiveIndex: 1, answerDraft: "My saved draft" });
+    render(<LessonView planDetail={plan} nodeId="n1" objectiveIndex={1} onClose={vi.fn()} />);
+
+    const answer = await screen.findByRole("textbox", { name: /reasoning/i });
+    expect(answer).toHaveAccessibleDescription(
+      "How would you complete this task? Write your answer in your own words. Explain how the concepts relate"
+    );
+    expect(answer).toHaveValue("My saved draft");
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      objectiveIndex: 1,
+      promptText: expect.stringContaining("Explain how the concepts relate"),
+    }));
+    fireEvent.click(screen.getByRole("button", { name: /save progress/i }));
+    await waitFor(() => expect(saveStudyPlanLessonCheckpoint).toHaveBeenCalledWith(expect.objectContaining({
+      expectedRevision: 1,
+      promptText: expect.stringContaining("Explain how the concepts relate"),
+      answerDraft: "My saved draft",
+    })));
+  });
+
+  it("asks a topic question when the objective is blank", async () => {
+    const plan = modelOnlyPlan();
+    plan.version.nodes[0].learningObjectives = [" "];
+    render(<LessonView planDetail={plan} nodeId="n1" onClose={vi.fn()} />);
+
+    expect(await screen.findByRole("textbox", { name: /reasoning/i })).toHaveAccessibleDescription(
+      "What are the main ideas behind “Topic”? Explain them in your own words."
+    );
+  });
+
+  it("recovers old hint counters, renders tutor help, and saves the actual text", async () => {
+    vi.mocked(createStudyPlanLesson).mockResolvedValueOnce({
+      ...savedLesson, hintCount: 3, turnStateJson: '{"explained":true}', answerDraft: "Draft",
+    });
+    vi.mocked(prepareLessonHelp).mockResolvedValue({
+      preflight: { featureAllowed: true }, route: { provider: { id: "local" } }, excerpts: ["Pinned passage"],
+    } as Awaited<ReturnType<typeof prepareLessonHelp>>);
+    vi.mocked(runTutorTurn)
+      .mockResolvedValueOnce({ output: { move: "hint", content: "Compare the two definitions." } } as Awaited<ReturnType<typeof runTutorTurn>>)
+      .mockResolvedValueOnce({ output: { move: "explain", content: "Here is how the two concepts relate." } } as Awaited<ReturnType<typeof runTutorTurn>>);
+    vi.mocked(saveStudyPlanLessonCheckpoint).mockImplementation(async (input) => ({
+      ...savedLesson,
+      ...input,
+      promptText: input.promptText ?? savedLesson.promptText,
+      revision: input.expectedRevision + 1,
+    }));
+    render(<LessonView planDetail={libraryPlan()} nodeId="n1" onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Hint (0/3)" }));
+    expect(await screen.findByText("Compare the two definitions.")).toBeInTheDocument();
+    expect(runTutorTurn).toHaveBeenCalledWith(expect.objectContaining({
+      forcedMove: "hint", lessonAuthority: "library", selectedMaterial: "Pinned passage",
+    }), expect.objectContaining({ provider: { id: "local" } }));
+    expect(screen.getByRole("button", { name: "Hint (1/3)" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Explain directly" }));
+    expect(await screen.findByText("Here is how the two concepts relate.")).toBeInTheDocument();
+    expect(saveStudyPlanLessonCheckpoint).toHaveBeenLastCalledWith(expect.objectContaining({
+      expectedRevision: 2,
+      answerDraft: "Draft",
+      hintCount: 1,
+      turnStateJson: expect.stringContaining("Here is how the two concepts relate."),
+    }));
+  });
+
+  it("shows a failure without spending a hint", async () => {
+    vi.mocked(prepareLessonHelp).mockRejectedValueOnce(new Error("studyPlans.lesson.helpNeedsSources"));
+    render(<LessonView planDetail={libraryPlan()} nodeId="n1" onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Hint (0/3)" }));
+    expect(await screen.findByText(/needs a verified source/i)).toHaveAttribute("role", "status");
+    expect(saveStudyPlanLessonCheckpoint).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Hint (0/3)" })).toBeEnabled();
+  });
+
+  it("waits for approval before sending lesson help to a remote model", async () => {
+    const remote = {
+      preflight: { featureAllowed: false, sendsSourceOffDevice: true, billable: true, providerId: "remote" },
+      route: { provider: { id: "remote" } },
+      excerpts: [],
+    } as unknown as Awaited<ReturnType<typeof prepareLessonHelp>>;
+    vi.mocked(prepareLessonHelp)
+      .mockResolvedValueOnce(remote)
+      .mockResolvedValueOnce({ ...remote, preflight: { ...remote.preflight, featureAllowed: true } });
+    vi.mocked(runTutorTurn).mockResolvedValueOnce({
+      output: { move: "hint", content: "Start with the main idea." },
+    } as Awaited<ReturnType<typeof runTutorTurn>>);
+    render(<LessonView planDetail={modelOnlyPlan()} nodeId="n1" onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Hint (0/3)" }));
+    const generate = await screen.findByRole("button", { name: "Generate hint" });
+    expect(generate).toBeDisabled();
+    expect(runTutorTurn).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("checkbox", { name: /approve the off-device/i }));
+    expect(generate).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: /authorize the disclosed/i }));
+    fireEvent.click(generate);
+    expect(await screen.findByText("Start with the main idea.")).toBeInTheDocument();
+    expect(prepareLessonHelp).toHaveBeenLastCalledWith(expect.anything(), {}, {
+      route: remote.route, transfer: true, cost: true,
+    });
+    expect(runTutorTurn).toHaveBeenCalledWith(expect.objectContaining({
+      lessonAuthority: "model-only", selectedMaterial: "",
+    }), expect.anything());
   });
 
   it("model-only lessons show no scoped-tutor entry and launch without a source snapshot", async () => {

@@ -232,6 +232,14 @@ describe('AssessmentBuilder Component (C3-T08)', () => {
     });
   });
 
+  it('keeps the untimed practice configuration when creating a blueprint', async () => {
+    vi.mocked(BlueprintService.createBlueprint).mockResolvedValueOnce(mockCreatedDetail);
+    render(<AssessmentBuilder planDetail={mockPlanDetail} initialConfig={{ mode: 'practice', timeLimitSeconds: null }} onClose={vi.fn()} />);
+    await waitFor(() => expect(BlueprintService.createBlueprint).toHaveBeenCalledWith(expect.objectContaining({
+      config: expect.objectContaining({ mode: 'practice', timeLimitSeconds: null }),
+    })));
+  });
+
   it.each([false, true])('generates with a budget sized for the active platform (mobile: %s)', async (isMobile) => {
     vi.mocked(preflightModule.performStudyAiPreflight).mockResolvedValueOnce({
       preflight: mockPreflight,

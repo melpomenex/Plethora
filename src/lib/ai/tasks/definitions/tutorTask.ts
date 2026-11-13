@@ -64,7 +64,9 @@ export interface TutorTurnTaskInput {
   /** Current stuck-thread hint state (monotonic level + consecutive hints). */
   hintThread: { level: number; consecutiveHints: number };
   /** Session-policy override the model MUST obey (escape hatch / turn cap). */
-  forcedMove?: "explain" | "wrap-up";
+  forcedMove?: "hint" | "explain" | "wrap-up";
+  /** Authority for a turn in a Study Plan lesson. */
+  lessonAuthority?: "library" | "model-only";
 }
 
 const TUTOR_CORE_INSTRUCTION = [
@@ -135,6 +137,14 @@ function buildTutorTurnInput(input: TutorTurnTaskInput) {
   );
   if (input.forcedMove) {
     lines.push(`FORCED next move (obey exactly): ${input.forcedMove}.`);
+  }
+  if (input.forcedMove === "hint") {
+    lines.push("Give one nudge for the current lesson question without revealing the answer. Build on any hints already shown.");
+  }
+  if (input.lessonAuthority === "library") {
+    lines.push("Answer the current lesson question using only the supplied source excerpts. If they do not support the answer, say what information is missing. Never invent a source.");
+  } else if (input.lessonAuthority === "model-only") {
+    lines.push("Answer the current lesson question from general knowledge. No library sources are available. Do not claim source verification.");
   }
   lines.push("", `Respond with ONLY a JSON object of this shape: ${TUTOR_TURN_SCHEMA.json}`);
   return { text: lines.join("\n") };

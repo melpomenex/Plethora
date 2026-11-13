@@ -273,6 +273,18 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
     setShowLessonModal(true);
   };
 
+  const handleLessonPractice = (nodeId: string) => {
+    const topic = nodes.find((node) => node.nodeId === nodeId);
+    const authority = planDetail.version.knowledgeAuthority;
+    setShowLessonModal(false);
+    onOpenAssessmentBuilder?.(planDetail.plan.id, planDetail.version.id, undefined, {
+      ...assessmentConfigForTopic(nodeId),
+      mode: 'practice',
+      timeLimitSeconds: null,
+      knowledgePolicy: authority.kind === 'model-only' ? 'model-only' : 'source-only',
+    }, translateRecentFeature('studyPlans.lesson.practiceTitle', { topic: topic?.title ?? planDetail.plan.title }));
+  };
+
   const handleOpenSource = (refId: string, resolution = planDetail.sourceRefs[refId]) => {
     if (onOpenSource) {
       onOpenSource(refId, resolution);
@@ -672,10 +684,7 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
               planDetail={planDetail}
               nodeId={selectedNodeId}
               onClose={() => setShowLessonModal(false)}
-              onHandoff={() => {
-                setShowLessonModal(false);
-                setActiveTab('assessments');
-              }}
+              onHandoff={onOpenAssessmentBuilder ? () => handleLessonPractice(selectedNodeId) : undefined}
             />
           </div>
         </div>
