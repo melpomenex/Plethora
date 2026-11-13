@@ -15,6 +15,7 @@ import {
   usePresentation,
 } from "../PresentationContext";
 import { createTabPane, useTabsStore } from "../../stores/tabsStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 
 function Probe() {
   const presentation = usePresentation();
@@ -82,6 +83,23 @@ describe("PresentationProvider", () => {
 
     unmount();
     expect(document.documentElement.dataset.presentation).toBeUndefined();
+  });
+
+  it("forces reduced motion when the setting is on", () => {
+    useSettingsStore.setState((state) => ({
+      settings: {
+        ...state.settings,
+        interface: { ...state.settings.interface, reducedMotionForce: true },
+      },
+    }));
+    const { unmount } = render(
+      <PresentationProvider>
+        <Probe />
+      </PresentationProvider>,
+    );
+    expect(document.documentElement.dataset.reducedMotion).toBe("true");
+    unmount();
+    expect(document.documentElement.dataset.reducedMotion).toBeUndefined();
   });
 
   it("preserves local workflow state across presentation changes", () => {

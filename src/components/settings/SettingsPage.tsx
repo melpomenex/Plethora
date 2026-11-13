@@ -1575,6 +1575,54 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
         />
         </SettingsRow>
 
+        <SettingsRow
+          label="Force reduced motion"
+          description="Reduce movement across the app regardless of the operating system setting. Honors the operating-system preference when off."
+          searchId="appearance.reducedMotionForce"
+        >
+          <Switch
+            checked={settings.interface.reducedMotionForce}
+            aria-label="Force reduced motion"
+            touchTarget
+            onCheckedChange={(checked) => {
+              updateSettingsCategory("interface", { reducedMotionForce: checked });
+              onChange();
+            }}
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          label="Quiet mode"
+          description="Dismiss recognition and celebration surfaces. Learning progress remains visible; no new recognition will be shown until re-enabled."
+          searchId="appearance.quietMode"
+        >
+          <Switch
+            checked={settings.interface.quietMode}
+            aria-label="Quiet mode"
+            touchTarget
+            onCheckedChange={(checked) => {
+              updateSettingsCategory("interface", { quietMode: checked });
+              onChange();
+            }}
+          />
+        </SettingsRow>
+
+        <SettingsRow
+          label="Share usage metrics"
+          description="Opt in to network reporting of local aggregate counts (sessions, independent checks, delayed reviews). Payloads contain no learner text, documents, answers or identifiers. Off by default."
+          searchId="appearance.metricsOptIn"
+        >
+          <Switch
+            checked={settings.interface.metricsOptIn}
+            aria-label="Share usage metrics"
+            touchTarget
+            onCheckedChange={(checked) => {
+              updateSettingsCategory("interface", { metricsOptIn: checked });
+              onChange();
+            }}
+          />
+        </SettingsRow>
+
         <div className={settings.interface.animationsEnabled ? "" : "opacity-50 pointer-events-none"}>
           <SettingsRow label="Particle Density" description="How many particles appear on screen" searchId="appearance.particleDensity">
             <div className="flex items-center gap-3">

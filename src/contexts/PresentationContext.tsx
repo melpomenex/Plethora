@@ -150,12 +150,13 @@ export function PresentationProvider({ children }: { children: ReactNode }) {
     };
   }, [displayMode]);
 
+  const reducedMotionForce = useSettingsStore((s) => s.settings.interface.reducedMotionForce);
   useEffect(() => {
     const root = document.documentElement;
     root.dataset.presentation = state.mode;
     root.dataset.platform = state.platform;
     root.dataset.pointer = state.pointer;
-    root.dataset.reducedMotion = String(state.reducedMotion);
+    root.dataset.reducedMotion = String(state.reducedMotion || reducedMotionForce);
     if (state.isEinkMode) {
       root.dataset.displayMode = "eink";
     } else {
@@ -168,7 +169,7 @@ export function PresentationProvider({ children }: { children: ReactNode }) {
       delete root.dataset.reducedMotion;
       delete root.dataset.displayMode;
     };
-  }, [state.mode, state.platform, state.pointer, state.reducedMotion, state.isEinkMode]);
+  }, [state.mode, state.platform, state.pointer, state.reducedMotion, state.isEinkMode, reducedMotionForce]);
 
   const value: PresentationState = useMemo(
     () => ({

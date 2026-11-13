@@ -356,6 +356,12 @@ interface InterfaceSettings {
   /** Use the dense library cockpit layout in Documents. */
   compactDocumentsView: boolean;
   animationsEnabled: boolean;
+  /** User-forced reduced motion, independent of the OS media query. */
+  reducedMotionForce: boolean;
+  /** Quiet mode: dismiss recognition/celebration surfaces app-wide. */
+  quietMode: boolean;
+  /** Opt-in for network reporting of allowlist aggregates only (default off). */
+  metricsOptIn: boolean;
   /**
    * Knowledge Peck branded startup animation (default on, all platforms).
    * Deliberately NOT gated by `animationsEnabled`: that flag is forced off
@@ -1254,6 +1260,9 @@ export const defaultSettings: Settings = {
     compactMode: false,
     compactDocumentsView: false,
     animationsEnabled: true,
+    reducedMotionForce: false,
+    quietMode: false,
+    metricsOptIn: false,
     startupAnimationEnabled: true,
     animationFrequency: 1,
     animationBrightness: 12,
