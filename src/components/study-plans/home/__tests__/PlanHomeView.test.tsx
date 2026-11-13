@@ -1,6 +1,6 @@
 import React from 'react';
-import { describe, expect, it, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, render, screen, fireEvent } from '@testing-library/react';
 import { PlanHomeView } from '../PlanHomeView';
 import type { StudyPlanDetail } from '../../../../types/learningPaths';
 
@@ -24,6 +24,11 @@ function detail(): StudyPlanDetail {
 }
 
 describe('PlanHomeView', () => {
+  afterEach(() => {
+    fireEvent.keyDown(document, { key: 'Escape' });
+    cleanup();
+  });
+
   it('renders Continue with a reason and the blocked dependent visible', () => {
     const onContinue = vi.fn();
     render(<PlanHomeView planDetail={detail()} dueReviewCount={3} onContinue={onContinue} onOpenReview={vi.fn()} onOpenPath={vi.fn()} />);
@@ -40,5 +45,61 @@ describe('PlanHomeView', () => {
 
     rerender(<PlanHomeView planDetail={detail()} dueReviewCount={null} onContinue={vi.fn()} onOpenReview={vi.fn()} onOpenPath={vi.fn()} />);
     expect(screen.getByText('Unavailable')).toBeInTheDocument();
+  });
+
+  it('keeps recommendation navigation explicit until a context action is chosen', () => {
+    const onContinue = vi.fn();
+    const onOpenPath = vi.fn();
+    render(<PlanHomeView planDetail={detail()} dueReviewCount={2} onContinue={onContinue} onOpenReview={vi.fn()} onOpenPath={onOpenPath} />);
+
+    const card = screen.getByRole('heading', { name: 'Intro' }).closest('section')!;
+    fireEvent.contextMenu(card);
+    expect(onContinue).not.toHaveBeenCalled();
+    expect(onOpenPath).not.toHaveBeenCalled();
+    expect(screen.getByRole('menuitem', { name: 'Continue' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Browse path' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Continue' }));
+    expect(onContinue).toHaveBeenCalledWith('n0');
+    expect(onOpenPath).not.toHaveBeenCalled();
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(card);
+  });
+
+  it('keeps Review available when the due count is unavailable and ignores blank surfaces', () => {
+    const onOpenReview = vi.fn();
+    render(<PlanHomeView planDetail={detail()} dueReviewCount={null} onContinue={vi.fn()} onOpenReview={onOpenReview} onOpenPath={vi.fn()} />);
+
+    fireEvent.contextMenu(screen.getByLabelText('Plan Home'));
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+
+    const reviewCard = screen.getByText('Unavailable').closest('section')!;
+    fireEvent.contextMenu(reviewCard);
+    expect(onOpenReview).not.toHaveBeenCalled();
+    expect(screen.getByRole('menuitem', { name: 'Review' })).toBeInTheDocument();
+    expect(screen.getByText('Unavailable')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Review' }));
+    expect(onOpenReview).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Unavailable')).toBeInTheDocument();
+  });
+
+  it('does not replace a card button interaction with an object menu', () => {
+    render(<PlanHomeView planDetail={detail()} onContinue={vi.fn()} onOpenReview={vi.fn()} onOpenPath={vi.fn()} />);
+    fireEvent.contextMenu(screen.getByRole('button', { name: /continue/i }));
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('keeps one shared menu open while switching between Plan Home cards', () => {
+    const props = { planDetail: detail(), dueReviewCount: 3, onContinue: vi.fn(), onOpenReview: vi.fn(), onOpenPath: vi.fn() };
+    render(<><PlanHomeView {...props} /><PlanHomeView {...props} /></>);
+    fireEvent.contextMenu(screen.getAllByRole('heading', { name: 'Intro' })[0].closest('section')!);
+    expect(screen.getAllByRole('menu')).toHaveLength(1);
+    expect(screen.getByRole('menuitem', { name: 'Continue' })).toBeInTheDocument();
+
+    fireEvent.contextMenu(screen.getAllByText('Due reviews')[1].closest('section')!);
+    expect(screen.getAllByRole('menu')).toHaveLength(1);
+    expect(screen.getByRole('menuitem', { name: 'Review' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Continue' })).not.toBeInTheDocument();
   });
 });

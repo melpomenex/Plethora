@@ -18,6 +18,10 @@ import {
 } from '@phosphor-icons/react';
 import type { StudySourceResolution } from '../../types/studySource';
 import { Button } from '../md3/Button';
+import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from '../common/ContextMenu';
+import { useStudyPlanContextMenu } from './useStudyPlanContextMenu';
+
+const contextMenuId = 'study-plan-source-context-menu';
 
 export interface PlanSourceListProps {
   sourceRefIds: string[];
@@ -34,6 +38,8 @@ export const PlanSourceList: React.FC<PlanSourceListProps> = ({
   onRemoveSource,
   isReadOnly = false,
 }) => {
+  const contextMenu = useStudyPlanContextMenu(contextMenuId);
+
   if (sourceRefIds.length === 0) {
     return (
       <div className="py-4 text-center text-xs text-surface-500 border border-dashed border-surface-200 dark:border-surface-700 rounded-xl">
@@ -82,7 +88,7 @@ export const PlanSourceList: React.FC<PlanSourceListProps> = ({
   };
 
   return (
-    <div className="space-y-2">
+    <div ref={contextMenu.ownerRef} tabIndex={-1} className="space-y-2">
       {sourceRefIds.map((refId) => {
         const resolution = sourceResolutions[refId];
         const title = resolution?.ref?.documentTitle || `Source Ref ${refId.slice(0, 8)}`;
@@ -103,9 +109,30 @@ export const PlanSourceList: React.FC<PlanSourceListProps> = ({
           }
         }
 
+        const menuItems: ContextMenuItem[] = [];
+        if (onOpenSource && resolution?.status !== 'missing') {
+          menuItems.push({
+            id: 'open-source',
+            label: 'Open source',
+            icon: <ArrowSquareOut size={16} />,
+            onClick: () => onOpenSource(refId, resolution),
+          });
+        }
+        if (!isReadOnly && onRemoveSource) {
+          menuItems.push({
+            id: 'remove-link',
+            type: ContextMenuItemType.Danger,
+            label: 'Remove link',
+            icon: <Trash size={16} />,
+            onClick: () => onRemoveSource(refId),
+          });
+        }
+
         return (
           <div
             key={refId}
+            tabIndex={0}
+            onContextMenu={(event) => contextMenu.openMenu(event, menuItems)}
             className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3 rounded-xl bg-surface-100 dark:bg-surface-800/80 border border-surface-200 dark:border-surface-700 text-xs"
           >
             <div className="flex-1 min-w-0">
@@ -156,6 +183,13 @@ export const PlanSourceList: React.FC<PlanSourceListProps> = ({
           </div>
         );
       })}
+      <ContextMenu
+        menuId={contextMenu.menuId}
+        items={contextMenu.items}
+        visible={contextMenu.visible}
+        position={contextMenu.position}
+        onClose={contextMenu.closeMenu}
+      />
     </div>
   );
 };

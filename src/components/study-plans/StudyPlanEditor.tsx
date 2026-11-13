@@ -264,6 +264,11 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
     handleNodesChange(updated);
   };
 
+  const handleStartLesson = (nodeId: string) => {
+    setSelectedNodeId(nodeId);
+    setShowLessonModal(true);
+  };
+
   const handleOpenSource = (refId: string, resolution = planDetail.sourceRefs[refId]) => {
     if (onOpenSource) {
       onOpenSource(refId, resolution);
@@ -565,7 +570,7 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
                 <Button
                   variant="outlined"
                   size="sm"
-                  onClick={() => setShowLessonModal(true)}
+                  onClick={() => handleStartLesson(selectedNodeId)}
                   disabled={isVerifying}
                   aria-label="Start lesson for the selected topic"
                 >
@@ -649,7 +654,12 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
       )}
 
       {showLessonModal && selectedNodeId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setShowLessonModal(false);
+          }}
+        >
           <div className="bg-surface dark:bg-surface-dark rounded-3xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
             <LessonView
               planDetail={planDetail}
@@ -866,6 +876,8 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
               activityByNodeId={planDetail.activityByNodeId}
               onSelectNode={setSelectedNodeId}
               onChangeNodes={handleNodesChange}
+              onChangeNode={handleNodeUpdate}
+              onStartLesson={handleStartLesson}
               isReadOnly={!isDraft}
             />
         </div>

@@ -45,6 +45,8 @@ export interface ContextMenuPosition {
   y: number;
 }
 
+export type ContextMenuCloseReason = "action" | "escape" | "outside" | "dismiss";
+
 /**
  * Context menu state
  */
@@ -60,6 +62,7 @@ interface ContextMenuState {
  */
 interface ContextMenuStore {
   menus: Map<string, ContextMenuState>;
+  registerOwner: (id: string) => () => void;
   showMenu: (id: string, position: ContextMenuPosition, items: ContextMenuItem[]) => void;
   hideMenu: (id: string) => void;
   hideAll: () => void;
@@ -69,6 +72,7 @@ interface ContextMenuStore {
 const createContextMenuStore = () => {
   const menus = new Map<string, ContextMenuState>();
   const listeners = new Set<(id: string) => void>();
+  const ownerCounts = new Map<string, number>();
 
   const notify = (id: string) => {
     listeners.forEach((listener) => listener(id));
@@ -76,6 +80,18 @@ const createContextMenuStore = () => {
 
   let store: ContextMenuStore = {
     menus,
+    registerOwner: (id) => {
+      ownerCounts.set(id, (ownerCounts.get(id) ?? 0) + 1);
+      return () => {
+        const count = ownerCounts.get(id) ?? 0;
+        if (count > 1) {
+          ownerCounts.set(id, count - 1);
+          return;
+        }
+        ownerCounts.delete(id);
+        menus.delete(id);
+      };
+    },
     subscribe: (listener) => {
       listeners.add(listener);
       return () => {
@@ -132,6 +148,7 @@ export function useContextMenu(menuId: string) {
   });
 
   useEffect(() => {
+    const unregister = contextMenuStore.registerOwner(menuId);
     const current = contextMenuStore.menus.get(menuId);
     if (current) {
       setState(current);
@@ -146,7 +163,10 @@ export function useContextMenu(menuId: string) {
       }
     });
 
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+      unregister();
+    };
   }, [menuId]);
 
   const showMenu = useCallback((position: ContextMenuPosition, items: ContextMenuItem[]) => {
@@ -181,7 +201,7 @@ export function ContextMenu({
   items: ContextMenuItem[];
   visible: boolean;
   position: ContextMenuPosition;
-  onClose: () => void;
+  onClose: (reason?: ContextMenuCloseReason) => void;
   /**
    * Opt-in for text-selection menus: prevent pointer presses inside the menu
    * (and its submenus) from moving focus and collapsing the browser selection
@@ -202,7 +222,7 @@ export function ContextMenu({
     } else if (!isMobile && submenuState) {
       setSubmenuState(null);
     } else {
-      onClose();
+      onClose("escape");
     }
   }, [isMobile, mobileSubmenuStack.length, onClose, submenuState]);
   useOverlayDismissal(visible, dismissBack, 80);
@@ -267,7 +287,7 @@ export function ContextMenu({
 
         case "Escape":
           e.preventDefault();
-          onClose();
+          onClose("escape");
           break;
       }
     };
@@ -289,12 +309,12 @@ export function ContextMenu({
       if (e.type === "contextmenu" && e.defaultPrevented) return;
 
       if (!menu.contains(e.target as Node)) {
-        onClose();
+        onClose("outside");
       }
     };
 
     const handleDismissal = () => {
-      onClose();
+      onClose("dismiss");
     };
 
     document.addEventListener("mousedown", handleOutsideInteraction);
@@ -375,7 +395,7 @@ export function ContextMenu({
           if (depth > 0) {
             setMobileSubmenuStack((s) => s.slice(0, -1));
           } else {
-            onClose();
+            onClose("dismiss");
           }
         }}
         title={
@@ -417,7 +437,7 @@ export function ContextMenu({
                   setMobileSubmenuStack((s) => [...s, item]);
                 } else {
                   item.onClick?.();
-                  onClose();
+                  onClose("action");
                 }
               }}
             >
@@ -523,7 +543,7 @@ export function ContextMenu({
                       }
                     } else {
                       item.onClick?.();
-                      onClose();
+                      onClose("action");
                     }
                   }
                 }}

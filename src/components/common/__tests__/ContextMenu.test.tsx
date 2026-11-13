@@ -7,8 +7,14 @@
  */
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../ContextMenu";
+
+const mockUseMobileShell = vi.fn().mockReturnValue(false);
+
+vi.mock("../../../hooks/useMobileShell", () => ({
+  useMobileShell: () => mockUseMobileShell(),
+}));
 
 function makeItems(overrides: Partial<Record<string, () => void>> = {}): ContextMenuItem[] {
   return [
@@ -39,6 +45,7 @@ function renderMenu(
 
 describe("ContextMenu keyboard interaction", () => {
   afterEach(cleanup);
+  beforeEach(() => mockUseMobileShell.mockReturnValue(false));
 
   it("ArrowDown focuses menu items in order starting from the first", () => {
     renderMenu(makeItems());
@@ -72,7 +79,19 @@ describe("ContextMenu keyboard interaction", () => {
     const onClose = vi.fn();
     renderMenu(makeItems(), onClose);
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledWith("escape");
+  });
+
+  it("keeps the same actions available in the mobile bottom sheet", () => {
+    mockUseMobileShell.mockReturnValue(true);
+    const copy = vi.fn();
+    const onClose = vi.fn();
+    renderMenu(makeItems({ copy }), onClose);
+
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Copy" }));
+    expect(copy).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledWith("action");
   });
 
   it("renders an accessible menu container with items carrying menuitem roles", () => {

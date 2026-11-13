@@ -19,6 +19,10 @@ import {
 import { Button } from '../../md3/Button';
 import type { BlueprintSummary } from '../../../types/assessmentQuestions';
 import { BlueprintService } from '../../../lib/study-plans/assessments/blueprintService';
+import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from '../../common/ContextMenu';
+import { useStudyPlanContextMenu } from '../useStudyPlanContextMenu';
+
+const contextMenuId = 'study-plan-assessment-context-menu';
 
 export interface AssessmentListProps {
   planId?: string | null;
@@ -37,6 +41,7 @@ export const AssessmentList: React.FC<AssessmentListProps> = ({
   onCreateForTopic,
   className = '',
 }) => {
+  const contextMenu = useStudyPlanContextMenu(contextMenuId);
   const [blueprints, setBlueprints] = useState<BlueprintSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -58,8 +63,8 @@ export const AssessmentList: React.FC<AssessmentListProps> = ({
     loadBlueprints();
   }, [planId]);
 
-  const handleArchive = async (bp: BlueprintSummary, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleArchive = async (bp: BlueprintSummary, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     try {
       await BlueprintService.archiveBlueprint(bp.id, bp.currentRevision);
       await loadBlueprints();
@@ -68,8 +73,8 @@ export const AssessmentList: React.FC<AssessmentListProps> = ({
     }
   };
 
-  const handleDelete = async (bp: BlueprintSummary, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleDelete = async (bp: BlueprintSummary, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     try {
       await BlueprintService.deleteUnusedBlueprint(bp.id, bp.currentRevision);
       await loadBlueprints();
@@ -79,7 +84,7 @@ export const AssessmentList: React.FC<AssessmentListProps> = ({
   };
 
   return (
-    <div className={`space-y-4 ${className}`}>
+    <div ref={contextMenu.ownerRef} tabIndex={-1} className={`space-y-4 ${className}`}>
       <div className="flex items-center justify-between">
         <div>
           <h3 className="text-base font-semibold text-surface-900 dark:text-surface-100 flex items-center gap-2">
@@ -151,10 +156,33 @@ export const AssessmentList: React.FC<AssessmentListProps> = ({
           {blueprints.map((bp) => {
             const isExam = bp.mode === 'exam';
             const isReady = bp.state === 'ready';
+            const menuItems: ContextMenuItem[] = [
+              {
+                id: 'open-assessment',
+                label: 'Open',
+                icon: <ArrowRight size={16} />,
+                onClick: () => onSelectBlueprint(bp.id, bp.currentRevisionId || undefined),
+              },
+              {
+                id: 'archive-assessment',
+                label: 'Archive',
+                icon: <Archive size={16} />,
+                onClick: () => void handleArchive(bp),
+              },
+              {
+                id: 'delete-unused-assessment',
+                type: ContextMenuItemType.Danger,
+                label: 'Delete unused assessment',
+                icon: <Trash size={16} />,
+                onClick: () => void handleDelete(bp),
+              },
+            ];
 
             return (
               <div
                 key={bp.id}
+                tabIndex={0}
+                onContextMenu={(event) => contextMenu.openMenu(event, menuItems)}
                 onClick={() => onSelectBlueprint(bp.id, bp.currentRevisionId || undefined)}
                 className="p-4 rounded-xl border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800/40 hover:bg-surface-100 dark:hover:bg-surface-800/80 transition-all cursor-pointer group flex flex-col justify-between"
               >
@@ -222,6 +250,13 @@ export const AssessmentList: React.FC<AssessmentListProps> = ({
           })}
         </div>
       )}
+      <ContextMenu
+        menuId={contextMenu.menuId}
+        items={contextMenu.items}
+        visible={contextMenu.visible}
+        position={contextMenu.position}
+        onClose={contextMenu.closeMenu}
+      />
     </div>
   );
 };

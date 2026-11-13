@@ -12,6 +12,10 @@ import { ArrowRight, CalendarCheck, Sparkle, Warning } from '@phosphor-icons/rea
 import { Button } from '../../md3/Button';
 import type { StudyPlanDetail } from '../../../types/learningPaths';
 import { projectPlanHome } from '../../../lib/study-plans/home/projection';
+import { ContextMenu, type ContextMenuItem } from '../../common/ContextMenu';
+import { useStudyPlanContextMenu } from '../useStudyPlanContextMenu';
+
+const contextMenuId = 'study-plan-home-context-menu';
 
 export interface PlanHomeViewProps {
   planDetail: StudyPlanDetail;
@@ -28,12 +32,25 @@ export const PlanHomeView: React.FC<PlanHomeViewProps> = ({
   onOpenReview,
   onOpenPath,
 }) => {
+  const contextMenu = useStudyPlanContextMenu(contextMenuId);
   const projection = projectPlanHome(planDetail, { dueReviewCount });
   const { recommendation } = projection;
 
   return (
-    <div className="space-y-4" aria-label="Plan Home">
-      <section className="rounded-2xl border border-primary-500/30 bg-primary-500/5 p-4 space-y-3">
+    <div ref={contextMenu.ownerRef} tabIndex={-1} className="space-y-4" aria-label="Plan Home">
+      <section
+        tabIndex={0}
+        onContextMenu={(event) => {
+          const items: ContextMenuItem[] = recommendation.nodeId
+            ? [
+                { id: 'continue-topic', label: 'Continue', onClick: () => onContinue(recommendation.nodeId!) },
+                { id: 'browse-path', label: 'Browse path', onClick: onOpenPath },
+              ]
+            : [];
+          contextMenu.openMenu(event, items);
+        }}
+        className="rounded-2xl border border-primary-500/30 bg-primary-500/5 p-4 space-y-3"
+      >
         <div className="flex items-center gap-2 text-xs font-semibold text-primary-700 dark:text-primary-300 uppercase tracking-wide">
           <Sparkle size={14} />
           <span>Today</span>
@@ -74,7 +91,13 @@ export const PlanHomeView: React.FC<PlanHomeViewProps> = ({
         )}
       </section>
 
-      <section className="rounded-2xl border border-surface-200 dark:border-surface-700 p-4 flex items-center justify-between gap-3">
+      <section
+        tabIndex={0}
+        onContextMenu={(event) => contextMenu.openMenu(event, [
+          { id: 'review-due', label: 'Review', onClick: onOpenReview },
+        ])}
+        className="rounded-2xl border border-surface-200 dark:border-surface-700 p-4 flex items-center justify-between gap-3"
+      >
         <div className="flex items-center gap-2">
           <CalendarCheck size={18} className="text-primary-500" />
           <div>
@@ -88,6 +111,13 @@ export const PlanHomeView: React.FC<PlanHomeViewProps> = ({
           <span>Review</span>
         </Button>
       </section>
+      <ContextMenu
+        menuId={contextMenu.menuId}
+        items={contextMenu.items}
+        visible={contextMenu.visible}
+        position={contextMenu.position}
+        onClose={contextMenu.closeMenu}
+      />
     </div>
   );
 };

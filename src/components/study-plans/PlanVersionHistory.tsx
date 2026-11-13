@@ -10,6 +10,10 @@ import React from 'react';
 import { Copy, Eye } from '@phosphor-icons/react';
 import type { StudyPlanVersion } from '../../types/learningPaths';
 import { Button } from '../md3/Button';
+import { ContextMenu, type ContextMenuItem } from '../common/ContextMenu';
+import { useStudyPlanContextMenu } from './useStudyPlanContextMenu';
+
+const contextMenuId = 'study-plan-version-context-menu';
 
 export interface PlanVersionSummary {
   id: string;
@@ -36,6 +40,8 @@ export const PlanVersionHistory: React.FC<PlanVersionHistoryProps> = ({
   onCopyToDraft,
   canCreateDraft = true,
 }) => {
+  const contextMenu = useStudyPlanContextMenu(contextMenuId);
+
   if (versions.length === 0) {
     return (
       <div className="py-8 text-center text-xs text-surface-500">
@@ -68,7 +74,7 @@ export const PlanVersionHistory: React.FC<PlanVersionHistoryProps> = ({
   };
 
   return (
-    <div className="space-y-3">
+    <div ref={contextMenu.ownerRef} tabIndex={-1} className="space-y-3">
       <div className="text-xs text-surface-500 pb-1">
         Historical versions are immutable. You can copy an older version into an active draft to
         revert or make modifications.
@@ -77,10 +83,29 @@ export const PlanVersionHistory: React.FC<PlanVersionHistoryProps> = ({
       <div className="space-y-2">
         {versions.map((v) => {
           const isSelected = activeVersionId === v.id;
+          const menuItems: ContextMenuItem[] = [];
+          if (!isSelected) {
+            menuItems.push({
+              id: 'view-version',
+              label: 'View',
+              icon: <Eye size={16} />,
+              onClick: () => onSelectVersion(v.id),
+            });
+          }
+          if (v.state !== 'draft' && onCopyToDraft && canCreateDraft) {
+            menuItems.push({
+              id: 'copy-version-to-draft',
+              label: 'Copy to draft',
+              icon: <Copy size={16} />,
+              onClick: () => onCopyToDraft(v.id),
+            });
+          }
 
           return (
             <div
               key={v.id}
+              tabIndex={0}
+              onContextMenu={(event) => contextMenu.openMenu(event, menuItems)}
               className={`flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-xl border text-xs transition-colors ${
                 isSelected
                   ? 'bg-primary-500/10 border-primary-500/40 shadow-sm'
@@ -134,6 +159,13 @@ export const PlanVersionHistory: React.FC<PlanVersionHistoryProps> = ({
           );
         })}
       </div>
+      <ContextMenu
+        menuId={contextMenu.menuId}
+        items={contextMenu.items}
+        visible={contextMenu.visible}
+        position={contextMenu.position}
+        onClose={contextMenu.closeMenu}
+      />
     </div>
   );
 };

@@ -11,12 +11,14 @@ import {
   ArrowUp,
   ArrowDown,
   Lock,
+  LockOpen,
   Plus,
   ArrowCounterClockwise,
+  PlayCircle,
+  Trash,
   Warning,
   CheckCircle,
   Circle,
-  PlayCircle,
   Prohibit,
 } from '@phosphor-icons/react';
 import type {
@@ -28,6 +30,10 @@ import {
   reorderStudyPlanNode,
 } from '../../lib/study-plans/topology';
 import { Button } from '../md3/Button';
+import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from '../common/ContextMenu';
+import { useStudyPlanContextMenu } from './useStudyPlanContextMenu';
+
+const contextMenuId = 'study-plan-outline-context-menu';
 
 export interface PlanOutlineProps {
   nodes: StudyPlanVersionNode[];
@@ -36,6 +42,8 @@ export interface PlanOutlineProps {
   activityByNodeId?: Record<string, NodeActivity>;
   onSelectNode: (nodeId: string) => void;
   onChangeNodes: (updatedNodes: StudyPlanVersionNode[]) => void;
+  onChangeNode?: (updatedNode: StudyPlanVersionNode) => void;
+  onStartLesson?: (nodeId: string) => void;
   isReadOnly?: boolean;
 }
 
@@ -46,9 +54,12 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
   activityByNodeId = {},
   onSelectNode,
   onChangeNodes,
+  onChangeNode,
+  onStartLesson,
   isReadOnly = false,
 }) => {
   const [orderConflict, setOrderConflict] = useState<string | null>(null);
+  const contextMenu = useStudyPlanContextMenu(contextMenuId);
 
   const includedNodes = nodes
     .filter((n) => n.included)
@@ -56,12 +67,10 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
 
   const tombstoneNodes = nodes.filter((n) => !n.included);
 
-  const handleMove = (nodeId: string, delta: number) => {
-    if (isReadOnly) return;
-    setOrderConflict(null);
-
+  const getMoveResult = (nodeId: string, delta: number) => {
+    if (isReadOnly) return { ok: false as const, reason: 'This plan is read only.' };
     const node = includedNodes.find((n) => n.nodeId === nodeId);
-    if (!node) return;
+    if (!node) return { ok: false as const, reason: 'This topic is unavailable.' };
 
     const targetPos = node.position + delta;
     const reorderResult = reorderStudyPlanNode(nodes, prerequisites, nodeId, targetPos);
@@ -70,16 +79,101 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
       if (reorderResult.error.code === 'order_conflict') {
         const minP = (reorderResult.error.details?.minPosition ?? 0) + 1;
         const maxP = (reorderResult.error.details?.maxPosition ?? includedNodes.length - 1) + 1;
-        setOrderConflict(
-          `Cannot move "${node.title}" to position ${targetPos + 1}. Use positions ${minP}–${maxP} so prerequisites remain first.`
-        );
-      } else {
-        setOrderConflict(reorderResult.error.messageKey);
+        return {
+          ok: false as const,
+          reason: `Cannot move "${node.title}" to position ${targetPos + 1}. Use positions ${minP}–${maxP} so prerequisites remain first.`,
+        };
       }
-      return;
+      return { ok: false as const, reason: reorderResult.error.messageKey };
     }
 
-    onChangeNodes(reorderResult.value);
+    const movedLockedNode = nodes.find((lockedNode) => {
+      if (!lockedNode.included || !lockedNode.locked) return false;
+      const updatedNode = reorderResult.value.find((candidate) => candidate.nodeId === lockedNode.nodeId);
+      return updatedNode?.position !== lockedNode.position;
+    });
+    if (movedLockedNode) {
+      return {
+        ok: false as const,
+        reason: `Cannot move this topic because "${movedLockedNode.title}" is locked to position ${movedLockedNode.position + 1}.`,
+      };
+    }
+
+    return { ok: true as const, nodes: reorderResult.value };
+  };
+
+  const handleMove = (nodeId: string, delta: number) => {
+    setOrderConflict(null);
+    const result = getMoveResult(nodeId, delta);
+    if (!result.ok) {
+      setOrderConflict(result.reason);
+      return;
+    }
+    onChangeNodes(result.nodes);
+  };
+
+  const handleNodeUpdate = (updatedNode: StudyPlanVersionNode) => {
+    if (onChangeNode) {
+      onChangeNode(updatedNode);
+    } else {
+      onChangeNodes(nodes.map((node) => node.nodeId === updatedNode.nodeId ? updatedNode : node));
+    }
+  };
+
+  const buildTopicMenuItems = (node: StudyPlanVersionNode, included: boolean): ContextMenuItem[] => {
+    const items: ContextMenuItem[] = [
+      { id: 'open-topic', label: 'Open topic', onClick: () => onSelectNode(node.nodeId) },
+    ];
+
+    if (!included) {
+      if (!isReadOnly) {
+        items.push({
+          id: 'restore-topic',
+          label: 'Restore',
+          icon: <ArrowCounterClockwise size={16} />,
+          onClick: () => handleRestoreTombstone(node.nodeId),
+        });
+      }
+      return items;
+    }
+
+    if (onStartLesson) {
+      items.push({ id: 'start-lesson', label: 'Start lesson', icon: <PlayCircle size={16} />, onClick: () => onStartLesson(node.nodeId) });
+    }
+
+    if (!isReadOnly) {
+      items.push({ id: 'separator-topic-edit', type: ContextMenuItemType.Separator, label: '' });
+      for (const [id, label, delta] of [
+        ['move-earlier', 'Move earlier', -1],
+        ['move-later', 'Move later', 1],
+      ] as const) {
+        const result = getMoveResult(node.nodeId, delta);
+        items.push({
+          id,
+          label,
+          disabled: !result.ok,
+          title: result.ok ? undefined : result.reason,
+          onClick: () => handleMove(node.nodeId, delta),
+        });
+      }
+      items.push(
+        {
+          id: 'toggle-lock',
+          label: node.locked ? 'Unlock' : 'Lock',
+          icon: node.locked ? <LockOpen size={16} /> : <Lock size={16} />,
+          onClick: () => handleNodeUpdate({ ...node, locked: !node.locked, userModified: true }),
+        },
+        {
+          id: 'remove-topic',
+          type: ContextMenuItemType.Danger,
+          label: 'Remove from plan',
+          icon: <Trash size={16} />,
+          onClick: () => handleNodeUpdate({ ...node, included: false, position: -1, userModified: true }),
+        },
+      );
+    }
+
+    return items;
   };
 
   const handleAddTopic = () => {
@@ -160,7 +254,7 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
   };
 
   return (
-    <div className="space-y-4">
+    <div ref={contextMenu.ownerRef} tabIndex={-1} className="space-y-4">
       {orderConflict && (
         <div
           role="alert"
@@ -196,12 +290,15 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
             const activity = activityByNodeId[n.nodeId] || 'not-started';
             const isFirst = idx === 0;
             const isLast = idx === includedNodes.length - 1;
+            const moveEarlier = getMoveResult(n.nodeId, -1);
+            const moveLater = getMoveResult(n.nodeId, 1);
 
             return (
               <div
                 key={n.nodeId}
                 role="listitem"
                 tabIndex={0}
+                onContextMenu={(event) => contextMenu.openMenu(event, buildTopicMenuItems(n, true))}
                 onClick={() => onSelectNode(n.nodeId)}
                 onKeyDown={(e) => {
                   if (e.key === ' ' || e.key === 'Enter') {
@@ -244,20 +341,20 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
                   >
                     <button
                       type="button"
-                      disabled={isFirst}
+                      disabled={isFirst || !moveEarlier.ok}
                       onClick={() => handleMove(n.nodeId, -1)}
                       className="p-1.5 rounded-lg text-surface-500 hover:text-surface-900 dark:hover:text-surface-100 hover:bg-surface-200 dark:hover:bg-surface-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                      title="Move earlier (Up)"
+                      title={moveEarlier.ok ? 'Move earlier (Up)' : moveEarlier.reason}
                       aria-label={`Move ${n.title} earlier`}
                     >
                       <ArrowUp size={14} />
                     </button>
                     <button
                       type="button"
-                      disabled={isLast}
+                      disabled={isLast || !moveLater.ok}
                       onClick={() => handleMove(n.nodeId, 1)}
                       className="p-1.5 rounded-lg text-surface-500 hover:text-surface-900 dark:hover:text-surface-100 hover:bg-surface-200 dark:hover:bg-surface-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-                      title="Move later (Down)"
+                      title={moveLater.ok ? 'Move later (Down)' : moveLater.reason}
                       aria-label={`Move ${n.title} later`}
                     >
                       <ArrowDown size={14} />
@@ -292,6 +389,8 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
             {tombstoneNodes.map((n) => (
               <div
                 key={n.nodeId}
+                tabIndex={0}
+                onContextMenu={(event) => contextMenu.openMenu(event, buildTopicMenuItems(n, false))}
                 className="flex items-center justify-between p-2.5 rounded-xl bg-surface-100 dark:bg-surface-800 text-xs text-surface-500 border border-surface-200 dark:border-surface-700"
               >
                 <span className="line-through truncate pr-2">{n.title}</span>
@@ -310,6 +409,14 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
           </div>
         </div>
       )}
+
+      <ContextMenu
+        menuId={contextMenu.menuId}
+        items={contextMenu.items}
+        visible={contextMenu.visible}
+        position={contextMenu.position}
+        onClose={contextMenu.closeMenu}
+      />
     </div>
   );
 };

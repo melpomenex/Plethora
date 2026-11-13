@@ -110,7 +110,7 @@ describe('StudyPlanEditor', () => {
     render(<StudyPlanEditor planDetail={mockDetail} onBack={onBack} />);
 
     fireEvent.click(screen.getByRole('tab', { name: /source material/i }));
-    expect(screen.getByText('Grounded Material References')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Source Material' })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('tab', { name: /version diff/i }));
     expect(screen.getByText('Changes from Baseline')).toBeInTheDocument();
@@ -206,5 +206,30 @@ describe('StudyPlanEditor', () => {
       planVersionId: 'spv_1',
       nodeId: 'n1',
     }));
+  });
+
+  it('starts the clicked topic from its context menu without opening the lesson on right-click', async () => {
+    const lessonsApi = await import('../../../api/study-lessons');
+    render(<StudyPlanEditor planDetail={mockDetail} onBack={vi.fn()} />);
+
+    const row = screen.getByText('Arithmetic Circuits').closest('[role="listitem"]')!;
+    fireEvent.contextMenu(row);
+    expect(screen.queryByText(/Arithmetic Circuits.*lesson/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Start lesson' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Start lesson' }));
+    expect(await screen.findByText(/Arithmetic Circuits/i)).toBeInTheDocument();
+    expect(lessonsApi.createStudyPlanLesson).toHaveBeenCalledWith(expect.objectContaining({ nodeId: 'n1' }));
+  });
+
+  it('leaves topic fields and blank editor surfaces out of object context menus', () => {
+    render(<StudyPlanEditor planDetail={mockDetail} onBack={vi.fn()} />);
+
+    const titleInput = screen.getByDisplayValue('Arithmetic Circuits');
+    fireEvent.contextMenu(titleInput);
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+
+    fireEvent.contextMenu(screen.getByText('Topics (1)'));
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
   });
 });
