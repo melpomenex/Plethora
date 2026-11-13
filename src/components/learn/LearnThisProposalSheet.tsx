@@ -79,6 +79,8 @@ export interface LearnThisProposalSheetProps {
    * a sha256 per-candidate proposal id. Absent for legacy callers.
    */
   acceptance?: { acceptanceId?: string; perCandidateProposalIds?: Record<string, string> };
+  /** Optional Study Plan linkage carried into acceptance provenance. */
+  link?: { planId?: string; nodeId?: string };
   onClose: () => void;
 }
 
@@ -129,6 +131,7 @@ export function LearnThisProposalSheet({
   staticCandidates,
   staticProvenance,
   acceptance,
+  link,
   onClose,
 }: LearnThisProposalSheetProps) {
   const { t } = useI18n();
@@ -283,6 +286,8 @@ export function LearnThisProposalSheet({
             ? perCandidateProposalIds[candidateSignature(acceptedRows[0].candidate)]
             : undefined,
         perCandidateProposalIds,
+        linkedPlanId: link?.planId,
+        linkedNodeId: link?.nodeId,
       }
     )
       .then((result) => {

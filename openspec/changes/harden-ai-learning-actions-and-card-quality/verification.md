@@ -24,3 +24,14 @@
 
 - Command: `npm run bench:check`
 - Assert that tool parameter normalization and schema validation adds less than 0.1ms overhead per tool call.
+
+## Current Issue #6 acceptance
+
+
+| IDs | Task | Evidence |
+| --- | --- | --- |
+| A01 | 5.1 | Partial alias support and silent conflict discard verified in source. Adapter matrix pending. |
+| A02 | 5.2 | Generation-to-acceptance provider spy sees zero requests in both full and focused runs. Assistant panel missing-save failure passed focused rerun. Neither result alone establishes a native defect. |
+| A03, A08 | 5.3 | Blank rendering guard and refusal mapping present. Terminal/stream/consent matrix pending. |
+| A04, A05, A09 | 5.4 | Validator has no production consumer in current search. Existing lineage/receipt paths need cross-surface SQLite/IndexedDB tests. |
+| A06, A07 | 5.5 | Summary native default-provider path and full-row write confirmed. Run current route and failure matrix with scripted providers. |

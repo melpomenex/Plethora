@@ -82,6 +82,9 @@ export interface AcceptLearnThisContext {
    */
   acceptanceId?: string;
   proposalId?: string;
+  /** Optional Study Plan linkage recorded with provenance (plan-linked cards). */
+  linkedPlanId?: string;
+  linkedNodeId?: string;
   /**
    * C7-T06 per-candidate proposal ids keyed by local candidate signature.
    * When present, each candidate's create uses its own id; collisions or

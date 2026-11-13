@@ -1,31 +1,8 @@
-# Tasks: Harden AI Learning Actions & Card Quality
+## 5. Current baseline, implementation and acceptance
 
-## 1. Tool Parameter Normalization & Agent Robustness
-
-- [ ] 1.1 Implement `extractStringParam` helper supporting alias resolution in `src/lib/ai/agent/tools/paramUtils.ts`.
-- [ ] 1.2 Update `get_related_material` in `src/lib/ai/agent/tools/readonly.ts` to accept `query`, `search`, `concept`, `term`, and `text` as aliases for `topic`.
-- [ ] 1.3 Update `relationshipAdapter.ts` to accept `source`, `target`, `relation`, and `type` aliases gracefully.
-- [ ] 1.4 Soften `rejectUnknownParams` to log warnings for harmless auxiliary fields (e.g. `reasoning`, `context`) instead of failing validation.
-- [ ] 1.5 Add Vitest unit tests in `src/lib/ai/agent/tools/__tests__/readonly.params.test.ts` verifying parameter aliasing works for all common LLM variations.
-
-## 2. Safety Degradation & Fallback Handling
-
-- [ ] 2.1 Update `src-tauri/native/apple-ai/FmBridgeCore.swift` to catch safety errors and return structured `safety_blocked` JSON rather than generic failure.
-- [ ] 2.2 Add typed `safety_blocked` representation in `src/lib/ai/onDeviceAI.ts`.
-- [ ] 2.3 Create `SafetyBlockedNotice.tsx` component in `src/components/assistant/` with provider explanation and one-click retry buttons.
-- [ ] 2.4 Update `src/features/summary/useDocumentSummary.ts` to surface structured safety alerts with fallback options.
-- [ ] 2.5 Add unit tests in `src/lib/ai/__tests__/safetyFallback.test.ts` verifying that safety blocks trigger appropriate fallback recommendations.
-
-## 3. Flashcard Lineage & Foreign Key Resolution
-
-- [ ] 3.1 Update `src-tauri/src/database/cards.rs` to verify parent document UUIDs when creating cards from extract IDs.
-- [ ] 3.2 Implement transactional batch creation in `cards.rs` with per-item error reporting.
-- [ ] 3.3 Add Rust integration tests in `cards.rs` verifying that cards created from extracts resolve foreign keys without error 787.
-
-## 4. Settings UI & Search Catalog Coverage
-
-- [ ] 4.1 Add AI Safety Fallback Provider selector in `src/components/settings/sections/AISettings.tsx`.
-- [ ] 4.2 Add stable DOM `id="setting-ai-safety-fallback"`.
-- [ ] 4.3 Register `setting-ai-safety-fallback` in `src/components/settings/search/settingsSearchCatalog.ts` under `SettingsTab.AI`.
-- [ ] 4.4 Add search coverage test in `src/components/settings/search/__tests__/settingsSearchCatalog.test.ts`.
-- [ ] 4.5 Run `npm run bench:check` to ensure no performance regression.
+- [ ] 5.1 Update descriptor validation under `src/lib/ai/agent/tools/readonly.ts` and shared validation helpers. Run canonical, alias, equal duplicate, conflicting, unknown, empty, object, too-long and unauthorized retrieval fixtures through scripted local/remote adapters. Require exact typed error outcome and no retrieval on rejected calls.
+- [ ] 5.2 Extend `AssistantPanel.tsx`, `DocumentQATab.tsx`, `sectionContextRequest.ts` and Studio `mediaSectionContext.ts` to carry scoped snapshots. Reproduce `src/test/issue6/generationToAcceptance.test.ts` zero-request assertion, and re-run AssistantPanel agent integration both isolated and in the full suite. Capture the actual provider request, resolved scope and persisted acceptance through native IPC/SQLite. Test two identical section names, collapsed outline, empty section, stale selection, long scope, switching source mid-run and no cloud transmission after declined consent.
+- [ ] 5.3 Implement request-keyed lifecycle in `AssistantPanel.tsx` and existing provider/task adapters under `src/lib/ai/tasks/`. Preserve tool-only activity, actionable typed terminal outcomes and history on cancellation, no content, partial disconnect, timeout, persistence failure and refusal. Test two conversations and late events with deterministic streaming and one retry after committed side effects. Verify explicit model selection/disclosure and zero automatic safety reroutes.
+- [ ] 5.4 Connect `recallQuestion.ts` validation to `chatFlashcardArtifacts.ts`, `ChatFlashcardCollection.tsx`, `acceptLearnThis.ts` and `FlashcardStudioModal.tsx`. Reuse existing native commands in `learning_item.rs` and MCP tools, plus browser writes, for validated source and stable candidate identity. Reconcile the stale mocks in `browserBackendExtractGeneration.test.ts` and `browserBackendLearningAgent.test.ts` with the actual adapter APIs after proving durable behavior with IndexedDB. Exercise zero pre-approval writes, correct document/extract IDs, conflict or missing parent, rejection, per-item counts and repeated/ambiguous acknowledgement. Inspect committed rows after restart and compare the same corpus across entry points.
+- [ ] 5.5 Follow `ExtractScrollItem.tsx` → `src/api/ai.ts` → `commands/ai.rs` and Scroll selection → `LearnThisProposalSheet.tsx` → `learnThisTask.ts`/accept. Route through authorized provider tasks, use a revision-scoped summary write, and show typed source/context/persistence/provider/refusal states. Verify old cached summaries, concurrent edit/delete, consent, recoverable errors and actual acceptance through both normal and Scroll reader selection.
+- [ ] 5.6 Run deterministic ordinary/technical/medical education/ambiguous/multi-card/cloze corpus against every supported entry point. Record separate approved local and remote native smoke runs with exact model, source scope and sanitized results. Preserve API compatibility for historical chat artifacts and existing persisted proposal IDs.
