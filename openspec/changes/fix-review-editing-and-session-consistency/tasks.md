@@ -1,23 +1,7 @@
-# Tasks: Fix Review Editing & Session Consistency
+## 4. Current baseline, implementation and acceptance
 
-## 1. Focus Management & Q&A Creator Modal
-
-- [ ] 1.1 In `src/components/extracts/QACreatorPopup.tsx`, decouple `questionRef.current?.focus()` into a dedicated mount-only `useEffect` with empty dependency array `[]`.
-- [ ] 1.2 Store `handleSubmit` in a ref to decouple the keyboard event listener effect from `question` and `answer` state.
-- [ ] 1.3 Add Vitest component test in `src/components/extracts/__tests__/QACreatorPopup.focus.test.tsx` verifying that typing in the answer textarea does NOT trigger focus shift to the question input.
-
-## 2. Deck Manager Tag Editing & Add Affordance
-
-- [ ] 2.1 Update `DeckManagerCardRowProps` in `src/components/review/DeckManagerCardRow.tsx` to include `onUpdateTags: (cardId: string, tags: string[]) => void`.
-- [ ] 2.2 Pass `onTagsPersisted` callback to `CompactTagEditor` in `DeckManagerCardRow.tsx:265`.
-- [ ] 2.3 Render a "+ Tag" button when `card.tags.length === 0` to allow adding tags to untagged cards.
-- [ ] 2.4 Update `DeckManager.tsx` to handle `onUpdateTags` and update local state and filter caches.
-- [ ] 2.5 Add component test in `src/components/review/__tests__/DeckManagerCardRow.tags.test.tsx` verifying that saving tags updates the displayed row without page reload, and that untagged cards display an add affordance.
-
-## 3. Scroll Mode Card Editing & Review Deletion
-
-- [ ] 3.1 Update `src/pages/QueueScrollPage.tsx` to pass complete hydrated card records to `InlineCardEditor`.
-- [ ] 3.2 Add error handling and optimistic rollback for card edits in Scroll Mode.
-- [ ] 3.3 Update `src/stores/reviewStore.ts` `deleteCard` to advance the active session immediately to the next card without demanding a recall grade.
-- [ ] 3.4 Add integration test in `src/stores/__tests__/reviewStore.deleteAdvance.test.ts` verifying that deleting a card removes it from the session, advances the index, and requires no grade.
-- [ ] 3.5 Run `npm run bench:check` to ensure no performance regression.
+- [ ] 4.1 Seed one persisted fixture with Q&A, legacy-range/numbered/multi-cloze and image occlusion plus missing media. Exercise `ReviewCardContent.tsx`, `ReviewCard.tsx` and `QueueScrollPage.tsx` through Review, Scroll and Optimal. Assert equivalent hidden/revealed meaning and masks at two sizes. Preserve ratings, legacy payloads and source IDs.
+- [ ] 4.2 Verify `InlineCardEditor.tsx` and `FlashcardStudioModal.tsx` from Review, Scroll, Optimal, Deck Manager and `DocumentViewer.tsx` associated cards. Repair route or save only if reproduction fails. Use `src/api/learning-items.ts` and `commands/learning_item.rs` real mutation, show draft on rejected write, preserve schedule and history. Test the historic single Q&A labelled ordered, genuine ordered payload and a cloze edit after restart.
+- [ ] 4.3 Verify `QueueScrollPage.tsx` advancement and `src/commands/undoableCommands.ts` where used. Inject late fetch and failed delete. A committed deletion removes current and final items immediately, counts once, creates no review event, and only an explicit supported undo restores the row. Verify old and restarted views against SQLite/IndexedDB.
+- [ ] 4.4 Exercise `DeckManagerCardRow.tsx` and `QACreatorPopup.tsx` through actual routes. Persist add/rename/clear tags on tagged and untagged items with failed write and delayed old result. Type an answer via keyboard, tab, IME and mobile input without focus resetting. Keep the existing focused tests and add runtime evidence.
+- [ ] 4.5 Capture screenshot-linked before/after for persisted cloze, image occlusion, inline/Studio editing, tags and Q&A. Verify real restart and list persisted IDs in the acceptance record.

@@ -304,7 +304,7 @@ describe("InlineCardEditor", () => {
   it("does not force studio redirect for simple qa cards", () => {
     const qaCard: LearningItem = {
       ...baseCard,
-      item_type: "qa",
+      item_type: "Qa",
       interaction_metadata: undefined,
     };
     render(<InlineCardEditor card={qaCard} onClose={vi.fn()} onSave={vi.fn()} onEditInStudio={vi.fn()} />);

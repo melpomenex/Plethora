@@ -32,3 +32,17 @@ Deleting a card during an active review session SHALL immediately remove the car
 - **THEN** card 3 SHALL be deleted from SQLite
 - **AND** the session SHALL immediately present card 4 (now card 3 of 9)
 - **AND** no recall grade rating buttons SHALL be required to advance
+
+### Requirement: Same persisted card is usable across review surfaces
+
+Review, Scroll, Optimal, Deck Manager and document-associated cards SHALL expose the same applicable edit actions. Q&A and cloze SHALL use the inline editor where offered. Complex supported types SHALL open their editor with return context. Review front/back rendering SHALL preserve legacy cloze and occlusion semantics.
+
+#### Scenario: Editing a cloze from its source document
+
+- **WHEN** the user edits a source-associated cloze, saves and restarts
+- **THEN** Review and eligible queue sessions show the same edited card with unchanged source and review history
+
+#### Scenario: A deleted card has a late refresh
+
+- **WHEN** a committed deletion advances the session and an older fetch arrives
+- **THEN** the deleted card remains absent and no rating is added

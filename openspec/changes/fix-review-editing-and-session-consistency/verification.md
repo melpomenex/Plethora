@@ -33,3 +33,13 @@
 
 - Command: `npm run bench:check`
 - Assert that card row rendering and tag popover mounting adds zero measurable latency to virtualized lists.
+
+## Current Issue #6 acceptance
+
+
+| IDs | Task | Evidence |
+| --- | --- | --- |
+| R02, R05 | 4.1 | Renderer and parity tests exist. Real persisted cloze/mask fixture and native visual acceptance pending. |
+| R01, R03, R06, R08 | 4.2 | Inline editor exists. Verify actual entry and SQLite/browser save for every edit surface. |
+| R04 | 4.3 | Advance-on-removal source identified. Restart, stale reload and undo verification pending. |
+| R07, R09 | 4.4 | Existing local tag and focus code present. Real workflow tests pending. |
