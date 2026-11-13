@@ -43,6 +43,7 @@ export interface StudyPlanCreateFormProps {
 }
 
 export type CreationMethod = 'manual' | 'ai' | 'rules-only';
+type KnowledgePolicyChoice = 'source-only' | 'source-plus-model-knowledge' | 'model-only';
 
 export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
   onSuccess,
@@ -56,6 +57,11 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
   const [goal, setGoal] = useState(initialPrefill?.goal || initialPrefill?.conceptLabel || '');
   const [depth, setDepth] = useState<StudyDepth>('foundational');
   const [creationMethod, setCreationMethod] = useState<CreationMethod>('manual');
+  const [knowledgePolicy, setKnowledgePolicy] = useState<KnowledgePolicyChoice>(() => {
+    const hasPrefill = !!(initialPrefill?.documentIds?.length || initialPrefill?.extractIds?.length ||
+      initialPrefill?.collectionIds?.length || initialPrefill?.tagIds?.length);
+    return hasPrefill ? 'source-plus-model-knowledge' : 'model-only';
+  });
   const [sourceScope, setSourceScope] = useState<SelectedSourceScope>({
     documentIds: initialPrefill?.documentIds || [],
     extractIds: initialPrefill?.extractIds ?? [],
@@ -75,7 +81,6 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
   const goalValidation = validateSessionGoal(goal);
 
   const canSubmit = isTitleValid && goalValidation.ok && !isSubmitting;
-  const needsSources = creationMethod !== 'manual';
   const hasSelectedSources = sourceScope.documentIds.length + sourceScope.extractIds.length + sourceScope.collectionIds.length + sourceScope.tagIds.length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -89,16 +94,25 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
     setError(null);
 
     try {
-      if (needsSources && !hasSelectedSources) {
-        setError('Select at least one source document to continue.');
+      if (knowledgePolicy !== 'model-only' && !hasSelectedSources) {
+        setError('Select material or explicitly choose AI Knowledge Only.');
         return;
       }
-      const resolvedSourceScope = await resolveStudySourceScope(sourceScope);
+      if (creationMethod === 'rules-only' && knowledgePolicy === 'model-only') {
+        setError('Source Outline requires selected library material. Choose a library policy or another creation method.');
+        return;
+      }
+      const resolvedSourceScope = knowledgePolicy === 'model-only'
+        ? null
+        : await resolveStudySourceScope(sourceScope);
       const input: CreateStudyPlanInput = {
         title: trimmedTitle,
         goal: normalizedGoal,
         depth,
         sourceScope: resolvedSourceScope,
+        knowledgeAuthority: knowledgePolicy === 'model-only'
+          ? { kind: 'model-only' }
+          : { kind: 'library', policy: knowledgePolicy },
       };
       const detail = await createPlanAction(input);
 
@@ -197,6 +211,56 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
         </div>
 
         {/* Depth selector */}
+        <fieldset className="space-y-2">
+          <legend className="text-xs font-bold text-surface-800 dark:text-surface-200 mb-2">
+            Knowledge Source Policy
+          </legend>
+          <p className="text-[11px] text-surface-500 dark:text-surface-400">
+            This controls what AI may use as factual authority. It is separate from how you create the plan.
+          </p>
+          <div className="grid grid-cols-1 gap-2">
+            {([
+              {
+                id: 'source-only' as const,
+                label: 'My Library Only',
+                desc: 'Use selected material for course facts. The AI says when it cannot find support.',
+              },
+              {
+                id: 'source-plus-model-knowledge' as const,
+                label: 'My Library + AI Knowledge',
+                desc: 'Prioritize selected material and label explanations that are not verified by it.',
+              },
+              {
+                id: 'model-only' as const,
+                label: 'AI Knowledge Only',
+                desc: 'Build without reading your library. Generated curriculum is unverified.',
+              },
+            ]).map((choice) => (
+              <label
+                key={choice.id}
+                className={`flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border p-3 text-xs ${
+                  knowledgePolicy === choice.id
+                    ? 'border-primary-500 bg-primary-500/10'
+                    : 'border-surface-200 dark:border-surface-700'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="knowledge-policy"
+                  value={choice.id}
+                  checked={knowledgePolicy === choice.id}
+                  onChange={() => setKnowledgePolicy(choice.id)}
+                  className="mt-0.5 text-primary-600 focus:ring-primary-500"
+                />
+                <span>
+                  <span className="block font-bold">{choice.label}</span>
+                  <span className="mt-0.5 block text-[11px] text-surface-500 dark:text-surface-400">{choice.desc}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
         <fieldset className="space-y-2">
           <legend className="text-xs font-bold text-surface-800 dark:text-surface-200 mb-2">
             Curriculum Depth
@@ -306,7 +370,13 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
         </fieldset>
 
         {/* Material Scope */}
-        <SourceScopePicker selectedScope={sourceScope} onChange={setSourceScope} maxDocuments={24} />
+        {knowledgePolicy === 'model-only' ? (
+          <div className="rounded-xl border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 p-3 text-xs text-surface-600 dark:text-surface-300">
+            No material will be read from your library. Model-only curriculum and practice content are unverified.
+          </div>
+        ) : (
+          <SourceScopePicker selectedScope={sourceScope} onChange={setSourceScope} maxDocuments={24} />
+        )}
 
         {diagnosticSlot}
 

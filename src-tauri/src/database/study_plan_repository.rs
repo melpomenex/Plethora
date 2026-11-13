@@ -9,10 +9,10 @@ use super::study_source_repository::{
     compute_excerpt_sha256, compute_sha256, StudySourceRepository,
 };
 use crate::models::study_plan::{
-    CreateStudyPlanInput, LegacyImportResult, LockConflict, MaterialSupport, NodeActivity,
-    PlanPrerequisite, PlanVersionDiff, PlanVersionState, SaveStudyPlanDraftInput, StudyDepth,
-    StudyPlan, StudyPlanDetail, StudyPlanStatus, StudyPlanSummary, StudyPlanVersion,
-    StudyPlanVersionNode,
+    CreateStudyPlanInput, LegacyImportResult, LibraryKnowledgePolicy, LockConflict,
+    MaterialSupport, NodeActivity, PlanPrerequisite, PlanVersionDiff, PlanVersionState,
+    SaveStudyPlanDraftInput, StudyDepth, StudyPlan, StudyPlanDetail, StudyPlanKnowledgeAuthority,
+    StudyPlanPreferences, StudyPlanStatus, StudyPlanSummary, StudyPlanVersion, StudyPlanVersionNode,
 };
 use crate::models::study_source::{
     FieldIssue, RevisionKind, StudyCommandError, StudyCommandErrorDetails, StudyErrorCode,
@@ -31,8 +31,97 @@ pub const MAX_NODE_SUMMARY_CHARS: usize = 1000;
 pub const MAX_OBJECTIVES_COUNT: usize = 6;
 pub const MAX_OBJECTIVE_CHARS: usize = 240;
 
+fn has_resolved_documents(scope: Option<&serde_json::Value>) -> bool {
+    scope
+        .and_then(|value| value.get("resolvedDocuments"))
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|documents| !documents.is_empty())
+}
+
+fn default_knowledge_authority(scope: Option<&serde_json::Value>) -> StudyPlanKnowledgeAuthority {
+    if has_resolved_documents(scope) {
+        StudyPlanKnowledgeAuthority::Library {
+            policy: LibraryKnowledgePolicy::SourceOnly,
+        }
+    } else {
+        StudyPlanKnowledgeAuthority::Manual
+    }
+}
+
+fn validate_knowledge_authority(
+    authority: &StudyPlanKnowledgeAuthority,
+    scope: Option<&serde_json::Value>,
+) -> Result<(), StudyCommandError> {
+    let valid = match authority {
+        StudyPlanKnowledgeAuthority::Library { .. } => has_resolved_documents(scope),
+        StudyPlanKnowledgeAuthority::ModelOnly => scope.is_none(),
+        StudyPlanKnowledgeAuthority::Manual => true,
+    };
+    if valid {
+        return Ok(());
+    }
+    Err(StudyCommandError::invalid_input(
+        "study_plan.error.invalid_knowledge_authority_scope",
+        vec![FieldIssue {
+            path: "knowledgeAuthority".to_string(),
+            code: "invalid_knowledge_authority_scope".to_string(),
+            message_key: "study_plan.error.invalid_knowledge_authority_scope".to_string(),
+        }],
+    ))
+}
+
 fn validate_publishable_plan(detail: &StudyPlanDetail) -> Result<(), StudyCommandError> {
     let version = &detail.version;
+    validate_knowledge_authority(&version.knowledge_authority, version.source_scope.as_ref())?;
+    if matches!(
+        version.knowledge_authority,
+        StudyPlanKnowledgeAuthority::ModelOnly
+    ) && (version.nodes.iter().any(|node| {
+        node.material_support == MaterialSupport::Grounded || !node.source_ref_ids.is_empty()
+    }) || version
+        .prerequisites
+        .iter()
+        .any(|edge| !edge.source_ref_ids.is_empty()))
+    {
+        return Err(StudyCommandError::new(
+            StudyErrorCode::InvalidSource,
+            "study_plan.error.model_only_contains_library_evidence",
+            false,
+        ));
+    }
+    // Enforce the library policy at publication: source-only plans must not
+    // publish AI-supplement (unsupported) topics or prerequisite edges as if
+    // they were verified library content.
+    let is_source_only = matches!(
+        version.knowledge_authority,
+        StudyPlanKnowledgeAuthority::Library {
+            policy: LibraryKnowledgePolicy::SourceOnly
+        }
+    );
+    if is_source_only {
+        if let Some(node) = version
+            .nodes
+            .iter()
+            .find(|node| node.included && node.material_support == MaterialSupport::Unsupported)
+        {
+            return Err(StudyCommandError::new(
+                StudyErrorCode::InvalidSource,
+                "study_plan.error.source_only_unsupported_node",
+                false,
+            ));
+        }
+        if let Some(edge) = version
+            .prerequisites
+            .iter()
+            .find(|edge| edge.support == "unsupported")
+        {
+            return Err(StudyCommandError::new(
+                StudyErrorCode::InvalidSource,
+                "study_plan.error.source_only_unsupported_prerequisite",
+                false,
+            ));
+        }
+    }
     let mut indegree = HashMap::new();
     for node in version.nodes.iter().filter(|node| node.included) {
         if node.title.trim().is_empty()
@@ -181,17 +270,25 @@ impl StudyPlanRepository {
         .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
 
         // 2. Create study_plan_versions for initial draft
+        let authority = input
+            .knowledge_authority
+            .clone()
+            .unwrap_or_else(|| default_knowledge_authority(input.source_scope.as_ref()));
+        validate_knowledge_authority(&authority, input.source_scope.as_ref())?;
         let scope_json =
-            serde_json::to_string(&input.source_scope).unwrap_or_else(|_| "{}".to_string());
+            serde_json::to_string(&input.source_scope).unwrap_or_else(|_| "null".to_string());
+        let authority_json = serde_json::to_string(&authority)
+            .unwrap_or_else(|_| "{\"kind\":\"manual\"}".to_string());
         sqlx::query(
             "INSERT INTO study_plan_versions (
-                id, plan_id, version, state, base_version_id, source_scope_json,
+                id, plan_id, version, state, base_version_id, source_scope_json, knowledge_authority_json,
                 change_summary_json, created_by, created_at, published_at
-             ) VALUES (?1, ?2, 1, 'draft', NULL, ?3, NULL, 'user', ?4, NULL)",
+             ) VALUES (?1, ?2, 1, 'draft', NULL, ?3, ?4, NULL, 'user', ?5, NULL)",
         )
         .bind(&draft_version_id)
         .bind(&plan_id)
         .bind(&scope_json)
+        .bind(&authority_json)
         .bind(&now)
         .execute(&mut *tx)
         .await
@@ -343,6 +440,86 @@ impl StudyPlanRepository {
     }
 
     /// Lists study plan summaries.
+    /// Reads the optional per-plan preferences (backward-compatible default).
+    pub async fn get_study_plan_preferences(
+        &self,
+        plan_id: &str,
+    ) -> Result<StudyPlanPreferences, StudyCommandError> {
+        let row = sqlx::query("SELECT preferences_json FROM study_plans WHERE id = ?1 LIMIT 1")
+            .bind(plan_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+        let row = row.ok_or_else(|| {
+            StudyCommandError::new(
+                StudyErrorCode::NotFound,
+                "study_plan.error.plan_not_found",
+                false,
+            )
+        })?;
+        let raw: String = row.get("preferences_json");
+        Ok(serde_json::from_str(&raw).unwrap_or_default())
+    }
+
+    /// Updates preferences without touching plan versions, activity or history.
+    /// A passed deadline is preserved as history and never mutated implicitly.
+    pub async fn update_study_plan_preferences(
+        &self,
+        plan_id: &str,
+        preferences: StudyPlanPreferences,
+    ) -> Result<StudyPlanPreferences, StudyCommandError> {
+        if let Some(ref deadline) = preferences.deadline {
+            if chrono::NaiveDate::parse_from_str(deadline, "%Y-%m-%d").is_err() {
+                return Err(StudyCommandError::invalid_input(
+                    "study_plan.error.invalid_deadline",
+                    vec![FieldIssue {
+                        path: "preferences.deadline".to_string(),
+                        code: "invalid_deadline".to_string(),
+                        message_key: "study_plan.error.invalid_deadline".to_string(),
+                    }],
+                ));
+            }
+        }
+        let mut days = preferences.rest_days.clone();
+        days.sort_unstable();
+        days.dedup();
+        if days.iter().any(|d| *d > 6) {
+            return Err(StudyCommandError::invalid_input(
+                "study_plan.error.invalid_rest_day",
+                vec![FieldIssue {
+                    path: "preferences.restDays".to_string(),
+                    code: "invalid_rest_day".to_string(),
+                    message_key: "study_plan.error.invalid_rest_day".to_string(),
+                }],
+            ));
+        }
+        let normalized = StudyPlanPreferences {
+            deadline: preferences.deadline,
+            rest_days: days,
+        };
+        let payload = serde_json::to_string(&normalized)
+            .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+        let now = Utc::now().to_rfc3339();
+        let updated = sqlx::query(
+            "UPDATE study_plans SET preferences_json = ?1, updated_at = ?2 WHERE id = ?3",
+        )
+        .bind(payload)
+        .bind(now)
+        .bind(plan_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+        if updated.rows_affected() == 0 {
+            return Err(StudyCommandError::new(
+                StudyErrorCode::NotFound,
+                "study_plan.error.plan_not_found",
+                false,
+            ));
+        }
+        Ok(normalized)
+    }
+
+    /// Lists study plan summaries.
     pub async fn list_study_plans(
         &self,
         include_archived: bool,
@@ -483,7 +660,7 @@ impl StudyPlanRepository {
 
         // Fetch version row
         let version_row = sqlx::query(
-            "SELECT id, plan_id, version, state, base_version_id, source_scope_json,
+            "SELECT id, plan_id, version, state, base_version_id, source_scope_json, knowledge_authority_json,
                     change_summary_json, created_by, created_at, published_at
              FROM study_plan_versions WHERE id = ?1 AND plan_id = ?2 LIMIT 1",
         )
@@ -498,6 +675,12 @@ impl StudyPlanRepository {
 
         let state_str: String = version_row.get("state");
         let scope_json: String = version_row.get("source_scope_json");
+        let scope_value = serde_json::from_str::<serde_json::Value>(&scope_json)
+            .unwrap_or(serde_json::Value::Null);
+        let source_scope = (!scope_value.is_null()).then_some(scope_value);
+        let authority_json: String = version_row.get("knowledge_authority_json");
+        let knowledge_authority = serde_json::from_str(&authority_json)
+            .unwrap_or_else(|_| default_knowledge_authority(source_scope.as_ref()));
         let diff_json: Option<String> = version_row.get("change_summary_json");
 
         // Hydrate version nodes
@@ -657,7 +840,8 @@ impl StudyPlanRepository {
             version: version_row.get("version"),
             state: state_str.parse().unwrap_or(PlanVersionState::Draft),
             base_version_id: version_row.get("base_version_id"),
-            source_scope: serde_json::from_str(&scope_json).unwrap_or(serde_json::Value::Null),
+            source_scope,
+            knowledge_authority,
             nodes,
             prerequisites,
             change_summary: diff_json.and_then(|j| serde_json::from_str(&j).ok()),
@@ -700,6 +884,24 @@ impl StudyPlanRepository {
                 false,
             )
         })?;
+
+        let current_draft = self
+            .get_study_plan(&input.plan_id, Some(&draft_version_id))
+            .await?;
+        let knowledge_authority = input
+            .knowledge_authority
+            .clone()
+            .unwrap_or_else(|| current_draft.version.knowledge_authority.clone());
+        let source_scope = if matches!(knowledge_authority, StudyPlanKnowledgeAuthority::ModelOnly)
+        {
+            None
+        } else {
+            input
+                .source_scope
+                .clone()
+                .or_else(|| current_draft.version.source_scope.clone())
+        };
+        validate_knowledge_authority(&knowledge_authority, source_scope.as_ref())?;
 
         // CAS check
         if current_revision != input.expected_draft_revision {
@@ -920,15 +1122,17 @@ impl StudyPlanRepository {
             }
         }
 
-        if let Some(ref scope) = input.source_scope {
-            let scope_json = serde_json::to_string(scope).unwrap_or_else(|_| "{}".to_string());
-            sqlx::query("UPDATE study_plan_versions SET source_scope_json = ?1 WHERE id = ?2")
-                .bind(&scope_json)
-                .bind(&draft_version_id)
-                .execute(&mut *tx)
-                .await
-                .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
-        }
+        let scope_json =
+            serde_json::to_string(&source_scope).unwrap_or_else(|_| "null".to_string());
+        let authority_json = serde_json::to_string(&knowledge_authority)
+            .unwrap_or_else(|_| "{\"kind\":\"manual\"}".to_string());
+        sqlx::query("UPDATE study_plan_versions SET source_scope_json = ?1, knowledge_authority_json = ?2 WHERE id = ?3")
+            .bind(&scope_json)
+            .bind(&authority_json)
+            .bind(&draft_version_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
 
         tx.commit()
             .await
@@ -1444,14 +1648,15 @@ impl StudyPlanRepository {
             title,
             goal,
             depth: StudyDepth::Foundational,
-            source_scope: serde_json::json!({
+            source_scope: Some(serde_json::json!({
                 "schemaVersion": 1,
                 "selected": { "documentIds": [], "extractIds": [], "collectionIds": [], "tagIds": [] },
                 "resolvedDocuments": [],
                 "frozenAt": Utc::now().to_rfc3339(),
                 "indexCompleteness": "complete",
                 "limitations": []
-            }),
+            })),
+            knowledge_authority: None,
             initial_nodes: if initial_nodes.is_empty() {
                 None
             } else {
@@ -1537,7 +1742,8 @@ mod tests {
             title: "Operating Systems".to_string(),
             goal: "Master kernel structures and concurrency".to_string(),
             depth: StudyDepth::Foundational,
-            source_scope: serde_json::json!({ "schemaVersion": 1 }),
+            source_scope: Some(serde_json::json!({ "schemaVersion": 1 })),
+            knowledge_authority: None,
             initial_nodes: Some(vec![StudyPlanVersionNode {
                 node_id: "spn_n1".to_string(),
                 title: "Processes".to_string(),
@@ -1571,6 +1777,364 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_model_only_authority_roundtrips_and_rejects_library_scope() {
+        let pool = create_test_db().await;
+        let repo = StudyPlanRepository::new(pool);
+        let authority = StudyPlanKnowledgeAuthority::ModelOnly;
+        let created = repo
+            .create_study_plan(CreateStudyPlanInput {
+                title: "Source-free plan".to_string(),
+                goal: "Learn a new subject".to_string(),
+                depth: StudyDepth::Foundational,
+                source_scope: None,
+                knowledge_authority: Some(authority.clone()),
+                initial_nodes: Some(vec![StudyPlanVersionNode {
+                    node_id: "spn_model_only".to_string(),
+                    title: "First topic".to_string(),
+                    summary: "Unverified model proposal".to_string(),
+                    learning_objectives: vec!["Explain the topic".to_string()],
+                    concept_id: None,
+                    concept_label: "First topic".to_string(),
+                    position: 0,
+                    included: true,
+                    locked: false,
+                    user_added: false,
+                    user_modified: false,
+                    material_support: MaterialSupport::Unsupported,
+                    why_here: Some("Proposed from model knowledge".to_string()),
+                    source_ref_ids: vec![],
+                }]),
+                initial_prerequisites: None,
+            })
+            .await
+            .unwrap();
+
+        assert_eq!(created.version.source_scope, None);
+        assert_eq!(created.version.knowledge_authority, authority);
+        let published = repo
+            .publish_study_plan_version(
+                &created.plan.id,
+                &created.version.id,
+                created.plan.revision,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            published.version.knowledge_authority,
+            StudyPlanKnowledgeAuthority::ModelOnly
+        );
+
+        let invalid = repo
+            .create_study_plan(CreateStudyPlanInput {
+                title: "Invalid model-only scope".to_string(),
+                goal: "Do not read library data".to_string(),
+                depth: StudyDepth::Survey,
+                source_scope: Some(serde_json::json!({ "schemaVersion": 1 })),
+                knowledge_authority: Some(StudyPlanKnowledgeAuthority::ModelOnly),
+                initial_nodes: None,
+                initial_prerequisites: None,
+            })
+            .await;
+        assert!(invalid.is_err());
+        assert_eq!(invalid.unwrap_err().code, StudyErrorCode::InvalidInput);
+
+        let library_scope = serde_json::json!({
+            "resolvedDocuments": [{ "documentId": "d1", "revision": "r1" }]
+        });
+        assert_eq!(
+            default_knowledge_authority(Some(&library_scope)),
+            StudyPlanKnowledgeAuthority::Library { policy: LibraryKnowledgePolicy::SourceOnly }
+        );
+        assert_eq!(
+            default_knowledge_authority(None),
+            StudyPlanKnowledgeAuthority::Manual
+        );
+    }
+
+    #[tokio::test]
+    async fn test_study_plan_preferences_lifecycle() {
+        let pool = create_test_db().await;
+        let repo = StudyPlanRepository::new(pool.clone());
+
+        let created = repo
+            .create_study_plan(CreateStudyPlanInput {
+                title: "Prefs plan".to_string(),
+                goal: "Preferences".to_string(),
+                depth: StudyDepth::Survey,
+                source_scope: None,
+                knowledge_authority: Some(StudyPlanKnowledgeAuthority::Manual),
+                initial_nodes: None,
+                initial_prerequisites: None,
+            })
+            .await
+            .unwrap();
+        let plan_id = created.plan.id.clone();
+        let revision_before = created.plan.revision;
+
+        // Backward-compatible default.
+        let defaults = repo.get_study_plan_preferences(&plan_id).await.unwrap();
+        assert_eq!(defaults, StudyPlanPreferences::default());
+
+        // Set a deadline and rest days.
+        let set = repo
+            .update_study_plan_preferences(
+                &plan_id,
+                StudyPlanPreferences {
+                    deadline: Some("2026-12-31".to_string()),
+                    rest_days: vec![0, 6, 6, 0],
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(set.deadline.as_deref(), Some("2026-12-31"));
+        assert_eq!(set.rest_days, vec![0, 6]); // deduped
+
+        // Extend the date.
+        let extended = repo
+            .update_study_plan_preferences(
+                &plan_id,
+                StudyPlanPreferences {
+                    deadline: Some("2027-01-15".to_string()),
+                    rest_days: vec![0, 6],
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(extended.deadline.as_deref(), Some("2027-01-15"));
+
+        // Remove the deadline.
+        let removed = repo
+            .update_study_plan_preferences(
+                &plan_id,
+                StudyPlanPreferences {
+                    deadline: None,
+                    rest_days: vec![0, 6],
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(removed.deadline, None);
+
+        // Invalid date and rest-day values are rejected.
+        let bad_date = repo
+            .update_study_plan_preferences(
+                &plan_id,
+                StudyPlanPreferences {
+                    deadline: Some("2026-13-40".to_string()),
+                    rest_days: vec![],
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(bad_date.code, StudyErrorCode::InvalidInput);
+
+        let bad_day = repo
+            .update_study_plan_preferences(
+                &plan_id,
+                StudyPlanPreferences {
+                    deadline: None,
+                    rest_days: vec![7],
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(bad_day.code, StudyErrorCode::InvalidInput);
+
+        // Preference edits never bump plan revision or touch version history.
+        let after = repo.get_study_plan(&plan_id, None).await.unwrap();
+        assert_eq!(after.plan.revision, revision_before);
+        assert_eq!(after.plan.current_version, 0);
+    }
+
+    #[tokio::test]
+    async fn test_legacy_authority_row_falls_back() {
+        let pool = create_test_db().await;
+        let repo = StudyPlanRepository::new(pool.clone());
+
+        // Create a source-backed plan (default authority = Library SourceOnly)
+        let library_scope = serde_json::json!({
+            "resolvedDocuments": [{ "documentId": "d1", "revision": "r1" }]
+        });
+        let created = repo
+            .create_study_plan(CreateStudyPlanInput {
+                title: "Legacy source-backed".to_string(),
+                goal: "Study legacy behavior".to_string(),
+                depth: StudyDepth::Survey,
+                source_scope: Some(library_scope.clone()),
+                knowledge_authority: None,
+                initial_nodes: None,
+                initial_prerequisites: None,
+            })
+            .await
+            .unwrap();
+
+        // Corrupt the authority column to simulate a legacy row written before
+        // the authority column existed (or an unknown older encoding).
+        sqlx::query("UPDATE study_plan_versions SET knowledge_authority_json = ?1 WHERE id = ?2")
+            .bind("{\"kind\":\"ancient-unknown\"}")
+            .bind(&created.version.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let reopened = repo.get_study_plan(&created.plan.id, None).await.unwrap();
+        assert_eq!(
+            reopened.version.knowledge_authority,
+            StudyPlanKnowledgeAuthority::Library {
+                policy: LibraryKnowledgePolicy::SourceOnly
+            }
+        );
+
+        // A corrupt authority on a source-free draft falls back to Manual.
+        let free = repo
+            .create_study_plan(CreateStudyPlanInput {
+                title: "Legacy source-free".to_string(),
+                goal: "Manual draft".to_string(),
+                depth: StudyDepth::Survey,
+                source_scope: None,
+                knowledge_authority: None,
+                initial_nodes: None,
+                initial_prerequisites: None,
+            })
+            .await
+            .unwrap();
+        sqlx::query("UPDATE study_plan_versions SET knowledge_authority_json = ?1 WHERE id = ?2")
+            .bind("{\"kind\":\"library\",\"policy\":\"revolutionary\"}")
+            .bind(&free.version.id)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let reopened_free = repo.get_study_plan(&free.plan.id, None).await.unwrap();
+        assert_eq!(
+            reopened_free.version.knowledge_authority,
+            StudyPlanKnowledgeAuthority::Manual
+        );
+    }
+
+    #[tokio::test]
+    async fn test_publish_stale_head_rejected() {
+        let pool = create_test_db().await;
+        let repo = StudyPlanRepository::new(pool);
+        let created = repo
+            .create_study_plan(CreateStudyPlanInput {
+                title: "CAS plan".to_string(),
+                goal: "Reject stale head".to_string(),
+                depth: StudyDepth::Survey,
+                source_scope: None,
+                knowledge_authority: Some(StudyPlanKnowledgeAuthority::Manual),
+                initial_nodes: Some(vec![StudyPlanVersionNode {
+                    node_id: "spn_cas1".to_string(),
+                    title: "Topic".to_string(),
+                    summary: "Summary".to_string(),
+                    learning_objectives: vec!["Objective".to_string()],
+                    concept_id: None,
+                    concept_label: "Topic".to_string(),
+                    position: 0,
+                    included: true,
+                    locked: false,
+                    user_added: true,
+                    user_modified: false,
+                    material_support: MaterialSupport::NotValidated,
+                    why_here: None,
+                    source_ref_ids: vec![],
+                }]),
+                initial_prerequisites: None,
+            })
+            .await
+            .unwrap();
+        // Publish with a stale expected plan revision must be rejected.
+        let err = repo
+            .publish_study_plan_version(
+                &created.plan.id,
+                &created.version.id,
+                created.plan.revision + 99,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, StudyErrorCode::StaleRevision);
+    }
+
+    #[tokio::test]
+    async fn test_source_only_policy_rejects_unsupported_nodes_on_publish() {
+        let pool = create_test_db().await;
+        let repo = StudyPlanRepository::new(pool);
+
+        let library_scope = serde_json::json!({
+            "resolvedDocuments": [{ "documentId": "d1", "revision": "r1" }]
+        });
+        let unsupported_node = |node_id: &str| StudyPlanVersionNode {
+            node_id: node_id.to_string(),
+            title: "AI supplement topic".to_string(),
+            summary: "Proposed by the model on top of the library".to_string(),
+            learning_objectives: vec!["Explain the supplement".to_string()],
+            concept_id: None,
+            concept_label: "Supplement".to_string(),
+            position: 0,
+            included: true,
+            locked: false,
+            user_added: false,
+            user_modified: false,
+            material_support: MaterialSupport::Unsupported,
+            why_here: Some("Not covered by selected sources".to_string()),
+            source_ref_ids: vec![],
+        };
+
+        // Source-only: publishing an unsupported topic must fail.
+        let source_only = repo
+            .create_study_plan(CreateStudyPlanInput {
+                title: "Source-only".to_string(),
+                goal: "Only verified content".to_string(),
+                depth: StudyDepth::Survey,
+                source_scope: Some(library_scope.clone()),
+                knowledge_authority: Some(StudyPlanKnowledgeAuthority::Library {
+                    policy: LibraryKnowledgePolicy::SourceOnly,
+                }),
+                initial_nodes: Some(vec![unsupported_node("spn_u1")]),
+                initial_prerequisites: None,
+            })
+            .await
+            .unwrap();
+        let err = repo
+            .publish_study_plan_version(
+                &source_only.plan.id,
+                &source_only.version.id,
+                source_only.plan.revision,
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, StudyErrorCode::InvalidSource);
+
+        // Source + model knowledge: unsupported topics publish visibly.
+        let mixed = repo
+            .create_study_plan(CreateStudyPlanInput {
+                title: "Mixed".to_string(),
+                goal: "Library plus supplements".to_string(),
+                depth: StudyDepth::Survey,
+                source_scope: Some(library_scope),
+                knowledge_authority: Some(StudyPlanKnowledgeAuthority::Library {
+                    policy: LibraryKnowledgePolicy::SourcePlusModelKnowledge,
+                }),
+                initial_nodes: Some(vec![unsupported_node("spn_u2")]),
+                initial_prerequisites: None,
+            })
+            .await
+            .unwrap();
+        let published = repo
+            .publish_study_plan_version(
+                &mixed.plan.id,
+                &mixed.version.id,
+                mixed.plan.revision,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            published.version.knowledge_authority,
+            StudyPlanKnowledgeAuthority::Library {
+                policy: LibraryKnowledgePolicy::SourcePlusModelKnowledge
+            }
+        );
+    }
+
+    #[tokio::test]
     async fn test_save_draft_publish_and_cas_revisions() {
         let pool = create_test_db().await;
         let repo = StudyPlanRepository::new(pool.clone());
@@ -1582,7 +2146,8 @@ mod tests {
             title: "Distributed Databases".to_string(),
             goal: "Master replication".to_string(),
             depth: StudyDepth::Deep,
-            source_scope: serde_json::json!({ "schemaVersion": 1 }),
+            source_scope: Some(serde_json::json!({ "schemaVersion": 1 })),
+            knowledge_authority: None,
             initial_nodes: None,
             initial_prerequisites: None,
         };
@@ -1597,6 +2162,7 @@ mod tests {
             plan_id: plan_id.clone(),
             expected_draft_revision: 1,
             source_scope: None,
+            knowledge_authority: None,
             source_refs: [(
                 "provisional_ref".into(),
                 StudySourceRefInput {
@@ -1653,6 +2219,7 @@ mod tests {
             plan_id: plan_id.clone(),
             expected_draft_revision: 1, // Stale!
             source_scope: None,
+            knowledge_authority: None,
             source_refs: Default::default(),
             nodes: vec![],
             prerequisites: vec![],
@@ -1685,7 +2252,8 @@ mod tests {
             title: "Compilers".to_string(),
             goal: "Lexing and parsing".to_string(),
             depth: StudyDepth::Survey,
-            source_scope: serde_json::json!({ "schemaVersion": 1 }),
+            source_scope: Some(serde_json::json!({ "schemaVersion": 1 })),
+            knowledge_authority: None,
             initial_nodes: Some(vec![StudyPlanVersionNode {
                 node_id: "spn_c1".to_string(),
                 title: "AST".to_string(),

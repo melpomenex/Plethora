@@ -107,6 +107,7 @@ describe('Study Plan Persistence Integration & Regression Boundaries', () => {
           state: 'draft',
           baseVersionId: null,
           sourceScope: input.sourceScope as StudySourceScopeV1,
+          knowledgeAuthority: input.knowledgeAuthority ?? { kind: 'library', policy: 'source-only' },
           nodes: (input.initialNodes || []).map((n, idx) => ({
             ...n,
             position: idx,
@@ -160,6 +161,7 @@ describe('Study Plan Persistence Integration & Regression Boundaries', () => {
         })),
         prerequisites: input.prerequisites || [],
         sourceScope: (input.sourceScope as StudySourceScopeV1) || detail.version.sourceScope,
+        knowledgeAuthority: input.knowledgeAuthority ?? detail.version.knowledgeAuthority,
         createdAt: now,
         publishedAt: null,
       };

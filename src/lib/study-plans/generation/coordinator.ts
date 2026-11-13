@@ -265,6 +265,9 @@ export async function runCurriculumCoordinator(
 
   signal?.throwIfAborted();
   const prepare = deps.preparePreflightFn ?? prepareCurriculumPreflight;
+  if (!planDetail.version.sourceScope || planDetail.version.knowledgeAuthority.kind !== 'library') {
+    throw new StudyApiError({ code: 'missing_source', messageKey: 'study_generation.error.source_missing', retryable: false });
+  }
   const authorized = await prepare(planDetail.version.sourceScope, preflight.modelSelection || undefined, preflight);
   if (resumeFrom) {
     const previous = resumeFrom.preflight as StudyAiPreflight;

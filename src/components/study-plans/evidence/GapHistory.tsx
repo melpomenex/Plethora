@@ -1,12 +1,15 @@
 import React from 'react';
 import type { KnowledgeGapView } from '../../../types/learningEvidence';
+import type { TargetedPracticeOptions } from '../../../lib/study-plans/remediation/remediationService';
 import { KnowledgeGapCard } from './KnowledgeGapCard';
 
 export interface GapHistoryProps {
   gaps: KnowledgeGapView[];
   onDismiss?: (gapId: string) => void;
   onOpenSource?: (sourceRefId: string | null) => void;
-  onPrepareAssessment?: (gap: KnowledgeGapView, mode: 'practice' | 'exam') => void;
+  onPrepareAssessment?: (gap: KnowledgeGapView, mode: 'practice' | 'exam', options?: TargetedPracticeOptions) => void;
+  onOpenLesson?: (nodeId: string) => void;
+  onProposeCards?: (gap: KnowledgeGapView) => void;
   onRefresh?: () => void;
   isRefreshing?: boolean;
 }
@@ -16,6 +19,8 @@ export const GapHistory: React.FC<GapHistoryProps> = ({
   onDismiss,
   onOpenSource,
   onPrepareAssessment,
+  onOpenLesson,
+  onProposeCards,
   onRefresh,
   isRefreshing = false,
 }) => {
@@ -48,7 +53,7 @@ export const GapHistory: React.FC<GapHistoryProps> = ({
       <div className="space-y-2">
         {active.map((g) => (
           <KnowledgeGapCard key={g.id} gap={g} onDismiss={onDismiss} onOpenSource={onOpenSource}
-            onPrepareAssessment={onPrepareAssessment} />
+            onPrepareAssessment={onPrepareAssessment} onOpenLesson={onOpenLesson} onProposeCards={onProposeCards} />
         ))}
       </div>
       {past.length > 0 && (

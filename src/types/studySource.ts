@@ -9,7 +9,9 @@
 import type { ExactSearchHitLocation } from './searchHit';
 
 export type StudyDepth = 'survey' | 'foundational' | 'deep';
-export type KnowledgePolicy = 'source-only' | 'source-plus-model-knowledge';
+
+export type LessonStyle = 'guided' | 'explain-check' | 'challenge';
+export type KnowledgePolicy = 'source-only' | 'source-plus-model-knowledge' | 'model-only';
 
 export interface SelectedSourceScope {
   documentIds: string[]; // unique, max 24 after resolution

@@ -23,6 +23,18 @@ vi.mock('../../../api/study-plans', () => ({
   setStudyPlanNodeActivity: vi.fn(),
 }));
 
+vi.mock('../../../api/study-lessons', () => ({
+  createStudyPlanLesson: vi.fn().mockResolvedValue({
+    id: 'spl_1', planId: 'sp_1', planVersionId: 'spv_1', nodeId: 'n1', objectiveIndex: 0,
+    style: 'guided', knowledgeAuthorityJson: '{"kind":"manual"}', sourceRevisionSnapshot: '',
+    promptText: 'Arithmetic Circuits', answerDraft: '', hintCount: 0, turnCount: 0,
+    turnStateJson: '{}', revision: 1, lastTurnRequestId: null,
+    createdAt: '2026-11-10T00:00:00Z', updatedAt: '2026-11-10T00:00:00Z',
+  }),
+  getStudyPlanLesson: vi.fn().mockResolvedValue(null),
+  saveStudyPlanLessonCheckpoint: vi.fn().mockResolvedValue({}),
+}));
+
 describe('StudyPlanEditor', () => {
   const mockDetail: StudyPlanDetail = {
     plan: {
@@ -44,7 +56,8 @@ describe('StudyPlanEditor', () => {
       version: 1,
       state: 'draft',
       baseVersionId: null,
-      sourceScope: { schemaVersion: 1 } as any,
+      sourceScope: null,
+      knowledgeAuthority: { kind: 'manual' },
       nodes: [
         {
           nodeId: 'n1',
@@ -162,5 +175,36 @@ describe('StudyPlanEditor', () => {
       expect(api.publishStudyPlanVersion).toHaveBeenCalledWith('sp_1', 'spv_1', 1);
       expect(screen.getByText(/plan version published successfully/i)).toBeInTheDocument();
     });
+  });
+
+  it('offers Add sources and verify on source-free manual drafts and opens the picker panel', async () => {
+    render(<StudyPlanEditor planDetail={mockDetail} onBack={vi.fn()} />);
+
+    const verifyButton = screen.getByRole('button', { name: /add sources and verify/i });
+    expect(verifyButton).toBeInTheDocument();
+
+    fireEvent.click(verifyButton);
+    expect(screen.getByRole('button', { name: /switch to library only/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /close verification/i }));
+    expect(screen.queryByRole('button', { name: /switch to library only/i })).not.toBeInTheDocument();
+  });
+
+  it('starts a durable lesson for the selected topic', async () => {
+    const lessonsApi = await import('../../../api/study-lessons');
+    render(<StudyPlanEditor planDetail={mockDetail} onBack={vi.fn()} />);
+
+    // Select the topic node from the outline.
+    fireEvent.click(screen.getByText('Arithmetic Circuits'));
+    const startLesson = screen.getByRole('button', { name: /start lesson for the selected topic/i });
+    expect(startLesson).toBeInTheDocument();
+
+    fireEvent.click(startLesson);
+    expect(await screen.findByText(/Arithmetic Circuits/i)).toBeInTheDocument();
+    expect(lessonsApi.createStudyPlanLesson).toHaveBeenCalledWith(expect.objectContaining({
+      planId: 'sp_1',
+      planVersionId: 'spv_1',
+      nodeId: 'n1',
+    }));
   });
 });

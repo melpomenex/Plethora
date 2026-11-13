@@ -81,6 +81,7 @@ describe('AssessmentBuilder Component (C3-T08)', () => {
         indexCompleteness: 'complete',
         limitations: [],
       },
+      knowledgeAuthority: { kind: 'library', policy: 'source-only' },
       changeSummary: null,
       createdBy: 'user',
       createdAt: '2026-11-10T20:00:00Z',

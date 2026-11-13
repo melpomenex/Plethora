@@ -231,22 +231,34 @@ export async function runAssessmentGenerationCoordinator(
     ? await getPlan(detail.blueprint.planId, detail.revision.planVersionId)
     : null;
   if (planDetail) {
-    if (planDetail.version.id !== detail.revision.planVersionId) {
+    // Legacy plan versions without a stored authority behave as library source-only.
+    const authority = planDetail.version.knowledgeAuthority ?? { kind: 'library', policy: 'source-only' } as const;
+    const isModelOnlyConfig = detail.revision.config.knowledgePolicy === 'model-only';
+    if (!isModelOnlyConfig && (!planDetail.version.sourceScope || authority.kind !== 'library')) {
+      throw new StudyApiError({ code: 'missing_source', messageKey: 'study.assessment.error.no_verified_passages', retryable: false });
+    }
+    if (!isModelOnlyConfig && planDetail.version.id !== detail.revision.planVersionId) {
       throw new StudyApiError({ code: 'stale_source', messageKey: 'study_generation.error.source_changed', retryable: false });
     }
-    const planDocs = planDetail.version.sourceScope.resolvedDocuments;
+    const planDocs = isModelOnlyConfig ? [] : planDetail.version.sourceScope.resolvedDocuments;
     const blueprintDocs = detail.revision.sourceScope.resolvedDocuments;
     const sameFrozenScope = planDocs.length === blueprintDocs.length && planDocs.every((doc, index) => {
       const blueprintDoc = blueprintDocs[index];
       return doc.documentId === blueprintDoc.documentId && doc.revision === blueprintDoc.revision &&
         JSON.stringify([...doc.extractIds].sort()) === JSON.stringify([...blueprintDoc.extractIds].sort());
     });
-    if (!sameFrozenScope) {
+    if (!isModelOnlyConfig && !sameFrozenScope) {
       throw new StudyApiError({ code: 'stale_source', messageKey: 'study_generation.error.source_changed', retryable: false });
     }
-    await refreshScope(planDetail.version.sourceScope);
+    if (!isModelOnlyConfig) {
+      await refreshScope(planDetail.version.sourceScope);
+    }
   }
-  const verifiedSources = await verifyAssessmentSourceRevisions(
+  const isModelOnlyConfig = detail.revision.config.knowledgePolicy === 'model-only';
+  if (isModelOnlyConfig && detail.revision.config.mode === 'exam') {
+    throw new StudyApiError({ code: 'invalid_input', messageKey: 'study.assessment.error.model_only_exam_forbidden', retryable: false });
+  }
+  const verifiedSources = isModelOnlyConfig ? [] : await verifyAssessmentSourceRevisions(
     detail.revision.sourceScope,
     planDetail?.sourceRefs || {},
     resolveSourceRefs
@@ -365,11 +377,13 @@ export async function runAssessmentGenerationCoordinator(
     const taskInput = { ...taskInputs[idx], jobId: job.id };
 
     try {
-      if (!planDetail) throw new StudyApiError({ code: 'missing_source', messageKey: 'study_generation.error.source_missing', retryable: false });
-      const liveScope = await refreshScope(planDetail.version.sourceScope);
+      if (!isModelOnlyConfig && !planDetail?.version.sourceScope) throw new StudyApiError({ code: 'missing_source', messageKey: 'study_generation.error.source_missing', retryable: false });
+      const authority = planDetail.version.knowledgeAuthority ?? { kind: 'library', policy: 'source-only' } as const;
+      if (!isModelOnlyConfig && authority.kind !== 'library') throw new StudyApiError({ code: 'missing_source', messageKey: 'study_generation.error.source_missing', retryable: false });
+      const liveScope = isModelOnlyConfig ? null : await refreshScope(planDetail.version.sourceScope);
       const authorization = await preflightFn({
         primaryTask: studyQuestionTask,
-        documents: liveScope.resolvedDocuments.map((doc) => ({ id: doc.documentId, isAiExcluded: doc.isAiExcluded, isLocalOnly: doc.isLocalOnly })),
+        documents: isModelOnlyConfig ? [] : liveScope.resolvedDocuments.map((doc) => ({ id: doc.documentId, isAiExcluded: doc.isAiExcluded, isLocalOnly: doc.isLocalOnly })),
         sourceExcerptCount: batch.sources.length,
         plannedModelSteps: plannedBatches.length,
         cloudDisclosureAccepted: authorizedPreflight.cloudDisclosureAccepted,
@@ -403,7 +417,7 @@ export async function runAssessmentGenerationCoordinator(
       signal?.throwIfAborted();
       if (taskResult) {
         callsMade += taskResult.validationOutcome === 'repaired' ? 2 : 1;
-        await refreshScope(planDetail.version.sourceScope);
+        await refreshScope(planDetail.version.sourceScope!);
         const batchOutput = taskResult.output;
         const provenance: GenerationProvenance = {
           taskId: taskResult.taskId,

@@ -32,12 +32,14 @@ pub mod repository;
 pub mod saved_queue_repository;
 pub mod session_analysis_repository;
 pub mod study_generation_repository;
+pub mod study_plan_lesson_repository;
 pub mod study_plan_repository;
 pub mod study_source_repository;
 pub mod video_extract_repository;
 
 pub use assessment_blueprint_repository::AssessmentBlueprintRepository;
 pub use exam_grading_repository::ExamGradingRepository;
+pub use study_plan_lesson_repository::StudyPlanLessonRepository;
 pub use exam_session_repository::ExamSessionRepository;
 pub use learning_evidence_repository::LearningEvidenceRepository;
 pub use learning_object_source_repository::{LearningObjectSource, LearningObjectSourceRepository};

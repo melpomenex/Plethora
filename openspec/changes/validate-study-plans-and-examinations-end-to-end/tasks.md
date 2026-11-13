@@ -2,6 +2,14 @@
 
 **Precondition:** C1–C7 implementation and acceptance gates are green. This change has `skip_specs: true`; do not add behavior here. **NEW** paths are proposed tests/fixtures/evidence, not current production functionality. Execute the golden scenario at `../../planning/study-plans-assessments-program/07-GOLDEN-SCENARIO.md` and check traceability/risk gates after each group.
 
+## 0. Baseline blockers and reuse
+
+The fixture and helper paths named NEW below already exist in part. Extend them in place. Record execution status separately from the presence of scaffolding.
+
+- [ ] 0.1 Reproduce and resolve Study Plans capability-lint failures with C1 using `src/lib/__tests__/platformCapabilityLint.test.ts`, `src/routes/study-plans.tsx`, `src/commandPalette/registry.tsx` `src/navigation/tabDestinations.ts`, `src/lib/platformCapabilities.ts` and the mobile navigation registry. Verify native entry, gated browser actions and explicit unsupported deep link without writes.
+- [ ] 0.2 Reconcile failing `blueprintService.test.ts` and `generationCoordinator.test.ts` with `d7a4416f` and C3. Exercise actual command revisions and partial-generation receipts before updating mocks. Assert valid serialized readback, malformed revision rejection and exact retry/quota results.
+- [ ] 0.3 Add an explicit E2E config/project for `src/e2e/study-plans-golden.spec.ts`, prove discovery with `--list`, replace body-only smoke with navigation plus durable isolated create/reopen, and wire actual native command transport for C8-T02. Keep visual config and browser unsupported coverage intact. Run T03 after this gate.
+
 ## 1. Controlled fixture and fake-provider harness
 
 - [ ] 1.1 **C8-T01 — Build the synthetic corpus and canonical oracle.** Dependencies: all domain contracts stable. **Files:** create **NEW** `src/test/study-plans-golden/fixtures/osCourse.ts`, `sourceManifest.ts`, `curriculumScript.ts`, `questions.ts`, `rubricScripts.ts`, `answers.ts`, `evidenceOracle.ts`, `aliases.ts`, `schedulerSentinel.ts`; create deterministic actual PDF/EPUB/local-video/transcript fixture assets under **NEW** `src/test/study-plans-golden/assets/`; add **NEW** Rust fixture loader in native test-support area only. **Implement exact content, source refs/CFI/video extracts, concepts/confirmed links, exam slots/keys/rubrics/answers, `FIX_CLOCK`, expected 9/15 initial score and evidence calculations from golden doc. Use no copyrighted/external text or live files. Validate all fixture hashes/locators/arithmetics independently of task outputs. **Negative:** mutation of a fixture byte/page/CFI/quote/key/weight must be detected. **Done when:** fixture-manifest/schema tests pass twice identically and scheduler sentinel covers actual text review id/scheduling/Queue fields.

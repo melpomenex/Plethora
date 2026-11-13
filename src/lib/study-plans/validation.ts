@@ -13,6 +13,9 @@ import type {
   FieldIssue,
   StudyResult,
 } from '../../types/learningPaths';
+import { validateStudySourceScope } from './sourceValidation';
+import type { StudyPlanKnowledgeAuthority } from '../../types/learningPaths';
+import type { StudySourceScopeV1 } from '../../types/studySource';
 
 export const STUDY_PLAN_LIMITS = {
   PLAN_TITLE_MIN: 1,
@@ -31,6 +34,41 @@ export const STUDY_PLAN_LIMITS = {
   NODE_OBJECTIVE_LENGTH_MAX: 240,
   MAX_NODE_SOURCES: 8,
 } as const;
+
+export function validateStudyPlanKnowledgeAuthority(
+  authority: StudyPlanKnowledgeAuthority,
+  sourceScope: StudySourceScopeV1 | null
+): FieldIssue[] {
+  if (authority.kind === 'library') {
+    if (!sourceScope || !validateStudySourceScope(sourceScope).ok) {
+      return [{
+        path: 'knowledgeAuthority',
+        code: 'invalid_knowledge_authority_scope',
+        messageKey: 'study_plan.error.invalid_knowledge_authority_scope',
+      }];
+    }
+    return [];
+  }
+  if (authority.kind === 'model-only') {
+    if (sourceScope !== null) {
+      return [{
+        path: 'sourceScope',
+        code: 'model_only_scope_forbidden',
+        messageKey: 'study_plan.error.model_only_scope_forbidden',
+      }];
+    }
+    return [];
+  }
+  if (authority.kind === 'manual' && sourceScope === null) return [];
+  if (authority.kind === 'manual' && sourceScope && !validateStudySourceScope(sourceScope).ok) {
+    return [{
+      path: 'sourceScope',
+      code: 'invalid_source_scope',
+      messageKey: 'study_source.error.validation_failed',
+    }];
+  }
+  return [];
+}
 
 const HTML_TAG_REGEX = /<[a-z][\s\S]*>/i;
 
@@ -205,7 +243,48 @@ export function validateStudyPlan(plan: Partial<StudyPlan>): StudyResult<void> {
 export function validateStudyPlanVersion(
   version: StudyPlanVersion
 ): StudyResult<void> {
-  const issues: FieldIssue[] = [];
+  const issues: FieldIssue[] = validateStudyPlanKnowledgeAuthority(
+    version.knowledgeAuthority,
+    version.sourceScope
+  );
+
+  if (version.knowledgeAuthority.kind === 'model-only' && version.nodes.some((node) =>
+    node.materialSupport === 'grounded' || node.sourceRefIds.length > 0
+  )) {
+    issues.push({
+      path: 'nodes',
+      code: 'model_only_library_evidence_forbidden',
+      messageKey: 'study_plan.error.model_only_contains_library_evidence',
+    });
+  }
+
+  // Source-only library policy with withhold AI supplements from published plans.
+  if (
+    version.state === 'published' &&
+    version.knowledgeAuthority.kind === 'library' &&
+    version.knowledgeAuthority.policy === 'source-only'
+  ) {
+    const unsupportedNodeIndex = version.nodes.findIndex((node) =>
+      node.included && node.materialSupport === 'unsupported'
+    );
+    if (unsupportedNodeIndex >= 0) {
+      issues.push({
+        path: `nodes[${unsupportedNodeIndex}]`,
+        code: 'source_only_unsupported_node',
+        messageKey: 'study_plan.error.source_only_unsupported_node',
+      });
+    }
+    const unsupportedEdgeIndex = version.prerequisites.findIndex((edge) =>
+      edge.support === 'unsupported'
+    );
+    if (unsupportedEdgeIndex >= 0) {
+      issues.push({
+        path: `prerequisites[${unsupportedEdgeIndex}]`,
+        code: 'source_only_unsupported_prerequisite',
+        messageKey: 'study_plan.error.source_only_unsupported_prerequisite',
+      });
+    }
+  }
 
   if (version.nodes.length > STUDY_PLAN_LIMITS.MAX_MANUAL_NODES) {
     issues.push({

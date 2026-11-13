@@ -10,6 +10,9 @@ import React, { useEffect, useState } from 'react';
 import { ArrowLeft } from '@phosphor-icons/react';
 import { Button } from '../../md3/Button';
 import { getExamAttempt } from '../../../api/exam-sessions';
+import { getDiagnosticPriorEvidence, type CurriculumPriorEvidence } from '../../../api/learning-evidence';
+import { applyDiagnosticAdaptation } from '../../../lib/study-plans/diagnostics/diagnosticAdaptation';
+import { DiagnosticResultsAdapter } from '../diagnostics/DiagnosticResultsAdapter';
 import type { AttemptDetail } from '../../../types/assessmentSessions';
 import { AttemptResults } from './AttemptResults';
 import { RubricGradingControls } from '../grading/RubricGradingControls';
@@ -35,6 +38,10 @@ export const AttemptResultsView: React.FC<AttemptResultsViewProps> = ({
   const [detail, setDetail] = useState<AttemptDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [diagEvidence, setDiagEvidence] = useState<CurriculumPriorEvidence | null>(null);
+  const [diagPending, setDiagPending] = useState(false);
+  const [diagApplying, setDiagApplying] = useState(false);
+  const [diagApplied, setDiagApplied] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -46,6 +53,16 @@ export const AttemptResultsView: React.FC<AttemptResultsViewProps> = ({
         const res = await getExamAttempt(attemptId);
         if (active) {
           setDetail(res);
+          if (res.attempt.mode === 'diagnostic') {
+            try {
+              const evidence: CurriculumPriorEvidence = await getDiagnosticPriorEvidence(attemptId);
+              if (active) setDiagEvidence(evidence);
+            } catch {
+              if (active) setDiagEvidence(null);
+            }
+            const pending = (res.currentGrades ?? []).some((g) => g.state !== 'final');
+            if (active) setDiagPending(pending);
+          }
         }
       } catch (err: any) {
         if (active) {
@@ -103,6 +120,27 @@ export const AttemptResultsView: React.FC<AttemptResultsViewProps> = ({
           void getExamAttempt(attemptId).then(setDetail, () => setError('Could not reload examination results.'));
         }}
       />
+      {detail.attempt.mode === 'diagnostic' && returnContext?.planId && (
+        <DiagnosticResultsAdapter
+          priorEvidence={diagEvidence as never}
+          hasPendingGrading={diagPending}
+          applyDisabledReason={diagApplied ? 'Adaptation already applied to this draft.' : null}
+          onApply={async () => {
+            if (!diagEvidence) return;
+            setDiagApplying(true);
+            setError(null);
+            try {
+              await applyDiagnosticAdaptation(returnContext.planId!, undefined, diagEvidence as never);
+              setDiagApplied(true);
+            } catch (err) {
+              setError(studyErrorMessage(err, 'Could not apply the diagnostic adaptation. The draft is unchanged.'));
+            } finally {
+              setDiagApplying(false);
+            }
+          }}
+          onReject={() => setDiagEvidence(null)}
+        />
+      )}
       <RubricGradingControls key={attemptId} detail={detail} onUpdate={setDetail} />
     </div>
   );

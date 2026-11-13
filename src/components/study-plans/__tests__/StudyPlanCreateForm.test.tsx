@@ -183,9 +183,11 @@ describe('StudyPlanCreateForm', () => {
     render(<StudyPlanCreateForm onSuccess={vi.fn()} onCancel={vi.fn()} />);
     fireEvent.change(screen.getByLabelText(/plan title/i), { target: { value: 'Crypto' } });
     fireEvent.change(screen.getByLabelText(/learning objective/i), { target: { value: 'Understand crypto' } });
+    // Explicitly choose a library policy so material selection is shown.
+    fireEvent.click(screen.getByLabelText(/my library only/i));
     fireEvent.click(screen.getByLabelText(/source outline/i));
     fireEvent.click(screen.getByRole('button', { name: /continue to source outline/i }));
-    expect(screen.getByRole('alert')).toHaveTextContent(/select at least one source/i);
+    expect(screen.getByRole('alert')).toHaveTextContent(/select material or explicitly choose ai knowledge only/i);
     expect(api.createStudyPlan).not.toHaveBeenCalled();
 
     fireEvent.click(await screen.findByRole('checkbox', { name: 'Intro to Cryptography' }));

@@ -28,6 +28,7 @@ pub mod rubric_grade;
 pub mod saved_queue;
 pub mod study_generation;
 pub mod study_plan;
+pub mod study_plan_lesson;
 pub mod study_source;
 pub mod tag;
 pub mod transcription_queue;
@@ -94,4 +95,5 @@ pub use podcast_ad::{
 pub use rubric_grade::*;
 pub use study_generation::*;
 pub use study_plan::*;
+pub use study_plan_lesson::*;
 pub use study_source::*;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { resolveConfiguredContextTokens, resolveRequestPolicy } from "../policy";
-import type { LLMProvider } from "../types";
+import type { LLMProvider } from "../index";
 
 describe("Context Window Precedence and Sizing across Provider Adapters", () => {
   const providers: LLMProvider[] = [
@@ -81,7 +81,7 @@ describe("Context Window Precedence and Sizing across Provider Adapters", () => 
       resolveConfiguredContextTokens({
         perModelOverride: 100000,
         providerContextTokens: 64000,
-        autoPreset: 32000,
+        autoPreset: false,
         globalContextTokens: 50000,
         discoveredNumCtx: 16000,
       }),

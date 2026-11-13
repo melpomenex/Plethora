@@ -18,6 +18,12 @@ import {
   type CoordinatorRunOptions,
   type CoordinatorRunResult,
 } from './coordinator';
+import {
+  runModelOnlyCurriculumCoordinator,
+  type ModelOnlyCurriculumGenerationRequest,
+  type CoordinatorRunOptions as ModelOnlyCoordinatorRunOptions,
+  type CoordinatorRunResult as ModelOnlyCoordinatorRunResult,
+} from './modelOnlyCoordinator';
 import type {
   CurriculumGenerationRequest,
   StudyAiPreflight,
@@ -146,6 +152,112 @@ export class StudyJobController {
       entry.abortController.abort();
     }
     await cancelStudyGenerationJob(jobId, cancellationEpoch);
+  }
+
+  /**
+   * Starts a model-only curriculum job under the same global and per-target
+   * concurrency constraints as library-backed generation. This branch never
+   * touches library, embedding, or web-research services.
+   */
+  public async startModelOnlyCurriculumJob(
+    request: ModelOnlyCurriculumGenerationRequest,
+    preflight: StudyAiPreflight,
+    options: ModelOnlyCoordinatorRunOptions = {}
+  ): Promise<ModelOnlyCoordinatorRunResult> {
+    const targetId = request.planId;
+    for (const entry of this.activeJobs.values()) {
+      if (entry.targetId === targetId) {
+        throw new StudyApiError({
+          code: 'invalid_state',
+          messageKey: 'study_generation.error.target_job_active',
+          retryable: true,
+        });
+      }
+    }
+    if (this.activeJobs.size >= MAX_CONCURRENT_STUDY_JOBS) {
+      throw new StudyApiError({
+        code: 'invalid_state',
+        messageKey: 'study_generation.error.concurrency_limit',
+        retryable: true,
+      });
+    }
+
+    const abortController = new AbortController();
+    const compositeSignal = options.signal
+      ? this.combineAbortSignals(options.signal, abortController.signal)
+      : abortController.signal;
+
+    const tempJobKey = `temp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    let assignedJobId = tempJobKey;
+
+    const onProgress = (prog: StudyJobProgress) => {
+      options.onProgress?.(prog);
+      this.notifySubscribers(assignedJobId, prog);
+    };
+
+    const runPromise = (async () => {
+      try {
+        const result = await runModelOnlyCurriculumCoordinator(request, preflight, {
+          ...options,
+          signal: compositeSignal,
+          onProgress,
+          onJobStarted: (jobId) => {
+            const entry = this.activeJobs.get(tempJobKey);
+            if (entry) {
+              this.activeJobs.delete(tempJobKey);
+              entry.jobId = jobId;
+              this.activeJobs.set(jobId, entry);
+            }
+            assignedJobId = jobId;
+            options.onJobStarted?.(jobId);
+          },
+        });
+        assignedJobId = result.jobId;
+        return result;
+      } finally {
+        this.activeJobs.delete(tempJobKey);
+        this.activeJobs.delete(assignedJobId);
+      }
+    })();
+
+    this.activeJobs.set(tempJobKey, {
+      jobId: tempJobKey,
+      targetId,
+      abortController,
+      promise: runPromise,
+    });
+
+    return runPromise;
+  }
+
+  /**
+   * Resumes an interrupted, paused, or failed model-only curriculum job.
+   */
+  public async resumeModelOnlyJob(
+    jobId: string,
+    request: ModelOnlyCurriculumGenerationRequest,
+    freshPreflight: StudyAiPreflight,
+    options: ModelOnlyCoordinatorRunOptions = {}
+  ): Promise<ModelOnlyCoordinatorRunResult> {
+    const jobs = await listStudyGenerationJobs(request.baseVersionId);
+    const job = jobs.find((candidate) => candidate.id === jobId &&
+      (candidate.status === 'interrupted' || candidate.status === 'failed'));
+    if (!job) {
+      throw new StudyApiError({ code: 'invalid_state', messageKey: 'study_generation.error.job_unavailable', retryable: true });
+    }
+    return this.startModelOnlyCurriculumJob(request, freshPreflight, { ...options, resumeFrom: job });
+  }
+
+  /**
+   * Retries a failed model-only curriculum job.
+   */
+  public async retryModelOnlyJob(
+    jobId: string,
+    request: ModelOnlyCurriculumGenerationRequest,
+    freshPreflight: StudyAiPreflight,
+    options: ModelOnlyCoordinatorRunOptions = {}
+  ): Promise<ModelOnlyCoordinatorRunResult> {
+    return this.resumeModelOnlyJob(jobId, request, freshPreflight, options);
   }
 
   /**

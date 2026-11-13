@@ -134,6 +134,7 @@ describe('Curriculum Generation Full Failure Matrix (C2-T10)', () => {
       state: 'published',
       baseVersionId: null,
       sourceScope: { schemaVersion: 1 } as any,
+      knowledgeAuthority: { kind: 'library', policy: 'source-only' },
       nodes: [
         {
           nodeId: 'node_locked',

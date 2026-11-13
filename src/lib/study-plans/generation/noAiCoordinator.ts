@@ -162,6 +162,9 @@ export async function runNoAiCurriculumCoordinator(
   }
 
   // 2. Refresh the local source inventory and revisions without passage probes.
+  if (!planDetail.version.sourceScope || planDetail.version.knowledgeAuthority.kind !== 'library') {
+    throw new StudyApiError({ code: 'missing_source', messageKey: 'study_generation.error.source_missing', retryable: false });
+  }
   const refreshedScope = await refreshScope(planDetail.version.sourceScope as StudySourceScopeV1);
 
   // 3. Extract confirmed concepts and links in scope

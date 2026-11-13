@@ -196,3 +196,32 @@ export async function importLegacyStudyPlans(
     throw normalizeStudyError(err);
   }
 }
+
+export interface StudyPlanPreferences {
+  deadline?: string | null;
+  restDays?: number[];
+}
+
+export async function getStudyPlanPreferences(planId: string): Promise<StudyPlanPreferences> {
+  ensureNativeSupport();
+  try {
+    return await invokeCommand<StudyPlanPreferences>('get_study_plan_preferences', { planId });
+  } catch (err) {
+    throw normalizeStudyError(err);
+  }
+}
+
+export async function updateStudyPlanPreferences(
+  planId: string,
+  preferences: StudyPlanPreferences
+): Promise<StudyPlanPreferences> {
+  ensureNativeSupport();
+  try {
+    return await invokeCommand<StudyPlanPreferences>('update_study_plan_preferences', {
+      planId,
+      preferences,
+    });
+  } catch (err) {
+    throw normalizeStudyError(err);
+  }
+}

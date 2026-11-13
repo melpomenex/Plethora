@@ -83,6 +83,7 @@ describe('runNoAiCurriculumCoordinator (C2-T08)', () => {
         state: 'draft',
         baseVersionId: null,
         sourceScope: dummyScope,
+        knowledgeAuthority: { kind: 'library', policy: 'source-only' },
         nodes: [],
         prerequisites: [],
         changeSummary: null,

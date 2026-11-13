@@ -1,12 +1,15 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { KnowledgeGapView } from '../../../types/learningEvidence';
+import type { TargetedPracticeOptions } from '../../../lib/study-plans/remediation/remediationService';
 import { GapEvidencePanel } from './GapEvidencePanel';
 
 export interface KnowledgeGapCardProps {
   gap: KnowledgeGapView;
   onDismiss?: (gapId: string) => void;
   onOpenSource?: (sourceRefId: string | null) => void;
-  onPrepareAssessment?: (gap: KnowledgeGapView, mode: 'practice' | 'exam') => void;
+  onPrepareAssessment?: (gap: KnowledgeGapView, mode: 'practice' | 'exam', options?: TargetedPracticeOptions) => void;
+  onOpenLesson?: (nodeId: string) => void;
+  onProposeCards?: (gap: KnowledgeGapView) => void;
 }
 
 function structuralNote(kind: KnowledgeGapView['kind']): string | null {
@@ -16,8 +19,10 @@ function structuralNote(kind: KnowledgeGapView['kind']): string | null {
   return null;
 }
 
-export const KnowledgeGapCard: React.FC<KnowledgeGapCardProps> = ({ gap, onDismiss, onOpenSource, onPrepareAssessment }) => {
+export const KnowledgeGapCard: React.FC<KnowledgeGapCardProps> = ({ gap, onDismiss, onOpenSource, onPrepareAssessment, onOpenLesson, onProposeCards }) => {
   const note = structuralNote(gap.kind);
+  const [emphasis, setEmphasis] = useState<'recall' | 'application' | 'transfer'>('recall');
+  const [paper, setPaper] = useState<'fresh' | 'same'>('fresh');
   return (
     <article
       aria-label={`Knowledge gap ${gap.conceptName}`}
@@ -49,12 +54,53 @@ export const KnowledgeGapCard: React.FC<KnowledgeGapCardProps> = ({ gap, onDismi
         </p>
       )}
       <GapEvidencePanel gap={gap} onOpenSource={onOpenSource} />
-      {gap.status === 'active' && gap.demonstrated && onPrepareAssessment && (
-        <div className="flex flex-wrap gap-3">
-          <button type="button" className="min-h-10 text-sm underline"
-            onClick={() => onPrepareAssessment(gap, 'practice')}>Create practice draft</button>
-          <button type="button" className="min-h-10 text-sm underline"
-            onClick={() => onPrepareAssessment(gap, 'exam')}>Create follow-up exam draft</button>
+      {gap.status === 'active' && gap.demonstrated && (onPrepareAssessment || onProposeCards) && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="text-xs text-on-surface-variant">
+              Emphasis
+              <select
+                value={emphasis}
+                onChange={(e) => setEmphasis(e.target.value as 'recall' | 'application' | 'transfer')}
+                aria-label="Practice emphasis"
+                className="ml-1 h-7 px-1 text-xs rounded border border-outline-variant bg-transparent"
+              >
+                <option value="recall">recall</option>
+                <option value="application">application</option>
+                <option value="transfer">transfer</option>
+              </select>
+            </label>
+            <label className="text-xs text-on-surface-variant">
+              Paper
+              <select
+                value={paper}
+                onChange={(e) => setPaper(e.target.value as 'fresh' | 'same')}
+                aria-label="Paper selection"
+                className="ml-1 h-7 px-1 text-xs rounded border border-outline-variant bg-transparent"
+              >
+                <option value="fresh">fresh</option>
+                <option value="same">same paper</option>
+              </select>
+            </label>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {gap.nodeId && onOpenLesson && (
+              <button type="button" className="min-h-10 text-sm underline"
+                onClick={() => onOpenLesson(gap.nodeId!)}>Open targeted lesson</button>
+            )}
+            {onPrepareAssessment && (
+              <button type="button" className="min-h-10 text-sm underline"
+                onClick={() => onPrepareAssessment(gap, 'practice', { emphasis, paper })}>Create practice draft</button>
+            )}
+            {onPrepareAssessment && (
+              <button type="button" className="min-h-10 text-sm underline"
+                onClick={() => onPrepareAssessment(gap, 'exam')}>Create follow-up exam draft</button>
+            )}
+            {onProposeCards && (
+              <button type="button" className="min-h-10 text-sm underline"
+                onClick={() => onProposeCards(gap)}>Make Cards</button>
+            )}
+          </div>
         </div>
       )}
       {gap.status === 'active' && onDismiss && (

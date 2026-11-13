@@ -88,6 +88,7 @@ describe('Curriculum Generation UI Components (C2-T09)', () => {
         indexCompleteness: 'complete',
         limitations: [],
       },
+      knowledgeAuthority: { kind: 'library', policy: 'source-only' },
       nodes: [
         {
           nodeId: 'n1',

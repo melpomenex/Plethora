@@ -363,7 +363,7 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
             onChange={(e) =>
               onChange({
                 ...config,
-                knowledgePolicy: e.target.value as 'source-only' | 'source-plus-model-knowledge',
+                knowledgePolicy: e.target.value as 'source-only' | 'source-plus-model-knowledge' | 'model-only',
               })
             }
             className="w-full h-8 px-2 text-xs rounded border border-surface-200 dark:border-surface-700 bg-white dark:bg-surface-800 text-surface-900 dark:text-surface-100"
@@ -373,7 +373,17 @@ export const BlueprintQuotaControls: React.FC<BlueprintQuotaControlsProps> = ({
             <option value="source-plus-model-knowledge">
               Source-Plus-Model-Knowledge (Broad Context)
             </option>
+            {config.mode !== 'exam' && (
+              <option value="model-only">
+                Model-Only (Unverified Self-Check)
+              </option>
+            )}
           </select>
+          {config.knowledgePolicy === 'model-only' && (
+            <p className="text-[11px] text-amber-600 dark:text-amber-400">
+              Unverified: results never become demonstrated evidence and cannot be published as a verified exam.
+            </p>
+          )}
         </div>
       </div>
     </div>

@@ -41,6 +41,26 @@ describe('C7-T06 card proposals', () => {
     ).toThrow();
   });
 
+  it('plan-linked proposals get distinct, retry-safe proposal ids (task 2.3)', () => {
+    const base = adaptRemediationToCardProposals(remediation(), [ref()], [
+      { question: 'Q1', answer: 'A1' },
+    ]);
+    const linked = adaptRemediationToCardProposals(remediation(), [ref()], [
+      { question: 'Q1', answer: 'A1' },
+    ], { planId: 'sp_1', nodeId: 'n1' });
+    const linkedOther = adaptRemediationToCardProposals(remediation(), [ref()], [
+      { question: 'Q1', answer: 'A1' },
+    ], { planId: 'sp_1', nodeId: 'n2' });
+
+    expect(linked.proposals[0].proposalId).not.toBe(base.proposals[0].proposalId);
+    expect(linkedOther.proposals[0].proposalId).not.toBe(linked.proposals[0].proposalId);
+    // Same link + same candidate is stable (retry-safe).
+    const retry = adaptRemediationToCardProposals(remediation(), [ref()], [
+      { question: 'Q1', answer: 'A1' },
+    ], { planId: 'sp_1', nodeId: 'n1' });
+    expect(retry.proposals[0].proposalId).toBe(linked.proposals[0].proposalId);
+  });
+
   it('accept reconciles before retry; cloze and non-cloze pass through; same candidate twice fails', async () => {
     const accept = vi.fn().mockResolvedValue({ created: [{ id: 'i1' }], provenanceRecorded: 1 });
     const findSaved = vi.fn().mockResolvedValue([]);

@@ -3,6 +3,7 @@ import {
   validateRecallQuestionProposal,
   validateGeneratedCard,
 } from "../recallQuestion";
+import { isFailedOutcome } from "../common";
 
 describe("validateRecallQuestionProposal", () => {
   it("accepts valid recall question proposal", () => {
@@ -69,7 +70,7 @@ describe("validateGeneratedCard", () => {
       question: "Paris is the {{c1::capital of France.",
     });
     expect(outcome.ok).toBe(false);
-    if (!outcome.ok) {
+    if (isFailedOutcome(outcome)) {
       expect(outcome.errors.some((e) => e.includes("invalid cloze syntax"))).toBe(true);
     }
   });
@@ -80,7 +81,7 @@ describe("validateGeneratedCard", () => {
       question: "Paris is the {{c::capital}} of France.",
     });
     expect(outcome.ok).toBe(false);
-    if (!outcome.ok) {
+    if (isFailedOutcome(outcome)) {
       expect(outcome.errors.some((e) => e.includes("invalid cloze syntax"))).toBe(true);
     }
   });

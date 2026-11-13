@@ -6,17 +6,19 @@
  * - openspec/changes/implement-resumable-examination-sessions/ (C4-T07)
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   GraduationCap,
   ArrowLeft,
   ArrowsCounterClockwise,
+  Warning,
 } from '@phosphor-icons/react';
 import { Button } from '../../md3/Button';
 import type { AttemptDetail } from '../../../types/assessmentSessions';
 import { calculateAttemptScoreSummary } from '../../../lib/study-plans/attempts/attemptScoring';
 import { checkGradingRecoveryStatus } from '../../../lib/study-plans/grading/gradingRecovery';
 import { startExamAttempt } from '../../../api/exam-sessions';
+import { getAssessmentBlueprintRevision } from '../../../api/assessment-blueprints';
 import { ObjectiveScoreSummary } from './ObjectiveScoreSummary';
 import { QuestionResultCard } from './QuestionResultCard';
 import { GradingRecoveryPanel } from '../grading/GradingRecoveryPanel';
@@ -43,6 +45,7 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
 }) => {
   const [filter, setFilter] = useState<ResultFilter>('all');
   const [isRetaking, setIsRetaking] = useState(false);
+  const [isUnverifiedModelOnly, setIsUnverifiedModelOnly] = useState(false);
   const [reviewingItem, setReviewingItem] = useState<{
     question: AssessmentQuestionRevision;
     submissionId: string;
@@ -51,6 +54,20 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
   } | null>(null);
 
   const { attempt, responses, submissions = [], currentGrades, questions = [] } = detail;
+
+  useEffect(() => {
+    let stale = false;
+    if (!attempt.blueprintRevisionId) return;
+    void getAssessmentBlueprintRevision(attempt.blueprintRevisionId).then(
+      (blueprint) => {
+        if (!stale && blueprint?.revision?.config?.knowledgePolicy === 'model-only') {
+          setIsUnverifiedModelOnly(true);
+        }
+      },
+      () => undefined
+    );
+    return () => { stale = true; };
+  }, [attempt.blueprintRevisionId]);
 
   const scoreSummary = useMemo(
     () => calculateAttemptScoreSummary(attempt.id, questions, currentGrades),
@@ -113,9 +130,19 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
       role="main"
       aria-label="Examination Results"
     >
+      {isUnverifiedModelOnly && (
+        <div
+          role="status"
+          className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200"
+        >
+          <Warning size={16} className="flex-shrink-0 mt-0.5" />
+          <span>
+            Unverified model-only self-check — this result is displayed for practice only and never counts as demonstrated evidence.
+          </span>
+        </div>
+      )}
       {/* Top Header */}
-      <header className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-outline-variant/30">
-        <div className="flex items-center gap-3">
+      <header className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-outline-variant/30">        <div className="flex items-center gap-3">
           <Button
             variant="text"
             onClick={onBack}

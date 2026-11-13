@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import type { KnowledgeGapView, NodeLearningProgress, PlanEvidenceSummary } from '../../../types/learningEvidence';
+import type { TargetedPracticeOptions } from '../../../lib/study-plans/remediation/remediationService';
 import { getStudyPlanEvidence } from '../../../api/learning-evidence';
 import { useKnowledgeGapsStore } from '../../../stores/knowledgeGapsStore';
 import { NodeLearningProgressView } from './NodeLearningProgress';
@@ -9,7 +10,9 @@ export interface StudyPlanProgressProps {
   planId: string;
   nodeTitles?: Record<string, string>;
   onOpenSource?: (sourceRefId: string | null) => void;
-  onPrepareAssessment?: (gap: KnowledgeGapView, mode: 'practice' | 'exam') => void;
+  onPrepareAssessment?: (gap: KnowledgeGapView, mode: 'practice' | 'exam', options?: TargetedPracticeOptions) => void;
+  onOpenLesson?: (nodeId: string) => void;
+  onProposeCards?: (gap: KnowledgeGapView) => void;
 }
 
 export const StudyPlanProgress: React.FC<StudyPlanProgressProps> = ({
@@ -17,6 +20,8 @@ export const StudyPlanProgress: React.FC<StudyPlanProgressProps> = ({
   nodeTitles,
   onOpenSource,
   onPrepareAssessment,
+  onOpenLesson,
+  onProposeCards,
 }) => {
   const [summary, setSummary] = useState<PlanEvidenceSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -105,7 +110,7 @@ export const StudyPlanProgress: React.FC<StudyPlanProgressProps> = ({
         </div>
       )}
       <GapHistory gaps={planGaps} onDismiss={handleDismiss} onOpenSource={onOpenSource}
-        onPrepareAssessment={onPrepareAssessment} onRefresh={() => void handleRefresh()} isRefreshing={isRefreshing} />
+        onPrepareAssessment={onPrepareAssessment} onOpenLesson={onOpenLesson} onProposeCards={onProposeCards} onRefresh={() => void handleRefresh()} isRefreshing={isRefreshing} />
     </div>
   );
 };

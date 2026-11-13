@@ -51,9 +51,9 @@ import type { DestinationClassification } from '../../ai/features/destinations';
 export interface CurriculumGenerationRequest {
   planId: string;
   baseVersionId: string;
-  sourceScope: StudySourceScopeV1;
+  sourceScope: StudySourceScopeV1 | null;
   depth: StudyDepth;
-  knowledgePolicy: KnowledgePolicy;
+  knowledgePolicy: KnowledgePolicy | 'model-only';
   rulesOnly: boolean;
   priorEvidence: CurriculumPriorEvidence | null; // C2 supports null; C7 supplies validated diagnostics
   goal?: string;
@@ -108,6 +108,9 @@ export type StudyStepStatus = 'pending' | 'running' | 'completed' | 'failed' | '
 export interface StudyAiPreflight {
   providerId: string;
   modelSelection?: string;
+  /** Execution branch identity: library-backed vs model-only. Used to prevent
+   *  cross-branch resumes of durable jobs. */
+  executionBranch?: 'library' | 'model-only';
   model?: {
     configId: string;
     provider: string;

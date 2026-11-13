@@ -146,6 +146,186 @@ describe('Curriculum Coordinator and Job Controller', () => {
     expect(startJobFn).not.toHaveBeenCalled();
   });
 
+  it('threads the explicit knowledge policy into staged task inputs and job checkpoints', async () => {
+    const startJobFn = vi.fn().mockResolvedValue({
+      id: 'job_policy_1',
+      kind: 'curriculum',
+      targetId: 'spv_draft_1',
+      targetRevision: 1,
+      requestHash: 'req_hash_policy',
+      creationKey: 'ck_policy',
+      status: 'running',
+      nextStepIndex: 0,
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      cancellationEpoch: 0,
+      attemptCount: 1,
+      preflight: dummyPreflight,
+      progress: { completed: 0, total: 2, labelKey: 'started' },
+      lastError: null,
+      createdAt: '2026-11-10T00:00:00Z',
+      updatedAt: '2026-11-10T00:00:00Z',
+    } as StudyGenerationJob);
+    const capturedTaskInputs: Array<{ stepKey: string; knowledgePolicy?: string }> = [];
+    const splitRunPinnedTask = vi.fn().mockImplementation(async (taskDef, input) => {
+      capturedTaskInputs.push({ stepKey: input.stepKey, knowledgePolicy: input.knowledgePolicy });
+      if (input.stepKey.startsWith('decompose')) {
+        return {
+          output: {
+            schemaVersion: 1,
+            topics: [
+              {
+                handle: 't_0',
+                title: 'Processes and Threads',
+                summary: 'Basics of execution',
+                learningObjectives: ['Explain process state transitions'],
+                conceptName: 'Processes',
+                materialSupport: 'grounded',
+                sourceHandles: ['src_h0'],
+                whyHere: 'Foundation',
+              },
+              {
+                handle: 't_1',
+                title: 'Address Translation',
+                summary: 'Virtual memory concepts',
+                learningObjectives: ['Compute page offset and frame'],
+                conceptName: 'Virtual Memory',
+                materialSupport: 'grounded',
+                sourceHandles: ['src_h0'],
+                whyHere: 'Core memory model',
+              },
+              {
+                handle: 't_2',
+                title: 'Page Fault Handling',
+                summary: 'Demand paging mechanics',
+                learningObjectives: ['Trace page fault interrupt handling'],
+                conceptName: 'Page Faults',
+                materialSupport: 'grounded',
+                sourceHandles: ['src_h0'],
+                whyHere: 'Advanced VM',
+              },
+            ],
+          } as CurriculumDecomposeBatchOutput,
+          taskId: 'study-curriculum-decompose',
+          providerId: 'ollama:llama3',
+          endpointLocality: 'device',
+          requestedModelClass: 'reasoning',
+          servedModelClass: 'reasoning',
+          fallbackPath: 'none',
+          validationOutcome: 'success',
+        };
+      }
+      return {
+        output: {
+          schemaVersion: 1,
+          edges: [],
+        } as CurriculumPrerequisiteOutput,
+        taskId: 'study-curriculum-prerequisites',
+        providerId: 'ollama:llama3',
+        endpointLocality: 'device',
+        requestedModelClass: 'reasoning',
+        servedModelClass: 'reasoning',
+        fallbackPath: 'none',
+        validationOutcome: 'success',
+      };
+    });
+
+    const completedSteps: string[] = [];
+    let mockPlanDetail = createMockPlanDetail();
+    const deps: CoordinatorDependencies = {
+      ...testPreflightDeps(),
+      startJobFn,
+      failStepFn: vi.fn().mockResolvedValue(undefined),
+      claimStepFn: vi.fn().mockImplementation((jobId, stepKey) => ({
+        jobId,
+        stepKey,
+        ordinal: stepKey.startsWith('decompose') ? 1 : 2,
+        inputHash: 'hash',
+        status: 'running',
+        outputRefId: null,
+        safeError: null,
+        completedAt: null,
+      } as StudyGenerationStep)),
+      completeStepFn: vi.fn().mockImplementation((input) => {
+        completedSteps.push(input.stepKey);
+        return input.progress as StudyJobProgress;
+      }),
+      saveDraftFn: vi.fn().mockImplementation(async (input: SaveStudyPlanDraftInput) => {
+        mockPlanDetail = {
+          ...mockPlanDetail,
+          plan: { ...mockPlanDetail.plan, revision: mockPlanDetail.plan.revision + 1 },
+          version: {
+            ...mockPlanDetail.version,
+            nodes: input.nodes,
+            prerequisites: input.prerequisites,
+          },
+        };
+        return mockPlanDetail;
+      }),
+      getPlanFn: vi.fn().mockImplementation(async () => mockPlanDetail),
+      hydrateEvidenceFn: vi.fn().mockResolvedValue({
+        batches: [{
+          batchIndex: 0,
+          handles: [{
+            handle: 'src_h0',
+            documentId: 'doc_os_1',
+            documentTitle: 'OS PDF',
+            sourceType: 'pdf',
+            revision: 'rev_os_1',
+            excerpt: 'Processes and threads execution model.',
+            excerptSha256: 'sha256_1',
+          }],
+          totalChars: 100,
+        }],
+        allHandles: [{
+          handle: 'src_h0',
+          documentId: 'doc_os_1',
+          documentTitle: 'OS PDF',
+          sourceType: 'pdf',
+          revision: 'rev_os_1',
+          excerpt: 'Processes and threads execution model.',
+          excerptSha256: 'sha256_1',
+        }],
+        handleMap: new Map(),
+        handleToSourceRefIdMap: new Map([['src_h0', 'ssr_1']]),
+        resolutions: [],
+        uniqueHits: [],
+        conceptSeeds: ['Processes'],
+      }),
+      runPinnedTaskFn: splitRunPinnedTask as any,
+      resolveSourceRefsFn: vi.fn().mockResolvedValue([{
+        status: 'current',
+        navigation: 'exact',
+        ref: {
+          schemaVersion: 1,
+          id: 'ssr_1',
+          documentId: 'doc_os_1',
+          excerpt: 'content',
+          revision: 'rev_os_1',
+          revisionKind: 'content-hash',
+          excerptSha256: 'hash',
+          documentTitle: 'OS',
+          sourceType: 'pdf',
+          capturedAt: '',
+        },
+      }]),
+    };
+
+    const mixedRequest: CurriculumGenerationRequest = {
+      ...dummyRequest,
+      knowledgePolicy: 'source-plus-model-knowledge',
+    };
+    const result = await runCurriculumCoordinator(mixedRequest, dummyPreflight, {
+      deps,
+      creationKey: 'ck_policy',
+    });
+    expect(result.jobId).toBe('job_policy_1');
+    expect(startJobFn).toHaveBeenCalled();
+    const decomposeInput = capturedTaskInputs.find((item) => item.stepKey.startsWith('decompose'));
+    expect(decomposeInput?.knowledgePolicy).toBe('source-plus-model-knowledge');
+    expect(completedSteps).toContain('decompose:0000');
+  });
+
   function createMockPlanDetail(revision = 1, draftVersionId = 'spv_draft_1'): StudyPlanDetail {
     return {
       plan: {
@@ -168,6 +348,7 @@ describe('Curriculum Coordinator and Job Controller', () => {
         state: 'draft',
         baseVersionId: null,
         sourceScope: dummyScope,
+        knowledgeAuthority: { kind: 'library', policy: 'source-only' },
         nodes: [],
         prerequisites: [],
         changeSummary: null,

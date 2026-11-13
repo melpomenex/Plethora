@@ -11,6 +11,10 @@ vi.mock('../../../../api/exam-sessions', () => ({
   getExamAttempt: vi.fn(),
 }));
 
+vi.mock('../../../../api/assessment-blueprints', () => ({
+  getAssessmentBlueprintRevision: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock('../../../../lib/study-plans/openStudySource', () => ({
   openStudySource: vi.fn(),
 }));
@@ -241,5 +245,20 @@ describe('AttemptResults Component', () => {
 
     expect(screen.getByTestId('manual-grade-review-modal')).toBeInTheDocument();
     expect(screen.getByText('Manual Grade Review & Override')).toBeInTheDocument();
+  });
+
+  it('labels a model-only self-check as unverified and excluded from demonstrated evidence', async () => {
+    const blueprintApi = await import('../../../../api/assessment-blueprints');
+    vi.mocked(blueprintApi.getAssessmentBlueprintRevision).mockResolvedValue({
+      revision: {
+        id: 'bpr_1',
+        config: { knowledgePolicy: 'model-only', mode: 'practice' },
+      },
+    } as any);
+
+    render(<AttemptResults detail={mockDetail} onBack={vi.fn()} />);
+
+    expect(await screen.findByText(/Unverified model-only self-check/i)).toBeInTheDocument();
+    expect(screen.getByText(/never counts as demonstrated evidence/i)).toBeInTheDocument();
   });
 });

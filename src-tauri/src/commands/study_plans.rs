@@ -7,7 +7,7 @@
 use crate::database::{Repository, StudyPlanRepository};
 use crate::models::{
     CreateStudyPlanInput, LegacyImportResult, NodeActivity, SaveStudyPlanDraftInput,
-    StudyCommandError, StudyPlanDetail, StudyPlanSummary,
+    StudyCommandError, StudyPlanDetail, StudyPlanPreferences, StudyPlanSummary,
 };
 use tauri::State;
 
@@ -30,6 +30,25 @@ pub async fn list_study_plans(
 ) -> Result<Vec<StudyPlanSummary>, StudyCommandError> {
     repository(&repo)
         .list_study_plans(include_archived.unwrap_or(false))
+        .await
+}
+
+#[tauri::command]
+pub async fn get_study_plan_preferences(
+    plan_id: String,
+    repo: State<'_, Repository>,
+) -> Result<StudyPlanPreferences, StudyCommandError> {
+    repository(&repo).get_study_plan_preferences(&plan_id).await
+}
+
+#[tauri::command]
+pub async fn update_study_plan_preferences(
+    plan_id: String,
+    preferences: StudyPlanPreferences,
+    repo: State<'_, Repository>,
+) -> Result<StudyPlanPreferences, StudyCommandError> {
+    repository(&repo)
+        .update_study_plan_preferences(&plan_id, preferences)
         .await
 }
 
@@ -146,7 +165,7 @@ mod tests {
             title: "Command Test Plan".to_string(),
             goal: "Master Rust commands".to_string(),
             depth: StudyDepth::Foundational,
-            source_scope: json!({
+            source_scope: Some(json!({
                 "schemaVersion": 1,
                 "selected": {
                     "documentIds": ["d1"],
@@ -157,7 +176,8 @@ mod tests {
                 "resolvedDocuments": [],
                 "frozenAt": "2026-11-10T12:00:00Z",
                 "indexCompleteness": "complete"
-            }),
+            })),
+            knowledge_authority: None,
             initial_nodes: Some(vec![StudyPlanVersionNode {
                 node_id: "spn_c1".to_string(),
                 title: "Rust Commands".to_string(),

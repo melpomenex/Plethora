@@ -5539,6 +5539,65 @@ pub const MIGRATIONS: &[Migration] = &[
         CREATE INDEX learning_remediations_status ON learning_remediations(gap_id,status);
         "#,
     ),
+
+    Migration::new(
+        "144_study_plan_knowledge_authority",
+        r#"
+        ALTER TABLE study_plan_versions
+        ADD COLUMN knowledge_authority_json TEXT NOT NULL
+            DEFAULT '{"kind":"library","policy":"source-only"}'
+            CHECK(json_valid(knowledge_authority_json));
+
+        -- Existing plans whose frozen scope has no resolved material were manual
+        -- plans; keep them free of an AI authority when they are read again.
+        UPDATE study_plan_versions
+        SET knowledge_authority_json='{"kind":"manual"}'
+        WHERE COALESCE(json_array_length(source_scope_json, '$.resolvedDocuments'), 0)=0;
+        "#,
+    ),
+    Migration::new(
+        "145_saved_queues_ordering_mode",
+        r#"
+        -- Saved queues may pin the queue ordering mode they were created under.
+        -- NULL means Adaptive (the default) for compatibility with existing rows.
+        ALTER TABLE saved_queues
+        ADD COLUMN ordering_mode TEXT;
+        "#,
+    ),
+    Migration::new(
+        "146_study_plan_lessons",
+        r#"
+        CREATE TABLE IF NOT EXISTS study_plan_lessons (
+            id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL,
+            plan_version_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            objective_index INTEGER NOT NULL DEFAULT 0,
+            style TEXT NOT NULL DEFAULT 'guided',
+            knowledge_authority_json TEXT NOT NULL DEFAULT '{"kind":"library","policy":"source-only"}',
+            source_revision_snapshot TEXT NOT NULL DEFAULT '',
+            prompt_text TEXT NOT NULL DEFAULT '',
+            answer_draft TEXT NOT NULL DEFAULT '',
+            hint_count INTEGER NOT NULL DEFAULT 0,
+            turn_count INTEGER NOT NULL DEFAULT 0,
+            turn_state_json TEXT NOT NULL DEFAULT '{}',
+            revision INTEGER NOT NULL DEFAULT 0,
+            last_turn_request_id TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(plan_version_id, node_id, objective_index)
+        );
+        "#,
+    ),
+    Migration::new(
+        "147_study_plan_preferences",
+        r#"
+        -- Optional per-plan preferences: exam deadline (UTC date) and rest days.
+        -- Missing/empty preferences keep backwards-compatible defaults.
+        ALTER TABLE study_plans
+        ADD COLUMN preferences_json TEXT NOT NULL DEFAULT '{}';
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

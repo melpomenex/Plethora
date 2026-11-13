@@ -731,7 +731,8 @@ export function validateCurriculumGenerationRequest(
   const knowledgePolicy = request.knowledgePolicy;
   if (
     knowledgePolicy !== 'source-only' &&
-    knowledgePolicy !== 'source-plus-model-knowledge'
+    knowledgePolicy !== 'source-plus-model-knowledge' &&
+    knowledgePolicy !== 'model-only'
   ) {
     issues.push({
       path: 'knowledgePolicy',
@@ -749,11 +750,24 @@ export function validateCurriculumGenerationRequest(
   }
 
   // Validate Source Scope
-  const scopeResult = validateStudySourceScope(
-    request.sourceScope as StudySourceScopeV1
-  );
-  if (!scopeResult.ok) {
-    issues.push(...(scopeResult.error.fieldIssues || []));
+  if (knowledgePolicy === 'model-only') {
+    if (request.sourceScope !== null) {
+      issues.push({
+        path: 'sourceScope',
+        code: 'invalid_input',
+        messageKey: 'study_plan.error.model_only_scope_forbidden',
+      });
+    }
+    if (request.rulesOnly === true) {
+      issues.push({
+        path: 'rulesOnly',
+        code: 'invalid_input',
+        messageKey: 'study_generation.error.model_only_outline_forbidden',
+      });
+    }
+  } else {
+    const scopeResult = validateStudySourceScope(request.sourceScope as StudySourceScopeV1);
+    if (!scopeResult.ok) issues.push(...(scopeResult.error.fieldIssues || []));
   }
 
   // Validate Prior Evidence
@@ -774,7 +788,7 @@ export function validateCurriculumGenerationRequest(
       depth: depth as CurriculumGenerationRequest['depth'],
       knowledgePolicy: knowledgePolicy as CurriculumGenerationRequest['knowledgePolicy'],
       rulesOnly: request.rulesOnly as boolean,
-      sourceScope: request.sourceScope as any,
+      sourceScope: request.sourceScope as StudySourceScopeV1 | null,
       priorEvidence: priorResult.data ?? null,
     },
   };

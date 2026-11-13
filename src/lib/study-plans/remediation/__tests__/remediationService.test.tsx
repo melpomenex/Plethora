@@ -64,7 +64,6 @@ describe('C6-T07 remediationService', () => {
     const follow = buildFollowUpExamConfig(ctx);
     expect(follow.mode).toBe('exam');
     expect(follow.requestedCount).toBe(2);
-
     const createBlueprintDraft = vi.fn().mockResolvedValue({ revisionId: 'rev1' });
     const out = await createTargetedPracticeDraft(ctx, { createBlueprintDraft });
     expect(out.revisionId).toBe('rev1');
@@ -129,5 +128,36 @@ describe('C6-T07 remediationService', () => {
     expect(screen.getByTestId('performance-same-paper').textContent).toMatch(/Same-paper/);
     expect(screen.getByTestId('performance-same-paper').textContent).toMatch(/memory/);
     expect(screen.queryByTestId('performance-cross-paper')).toBeNull();
+  });
+
+  it('targeted practice honors emphasis and paper options (task 2.1)', () => {
+    const ctx = {
+      planId: 'plan1',
+      planVersionId: 'v1',
+      nodeId: 'n1',
+      gapId: 'gap1',
+      conceptId: 'c1',
+      sourceScope: { schemaVersion: 1 } as never,
+      excludedFingerprints: ['fp_old'],
+      objectives: [],
+    };
+    const recall = buildTargetedPracticeConfig(ctx);
+    expect(recall.typeWeights).toEqual({ 'single-select': 1 });
+    expect(recall.difficultyWeights).toEqual({ '4': 1 });
+
+    const transfer = buildTargetedPracticeConfig(ctx, { emphasis: 'transfer', difficulty: 2 });
+    expect(transfer.typeWeights).toEqual({ essay: 1 });
+    expect(transfer.difficultyWeights).toEqual({ '2': 1 });
+
+    const application = buildTargetedPracticeConfig(ctx, { emphasis: 'application' });
+    expect(application.typeWeights).toHaveProperty('multi-select');
+    expect(application.typeWeights).toHaveProperty('short-answer');
+
+    // A same-paper retake deliberately clears the exclusion list so the sampler
+    // may reuse committed items; a fresh check keeps prior fingerprints.
+    const same = buildTargetedPracticeConfig(ctx, { paper: 'same' });
+    expect(same.excludedQuestionFingerprints).toEqual([]);
+    const fresh = buildTargetedPracticeConfig(ctx, { paper: 'fresh' });
+    expect(fresh.excludedQuestionFingerprints).toEqual(['fp_old']);
   });
 });

@@ -5,6 +5,7 @@ import { resolveStudySourceScope } from '../../../api/study-sources';
 import type { StudySourceScopeV1 } from '../../../types/studySource';
 import {
   curriculumDecomposeTask,
+  modelOnlyCurriculumDecomposeTask,
   CURRICULUM_DECOMPOSE_MAX_TOKENS,
   CURRICULUM_PREREQUISITE_MAX_TOKENS,
 } from '../../ai/tasks/definitions/curriculumTasks';
@@ -118,6 +119,7 @@ export async function prepareCurriculumPreflight(
   });
   result.preflight.modelSelection = selectedConfigId ?? '';
   result.preflight.embedding = embedding.description;
+  result.preflight.executionBranch = 'library';
 
   if (authorized) {
     validatePreflightUnchanged(authorized, result.route);
@@ -129,6 +131,33 @@ export async function prepareCurriculumPreflight(
   }
 
   return { ...result, sourceScope: live, embeddingConfig: embedding.config };
+}
+
+/**
+ * Preflights the isolated model-only route. It intentionally omits source,
+ * retrieval, and embedding configuration so this branch cannot prepare or
+ * transmit library data.
+ */
+export async function prepareModelOnlyCurriculumPreflight(
+  selectedConfigId?: string,
+  authorized?: StudyAiPreflight,
+) {
+  const result = await performStudyAiPreflight({
+    primaryTask: modelOnlyCurriculumDecomposeTask,
+    documents: [],
+    sourceExcerptCount: 0,
+    plannedModelSteps: 2,
+    selectedConfigId,
+    inspectOnly: !authorized,
+    cloudDisclosureAccepted: authorized?.cloudDisclosureAccepted,
+    costConsentAccepted: authorized?.costConsentAccepted,
+    estimateTokens: { input: 2_000, output: 3_000 },
+  });
+  result.preflight.executionBranch = 'model-only';
+  if (authorized && authorized.executionBranch !== 'model-only') {
+    throw new StudyApiError({ code: 'invalid_state', messageKey: 'study_generation.error.provider_changed_on_resume', retryable: false });
+  }
+  return result;
 }
 
 export async function countIndexedCurriculumSources(documentIds: string[]): Promise<number | null> {

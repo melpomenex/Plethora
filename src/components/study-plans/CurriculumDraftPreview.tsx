@@ -25,7 +25,7 @@ import { ConfirmDialog } from '../common/ConfirmDialog';
 import { PlanVersionDiff } from './PlanVersionDiff';
 import { GenerationIssueList } from './GenerationIssueList';
 import { RulesOnlyNotice } from './RulesOnlyNotice';
-import type { StudyPlanDetail } from '../../types/learningPaths';
+import type { StudyPlanDetail, StudyPlanVersionNode } from '../../types/learningPaths';
 import type { MergeCurriculumResult } from '../../lib/study-plans/generation/merge';
 
 export interface CurriculumDraftPreviewProps {
@@ -35,6 +35,8 @@ export interface CurriculumDraftPreviewProps {
   onAccept: () => Promise<void> | void;
   onDiscard: () => Promise<void> | void;
   onEditInEditor?: () => void;
+  /** Opens a saved source reference for exact navigation. */
+  onOpenSource?: (refId: string) => void;
   isAccepting?: boolean;
   isDiscarding?: boolean;
   error?: string | null;
@@ -51,6 +53,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
   onAccept,
   onDiscard,
   onEditInEditor,
+  onOpenSource,
   isAccepting = false,
   isDiscarding = false,
   error = null,
@@ -67,6 +70,31 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
 
   const unsupportedCount = nodes.filter((n) => n.materialSupport === 'unsupported').length;
   const lockedCount = nodes.filter((n) => n.locked).length;
+
+  const authority = planDetail.version.knowledgeAuthority;
+  const authorityLabel = authority.kind === 'model-only'
+    ? 'AI Knowledge Only'
+    : authority.kind === 'manual'
+      ? 'Manual'
+      : authority.policy === 'source-plus-model-knowledge'
+        ? 'Library + AI Knowledge'
+        : 'Library Only';
+
+  /** Claim-level attribution for a topic's material support. */
+  function materialSupportLabel(support: StudyPlanVersionNode['materialSupport']): string {
+    if (support === 'grounded') return 'Verified library evidence';
+    if (support === 'unsupported') {
+      return authority.kind === 'model-only' ? 'Unverified model output' : 'AI supplement · unverified';
+    }
+    return 'Not validated';
+  }
+
+  function prerequisiteSupportLabel(support: string): string {
+    if (support === 'confirmed-concept-link') return 'Confirmed link';
+    if (support === 'inferred') return 'Inferred';
+    if (support === 'unsupported') return 'Unsupported';
+    return support;
+  }
 
   const handleConfirmDiscard = async () => {
     setShowDiscardConfirm(false);
@@ -100,6 +128,9 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
                 <span>AI-Generated</span>
               </span>
             )}
+            <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-surface-300 dark:border-surface-600 text-surface-600 dark:text-surface-400 capitalize">
+              {authorityLabel}
+            </span>
             <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-surface-300 dark:border-surface-600 text-surface-600 dark:text-surface-400 capitalize">
               {planDetail.plan.depth} Depth
             </span>
@@ -159,7 +190,7 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
         <RulesOnlyNotice
           conceptCount={nodes.filter((n) => Boolean(n.conceptId)).length}
           edgeCount={prerequisites.filter((edge) => edge.support === 'confirmed-concept-link').length}
-          sourceCount={planDetail.version.sourceScope.resolvedDocuments.length}
+          sourceCount={planDetail.version.sourceScope?.resolvedDocuments.length ?? 0}
         />
       )}
 
@@ -288,8 +319,9 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
                                 ? 'border-emerald-500/30 text-emerald-600 dark:text-emerald-400 bg-emerald-500/10'
                                 : 'border-amber-500/30 text-amber-600 dark:text-amber-400 bg-amber-500/10'
                             }`}
+                            title={materialSupportLabel(node.materialSupport)}
                           >
-                            {node.materialSupport}
+                            {materialSupportLabel(node.materialSupport)}
                           </span>
                         </div>
                         {node.conceptLabel && (
@@ -325,9 +357,30 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
                   {/* Grounded Source Citations & Prereqs */}
                   <div className="pl-8 flex items-center gap-2 flex-wrap pt-1 text-[11px]">
                     {node.sourceRefIds.length > 0 && (
-                      <div className="flex items-center gap-1 text-on-surface-variant">
+                      <div className="flex items-center gap-1 flex-wrap text-on-surface-variant">
                         <Link size={13} />
                         <span>{node.sourceRefIds.length} source reference(s)</span>
+                        {node.sourceRefIds.map((refId) => {
+                          const resolution = planDetail.sourceRefs?.[refId];
+                          const status = resolution?.status ?? 'missing';
+                          const exactNav = resolution?.navigation === 'exact';
+                          return (
+                            <button
+                              key={refId}
+                              type="button"
+                              onClick={() => onOpenSource?.(refId)}
+                              disabled={!onOpenSource}
+                              title={exactNav ? 'Open exact source location' : 'Open source (coarse)'}
+                              className={`px-1.5 py-0.5 rounded font-semibold text-[10px] border disabled:opacity-60 ${
+                                status === 'current'
+                                  ? 'border-emerald-500/30 text-emerald-700 dark:text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20'
+                                  : 'border-amber-500/30 text-amber-700 dark:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20'
+                              }`}
+                            >
+                              {status === 'current' ? (exactNav ? 'Exact' : 'Open') : status}
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
 
@@ -335,14 +388,31 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <GitFork size={13} className="text-primary-500" />
                           <span className="text-on-surface-variant">Prerequisites:</span>
-                        {nodePrereqs.map((p) => (
-                          <span
-                            key={p!.nodeId}
-                            className="px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant font-semibold text-[10px]"
-                          >
-                            {p!.title}
-                          </span>
-                        ))}
+                        {nodePrereqs.map((p, i) => {
+                          const edge = prerequisites.find(
+                            (candidate) => candidate.dependentNodeId === node.nodeId &&
+                              candidate.prerequisiteNodeId === p!.nodeId
+                          );
+                          return (
+                            <span
+                              key={p!.nodeId}
+                              className="px-1.5 py-0.5 rounded bg-surface-container-high text-on-surface-variant font-semibold text-[10px]"
+                            >
+                              {p!.title}
+                              {edge && edge.support !== 'user' && (
+                                <span
+                                  className={`ml-1 rounded px-1 text-[9px] uppercase tracking-wide font-bold ${
+                                    edge.support === 'unsupported'
+                                      ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                                      : 'bg-primary-500/10 text-primary-600 dark:text-primary-400'
+                                  }`}
+                                >
+                                  {prerequisiteSupportLabel(edge.support)}
+                                </span>
+                              )}
+                            </span>
+                          );
+                        })}
                       </div>
                     )}
 

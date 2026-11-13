@@ -20,6 +20,7 @@ import {
   SpinnerGap,
   Trash,
   Sparkle,
+  Link,
   GraduationCap,
 } from '@phosphor-icons/react';
 import { useLearningPathsStore } from '../../stores/learningPathsStore';
@@ -46,8 +47,13 @@ import { CurriculumGenerator } from './CurriculumGenerator';
 import { StudyJobRecoveryList } from './StudyJobRecoveryList';
 import { StudyPlanProgress } from './evidence/StudyPlanProgress';
 import type { StudyPlanProgressProps } from './evidence/StudyPlanProgress';
+import type { KnowledgeGapView } from '../../types/learningEvidence';
 import { orderStudyPlan } from '../../lib/study-plans/topology';
 import { openStudySource } from '../../lib/study-plans/openStudySource';
+import { resolveAndVerifySources } from '../../lib/study-plans/addSourcesAndVerify';
+import { SourceScopePicker } from './SourceScopePicker';
+import { LessonView } from './lessons/LessonView';
+import type { SelectedSourceScope } from '../../types/studySource';
 import { useTabId } from '../common/Tabs/TabContent';
 import { Button } from '../md3/Button';
 import { ConfirmDialog } from '../common/ConfirmDialog';
@@ -60,8 +66,12 @@ export interface StudyPlanEditorProps {
   initialNodeId?: string;
   onBack: () => void;
   onOpenSource?: (sourceRefId: string, resolution?: StudySourceResolution) => void;
+  onOpenPlanHome?: () => void;
   onOpenAssessmentBuilder?: (planId: string, versionId: string, blueprintRevisionId?: string, initialConfig?: AssessmentConfigV1, initialTitle?: string) => void;
   onPrepareAssessment?: StudyPlanProgressProps['onPrepareAssessment'];
+  onProposeCards?: (gap: KnowledgeGapView) => void;
+  /** C7-T03 diagnostic host slot rendered inside the generation preview. */
+  diagnosticSlot?: React.ReactNode;
 }
 
 type EditorTab = 'outline' | 'sources' | 'assessments' | 'diff' | 'history' | 'progress';
@@ -71,8 +81,11 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
   initialNodeId,
   onBack,
   onOpenSource,
+  onOpenPlanHome,
   onOpenAssessmentBuilder,
   onPrepareAssessment,
+  onProposeCards,
+  diagnosticSlot,
 }) => {
   const originTabId = useTabId();
   const selectPlan = useLearningPathsStore((state) => state.selectPlan);
@@ -141,6 +154,15 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
   // Curriculum generator & interrupted jobs state
   const [isGeneratorOpen, setIsGeneratorOpen] = useState(false);
   const [recoveryJob, setRecoveryJob] = useState<StudyGenerationJob>();
+  const [isVerifyPanelOpen, setIsVerifyPanelOpen] = useState(false);
+  const [verifyScope, setVerifyScope] = useState<SelectedSourceScope>({
+    documentIds: [],
+    extractIds: [],
+    collectionIds: [],
+    tagIds: [],
+  });
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [showLessonModal, setShowLessonModal] = useState(false);
   const draftVersionId = planDetail.plan.draftVersionId;
   const [interruptedJobs, setInterruptedJobs] = useState<StudyGenerationJob[]>([]);
 
@@ -209,8 +231,28 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
     }, () => setErrorBanner('Could not open the source.'));
   };
 
-  const handleActivityChange = async (nodeId: string, activity: NodeActivity) => {
+  const handleVerifySources = async () => {
+    if (isVerifying) return;
+    setIsVerifying(true);
+    setErrorBanner(null);
     try {
+      const updated = await resolveAndVerifySources(
+        planDetail.plan.id,
+        planDetail.plan.revision,
+        verifyScope
+      );
+      setIsVerifyPanelOpen(false);
+      setSaveSuccessNotice('Sources added. The draft is now Library Only; ground each topic with verified references before publishing.');
+      void selectPlan(updated.plan.id, updated.version.id)
+        .catch(() => setErrorBanner('Could not reload the saved draft.'));
+    } catch (err: unknown) {
+      setErrorBanner(studyErrorMessage(err, 'Could not verify sources. Check your selection and try again.'));
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const handleActivityChange = async (nodeId: string, activity: NodeActivity) => {    try {
       await setNodeActivityAction(
         planDetail.plan.id,
         nodeId,
@@ -381,8 +423,43 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
 
         {/* Action Controls */}
         <div className="flex items-center gap-2 flex-wrap self-end sm:self-center">
+          {onOpenPlanHome && (
+            <Button
+              variant="outlined"
+              size="sm"
+              onClick={onOpenPlanHome}
+              aria-label="Open plan home"
+            >
+              <ListNumbers size={16} />
+              <span>Plan Home</span>
+            </Button>
+          )}
           {isDraft && (
             <>
+              {planDetail.version.knowledgeAuthority.kind !== 'library' && (
+                <Button
+                  variant="outlined"
+                  size="sm"
+                  onClick={() => setIsVerifyPanelOpen((open) => !open)}
+                  disabled={isVerifying}
+                  aria-label={isVerifyPanelOpen ? 'Close verification' : 'Add sources and verify'}
+                >
+                  <Link size={16} />
+                  <span>{isVerifyPanelOpen ? 'Close verification' : 'Add sources and verify'}</span>
+                </Button>
+              )}
+              {selectedNodeId && (
+                <Button
+                  variant="outlined"
+                  size="sm"
+                  onClick={() => setShowLessonModal(true)}
+                  disabled={isVerifying}
+                  aria-label="Start lesson for the selected topic"
+                >
+                  <Sparkle size={16} />
+                  <span>Start lesson</span>
+                </Button>
+              )}
               {planDetail.plan.currentVersion > 0 && (
                 <Button
                   variant="text"
@@ -438,6 +515,41 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
           )}
       </div>
     </div>
+
+      {isVerifyPanelOpen && (
+        <section aria-label="Add sources and verify" className="rounded-xl border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 p-4 space-y-3">
+          <div className="text-xs text-surface-600 dark:text-surface-300">
+            Select library material to ground this plan. The draft switches to <strong>Library Only</strong> (source-only).
+            Publishing still requires every grounded topic to carry current, verified references.
+          </div>
+          <SourceScopePicker selectedScope={verifyScope} onChange={setVerifyScope} maxDocuments={24} />
+          <div className="flex justify-end gap-2">
+            <Button variant="text" size="sm" onClick={() => setIsVerifyPanelOpen(false)} disabled={isVerifying}>
+              Cancel
+            </Button>
+            <Button variant="filled" size="sm" onClick={handleVerifySources} disabled={isVerifying}>
+              {isVerifying ? <SpinnerGap size={16} className="animate-spin" /> : <CheckCircle size={16} />}
+              <span>{isVerifying ? 'Verifying…' : 'Switch to Library Only'}</span>
+            </Button>
+          </div>
+        </section>
+      )}
+
+      {showLessonModal && selectedNodeId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
+          <div className="bg-surface dark:bg-surface-dark rounded-3xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <LessonView
+              planDetail={planDetail}
+              nodeId={selectedNodeId}
+              onClose={() => setShowLessonModal(false)}
+              onHandoff={() => {
+                setShowLessonModal(false);
+                setActiveTab('assessments');
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {!isDraft && (
         nextStudyNode ? (
@@ -744,6 +856,11 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
             onOpenSource={(refId) => {
               if (refId) handleOpenSource(refId);
             }}
+            onOpenLesson={(nodeId) => {
+              setSelectedNodeId(nodeId);
+              setShowLessonModal(true);
+            }}
+            onProposeCards={onProposeCards}
           />
       </div>
       )}
@@ -812,6 +929,8 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
           planDetail={planDetail}
           isOpen={isGeneratorOpen}
           recoveryJob={recoveryJob}
+          onOpenSource={(refId) => handleOpenSource(refId)}
+          diagnosticSlot={diagnosticSlot}
           onClose={() => {
             setIsGeneratorOpen(false);
             void selectPlan(planDetail.plan.id).catch(() => setErrorBanner('Could not reload the saved draft.'));

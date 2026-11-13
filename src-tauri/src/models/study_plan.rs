@@ -9,6 +9,34 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 
+/// The authority pinned to a Study Plan version. Historical rows without this
+/// column decode as the original library-only behavior.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+pub enum StudyPlanKnowledgeAuthority {
+    Library {
+        #[serde(rename = "policy")]
+        policy: LibraryKnowledgePolicy,
+    },
+    ModelOnly,
+    Manual,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum LibraryKnowledgePolicy {
+    SourceOnly,
+    SourcePlusModelKnowledge,
+}
+
+impl Default for StudyPlanKnowledgeAuthority {
+    fn default() -> Self {
+        Self::Library {
+            policy: LibraryKnowledgePolicy::SourceOnly,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
 pub enum StudyDepth {
@@ -161,6 +189,26 @@ impl std::str::FromStr for MaterialSupport {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct StudyPlanPreferences {
+    /// Optional exam deadline as a UTC date (YYYY-MM-DD). None = no deadline.
+    #[serde(default)]
+    pub deadline: Option<String>,
+    /// Rest days as UTC weekday numbers (0=Sunday … 6=Saturday), unique.
+    #[serde(default)]
+    pub rest_days: Vec<u8>,
+}
+
+impl Default for StudyPlanPreferences {
+    fn default() -> Self {
+        Self {
+            deadline: None,
+            rest_days: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct StudyPlan {
     pub id: String,
     pub title: String,
@@ -242,7 +290,8 @@ pub struct StudyPlanVersion {
     pub version: i64,
     pub state: PlanVersionState,
     pub base_version_id: Option<String>,
-    pub source_scope: serde_json::Value,
+    pub source_scope: Option<serde_json::Value>,
+    pub knowledge_authority: StudyPlanKnowledgeAuthority,
     pub nodes: Vec<StudyPlanVersionNode>,
     pub prerequisites: Vec<PlanPrerequisite>,
     pub change_summary: Option<PlanVersionDiff>,
@@ -283,7 +332,10 @@ pub struct CreateStudyPlanInput {
     pub title: String,
     pub goal: String,
     pub depth: StudyDepth,
-    pub source_scope: serde_json::Value,
+    #[serde(default)]
+    pub source_scope: Option<serde_json::Value>,
+    #[serde(default)]
+    pub knowledge_authority: Option<StudyPlanKnowledgeAuthority>,
     pub initial_nodes: Option<Vec<StudyPlanVersionNode>>,
     pub initial_prerequisites: Option<Vec<PlanPrerequisite>>,
 }
@@ -296,6 +348,8 @@ pub struct SaveStudyPlanDraftInput {
     #[serde(default)]
     pub source_refs: std::collections::BTreeMap<String, super::study_source::StudySourceRefInput>,
     pub source_scope: Option<serde_json::Value>,
+    #[serde(default)]
+    pub knowledge_authority: Option<StudyPlanKnowledgeAuthority>,
     pub nodes: Vec<StudyPlanVersionNode>,
     pub prerequisites: Vec<PlanPrerequisite>,
 }

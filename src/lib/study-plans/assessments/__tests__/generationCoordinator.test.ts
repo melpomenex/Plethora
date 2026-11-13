@@ -315,6 +315,79 @@ describe('Assessment Generation Coordinator (C3-T07)', () => {
     expect(startJob).not.toHaveBeenCalled();
   });
 
+  it('rejects a model-only config in exam mode before creating a job', async () => {
+    const startJob = vi.fn();
+    const examDetail: BlueprintDetail = {
+      ...mockDetail,
+      revision: {
+        ...mockDetail.revision,
+        config: { ...mockConfig, knowledgePolicy: 'model-only' },
+      },
+    };
+    await expect(runAssessmentGenerationCoordinator(
+      { blueprintRevisionId: 'abr_1', expectedRevision: 1 },
+      mockPreflight,
+      { deps: {
+        getBlueprintRevisionFn: vi.fn().mockResolvedValue(examDetail),
+        getStudyPlanFn: vi.fn().mockResolvedValue({
+          version: { id: 'spv_1', knowledgeAuthority: { kind: 'model-only' } },
+          sourceRefs: {},
+        }),
+        startJobFn: startJob,
+      } }
+    )).rejects.toMatchObject({ code: 'invalid_input' });
+    expect(startJob).not.toHaveBeenCalled();
+  });
+
+  it('runs model-only practice without source verification and without library authority', async () => {
+    const startJob = vi.fn().mockResolvedValue({
+      id: 'job_mo', kind: 'assessment-generation', targetId: 'abr_1', targetRevision: 1,
+      requestHash: 'h', creationKey: 'ck', status: 'running', nextStepIndex: 0,
+      leaseOwner: null, leaseExpiresAt: null, cancellationEpoch: 0, attemptCount: 1,
+      preflight: mockPreflight,
+      progress: { completed: 0, total: 1, labelKey: 'started' },
+      lastError: null, createdAt: '', updatedAt: '',
+    });
+    const practiceDetail: BlueprintDetail = {
+      ...mockDetail,
+      revision: {
+        ...mockDetail.revision,
+        config: { ...mockConfig, mode: 'practice', knowledgePolicy: 'model-only' },
+      },
+    };
+    const resolveSourceRefsFn = vi.fn();
+    await expect(runAssessmentGenerationCoordinator(
+      { blueprintRevisionId: 'abr_1', expectedRevision: 1 },
+      mockPreflight,
+      {
+        creationKey: 'ck',
+        deps: {
+        getBlueprintRevisionFn: vi.fn().mockResolvedValue(practiceDetail),
+        getStudyPlanFn: vi.fn().mockResolvedValue({
+          version: { id: 'spv_1', knowledgeAuthority: { kind: 'model-only' } },
+          sourceRefs: {},
+        }),
+        resolveSourceRefsFn,
+        preflightFn: vi.fn().mockResolvedValue({
+          preflight: { ...mockPreflight, documentIds: [], sourceExcerptCount: 0 },
+          route: { provider: { id: 'native-local', kind: 'ondevice' }, task: {} },
+        }),
+        runPinnedTaskFn: vi.fn().mockRejectedValue(
+          new (await import('../../../ai/errors')).AIError('ProviderOffline', 'offline')
+        ),
+        startJobFn: startJob,
+        claimStepFn: vi.fn().mockImplementation((jobId: string, stepKey: string) => ({
+          jobId, stepKey, ordinal: 0, inputHash: 'h', status: 'running',
+          outputRefId: null, safeError: null, completedAt: null,
+        })),
+        completeStepFn: vi.fn().mockImplementation((input: { progress: unknown }) => input.progress),
+      } }
+    )).rejects.toBeInstanceOf(Error);
+    expect(startJob).toHaveBeenCalled();
+    // Model-only practice must never invoke source verification.
+    expect(resolveSourceRefsFn).not.toHaveBeenCalled();
+  });
+
   it('handles abort signal gracefully and throws cancelled error', async () => {
     const controller = new AbortController();
     controller.abort();

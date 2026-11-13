@@ -40,7 +40,7 @@ export interface StudyQuestionTaskInput {
   slots: QuotaSlot[];
   sources: SourceEvidenceItem[];
   topicEvidence: TopicEvidenceSummary[];
-  knowledgePolicy: 'source-only' | 'source-plus-model-knowledge';
+  knowledgePolicy: 'source-only' | 'source-plus-model-knowledge' | 'model-only';
   excludedFingerprints?: string[];
 }
 

@@ -3,6 +3,7 @@ import {
   validateStudyPlan,
   validateStudyPlanNode,
   validateStudyPlanVersion,
+  validateStudyPlanKnowledgeAuthority,
   STUDY_PLAN_LIMITS,
 } from '../validation';
 import type {
@@ -31,6 +32,70 @@ function createValidNode(id: string, title: string, pos = 0): StudyPlanVersionNo
 }
 
 describe('Study Plan Validation (validation.ts)', () => {
+  it('requires a frozen library scope, forbids one in model-only, and allows source-free manual authority', () => {
+    const emptyScope = {
+      schemaVersion: 1 as const,
+      selected: { documentIds: [], extractIds: [], collectionIds: [], tagIds: [] },
+      resolvedDocuments: [],
+      frozenAt: '2026-11-12T00:00:00Z',
+      indexCompleteness: 'unavailable' as const,
+      limitations: [],
+    };
+
+    expect(validateStudyPlanKnowledgeAuthority(
+      { kind: 'library', policy: 'source-only' }, null
+    )).toHaveLength(1);
+    expect(validateStudyPlanKnowledgeAuthority(
+      { kind: 'model-only' }, emptyScope
+    )[0]?.code).toBe('model_only_scope_forbidden');
+    expect(validateStudyPlanKnowledgeAuthority(
+      { kind: 'model-only' }, null
+    )).toHaveLength(0);
+    expect(validateStudyPlanKnowledgeAuthority(
+      { kind: 'manual' }, null
+    )).toHaveLength(0);
+  });
+
+  it('rejects unsupported topics or edges in published source-only plans but allows them under source-plus-model-knowledge', () => {
+    const scope = {
+      schemaVersion: 1 as const,
+      selected: { documentIds: ['d1'], extractIds: [], collectionIds: [], tagIds: [] },
+      resolvedDocuments: [{ documentId: 'd1', title: 'D', sourceType: 'pdf', revision: 'r1', revisionKind: 'content-hash' as const, extractIds: [], isAiExcluded: false, isLocalOnly: false }],
+      frozenAt: '2026-11-12T00:00:00Z',
+      indexCompleteness: 'complete' as const,
+      limitations: [],
+    };
+    const unsupportedNode = { ...createValidNode('n1', 'Supplement'), materialSupport: 'unsupported' as const, sourceRefIds: [] };
+    const baseVersion: StudyPlanVersion = {
+      id: 'spv_1',
+      planId: 'sp_1',
+      version: 1,
+      state: 'published',
+      baseVersionId: null,
+      sourceScope: scope,
+      knowledgeAuthority: { kind: 'library', policy: 'source-only' },
+      nodes: [unsupportedNode],
+      prerequisites: [],
+      changeSummary: null,
+      createdBy: 'ai',
+      createdAt: '2026-11-12T00:00:00Z',
+      publishedAt: '2026-11-12T00:00:00Z',
+    };
+    const sourceOnly = validateStudyPlanVersion(baseVersion);
+    expect(sourceOnly.ok).toBe(false);
+    expect(sourceOnly.error!.fieldIssues!.some((f) => f.code === 'source_only_unsupported_node')).toBe(true);
+
+    const mixed: StudyPlanVersion = { ...baseVersion, knowledgeAuthority: { kind: 'library', policy: 'source-plus-model-knowledge' } };
+    expect(validateStudyPlanVersion(mixed).ok).toBe(true);
+
+    const withUnsupportedEdge: StudyPlanVersion = {
+      ...baseVersion,
+      prerequisites: [{ prerequisiteNodeId: 'n1', dependentNodeId: 'n2', support: 'unsupported', rationale: null, sourceRefIds: [] }],
+      nodes: [unsupportedNode, { ...createValidNode('n2', 'Dependent', 1) }],
+    };
+    expect(validateStudyPlanVersion(withUnsupportedEdge).ok).toBe(false);
+  });
+
   describe('validateStudyPlan', () => {
     it('accepts valid plan attributes', () => {
       const plan: Partial<StudyPlan> = {
@@ -159,6 +224,7 @@ describe('Study Plan Validation (validation.ts)', () => {
           indexCompleteness: 'complete',
           limitations: [],
         },
+        knowledgeAuthority: { kind: 'library', policy: 'source-only' },
         nodes: [
           createValidNode('n1', 'Topic 1', 0),
           createValidNode('n2', 'Topic 2', 1),
@@ -187,14 +253,8 @@ describe('Study Plan Validation (validation.ts)', () => {
         version: 1,
         state: 'published',
         baseVersionId: null,
-        sourceScope: {
-          schemaVersion: 1,
-          selected: { documentIds: [], extractIds: [], collectionIds: [], tagIds: [] },
-          resolvedDocuments: [],
-          frozenAt: new Date().toISOString(),
-          indexCompleteness: 'complete',
-          limitations: [],
-        },
+        sourceScope: null,
+        knowledgeAuthority: { kind: 'manual' },
         nodes: [
           {
             ...createValidNode('n1', 'Topic 1', 0),
@@ -226,14 +286,8 @@ describe('Study Plan Validation (validation.ts)', () => {
         version: 1,
         state: 'draft',
         baseVersionId: null,
-        sourceScope: {
-          schemaVersion: 1,
-          selected: { documentIds: [], extractIds: [], collectionIds: [], tagIds: [] },
-          resolvedDocuments: [],
-          frozenAt: new Date().toISOString(),
-          indexCompleteness: 'complete',
-          limitations: [],
-        },
+        sourceScope: null,
+        knowledgeAuthority: { kind: 'manual' },
         nodes: [
           createValidNode('n1', 'Topic 1', 0),
           createValidNode('n2', 'Topic 2', 2), // gap! position 1 is missing

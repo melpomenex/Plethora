@@ -41,7 +41,8 @@ impl LearningEvidenceRepository {
                     s.attempt_id, s.kind as submission_kind, s.mark, s.hint_level,
                     s.response_json, s.created_at as submission_time,
                     a.mode as attempt_mode,
-                    b.plan_id
+                    b.plan_id,
+                    bpr.config_json as blueprint_config
              FROM exam_grades g
              JOIN exam_response_submissions s ON s.id = g.response_submission_id
              JOIN exam_attempts a ON a.id = s.attempt_id
@@ -66,6 +67,18 @@ impl LearningEvidenceRepository {
         if is_current != 1 || state != "final" {
             // Noncurrent, failed, or needs-review grades are excluded from evidence
             return Ok(vec![]);
+        }
+
+        // Unverified model-only practice and self-checks carry the
+        // `model-only` knowledge policy on their blueprint revision. They
+        // never enter demonstrated evidence, even when structurally valid and
+        // correctly graded.
+        if let Ok(Some(config_json)) = row.try_get::<Option<String>, _>("blueprint_config") {
+            if let Ok(config) = serde_json::from_str::<serde_json::Value>(&config_json) {
+                if config.get("knowledgePolicy").and_then(|v| v.as_str()) == Some("model-only") {
+                    return Ok(vec![]);
+                }
+            }
         }
 
         let submission_id: String = row.get("response_submission_id");
@@ -1812,5 +1825,71 @@ mod tests {
             .get_diagnostic_prior_evidence("att_exam_x")
             .await;
         assert!(rejected.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_model_only_practice_never_enters_demonstrated_evidence() {
+        let pool = test_pool().await;
+        let (_bp_id, bpr_id, q_rev_id, concept_id) = seed_test_exam(&pool).await;
+        // Mark the blueprint revision as unverified model-only practice.
+        sqlx::query("UPDATE assessment_blueprint_revisions SET config_json = ?1 WHERE id = ?2")
+            .bind(r#"{"knowledgePolicy":"model-only","mode":"practice"}"#)
+            .bind(&bpr_id)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let grading_repo = ExamGradingRepository::new(pool.clone());
+        let evidence_repo = LearningEvidenceRepository::new(pool.clone());
+        let (_resp, sub) = create_attempt_and_submission(
+            &pool,
+            &bpr_id,
+            &q_rev_id,
+            "att_model_only_1",
+            "2026-11-10T12:00:00Z",
+        )
+        .await;
+        let grade = grading_repo
+            .record_rubric_grade(RecordRubricGradeInput {
+                attempt_id: "att_model_only_1".to_string(),
+                response_submission_id: sub,
+                question_revision_id: q_rev_id.clone(),
+                expected_attempt_revision: 1,
+                origin: "deterministic".to_string(),
+                state: "final".to_string(),
+                points: Some(4.0),
+                max_points: 4.0,
+                outcome: Some("correct".to_string()),
+                assessment_json: None,
+                criteria_json: "[]".to_string(),
+                provenance_json: None,
+                manual_reason: None,
+                job_id: None,
+                step_key: None,
+                lease_owner: None,
+                cancellation_epoch: None,
+                input_hash: None,
+            })
+            .await
+            .expect("structurally valid grade succeeds");
+        assert_eq!(grade.grade.state, "final");
+
+        // Even though the item is structurally valid and graded correct, no
+        // demonstrated evidence row may be created.
+        let ev_rows: Vec<(String,)> = sqlx::query_as(
+            "SELECT id FROM learning_evidence WHERE concept_id = ?1",
+        )
+        .bind(&concept_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(ev_rows.len(), 0);
+
+        let summary = evidence_repo
+            .get_concept_mastery_summary(&concept_id)
+            .await
+            .unwrap();
+        assert_eq!(summary.level, "insufficient-evidence");
+        assert!(summary.observed_mean.is_none());
     }
 }

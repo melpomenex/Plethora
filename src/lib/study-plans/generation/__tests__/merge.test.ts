@@ -22,6 +22,7 @@ describe('Curriculum Merge & Reconciliation', () => {
       indexCompleteness: 'complete',
       limitations: [],
     },
+    knowledgeAuthority: { kind: 'library', policy: 'source-only' },
     nodes: [
       {
         nodeId: 'node-locked-1',

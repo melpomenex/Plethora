@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto';
 import type { LearningCardCandidate } from '../../../lib/ai/schemas/learningMaterial';
 import { candidateSignature } from '../../../lib/ai/tasks/definitions/learnThisValidation';
+import { sha256 } from '../generation/requestHash';
 import { serializeCardSourceReference } from '../../../types/cardSourceReference';
 import type { StudySourceRefV1 } from '../../../types/studySource';
 import type { RemediationRecommendation } from '../../../types/learningEvidence';
@@ -11,11 +11,18 @@ export interface RemediationCardProposal {
   sourceReference?: string;
 }
 
+export interface RemediationCardLink {
+  planId?: string;
+  nodeId?: string;
+}
+
 /**
  * C7-T06 adapter: remediation → static Learn This candidates.
  * remediation id → acceptanceId; local signature → sha256 per-candidate id.
  * Collisions/unknown candidates fail closed. Bounded excerpts (300-char via
  * serializer), allowClozeDuplicate=false, no source-doc duplication.
+ * A plan/objective link (2.3) is folded into the proposal id so plan-linked
+ * proposals are distinct and retry-safe across plans.
  */
 export function adaptRemediationToCardProposals(
   remediation: RemediationRecommendation,
@@ -30,8 +37,12 @@ export function adaptRemediationToCardProposals(
     clozeRanges?: Array<[number, number]>;
     evidenceQuote?: string;
   }>,
+  link?: RemediationCardLink,
 ): { acceptanceId: string; proposals: RemediationCardProposal[]; perCandidateProposalIds: Record<string, string> } {
   const acceptanceId = remediation.id;
+  const linkSalt = link?.planId || link?.nodeId
+    ? `${link?.planId ?? ''}:${link?.nodeId ?? ''}`
+    : '';
   const seen = new Map<string, string>();
   const proposals: RemediationCardProposal[] = drafts.map((d) => {
     const candidate: LearningCardCandidate = {
@@ -46,7 +57,7 @@ export function adaptRemediationToCardProposals(
     };
     const sig = candidateSignature(candidate);
     if (seen.has(sig)) throw new Error('study.cards.error.duplicate_candidate');
-    const proposalId = createHash('sha256').update(`${acceptanceId}:${sig}`).digest('hex');
+    const proposalId = sha256(`${acceptanceId}:${linkSalt}:${sig}`);
     for (const [, existing] of seen) {
       if (existing === proposalId) throw new Error('study.cards.error.proposal_collision');
     }

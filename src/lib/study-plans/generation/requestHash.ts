@@ -114,7 +114,8 @@ export function computeCurriculumRequestHash(
   request: CurriculumGenerationRequest,
   promptContractVersion = 'v1'
 ): string {
-  const sortedDocs = [...(request.sourceScope.resolvedDocuments || [])]
+  const scope = request.sourceScope;
+  const sortedDocs = [...(scope?.resolvedDocuments || [])]
     .sort((a, b) => a.documentId.localeCompare(b.documentId))
     .map((d) => ({
       documentId: d.documentId,
@@ -125,10 +126,10 @@ export function computeCurriculumRequestHash(
     }));
 
   const sortedSelected = {
-    documentIds: [...(request.sourceScope.selected?.documentIds || [])].sort(),
-    extractIds: [...(request.sourceScope.selected?.extractIds || [])].sort(),
-    collectionIds: [...(request.sourceScope.selected?.collectionIds || [])].sort(),
-    tagIds: [...(request.sourceScope.selected?.tagIds || [])].sort(),
+    documentIds: [...(scope?.selected?.documentIds || [])].sort(),
+    extractIds: [...(scope?.selected?.extractIds || [])].sort(),
+    collectionIds: [...(scope?.selected?.collectionIds || [])].sort(),
+    tagIds: [...(scope?.selected?.tagIds || [])].sort(),
   };
 
   const sortedPriorEvidence = request.priorEvidence

@@ -27,7 +27,7 @@ import {
   StudyJobController,
 } from '../../lib/study-plans/generation/jobController';
 import { runNoAiCurriculumCoordinator } from '../../lib/study-plans/generation/noAiCoordinator';
-import { countIndexedCurriculumSources, prepareCurriculumPreflight } from '../../lib/study-plans/generation/curriculumPreflight';
+import { countIndexedCurriculumSources, prepareCurriculumPreflight, prepareModelOnlyCurriculumPreflight } from '../../lib/study-plans/generation/curriculumPreflight';
 import { isUsableStudyModel } from '../../lib/study-plans/generation/preflight';
 import { studyErrorMessage } from '../../lib/study-plans/studyErrorMessage';
 import { useLLMProvidersStore } from '../../stores/llmProvidersStore';
@@ -54,6 +54,8 @@ export interface CurriculumGeneratorProps {
   jobController?: StudyJobController;
   initialMode?: GeneratorMode;
   recoveryJob?: StudyGenerationJob;
+  /** Opens a saved source reference for exact navigation (PDF page/quote, video timestamp). */
+  onOpenSource?: (refId: string) => void;
   /** C7-T03 optional diagnostic host slot rendered in preview step. */
   diagnosticSlot?: React.ReactNode;
 }
@@ -69,6 +71,7 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
   jobController = studyJobController,
   initialMode = 'ai',
   recoveryJob,
+  onOpenSource,
   diagnosticSlot,
 }) => {
   const publishVersionAction = useLearningPathsStore((s) => s.publishVersion);
@@ -115,9 +118,11 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
   useEffect(() => () => abortCtrlRef.current?.abort(), []);
 
   const scope = currentPlanDetail.version.sourceScope;
-  const hasSources = scope.resolvedDocuments.length > 0 ||
-    Object.values(scope.selected).some((ids) => ids.length > 0);
-  const hasAiExcludedDoc = scope.resolvedDocuments.some((doc) => doc.isAiExcluded);
+  const authority = currentPlanDetail.version.knowledgeAuthority;
+  const isModelOnly = authority.kind === 'model-only';
+  const hasSources = !isModelOnly && !!scope && (scope.resolvedDocuments.length > 0 ||
+    Object.values(scope.selected).some((ids) => ids.length > 0));
+  const hasAiExcludedDoc = !isModelOnly && (scope?.resolvedDocuments.some((doc) => doc.isAiExcluded) ?? false);
   const usableProviders = providers.filter(isUsableStudyModel);
 
   useEffect(() => {
@@ -130,20 +135,25 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
     setCloudDisclosureAccepted(false);
     setCostConsentAccepted(false);
     setIndexedSourceCount(null);
-    if (!isOpen || mode !== 'ai' || !hasSources) {
+    if (!isOpen || mode !== 'ai' || (isModelOnly ? false : !hasSources || !scope)) {
       setIsPreflighting(false);
       return;
     }
 
     let stale = false;
     setIsPreflighting(true);
-    void prepareCurriculumPreflight(scope, selectedConfigId || undefined).then(
+    const preflightCall = isModelOnly
+      ? prepareModelOnlyCurriculumPreflight(selectedConfigId || undefined)
+      : prepareCurriculumPreflight(scope!, selectedConfigId || undefined);
+    void preflightCall.then(
       async (result) => {
         if (stale) return;
         setPreflight(result.preflight);
         setIsPreflighting(false);
-        const count = await countIndexedCurriculumSources(result.preflight.documentIds);
-        if (!stale) setIndexedSourceCount(count);
+        if (!isModelOnly) {
+          const count = await countIndexedCurriculumSources(result.preflight.documentIds);
+          if (!stale) setIndexedSourceCount(count);
+        }
       },
       (error: unknown) => {
         if (stale) return;
@@ -152,11 +162,11 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
       },
     );
     return () => { stale = true; };
-  }, [isOpen, mode, hasSources, scope, selectedConfigId, providers, embeddingSettings, aiSettings]);
+  }, [isOpen, mode, hasSources, scope, selectedConfigId, providers, embeddingSettings, aiSettings, isModelOnly]);
 
   const offDevice = preflight?.sendsSourceOffDevice ||
     (typeof preflight?.embeddingDestination === 'object' && preflight.embeddingDestination?.sendsOffDevice);
-  const canGenerate = hasSources && !isPreflighting && (
+  const canGenerate = (isModelOnly || hasSources) && !isPreflighting && (
     mode === 'rules-only' || !!preflight &&
     (!offDevice || cloudDisclosureAccepted) &&
     (!preflight.billable || costConsentAccepted)
@@ -175,9 +185,11 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
     const request: CurriculumGenerationRequest = {
       planId: currentPlanDetail.plan.id,
       baseVersionId: currentPlanDetail.version.id,
-      sourceScope: currentPlanDetail.version.sourceScope,
+      sourceScope: currentPlanDetail.version.sourceScope!,
       depth: currentPlanDetail.plan.depth,
-      knowledgePolicy: 'source-only',
+      knowledgePolicy: currentPlanDetail.version.knowledgeAuthority.kind === 'library'
+        ? currentPlanDetail.version.knowledgeAuthority.policy
+        : 'source-only',
       rulesOnly: mode === 'rules-only',
       priorEvidence: null,
       goal: currentPlanDetail.plan.goal,
@@ -216,6 +228,25 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
         signal: abortController.signal,
         onProgress: setJobProgress,
       };
+      if (isModelOnly) {
+        const modelOnlyRequest = {
+          planId: currentPlanDetail.plan.id,
+          baseVersionId: currentPlanDetail.version.id,
+          depth: currentPlanDetail.plan.depth,
+        };
+        const isModelOnlyResume = recoveryJob?.preflight &&
+          (recoveryJob.preflight as StudyAiPreflight).executionBranch === 'model-only';
+        const res = isModelOnlyResume
+          ? await jobController.resumeModelOnlyJob(recoveryJob!.id, modelOnlyRequest, authorized, options)
+          : await jobController.startModelOnlyCurriculumJob(modelOnlyRequest, authorized, options);
+        if (abortController.signal.aborted) return;
+        setCurrentPlanDetail(res.planDetail);
+        setMergeResult(res.mergeResult);
+        setExecution(res.execution);
+        setStep('preview');
+        setJobStatus('completed');
+        return;
+      }
       const res = recoveryJob
         ? await jobController.resumeJob(recoveryJob.id, request, authorized, options)
         : await jobController.startCurriculumJob(request, authorized, options);
@@ -338,8 +369,9 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
                   <span>Generate with AI</span>
                 </div>
                 <p className="text-xs text-surface-500">
-                  Decomposes source text into topics, objectives, and prerequisite dependencies using
-                  your selected AI model.
+                  {isModelOnly
+                    ? 'Builds an unverified study path from your goal using the selected AI model. Your library is not read.'
+                    : 'Decomposes source text into topics, objectives, and prerequisite dependencies using your selected AI model.'}
                 </p>
                 {hasAiExcludedDoc && (
                   <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-2 font-semibold">
@@ -374,7 +406,7 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
             )}
 
             {/* No sources error */}
-            {!hasSources && (
+            {!isModelOnly && !hasSources && (
               <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs flex items-center gap-2">
                 <Warning size={16} className="flex-shrink-0" />
                 <span>
@@ -384,7 +416,7 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
               </div>
             )}
 
-            {mode === 'ai' && hasSources && (
+            {mode === 'ai' && (hasSources || isModelOnly) && (
               <div className="space-y-4">
                 <label className="block space-y-1 text-sm font-medium">
                   <span>Generation model</span>
@@ -471,7 +503,7 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
                 : retrieval.mode === 'mixed' ? 'Semantic and lexical retrieval' : 'Retrieval unavailable'}
               {retrieval.embeddingModels.length ? ` · ${retrieval.embeddingModels.join(', ')}` : ''}
             </p>
-            <p>{retrieval.verifiedPassages} verified passages from {retrieval.documentsWithEvidence} of {currentPlanDetail.version.sourceScope.resolvedDocuments.length} selected documents.</p>
+            <p>{retrieval.verifiedPassages} verified passages from {retrieval.documentsWithEvidence} of {currentPlanDetail.version.sourceScope?.resolvedDocuments.length ?? 0} selected documents.</p>
             <p>{retrieval.queryCount} retrieval queries. {retrieval.failedQueries} failed.</p>
             {execution && (
               <div className="mt-2">
@@ -496,6 +528,7 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
               planDetail={currentPlanDetail}
               mergeResult={mergeResult}
               isRulesOnly={mode === 'rules-only'}
+              onOpenSource={onOpenSource}
               onAccept={handleAcceptPublish}
               onDiscard={handleDiscard}
               onEditInEditor={handleEditInEditor}

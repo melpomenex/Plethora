@@ -37,21 +37,47 @@ export interface RemediationClients {
   openSource: (sourceRefId: string) => Promise<void>;
 }
 
+export type PracticeEmphasis = 'recall' | 'application' | 'transfer';
+
+export interface TargetedPracticeOptions {
+  /** Difficulty band 1–5 (default 4). */
+  difficulty?: 1 | 2 | 3 | 4 | 5;
+  /** Emphasis: recall, application or transfer (default recall). */
+  emphasis?: PracticeEmphasis;
+  /**
+   * Paper selection: fresh (default) starts from any previously excluded
+   * fingerprints so a new paper differs; same-paper retake passes an empty
+   * exclusion list so the sampler may reuse committed items.
+   */
+  paper?: 'fresh' | 'same';
+}
+
 export function buildTargetedPracticeConfig(
   ctx: RemediationContext,
+  options: TargetedPracticeOptions = {},
 ): AssessmentConfigV1 {
+  const difficulty = options.difficulty ?? 4;
+  const emphasis = options.emphasis ?? 'recall';
+  const typeWeights =
+    emphasis === 'transfer'
+      ? { essay: 1 }
+      : emphasis === 'application'
+        ? { 'multi-select': 1, 'short-answer': 1 }
+        : { 'single-select': 1 };
+  const excludedQuestionFingerprints =
+    options.paper === 'same' ? [] : ctx.excludedFingerprints;
   return {
     schemaVersion: 1,
     mode: 'practice',
     requestedCount: 1,
-    typeWeights: { 'single-select': 1 },
-    difficultyWeights: { '4': 1 } as never,
+    typeWeights,
+    difficultyWeights: { [String(difficulty)]: 1 } as never,
     topicTargets: ctx.nodeId
       ? [{ nodeId: ctx.nodeId, conceptId: ctx.conceptId, weight: 1 }]
       : [{ nodeId: null, conceptId: ctx.conceptId, weight: 1 }],
     timeLimitSeconds: null,
     knowledgePolicy: 'source-only',
-    excludedQuestionFingerprints: ctx.excludedFingerprints,
+    excludedQuestionFingerprints,
     pointsByKind: {
       'single-select': 1,
       'multi-select': 2,

@@ -43,6 +43,23 @@ export function buildDefaultDiagnosticConfig(): AssessmentConfigV1 {
   };
 }
 
+/**
+ * Builds a diagnostic config bound to a Study Plan version (task 2.3).
+ * The knowledge policy mirrors the plan authority: model-only plans get an
+ * unverified self-check policy; library plans stay source-only. Topic targets
+ * are left empty so the diagnostic covers the provisional curriculum.
+ */
+export function buildPlanDiagnosticConfig(
+  planDetail: { version: { knowledgeAuthority: { kind: string; policy?: string } } }
+): AssessmentConfigV1 {
+  const base = buildDefaultDiagnosticConfig();
+  const authority = planDetail.version.knowledgeAuthority;
+  return {
+    ...base,
+    knowledgePolicy: authority.kind === 'model-only' ? 'model-only' : 'source-only',
+  };
+}
+
 export function validateDiagnosticConfig(config: AssessmentConfigV1): {
   ok: boolean;
   issues: DiagnosticConfigIssue[];

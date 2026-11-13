@@ -219,6 +219,10 @@ export interface TutorSessionConfig {
   /** The selection/passage the session is grounded in. */
   material: string;
   documentTitle?: string;
+  /** Pedagogical opening style. Guided (default) opens with one focal question;
+   *  Explain+Check opens with a short explanation; Challenge opens with an
+   *  application framing. The style never changes historical turns. */
+  openingStyle?: "guided" | "explain-check" | "challenge";
   limits?: Partial<TutorPolicyLimits>;
   /** Retrieval width for prerequisite context (default k≈3). */
   retrievalK?: number;
@@ -261,6 +265,7 @@ export interface TutorRunMeta {
 export class TutorSession {
   readonly config: TutorSessionConfig;
   readonly limits: TutorPolicyLimits;
+  readonly openingStyle: NonNullable<TutorSessionConfig["openingStyle"]>;
 
   private readonly retrieveFn: TutorRetrieve;
   private readonly runTurnFn: TutorRunTurn;
@@ -282,6 +287,7 @@ export class TutorSession {
 
   private constructor(config: TutorSessionConfig, runtime: TutorRuntime = {}) {
     this.config = config;
+    this.openingStyle = config.openingStyle ?? "guided";
     this.limits = { ...DEFAULT_TUTOR_LIMITS, ...config.limits };
     this.retrievalK = config.retrievalK ?? TUTOR_RETRIEVAL_K;
     this.maxRetrievalRefreshes =
@@ -292,9 +298,25 @@ export class TutorSession {
   }
 
   /**
+   * Static opening prelude for styles that do not start with a bare question.
+   * These are authored surface frames (no model call); the very next turn is
+   * still the single focal question produced by the tutor runtime.
+   */
+  private buildOpeningPrelude(): string | null {
+    if (this.openingStyle === "explain-check") {
+      return `Let me first explain ${this.config.topic} concisely, then check your understanding with one question.`;
+    }
+    if (this.openingStyle === "challenge") {
+      return `We’ll apply ${this.config.topic} to a new scenario. Here is the situation, then one question to work through.`;
+    }
+    return null;
+  }
+
+  /**
    * Create a session and produce the opening turn (a guiding question —
    * the task instruction covers the empty-conversation case). Retrieval is
-   * fetched first so the opening question is already grounded.
+   * fetched first so the opening question is already grounded. Non-guided
+   * styles seed a short authored prelude before the focal question.
    */
   static async start(
     config: TutorSessionConfig,
@@ -303,6 +325,14 @@ export class TutorSession {
   ): Promise<TutorSession> {
     const session = new TutorSession(config, runtime);
     await session.refreshRetrieval(config.topic);
+    const prelude = session.buildOpeningPrelude();
+    if (prelude) {
+      session.transcript.push({
+        role: "tutor",
+        text: prelude,
+        move: session.openingStyle === "explain-check" ? "explain" : "question",
+      });
+    }
     await session.nextTurn(undefined, options);
     return session;
   }

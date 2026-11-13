@@ -33,6 +33,7 @@ export type StudyErrorCode =
   | 'ambiguous_source'
   | 'insufficient_evidence'
   | 'quota_shortfall'
+  | 'research_not_authorized'
   | 'uncommitted_question'
   | 'committed_question_immutable'
   | 'duplicate_submission'
@@ -103,6 +104,18 @@ export type {
   StudySourceRefV1,
   StudySourceChunk,
 };
+
+/** The authority selected for one immutable plan version. */
+export type StudyPlanKnowledgeAuthority =
+  | { kind: 'library'; policy: KnowledgePolicy }
+  | { kind: 'model-only' }
+  | { kind: 'manual' };
+
+export function hasLibraryKnowledgeAuthority(
+  authority: StudyPlanKnowledgeAuthority
+): authority is Extract<StudyPlanKnowledgeAuthority, { kind: 'library' }> {
+  return authority.kind === 'library';
+}
 
 // ============================================================================
 // 3. Study Plan Aggregate Types (§3)
@@ -180,13 +193,20 @@ export interface StudyPlanVersion {
   version: number; // positive; unique within plan, allocated at draft creation
   state: PlanVersionState;
   baseVersionId: string | null;
-  sourceScope: StudySourceScopeV1;
+  sourceScope: StudySourceScopeV1 | null;
+  knowledgeAuthority: StudyPlanKnowledgeAuthority;
   nodes: StudyPlanVersionNode[];
   prerequisites: PlanPrerequisite[];
   changeSummary: PlanVersionDiff | null;
   createdBy: 'user' | 'ai' | 'legacy-import' | 'diagnostic-adaptation';
   createdAt: string;
   publishedAt: string | null;
+}
+
+export function getStudyPlanLibraryScope(
+  version: StudyPlanVersion
+): StudySourceScopeV1 | null {
+  return version.knowledgeAuthority.kind === 'model-only' ? null : version.sourceScope;
 }
 
 export interface StudyPlanDetail {
@@ -215,7 +235,8 @@ export interface CreateStudyPlanInput {
   title: string;
   goal: string;
   depth: StudyDepth;
-  sourceScope: StudySourceScopeV1 | Record<string, unknown>;
+  sourceScope: StudySourceScopeV1 | Record<string, unknown> | null;
+  knowledgeAuthority?: StudyPlanKnowledgeAuthority;
   initialNodes?: StudyPlanVersionNode[];
   initialPrerequisites?: PlanPrerequisite[];
 }
@@ -224,7 +245,8 @@ export interface SaveStudyPlanDraftInput {
   planId: string;
   expectedDraftRevision: number;
   sourceRefs?: Record<string, StudySourceRefInput>;
-  sourceScope?: StudySourceScopeV1 | Record<string, unknown>;
+  sourceScope?: StudySourceScopeV1 | Record<string, unknown> | null;
+  knowledgeAuthority?: StudyPlanKnowledgeAuthority;
   nodes: StudyPlanVersionNode[];
   prerequisites: PlanPrerequisite[];
 }
