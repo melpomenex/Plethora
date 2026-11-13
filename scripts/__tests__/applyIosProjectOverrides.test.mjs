@@ -266,7 +266,11 @@ test("applyIosProjectOverrides consumes share-extension.target.json when present
   assert.match(extPlist, /com\.apple\.share-services/);
   assert.match(extPlist, /PRODUCT_BUNDLE_IDENTIFIER/);
   assert.match(extPlist, /CFBundleName/);
-  assert.doesNotThrow(() => execFileSync("plutil", ["-lint", join(fixture.appleDir, "plethora-share-extension", "Info.plist")]));
+  assert.doesNotThrow(() => execFileSync("python3", [
+    "-c",
+    "import pathlib, plistlib, sys; plistlib.loads(pathlib.Path(sys.argv[1]).read_bytes())",
+    join(fixture.appleDir, "plethora-share-extension", "Info.plist"),
+  ]));
 
   // Idempotent with the data file present too.
   const second = runApply(fixture);

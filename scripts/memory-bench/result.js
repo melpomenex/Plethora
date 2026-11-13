@@ -55,6 +55,7 @@ export function collectEnvironment(
     // with the OS, so the "web engine version" IS the OS version; there is no
     // display server to report.
     const osVersion = runCapture("sw_vers", ["-productVersion"]);
+    const totalRam = runCapture("sysctl", ["-n", "hw.memsize"]);
     return {
       platform,
       platformKind: "darwin",
@@ -64,7 +65,7 @@ export function collectEnvironment(
       appVersion,
       buildProfile,
       cpuModel: runCapture("sysctl", ["-n", "machdep.cpu.brand_string"]),
-      totalRamBytes: Number(runCapture("sysctl", ["-n", "hw.memsize"])),
+      totalRamBytes: totalRam == null ? null : Number(totalRam),
       displayServer: null,
       cwd: process.cwd(),
     };

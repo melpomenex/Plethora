@@ -32,13 +32,18 @@ on:
         required: false
         type: boolean
         default: false
+      arch_only:
+        description: 'Run only the Arch package job; skip all platform and manifest jobs. Used to backfill the Arch release package.'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
 jobs:
   release:
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.appimage_only) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.appimage_only || inputs.arch_only)) }}
     continue-on-error: ${{ !matrix.required }}
     strategy:
       fail-fast: false
@@ -488,7 +493,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
   release-appimage:
-    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.windows_only) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.windows_only || inputs.arch_only)) }}
     runs-on: ubuntu-latest
     # See the `release` job: bundle-runtime flags must be visible to the
     # `prebuild` hook and sidecar step too, not just the Tauri build step.
@@ -696,7 +701,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   release-arch:
-    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.windows_only || inputs.linux_only || inputs.appimage_only)) }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.arch_only || !(inputs.windows_only || inputs.linux_only || inputs.appimage_only) }}
     runs-on: ubuntu-latest
     # Compile on the Ubuntu VM (same 16 GB environment the deb legs use) and
     # only ASSEMBLE the pacman package inside an ephemeral archlinux container.
@@ -711,7 +716,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_tag || github.ref }}
+          # Dispatch builds default to the tag itself; build_ref lets a fix
+          # that landed after the tag be built into the same release.
+          ref: ${{ github.event_name == 'workflow_dispatch' && (inputs.build_ref || inputs.version_tag) || github.ref }}
           submodules: recursive
 
       - name: Free disk space
@@ -939,7 +946,7 @@ jobs:
 
   release-readiness:
     needs: [release, release-appimage, release-arch, verify-release]
-    if: ${{ always() && !(github.event_name == 'workflow_dispatch' && (inputs.windows_only || inputs.linux_only || inputs.appimage_only)) }}
+    if: ${{ always() && !(github.event_name == 'workflow_dispatch' && (inputs.windows_only || inputs.linux_only || inputs.appimage_only || inputs.arch_only)) }}
     runs-on: ubuntu-latest
     steps:
       - name: Summarize required and optional release outcomes
@@ -975,7 +982,7 @@ jobs:
     # windows_only backfills skip it: latest.json on the existing release
     # stays byte-identical so already-shipped updaters are untouched.
     needs: [release, release-appimage]
-    if: ${{ !cancelled() && !(github.event_name == 'workflow_dispatch' && (inputs.windows_only || inputs.skip_manifest)) }}
+    if: ${{ !cancelled() && !(github.event_name == 'workflow_dispatch' && (inputs.windows_only || inputs.skip_manifest || inputs.arch_only)) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -1112,7 +1119,7 @@ jobs:
     # diagnosed here too. windows_only backfills skip manifest regeneration,
     # so there is no new chain to verify.
     needs: [create-update-manifest]
-    if: ${{ !cancelled() && !(github.event_name == 'workflow_dispatch' && (inputs.windows_only || inputs.skip_manifest)) }}
+    if: ${{ !cancelled() && !(github.event_name == 'workflow_dispatch' && (inputs.windows_only || inputs.skip_manifest || inputs.arch_only)) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -1131,7 +1138,7 @@ jobs:
 
   sync-release-notes:
     needs: [create-update-manifest]
-    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.windows_only || inputs.skip_manifest)) }}
+    if: ${{ !(github.event_name == 'workflow_dispatch' && (inputs.windows_only || inputs.skip_manifest || inputs.arch_only)) }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
