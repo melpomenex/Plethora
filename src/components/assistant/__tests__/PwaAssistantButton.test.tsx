@@ -47,8 +47,6 @@ describe("PwaAssistantButton", () => {
           maxTokens: 4096,
         },
       ],
-      customProviders: [],
-      activeProviderId: "p-openai",
     });
   });
 

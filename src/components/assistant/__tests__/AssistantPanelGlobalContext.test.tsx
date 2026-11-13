@@ -70,8 +70,6 @@ describe("AssistantPanel Global Context & Video Parity", () => {
           maxTokens: 4096,
         },
       ],
-      customProviders: [],
-      activeProviderId: "openai",
     });
   });
 

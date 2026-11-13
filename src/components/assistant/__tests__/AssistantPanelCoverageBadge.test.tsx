@@ -63,8 +63,6 @@ describe("AssistantPanel Coverage Badge and Turn Diagnostics", () => {
           maxTokens: 4096,
         },
       ],
-      customProviders: [],
-      activeProviderId: "openai",
     });
   });
 

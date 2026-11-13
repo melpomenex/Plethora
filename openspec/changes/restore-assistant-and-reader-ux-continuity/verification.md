@@ -27,3 +27,12 @@
 
 - Command: `npm run bench:check`
 - Assert that table rendering and scroll listener hooks maintain 60fps scrolling without layout thrashing.
+
+## Current Issue #6 acceptance
+
+
+| IDs | Task | Evidence |
+| --- | --- | --- |
+| U02 | 4.1 | Wrappers present. Native visual comparisons for the reported narrow table behavior pending. |
+| U03 | 4.2 | Dark reader link/text contrast visible in issue attachments. Exact theme identity remains unconfirmed. Use computed token evidence. |
+| U01 | 4.3 | Current Chromium suite passed 3/3 after browser install. Real webview, device and additional host transitions remain pending. |

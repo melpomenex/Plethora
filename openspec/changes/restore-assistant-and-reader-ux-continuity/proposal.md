@@ -1,26 +1,24 @@
 ## Why
 
-Reading and conversational study require deep focus and visual clarity. Currently, tables in the EPUB reader are vertically squished into single-character columns because unconstrained tables are forced into a fixed width without horizontal scrolling (`screenshot_01`), dark themes exhibit severe illegibility due to near-black text on dark backgrounds (`screenshot_02`), and the Assistant panel resets scroll position during routine queue navigation or tab switches, accompanied by a flashing "Latest message" button (`screenshot_15`, `screenshot_16`, `screenshot_05`). Restoring visual continuity and scroll anchoring is essential for sustained reading comprehension.
+The reporter saw unreadable table/text layouts and repeated Assistant position loss. The current Assistant scroll fix has Chromium coverage, and native/device paths and reported reader layouts still require verification.
 
 ## What Changes
 
-- Wrap EPUB and Markdown reader tables in a responsive horizontal-scrolling container with `min-width: max-content`, preserving table structure and column widths.
-- Audit and adjust CSS custom properties in `builtin.ts` and theme stylesheets to guarantee WCAG AA contrast (minimum 4.5:1) across all dark and night themes.
-- Harden `useAssistantConversationScroll.ts` and `AssistantPanel.tsx` to maintain exact reading scroll offsets across tab switches and queue item transitions.
-- Prevent rendering empty assistant message bubbles when stream chunks are buffered or uncommitted.
+- Use the existing reader table containers and semantic theme tokens to repair reproduced layout and contrast defects.
+- Qualify conversation anchors and follow-latest behavior across real app surfaces and only change the existing scroll implementation if a runtime gap is reproduced.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `assistant-and-reader-ux-continuity`: Responsive table layout in reading views, WCAG AA compliant dark theme contrast, seamless assistant scroll restoration across navigation, and empty-bubble suppression.
+- `assistant-and-reader-ux-continuity`.
 
 ### Modified Capabilities
 
-- `assistant-scroll-restoration`: Ensure conversation scroll offset is strictly preserved across queue item switching and tab toggling.
-- `update-dark-theme-contrast`: Ensure all text elements meet minimum contrast ratios in dark presentation modes.
+This change carries one delta for the capability listed above.
 
 ## Impact
 
-- **Frontend**: `src/components/viewer/EPUBViewer.tsx`, `src/styles/reading.css`, `src/themes/builtin.ts`, `src/themes/resolveThemeAppearance.ts`, `src/components/assistant/useAssistantConversationScroll.ts`, `src/components/assistant/AssistantPanel.tsx`.
-- **Invariants**: Document content, annotations, and reading progress bookmarks remain untouched. Assistant message history is preserved in SQLite without loss.
+Reader surfaces, built-in themes and Assistant anchor behavior. AI response state is owned by the [AI reliability change](../harden-ai-learning-actions-and-card-quality/).
+
+See the [closure plan](../../planning/issue-6-final-closure-plan.md) for issue ownership and dependencies.

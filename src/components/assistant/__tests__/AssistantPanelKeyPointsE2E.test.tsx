@@ -94,8 +94,6 @@ describe("AssistantPanel Key Points End-to-End Action", () => {
           temperature: 0.2,
         },
       ],
-      customProviders: [],
-      activeProviderId: "openrouter",
     });
 
     useDocumentStore.setState({
