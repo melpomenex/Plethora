@@ -25,3 +25,12 @@
 
 - Command: `npm run bench:check`
 - Assert that list nesting and navigation transitions add zero latency to editor typing or document loading.
+
+## Current Issue #6 acceptance
+
+
+| IDs | Task | Evidence |
+| --- | --- | --- |
+| X03, X04 | 4.1 | Existing indent and selection-context metadata verified in source. Real round-trip pending. |
+| X01 | 4.2 | Existing passage cloze action located. Cross-reader direct creation and no side effects pending. |
+| X02 | 4.3 | Combined entry point absent in current command search. Test native/browser failure and durable retry before UI release. |

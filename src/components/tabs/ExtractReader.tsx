@@ -1,6 +1,6 @@
 import { emitUserInteraction, emitInteractionFeedback, createFeedbackInteractionId } from "../../lib/feedback/orchestrator";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { TextT, SpinnerGap } from "@phosphor-icons/react";
+import { TextT, SpinnerGap, ListBullets } from "@phosphor-icons/react";
 import { getExtract, type Extract } from "../../api/extracts";
 import { submitExtractReview } from "../../api/extract-review";
 import { getDocument } from "../../api/documents";
@@ -95,9 +95,9 @@ export function ExtractReader({
         if (cancelled) return;
         setSourceAvailable(doc !== null);
         if (doc && !sourceContext?.sourceKind && !propSourceKind) {
-          if (doc.file_type === "epub" || doc.file_type === "pdf") {
+          if (doc.fileType === "epub" || doc.fileType === "pdf") {
             setSourceKind("book");
-          } else if (doc.file_type === "html" || doc.source_url) {
+          } else if (doc.fileType === "html" || doc.fileType === "markdown" || doc.metadata?.url) {
             setSourceKind("article");
           } else {
             setSourceKind("source");
@@ -150,6 +150,7 @@ export function ExtractReader({
       addTab(
         {
           title: "Queue",
+          icon: <ListBullets className="w-4 h-4 text-muted-foreground" />,
           type: "queue",
           content: QueueTab,
           closable: true,

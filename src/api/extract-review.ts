@@ -87,6 +87,6 @@ export async function getRecentExtractsBounded(options: {
  * Note: This functionality is largely handled by the main get_queue command now,
  * but this helper is useful for specific extract-only views
  */
-export async function getDueExtracts(): Promise<Extract[]> {
-    return await invokeCommand<Extract[]>("get_reviewable_extracts");
+export async function getDueExtracts(collectionId?: string): Promise<Extract[]> {
+    return await invokeCommand<Extract[]>("get_reviewable_extracts", collectionId ? { collectionId } : undefined);
 }

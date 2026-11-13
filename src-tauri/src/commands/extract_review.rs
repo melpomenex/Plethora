@@ -245,7 +245,10 @@ pub async fn get_recent_extracts_bounded(
 }
 
 #[tauri::command]
-pub async fn get_reviewable_extracts(repo: State<'_, Repository>) -> Result<Vec<Extract>> {
+pub async fn get_reviewable_extracts(
+    collection_id: Option<String>,
+    repo: State<'_, Repository>,
+) -> Result<Vec<Extract>> {
     let now = Utc::now();
     let due_extracts = repo.get_due_extracts(&now).await?;
     let new_extracts = repo.get_new_extracts().await?;
@@ -253,6 +256,11 @@ pub async fn get_reviewable_extracts(repo: State<'_, Repository>) -> Result<Vec<
     // Combine and return
     let mut all_extracts = due_extracts;
     all_extracts.extend(new_extracts);
+    if let Some(collection_id) = collection_id.as_deref() {
+        all_extracts.retain(|extract| {
+            crate::commands::queue::collection_allows(Some(collection_id), &extract.collection_id)
+        });
+    }
 
     Ok(all_extracts)
 }

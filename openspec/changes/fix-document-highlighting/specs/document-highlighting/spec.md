@@ -67,3 +67,13 @@ The system SHALL only present reader-highlighting as implemented for document fo
 #### Scenario: Format lacks stable persisted locator support
 - **WHEN** a document format cannot round-trip highlight location data reliably
 - **THEN** the product documentation and feature status SHALL NOT describe persistent reader highlighting for that format as implemented
+
+### Requirement: Optional processed passage markers
+
+Supported source readers SHALL offer a persisted toggle for distinct markers on exactly resolved processed extracts. Existing ordinary highlights SHALL remain visible according to their own controls.
+
+#### Scenario: Overlap, deletion and ambiguous locations
+
+- **GIVEN** two exactly located overlapping extracts and a legacy extract with an ambiguous quote
+- **WHEN** the user enables markers, reopens the source and deletes one overlapping extract
+- **THEN** only the surviving exact marker is offered, it opens the corresponding extract, and ordinary highlighting and reading position are preserved

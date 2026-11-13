@@ -1,41 +1,7 @@
-# Architectural Design: Enhance Incremental Reading Extract Workflows
+## Current decisions
 
-## Problem Diagnosis
-
-### 1. Missing Rich Text Indentation
-In `src/components/extracts/ExtractContentEditor.tsx:112`:
-The toolbar provides bold, italic, headings, lists, and highlighting, but omits:
-- `Indent` (`Tab` / indent button)
-- `Outdent` (`Shift+Tab` / outdent button)
-When users create multi-level bulleted or numbered notes, pressing Tab either loses focus from the editor or inserts a raw tab character without restructuring the HTML list tree (`<ul><li>...</li></ul>`). This is evidenced in Screenshot 17.
-
-### 2. Disconnected Extract Navigation
-Extracts store `document_id` and optional `cfi` / `page_number`, but the UI lacks an explicit, prominent "View in Source" action. When reviewing an extract in isolation, users cannot easily inspect surrounding context in the parent book.
-
-### 3. Extract Priority Disconnect
-When an extract is created from a document with 95% priority, the extract currently defaults to 50% priority unless manually edited. In incremental reading, child extracts represent the most valuable pieces of high-priority reading material and should naturally inherit or be calibrated against the parent's priority.
-
-## Architectural Solutions
-
-### 1. TipTap Indentation & Outdent Integration
-In `ExtractContentEditor.tsx`:
-1. Register TipTap list and indentation extensions (`@tiptap/extension-task-list`, sink/lift list items):
-```ts
-editor.commands.sinkListItem('listItem') // Indent
-editor.commands.liftListItem('listItem') // Outdent
-```
-2. Add toolbar buttons with Phosphor icons `TextIndent` and `TextOutdent`.
-3. Intercept `Tab` and `Shift+Tab` within lists to execute `sinkListItem` / `liftListItem` without changing browser focus.
-
-### 2. Deep "Return to Source" Navigation Link
-In `ExtractReaderView.tsx`:
-1. Add a persistent header action "Open Source Context" (`ArrowSquareOut`).
-2. When activated, query parent document metadata and navigate to the viewer with exact navigation payload:
-   - For EPUB: navigate to stored `cfi`.
-   - For PDF: navigate to stored `page_number` with word highlight rects.
-   - For Web/Text: scroll to character offset with brief background pulse animation.
-
-### 3. Configurable Priority Inheritance
-1. Add `extractPriorityInheritance: "inherit" | "manual" | "default"` in `UserSettings`.
-2. In `src-tauri/src/database/extracts.rs`:
-   When creating an extract, if `extractPriorityInheritance === "inherit"`, copy parent document's `priority_score` and `canonical_priority` to the extract row.
+- Retain `ExtractContentEditor.tsx` plain text indentation and Markdown content format. Where valid list context exists, indent under the preceding list item and preserve selection/caret and source text. Keep a reachable toolbar button and preserve Tab navigation outside supported editor contexts.
+- Resolve Return to Source using the same stable locator/revision checks as highlighting. Prefer page/range/CFI/timestamp and validate quote/context at the expected location. If the revision or locator is stale, open parent at known page or last read and explicitly report degraded precision. Deleted parent shows an unavailable action.
+- Add a direct Create Cloze descriptor to existing reader selection menus and keyboard/action dispatch. Pass selected text and typed source snapshot to the existing cloze editor. Prefill a single cloze around the selected span and let the user revise boundaries/content. Confirm source and revision on save, use the existing canonical learning-item writer with document ID and locator, no extract ID, and no hidden extract. Offer duplicate warning or existing card where existing duplicate policy applies.
+- Add an explicit Extract and Reschedule option to the existing create-extract dialog. Capture source identity/revision/position, explicit source Keep/Next date/Remove from queue, extract priority and Add to queue, and post-commit Continue reading/Next item intent. Default source and extract controls to current ordinary extract behavior. Show exact next date before commit, and preserve explicit source and extract choices independently.
+- Proposed command `extract_and_reschedule` accepts operation ID, validated source snapshot, expected schedule revision, existing create-extract payload and typed source action. Wrap extract insert, source lifecycle/date and operation receipt in one SQLite transaction via existing repository writers scoped to that transaction. Browser uses a single IndexedDB transaction or a capability-gated unavailable action if atomicity cannot be provided. Store request fingerprint and before/after source scheduling values with the receipt. Same ID+payload returns existing receipt, mismatch is conflict. On failure preserve dialog and original selection. After commit reconcile cache once, preserve reading position and advance only if requested. If exposed, undo checks expected post-state and dependent records, then atomically deletes the created extract and restores the prior schedule. Show conflict rather than overwrite newer work.
