@@ -111,17 +111,18 @@ export function projectSnapshot(
     };
   }
 
-  const byId = new Map<string, QueueItem>(items.map((item) => [item.id, item]));
+  const byId = new Map<string, QueueItem>();
+  for (const item of items) {
+    byId.set(item.id, item);
+  }
   const ordered: QueueItem[] = [];
   const orderedIds: string[] = [];
   const breakdowns = new Map<string, TermBreakdown>();
-  const placed = new Set<string>();
 
   for (const entry of snapshot.ranked) {
     const item = byId.get(entry.item.id);
     if (!item) continue;
-    if (placed.has(item.id)) continue;
-    placed.add(item.id);
+    byId.delete(item.id);
     ordered.push(item);
     orderedIds.push(item.id);
     // Only the visible slice carries a breakdown: the popover cannot ask about an
@@ -133,10 +134,12 @@ export function projectSnapshot(
 
   // Anything the ranker did not place keeps its existing relative order, after
   // the ranked items.
-  for (const item of items) {
-    if (placed.has(item.id)) continue;
-    ordered.push(item);
-    orderedIds.push(item.id);
+  if (byId.size > 0) {
+    for (const item of items) {
+      if (!byId.has(item.id)) continue;
+      ordered.push(item);
+      orderedIds.push(item.id);
+    }
   }
 
   const first = snapshot.ranked[0];

@@ -214,8 +214,8 @@
       "reason": "add-gpu-accelerated-theme-rendering: initial ambient renderer baselines"
     },
     "daqe/project-snapshot-5000-items": {
-      "cost": 0.7484,
-      "reason": "add-dynamic-adaptive-queue-engine: initial baseline for projecting a 5 000-entry ranking snapshot onto the queue store on the UI thread (per-item id index, ordered ids, and lazily-materialised breakdowns for the visible 50). The ranker itself is Rust and is gated by a latency test in algorithms/daqe/ranker.rs, not by this suite."
+      "cost": 0.657,
+      "reason": "2026-11-13 Node 24 rebaseline after reducing allocations in the 5,000-entry ranking snapshot projection; median normalized cost across four full benchmark runs."
     },
     "daqe/project-snapshot-5000-items-no-snapshot": {
       "cost": 0.05393,
@@ -278,19 +278,19 @@
       "cost": 0.1205
     },
     "settings-search/real-catalog": {
-      "cost": 2.254,
+      "cost": 0.7865,
       "tolerance": 1.35,
-      "reason": "improve-settings-search: initial baseline for normalize + tokenize + tiered match/dedupe over the real resolved Settings catalog (multiword font-size query)."
+      "reason": "2026-11-13 Node 24 rebaseline after caching prepared catalog terms and normalizing each query once; median normalized cost across four full benchmark runs."
     },
     "settings-search/synthetic-1000": {
-      "cost": 9.995,
+      "cost": 2.6075,
       "tolerance": 1.5,
-      "reason": "improve-settings-search: initial baseline for the same matcher over 1,000 seeded synthetic entries; exercises worst-case per-entry token/fuzzy work."
+      "reason": "2026-11-13 Node 24 rebaseline after caching prepared catalog terms; median normalized cost across four full benchmark runs over 1,000 seeded entries."
     },
     "settings-search/synthetic-1000-typo": {
-      "cost": 9.989,
+      "cost": 2.734,
       "tolerance": 1.5,
-      "reason": "improve-settings-search: initial baseline for the typo-tolerant path (font siez) over 1,000 seeded synthetic entries."
+      "reason": "2026-11-13 Node 24 rebaseline after caching prepared catalog terms; median normalized cost across four full benchmark runs over the typo-tolerant 1,000-entry path."
     },
     "passageScoring/digest-2400-chars": {
       "cost": 0.5546,

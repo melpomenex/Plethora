@@ -19,6 +19,18 @@ import {
   type SettingsSearchCopy,
   type SettingsSearchEntry,
 } from "./settingsSearchCatalog";
+import {
+  containsCjk,
+  normalizeSettingsSearchText,
+  prepareSearchTerms,
+  tokenizeNormalizedQuery,
+  type PreparedSearchTerms,
+} from "./settingsSearchTerms";
+export {
+  containsCjk,
+  normalizeSettingsSearchText,
+  tokenizeSettingsSearchQuery,
+} from "./settingsSearchTerms";
 
 /* ------------------------------------------------------------------------- */
 /* Public types                                                              */
@@ -70,42 +82,6 @@ export interface SettingsSearchResult {
 export interface ResolveSettingsSearchOptions {
   translate: (key: string) => string;
   availability: SettingsSearchAvailabilitySnapshot;
-}
-
-/* ------------------------------------------------------------------------- */
-/* Normalization                                                             */
-/* ------------------------------------------------------------------------- */
-
-const CJK_RE = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uac00-\ud7af]/;
-
-const PUNCTUATION_RE = /[.,;:!?()[\]{}"'“”‘’<>|@#$%^&*+=~`\\/]/g;
-
-/**
- * Normalize searchable text: Unicode normalize, fold Latin accents, lowercase,
- * treat dashes/punctuation as word boundaries, collapse whitespace.
- * Non-Latin scripts are preserved so contiguous CJK labels can match.
- */
-export function normalizeSettingsSearchText(value: string): string {
-  return value
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .replace(/[‐‑‒–—−]/g, "-")
-    .replace(PUNCTUATION_RE, " ")
-    .replace(/-/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-export function containsCjk(value: string): boolean {
-  return CJK_RE.test(value);
-}
-
-/** Query tokens. A whitespace-free CJK query stays a single token. */
-export function tokenizeSettingsSearchQuery(query: string): string[] {
-  const normalized = normalizeSettingsSearchText(query);
-  if (!normalized) return [];
-  return normalized.split(" ").filter(Boolean);
 }
 
 /* ------------------------------------------------------------------------- */
@@ -197,11 +173,6 @@ export function resolveSettingsSearchCatalog(
 /* Matching                                                                  */
 /* ------------------------------------------------------------------------- */
 
-/** Split a normalized label/phrase into words without breaking CJK runs. */
-function words(value: string): string[] {
-  return value.split(" ").filter(Boolean);
-}
-
 function singleAdjacentTransposition(a: string, b: string): boolean {
   if (a.length !== b.length || a === b) return false;
   let first = -1;
@@ -239,54 +210,48 @@ function fuzzyWordMatch(word: string, token: string): boolean {
 }
 
 /** Best tier for one query token within one entry (or null when absent). */
-function matchToken(entry: ResolvedSettingsSearchEntry, token: string): TokenMatch | null {
+function matchToken(terms: PreparedSearchTerms, token: string): TokenMatch | null {
   const cjkToken = containsCjk(token);
-
-  const labelWords = entry.labelTerms.flatMap(words);
-  const aliasWords = entry.aliasTerms.flatMap(words);
-  const directWords = [...labelWords, ...aliasWords];
 
   if (cjkToken) {
     // Contiguous CJK text is meaningful without whitespace segmentation.
-    if (entry.labelTerms.some((label) => {
-      const normalized = normalizeSettingsSearchText(label);
-      return normalized.includes(token) || token.includes(normalized);
+    if (terms.normalizedLabelTerms.some((label) => {
+      return label.includes(token) || token.includes(label);
     })) {
       return { tier: "direct", direct: true };
     }
-    if (entry.aliasTerms.some((alias) => normalizeSettingsSearchText(alias).includes(token))) {
+    if (terms.normalizedAliasTerms.some((alias) => alias.includes(token))) {
       return { tier: "direct", direct: true };
     }
   }
 
-  if (directWords.includes(token)) return { tier: "direct", direct: true };
+  if (terms.directWords.includes(token)) return { tier: "direct", direct: true };
 
-  if (directWords.some((word) => word.startsWith(token))) {
+  if (terms.directWords.some((word) => word.startsWith(token))) {
     return { tier: "direct", direct: true };
   }
 
-  if (directWords.some((word) => fuzzyWordMatch(word, token))) {
+  if (terms.directWords.some((word) => fuzzyWordMatch(word, token))) {
     return { tier: "fuzzy", direct: true };
   }
 
-  const contextWords = entry.breadcrumbTerms.flatMap(words);
-  if (contextWords.includes(token) || contextWords.some((word) => word.startsWith(token))) {
+  if (
+    terms.breadcrumbWords.includes(token) ||
+    terms.breadcrumbWords.some((word) => word.startsWith(token))
+  ) {
     return { tier: "direct", direct: false };
   }
 
-  const description = entry.descriptionTerms
-    .map((value) => normalizeSettingsSearchText(value))
-    .join(" ");
-  if (description && description.includes(token)) {
+  if (terms.normalizedDescription && terms.normalizedDescription.includes(token)) {
     return { tier: "description", direct: false };
   }
 
   // A longer CJK query may contain a short indexable label; do not invent
   // English-style word boundaries for it.
-  if (cjkToken && entry.labelTerms.some((label) => {
-    const normalized = normalizeSettingsSearchText(label);
-    return normalized.length >= 2 && token.includes(normalized);
-  })) {
+  if (
+    cjkToken &&
+    terms.normalizedLabelTerms.some((label) => label.length >= 2 && token.includes(label))
+  ) {
     return { tier: "direct", direct: true };
   }
 
@@ -294,68 +259,63 @@ function matchToken(entry: ResolvedSettingsSearchEntry, token: string): TokenMat
 }
 
 function wholeExact(
-  entry: ResolvedSettingsSearchEntry,
+  terms: PreparedSearchTerms,
   normalizedQuery: string,
 ): SettingsSearchTier | null {
-  const label = entry.labelTerms.some(
-    (value) => normalizeSettingsSearchText(value) === normalizedQuery,
-  );
+  const label = terms.normalizedLabelTerms.some((value) => value === normalizedQuery);
   if (label) return "exact-label";
-  const alias = entry.aliasTerms.some(
-    (value) => normalizeSettingsSearchText(value) === normalizedQuery,
-  );
+  const alias = terms.normalizedAliasTerms.some((value) => value === normalizedQuery);
   if (alias) return "exact-alias";
   return null;
 }
 
 function wholePrefix(
-  entry: ResolvedSettingsSearchEntry,
+  terms: PreparedSearchTerms,
   normalizedQuery: string,
 ): SettingsSearchTier | null {
-  if (entry.labelTerms.some((value) => normalizeSettingsSearchText(value).startsWith(normalizedQuery))) {
+  if (terms.normalizedLabelTerms.some((value) => value.startsWith(normalizedQuery))) {
     return "prefix-label";
   }
-  if (entry.aliasTerms.some((value) => normalizeSettingsSearchText(value).startsWith(normalizedQuery))) {
+  if (terms.normalizedAliasTerms.some((value) => value.startsWith(normalizedQuery))) {
     return "prefix-alias";
   }
   return null;
 }
 
-/** Score one resolved entry against one query. */
-export function scoreSettingsSearchEntry(
+function scoreNormalizedEntry(
   entry: ResolvedSettingsSearchEntry,
-  query: string,
+  normalizedQuery: string,
+  tokens: readonly string[],
 ): Omit<SettingsSearchResult, "entry"> & { entry: ResolvedSettingsSearchEntry } | null {
-  const normalizedQuery = normalizeSettingsSearchText(query);
   if (!normalizedQuery) return null;
 
-  const exact = wholeExact(entry, normalizedQuery);
+  const terms = prepareSearchTerms(entry);
+  const exact = wholeExact(terms, normalizedQuery);
   if (exact) {
     return {
       entry,
       tier: exact,
       score: SETTINGS_SEARCH_TIER_SCORE[exact],
-      directCoverage: tokenizeSettingsSearchQuery(normalizedQuery).length,
+      directCoverage: tokens.length,
     };
   }
 
-  const prefix = wholePrefix(entry, normalizedQuery);
+  const prefix = wholePrefix(terms, normalizedQuery);
   if (prefix) {
     return {
       entry,
       tier: prefix,
       score: SETTINGS_SEARCH_TIER_SCORE[prefix],
-      directCoverage: tokenizeSettingsSearchQuery(normalizedQuery).length,
+      directCoverage: tokens.length,
     };
   }
 
-  const tokens = tokenizeSettingsSearchQuery(normalizedQuery);
   if (tokens.length === 0) return null;
 
   let weakest: SettingsSearchTier | null = null;
   let directCoverage = 0;
   for (const token of tokens) {
-    const match = matchToken(entry, token);
+    const match = matchToken(terms, token);
     if (!match) return null;
     if (match.direct) directCoverage += 1;
     if (weakest === null || SETTINGS_SEARCH_TIER_SCORE[match.tier] < SETTINGS_SEARCH_TIER_SCORE[weakest]) {
@@ -369,6 +329,19 @@ export function scoreSettingsSearchEntry(
     score: SETTINGS_SEARCH_TIER_SCORE[weakest],
     directCoverage,
   };
+}
+
+/** Score one resolved entry against one query. */
+export function scoreSettingsSearchEntry(
+  entry: ResolvedSettingsSearchEntry,
+  query: string,
+): Omit<SettingsSearchResult, "entry"> & { entry: ResolvedSettingsSearchEntry } | null {
+  const normalizedQuery = normalizeSettingsSearchText(query);
+  return scoreNormalizedEntry(
+    entry,
+    normalizedQuery,
+    tokenizeNormalizedQuery(normalizedQuery),
+  );
 }
 
 function kindOrder(entry: ResolvedSettingsSearchEntry): number {
@@ -392,10 +365,12 @@ export function searchSettings(
   entries: readonly ResolvedSettingsSearchEntry[],
   query: string,
 ): SettingsSearchResult[] {
-  if (!normalizeSettingsSearchText(query)) return [];
+  const normalizedQuery = normalizeSettingsSearchText(query);
+  if (!normalizedQuery) return [];
+  const tokens = tokenizeNormalizedQuery(normalizedQuery);
   const scored: Array<SettingsSearchResult & { order: number }> = [];
   entries.forEach((entry, order) => {
-    const match = scoreSettingsSearchEntry(entry, query);
+    const match = scoreNormalizedEntry(entry, normalizedQuery, tokens);
     if (match) scored.push({ ...match, order });
   });
   scored.sort(
