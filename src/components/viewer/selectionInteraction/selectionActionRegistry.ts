@@ -72,6 +72,20 @@ export type SelectionAiAction = Extract<
   "explain" | "summarize" | "simplify" | "keyTerms" | "ask"
 >;
 
+/** Whether an action can run against a passage in SelectionActionsSheet. */
+export function isSelectionAiActionId(id: SelectionActionId): id is SelectionAiAction {
+  switch (id) {
+    case "explain":
+    case "summarize":
+    case "simplify":
+    case "keyTerms":
+    case "ask":
+      return true;
+    default:
+      return false;
+  }
+}
+
 /** Bar-invocable actions (Learn-this routes through its own host callback). */
 export type SelectionBarAction = Extract<
   SelectionActionId,

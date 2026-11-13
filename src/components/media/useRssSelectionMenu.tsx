@@ -37,9 +37,10 @@ import { useDocumentStore } from "../../stores/documentStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useI18n } from "../../lib/i18n";
 import { useToast } from "../common/Toast";
+import { requestDestinationAction } from "../../commandPalette/destinationActions";
 import {
   getSelectionActions,
-  isAiSelectionAction,
+  isSelectionAiActionId,
   selectionActionLabelKey,
   type SelectionActionDescriptor,
   type SelectionAiAction,
@@ -390,12 +391,40 @@ export function useRssSelectionMenu(
             })();
           },
         }),
+        studyPlan: (action) => ({
+          id: action.id,
+          label: t(selectionActionLabelKey(action, "menu")),
+          icon: <action.icon className="w-4 h-4" />,
+          onClick: () => {
+            recordSelectionActionInvocation("studyPlan");
+            void (async () => {
+              const docId = await ensureDoc();
+              if (!docId) return;
+              pendingRef.current = null;
+              clearNativeSelection();
+              const excerpt = sel.text.length <= 1600 ? sel.text : undefined;
+              void requestDestinationAction({
+                destination: "study-plans",
+                action: "create",
+                prefill: {
+                  documentIds: [docId],
+                  title: item?.title,
+                  pendingSource: excerpt
+                    ? { documentId: docId, excerpt, documentTitle: item?.title }
+                    : undefined,
+                },
+              });
+            })();
+          },
+        }),
       };
       const buildAiItem = (action: SelectionActionDescriptor): ContextMenuItem => ({
         id: `ai-${action.id}`,
         label: t(selectionActionLabelKey(action, "menu")),
         icon: <action.icon className="w-4 h-4" />,
-        onClick: () => openSheetForAi(action.id as SelectionAiAction, sel),
+        onClick: () => {
+          if (isSelectionAiActionId(action.id)) openSheetForAi(action.id, sel);
+        },
       });
 
       const actions = getSelectionActions("menu", {
@@ -412,7 +441,7 @@ export function useRssSelectionMenu(
         const build = builders[action.id];
         if (build) {
           items.push(build(action));
-        } else if (isAiSelectionAction(action)) {
+        } else if (isSelectionAiActionId(action.id)) {
           items.push(buildAiItem(action));
         } else if (import.meta.env.DEV) {
           console.warn(`[useRssSelectionMenu] No builder for selection action "${action.id}"`);
@@ -420,7 +449,16 @@ export function useRssSelectionMenu(
       }
       return items;
     },
-    [t, aiAvailability.available, learnThisEnabled, createExtractFor, ensureDoc, openSheetForAi, item],
+    [
+      t,
+      aiAvailability.available,
+      learnThisEnabled,
+      createExtractFor,
+      ensureDoc,
+      openSheetForAi,
+      clearNativeSelection,
+      item,
+    ],
   );
 
   const handleContextMenu = useCallback(

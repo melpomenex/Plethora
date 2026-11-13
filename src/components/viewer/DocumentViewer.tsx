@@ -4,6 +4,7 @@ import { RatingOrb } from "../review/RatingOrb";
 import type { VideoViewerContext } from "../../lib/ai/assistant/scopes";
 import { lazy as lazyTranslation, Suspense as TranslationSuspense } from "react";
 import { usePaletteSelection, getPaletteSelection, type PaletteSelection } from "../../commandPalette/selectionTranslation";
+import { requestDestinationAction } from "../../commandPalette/destinationActions";
 import { textAnnotationTargetsAtPoint, type ReaderContextMenuPayload, type PersistedEpubHighlight } from "./annotationContextMenu";
 import { AnnotationRemovalMenu } from "./AnnotationRemovalMenu";
 import { emitUserInteraction, emitInteractionFeedback } from "../../lib/feedback/orchestrator";
@@ -194,7 +195,7 @@ import { sha256Short } from "./passageScoring/hash";
 import { SelectionActionBar, type SelectionBarAction } from "./selectionInteraction/SelectionActionBar";
 import {
   getSelectionActions,
-  isAiSelectionAction,
+  isSelectionAiActionId,
   selectionActionLabelKey,
   type SelectionActionDescriptor,
   type SelectionActionId,
@@ -3278,12 +3279,37 @@ export function DocumentViewer({
           });
         },
       }),
+      studyPlan: (action) => ({
+        id: action.id,
+        label: t(selectionActionLabelKey(action, "menu")),
+        icon: <action.icon className="w-4 h-4" />,
+        onClick: () => {
+          recordSelectionActionInvocation("studyPlan");
+          const sourceDocumentId = currentDocument?.id ?? documentId;
+          const documentTitle = currentDocument?.title;
+          const excerpt = selectedText.length <= 1600 ? selectedText : undefined;
+          void requestDestinationAction({
+            destination: "study-plans",
+            action: "create",
+            prefill: {
+              documentIds: sourceDocumentId ? [sourceDocumentId] : [],
+              title: documentTitle,
+              pendingSource:
+                sourceDocumentId && excerpt
+                  ? { documentId: sourceDocumentId, excerpt, documentTitle }
+                  : undefined,
+            },
+          });
+        },
+      }),
     };
     const buildAiMenuItem = (action: SelectionActionDescriptor): ContextMenuItem => ({
       id: `ai-${action.id}`,
       label: t(selectionActionLabelKey(action, "menu")),
       icon: <action.icon className="w-4 h-4" />,
-      onClick: () => runAiAction(action.id as SelectionAiAction),
+      onClick: () => {
+        if (isSelectionAiActionId(action.id)) runAiAction(action.id);
+      },
     });
 
     const menuActions = getSelectionActions("menu", {
@@ -3301,7 +3327,7 @@ export function DocumentViewer({
       const build = MENU_ITEM_BUILDERS[action.id];
       if (build) {
         items.push(build(action));
-      } else if (isAiSelectionAction(action)) {
+      } else if (isSelectionAiActionId(action.id)) {
         items.push(buildAiMenuItem(action));
       } else if (import.meta.env.DEV) {
         // Registry/menu drift must surface in development, never silently.

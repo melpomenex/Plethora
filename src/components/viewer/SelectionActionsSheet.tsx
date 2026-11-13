@@ -88,6 +88,7 @@ import type { LanguageKnowledgeState } from "../../types/languageKnowledge";
 
 export type { SelectionAiAction } from "./selectionInteraction/selectionActionRegistry";
 import {
+  getSelectionAction,
   getSelectionActions,
   isAiSelectionAction,
   selectionActionLabelKey,
@@ -1164,6 +1165,11 @@ export function SelectionActionsSheet({
     }
   };
 
+  const resultAction = getSelectionAction(action);
+  const resultTitleKey = resultAction
+    ? selectionActionLabelKey(resultAction, "sheet")
+    : "selectionSheet.explain";
+
   return (
     <MobileContextMenuSheet open={open} onClose={onClose} variant="content">
       <div data-selection-actions-sheet="true">
@@ -1860,7 +1866,7 @@ export function SelectionActionsSheet({
                 <ArrowLeft className="w-5 h-5" aria-hidden="true" />
               </button>
               <span className="text-sm font-medium text-foreground">
-                {t(`selectionSheet.${action}`)}
+                {t(resultTitleKey)}
               </span>
             </div>
 
