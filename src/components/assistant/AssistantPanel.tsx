@@ -191,6 +191,8 @@ import type {
 } from "../../lib/ai/assistant/conversations/types";
 import { decodeAgentDraftArtifact } from "../../lib/ai/assistant/conversations/serialize";
 import type { Document } from "../../types/document";
+import { t as translateRecentFeature } from "../../lib/i18n";
+
 
 export interface AssistantContext {
   conversationId?: string;
@@ -916,7 +918,7 @@ export function AssistantPanel({
     localStorage.setItem("plethora_settings_initial_tab", "ai");
     
     const tabId = useTabsStore.getState().addTab({
-      title: "Settings",
+      title: translateRecentFeature("i18nAudit.ui.settings.f49d4b34"),
       icon: <Gear className="w-4 h-4" />,
       type: "settings",
       content: SettingsTab,
@@ -2791,7 +2793,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           const outcome = summarizeBatchCardResults(result, createdCount);
           updateToolCall(messageId, index, { result, status: outcome.failed > 0 ? "error" : "success" });
           if (outcome.saved > 0) results.push({ name: call.name, status: "success", count: outcome.saved });
-          if (outcome.failed > 0) results.push({ name: call.name, status: "error", count: outcome.failed, error: "Some cards could not be saved." });
+          if (outcome.failed > 0) results.push({ name: call.name, status: "error", count: outcome.failed, error: translateRecentFeature("i18nAudit.ui.some-cards-could-not-be-save.b64aa3d9") });
         } else if (result.isError) {
           updateToolCall(messageId, index, { result, status: "error" });
           results.push({ name: call.name, status: "error", count: createdCount, error: safeCardCreationError(result) });
@@ -2876,11 +2878,11 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       } else {
         const summaries = Object.entries(counts).map(([name, count]) => {
           const label = name === "create_qa_card" || name === "create_cloze_card" || name === "batch_create_cards"
-            ? `${count} flashcard${count > 1 ? "s" : ""}`
+            ? translateRecentFeature("i18nAudit.ui.var0-flashcard-var1.34ff2e67", {var0: count, var1: count > 1 ? "s" : ""})
             : name === "create_extract"
-              ? `${count} extract${count > 1 ? "s" : ""}`
+              ? translateRecentFeature("i18nAudit.ui.var0-extract-var1.bd5ba038", {var0: count, var1: count > 1 ? "s" : ""})
               : name === "create_document"
-                ? `${count} document${count > 1 ? "s" : ""}`
+                ? translateRecentFeature("i18nAudit.ui.var0-document-var1.f1c21426", {var0: count, var1: count > 1 ? "s" : ""})
                 : `${count} ${name}${count > 1 ? "s" : ""}`;
           return label;
         });
@@ -2952,19 +2954,19 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
   const createChatDeck = (name: string) => {
     const store = useStudyDeckStore.getState();
     store.addDeck(name, [name], context?.documentId, context?.documentId ? "all" : "tags");
-    toast.success("Deck created", `“${name}” is ready in Review.`);
+    toast.success(translateRecentFeature("i18nAudit.ui.deck-created.92743129"), translateRecentFeature("i18nAudit.ui.var0-is-ready-in-review.97b13147", {var0: name}));
   };
 
   const openChatDeck = (name: string) => {
     const deck = findChatDeck(name);
     if (!deck) {
-      toast.error("Deck unavailable", `Create “${name}” first.`);
+      toast.error(translateRecentFeature("i18nAudit.ui.deck-unavailable.765b1fc3"), translateRecentFeature("i18nAudit.ui.create-var0-first.e6a7f6b3", {var0: name}));
       return;
     }
     useReviewStore.getState().setSelectedDeckId(deck.id);
     useReviewStore.getState().setReviewTabMode("deck-manager");
     useTabsStore.getState().addTab({
-      title: "Review",
+      title: translateRecentFeature("tabs.review"),
       icon: "🧠",
       type: "review",
       content: ReviewTab,
@@ -2980,8 +2982,8 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       return `${index + 1}. ${artifact.front}`;
     }).join("\n\n");
     const success = await copyToClipboard(markdown);
-    if (success) toast.success("Flashcards copied", `${artifacts.length} card${artifacts.length === 1 ? "" : "s"} copied to the clipboard.`);
-    else toast.error("Could not copy flashcards");
+    if (success) toast.success(translateRecentFeature("i18nAudit.ui.flashcards-copied.b3aa636f"), translateRecentFeature("i18nAudit.ui.var0-card-var1-copied-to-the.7e1ef48a", {var0: artifacts.length, var1: artifacts.length === 1 ? "" : "s"}));
+    else toast.error(translateRecentFeature("i18nAudit.ui.could-not-copy-flashcards.e157769d"));
     return success;
   };
 
@@ -3391,7 +3393,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             ? `${matchedNode.breadcrumb[matchedNode.breadcrumb.length - 1]} > ${matchedNode.title}`
             : matchedNode.title)
         : item.token.startsWith("section-")
-          ? "Section"
+          ? translateRecentFeature("i18nAudit.ui.section.a2be4212")
           : item.token;
 
       elements.push(
@@ -3423,9 +3425,9 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         source_url: context?.url,
         note: "Extracted from Assistant",
       });
-      toast.success("Extract saved to library");
+      toast.success(translateRecentFeature("i18nAudit.ui.extract-saved-to-library.a44c5e00"));
     } catch (err) {
-      toast.error("Failed to save extract", err instanceof Error ? err.message : String(err));
+      toast.error(translateRecentFeature("i18nAudit.ui.failed-to-save-extract.ee1965fd"), err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -3440,7 +3442,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
 
   const handleDeleteMessage = (messageId: string) => {
     setMessages((prev) => prev.filter((m) => m.id !== messageId));
-    toast.success("Message deleted");
+    toast.success(translateRecentFeature("i18nAudit.ui.message-deleted.5f2c20f7"));
   };
 
   const handleRetryMessage = (targetMessage: Message) => {
@@ -3487,7 +3489,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
 
     const success = await copyToClipboard(fullText);
     if (success) {
-      toast.success("Entire chat copied to clipboard");
+      toast.success(translateRecentFeature("i18nAudit.ui.entire-chat-copied-to-clipbo.cfe1f40a"));
     }
   };
 
@@ -3508,7 +3510,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       setSelectedSectionNodes([]);
       clearAttachedImages();
     }
-    toast.success("Chat history cleared");
+    toast.success(translateRecentFeature("i18nAudit.ui.chat-history-cleared.2730c0af"));
   };
 
   const handleContextMenu = useCallback(
@@ -3525,22 +3527,22 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         items.push(
           {
             id: "extract-selection",
-            label: "Extract Selection",
+            label: translateRecentFeature("i18nAudit.ui.extract-selection.dc3a7f0f"),
             icon: <Quotes className="w-4 h-4" />,
             onClick: () => handleExtractText(selectionText),
           },
           {
             id: "copy-selection",
-            label: "Copy Selection",
+            label: translateRecentFeature("i18nAudit.ui.copy-selection.2fc32055"),
             icon: <Copy className="w-4 h-4" />,
             onClick: () => {
               copyToClipboard(selectionText);
-              toast.success("Copied selection to clipboard");
+              toast.success(translateRecentFeature("i18nAudit.ui.copied-selection-to-clipboar.ecfd884b"));
             },
           },
           {
             id: "ask-selection",
-            label: "Ask about Selection",
+            label: translateRecentFeature("i18nAudit.ui.ask-about-selection.0ac93cf3"),
             icon: <ChatCircleText className="w-4 h-4" />,
             onClick: () => {
               setInput((prev) => (prev ? `${prev}\n\n> ${selectionText}\n` : `> ${selectionText}\n`));
@@ -3549,7 +3551,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           },
           {
             id: "summarize-selection",
-            label: "Summarize Selection",
+            label: translateRecentFeature("i18nAudit.ui.summarize-selection.c414fa88"),
             icon: <Sparkle className="w-4 h-4" />,
             onClick: () => {
               setInput(`Summarize this excerpt: "${selectionText}"`);
@@ -3569,22 +3571,22 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           items.push(
             {
               id: "extract-message",
-              label: "Extract Message Content",
+              label: translateRecentFeature("i18nAudit.ui.extract-message-content.ad912d65"),
               icon: <Quotes className="w-4 h-4" />,
               onClick: () => handleExtractText(getAssistantAnswer(targetMessage.content)),
             },
             {
               id: "copy-message-plain",
-              label: "Copy Text",
+              label: translateRecentFeature("i18nAudit.ui.copy-text.700acf1e"),
               icon: <Copy className="w-4 h-4" />,
               onClick: () => {
                 copyToClipboard(getAssistantAnswer(targetMessage.content));
-                toast.success("Copied message text to clipboard");
+                toast.success(translateRecentFeature("i18nAudit.ui.copied-message-text-to-clipb.45dc563b"));
               },
             },
             {
               id: "copy-message-md",
-              label: "Copy as Markdown",
+              label: translateRecentFeature("i18nAudit.ui.copy-as-markdown.54ced130"),
               icon: <FileText className="w-4 h-4" />,
               onClick: () => handleCopyMessage(targetMessage),
             },
@@ -3597,20 +3599,20 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             },
             {
               id: "share-message",
-              label: "Share / Export",
+              label: translateRecentFeature("i18nAudit.ui.share-export.b4b6e415"),
               icon: <ShareNetwork className="w-4 h-4" />,
               onClick: () => handleShareMessage(targetMessage),
             },
             {
               id: "retry-message",
-              label: "Regenerate Response",
+              label: translateRecentFeature("i18nAudit.ui.regenerate-response.71673a4d"),
               icon: <ArrowsClockwise className="w-4 h-4" />,
               onClick: () => handleRetryMessage(targetMessage),
             },
             { id: "sep-msg-del", type: ContextMenuItemType.Separator, label: "" },
             {
               id: "delete-message",
-              label: "Delete Message",
+              label: translateRecentFeature("i18nAudit.ui.delete-message.bcbd976f"),
               icon: <Trash className="w-4 h-4 text-destructive" />,
               type: ContextMenuItemType.Danger,
               onClick: () => handleDeleteMessage(targetMessage.id),
@@ -3620,23 +3622,23 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           items.push(
             {
               id: "copy-user-prompt",
-              label: "Copy Prompt",
+              label: translateRecentFeature("i18nAudit.ui.copy-prompt.640e48ba"),
               icon: <Copy className="w-4 h-4" />,
               onClick: () => {
                 copyToClipboard(targetMessage.content);
-                toast.success("Copied prompt to clipboard");
+                toast.success(translateRecentFeature("i18nAudit.ui.copied-prompt-to-clipboard.73322186"));
               },
             },
             {
               id: "edit-user-prompt",
-              label: "Edit & Resend",
+              label: translateRecentFeature("i18nAudit.ui.edit-resend.62680bff"),
               icon: <Pencil className="w-4 h-4" />,
               onClick: () => handleEditUserMessage(targetMessage),
             },
             { id: "sep-user-del", type: ContextMenuItemType.Separator, label: "" },
             {
               id: "delete-user-msg",
-              label: "Delete Message",
+              label: translateRecentFeature("i18nAudit.ui.delete-message.bcbd976f"),
               icon: <Trash className="w-4 h-4 text-destructive" />,
               type: ContextMenuItemType.Danger,
               onClick: () => handleDeleteMessage(targetMessage.id),
@@ -3653,14 +3655,14 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       items.push(
         {
           id: "copy-entire-chat",
-          label: "Copy Entire Chat",
+          label: translateRecentFeature("i18nAudit.ui.copy-entire-chat.ac77063c"),
           icon: <Copy className="w-4 h-4" />,
           disabled: messages.length === 0,
           onClick: handleCopyEntireChat,
         },
         {
           id: "clear-chat-history",
-          label: "Clear Chat History",
+          label: translateRecentFeature("i18nAudit.ui.clear-chat-history.8a4dc0cb"),
           icon: <Trash className="w-4 h-4 text-destructive" />,
           type: ContextMenuItemType.Danger,
           disabled: messages.length === 0,
@@ -3713,7 +3715,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         <button
           onClick={() => setIsCollapsed(false)}
           className="p-2 hover:bg-muted transition-colors"
-          title="Open Assistant"
+          title={translateRecentFeature("i18nAudit.ui.open-assistant.821916a8")}
         >
           {position === "right" ? (
             <CaretLeft className="w-4 h-4 text-foreground" />
@@ -3793,7 +3795,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         {!mobilePresentation && (
           <div className="flex items-center gap-2">
             <ChatCircle className="w-4 h-4 text-primary" />
-            <div className="min-w-0"><h2 className="text-sm font-semibold text-foreground">Assistant</h2>{!showContextBanner && actionResolution.target && <p className="max-w-44 truncate text-xs text-on-surface-variant" title={labelActionTarget(actionResolution.target)}>{labelActionTarget(actionResolution.target)}</p>}</div>
+            <div className="min-w-0"><h2 className="text-sm font-semibold text-foreground">{translateRecentFeature("i18nAudit.ui.assistant.26065da4")}</h2>{!showContextBanner && actionResolution.target && <p className="max-w-44 truncate text-xs text-on-surface-variant" title={labelActionTarget(actionResolution.target)}>{labelActionTarget(actionResolution.target)}</p>}</div>
           </div>
         )}
         <div className={mobilePresentation ? "contents" : "ml-auto flex min-w-0 max-w-full flex-wrap items-center justify-end gap-1"}>
@@ -3802,7 +3804,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             <button
               onClick={handleShareConversation}
               className="p-1.5 hover:bg-muted transition-colors rounded mr-1"
-              title="Share conversation"
+              title={translateRecentFeature("i18nAudit.ui.share-conversation.7048f5c7")}
             >
               <ShareNetwork className="w-4 h-4 text-foreground" />
             </button>
@@ -3844,7 +3846,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                   ${mobilePresentation ? "min-h-10 gap-1 px-2" : "px-2.5 py-1"}
                   ${isModelDropdownOpen ? "border-primary ring-2 ring-primary/10 bg-muted/30" : ""}
                 `}
-                title="Change Active AI Model"
+                title={translateRecentFeature("i18nAudit.ui.change-active-ai-model.bbc02d05")}
               >
                 {/* Pulsing indicator dot */}
                 {!mobilePresentation && <span className="relative flex h-1.5 w-1.5">
@@ -3991,7 +3993,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           {!mobilePresentation && <><button
             onClick={togglePosition}
             className="p-1.5 hover:bg-muted transition-colors rounded"
-            title={position === "right" ? "Move to left side" : "Move to right side"}
+            title={position === "right" ? translateRecentFeature("i18nAudit.ui.move-to-left-side.ec471386") : translateRecentFeature("i18nAudit.ui.move-to-right-side.a3127470")}
           >
             {position === "right" ? (
               <SidebarSimple className="w-4 h-4 text-foreground" />
@@ -4002,7 +4004,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           <button
             onClick={() => setIsCollapsed(true)}
             className="p-1.5 hover:bg-muted transition-colors rounded"
-            title="Collapse"
+            title={translateRecentFeature("i18nAudit.ui.collapse.b5ec8b4f")}
           >
             {position === "right" ? (
               <CaretRight className="w-4 h-4 text-foreground" />
@@ -4039,12 +4041,11 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             <span data-assistant-action-target>{composerMode === "chat" && actionResolution.target ? labelActionTarget(actionResolution.target) : getContextMessage(context)}</span>
             {isThreadContext ? (
               <span className="ml-auto px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-600 dark:text-sky-400 font-medium text-[10px]">
-                Scope: This X thread
-              </span>
+                {translateRecentFeature("i18nAudit.ui.scope-this-x-thread.b2fe4c1a")}</span>
             ) : context.type === "video" ? (
               <span className="ml-auto text-[10px] uppercase tracking-wide text-muted-foreground/80">
-                {context.transcriptStatus === "loading" ? "Loading transcript…" : context.transcriptStatus === "failed" ? "Transcript failed" : context.transcriptStatus === "partial" ? "Partial transcript" : context.content?.trim() ? "Transcript ready" : "Transcript unavailable"}
-                {context.transcriptStatus === "failed" && context.retryTranscript && <button type="button" onClick={context.retryTranscript} className="ml-2 underline">Retry</button>}
+                {context.transcriptStatus === "loading" ? translateRecentFeature("i18nAudit.ui.loading-transcript.5678e908") : context.transcriptStatus === "failed" ? translateRecentFeature("i18nAudit.ui.transcript-failed.54e7f1ab") : context.transcriptStatus === "partial" ? translateRecentFeature("i18nAudit.ui.partial-transcript.f24b805b") : context.content?.trim() ? translateRecentFeature("i18nAudit.ui.transcript-ready.ab62c110") : translateRecentFeature("i18nAudit.ui.transcript-unavailable.f0d4736c")}
+                {context.transcriptStatus === "failed" && context.retryTranscript && <button type="button" onClick={context.retryTranscript} className="ml-2 underline">{translateRecentFeature("assistant.actions.retry")}</button>}
               </span>
             ) : null}
           </div>
@@ -4064,10 +4065,10 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             <Sparkle className="w-8 h-8 mx-auto mb-2 opacity-50 text-primary" />
             <div>
               <p className="font-medium text-foreground">
-                {isThreadContext ? "Analyze X Thread" : t("assistant.actions.startReading")}
+                {isThreadContext ? translateRecentFeature("i18nAudit.ui.analyze-x-thread.512e242b") : t("assistant.actions.startReading")}
               </p>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {isThreadContext ? "Instant summary, key insights, and flashcards" : "I have context of what you're viewing"}
+                {isThreadContext ? translateRecentFeature("i18nAudit.ui.instant-summary-key-insights.8c9cbf34") : translateRecentFeature("i18nAudit.ui.i-have-context-of-what-you-r.4ca5e09f")}
               </p>
             </div>
 
@@ -4075,7 +4076,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               <div className="flex flex-col gap-2 pt-2 px-2 max-w-xs mx-auto">
                 <button
                   onClick={() => {
-                    const prompt = "Please provide a comprehensive summary of this X/Twitter thread. Structure your response with a High-Level Overview, Key Points post-by-post, and the Main Conclusion. Cite specific posts (e.g. [Post 1], [Post 2]) when referencing claims.";
+                    const prompt = translateRecentFeature("i18nAudit.ui.please-provide-a-comprehensi.38bbda2b");
                     setInput(prompt);
                     setTimeout(() => {
                       textareaRef.current?.focus();
@@ -4085,14 +4086,14 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 >
                   <div className="flex items-center gap-2 font-medium text-foreground">
                     <FileText className="w-4 h-4 text-blue-500" />
-                    <span>Summary</span>
+                    <span>{translateRecentFeature("i18nAudit.ui.summary.8e982945")}</span>
                   </div>
-                  <span className="text-[10px] text-muted-foreground group-hover:text-primary">Overview & Key Points →</span>
+                  <span className="text-[10px] text-muted-foreground group-hover:text-primary">{translateRecentFeature("i18nAudit.ui.overview-key-points.ba2435f2")}</span>
                 </button>
 
                 <button
                   onClick={() => {
-                    const prompt = "Please analyze this X/Twitter thread and extract key insights structured into the following sections:\n1. Core Claims: The fundamental arguments or theses.\n2. Key Supporting Arguments: Evidence and logical backing.\n3. Actionable Takeaways: Practical lessons or insights.\n4. Counterarguments / Tensions: Any nuances, potential counterarguments, or open questions raised.";
+                    const prompt = translateRecentFeature("i18nAudit.ui.please-analyze-this-x-twitte.6afe1fcc");
                     setInput(prompt);
                     setTimeout(() => {
                       textareaRef.current?.focus();
@@ -4102,14 +4103,14 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 >
                   <div className="flex items-center gap-2 font-medium text-foreground">
                     <Lightbulb className="w-4 h-4 text-amber-500" />
-                    <span>Insights</span>
+                    <span>{translateRecentFeature("i18nAudit.ui.insights.607dc48b")}</span>
                   </div>
-                  <span className="text-[10px] text-muted-foreground group-hover:text-primary">Claims & Takeaways →</span>
+                  <span className="text-[10px] text-muted-foreground group-hover:text-primary">{translateRecentFeature("i18nAudit.ui.claims-takeaways.f415745a")}</span>
                 </button>
 
                 <button
                   onClick={() => {
-                    const prompt = "/20rules Formulate atomic flashcards from this X thread following the 20 Rules of Knowledge Formulation. Include question-answer and cloze deletion cards for key facts, concepts, and takeaways.";
+                    const prompt = translateRecentFeature("i18nAudit.ui.20rules-formulate-atomic-fla.3f716073");
                     setInput(prompt);
                     setTimeout(() => {
                       textareaRef.current?.focus();
@@ -4119,14 +4120,14 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 >
                   <div className="flex items-center gap-2 font-medium text-foreground">
                     <Brain className="w-4 h-4 text-purple-500" />
-                    <span>Flashcards (/20rules)</span>
+                    <span>{translateRecentFeature("i18nAudit.ui.flashcards-20rules.bd7616ba")}</span>
                   </div>
-                  <span className="text-[10px] text-muted-foreground group-hover:text-primary">Atomic Cards →</span>
+                  <span className="text-[10px] text-muted-foreground group-hover:text-primary">{translateRecentFeature("i18nAudit.ui.atomic-cards.e0a88e73")}</span>
                 </button>
 
                 <button
                   onClick={() => {
-                    const prompt = "What are the most important takeaways from this thread?";
+                    const prompt = translateRecentFeature("i18nAudit.ui.what-are-the-most-important-.8047db41");
                     setInput(prompt);
                     setTimeout(() => {
                       textareaRef.current?.focus();
@@ -4136,9 +4137,9 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 >
                   <div className="flex items-center gap-2 font-medium text-foreground">
                     <ChatCircleText className="w-4 h-4 text-emerald-500" />
-                    <span>Ask Questions</span>
+                    <span>{translateRecentFeature("i18nAudit.ui.ask-questions.7d483e07")}</span>
                   </div>
-                  <span className="text-[10px] text-muted-foreground group-hover:text-primary">Q&A Mode →</span>
+                  <span className="text-[10px] text-muted-foreground group-hover:text-primary">{translateRecentFeature("i18nAudit.ui.q-a-mode.1f7cf052")}</span>
                 </button>
               </div>
             )}
@@ -4182,10 +4183,10 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 )}
                 <span className="text-xs text-muted-foreground">
                   {message.role === "user"
-                    ? "You"
+                    ? translateRecentFeature("i18nAudit.ui.you.93c8e3db")
                     : message.role === "system"
-                      ? "System"
-                      : currentProvider?.name || "Assistant"}
+                      ? translateRecentFeature("i18nAudit.ui.system.9abb4fd4")
+                      : currentProvider?.name || t("i18nAudit.ui.assistant.26065da4")}
                 </span>
                 <span className="text-xs text-muted-foreground">
                   {new Date(message.timestamp).toLocaleTimeString()}
@@ -4209,7 +4210,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                         <img
                           key={img.id}
                           src={img.dataUrl}
-                          alt={img.fileName || "Attached image"}
+                          alt={img.fileName || t("i18nAudit.ui.attached-image.58fa6567")}
                           className="max-w-[120px] max-h-[120px] rounded-md object-cover cursor-pointer hover:opacity-80 transition-opacity"
                           onClick={() => window.open(img.dataUrl, "_blank")}
                         />
@@ -4306,7 +4307,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                     ) : (
                       <Brain className="w-3.5 h-3.5 text-purple-500" weight="duotone" />
                     )}
-                    <span className="text-[11px] font-medium leading-none">Flashcards</span>
+                    <span className="text-[11px] font-medium leading-none">{translateRecentFeature("i18nAudit.ui.flashcards.f05635b6")}</span>
                   </button>
                   <button
                     type="button"
@@ -4427,13 +4428,13 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 >
                   <img
                     src={img.dataUrl}
-                    alt={img.fileName || "Attached image"}
+                    alt={img.fileName || t("i18nAudit.ui.attached-image.58fa6567")}
                     className="w-16 h-16 object-cover"
                   />
                   <button
                     onClick={() => removeImage(img.id)}
                     className="absolute top-0 right-0 bg-black/60 text-white rounded-bl-md p-0.5 opacity-0 group-hover/thumb:opacity-100 transition-opacity"
-                    title="Remove image"
+                    title={translateRecentFeature("i18nAudit.ui.remove-image.94d5087c")}
                   >
                     <X className="w-3 h-3" />
                   </button>
@@ -4456,7 +4457,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               <Quotes className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
               <div className="min-w-0 flex-1">
                 <div className="truncate font-medium text-foreground">
-                  {pinnedSelection.documentTitle ?? "Selected text"}
+                  {pinnedSelection.documentTitle ?? t("i18nAudit.ui.selected-text.a75ca28e")}
                   {pinnedSelection.locator ? ` • ${pinnedSelection.locator}` : ""}
                 </div>
                 <div className="line-clamp-2 text-muted-foreground">
@@ -4468,8 +4469,8 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 data-testid="selection-context-clear"
                 onClick={clearPinnedSelection}
                 className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                title="Clear selection context"
-                aria-label="Clear selection context"
+                title={translateRecentFeature("i18nAudit.ui.clear-selection-context.ad8b83e6")}
+                aria-label={translateRecentFeature("i18nAudit.ui.clear-selection-context.ad8b83e6")}
               >
                 <X className="h-3.5 w-3.5" />
               </button>
@@ -4533,11 +4534,10 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                           },
                         });
                       }}
-                      title="Create Study Plan from this scope"
+                      title={translateRecentFeature("i18nAudit.ui.create-study-plan-from-this-.a18866a4")}
                     >
                       <GraduationCap className="inline w-3 h-3 mr-1" />
-                      Plan
-                    </button>
+                      {translateRecentFeature("i18nAudit.ui.plan.61a530d1")}</button>
                   )}
                   <button
                     type="button"
@@ -4703,7 +4703,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           {/* Available Tools Hint (desktop; the mobile add menu owns this discovery) */}
           {!mobilePresentation && <div className="text-xs text-muted-foreground flex items-center gap-1">
             <Sparkle className="w-3 h-3" />
-            <span>Type /tools to see available tools • # references sections of an open document</span>
+            <span>{translateRecentFeature("i18nAudit.ui.type-tools-to-see-available-.a2e087e4")}</span>
           </div>}
 
           {/* Section picker: portaled above the textarea, outside the scrolling composer */}
@@ -4777,8 +4777,8 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 composerMode === "agent"
                   ? t("assistant.agent.placeholder")
                   : attachedImages.length > 0
-                    ? "Ask about the attached image(s)..."
-                    : "Ask about your document, or type /help for commands..."
+                    ? translateRecentFeature("i18nAudit.ui.ask-about-the-attached-image.4098afb7")
+                    : translateRecentFeature("i18nAudit.ui.ask-about-your-document-or-t.639bda2d")
               }
               className={mobilePresentation
                 ? "max-h-40 min-h-11 min-w-0 flex-1 [@container(max-width:24rem)]:basis-full [@container(max-width:24rem)]:order-first resize-none bg-transparent px-1 py-2.5 text-foreground text-sm focus:outline-none"
@@ -4794,7 +4794,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                     type="button"
                     onClick={handleSendMessage}
                     disabled={!canSend}
-                    aria-label="Send message"
+                    aria-label={translateRecentFeature("i18nAudit.ui.send-message.8345772a")}
                     className="md-state flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
                   >
                     {isLoading ? (
@@ -4811,14 +4811,14 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isLoading || attachedImages.length >= MAX_ATTACHED_IMAGES}
                   className="px-2 py-1 bg-muted text-muted-foreground rounded-lg hover:bg-muted/80 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={attachedImages.length >= MAX_ATTACHED_IMAGES ? `Maximum ${MAX_ATTACHED_IMAGES} images` : "Attach image"}
+                  title={attachedImages.length >= MAX_ATTACHED_IMAGES ? t("i18nAudit.ui.maximum-var0-images.4b4b3100", {var0: MAX_ATTACHED_IMAGES}) : translateRecentFeature("i18nAudit.ui.attach-image.1589a3b7")}
                 >
                   <Images className="w-4 h-4" />
                 </button>
                 <button
                   onClick={handleSendMessage}
                   disabled={!canSend}
-                  aria-label="Send message"
+                  aria-label={translateRecentFeature("i18nAudit.ui.send-message.8345772a")}
                   data-agent-send
                   className="px-2 py-1 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                 >
@@ -4899,7 +4899,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           onMouseDown={handleResizeStart}
           onKeyDown={handleResizeKeyDown}
           role="separator"
-          aria-label="Resize Assistant panel"
+          aria-label={translateRecentFeature("i18nAudit.ui.resize-assistant-panel.55c31489")}
           aria-orientation="vertical"
           aria-valuemin={ASSISTANT_MIN_WIDTH}
           aria-valuemax={ASSISTANT_MAX_WIDTH}

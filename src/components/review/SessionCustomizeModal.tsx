@@ -26,6 +26,8 @@ import { applyPreset } from "../../lib/daqe/presets";
 import { DaqeKnobPanel } from "../queue/DaqeKnobPanel";
 import { DaqeDecisionModelSettings } from "../queue/DaqeDecisionModelSettings";
 import type { DaqePresetId } from "../../lib/daqe/presets";
+import { t as translateRecentFeature } from "../../lib/i18n";
+
 
 /** Whether two goal histories are the same list, for skipping a redundant write. */
 function sameGoalList(a: readonly string[], b: readonly string[]): boolean {
@@ -290,7 +292,7 @@ export function SessionCustomizeModal({
             type="text"
             value={saveQueueName}
             onChange={(e) => setSaveQueueName(e.target.value)}
-            placeholder={t("savedQueues.namePlaceholder") || "Queue name (e.g. Today's Focus)"}
+            placeholder={t("savedQueues.namePlaceholder")}
             className="min-h-11 min-w-0 flex-1 px-3 py-1.5 text-sm rounded border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             autoFocus
             onKeyDown={(e) => {
@@ -304,14 +306,14 @@ export function SessionCustomizeModal({
             disabled={!saveQueueName.trim()}
             className="min-h-11 px-3 py-1.5 text-xs md:text-sm bg-primary text-primary-foreground rounded hover:bg-primary/90 disabled:opacity-50 font-medium"
           >
-            {t("common.save") || "Save"}
+            {t("common.save")}
           </button>
           <button
             type="button"
             onClick={() => setShowSaveAs(false)}
             className="min-h-11 px-2 py-1.5 text-xs text-muted-foreground hover:text-foreground"
           >
-            {t("common.cancel") || "Cancel"}
+            {t("common.cancel")}
           </button>
         </div>
       )}
@@ -327,20 +329,20 @@ export function SessionCustomizeModal({
                 type="button"
                 onClick={() => setShowSaveAs(true)}
                 className={secondaryActionClass}
-                title={t("savedQueues.saveAsNewQueue") || "Save as New Queue"}
+                title={t("savedQueues.saveAsNewQueue")}
               >
                 <Bookmarks className="w-3.5 h-3.5 text-primary shrink-0" />
-                <span className="truncate">{t("savedQueues.saveAsNewQueue") || "Save as New Queue"}</span>
+                <span className="truncate">{t("savedQueues.saveAsNewQueue")}</span>
               </button>
               {activeQueue && (
                 <button
                   type="button"
                   onClick={() => void executeCommand({ id: "update-saved-queue", label: t("savedQueues.manageQueues"), action: () => handleUpdateActiveQueue() })}
                   className={secondaryActionClass}
-                  title={`${t("savedQueues.updateQueue") || "Update Queue"}: ${activeQueue.name}`}
+                  title={`${t("savedQueues.updateQueue")}: ${activeQueue.name}`}
                 >
                   <FloppyDisk className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-                  <span className="truncate">{savedFeedback ? "✓ Saved!" : `${t("savedQueues.updateQueue") || "Update"} (${activeQueue.name})`}</span>
+                  <span className="truncate">{savedFeedback ? translateRecentFeature("i18nAudit.ui.saved.d597ae88") : `${t("savedQueues.updateQueue")} (${activeQueue.name})`}</span>
                 </button>
               )}
             </>

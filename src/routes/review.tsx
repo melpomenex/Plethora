@@ -21,6 +21,8 @@ import { useI18n } from "../lib/i18n";
 import { requestTutorFollowUp, saveConversationalAssessment } from "../utils/conversationalReview";
 import { addEnergyLog } from "../utils/energyTracker";
 import { getReviewAccessibilityConfig } from "../utils/reviewAccessibility";
+import { t as translateRecentFeature } from "../lib/i18n";
+
 
 export function Review() {
   const {
@@ -450,11 +452,11 @@ export function Review() {
             onChange={(event) => setEnergyLevel(Number(event.target.value) as 1 | 2 | 3 | 4 | 5)}
             className="rounded border border-border bg-background px-2 py-1 text-xs"
           >
-            <option value={1}>1</option>
-            <option value={2}>2</option>
-            <option value={3}>3</option>
-            <option value={4}>4</option>
-            <option value={5}>5</option>
+            <option value={1}>{translateRecentFeature("i18nAudit.ui.1.7dece1fe")}</option>
+            <option value={2}>{translateRecentFeature("i18nAudit.ui.2.13db9c9c")}</option>
+            <option value={3}>{translateRecentFeature("i18nAudit.ui.3.cdc5389a")}</option>
+            <option value={4}>{translateRecentFeature("i18nAudit.ui.4.b6bca85d")}</option>
+            <option value={5}>{translateRecentFeature("i18nAudit.ui.5.def03de6")}</option>
           </select>
         </div>
       </div>}
@@ -762,8 +764,7 @@ export function Review() {
                   <div className="mt-3 rounded bg-muted/60 p-3">
                     <p className="text-sm text-foreground">{t("reviewLegacy.followUp")}: {conversationResult.question}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {t("reviewLegacy.score")}: {conversationResult.score}/100 • {conversationResult.feedback}
-                    </p>
+                      {t("reviewLegacy.score")}{translateRecentFeature("i18nAudit.ui.var0-100-var1.a8cd7502", {var0: conversationResult.score, var1: conversationResult.feedback})}</p>
                   </div>
                 )}
               </div>

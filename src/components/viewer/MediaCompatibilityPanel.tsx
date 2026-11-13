@@ -1,5 +1,5 @@
-import { useI18n } from "../../lib/i18n";
-import type { MediaPlaybackFailure, MediaPlaybackPlan } from "../../lib/media/types";
+import { useI18n, type TranslateFn } from "../../lib/i18n";
+import type { MediaPlaybackFailure, MediaPlaybackPlan, PlaybackStrategy } from "../../lib/media/types";
 import type { MediaCompatibilityState } from "../../hooks/useMediaCompatibility";
 import { cn } from "../../utils";
 
@@ -14,30 +14,41 @@ interface MediaCompatibilityPanelProps {
   onInstallHelp?: () => void;
 }
 
-function consentBody(plan: MediaPlaybackPlan): string {
+function consentBody(plan: MediaPlaybackPlan, t: TranslateFn): string {
   if (plan.consentReasons.includes("hdr_tone_mapping")) {
-    return "This is an HDR video. Preparing it will convert it to standard dynamic range, which changes how it looks and cannot be undone in the prepared copy.";
+    return t("mediaCompatibility.consent.hdrToneMapping");
   }
   if (plan.strategy === "video_transcode") {
-    return "This video's picture format is not supported by the system player. Preparing it will re-encode the video and may take a long time.";
+    return t("mediaCompatibility.consent.videoTranscode");
   }
   if (plan.strategy === "audio_transcode") {
-    return "This video's audio format is not supported by the system player. Plethora will convert only the audio track and keep the video unchanged.";
+    return t("mediaCompatibility.consent.audioTranscode");
   }
-  return "This video's container is not supported by the system player. Plethora will copy the video and audio into a compatible container.";
+  return t("mediaCompatibility.consent.remux");
 }
 
-function actionLabel(action: string): string {
+function actionLabel(action: string, t: TranslateFn): string {
   switch (action) {
-    case "retry": return "Retry";
-    case "convert": return "Prepare a compatible copy";
-    case "try_original": return "Try original anyway";
-    case "reimport": return "Re-import video";
-    case "manage_cache": return "Manage compatibility cache";
-    case "install_help": return "How to install FFmpeg";
-    case "resume": return "Resume";
-    case "show_details": return "Details";
-    default: return action;
+    case "retry": return t("common.retry");
+    case "convert": return t("mediaCompatibility.action.prepareCopy");
+    case "try_original": return t("mediaCompatibility.consent.tryOriginal");
+    case "reimport": return t("mediaCompatibility.action.reimportVideo");
+    case "manage_cache": return t("mediaCompatibility.action.manageCache");
+    case "install_help": return t("mediaCompatibility.action.installHelp");
+    case "resume": return t("mediaCompatibility.action.resume");
+    case "show_details": return t("mediaCompatibility.failure.details");
+    default: return t("mediaCompatibility.action.unknown", { var0: action });
+  }
+}
+
+function strategyLabel(strategy: PlaybackStrategy | undefined, t: TranslateFn): string {
+  switch (strategy) {
+    case "native": return t("mediaCompatibility.strategy.native");
+    case "remux": return t("mediaCompatibility.strategy.remux");
+    case "audio_transcode": return t("mediaCompatibility.strategy.audioTranscode");
+    case "video_transcode": return t("mediaCompatibility.strategy.videoTranscode");
+    case "unavailable": return t("mediaCompatibility.strategy.unavailable");
+    default: return t("mediaCompatibility.failure.unknown");
   }
 }
 
@@ -90,7 +101,10 @@ export function MediaCompatibilityPanel({
             </div>
             <p className="mt-2 text-xs text-muted-foreground">
               {job?.progress.processedSeconds != null && job.progress.durationSeconds
-                ? `${Math.floor(job.progress.processedSeconds)}s of ${Math.floor(job.progress.durationSeconds)}s`
+                ? t("mediaCompatibility.preparing.progressTime", {
+                    var0: Math.floor(job.progress.processedSeconds),
+                    var1: Math.floor(job.progress.durationSeconds),
+                  })
                 : t("mediaCompatibility.preparing.background", "You can keep using Plethora while this finishes.")}
             </p>
             <div className="mt-5 flex justify-end">
@@ -104,10 +118,12 @@ export function MediaCompatibilityPanel({
         {state.kind === "consent" && plan && (
           <>
             <h3 className="text-lg font-semibold">{t("mediaCompatibility.consent.title", "Prepare this video for playback?")}</h3>
-            <p className="mt-2 text-sm text-muted-foreground">{consentBody(plan)}</p>
+            <p className="mt-2 text-sm text-muted-foreground">{consentBody(plan, t)}</p>
             {plan.estimated?.outputBytesFloor ? (
               <p className="mt-2 text-xs text-muted-foreground">
-                {t("mediaCompatibility.consent.storage", "At least")} {Math.ceil(plan.estimated.outputBytesFloor / (1024 ** 3))} GB {t("mediaCompatibility.consent.storageSuffix", "of temporary storage may be needed.")}
+                {t("mediaCompatibility.consent.storageAmount", {
+                  var0: Math.ceil(plan.estimated.outputBytesFloor / (1024 ** 3)),
+                })}
               </p>
             ) : null}
             <div className="mt-5 flex flex-wrap justify-end gap-2">
@@ -151,7 +167,7 @@ export function MediaCompatibilityPanel({
                       else if (action === "install_help") onInstallHelp?.();
                     }}
                   >
-                    {actionLabel(action)}
+                    {actionLabel(action, t)}
                   </button>
                 ))}
               </div>
@@ -159,12 +175,12 @@ export function MediaCompatibilityPanel({
             <details className="mt-4 text-xs text-muted-foreground">
               <summary className="cursor-pointer select-none">{t("mediaCompatibility.failure.details", "Technical details")}</summary>
               <dl className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1">
-                <dt>Strategy</dt><dd>{plan?.strategy ?? "unknown"}</dd>
-                <dt>Failure</dt><dd>{failure.code}</dd>
-                <dt>Container</dt><dd>{state.inspection?.container ?? "unknown"}</dd>
-                <dt>Video</dt><dd>{state.inspection?.videoStreams.find((stream) => !stream.isAttachedPic)?.codec ?? "unknown"}</dd>
-                <dt>Audio</dt><dd>{state.inspection?.audioStreams[0]?.codec ?? "none"}</dd>
-                <dt>Subtitles</dt><dd>{state.inspection?.subtitleStreams.length ?? 0}</dd>
+                <dt>{t("mediaCompatibility.failure.strategy")}</dt><dd>{strategyLabel(plan?.strategy, t)}</dd>
+                <dt>{t("mediaCompatibility.failure.failure")}</dt><dd>{failure.code}</dd>
+                <dt>{t("mediaCompatibility.failure.container")}</dt><dd>{state.inspection?.container ?? t("mediaCompatibility.failure.unknown")}</dd>
+                <dt>{t("mediaCompatibility.failure.video")}</dt><dd>{state.inspection?.videoStreams.find((stream) => !stream.isAttachedPic)?.codec ?? t("mediaCompatibility.failure.unknown")}</dd>
+                <dt>{t("mediaCompatibility.failure.audio")}</dt><dd>{state.inspection?.audioStreams[0]?.codec ?? t("mediaCompatibility.failure.unknown")}</dd>
+                <dt>{t("mediaCompatibility.failure.subtitles")}</dt><dd>{state.inspection?.subtitleStreams.length ?? t("mediaCompatibility.failure.none")}</dd>
               </dl>
             </details>
           </>

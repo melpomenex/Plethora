@@ -3,6 +3,7 @@ import type { Tab } from "../../../stores";
 import { TabContextMenu } from "./TabContextMenu";
 import { CaretLeft, CaretRight, X } from "@phosphor-icons/react";
 import { getTabIcon } from "../../tabs/TabIcons";
+import { getTabTitleTranslationKey } from "../../tabs/TabRegistry";
 import { useI18n } from "../../../lib/i18n";
 import { LinuxWindowControls } from "./LinuxWindowControls";
 import { handleWindowDragRequest } from "../../../lib/windowDrag";
@@ -66,51 +67,8 @@ function TabBarImpl({
   const { t } = useI18n();
 
   const getTabTitle = (tab: Tab) => {
-    switch (tab.type) {
-      case "dashboard":
-        return t("nav.dashboard");
-      case "queue":
-        return t("nav.queue");
-      case "queue-scroll":
-        return t("queue.scrollMode");
-      case "review":
-        return t("review.title");
-      case "documents":
-        return t("nav.documents");
-      case "analytics":
-        return t("nav.analytics");
-      case "settings":
-        return t("nav.settings");
-      case "podcast":
-        return t("toolbar.podcasts");
-      case "audiobook":
-        return t("toolbar.audiobooks");
-      case "rss":
-        return t("dashboard.rssFeeds");
-      case "newsletter":
-        return t("newsletterDirectory.title");
-      case "knowledge-sphere":
-        return t("toolbar.knowledgeSphere");
-      case "knowledge-network":
-        return t("tabs.knowledgeNetwork");
-      case "doc-qa":
-        return t("toolbar.documentQA");
-      case "notebooklm":
-        return t("toolbar.notebooklm");
-      case "image-registry":
-        return t("nav.images");
-      case "continue-reading":
-        return t("nav.continue");
-      case "audiobook-epub-sync":
-        return t("tabs.audiobookSync");
-      case "web-browser":
-        if (tab.title === "Web Browser") {
-          return t("toolbar.webBrowser");
-        }
-        return tab.title;
-      default:
-        return tab.title;
-    }
+    const key = getTabTitleTranslationKey(tab.type, tab.title);
+    return key ? t(key) : tab.title;
   };
 
   const [contextMenu, setContextMenu] = useState<{

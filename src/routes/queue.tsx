@@ -43,6 +43,8 @@ import { getLearningItem, type LearningItem } from "../api/learning-items";
 import { formatDuration } from "../api/audiobooks";
 import { shouldYieldRowMenu } from "../lib/contextMenus";
 import { cardMutationCoordinator } from "../api/learningItemMutationCoordinator";
+import { t as translateRecentFeature } from "../lib/i18n";
+
 
 /**
  * The sort button cycles priority → overdue → title rather than toggling two
@@ -640,7 +642,7 @@ export function Queue() {
           <MagnifyingGlass className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground w-4 h-4" />
           <input
             type="text"
-            aria-label="Search queue"
+            aria-label={translateRecentFeature("i18nAudit.ui.search-queue.716067f5")}
             placeholder={t("queueLegacy.searchItems")}
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
@@ -902,10 +904,10 @@ export function Queue() {
                             <span
                               data-testid={`queue-item-audio-badge-${item.id}`}
                               className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 rounded shrink-0 font-medium"
-                              title={item.audioDurationSec ? `Audio Edition · ${formatDuration(item.audioDurationSec)}` : "Audio Edition"}
+                              title={item.audioDurationSec ? t("i18nAudit.ui.audio-edition-var0.7aa1bedd", {var0: formatDuration(item.audioDurationSec)}) : translateRecentFeature("i18nAudit.ui.audio-edition.13bc4ac9")}
                             >
                               <Headphones className="w-3 h-3" />
-                              <span>Audio Edition</span>
+                              <span>{translateRecentFeature("i18nAudit.ui.audio-edition.13bc4ac9")}</span>
                               {item.audioProgressPercent != null && item.audioProgressPercent > 0 && (
                                 <span className="text-[10px] opacity-80">· {Math.round(item.audioProgressPercent)}%</span>
                               )}
@@ -995,7 +997,7 @@ export function Queue() {
                           </div>
                           <input
                             type="range"
-                            aria-label="Priority"
+                            aria-label={translateRecentFeature("i18nAudit.ui.priority.e4388cbb")}
                             min={0}
                             max={100}
                             step={1}
@@ -1033,7 +1035,7 @@ export function Queue() {
                   <div className="flex items-center justify-between mt-3 pt-3 border-t border-border">
                       <div className="text-sm text-muted-foreground">
                         {item.estimatedTime > 0 && (
-                          <span>⏱️ {item.estimatedTime} min</span>
+                          <span>{translateRecentFeature("i18nAudit.ui.var0-min.c938fdfc", {var0: item.estimatedTime})}</span>
                         )}
                       </div>
 

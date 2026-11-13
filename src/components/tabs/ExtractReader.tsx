@@ -11,6 +11,8 @@ import { useI18n } from "../../lib/i18n";
 import { DocumentViewer, QueueTab } from "./TabRegistry";
 import { ExtractReaderView } from "../extracts/ExtractReaderView";
 import type { ExtractSourceContext } from "../../types/extractNavigation";
+import { t as translateRecentFeature } from "../../lib/i18n";
+
 
 interface ExtractReaderProps {
   extractId?: string;
@@ -149,7 +151,7 @@ export function ExtractReader({
     } else {
       addTab(
         {
-          title: "Queue",
+          title: translateRecentFeature("i18nAudit.ui.queue.cbc295a6"),
           icon: <ListBullets className="w-4 h-4 text-muted-foreground" />,
           type: "queue",
           content: QueueTab,

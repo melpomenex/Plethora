@@ -48,6 +48,8 @@ import {
   Target,
   TrendUp,
 } from "@phosphor-icons/react";
+import { t as translateRecentFeature } from "../../lib/i18n";
+
 
 interface QuickAction {
   id: string;
@@ -141,7 +143,7 @@ export function DashboardTab() {
 
   const openImportNeedsReview = () => {
     addTab({
-      title: "Import Needs Review",
+      title: translateRecentFeature("i18nAudit.ui.import-needs-review.fba4f59c"),
       icon: null,
       type: "import-needs-review",
       content: ImportNeedsReviewTab,
@@ -209,8 +211,8 @@ export function DashboardTab() {
     },
     {
       id: "audiobooks",
-      title: "Audiobooks",
-      description: "Manage and listen to audiobooks",
+      title: translateRecentFeature("i18nAudit.ui.audiobooks.0104e6dd"),
+      description: translateRecentFeature("i18nAudit.ui.manage-and-listen-to-audiobo.94d92d5b"),
       icon: Headphones,
       iconBg: "bg-amber-500/10 text-amber-500",
       tabType: "audiobook",

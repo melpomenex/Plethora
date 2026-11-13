@@ -50,16 +50,15 @@ export function DocumentsSettings() {
 
       {/* Smart Tagging */}
       <div>
-        <SettingsSearchTarget id="documents.smartTagging" label="Smart Tagging">
-        <h3 className="text-lg font-semibold mb-3 text-foreground">Smart Tagging</h3>
+        <SettingsSearchTarget id="documents.smartTagging" label={t("i18nAudit.ui.smart-tagging.5f0220e0")}>
+        <h3 className="text-lg font-semibold mb-3 text-foreground">{t("i18nAudit.ui.smart-tagging.5f0220e0")}</h3>
       </SettingsSearchTarget>
         <div className="rounded-xl border border-border bg-card p-4 space-y-4">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <p className="font-medium text-foreground">Enable Smart Tagging</p>
+              <p className="font-medium text-foreground">{t("i18nAudit.ui.enable-smart-tagging.dee75239")}</p>
               <p className="mt-1 max-w-xl text-xs leading-relaxed text-muted-foreground">
-                Automatically organize imported documents and web articles with high-confidence semantic topic tags. Works completely offline with zero setup, and enhances precision when an AI provider is active.
-              </p>
+                {t("i18nAudit.ui.automatically-organize-impor.ec0f5c72")}</p>
             </div>
             <label className="relative inline-flex shrink-0 cursor-pointer items-center">
               <input
@@ -91,10 +90,9 @@ export function DocumentsSettings() {
             <div className="pt-2 border-t border-border space-y-4">
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-sm font-medium text-foreground">Tagging Mode</p>
+                  <p className="text-sm font-medium text-foreground">{t("i18nAudit.ui.tagging-mode.abdc1f42")}</p>
                   <p className="text-xs text-muted-foreground">
-                    Choose whether tags are applied directly to imported documents or offered as suggestions
-                  </p>
+                    {t("i18nAudit.ui.choose-whether-tags-are-appl.08f208c6")}</p>
                 </div>
                 <select
                   value={settings.documents.smartTagging?.mode ?? "automatic"}
@@ -116,17 +114,16 @@ export function DocumentsSettings() {
                   }
                   className="px-3 py-1.5 text-sm rounded-md border border-border bg-background text-foreground"
                 >
-                  <option value="automatic">Automatic (Apply to documents)</option>
-                  <option value="suggestions-only">Suggestions Only (Inspector)</option>
+                  <option value="automatic">{t("i18nAudit.ui.automatic-apply-to-documents.a3a98c69")}</option>
+                  <option value="suggestions-only">{t("i18nAudit.ui.suggestions-only-inspector.0298575d")}</option>
                 </select>
               </div>
 
               <div className="flex items-center justify-between gap-4">
                 <div>
-                  <p className="text-sm font-medium text-foreground">Max Tags Per Document</p>
+                  <p className="text-sm font-medium text-foreground">{t("i18nAudit.ui.max-tags-per-document.cd54dcfd")}</p>
                   <p className="text-xs text-muted-foreground">
-                    Maximum number of automatic tags assigned to an item (3 to 8)
-                  </p>
+                    {t("i18nAudit.ui.maximum-number-of-automatic-.4bd05dbf")}</p>
                 </div>
                 <div className="flex items-center gap-3">
                   <input
@@ -161,10 +158,9 @@ export function DocumentsSettings() {
 
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-sm font-medium text-foreground">Prefer Existing Library Taxonomy</p>
+                  <p className="text-sm font-medium text-foreground">{t("i18nAudit.ui.prefer-existing-library-taxo.2715a026")}</p>
                   <p className="text-xs text-muted-foreground">
-                    Align incoming document subjects with existing tags in your library before creating new ones
-                  </p>
+                    {t("i18nAudit.ui.align-incoming-document-subj.f25dc1ec")}</p>
                 </div>
                 <label className="relative inline-flex shrink-0 cursor-pointer items-center">
                   <input

@@ -30,6 +30,8 @@ import {
   type LearningCardType,
 } from "../../lib/ai/schemas/learningMaterial";
 import { acceptLearnThisCandidates } from "./acceptLearnThis";
+import { t as translateRecentFeature } from "../../lib/i18n";
+
 
 /** Text card types a candidate may be switched to (occlusion needs Phase 2). */
 export const SWITCHABLE_CARD_TYPES = LEARNING_CARD_TYPES.filter(
@@ -265,7 +267,7 @@ export function LearnThisProposalSheet({
       for (const row of acceptedRows) {
         if (!perCandidateProposalIds[candidateSignature(row.candidate)]) {
           setPhase("error");
-          setError("study.cards.error.unknown_candidate");
+          setError(translateRecentFeature("i18nAudit.ui.study-cards-error-unknown-ca.d7c6dadf"));
           return;
         }
       }
@@ -408,9 +410,9 @@ export function LearnThisProposalSheet({
               {(run || staticProvenance) && (
                 <p className="text-[11px] text-muted-foreground">
                   {t("aiLearning.provenance", {
-                    provider: run?.run.providerId ?? staticProvenance?.provider ?? "unknown",
+                    provider: run?.run.providerId ?? staticProvenance?.provider ?? t("i18nAudit.ui.unknown.2eb9f926"),
                     modelClass:
-                      run?.run.servedModelClass ?? staticProvenance?.modelClass ?? "full",
+                      run?.run.servedModelClass ?? staticProvenance?.modelClass ?? t("i18nAudit.ui.full.78b9a612"),
                   })}
                 </p>
               )}

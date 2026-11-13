@@ -4,6 +4,7 @@ import { useTabsStore } from "../../stores/tabsStore";
 import { getTabIcon } from "../tabs/TabIcons";
 import { ActionButton } from "../common/UI";
 import { useI18n } from "../../lib/i18n";
+import { getTabTitleTranslationKey } from "../tabs/TabRegistry";
 
 interface WorkspaceSwitcherProps {
   isOpen: boolean;
@@ -33,15 +34,18 @@ export function WorkspaceSwitcher({ isOpen, onClose }: WorkspaceSwitcherProps) {
     return tabs
       .map((tab) => {
         const pane = findPaneContainingTab(tab.id);
+        const titleKey = getTabTitleTranslationKey(tab.type, tab.title);
+        const title = titleKey ? t(titleKey) : tab.title;
         return {
           tab,
+          title,
           paneId: pane?.id,
           isActive: pane?.activeTabId === tab.id,
           paneLabel: pane ? t("workspace.pane", { index: getTabPaneIds().indexOf(pane.id) + 1 }) : t("workspace.title"),
         };
       })
-      .filter(({ tab }) => !normalizedQuery || tab.title.toLowerCase().includes(normalizedQuery));
-  }, [findPaneContainingTab, query, rootPane, tabs]);
+      .filter(({ title }) => !normalizedQuery || title.toLowerCase().includes(normalizedQuery));
+  }, [findPaneContainingTab, query, rootPane, t, tabs]);
 
   if (!isOpen) return null;
 
@@ -78,7 +82,7 @@ export function WorkspaceSwitcher({ isOpen, onClose }: WorkspaceSwitcherProps) {
           {openTabs.length === 0 ? (
             <p className="px-2 py-6 text-center text-sm text-muted-foreground">{t("workspace.noMatchingTabs")}</p>
           ) : (
-            openTabs.map(({ tab, paneId, isActive, paneLabel }) => (
+            openTabs.map(({ tab, title, paneId, isActive, paneLabel }) => (
               <button
                 key={tab.id}
                 type="button"
@@ -89,7 +93,7 @@ export function WorkspaceSwitcher({ isOpen, onClose }: WorkspaceSwitcherProps) {
                 className="flex min-h-11 w-full items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 <span className="text-muted-foreground" aria-hidden="true">{getTabIcon(tab.type)}</span>
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{tab.title}</span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">{title}</span>
                 <span className="text-xs text-muted-foreground">{isActive ? t("workspace.active") : paneLabel}</span>
               </button>
             ))

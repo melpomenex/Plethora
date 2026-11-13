@@ -102,7 +102,7 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
   const handleSaveDeck = () => {
     const trimmedName = deckName.trim();
     if (!trimmedName) {
-      toast.error("Deck name cannot be empty");
+      toast.error(t("i18nAudit.ui.deck-name-cannot-be-empty.1a46dcc7"));
       return;
     }
 
@@ -110,7 +110,7 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
     if (deckType === "tags") {
       tagFilters = selectedTags;
       if (tagFilters.length === 0) {
-        toast.error("Please select at least one tag");
+        toast.error(t("i18nAudit.ui.please-select-at-least-one-t.b0fc164c"));
         return;
       }
     }
@@ -423,7 +423,7 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
                   onClick={async () => {
                     const versions = await getLearningItemVersions(card.id);
                     if (versions.length === 0) {
-                      toast.info("No revision history for this card yet.");
+                      toast.info(t("i18nAudit.ui.no-revision-history-for-this.7f84886d"));
                       return;
                     }
                     const choices = versions
@@ -443,7 +443,7 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
                     if (!selected) return;
                     const reverted = await revertLearningItemVersion(card.id, selected.version_id);
                     updateCardInState(reverted);
-                    toast.success("Card reverted to selected revision");
+                    toast.success(t("i18nAudit.ui.card-reverted-to-selected-re.4fd75b4c"));
                   }}
                   className="px-2 py-1 text-xs rounded border border-border text-foreground hover:bg-muted"
                   title={t("learningCards.versionHistory")}
@@ -464,7 +464,7 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
                       .filter(Boolean);
                     await setLearningItemPrerequisites(card.id, prerequisites);
                     setPrereqByCard((state) => ({ ...state, [card.id]: prerequisites }));
-                    toast.success("Prerequisites updated");
+                    toast.success(t("i18nAudit.ui.prerequisites-updated.5c705f36"));
                   }}
                   className="px-2 py-1 text-xs rounded border border-border text-foreground hover:bg-muted"
                   title={t("learningCards.prerequisites")}
@@ -540,21 +540,21 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
             <div className="flex items-center justify-between pt-3 border-t border-border text-xs text-muted-foreground">
               <div className="flex items-center gap-4">
                 <span>
-                  Due: {new Date(card.due_date).toLocaleDateString()}
+                  {t("i18nAudit.ui.due.a2c3b1db") + " "}{new Date(card.due_date).toLocaleDateString()}
                 </span>
                 <span className={cn("font-medium", getDifficultyColor(card.difficulty))}>
-                  Difficulty: {card.difficulty}/10
+                  {t("i18nAudit.ui.difficulty.4fd9b497") + " "}{card.difficulty}/10
                 </span>
-                <span>Interval: {card.interval}d</span>
+                <span>{t("i18nAudit.ui.interval.e3544c75") + " "}{card.interval}d</span>
                 {card.review_count > 0 && (
-                  <span>Reviews: {card.review_count}</span>
+                  <span>{t("i18nAudit.ui.reviews.d78edf44") + " "}{card.review_count}</span>
                 )}
               </div>
 
               {card.ease_factor != null && card.ease_factor !== 2.5 && (
                 <span className="flex items-center gap-1">
                   <ArrowsClockwise className="w-3 h-3" />
-                  EF: {card.ease_factor.toFixed(2)}
+                  {t("i18nAudit.ui.ease-factor.ccd4c3a4")} {card.ease_factor.toFixed(2)}
                 </span>
               )}
             </div>
@@ -570,14 +570,14 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
             )}
             {prereqByCard[card.id]?.length ? (
               <p className="mt-2 text-xs text-muted-foreground">
-                Prerequisites: {prereqByCard[card.id].join(", ")}
+                {t("i18nAudit.ui.prerequisites.408cb130") + " "}{prereqByCard[card.id].join(", ")}
               </p>
             ) : null}
 
             {qualityByCard[card.id] && (
               <div className="mt-3 rounded border border-border bg-muted/40 p-3">
                 <p className="text-xs font-medium text-foreground">
-                  Quality score: {qualityByCard[card.id].score}/100
+                  {t("i18nAudit.ui.quality-score.769f3117") + " "}{qualityByCard[card.id].score}/100
                 </p>
                 {qualityByCard[card.id].issues.length > 0 && (
                   <p className="mt-1 text-xs text-orange-500">
@@ -586,7 +586,7 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
                 )}
                 {qualityByCard[card.id].suggestions.length > 0 && (
                   <p className="mt-1 text-xs text-muted-foreground">
-                    Suggestion: {qualityByCard[card.id].suggestions[0]}
+                    {t("i18nAudit.ui.suggestion.4c79c235") + " "}{qualityByCard[card.id].suggestions[0]}
                   </p>
                 )}
               </div>
@@ -605,7 +605,7 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
             <div className="flex items-center justify-between border-b border-border pb-3">
               <div className="flex items-center gap-2">
                 <Brain className="w-5 h-5 text-primary" />
-                <h3 className="text-lg font-bold text-foreground">Save as Smart Deck</h3>
+                <h3 className="text-lg font-bold text-foreground">{t("i18nAudit.ui.save-as-smart-deck.32b3e7f9")}</h3>
               </div>
               <button
                 onClick={() => setIsModalOpen(false)}
@@ -618,22 +618,20 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
             {/* Input Name */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Deck Name
-              </label>
+                {t("i18nAudit.ui.deck-name.5a4e9c8e")}</label>
               <input
                 type="text"
                 value={deckName}
                 onChange={(e) => setDeckName(e.target.value)}
                 className="w-full bg-background border border-border focus:border-primary rounded-lg px-3 py-2 text-sm text-foreground focus:outline-none transition-colors"
-                placeholder="Enter deck name..."
+                placeholder={t("i18nAudit.ui.enter-deck-name.52dfa825")}
               />
             </div>
 
             {/* Smart Deck Types */}
             <div className="space-y-2">
               <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">
-                Select Smart Deck Strategy
-              </label>
+                {t("i18nAudit.ui.select-smart-deck-strategy.60b5969a")}</label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 {/* Option 1: All Cards */}
                 <button
@@ -647,8 +645,8 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
                 >
                   <Folder className={cn("w-5.5 h-5.5 mt-0.5", deckType === "all" ? "text-primary" : "text-muted-foreground")} />
                   <div>
-                    <div className="text-sm font-semibold text-foreground">All Document Cards</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">Includes all current and future cards of this document.</div>
+                    <div className="text-sm font-semibold text-foreground">{t("i18nAudit.ui.all-document-cards.b42ba436")}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{t("i18nAudit.ui.includes-all-current-and-fut.ee973d92")}</div>
                   </div>
                 </button>
 
@@ -664,8 +662,8 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
                 >
                   <Tag className={cn("w-5.5 h-5.5 mt-0.5", deckType === "tags" ? "text-primary" : "text-muted-foreground")} />
                   <div>
-                    <div className="text-sm font-semibold text-foreground">Tag Filtered</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">Focus only on cards matching specific tags/topics.</div>
+                    <div className="text-sm font-semibold text-foreground">{t("i18nAudit.ui.tag-filtered.68431c9d")}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{t("i18nAudit.ui.focus-only-on-cards-matching.cb114169")}</div>
                   </div>
                 </button>
 
@@ -681,8 +679,8 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
                 >
                   <Flame className={cn("w-5.5 h-5.5 mt-0.5", deckType === "cram" ? "text-primary" : "text-muted-foreground")} />
                   <div>
-                    <div className="text-sm font-semibold text-foreground">Cram / High Priority</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">Includes only due, new, learning, or lapsed cards.</div>
+                    <div className="text-sm font-semibold text-foreground">{t("i18nAudit.ui.cram-high-priority.a41049ec")}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{t("i18nAudit.ui.includes-only-due-new-learni.cf77bca1")}</div>
                   </div>
                 </button>
 
@@ -698,8 +696,8 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
                 >
                   <Gauge className={cn("w-5.5 h-5.5 mt-0.5", deckType === "difficulty" ? "text-primary" : "text-muted-foreground")} />
                   <div>
-                    <div className="text-sm font-semibold text-foreground">Difficulty Focused</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">Filter by card complexity or review difficulty level.</div>
+                    <div className="text-sm font-semibold text-foreground">{t("i18nAudit.ui.difficulty-focused.f91376f7")}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{t("i18nAudit.ui.filter-by-card-complexity-or.95562bee")}</div>
                   </div>
                 </button>
               </div>
@@ -709,10 +707,10 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
             {deckType === "tags" && (
               <div className="border border-border rounded-xl p-4 bg-muted/20 space-y-2 animate-in slide-in-from-top-2 duration-200">
                 <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">
-                  Select Tags to Include ({selectedTags.length})
+                  {t("i18nAudit.ui.select-tags-to-include.51bc7380")}{selectedTags.length})
                 </label>
                 {docTags.length === 0 ? (
-                  <div className="text-xs text-muted-foreground italic">No tags found on this document's cards.</div>
+                  <div className="text-xs text-muted-foreground italic">{t("i18nAudit.ui.no-tags-found-on-this-docume.77b7d6be")}</div>
                 ) : (
                   <div className="flex flex-wrap gap-1.5 max-h-[150px] overflow-y-auto pr-1">
                     {docTags.map((tag) => {
@@ -744,12 +742,11 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
             {deckType === "difficulty" && (
               <div className="border border-border rounded-xl p-4 bg-muted/20 space-y-2 animate-in slide-in-from-top-2 duration-200">
                 <label className="text-xs font-semibold uppercase tracking-wider text-muted-foreground block">
-                  Select Difficulty Levels
-                </label>
+                  {t("i18nAudit.ui.select-difficulty-levels.9c47fbda")}</label>
                 <div className="flex gap-2">
                   {[1, 2, 3, 4, 5].map((lvl) => {
                     const isSelected = selectedDifficulties.includes(lvl);
-                    const lvlLabel = lvl <= 2 ? "Easy" : lvl <= 4 ? "Medium" : "Hard";
+                    const lvlLabel = lvl <= 2 ? t("i18nAudit.ui.easy.7e86a36c") : lvl <= 4 ? t("i18nAudit.ui.medium.f85bb119") : t("i18nAudit.ui.hard.8a8a322e");
                     return (
                       <button
                         key={lvl}
@@ -780,15 +777,13 @@ export function LearningCardsList({ documentId }: LearningCardsListProps) {
                 onClick={() => setIsModalOpen(false)}
                 className="px-4 py-2 border border-border text-foreground hover:bg-muted text-sm font-medium rounded-lg transition-colors"
               >
-                Cancel
-              </button>
+                {t("i18nAudit.ui.cancel.a0edcd2c")}</button>
               <button
                 onClick={handleSaveDeck}
                 className="px-4 py-2 bg-primary text-primary-foreground hover:opacity-90 text-sm font-semibold rounded-lg transition-opacity flex items-center gap-1.5"
               >
                 <FloppyDisk className="w-4 h-4" />
-                Create Deck
-              </button>
+                {t("i18nAudit.ui.create-deck.0e80a694")}</button>
             </div>
           </div>
         </div>

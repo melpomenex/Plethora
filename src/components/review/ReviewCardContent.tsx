@@ -202,7 +202,7 @@ export const ReviewCardContent = React.memo(function ReviewCardContent({
         <div data-testid="occlusion-repair-state" className="rounded-xl border border-destructive/50 bg-destructive/10 p-4 text-sm text-destructive font-medium">
           <div className="flex items-center gap-2 mb-1">
             <WarningCircle className="w-5 h-5 shrink-0" />
-            <span>{t("review.invalidOcclusionGeometry") || "Invalid occlusion geometry"}</span>
+            <span>{t("review.invalidOcclusionGeometry")}</span>
           </div>
           <p className="text-xs opacity-90">{occlusionEval.message}</p>
         </div>
@@ -234,13 +234,13 @@ export const ReviewCardContent = React.memo(function ReviewCardContent({
 
           {assetState === "loading" && (
             <div data-testid="occlusion-loading" className="flex items-center justify-center p-8 text-sm text-muted-foreground animate-pulse">
-              {t("common.loading") || "Loading image asset..."}
+              {t("common.loading")}
             </div>
           )}
 
           {assetState === "error" && (
             <div data-testid="occlusion-missing-asset" className="rounded-xl border border-destructive/40 bg-destructive/10 p-4 text-sm text-destructive">
-              <p>{t("review.imageLoadFailed") || "Image asset unavailable or corrupted."}</p>
+              <p>{t("review.imageLoadFailed")}</p>
             </div>
           )}
 
@@ -252,7 +252,7 @@ export const ReviewCardContent = React.memo(function ReviewCardContent({
               >
                 <img
                   src={imageUrl}
-                  alt={t("review.imageOcclusionAlt") || "Image occlusion study prompt"}
+                  alt={t("review.imageOcclusionAlt")}
                   className="block h-auto w-auto max-h-[40dvh] max-w-full md:max-h-[calc(100dvh-32rem)]"
                 />
                 {visibleOverlays.map((region) => {
@@ -304,7 +304,7 @@ export const ReviewCardContent = React.memo(function ReviewCardContent({
                 className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
               >
                 <Eye className="w-4 h-4" />
-                {revealAllSiblings ? (t("review.hideAllLabels") || "Hide other labels") : (t("review.revealAllLabels") || "Reveal all labels")}
+                {revealAllSiblings ? t("review.hideAllLabels") : t("review.revealAllLabels")}
               </button>
             </div>
           )}
@@ -328,7 +328,7 @@ export const ReviewCardContent = React.memo(function ReviewCardContent({
         <div data-testid="cloze-repair-state" className="rounded-xl border border-amber-500/50 bg-amber-500/10 p-4 text-sm text-foreground">
           <div className="flex items-center gap-2 mb-1 text-amber-600 dark:text-amber-400 font-semibold">
             <WarningCircle className="w-5 h-5 shrink-0" />
-            <span>{t("review.clozeRepairRequired") || "Card requires repair"}</span>
+            <span>{t("review.clozeRepairRequired")}</span>
           </div>
           <p className="text-xs text-muted-foreground">{clozeEval.message}</p>
         </div>
@@ -356,7 +356,7 @@ export const ReviewCardContent = React.memo(function ReviewCardContent({
               <img
                 key={idx}
                 src={url}
-                alt={`Flashcard visual ${idx + 1}`}
+                alt={t("i18nAudit.ui.flashcard-visual-var0.1beb11e8", {var0: idx + 1})}
                 className="rounded-xl max-h-72 object-contain border border-border"
               />
             ))}
@@ -395,7 +395,7 @@ export const ReviewCardContent = React.memo(function ReviewCardContent({
             <img
               key={idx}
               src={url}
-              alt={`Flashcard visual ${idx + 1}`}
+              alt={t("i18nAudit.ui.flashcard-visual-var0.1beb11e8", {var0: idx + 1})}
               className="rounded-xl max-h-72 object-contain border border-border"
             />
           ))}

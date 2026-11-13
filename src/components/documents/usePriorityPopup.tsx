@@ -32,6 +32,8 @@ import {
   sliderToRating,
   resolveDisplaySlider,
 } from "../../services/priority/priorityCommit";
+import { t as translateRecentFeature } from "../../lib/i18n";
+
 
 export {
   PRIORITY_PRESETS,
@@ -312,11 +314,11 @@ function PriorityPopupBody({
           style={{ accentColor: info.color }}
         />
         <div className="flex items-center justify-between text-xs">
-          <span className="text-muted-foreground">0</span>
+          <span className="text-muted-foreground">{translateRecentFeature("i18nAudit.ui.0.3f09e04a")}</span>
           <span className="font-medium" style={{ color: info.color }}>
             {slider}
           </span>
-          <span className="text-muted-foreground">100</span>
+          <span className="text-muted-foreground">{translateRecentFeature("i18nAudit.ui.100.e3a8c6ed")}</span>
         </div>
       </div>
 

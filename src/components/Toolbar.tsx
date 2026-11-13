@@ -64,6 +64,8 @@ import { usePlatformCapability } from "../hooks/usePlatformCapability";
 import { ContextMenu, type ContextMenuItem } from "./common/ContextMenu";
 import { useSurfaceMenu } from "../hooks/useSurfaceMenu";
 import { toolbarMenuItemIds } from "../lib/contextMenus";
+import { t as translateRecentFeature } from "../lib/i18n";
+
 
 export type ToolbarPosition = "top" | "left" | "right";
 
@@ -113,7 +115,8 @@ function tourAnchorForButton(buttonId: string): { "data-tour"?: string } {
 }
 
 function ToolbarButtonItem({ button, orientation = "horizontal", expanded = false, active = false, onMenuEntry }: ToolbarButtonProps) {
-  const Icon = button.icon;
+        useI18n();
+        const Icon = button.icon;
   const isAudiobookGenerating =
     button.id === "audiobook" &&
     useAudioEditionGenerationStore((state) => state.activeJobs.length > 0);
@@ -161,7 +164,7 @@ function ToolbarButtonItem({ button, orientation = "horizontal", expanded = fals
           <span
             data-testid="audiobook-synthesis-badge"
             className="absolute -top-1 -right-1 flex h-2.5 w-2.5"
-            title="Audio edition synthesis in progress"
+            title={translateRecentFeature("i18nAudit.ui.audio-edition-synthesis-in-p.9264f9d7")}
           >
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
             <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-amber-500" />
@@ -414,7 +417,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const handleStartReview = () => {
     addTab({
-      title: "Review",
+      title: translateRecentFeature("tabs.review"),
       icon: <Brain className="w-4 h-4" />,
       type: "review",
       content: ReviewTab,
@@ -424,7 +427,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const handleStartReviewBackground = () => {
     addTabInBackground({
-      title: "Review",
+      title: translateRecentFeature("tabs.review"),
       icon: "🎴",
       type: "review",
       content: ReviewTab,
@@ -435,7 +438,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   // RSS button
   const handleRss = () => {
     addTab({
-      title: "RSS Feeds",
+      title: translateRecentFeature("i18nAudit.ui.rss-feeds.b2e0b3bb"),
       icon: <Newspaper className="w-4 h-4" />,
       type: "rss",
       content: RSSReader,
@@ -445,7 +448,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const handlePodcast = () => {
     addTab({
-      title: "Podcasts",
+      title: translateRecentFeature("i18nAudit.ui.podcasts.8a64829c"),
       icon: <Headphones className="w-4 h-4" />,
       type: "podcast",
       content: PodcastTab,
@@ -455,7 +458,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const handleAudiobooks = () => {
     addTab({
-      title: "Audiobooks",
+      title: translateRecentFeature("i18nAudit.ui.audiobooks.0104e6dd"),
       icon: <Headphones className="w-4 h-4" />,
       type: "audiobook",
       content: AudiobooksTab,
@@ -474,7 +477,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const handleContinueReading = () => {
     addTab({
-      title: "Continue Reading",
+      title: translateRecentFeature("i18nAudit.ui.continue-reading.25d33750"),
       icon: <Bookmarks className="w-4 h-4" />,
       type: "continue-reading",
       content: ContinueReadingTab,
@@ -484,7 +487,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const handleQueue = () => {
     addTab({
-      title: "Queue",
+      title: translateRecentFeature("i18nAudit.ui.queue.cbc295a6"),
       icon: <Stack className="w-4 h-4" />,
       type: "queue",
       content: QueueTab,
@@ -503,7 +506,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   // Knowledge Graph button
   const handleKnowledgeGraph = () => {
     addTab({
-      title: "Knowledge Graph",
+      title: translateRecentFeature("i18nAudit.ui.knowledge-graph.94c23b23"),
       icon: <Graph className="w-4 h-4" />,
       type: "knowledge-network",
       content: KnowledgeGraphPage,
@@ -513,7 +516,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const handleKnowledgeGraphBackground = () => {
     addTabInBackground({
-      title: "Knowledge Graph",
+      title: translateRecentFeature("i18nAudit.ui.knowledge-graph.94c23b23"),
       icon: "🕸️",
       type: "knowledge-network",
       content: KnowledgeGraphPage,
@@ -524,7 +527,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   // Knowledge Sphere button (3D)
   const handleKnowledgeSphere = () => {
     addTab({
-      title: "Knowledge Sphere",
+      title: translateRecentFeature("i18nAudit.ui.knowledge-sphere.77a508a6"),
       icon: <Planet className="w-4 h-4" />,
       type: "knowledge-sphere",
       content: KnowledgeSpherePage,
@@ -534,7 +537,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const handleKnowledgeSphereBackground = () => {
     addTabInBackground({
-      title: "Knowledge Sphere",
+      title: translateRecentFeature("i18nAudit.ui.knowledge-sphere.77a508a6"),
       icon: "🌐",
       type: "knowledge-sphere",
       content: KnowledgeSpherePage,
@@ -545,7 +548,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   // Web Browser button
   const handleWebBrowser = () => {
     addTab({
-      title: "Web Browser",
+      title: translateRecentFeature("i18nAudit.ui.web-browser.e6cc7829"),
       icon: <Desktop className="w-4 h-4" />,
       type: "web-browser",
       content: WebBrowserTab,
@@ -555,7 +558,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const handleWebBrowserBackground = () => {
     addTabInBackground({
-      title: "Web Browser",
+      title: translateRecentFeature("i18nAudit.ui.web-browser.e6cc7829"),
       icon: "🌐",
       type: "web-browser",
       content: WebBrowserTab,
@@ -566,7 +569,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   // Doc Q&A button
   const handleDocQA = () => {
     addTab({
-      title: "Document Q&A",
+      title: translateRecentFeature("i18nAudit.ui.document-q-a.1e7a5150"),
       icon: <ChatCircle className="w-4 h-4" />,
       type: "doc-qa",
       content: DocumentQATab,
@@ -576,7 +579,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const handleDocQABackground = () => {
     addTabInBackground({
-      title: "Document Q&A",
+      title: translateRecentFeature("i18nAudit.ui.document-q-a.1e7a5150"),
       icon: "🤖",
       type: "doc-qa",
       content: DocumentQATab,
@@ -587,7 +590,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   // NotebookLM button
   const handleNotebookLM = () => {
     addTab({
-      title: "NotebookLM",
+      title: translateRecentFeature("i18nAudit.ui.notebooklm.32ae2995"),
       icon: <Sparkle className="w-4 h-4" />,
       type: "notebooklm",
       content: NotebookLMTab,
@@ -597,7 +600,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const handleNotebookLMBackground = () => {
     addTabInBackground({
-      title: "NotebookLM",
+      title: translateRecentFeature("i18nAudit.ui.notebooklm.32ae2995"),
       icon: "✨",
       type: "notebooklm",
       content: NotebookLMTab,
@@ -648,7 +651,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const handleSettings = () => {
     addTab({
-      title: "Settings",
+      title: translateRecentFeature("i18nAudit.ui.settings.f49d4b34"),
       icon: <Gear className="w-4 h-4" />,
       type: "settings",
       content: SettingsTab,
@@ -658,7 +661,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const handleSettingsBackground = () => {
     addTabInBackground({
-      title: "Settings",
+      title: translateRecentFeature("i18nAudit.ui.settings.f49d4b34"),
       icon: "⚙️",
       type: "settings",
       content: SettingsTab,
@@ -698,7 +701,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
     if (item.itemType === "learning-item") {
       addTab({
-        title: "Review",
+        title: translateRecentFeature("tabs.review"),
         icon: <Brain className="w-4 h-4" />,
         type: "review",
         content: ReviewTab,

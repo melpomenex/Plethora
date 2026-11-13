@@ -181,6 +181,8 @@ import {
   SelectionActionBar,
   type SelectionBarAction,
 } from "../components/viewer/selectionInteraction/SelectionActionBar";
+import { t as translateRecentFeature } from "../lib/i18n";
+
 
 /**
  * Default item types for a Scroll Mode tab whose `data` carries no
@@ -2898,7 +2900,7 @@ export function QueueScrollPage() {
         const extractContent = [assistantItem.extract.content, assistantItem.extract.notes]
           .filter(Boolean)
           .join("\n\n");
-        const title = assistantItem.documentTitle ? `Title: ${assistantItem.documentTitle}` : null;
+        const title = assistantItem.documentTitle ? translateRecentFeature("i18nAudit.ui.title-var0.5216c02e", {var0: assistantItem.documentTitle}) : null;
         const content = [title, extractContent].filter(Boolean).join("\n\n");
         const trimmed = content ? await trimToTokenWindow(content, maxTokens, aiModel, selection, debouncedScrollPercent) : undefined;
         try {
@@ -2933,7 +2935,7 @@ export function QueueScrollPage() {
       }
 
       if (assistantItem.type === "rss") {
-        const title = assistantItem.rssItem?.title ? `Title: ${assistantItem.rssItem?.title}` : null;
+        const title = assistantItem.rssItem?.title ? translateRecentFeature("i18nAudit.ui.title-var0.5216c02e", {var0: assistantItem.rssItem?.title}) : null;
         const rssContent = assistantItem.rssItem?.content || assistantItem.rssItem?.description;
         const content = [title, rssContent].filter(Boolean).join("\n\n");
         const trimmed = content ? await trimToTokenWindow(content, maxTokens, aiModel, rssSelectedText, debouncedScrollPercent) : undefined;
@@ -4471,7 +4473,7 @@ export function QueueScrollPage() {
         createdExtract && sourceContext
           ? {
               action: {
-                label: "View extract",
+                label: translateRecentFeature("i18nAudit.ui.view-extract.f40d27bd"),
                 onClick: () => openExtractInDocumentTab({
                   documentId,
                   documentTitle: rssItem.title || renderedItem.documentTitle,
@@ -4695,8 +4697,7 @@ export function QueueScrollPage() {
               }}
               className="px-4 py-2 bg-muted text-foreground border border-border rounded-lg hover:bg-accent transition-colors text-sm font-medium"
             >
-              Reset Filters
-            </button>
+              {translateRecentFeature("i18nAudit.ui.reset-filters.4d4f5e0b")}</button>
             <button
               onClick={handleExit}
               className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity text-sm font-medium"
@@ -4834,7 +4835,7 @@ export function QueueScrollPage() {
                   });
                   toast.success(t("queueScroll.extractCreated"), t("queueScroll.savedInScrollMode"), {
                     action: {
-                      label: "View extract",
+                      label: translateRecentFeature("i18nAudit.ui.view-extract.f40d27bd"),
                       onClick: () => openExtractInDocumentTab({
                         documentId: renderedItem.documentId!,
                         documentTitle: renderedItem.documentTitle,
@@ -4940,7 +4941,7 @@ export function QueueScrollPage() {
                           className="flex items-center gap-1 px-2 py-1 bg-muted hover:bg-muted/80 text-muted-foreground hover:text-foreground border border-border/40 rounded-lg text-xs transition-colors mobile-density-tap"
                         >
                           {isImageExpanded ? <EyeSlash className="w-3.5 h-3.5 mr-0.5" /> : <Eye className="w-3.5 h-3.5 mr-0.5" />}
-                          {isImageExpanded ? "Hide cover image" : "Show cover image"}
+                          {isImageExpanded ? translateRecentFeature("i18nAudit.ui.hide-cover-image.a01ebb5d") : translateRecentFeature("i18nAudit.ui.show-cover-image.1e03ec54")}
                         </button>
                       )}
                       <button
@@ -4951,10 +4952,10 @@ export function QueueScrollPage() {
                             ? "bg-blue-600 border-blue-500 text-white shadow-blue-500/20 hover:bg-blue-700"
                             : "bg-blue-500/10 border-blue-500/40 text-blue-400 hover:bg-blue-500/20 hover:text-blue-300 hover:border-blue-400"
                         )}
-                        title={showFullContent ? "Show RSS Content" : "View Full Content"}
+                        title={showFullContent ? translateRecentFeature("i18nAudit.ui.show-rss-content.b3a04aa4") : translateRecentFeature("i18nAudit.ui.view-full-content.ef50931e")}
                       >
                         <TextT className="w-3.5 h-3.5 mr-0.5" />
-                        {showFullContent ? "Show RSS Content" : "View Full Content"}
+                        {showFullContent ? translateRecentFeature("i18nAudit.ui.show-rss-content.b3a04aa4") : translateRecentFeature("i18nAudit.ui.view-full-content.ef50931e")}
                       </button>
                     </div>
                   </div>
@@ -4963,11 +4964,11 @@ export function QueueScrollPage() {
                     <div
                       onClick={() => setIsImageExpanded(true)}
                       className="w-20 h-20 md:w-28 md:h-28 rounded-xl overflow-hidden border border-border/60 bg-muted/30 flex-shrink-0 cursor-pointer hover:scale-105 active:scale-95 transition-all duration-300 shadow-sm"
-                      title="Click to expand cover image"
+                      title={translateRecentFeature("i18nAudit.ui.click-to-expand-cover-image.a4bf4184")}
                     >
                       <img
                         src={renderedItem.rssItem.thumbnail}
-                        alt="Cover thumbnail"
+                        alt={translateRecentFeature("i18nAudit.ui.cover-thumbnail.78056f34")}
                         className="w-full h-full object-cover"
                         loading="lazy"
                       />
@@ -4986,7 +4987,7 @@ export function QueueScrollPage() {
                     <button
                       onClick={() => setIsImageExpanded(false)}
                       className="absolute top-3 right-3 p-2 bg-black/60 hover:bg-black/80 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity shadow-lg"
-                      title="Collapse image"
+                      title={translateRecentFeature("i18nAudit.ui.collapse-image.7d9f8fb3")}
                     >
                       <EyeSlash className="w-4 h-4" />
                     </button>
@@ -4997,15 +4998,14 @@ export function QueueScrollPage() {
                 {showFullContent && loadingFullContent.has(renderedItem.rssItem.id) ? (
                   <div className="flex flex-col items-center justify-center py-20 space-y-4">
                     <CircleNotch className="w-8 h-8 animate-spin text-blue-500" />
-                    <p className="text-sm text-muted-foreground animate-pulse">Fetching full article content...</p>
+                    <p className="text-sm text-muted-foreground animate-pulse">{translateRecentFeature("i18nAudit.ui.fetching-full-article-conten.983f0b7e")}</p>
                   </div>
                 ) : showFullContent && fullContentErrors.has(renderedItem.rssItem.id) ? (
                   <div className="flex flex-col items-center justify-center py-16 space-y-4 px-6 text-center">
                     <WarningCircle className="w-10 h-10 text-red-500 animate-bounce" />
                     <div>
                       <p className="text-sm font-semibold text-foreground mb-1">
-                        Failed to load full content
-                      </p>
+                        {translateRecentFeature("i18nAudit.ui.failed-to-load-full-content.1d697bca")}</p>
                       <p className="text-xs text-muted-foreground max-w-md">{fullContentErrors.get(renderedItem.rssItem.id)}</p>
                     </div>
                     <div className="flex gap-2 justify-center">
@@ -5026,8 +5026,7 @@ export function QueueScrollPage() {
                         className="flex items-center gap-1.5 px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors text-xs font-semibold shadow-md shadow-blue-500/10"
                       >
                         <ArrowsClockwise className="w-3.5 h-3.5" />
-                        Retry
-                      </button>
+                        {translateRecentFeature("assistant.actions.retry")}</button>
                       <button
                         onClick={() => {
                           if (renderedItem.rssItem?.link) {
@@ -5037,8 +5036,7 @@ export function QueueScrollPage() {
                         className="flex items-center gap-1.5 px-4 py-2 bg-muted hover:bg-muted/80 text-foreground border border-border rounded-lg transition-colors text-xs font-semibold"
                       >
                         <ArrowSquareOut className="w-3.5 h-3.5" />
-                        Open Original
-                      </button>
+                        {translateRecentFeature("i18nAudit.ui.open-original.da5bb73a")}</button>
                     </div>
                   </div>
                 ) : (renderedItem.rssItem?.content || renderedItem.rssItem?.description || (showFullContent && fullContentMap.get(renderedItem.rssItem.id))) ? (
@@ -5245,7 +5243,7 @@ export function QueueScrollPage() {
             });
             toast.success(t("queueScroll.extractCreated"), t("queueScroll.savedInScrollMode"), {
               action: {
-                label: "View extract",
+                label: translateRecentFeature("i18nAudit.ui.view-extract.f40d27bd"),
                 onClick: () => openExtractInDocumentTab({
                   documentId: renderedItem.documentId!,
                   documentTitle: renderedItem.documentTitle,
@@ -5392,7 +5390,7 @@ export function QueueScrollPage() {
               onClick={() => void handleCreateRssExtract()}
               className="group flex items-center gap-3 rounded-xl bg-primary px-4 py-3 text-primary-foreground shadow-lg ring-1 ring-primary/20 transition-all min-h-[52px] text-sm font-semibold hover:-translate-y-0.5 hover:shadow-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 active:translate-y-0"
               title={t("viewer.createExtractFromSelection")}
-              aria-label={`Create extract from selected text (${activeRssSelection.length} characters)`}
+              aria-label={translateRecentFeature("i18nAudit.ui.create-extract-from-selected.5edcdc28", {var0: activeRssSelection.length})}
             >
               <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-foreground/14 transition-colors group-hover:bg-primary-foreground/20">
                 <Lightbulb className="w-5 h-5" aria-hidden="true" />

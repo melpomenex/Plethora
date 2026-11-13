@@ -97,6 +97,8 @@ import { useStartupStore } from "../../stores/startupStore";
 import { useCollectionStore } from "../../stores/collectionStore";
 import { SavedQueueDropdown } from "../queue/SavedQueueDropdown";
 import { ManageSavedQueuesModal } from "../queue/ManageSavedQueuesModal";
+import { t as translateRecentFeature } from "../../lib/i18n";
+
 
 type QueueMode = "reading" | "review" | "schedule";
 
@@ -879,14 +881,14 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       await postponeItem(item.id, days);
       toast.success(t("queue.postponed"), t("queue.reviewScheduleUpdated", { days }), {
         action: {
-          label: "Undo",
+          label: translateRecentFeature("i18nAudit.ui.undo.7f642ec8"),
           onClick: async () => {
             try {
               await postponeItem(item.id, -days);
               await refreshQueue();
-              toast.success("Restored", t("queue.scheduleUpdated"));
+              toast.success(translateRecentFeature("i18nAudit.ui.restored.d7d0ff77"), t("queue.scheduleUpdated"));
             } catch (error) {
-              toast.error("Could not restore item", error instanceof Error ? error.message : "Please refresh and try again.");
+              toast.error(translateRecentFeature("i18nAudit.ui.could-not-restore-item.63d52c11"), error instanceof Error ? error.message : "Please refresh and try again.");
             }
           },
         },
@@ -1363,8 +1365,8 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
               onChange={(e) => setQueueSortMode(e.target.value as "priority" | "overdue-desc")}
               className="px-2 py-1 text-xs rounded border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
             >
-              <option value="priority">Sort: Priority</option>
-              <option value="overdue-desc">Sort: Overdue Days</option>
+              <option value="priority">{translateRecentFeature("i18nAudit.ui.sort-priority.cea89fe4")}</option>
+              <option value="overdue-desc">{translateRecentFeature("i18nAudit.ui.sort-overdue-days.92c544d9")}</option>
             </select>
           )}
 
@@ -1418,13 +1420,13 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
             onChange={(event) => handleSetPreset(event.target.value as QueueStrategyPresetId)}
             className="px-3 py-2 bg-background border border-border rounded-md text-sm"
           >
-            <optgroup label="Adaptive Ranking (DAQE)">
+            <optgroup label={translateRecentFeature("i18nAudit.ui.adaptive-ranking-daqe.c66f4b73")}>
               <option value="deep-work-sprint">{t("daqePreset.deepWorkSprint")}</option>
               <option value="tired-mobile-commute">{t("daqePreset.tiredMobileCommute")}</option>
               <option value="ruthless-triage">{t("daqePreset.ruthlessTriage")}</option>
               <option value="balanced-discovery">{t("daqePreset.balancedDiscovery")}</option>
             </optgroup>
-            <optgroup label="Strategy Presets">
+            <optgroup label={translateRecentFeature("i18nAudit.ui.strategy-presets.f211e9ce")}>
               <option value="maximize-retention">{t("queuePreset.maximizeRetention")}</option>
               <option value="minimize-time">{t("queuePreset.minimizeTime")}</option>
               <option value="aggressive-catchup">{t("queuePreset.aggressiveCatchUp")}</option>
@@ -1472,8 +1474,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
               onClick={() => setShowDaqeKnobs(false)}
               className="text-xs text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted"
             >
-              Close
-            </button>
+              {translateRecentFeature("common.close")}</button>
           </div>
           <DaqeKnobPanel
             knobs={daqeSettings.knobs}
@@ -1658,7 +1659,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                 description={items.length === 0 ? t("emptyState.queueDesc") : t("queue.noMatchingFilters")}
                 action={items.length === 0 ? {
                   label: t("emptyState.goToDocuments"),
-                  onClick: () => window.dispatchEvent(new CustomEvent("navigate", { detail: "/documents" })),
+                  onClick: () => window.dispatchEvent(new CustomEvent("navigate", { detail: translateRecentFeature("i18nAudit.ui.documents.93acdeb5") })),
                 } : {
                   label: t("queue.showAllItems"),
                   onClick: () => setQueueFilterMode("all-items"),
@@ -1731,7 +1732,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                                 const rssId = item.id.replace("rss-", "");
                                 useRssStudyStore.getState().setActiveArticleToView(rssId);
                                 useTabsStore.getState().addTab({
-                                  title: "RSS",
+                                  title: translateRecentFeature("i18nAudit.ui.rss.35632c04"),
                                   icon: <Rss className="w-4 h-4" />,
                                   type: "rss",
                                   content: RssTab,
@@ -1783,7 +1784,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                                       }`}
                                       title={
                                         fsrsInfo.isOverdue && fsrsInfo.nextReviewDate
-                                          ? `Outstanding since ${fsrsInfo.nextReviewDate.toLocaleDateString(locale)} (${overdueDays}d overdue)`
+                                          ? t("i18nAudit.ui.outstanding-since-var0-var1-.8dfb6549", {var0: fsrsInfo.nextReviewDate.toLocaleDateString(locale), var1: overdueDays})
                                           : t("queue.nextReviewTitle", {
                                               date: fsrsInfo.nextReviewDate
                                                 ? fsrsInfo.nextReviewDate.toLocaleDateString(locale)
@@ -1795,9 +1796,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                                       {fsrsInfo.statusLabel}
                                     </span>
                                     {overdueDays > 0 && (
-                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-500/10 text-red-500">
-                                        {overdueDays}d overdue
-                                      </span>
+                                      <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-500/10 text-red-500">{translateRecentFeature("i18nAudit.ui.var0-d-overdue.340e0452", {var0: overdueDays})}</span>
                                     )}
                                   </>
                                 );
@@ -1805,17 +1804,16 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                               {item.itemType === "rss-article" && (
                                 <span className="px-2 py-0.5 rounded text-xs font-medium bg-orange-500/10 text-orange-600 dark:text-orange-400">
                                   <Rss className="w-3 h-3 inline mr-1 align-middle" />
-                                  RSS
-                                </span>
+                                  {translateRecentFeature("i18nAudit.ui.rss.35632c04")}</span>
                               )}
                               {item.hasAudioEdition && (
                                 <span
                                   data-testid={`queue-item-audio-badge-${item.id}`}
                                   className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center gap-1 shrink-0"
-                                  title={item.audioDurationSec ? `Audio Edition · ${formatDuration(item.audioDurationSec)}` : "Audio Edition"}
+                                  title={item.audioDurationSec ? t("i18nAudit.ui.audio-edition-var0.7aa1bedd", {var0: formatDuration(item.audioDurationSec)}) : translateRecentFeature("i18nAudit.ui.audio-edition.13bc4ac9")}
                                 >
                                   <Headphones className="w-3 h-3 inline mr-0.5" />
-                                  <span>Audio Edition</span>
+                                  <span>{translateRecentFeature("i18nAudit.ui.audio-edition.13bc4ac9")}</span>
                                   {item.audioProgressPercent != null && item.audioProgressPercent > 0 && (
                                     <span className="text-[10px] opacity-80">· {Math.round(item.audioProgressPercent)}%</span>
                                   )}
@@ -2062,10 +2060,10 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
                               <span
                                 data-testid={`queue-item-audio-badge-${item.id}`}
                                 className="px-2 py-0.5 rounded text-xs font-medium bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 flex items-center gap-1 shrink-0"
-                                title={item.audioDurationSec ? `Audio Edition · ${formatDuration(item.audioDurationSec)}` : "Audio Edition"}
+                                title={item.audioDurationSec ? t("i18nAudit.ui.audio-edition-var0.7aa1bedd", {var0: formatDuration(item.audioDurationSec)}) : translateRecentFeature("i18nAudit.ui.audio-edition.13bc4ac9")}
                               >
                                 <Headphones className="w-3 h-3 inline mr-0.5" />
-                                <span>Audio Edition</span>
+                                <span>{translateRecentFeature("i18nAudit.ui.audio-edition.13bc4ac9")}</span>
                                 {item.audioProgressPercent != null && item.audioProgressPercent > 0 && (
                                   <span className="text-[10px] opacity-80">· {Math.round(item.audioProgressPercent)}%</span>
                                 )}
@@ -2351,7 +2349,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
           <div
             ref={ctxMenuRef}
             role="menu"
-            aria-label={`Actions for ${ctxItem.documentTitle}`}
+            aria-label={translateRecentFeature("i18nAudit.ui.actions-for-var0.9c112300", {var0: ctxItem.documentTitle})}
             className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[220px] animate-in fade-in-0 zoom-in-95 duration-100"
             style={{ left: ctxPos.x, top: ctxPos.y }}
           >
@@ -2614,7 +2612,8 @@ const PriorityGlyph = React.memo(function PriorityGlyph({ vector }: { vector: Re
 });
 
 const StatusPill = React.memo(function StatusPill({ status }: { status: ReturnType<typeof getQueueStatus> }) {
-  const label = getStatusLabel(status);
+        useI18n();
+        const label = getStatusLabel(status);
   const styles =
     status === "drifted"
       ? "bg-slate-500/15 text-slate-200 dark:text-slate-300"
@@ -2630,7 +2629,7 @@ const StatusPill = React.memo(function StatusPill({ status }: { status: ReturnTy
                 ? "bg-amber-500/15 text-amber-600 dark:text-amber-300"
                 : "bg-emerald-500/15 text-emerald-600 dark:text-emerald-300";
   return (
-    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${styles}`} role="status" aria-label={`Queue status: ${label}`}>
+    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${styles}`} role="status" aria-label={translateRecentFeature("i18nAudit.ui.queue-status-var0.551725a1", {var0: label})}>
       {label}
     </span>
   );

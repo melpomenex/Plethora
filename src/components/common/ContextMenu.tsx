@@ -7,6 +7,8 @@ import { useState, useCallback, useEffect, useRef, ReactNode } from "react";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { MobileContextMenuSheet, mobileSheetItemClass } from "./MobileContextMenuSheet";
 import { useOverlayDismissal } from "../../hooks/useOverlayDismissal";
+import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
+
 
 /**
  * Context menu item type
@@ -27,6 +29,7 @@ export interface ContextMenuItem {
   id: string;
   type?: ContextMenuItemType;
   label: string;
+  labelKey?: string;
   icon?: ReactNode;
   shortcut?: string;
   /** Disabled reason surfaced as a tooltip (hide-vs-disable rule). */
@@ -209,6 +212,7 @@ export function ContextMenu({
    */
   preserveSelection?: boolean;
 }) {
+  const { t } = useI18n();
   const menuRef = useRef<HTMLDivElement>(null);
   const [submenuState, setSubmenuState] = useState<{
     itemId: string | null;
@@ -404,7 +408,7 @@ export function ContextMenu({
               <button
                 className="p-1 -ml-1 rounded active:bg-muted"
                 onClick={() => setMobileSubmenuStack((s) => s.slice(0, -1))}
-                aria-label="Back"
+                aria-label={translateRecentFeature("common.back")}
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -572,7 +576,7 @@ export function ContextMenu({
                 )}
 
                 {/* Label */}
-                <span className="flex-1">{item.label}</span>
+                <span className="flex-1">{item.labelKey ? t(item.labelKey) : item.label}</span>
 
                 {/* Shortcut */}
                 {item.shortcut && (
@@ -658,46 +662,46 @@ export function withContextMenu<P extends object>(
  */
 export const CommonContextMenus = {
   text: [
-    { id: "copy", label: "Copy", shortcut: "Ctrl+C", type: ContextMenuItemType.Normal },
-    { id: "cut", label: "Cut", shortcut: "Ctrl+X", type: ContextMenuItemType.Normal },
-    { id: "paste", label: "Paste", shortcut: "Ctrl+V", type: ContextMenuItemType.Normal },
+    { id: "copy", label: "Copy", labelKey: "contextMenu.copy", shortcut: "Ctrl+C", type: ContextMenuItemType.Normal },
+    { id: "cut", label: "Cut", labelKey: "contextMenu.cut", shortcut: "Ctrl+X", type: ContextMenuItemType.Normal },
+    { id: "paste", label: "Paste", labelKey: "contextMenu.paste", shortcut: "Ctrl+V", type: ContextMenuItemType.Normal },
     { id: "sep1", type: ContextMenuItemType.Separator },
-    { id: "select-all", label: "Select All", shortcut: "Ctrl+A", type: ContextMenuItemType.Normal },
+    { id: "select-all", label: "Select All", labelKey: "contextMenu.selectAll", shortcut: "Ctrl+A", type: ContextMenuItemType.Normal },
   ],
 
   document: [
-    { id: "open", label: "Open", type: ContextMenuItemType.Normal },
+    { id: "open", label: "Open", labelKey: "contextMenu.open", type: ContextMenuItemType.Normal },
     { id: "sep1", type: ContextMenuItemType.Separator },
-    { id: "edit", label: "Edit", type: ContextMenuItemType.Normal },
-    { id: "duplicate", label: "Duplicate", type: ContextMenuItemType.Normal },
+    { id: "edit", label: "Edit", labelKey: "common.edit", type: ContextMenuItemType.Normal },
+    { id: "duplicate", label: "Duplicate", labelKey: "contextMenu.duplicate", type: ContextMenuItemType.Normal },
     { id: "sep2", type: ContextMenuItemType.Separator },
-    { id: "delete", label: "Delete", shortcut: "Del", type: ContextMenuItemType.Danger },
+    { id: "delete", label: "Delete", labelKey: "common.delete", shortcut: "Del", type: ContextMenuItemType.Danger },
   ],
 
   folder: [
-    { id: "open", label: "Open", type: ContextMenuItemType.Normal },
+    { id: "open", label: "Open", labelKey: "contextMenu.open", type: ContextMenuItemType.Normal },
     { id: "sep1", type: ContextMenuItemType.Separator },
-    { id: "new-folder", label: "New Folder", type: ContextMenuItemType.Normal },
-    { id: "new-document", label: "New Document", type: ContextMenuItemType.Normal },
+    { id: "new-folder", label: "New Folder", labelKey: "contextMenu.newFolder", type: ContextMenuItemType.Normal },
+    { id: "new-document", label: "New Document", labelKey: "contextMenu.newDocument", type: ContextMenuItemType.Normal },
     { id: "sep2", type: ContextMenuItemType.Separator },
-    { id: "rename", label: "Rename", type: ContextMenuItemType.Normal },
-    { id: "delete", label: "Delete", shortcut: "Del", type: ContextMenuItemType.Danger },
+    { id: "rename", label: "Rename", labelKey: "common.rename", type: ContextMenuItemType.Normal },
+    { id: "delete", label: "Delete", labelKey: "common.delete", shortcut: "Del", type: ContextMenuItemType.Danger },
   ],
 
   flashcard: [
-    { id: "edit", label: "Edit", type: ContextMenuItemType.Normal },
+    { id: "edit", label: "Edit", labelKey: "common.edit", type: ContextMenuItemType.Normal },
     { id: "sep1", type: ContextMenuItemType.Separator },
-    { id: "suspend", label: "Suspend", type: ContextMenuItemType.Checkbox },
-    { id: "bury", label: "Bury", type: ContextMenuItemType.Checkbox },
-    { id: "mark-new", label: "Mark as New", type: ContextMenuItemType.Normal },
+    { id: "suspend", label: "Suspend", labelKey: "contextMenu.suspend", type: ContextMenuItemType.Checkbox },
+    { id: "bury", label: "Bury", labelKey: "contextMenu.bury", type: ContextMenuItemType.Checkbox },
+    { id: "mark-new", label: "Mark as New", labelKey: "contextMenu.markNew", type: ContextMenuItemType.Normal },
     { id: "sep2", type: ContextMenuItemType.Separator },
-    { id: "delete", label: "Delete", shortcut: "Del", type: ContextMenuItemType.Danger },
+    { id: "delete", label: "Delete", labelKey: "common.delete", shortcut: "Del", type: ContextMenuItemType.Danger },
   ],
 
   link: [
-    { id: "open", label: "Open Link", type: ContextMenuItemType.Normal },
-    { id: "open-new-tab", label: "Open in New Tab", type: ContextMenuItemType.Normal },
+    { id: "open", label: "Open Link", labelKey: "contextMenu.openLink", type: ContextMenuItemType.Normal },
+    { id: "open-new-tab", label: "Open in New Tab", labelKey: "contextMenu.openInNewTab", type: ContextMenuItemType.Normal },
     { id: "sep1", type: ContextMenuItemType.Separator },
-    { id: "copy-link", label: "Copy Link Address", type: ContextMenuItemType.Normal },
+    { id: "copy-link", label: "Copy Link Address", labelKey: "contextMenu.copyLinkAddress", type: ContextMenuItemType.Normal },
   ],
 };

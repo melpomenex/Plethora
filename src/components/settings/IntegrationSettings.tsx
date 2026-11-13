@@ -195,7 +195,7 @@ export function IntegrationSettings() {
           const healthData = await res.json();
           result.vps = {
             online: true,
-            statusText: "Connected successfully",
+            statusText: t("i18nAudit.ui.connected-successfully.a8defc9c"),
             workersAvailable: healthData.workers_available,
             workers: healthData.workers,
             cacheSize: healthData.cache_size,
@@ -556,7 +556,7 @@ export function IntegrationSettings() {
           }`}
         >
           <YoutubeLogo className="w-4 h-4" />
-          {t("integrations.youtubeTranscript") || "Transcript Server"}
+          {t("integrations.youtubeTranscript")}
         </button>
         <button
           onClick={() => setActiveTab("sponsorblock")}
@@ -579,8 +579,7 @@ export function IntegrationSettings() {
             }`}
           >
             <Key className="w-4 h-4" />
-            API & Webhooks
-          </button>
+            {t("i18nAudit.ui.api-webhooks.cf5ae9f7")}</button>
         )}
       </div>
 
@@ -1182,13 +1181,13 @@ export function IntegrationSettings() {
               )}
 
               {/* Custom Cookies File Path */}
-              <SettingsSearchTarget id="setting-youtube-cookie-file" label={t("integrations.youtubeCookieFile") || "YouTube Cookie File"}>
+              <SettingsSearchTarget id="setting-youtube-cookie-file" label={t("integrations.youtubeCookieFile")}>
                 <div className="p-4 bg-muted/30 rounded-lg space-y-2">
                   <label className="block text-sm font-medium text-foreground">
-                    {t("integrations.youtubeCookieFile") || "Custom Cookies File"}
+                    {t("integrations.youtubeCookieFile")}
                   </label>
                   <p className="text-xs text-muted-foreground">
-                    {t("integrations.youtubeCookieFileDesc") || "Path to a cookies.txt file for yt-dlp authenticated requests"}
+                    {t("integrations.youtubeCookieFileDesc")}
                   </p>
                   <div className="flex gap-2">
                     <input
@@ -1196,7 +1195,7 @@ export function IntegrationSettings() {
                       value={cookieFilePath}
                       onChange={(e) => handleCookieFilePathChange(e.target.value)}
                       placeholder="/path/to/cookies.txt"
-                      aria-label="YouTube Cookie File Path"
+                      aria-label={t("integrations.youtubeCookieFilePath")}
                       className="flex-1 px-3 py-1.5 bg-background border border-border rounded-lg text-sm font-mono text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                     />
                     <button
@@ -1204,8 +1203,8 @@ export function IntegrationSettings() {
                       onClick={async () => {
                         try {
                           const file = await openFilePicker({
-                            title: t("integrations.selectCookieFile") || "Select cookies.txt",
-                            filters: [{ name: "Text Files", extensions: ["txt"] }],
+                            title: t("integrations.selectCookieFile"),
+                            filters: [{ name: t("integrations.cookieFileFilter"), extensions: ["txt"] }],
                           });
                           if (file && typeof file === "string") {
                             handleCookieFilePathChange(file);
@@ -1217,7 +1216,7 @@ export function IntegrationSettings() {
                       className="px-3 py-1.5 bg-secondary text-secondary-foreground rounded-lg hover:opacity-90 flex items-center gap-1.5 text-xs font-medium"
                     >
                       <FolderOpen className="w-3.5 h-3.5" />
-                      {t("common.browse") || "Browse"}
+                      {t("common.browse")}
                     </button>
                   </div>
                 </div>
@@ -1279,8 +1278,7 @@ export function IntegrationSettings() {
               <div className="space-y-4">
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-2">
-                    Server Endpoint Base URL
-                  </label>
+                    {t("i18nAudit.ui.server-endpoint-base-url.7a8ce94a")}</label>
                   <input
                     type="url"
                     value={globalSettings.youtube?.transcriptServerUrl || ""}
@@ -1289,23 +1287,22 @@ export function IntegrationSettings() {
                     className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm"
                   />
                   <p className="text-xs text-muted-foreground mt-1">
-                    The API endpoint will automatically resolve to <code>{"{Server URL}/api/youtube/transcript"}</code>. Leave blank to use the default readsync.org service.
+                    {t("i18nAudit.ui.the-api-endpoint-resolves-to.64da9251", { var0: "{Server URL}/api/youtube/transcript" })}
                   </p>
                 </div>
 
                 <div>
                   <label className="block text-xs font-medium text-foreground mb-2">
-                    Server API Key
-                  </label>
+                    {t("i18nAudit.ui.server-api-key.bb659c43")}</label>
                   <input
                     type="password"
                     value={globalSettings.youtube?.transcriptServerApiKey || ""}
                     onChange={(e) => handleUpdateTranscriptSettings({ transcriptServerApiKey: e.target.value })}
-                    placeholder="Enter your transcript server api key"
+                    placeholder={t("i18nAudit.ui.enter-your-transcript-server.d166b14a")}
                     className="w-full px-3 py-2 bg-background border border-border rounded-lg text-foreground focus:outline-none focus:ring-2 focus:ring-primary text-sm font-mono"
                   />
                   <p className="text-xs text-muted-foreground mt-1">
-                    Required if your self-hosted transcript service is configured with a <code>TRANSCRIPT_API_KEY</code>.
+                    {t("i18nAudit.ui.required-when-your-self-host.523b081e", { var0: "TRANSCRIPT_API_KEY" })}
                   </p>
                 </div>
               </div>
@@ -1337,8 +1334,8 @@ export function IntegrationSettings() {
                           <span className={`w-2 h-2 rounded-full ${testResult.onDevice.available ? "bg-emerald-500" : "bg-amber-500"}`} />
                           <span className="text-sm font-semibold text-foreground">
                             {testResult.onDevice.available
-                              ? `Available (${testResult.onDevice.platform})`
-                              : "Not Supported on Web"}
+                              ? t("i18nAudit.ui.available-var0.6730cc42", {var0: testResult.onDevice.platform})
+                              : t("i18nAudit.ui.not-supported-on-web.30fa4eb5")}
                           </span>
                         </div>
                       ) : (
@@ -1355,7 +1352,7 @@ export function IntegrationSettings() {
                             <div className="flex items-center gap-1.5 mt-1">
                               <span className={`w-2 h-2 rounded-full ${testResult.vps.online ? "bg-emerald-500" : "bg-red-500"}`} />
                               <span className="text-sm font-semibold text-foreground">
-                                {testResult.vps.online ? "Online" : "Offline"}
+                                {testResult.vps.online ? t("i18nAudit.ui.online.6df144ed") : t("i18nAudit.ui.offline.90ec47a6")}
                               </span>
                             </div>
                             <span className="text-xs text-muted-foreground mt-1 block">
@@ -1382,7 +1379,7 @@ export function IntegrationSettings() {
                       </div>
                       {testResult.vps.workers && Object.keys(testResult.vps.workers).length > 0 && (
                         <div className="space-y-1 mt-2">
-                          <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground block">Registered Workers:</span>
+                          <span className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground block">{t("i18nAudit.ui.registered-workers.1a3e19aa")}</span>
                           {Object.entries(testResult.vps.workers).map(([wid, lastPoll]) => (
                             <div key={wid} className="flex justify-between text-xs font-mono bg-background/40 p-1.5 rounded border border-border/30">
                               <span className="text-foreground">{wid}</span>
@@ -1397,24 +1394,24 @@ export function IntegrationSettings() {
                   {/* Last resolution diagnostic */}
                   {testResult.lastDiagnostic && (
                     <div className="p-4 border border-border/80 rounded-xl bg-background/10 space-y-2.5">
-                      <span className="text-xs font-semibold text-foreground block">Last Transcript Request Details</span>
+                      <span className="text-xs font-semibold text-foreground block">{t("i18nAudit.ui.last-transcript-request-deta.fc4de1d5")}</span>
                       <div className="grid grid-cols-2 gap-2 text-xs">
                         <div className="flex flex-col gap-0.5">
-                          <span className="text-[10px] text-muted-foreground uppercase font-semibold">Video ID</span>
+                          <span className="text-[10px] text-muted-foreground uppercase font-semibold">{t("i18nAudit.ui.video-id.c333539d")}</span>
                           <span className="font-mono text-foreground">{testResult.lastDiagnostic.videoId}</span>
                         </div>
                         <div className="flex flex-col gap-0.5">
-                          <span className="text-[10px] text-muted-foreground uppercase font-semibold">Status</span>
+                          <span className="text-[10px] text-muted-foreground uppercase font-semibold">{t("i18nAudit.ui.status.18751bab")}</span>
                           <span className={`font-semibold ${testResult.lastDiagnostic.status === "success" ? "text-emerald-500" : "text-red-500"}`}>
-                            {testResult.lastDiagnostic.status === "success" ? "Success" : "Failed"}
+                            {testResult.lastDiagnostic.status === "success" ? t("i18nAudit.ui.success.7fd90e7e") : t("i18nAudit.ui.failed.502b0607")}
                           </span>
                         </div>
                         <div className="flex flex-col gap-0.5">
-                          <span className="text-[10px] text-muted-foreground uppercase font-semibold">Source Route</span>
+                          <span className="text-[10px] text-muted-foreground uppercase font-semibold">{t("i18nAudit.ui.source-route.0cf80672")}</span>
                           <span className="font-medium text-foreground bg-secondary/40 px-1.5 py-0.5 rounded w-max">{testResult.lastDiagnostic.source}</span>
                         </div>
                         <div className="flex flex-col gap-0.5">
-                          <span className="text-[10px] text-muted-foreground uppercase font-semibold">Duration</span>
+                          <span className="text-[10px] text-muted-foreground uppercase font-semibold">{t("i18nAudit.ui.duration.11caf82d")}</span>
                           <span className="text-foreground">{testResult.lastDiagnostic.durationMs}ms</span>
                         </div>
                       </div>
@@ -1434,7 +1431,7 @@ export function IntegrationSettings() {
 
       {/* Public API Tokens & Webhooks Settings (Plethora Cloud) */}
       {activeTab === "api-tokens" && isPlethoraCloudAvailable() && (
-        <SettingsSearchTarget id="integrations.publicApi" label="Pro Public API & Webhooks">
+        <SettingsSearchTarget id="integrations.publicApi" label={t("i18nAudit.ui.pro-public-api-webhooks.bbad437b")}>
           <ApiTokensIntegrationPanel />
         </SettingsSearchTarget>
       )}
@@ -1443,6 +1440,7 @@ export function IntegrationSettings() {
 }
 
 function ApiTokensIntegrationPanel() {
+  const { t } = useI18n();
   const { tokens, webhooks, createToken, revokeToken, registerWebhook, deleteWebhook } = useApiTokensStore();
   const [tokenName, setTokenName] = useState("");
   const [selectedScopes, setSelectedScopes] = useState<string[]>(["read:library", "write:inbox"]);
@@ -1454,40 +1452,40 @@ function ApiTokensIntegrationPanel() {
 
   const handleCreateToken = async () => {
     if (!tokenName.trim()) {
-      toast.warning("Please enter a token name");
+      toast.warning(t("i18nAudit.ui.please-enter-a-token-name.623a9f27"));
       return;
     }
     try {
       const token = await createToken(tokenName.trim(), selectedScopes);
       setNewlyCreatedSecret(token.secretToken || null);
       setTokenName("");
-      toast.success("API Bearer Token created successfully");
+      toast.success(t("i18nAudit.ui.api-bearer-token-created-suc.5fa1c5c2"));
     } catch (err) {
-      toast.error("Token creation failed", err instanceof Error ? err.message : String(err));
+      toast.error(t("i18nAudit.ui.token-creation-failed.c74790c5"), err instanceof Error ? err.message : String(err));
     }
   };
 
   const handleRegisterWebhook = async () => {
     if (!webhookUrl.trim() || !webhookUrl.startsWith("http")) {
-      toast.warning("Please enter a valid HTTP/HTTPS webhook URL");
+      toast.warning(t("i18nAudit.ui.please-enter-a-valid-http-ht.f7b9f7a6"));
       return;
     }
     try {
       const wh = await registerWebhook(webhookUrl.trim(), webhookEvents);
       setNewWebhookSecret(wh.secret);
       setWebhookUrl("");
-      toast.success("Webhook registered with HMAC secret");
+      toast.success(t("i18nAudit.ui.webhook-registered-with-hmac.68b449d4"));
     } catch (err) {
-      toast.error("Webhook registration failed", err instanceof Error ? err.message : String(err));
+      toast.error(t("i18nAudit.ui.webhook-registration-failed.e958343b"), err instanceof Error ? err.message : String(err));
     }
   };
 
   const availableScopes = [
-    { id: "read:library", label: "Read Library Documents" },
-    { id: "write:inbox", label: "Write to Remote Inbox" },
-    { id: "read:notes", label: "Read Annotations & Notes" },
-    { id: "write:cards", label: "Create & Update Flashcards" },
-    { id: "admin:webhooks", label: "Manage Webhook Subscriptions" },
+    { id: "read:library", label: t("i18nAudit.ui.read-library-documents.0c28a2ef") },
+    { id: "write:inbox", label: t("i18nAudit.ui.write-to-remote-inbox.227e5454") },
+    { id: "read:notes", label: t("i18nAudit.ui.read-annotations-notes.6c00bac2") },
+    { id: "write:cards", label: t("i18nAudit.ui.create-update-flashcards.ef10b79c") },
+    { id: "admin:webhooks", label: t("i18nAudit.ui.manage-webhook-subscriptions.4ad16366") },
   ];
 
   return (
@@ -1499,34 +1497,33 @@ function ApiTokensIntegrationPanel() {
             <Key className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <SettingsSearchTarget id="integrations.publicApi" label="Pro Public API & Webhooks">
-<h3 className="text-lg font-semibold text-foreground">Pro Public API & Webhooks</h3>
+            <SettingsSearchTarget id="integrations.publicApi" label={t("i18nAudit.ui.pro-public-api-webhooks.bbad437b")}>
+<h3 className="text-lg font-semibold text-foreground">{t("i18nAudit.ui.pro-public-api-webhooks.bbad437b")}</h3>
               </SettingsSearchTarget>
-            <p className="text-sm text-muted-foreground">Automate document ingest, capture flows, and sync with custom scripts</p>
+            <p className="text-sm text-muted-foreground">{t("i18nAudit.ui.automate-document-ingest-cap.8aa9a43b")}</p>
           </div>
         </div>
         <p className="text-sm text-muted-foreground pt-2">
-          Use scoped Bearer tokens to connect Raycast, Obsidian, iOS Shortcuts, or CLI scripts directly to your Plethora workspace.
-        </p>
+          {t("i18nAudit.ui.use-scoped-bearer-tokens-to-.a1b7a739")}</p>
       </div>
 
       {/* Token Generator */}
       <div className="p-6 bg-card border rounded-lg space-y-4">
-        <h4 className="text-base font-semibold text-foreground">Generate Scoped API Token</h4>
+        <h4 className="text-base font-semibold text-foreground">{t("i18nAudit.ui.generate-scoped-api-token.b1976131")}</h4>
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">Token Name / Client Description</label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">{t("i18nAudit.ui.token-name-client-descriptio.74a90e3c")}</label>
             <input
               type="text"
               value={tokenName}
               onChange={(e) => setTokenName(e.target.value)}
-              placeholder="e.g., Raycast Extension, Obsidian Ingest Script"
+              placeholder={t("i18nAudit.ui.e-g-raycast-extension-obsidi.b5da80c3")}
               className="w-full px-3 py-2 bg-background border rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-2">Granted Scopes</label>
+            <label className="block text-xs font-medium text-muted-foreground mb-2">{t("i18nAudit.ui.granted-scopes.a48572fa")}</label>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               {availableScopes.map((scope) => (
                 <label key={scope.id} className="flex items-center gap-2 text-sm text-foreground cursor-pointer">
@@ -1552,15 +1549,13 @@ function ApiTokensIntegrationPanel() {
             onClick={handleCreateToken}
             className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg text-sm font-medium transition-colors"
           >
-            Generate Token
-          </button>
+            {t("i18nAudit.ui.generate-token.e7a2819e")}</button>
         </div>
 
         {newlyCreatedSecret && (
           <div className="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg space-y-2">
             <p className="text-xs font-semibold text-emerald-600 dark:text-emerald-400">
-              Secret Token (Copy now — this will not be shown again):
-            </p>
+              {t("i18nAudit.ui.secret-token-copy-now-this-w.6087418d")}</p>
             <div className="flex items-center gap-2">
               <input
                 type="text"
@@ -1571,12 +1566,11 @@ function ApiTokensIntegrationPanel() {
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(newlyCreatedSecret);
-                  toast.success("Secret token copied to clipboard");
+                  toast.success(t("i18nAudit.ui.secret-token-copied-to-clipb.d1155252"));
                 }}
                 className="px-3 py-2 bg-secondary text-secondary-foreground hover:opacity-90 rounded-lg text-xs font-medium"
               >
-                Copy
-              </button>
+                {t("i18nAudit.ui.copy.6ffc193a")}</button>
             </div>
           </div>
         )}
@@ -1584,9 +1578,9 @@ function ApiTokensIntegrationPanel() {
 
       {/* Active Tokens Table */}
       <div className="p-6 bg-card border rounded-lg space-y-4">
-        <h4 className="text-base font-semibold text-foreground">Active Tokens ({tokens.filter((t) => !t.revokedAt).length})</h4>
+        <h4 className="text-base font-semibold text-foreground">{t("i18nAudit.ui.active-tokens.a85f364a")}{tokens.filter((t) => !t.revokedAt).length})</h4>
         {tokens.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No API tokens created yet.</p>
+          <p className="text-sm text-muted-foreground">{t("i18nAudit.ui.no-api-tokens-created-yet.e7512102")}</p>
         ) : (
           <div className="divide-y border rounded-lg overflow-hidden">
             {tokens.map((token) => (
@@ -1596,7 +1590,7 @@ function ApiTokensIntegrationPanel() {
                     {token.name}
                   </p>
                   <p className="text-xs font-mono text-muted-foreground mt-0.5">
-                    {token.prefix}… • Created {new Date(token.createdAt).toLocaleDateString()}
+                    {token.prefix}{t("i18nAudit.ui.created.0b7903f8") + " "}{new Date(token.createdAt).toLocaleDateString()}
                   </p>
                   <div className="flex flex-wrap gap-1 mt-1.5">
                     {token.scopes.map((s) => (
@@ -1610,13 +1604,12 @@ function ApiTokensIntegrationPanel() {
                   <button
                     onClick={() => {
                       void revokeToken(token.id)
-                        .then(() => toast.info("Token revoked"))
-                        .catch((err: unknown) => toast.error("Revoke failed", err instanceof Error ? err.message : String(err)));
+                        .then(() => toast.info(t("i18nAudit.ui.token-revoked.b6bca964")))
+                        .catch((err: unknown) => toast.error(t("i18nAudit.ui.revoke-failed.f29bc491"), err instanceof Error ? err.message : String(err)));
                     }}
                     className="px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
                   >
-                    Revoke
-                  </button>
+                    {t("i18nAudit.ui.revoke.0bb59119")}</button>
                 )}
               </div>
             ))}
@@ -1626,10 +1619,10 @@ function ApiTokensIntegrationPanel() {
 
       {/* Webhook Registration */}
       <div className="p-6 bg-card border rounded-lg space-y-4">
-        <h4 className="text-base font-semibold text-foreground">Webhook Subscriptions</h4>
+        <h4 className="text-base font-semibold text-foreground">{t("i18nAudit.ui.webhook-subscriptions.d32c7313")}</h4>
         <div className="space-y-3">
           <div>
-            <label className="block text-xs font-medium text-muted-foreground mb-1">Webhook Endpoint URL</label>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">{t("i18nAudit.ui.webhook-endpoint-url.583d4a82")}</label>
             <input
               type="text"
               value={webhookUrl}
@@ -1642,15 +1635,13 @@ function ApiTokensIntegrationPanel() {
             onClick={handleRegisterWebhook}
             className="px-4 py-2 bg-secondary text-secondary-foreground hover:opacity-90 rounded-lg text-sm font-medium transition-colors"
           >
-            Register Webhook
-          </button>
+            {t("i18nAudit.ui.register-webhook.02df83fb")}</button>
         </div>
 
         {newWebhookSecret && (
           <div className="p-4 bg-amber-500/10 border border-amber-500/20 rounded-lg space-y-2">
             <p className="text-xs font-semibold text-amber-600 dark:text-amber-400">
-              Webhook HMAC Secret for Signature Verification:
-            </p>
+              {t("i18nAudit.ui.webhook-hmac-secret-for-sign.876fffed")}</p>
             <div className="flex items-center gap-2">
               <input
                 type="text"
@@ -1661,12 +1652,11 @@ function ApiTokensIntegrationPanel() {
               <button
                 onClick={() => {
                   navigator.clipboard.writeText(newWebhookSecret);
-                  toast.success("HMAC Secret copied");
+                  toast.success(t("i18nAudit.ui.hmac-secret-copied.7bd052ad"));
                 }}
                 className="px-3 py-2 bg-secondary text-secondary-foreground hover:opacity-90 rounded-lg text-xs font-medium"
               >
-                Copy
-              </button>
+                {t("i18nAudit.ui.copy.6ffc193a")}</button>
             </div>
           </div>
         )}
@@ -1678,19 +1668,18 @@ function ApiTokensIntegrationPanel() {
                 <div>
                   <p className="text-sm font-mono text-foreground break-all">{wh.url}</p>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Events: {wh.events.join(", ")} • Added {new Date(wh.createdAt).toLocaleDateString()}
+                    {t("i18nAudit.ui.events.29d9485e") + " "}{wh.events.join(", ")} {t("i18nAudit.ui.added.14a880ff") + " "}{new Date(wh.createdAt).toLocaleDateString()}
                   </p>
                 </div>
                 <button
                   onClick={() => {
                     void deleteWebhook(wh.id)
-                      .then(() => toast.info("Webhook removed"))
-                      .catch((err: unknown) => toast.error("Delete failed", err instanceof Error ? err.message : String(err)));
+                      .then(() => toast.info(t("i18nAudit.ui.webhook-removed.6033276b")))
+                      .catch((err: unknown) => toast.error(t("i18nAudit.ui.delete-failed.6acb82fa"), err instanceof Error ? err.message : String(err)));
                   }}
                   className="px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
                 >
-                  Delete
-                </button>
+                  {t("i18nAudit.ui.delete.0501158d")}</button>
               </div>
             ))}
           </div>

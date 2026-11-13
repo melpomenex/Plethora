@@ -126,6 +126,44 @@ export const tabContentRegistry: Record<TabType, { content: ComponentType; title
   "study-plans": { content: StudyPlansTab, title: "Study Plans", icon: "🎓", closable: true },
 };
 
+// Registry titles remain English metadata for persisted tabs and diagnostics.
+// User-facing tab labels resolve through these locale keys in TabBar and the
+// workspace switcher; dynamically named document/browser tabs keep their own
+// title.
+const TAB_TITLE_TRANSLATION_KEYS: Partial<Record<TabType, string>> = {
+  dashboard: "i18nAudit.ui.dashboard.a0ab417c",
+  "continue-reading": "i18nAudit.ui.continue-reading.25d33750",
+  queue: "i18nAudit.ui.queue.cbc295a6",
+  "queue-scroll": "i18nAudit.ui.scroll-mode.185c6522",
+  review: "tabs.review",
+  documents: "nav.documents",
+  "document-viewer": "i18nAudit.ui.document.8728995a",
+  "document-extracts": "audio.extracts",
+  "extract-reader": "i18nAudit.ui.extract.3b3067ec",
+  analytics: "i18nAudit.ui.statistics.ee93655b",
+  settings: "i18nAudit.ui.settings.f49d4b34",
+  "knowledge-sphere": "i18nAudit.ui.knowledge-sphere.77a508a6",
+  "knowledge-network": "i18nAudit.ui.knowledge-network.0f6d7967",
+  rss: "i18nAudit.ui.rss.35632c04",
+  newsletter: "i18nAudit.ui.newsletters.2d40937a",
+  "web-browser": "i18nAudit.ui.web-browser.e6cc7829",
+  "doc-qa": "i18nAudit.ui.document-q-a.1e7a5150",
+  notebooklm: "i18nAudit.ui.notebooklm.32ae2995",
+  "image-registry": "i18nAudit.ui.images.d3c72281",
+  podcast: "i18nAudit.ui.podcasts.8a64829c",
+  "audiobook-epub-sync": "i18nAudit.ui.audiobook-sync.8e749139",
+  audiobook: "i18nAudit.ui.audiobooks.0104e6dd",
+  extracts: "audio.extracts",
+  "import-needs-review": "i18nAudit.ui.import-needs-review.fba4f59c",
+  "study-plans": "studyPlans.title",
+};
+
+export function getTabTitleTranslationKey(type: TabType, storedTitle?: string): string | undefined {
+  const defaultTitle = tabContentRegistry[type]?.title;
+  if (storedTitle !== undefined && storedTitle !== defaultTitle) return undefined;
+  return TAB_TITLE_TRANSLATION_KEYS[type];
+}
+
 export function createCanonicalTab(type: TabType): Omit<Tab, "id"> {
   const entry = tabContentRegistry[type];
   return { type, ...entry };
