@@ -48,6 +48,15 @@ import { CurriculumGenerator } from './CurriculumGenerator';
 import { StudyJobRecoveryList } from './StudyJobRecoveryList';
 import { StudyPlanProgress } from './evidence/StudyPlanProgress';
 import type { StudyPlanProgressProps } from './evidence/StudyPlanProgress';
+import { StudyPlanGraphView } from './graph/StudyPlanGraphView';
+import {
+  StudyPlanOutlineModeSwitch,
+  type OutlineViewMode,
+} from './graph/StudyPlanGraphToolbar';
+import {
+  loadStudyPlanGraphPrefs,
+  saveStudyPlanGraphPrefs,
+} from '../../lib/study-plans/graph/persistence';
 import type { KnowledgeGapView } from '../../types/learningEvidence';
 import { orderStudyPlan } from '../../lib/study-plans/topology';
 import { openStudySource } from '../../lib/study-plans/openStudySource';
@@ -104,6 +113,18 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
   const setNodeActivityAction = useLearningPathsStore((s) => s.setNodeActivity);
 
   const [activeTab, setActiveTab] = useState<EditorTab>('outline');
+  const [outlineMode, setOutlineMode] = useState<OutlineViewMode>(
+    () => loadStudyPlanGraphPrefs(planDetail.plan.id).outlineMode
+  );
+
+  useEffect(() => {
+    setOutlineMode(loadStudyPlanGraphPrefs(planDetail.plan.id).outlineMode);
+  }, [planDetail.plan.id]);
+
+  const handleOutlineModeChange = (nextMode: OutlineViewMode) => {
+    setOutlineMode(nextMode);
+    saveStudyPlanGraphPrefs(planDetail.plan.id, { outlineMode: nextMode });
+  };
 
   // Draft editing state
   const isDraft = planDetail.version.state === 'draft';
@@ -453,7 +474,12 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
   ];
 
   return (
-    <StudyPlansScrollContainer className="max-w-6xl mx-auto p-4 sm:p-6 space-y-6" data-study-plans-scroll="editor">
+    <StudyPlansScrollContainer
+      className={`${
+        activeTab === 'outline' && outlineMode === 'graph' ? 'max-w-[1600px]' : 'max-w-6xl'
+      } mx-auto p-4 sm:p-6 space-y-6`}
+      data-study-plans-scroll="editor"
+    >
       {/* Top Header Row */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-surface-200 dark:border-surface-700">
         <div className="flex min-w-0 flex-1 items-center gap-3">
@@ -877,46 +903,72 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
 
       {/* Main Tab Panels */}
       {activeTab === 'outline' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-          {/* Left: Outline column */}
-          <div className="lg:col-span-5 space-y-4">
-            <h3 className="text-xs font-bold text-surface-500 uppercase tracking-wider">
-              {translateRecentFeature("studyPlans.ui.topics.a27dccec")}{nodes.filter((n) => n.included).length})
-            </h3>
-            <PlanOutline
-              nodes={nodes}
-              prerequisites={prerequisites}
-              selectedNodeId={selectedNodeId}
-              activityByNodeId={planDetail.activityByNodeId}
-              onSelectNode={setSelectedNodeId}
-              onChangeNodes={handleNodesChange}
-              onChangeNode={handleNodeUpdate}
-              onStartLesson={handleStartLesson}
-              isReadOnly={!isDraft}
-            />
-        </div>
+        outlineMode === 'graph' ? (
+          <StudyPlanGraphView
+            planDetail={planDetail}
+            nodes={nodes}
+            prerequisites={prerequisites}
+            selectedNodeId={selectedNodeId}
+            onSelectNode={setSelectedNodeId}
+            onChangeNodes={handleNodesChange}
+            onChangeNode={handleNodeUpdate}
+            onChangePrerequisites={handlePrerequisitesChange}
+            onChangeActivity={handleActivityChange}
+            onStartLesson={handleStartLesson}
+            onStartPractice={onOpenAssessmentBuilder ? handleLessonPractice : undefined}
+            onOpenSource={handleOpenSource}
+            isReadOnly={!isDraft}
+            mode="graph"
+            onChangeMode={handleOutlineModeChange}
+          />
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <StudyPlanOutlineModeSwitch mode="list" onChangeMode={handleOutlineModeChange} />
+            </div>
 
-          {/* Right: Selected Node Editor */}
-          <div className="lg:col-span-7">
-            {selectedNode ? (
-              <PlanNodeEditor
-                node={selectedNode}
-                allNodes={nodes}
-                prerequisites={prerequisites}
-                activity={planDetail.activityByNodeId[selectedNode.nodeId] || 'not-started'}
-                sourceResolutions={planDetail.sourceRefs}
-                onChangeNode={handleNodeUpdate}
-                onChangePrerequisites={handlePrerequisitesChange}
-                onChangeActivity={(act) => handleActivityChange(selectedNode.nodeId, act)}
-                onOpenSource={handleOpenSource}
-                isReadOnly={!isDraft}
-              />
-            ) : (
-              <div className="py-12 text-center text-xs text-surface-500">
-                {translateRecentFeature("studyPlans.ui.select-a-topic-from-the-outl.905db99b")}</div>
-            )}
-        </div>
-      </div>
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+              {/* Left: Outline column */}
+              <div className="lg:col-span-5 space-y-4">
+                <h3 className="text-xs font-bold text-surface-500 uppercase tracking-wider">
+                  {translateRecentFeature("studyPlans.ui.topics.a27dccec")}{nodes.filter((n) => n.included).length})
+                </h3>
+                <PlanOutline
+                  nodes={nodes}
+                  prerequisites={prerequisites}
+                  selectedNodeId={selectedNodeId}
+                  activityByNodeId={planDetail.activityByNodeId}
+                  onSelectNode={setSelectedNodeId}
+                  onChangeNodes={handleNodesChange}
+                  onChangeNode={handleNodeUpdate}
+                  onStartLesson={handleStartLesson}
+                  isReadOnly={!isDraft}
+                />
+              </div>
+
+              {/* Right: Selected Node Editor */}
+              <div className="lg:col-span-7">
+                {selectedNode ? (
+                  <PlanNodeEditor
+                    node={selectedNode}
+                    allNodes={nodes}
+                    prerequisites={prerequisites}
+                    activity={planDetail.activityByNodeId[selectedNode.nodeId] || 'not-started'}
+                    sourceResolutions={planDetail.sourceRefs}
+                    onChangeNode={handleNodeUpdate}
+                    onChangePrerequisites={handlePrerequisitesChange}
+                    onChangeActivity={(act) => handleActivityChange(selectedNode.nodeId, act)}
+                    onOpenSource={handleOpenSource}
+                    isReadOnly={!isDraft}
+                  />
+                ) : (
+                  <div className="py-12 text-center text-xs text-surface-500">
+                    {translateRecentFeature("studyPlans.ui.select-a-topic-from-the-outl.905db99b")}</div>
+                )}
+              </div>
+            </div>
+          </div>
+        )
       )}
 
       {activeTab === 'sources' && (
