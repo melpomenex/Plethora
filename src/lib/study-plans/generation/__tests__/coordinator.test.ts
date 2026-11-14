@@ -136,13 +136,21 @@ describe('Curriculum Coordinator and Job Controller', () => {
       hydrateEvidenceFn: vi.fn().mockResolvedValue({
         batches: [],
         uniqueHits: [],
-        resolutions: rejected ? [{ status: 'stale' }] : [],
-        retrieval: { failedQueries },
+        resolutions: rejected ? [{ status: 'stale', reasonKey: 'study_source.stale.excerpt_not_in_source' }] : [],
+        retrieval: {
+          failedQueries,
+          ...(rejected ? { unverifiedReasons: { 'study_source.stale.excerpt_not_in_source': 1 } } : {}),
+        },
       }),
     };
 
-    await expect(runCurriculumCoordinator(dummyRequest, dummyPreflight, { deps }))
-      .rejects.toMatchObject({ messageKey });
+    const rejectedErr = await runCurriculumCoordinator(dummyRequest, dummyPreflight, { deps }).catch((e) => e);
+    expect(rejectedErr).toMatchObject({ messageKey });
+    if (rejected) {
+      expect(rejectedErr.details?.missingByKind).toEqual({
+        'study_source.stale.excerpt_not_in_source': 1,
+      });
+    }
     expect(startJobFn).not.toHaveBeenCalled();
   });
 

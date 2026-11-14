@@ -28,7 +28,7 @@ use crate::ai_learning::embeddings_backend::{EmbeddingBackend, EmbeddingUnavaila
 use crate::ai_learning::models::{
     AggregateIndexStatus, ChunkModel, DocumentIndexStatus, EmbeddingModelUsage, IndexState,
     SOURCE_TYPE_ANNOTATION, SOURCE_TYPE_CARD, SOURCE_TYPE_DOCUMENT, SOURCE_TYPE_EXTRACT,
-    SOURCE_TYPE_FIGURE, SOURCE_TYPE_MEDIA, SOURCE_TYPE_SESSION,
+    SOURCE_TYPE_FIGURE, SOURCE_TYPE_MEDIA, SOURCE_TYPE_SESSION, SOURCE_TYPE_TRANSCRIPT,
 };
 use crate::database::Repository;
 use crate::error::{PlethoraError, Result};
@@ -498,129 +498,9 @@ async fn build_document_chunks(
     doc: &crate::models::Document,
     content: &str,
 ) -> Vec<ChunkModel> {
-    // Prefer canonical session transcript segments when available
-    let session_transcript_info: Option<(i64, i64)> = sqlx::query_as(
-        "SELECT transcript_id, transcript_revision FROM recording_sessions WHERE (document_id = ?1 OR id = ?1) AND transcript_id IS NOT NULL",
-    )
-    .bind(&doc.id)
-    .fetch_optional(repo.pool())
-    .await
-    .ok()
-    .flatten();
-
-    if let Some((transcript_id, _rev)) = session_transcript_info {
-        let seg_rows = sqlx::query(
-            "SELECT segment_key, ordinal, text, timing_kind, start_ms, end_ms, speaker_id \
-             FROM transcript_segments WHERE transcript_id = ?1 ORDER BY ordinal, id",
-        )
-        .bind(transcript_id)
-        .fetch_all(repo.pool())
-        .await
-        .ok();
-
-        if let Some(rows) = seg_rows {
-            if !rows.is_empty() {
-                let segments = rows
-                    .into_iter()
-                    .map(
-                        |r| crate::ai_learning::chunker::SessionTranscriptChunkSegment {
-                            segment_key: r.try_get("segment_key").unwrap_or_default(),
-                            ordinal: r.try_get("ordinal").unwrap_or(0),
-                            text: r.try_get("text").unwrap_or_default(),
-                            timing_kind: r.try_get("timing_kind").unwrap_or_else(|_| "none".into()),
-                            start_ms: r.try_get("start_ms").ok().flatten(),
-                            end_ms: r.try_get("end_ms").ok().flatten(),
-                            speaker_id: r.try_get("speaker_id").ok().flatten(),
-                        },
-                    )
-                    .collect::<Vec<_>>();
-
-                let ctx = ChunkContext {
-                    document_id: &doc.id,
-                    source_type: SOURCE_TYPE_SESSION,
-                    source_id: None,
-                    location_source_type: "session",
-                    spine_index: None,
-                };
-                return chunk_document(
-                    &ctx,
-                    ChunkInput::SessionTranscript {
-                        segments: &segments,
-                    },
-                    &ChunkOptions::default(),
-                );
-            }
-        }
-    }
-
-    if matches!(
-        doc.file_type,
-        crate::models::FileType::Youtube
-            | crate::models::FileType::Video
-            | crate::models::FileType::Audio
-    ) {
-        let youtube = repo
-            .get_youtube_transcript_by_document_id(&doc.id)
-            .await
-            .ok()
-            .flatten()
-            .map(|(_, json)| json);
-        let json = match youtube {
-            Some(json) => Some(json),
-            None => sqlx::query_scalar::<_, String>(
-                "SELECT segments_json FROM video_transcripts WHERE document_id=?1",
-            )
-            .bind(&doc.id)
-            .fetch_optional(repo.pool())
-            .await
-            .ok()
-            .flatten(),
-        };
-        if let Some(values) =
-            json.and_then(|json| serde_json::from_str::<Vec<serde_json::Value>>(&json).ok())
-        {
-            let segments = values
-                .iter()
-                .filter_map(|value| {
-                    let start = value
-                        .get("start")
-                        .or_else(|| value.get("time"))
-                        .or_else(|| value.get("startSeconds"))?
-                        .as_f64()?;
-                    let duration = value
-                        .get("duration")
-                        .and_then(|v| v.as_f64())
-                        .unwrap_or_else(|| {
-                            value
-                                .get("end")
-                                .and_then(|v| v.as_f64())
-                                .unwrap_or(start + 5.0)
-                                - start
-                        });
-                    Some(crate::ai_learning::chunker::TranscriptChunkSegment {
-                        start,
-                        duration,
-                        text: value.get("text")?.as_str()?.to_string(),
-                    })
-                })
-                .collect::<Vec<_>>();
-            if !segments.is_empty() {
-                let ctx = ChunkContext {
-                    document_id: &doc.id,
-                    source_type: "transcript",
-                    source_id: None,
-                    location_source_type: "transcript",
-                    spine_index: None,
-                };
-                return chunk_document(
-                    &ctx,
-                    ChunkInput::Transcript {
-                        segments: &segments,
-                        chapters: &[],
-                    },
-                    &ChunkOptions::default(),
-                );
-            }
+    if let Some(transcript_chunks) = build_transcript_document_chunks(repo, doc).await {
+        if !transcript_chunks.is_empty() {
+            return transcript_chunks;
         }
     }
     let location_type = match doc.file_type {
@@ -686,6 +566,305 @@ async fn build_document_chunks(
     }
 
     chunks
+}
+
+fn extract_podcast_episode_id(doc: &crate::models::Document) -> Option<String> {
+    doc.metadata
+        .as_ref()
+        .and_then(|meta| meta.source.as_deref())
+        .and_then(|source| source.strip_prefix("podcast:"))
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .or_else(|| {
+            doc.file_path
+                .strip_prefix("podcast://")
+                .map(str::trim)
+                .filter(|id| !id.is_empty())
+                .map(str::to_string)
+        })
+}
+
+fn chunk_timed_transcript(
+    document_id: &str,
+    segments: &[crate::ai_learning::chunker::TranscriptChunkSegment],
+) -> Vec<ChunkModel> {
+    let ctx = ChunkContext {
+        document_id,
+        source_type: SOURCE_TYPE_TRANSCRIPT,
+        source_id: None,
+        location_source_type: SOURCE_TYPE_TRANSCRIPT,
+        spine_index: None,
+    };
+    chunk_document(
+        &ctx,
+        ChunkInput::Transcript {
+            segments,
+            chapters: &[],
+        },
+        &ChunkOptions::default(),
+    )
+}
+
+fn parse_transcript_segments_json(
+    raw_json: &str,
+) -> Vec<crate::ai_learning::chunker::TranscriptChunkSegment> {
+    let Ok(values) = serde_json::from_str::<Vec<serde_json::Value>>(raw_json) else {
+        return Vec::new();
+    };
+    values
+        .iter()
+        .filter_map(|value| {
+            let text = value.get("text")?.as_str()?.trim();
+            if text.is_empty() {
+                return None;
+            }
+            let start = value
+                .get("start")
+                .or_else(|| value.get("time"))
+                .or_else(|| value.get("startSeconds"))
+                .and_then(|v| v.as_f64())
+                .or_else(|| {
+                    value
+                        .get("startMs")
+                        .or_else(|| value.get("start_ms"))
+                        .and_then(|v| v.as_f64())
+                        .map(|ms| ms / 1000.0)
+                })
+                .unwrap_or(0.0);
+            let duration = value
+                .get("duration")
+                .and_then(|v| v.as_f64())
+                .unwrap_or_else(|| {
+                    let end = value
+                        .get("end")
+                        .or_else(|| value.get("endTime"))
+                        .and_then(|v| v.as_f64())
+                        .or_else(|| {
+                            value
+                                .get("endMs")
+                                .or_else(|| value.get("end_ms"))
+                                .and_then(|v| v.as_f64())
+                                .map(|ms| ms / 1000.0)
+                        })
+                        .unwrap_or(start + 5.0);
+                    (end - start).max(0.0)
+                });
+            Some(crate::ai_learning::chunker::TranscriptChunkSegment {
+                start: start.max(0.0),
+                duration: duration.max(0.0),
+                text: text.to_string(),
+            })
+        })
+        .collect()
+}
+
+async fn build_transcript_document_chunks(
+    repo: &Repository,
+    doc: &crate::models::Document,
+) -> Option<Vec<ChunkModel>> {
+    // 1. Canonical recording session transcript segments
+    let session_transcript_info: Option<(i64, i64)> = sqlx::query_as(
+        "SELECT transcript_id, transcript_revision FROM recording_sessions WHERE (document_id = ?1 OR id = ?1) AND transcript_id IS NOT NULL",
+    )
+    .bind(&doc.id)
+    .fetch_optional(repo.pool())
+    .await
+    .ok()
+    .flatten();
+
+    if let Some((transcript_id, _rev)) = session_transcript_info {
+        let seg_rows = sqlx::query(
+            "SELECT segment_key, ordinal, text, timing_kind, start_ms, end_ms, speaker_id \
+             FROM transcript_segments WHERE transcript_id = ?1 ORDER BY ordinal, id",
+        )
+        .bind(transcript_id)
+        .fetch_all(repo.pool())
+        .await
+        .ok();
+
+        if let Some(rows) = seg_rows {
+            if !rows.is_empty() {
+                let segments = rows
+                    .into_iter()
+                    .map(
+                        |r| crate::ai_learning::chunker::SessionTranscriptChunkSegment {
+                            segment_key: r.try_get("segment_key").unwrap_or_default(),
+                            ordinal: r.try_get("ordinal").unwrap_or(0),
+                            text: r.try_get("text").unwrap_or_default(),
+                            timing_kind: r.try_get("timing_kind").unwrap_or_else(|_| "none".into()),
+                            start_ms: r.try_get("start_ms").ok().flatten(),
+                            end_ms: r.try_get("end_ms").ok().flatten(),
+                            speaker_id: r.try_get("speaker_id").ok().flatten(),
+                        },
+                    )
+                    .collect::<Vec<_>>();
+
+                let ctx = ChunkContext {
+                    document_id: &doc.id,
+                    source_type: SOURCE_TYPE_SESSION,
+                    source_id: None,
+                    location_source_type: "session",
+                    spine_index: None,
+                };
+                return Some(chunk_document(
+                    &ctx,
+                    ChunkInput::SessionTranscript {
+                        segments: &segments,
+                    },
+                    &ChunkOptions::default(),
+                ));
+            }
+        }
+    }
+
+    // 2. Podcast transcript segments (handles promoted FileType::Other podcast docs too)
+    if let Some(episode_id) = extract_podcast_episode_id(doc) {
+        if let Ok(rows) = sqlx::query_as::<_, (i64, i64, String)>(
+            "SELECT start_ms, end_ms, text FROM podcast_transcript_segments WHERE episode_id = ?1 ORDER BY segment_index",
+        )
+        .bind(&episode_id)
+        .fetch_all(repo.pool())
+        .await
+        {
+            let segments: Vec<crate::ai_learning::chunker::TranscriptChunkSegment> = rows
+                .into_iter()
+                .filter_map(|(start_ms, end_ms, text)| {
+                    let trimmed = text.trim();
+                    if trimmed.is_empty() {
+                        return None;
+                    }
+                    Some(crate::ai_learning::chunker::TranscriptChunkSegment {
+                        start: (start_ms.max(0) as f64) / 1000.0,
+                        duration: ((end_ms - start_ms).max(0) as f64) / 1000.0,
+                        text: trimmed.to_string(),
+                    })
+                })
+                .collect();
+            if !segments.is_empty() {
+                return Some(chunk_timed_transcript(&doc.id, &segments));
+            }
+        }
+    }
+
+    // 3. Non-session `transcripts` + `transcript_segments` (audiobooks, Whisper/Apple STT jobs)
+    if let Ok(rows) = sqlx::query_as::<_, (Option<i64>, Option<i64>, String)>(
+        "SELECT ts.start_ms, ts.end_ms, ts.text
+         FROM transcript_segments ts
+         JOIN transcripts t ON t.id = ts.transcript_id
+         WHERE t.book_id = ?1
+         ORDER BY t.id, ts.ordinal, ts.start_ms, ts.id",
+    )
+    .bind(&doc.id)
+    .fetch_all(repo.pool())
+    .await
+    {
+        let segments: Vec<crate::ai_learning::chunker::TranscriptChunkSegment> = rows
+            .into_iter()
+            .filter_map(|(start_ms, end_ms, text)| {
+                let trimmed = text.trim();
+                if trimmed.is_empty() {
+                    return None;
+                }
+                let start = (start_ms.unwrap_or(0).max(0) as f64) / 1000.0;
+                let end = (end_ms.unwrap_or(0).max(0) as f64) / 1000.0;
+                Some(crate::ai_learning::chunker::TranscriptChunkSegment {
+                    start,
+                    duration: (end - start).max(0.0),
+                    text: trimmed.to_string(),
+                })
+            })
+            .collect();
+        if !segments.is_empty() {
+            return Some(chunk_timed_transcript(&doc.id, &segments));
+        }
+    }
+
+    // 4. YouTube & local video/audio transcripts (`youtube_transcripts` / `video_transcripts`)
+    if matches!(
+        doc.file_type,
+        crate::models::FileType::Youtube
+            | crate::models::FileType::Video
+            | crate::models::FileType::Audio
+    ) {
+        let mut fallback_plain: Option<String> = None;
+        let youtube = match repo.get_youtube_transcript_by_document_id(&doc.id).await {
+            Ok(Some((plain, json))) => {
+                if !plain.trim().is_empty() {
+                    fallback_plain = Some(plain);
+                }
+                Some(json)
+            }
+            _ => {
+                if let Some(video_id) = crate::youtube::extract_video_id(&doc.file_path) {
+                    sqlx::query_as::<_, (String, String)>(
+                        "SELECT transcript, segments_json FROM youtube_transcripts WHERE video_id = ?1 ORDER BY date_modified DESC LIMIT 1",
+                    )
+                    .bind(video_id)
+                    .fetch_optional(repo.pool())
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|(plain, json)| {
+                        if !plain.trim().is_empty() {
+                            fallback_plain = Some(plain);
+                        }
+                        json
+                    })
+                } else {
+                    None
+                }
+            }
+        };
+
+        let json = match youtube {
+            Some(json) => Some(json),
+            None => sqlx::query_as::<_, (String, String)>(
+                "SELECT transcript, segments_json FROM video_transcripts WHERE document_id = ?1 LIMIT 1",
+            )
+            .bind(&doc.id)
+            .fetch_optional(repo.pool())
+            .await
+            .ok()
+            .flatten()
+            .map(|(plain, json)| {
+                if !plain.trim().is_empty() {
+                    fallback_plain = Some(plain);
+                }
+                json
+            }),
+        };
+
+        if let Some(raw_json) = json {
+            let segments = parse_transcript_segments_json(&raw_json);
+            if !segments.is_empty() {
+                return Some(chunk_timed_transcript(&doc.id, &segments));
+            }
+        }
+
+        if let Some(plain) = fallback_plain {
+            let ctx = ChunkContext {
+                document_id: &doc.id,
+                source_type: SOURCE_TYPE_TRANSCRIPT,
+                source_id: None,
+                location_source_type: SOURCE_TYPE_TRANSCRIPT,
+                spine_index: None,
+            };
+            let chunks = chunk_document(
+                &ctx,
+                ChunkInput::Plain {
+                    text: &plain,
+                    heading_heuristic: false,
+                },
+                &ChunkOptions::default(),
+            );
+            if !chunks.is_empty() {
+                return Some(chunks);
+            }
+        }
+    }
+
+    None
 }
 
 /// Rebuild the text chunks from the same PDF pages or preserved markup used
@@ -1211,16 +1390,134 @@ pub async fn mark_all_stale(repo: &Repository) -> Result<u64> {
     Ok(result.rows_affected())
 }
 
-/// Documents worth bulk-indexing: have text content and are not archived.
+/// Documents worth bulk-indexing: non-archived, non-excluded docs with text
+/// content, HTML content, transcripts, sessions, or extracts.
 async fn list_indexable_documents(repo: &Repository) -> Result<Vec<String>> {
-    let rows: Vec<(String, String)> =
-        sqlx::query_as("SELECT id, COALESCE(content, '') FROM documents WHERE is_archived = 0")
-            .fetch_all(repo.pool())
-            .await?;
+    let ids: Vec<String> = sqlx::query_scalar(
+        "SELECT d.id FROM documents d
+         WHERE d.is_archived = 0
+           AND d.is_ai_excluded = 0
+           AND (
+                length(trim(COALESCE(d.content, ''))) > 0
+                OR length(trim(COALESCE(d.html_content, ''))) > 0
+                OR EXISTS (SELECT 1 FROM youtube_transcripts yt WHERE yt.document_id = d.id)
+                OR EXISTS (SELECT 1 FROM video_transcripts vt WHERE vt.document_id = d.id)
+                OR EXISTS (SELECT 1 FROM transcripts t WHERE t.book_id = d.id)
+                OR EXISTS (SELECT 1 FROM recording_sessions rs WHERE rs.document_id = d.id AND rs.transcript_id IS NOT NULL)
+                OR EXISTS (SELECT 1 FROM extracts e WHERE e.document_id = d.id)
+           )",
+    )
+    .fetch_all(repo.pool())
+    .await?;
+    Ok(ids)
+}
+
+/// Deterministically builds/refreshes canonical chunks (and `semantic_chunks_fts`)
+/// for the specified documents without running paid embeddings. Respects
+/// `is_archived` and `is_ai_excluded`.
+pub async fn ensure_documents_chunks_indexed(
+    repo: &Repository,
+    document_ids: &[String],
+) -> Result<Vec<DocumentIndexStatus>> {
+    let mut seen = HashSet::new();
+    let ordered_ids: Vec<String> = document_ids
+        .iter()
+        .map(|id| id.trim().to_string())
+        .filter(|id| !id.is_empty() && seen.insert(id.clone()))
+        .collect();
+    if ordered_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    for doc_id in &ordered_ids {
+        let Some(doc) = repo.get_document(doc_id).await? else {
+            continue;
+        };
+        if doc.is_archived || doc.is_ai_excluded {
+            continue;
+        }
+
+        let readiness: Option<(Option<String>, Option<bool>, i64)> = sqlx::query_as(
+            "SELECT i.state,
+                    (i.document_id IS NOT NULL
+                     AND datetime(i.updated_at) >= datetime(COALESCE(d.content_updated_at, d.date_added, ''))) AS is_fresh,
+                    (SELECT COUNT(*) FROM semantic_chunks sc WHERE sc.document_id = d.id) AS chunk_count
+             FROM documents d
+             LEFT JOIN ai_index_state i ON i.document_id = d.id
+             WHERE d.id = ?1
+             LIMIT 1",
+        )
+        .bind(doc_id)
+        .fetch_optional(repo.pool())
+        .await?;
+
+        let already_ready = readiness.is_some_and(|(state, is_fresh, chunk_count)| {
+            chunk_count > 0
+                && is_fresh.unwrap_or(false)
+                && matches!(state.as_deref(), Some("indexed" | "lexical_only"))
+        });
+        if already_ready {
+            continue;
+        }
+
+        let content = doc.content.clone().unwrap_or_default();
+        let mut all_chunks = build_document_chunks(repo, &doc, &content).await;
+        all_chunks.extend(build_extract_chunks(repo, doc_id).await);
+        all_chunks.extend(build_annotation_chunks(repo, doc_id).await);
+        all_chunks.extend(build_card_chunks(repo, doc_id).await);
+
+        if all_chunks.is_empty() {
+            upsert_state_row(repo, doc_id, IndexState::Indexed, None, 0, 0, None).await?;
+            continue;
+        }
+
+        apply_chunk_diff(repo, doc_id, &all_chunks).await?;
+
+        let total = all_chunks.len() as i64;
+        let embedded: i64 = sqlx::query_scalar(
+            "SELECT COUNT(DISTINCT e.chunk_id)
+             FROM semantic_chunk_embeddings e
+             JOIN semantic_chunks c ON c.id = e.chunk_id
+             WHERE c.document_id = ?1",
+        )
+        .bind(doc_id)
+        .fetch_one(repo.pool())
+        .await
+        .unwrap_or(0);
+
+        let next_state = if embedded >= total {
+            IndexState::Indexed
+        } else {
+            IndexState::LexicalOnly
+        };
+        set_state_raw(repo, doc_id, next_state, embedded, total, None).await?;
+    }
+
+    let mut builder: sqlx::QueryBuilder<sqlx::Sqlite> = sqlx::QueryBuilder::new(
+        "SELECT document_id, state, embedding_version, chunks_indexed, total_chunks, error, updated_at
+         FROM ai_index_state
+         WHERE document_id IN (",
+    );
+    let mut separated = builder.separated(", ");
+    for id in &ordered_ids {
+        separated.push_bind(id);
+    }
+    separated.push_unseparated(")");
+
+    let rows = builder.build().fetch_all(repo.pool()).await?;
     Ok(rows
         .into_iter()
-        .filter(|(_, content)| !content.trim().is_empty())
-        .map(|(id, _)| id)
+        .filter_map(|row| {
+            Some(DocumentIndexStatus {
+                document_id: row.try_get("document_id").ok()?,
+                state: row.try_get("state").ok()?,
+                embedding_version: row.try_get("embedding_version").ok(),
+                chunks_indexed: row.try_get("chunks_indexed").ok()?,
+                total_chunks: row.try_get("total_chunks").ok()?,
+                error: row.try_get("error").ok(),
+                updated_at: row.try_get("updated_at").ok()?,
+            })
+        })
         .collect())
 }
 
@@ -1594,10 +1891,12 @@ mod tests {
         let backend = EmbeddingBackend::OnDeviceLive {
             model: crate::ai_learning::embeddings_backend::ON_DEVICE_MODEL,
             embedder: std::sync::Arc::new(|_, _, _| {
-                Err(crate::ai_learning::embeddings_backend::OnDeviceEmbedFailure {
-                    code: "inference_failed".into(),
-                    message: "provider error detail".into(),
-                })
+                Err(
+                    crate::ai_learning::embeddings_backend::OnDeviceEmbedFailure {
+                        code: "inference_failed".into(),
+                        message: "provider error detail".into(),
+                    },
+                )
             }),
         };
         index_document_once(&repo, "embedding-failure", &backend, &mut || true)
@@ -1928,5 +2227,147 @@ mod tests {
         assert_eq!(docs.len(), 1);
         assert_eq!(docs[0].state, "indexed");
         assert_eq!(IndexState::parse("indexed"), Some(IndexState::Indexed));
+    }
+
+    #[tokio::test]
+    async fn end_to_end_youtube_transcript_empty_content_indexes_retrieves_and_verifies() {
+        use crate::ai_learning::models::{RetrievalFilters, SOURCE_TYPE_TRANSCRIPT};
+        use crate::ai_learning::retrieval::retrieve;
+        use crate::database::StudySourceRepository;
+        use crate::models::{
+            RevisionKind, StudySourceChunk, StudySourceNavigation, StudySourceRefInput,
+            StudySourceStatus,
+        };
+
+        let pool = test_pool().await;
+        let repo = Repository::new(pool.clone());
+
+        // Seed a YouTube document with empty `documents.content` and a cached `youtube_transcripts` row.
+        sqlx::query(
+            "INSERT INTO documents (id, title, file_path, file_type, content, content_hash, date_added, date_modified, content_updated_at, is_ai_excluded)
+             VALUES ('yt-doc-1', 'Eigenvalues Lecture', 'https://www.youtube.com/watch?v=abc123XYZ00', 'youtube', '', NULL, '2026-11-01T10:00:00Z', '2026-11-12T10:00:00Z', '2026-11-01T10:00:00Z', 0)",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed yt-doc-1");
+
+        // Excluded document with matching terms that MUST be skipped by both indexing and retrieval.
+        sqlx::query(
+            "INSERT INTO documents (id, title, file_path, file_type, content, content_hash, date_added, date_modified, content_updated_at, is_ai_excluded)
+             VALUES ('yt-doc-excl', 'Excluded Lecture', 'https://www.youtube.com/watch?v=excl9990001', 'youtube', 'Linear eigenvalues secret excluded lecture transcript.', 'hash-excl', '2026-11-01T10:00:00Z', '2026-11-01T10:00:00Z', '2026-11-01T10:00:00Z', 1)",
+        )
+        .execute(&pool)
+        .await
+        .expect("seed yt-doc-excl");
+
+        let transcript_text =
+            "Linear eigenvalues govern differential stability across coupled dynamical oscillators.";
+        let segments_json = serde_json::json!([
+            {
+                "start": 15.0,
+                "duration": 6.0,
+                "text": transcript_text
+            }
+        ])
+        .to_string();
+
+        sqlx::query(
+            "INSERT INTO youtube_transcripts (id, document_id, video_id, transcript, segments_json, date_created, date_modified)
+             VALUES ('yt-tr-1', 'yt-doc-1', 'abc123XYZ00', ?1, ?2, '2026-11-01T10:00:00Z', '2026-11-01T10:00:00Z')",
+        )
+        .bind(transcript_text)
+        .bind(&segments_json)
+        .execute(&pool)
+        .await
+        .expect("seed youtube_transcripts");
+
+        let _statuses = ensure_documents_chunks_indexed(
+            &repo,
+            &["yt-doc-1".to_string(), "yt-doc-excl".to_string()],
+        )
+        .await
+        .expect("ensure_documents_chunks_indexed succeeds");
+
+        let (yt_chunks, excl_chunks): (i64, i64) = sqlx::query_as(
+            "SELECT
+                (SELECT COUNT(*) FROM semantic_chunks WHERE document_id = 'yt-doc-1' AND source_type = ?1),
+                (SELECT COUNT(*) FROM semantic_chunks WHERE document_id = 'yt-doc-excl')",
+        )
+        .bind(SOURCE_TYPE_TRANSCRIPT)
+        .fetch_one(&pool)
+        .await
+        .expect("count chunks");
+        assert!(yt_chunks >= 1, "expected transcript chunks for yt-doc-1");
+        assert_eq!(
+            excl_chunks, 0,
+            "is_ai_excluded document must not be chunked"
+        );
+
+        let backend = EmbeddingBackend::OnDevice {
+            model: "embeddinggemma",
+        };
+        let response = retrieve(
+            &repo,
+            &backend,
+            "eigenvalues stability",
+            5,
+            &RetrievalFilters {
+                document_ids: Some(vec!["yt-doc-1".to_string(), "yt-doc-excl".to_string()]),
+                source_types: None,
+            },
+        )
+        .await
+        .expect("lexical retrieve succeeds");
+
+        assert_eq!(response.mode, "lexicalOnly");
+        assert!(
+            response
+                .results
+                .iter()
+                .all(|r| r.document_id != "yt-doc-excl"),
+            "is_ai_excluded doc must never appear in retrieval results"
+        );
+        let hit = response
+            .results
+            .iter()
+            .find(|r| r.document_id == "yt-doc-1")
+            .expect("yt-doc-1 retrieved");
+        assert_eq!(hit.source_type, SOURCE_TYPE_TRANSCRIPT);
+        assert_eq!(hit.location["timestampMs"], 15000);
+
+        let study_repo = StudySourceRepository::new(pool.clone());
+        let resolved = study_repo
+            .resolve_study_source_refs(&[StudySourceRefInput {
+                document_id: hit.document_id.clone(),
+                extract_id: None,
+                excerpt: hit.text.clone(),
+                excerpt_sha256: None,
+                revision: Some("2026-11-01T10:00:00Z".to_string()),
+                revision_kind: Some(RevisionKind::ModifiedAt),
+                document_title: hit.document_title.clone(),
+                source_type: Some("youtube".to_string()),
+                jump: Some(serde_json::json!({
+                    "kind": "youtube",
+                    "timeSeconds": 15
+                })),
+                chunk: Some(StudySourceChunk {
+                    chunk_id: hit.chunk_id.clone(),
+                    ordinal: hit.ordinal as i32,
+                    start_offset: hit.location["startOffset"].as_i64().unwrap_or(0) as i32,
+                    end_offset: hit.location["endOffset"].as_i64().unwrap_or(0) as i32,
+                }),
+                section_label: None,
+            }])
+            .await
+            .expect("resolve_study_source_refs");
+
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(
+            resolved[0].status,
+            StudySourceStatus::Current,
+            "unexpected status/reason: {:?}",
+            resolved[0].reason_key
+        );
+        assert_eq!(resolved[0].navigation, StudySourceNavigation::Exact);
     }
 }

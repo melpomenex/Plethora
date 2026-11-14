@@ -126,6 +126,7 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
   const hasSources = !isModelOnly && !!scope && (scope.resolvedDocuments.length > 0 ||
     Object.values(scope.selected).some((ids) => ids.length > 0));
   const hasAiExcludedDoc = !isModelOnly && (scope?.resolvedDocuments.some((doc) => doc.isAiExcluded) ?? false);
+  const hasLocalOnlyDoc = !isModelOnly && (scope?.resolvedDocuments.some((doc) => doc.isLocalOnly) ?? false);
   const usableProviders = providers.filter(isUsableStudyModel);
 
   useEffect(() => {
@@ -377,6 +378,11 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
                 {hasAiExcludedDoc && (
                   <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-2 font-semibold">
                     {translateRecentFeature("studyPlans.ui.disabled-one-or-more-selecte.3ec5c23e")}</p>
+                )}
+                {!hasAiExcludedDoc && hasLocalOnlyDoc && (
+                  <p className="text-[11px] text-blue-600 dark:text-blue-400 mt-2 font-semibold">
+                    {translateRecentFeature("studyPlans.ui.local-only-scope-note")}
+                  </p>
                 )}
               </button>
 

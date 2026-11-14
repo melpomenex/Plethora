@@ -200,11 +200,15 @@ impl JobQueue {
             .join(" ");
 
         if !full_text.is_empty() {
-            let _ = sqlx::query("UPDATE documents SET content = ? WHERE id = ?")
-                .bind(&full_text)
-                .bind(&job.book_id)
-                .execute(repo.pool())
+            if let Ok(mut conn) = repo.pool().acquire().await {
+                let _ = crate::database::repository::sync_document_transcript_content(
+                    &mut conn,
+                    &job.book_id,
+                    &full_text,
+                )
                 .await;
+            }
+            crate::commands::ai_learning::try_enqueue_document(app_handle, &job.book_id);
         }
 
         // 7. Cleanup WAV
@@ -264,11 +268,15 @@ impl JobQueue {
         .await?;
 
         if !result.text.is_empty() {
-            let _ = sqlx::query("UPDATE documents SET content = ? WHERE id = ?")
-                .bind(&result.text)
-                .bind(&job.book_id)
-                .execute(repo.pool())
+            if let Ok(mut conn) = repo.pool().acquire().await {
+                let _ = crate::database::repository::sync_document_transcript_content(
+                    &mut conn,
+                    &job.book_id,
+                    &result.text,
+                )
                 .await;
+            }
+            crate::commands::ai_learning::try_enqueue_document(app_handle, &job.book_id);
         }
         Ok(())
     }

@@ -544,6 +544,10 @@ fn parse_document_row(row: &sqlx::sqlite::SqliteRow) -> Result<Document> {
         tags,
         date_added: row.try_get("date_added")?,
         date_modified: row.try_get("date_modified")?,
+        content_updated_at: row
+            .try_get::<Option<DateTime<Utc>>, _>("content_updated_at")
+            .ok()
+            .flatten(),
         date_last_reviewed: row
             .try_get::<Option<DateTime<Utc>>, _>("date_last_reviewed")
             .unwrap_or(None),

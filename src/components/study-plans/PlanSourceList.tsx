@@ -97,12 +97,14 @@ export const PlanSourceList: React.FC<PlanSourceListProps> = ({
             locatorLabel = translateRecentFeature("studyPlans.ui.page-var0.cc5cd104", {var0: jump.pageNumber});
           } else if (jump.kind === 'epub') {
             locatorLabel = translateRecentFeature("studyPlans.ui.epub-section.d8890a2e");
-          } else if (jump.kind === 'youtube' || jump.kind === 'audio') {
+          } else if (jump.kind === 'youtube' || jump.kind === 'audio' || jump.kind === 'video') {
             locatorLabel = `${Math.floor(jump.timeSeconds)}s`;
-          } else if (jump.kind === 'markdown' || jump.kind === 'html') {
+          } else if (jump.kind === 'markdown' || jump.kind === 'html' || jump.kind === 'text') {
             if (jump.scrollPercent !== undefined) {
-              locatorLabel = `${Math.round(jump.scrollPercent * 100)}%`;
+              locatorLabel = `${Math.round(jump.scrollPercent)}%`;
             }
+          } else if (jump.kind === 'image') {
+            locatorLabel = resolution?.ref?.sectionLabel || translateRecentFeature("studyPlans.ui.locator-image");
           }
         }
 

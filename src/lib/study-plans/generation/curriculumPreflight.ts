@@ -1,5 +1,9 @@
 import { resolveEmbeddingConfigForRag } from '../../../components/assistant/ragConfig';
-import { getAIIndexStatus, type EmbeddingConfig } from '../../../api/ai-learning';
+import {
+  ensureAIDocumentsIndexed,
+  getAIIndexStatus,
+  type EmbeddingConfig,
+} from '../../../api/ai-learning';
 import { StudyApiError } from '../../../api/study-plans';
 import { resolveStudySourceScope } from '../../../api/study-sources';
 import type { StudySourceScopeV1 } from '../../../types/studySource';
@@ -162,13 +166,23 @@ export async function prepareModelOnlyCurriculumPreflight(
 
 export async function countIndexedCurriculumSources(documentIds: string[]): Promise<number | null> {
   try {
-    const ids = new Set(documentIds);
-    const status = await getAIIndexStatus();
-    // Native status is a bounded inventory. A missing status can be a pagination limit.
-    const selected = status.documents.filter((doc) => ids.has(doc.documentId));
-    if (selected.length < ids.size && status.documents.length >= 500) return null;
-    // chunksIndexed counts embeddings. A lexical-only index still has usable chunks.
-    return selected.filter((doc) => doc.state === 'indexed' && doc.totalChunks > 0).length;
+    const ids = new Set(documentIds.filter((id) => id.trim().length > 0));
+    if (ids.size === 0) return 0;
+
+    let statuses = await ensureAIDocumentsIndexed(Array.from(ids)).catch(() => null);
+    if (!Array.isArray(statuses) || statuses.length === 0) {
+      const status = await getAIIndexStatus();
+      const selected = status.documents.filter((doc) => ids.has(doc.documentId));
+      if (selected.length < ids.size && status.documents.length >= 500) return null;
+      statuses = selected;
+    }
+
+    // Both full vector (`indexed`) and chunk/FTS (`lexical_only`) indexes are verifiable sources.
+    return statuses.filter(
+      (doc) =>
+        (doc.state === 'indexed' || doc.state === 'lexical_only') &&
+        doc.totalChunks > 0
+    ).length;
   } catch {
     return null;
   }

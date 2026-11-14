@@ -481,6 +481,7 @@ impl BackupManager {
                 tags,
                 date_added: row.get("date_added"),
                 date_modified: row.get("date_modified"),
+                content_updated_at: row.try_get("content_updated_at").ok().flatten(),
                 date_last_reviewed: row.get("date_last_reviewed"),
                 extract_count: row.get("extract_count"),
                 learning_item_count: row.get("learning_item_count"),

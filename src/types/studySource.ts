@@ -84,3 +84,47 @@ export interface StudySourceResolution {
   navigation: 'exact' | 'coarse' | 'unavailable';
   reasonKey?: string;
 }
+
+export type StudySourceReadiness =
+  | 'ready'
+  | 'indexing'
+  | 'needs-transcript'
+  | 'needs-ocr'
+  | 'ai-excluded'
+  | 'local-only'
+  | 'unavailable';
+
+export interface StudySourceCatalogItem {
+  id: string;
+  kind: string;
+  documentId?: string;
+  title: string;
+  subtitle?: string;
+  fileType: string;
+  sourceCategory: string;
+  readiness: StudySourceReadiness;
+  readinessReason?: string;
+  isAiExcluded: boolean;
+  isLocalOnly: boolean;
+  chunkCount: number;
+  indexState?: string;
+  contentHash?: string;
+  revision: string;
+  revisionKind: 'content-hash' | 'modified-at' | 'unknown';
+  collectionId?: string;
+  dateAdded: string;
+  tags: string[];
+  prepareAction?: string;
+}
+
+export interface EnsureStudySourceResult {
+  documentId: string;
+  promoted: boolean;
+  title: string;
+  sourceType: string;
+  readiness: StudySourceReadiness;
+  revision: string;
+  revisionKind: 'content-hash' | 'modified-at' | 'unknown';
+  isAiExcluded: boolean;
+  isLocalOnly: boolean;
+}

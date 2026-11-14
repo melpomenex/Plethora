@@ -2,7 +2,8 @@
 
 use crate::database::{Repository, StudyPlanLessonRepository};
 use crate::models::{
-    CreateStudyPlanLessonInput, SaveStudyPlanLessonCheckpointInput, StudyCommandError, StudyPlanLesson,
+    CreateStudyPlanLessonInput, SaveStudyPlanLessonCheckpointInput, StudyCommandError,
+    StudyPlanLesson,
 };
 use tauri::State;
 

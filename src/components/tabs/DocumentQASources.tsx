@@ -108,10 +108,13 @@ export function locationLabel(
       return translate("qaSources.page", { page: location.pageNumber });
     case "youtube":
     case "audio":
+    case "video":
       return formatTimestamp(location.timeSeconds);
     case "epub":
     case "html":
     case "markdown":
+    case "text":
+    case "image":
       return translate("qaSources.passage");
   }
 }

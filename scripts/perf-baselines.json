@@ -262,8 +262,14 @@
       "reason": "unify-assistant-conversation-and-video-context: initial baseline for the live-playback plan on the same cached 2-hour transcript; the window-centred path must stay cheaper than topical retrieval so currentTime updates never trigger a full re-plan of the transcript."
     },
     "commandPalette/registry-match-full-registry": {
-      "cost": 51.72,
-      "reason": "Unified command-registry matcher at registry scale (150 seeded multi-token queries x 234 commands); new benchmark for the unify-command-palette-registry change."
+      "cost": 26.15,
+      "tolerance": 1.35,
+      "reason": "optimize-command-palette-search-latency (CP-T03): PreparedCommand WeakMap index eliminates per-keystroke label/description/keyword/alias lowercasing across the 234-command registry (~2x faster than 51.72 baseline)."
+    },
+    "commandPalette/stage-a-titles-3000-docs": {
+      "cost": 1.296,
+      "tolerance": 1.4,
+      "reason": "optimize-command-palette-search-latency (CP-T04): initial baseline for synchronous Stage A WeakMap title/tag/category matching with edit-distance length-bound guard across 3,000 seeded documents."
     },
     "routing resolveRoute (64 questions)": {
       "cost": 0.2586

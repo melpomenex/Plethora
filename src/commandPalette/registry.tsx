@@ -120,29 +120,81 @@ export function normalizeCommandQuery(query: string): string {
   return query.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
-/** Best tier for one query token against one command, or null when no match. */
-function tokenTier(command: Command, token: string): CommandMatchTier | null {
-  const label = command.label.toLowerCase();
-  const aliases = (command.aliases ?? []).map((alias) => alias.toLowerCase());
-  const keywords = (command.keywords ?? []).map((keyword) => keyword.toLowerCase());
-  const description = (command.description ?? "").toLowerCase();
+interface PreparedCommand {
+  labelLower: string;
+  aliasesLower: string[];
+  keywordsLower: string[];
+  descriptionLower: string;
+  fuzzyCandidates: string[];
+}
 
-  if (token === label) return "exact-label";
-  if (aliases.includes(token)) return "exact-alias";
-  if (label.startsWith(token)) return "prefix-label";
-  if (aliases.some((alias) => alias.startsWith(token))) return "prefix-alias";
-  if (keywords.some((keyword) => keyword.includes(token))) return "keyword";
-  if (token.length >= 3) {
-    const fuzzyCandidates = [label, ...aliases];
-    const fuzzyHit = fuzzyCandidates.some((candidate) => {
-      if (candidate.includes(" ")) return false;
+const preparedCommandCache = new WeakMap<Command, PreparedCommand>();
+
+function prepareCommand(command: Command): PreparedCommand {
+  const cached = preparedCommandCache.get(command);
+  if (cached) return cached;
+
+  const labelLower = command.label.toLowerCase();
+  const aliasesLower = (command.aliases ?? []).map((alias) => alias.toLowerCase());
+  const keywordsLower = (command.keywords ?? []).map((keyword) => keyword.toLowerCase());
+  const descriptionLower = (command.description ?? "").toLowerCase();
+  const fuzzyCandidates = [labelLower, ...aliasesLower].filter(
+    (candidate) => !candidate.includes(" ")
+  );
+
+  const prepared: PreparedCommand = {
+    labelLower,
+    aliasesLower,
+    keywordsLower,
+    descriptionLower,
+    fuzzyCandidates,
+  };
+  preparedCommandCache.set(command, prepared);
+  return prepared;
+}
+
+/** Best tier for one query token against a pre-normalized command, or null when no match. */
+function tokenTier(prepared: PreparedCommand, token: string): CommandMatchTier | null {
+  if (token === prepared.labelLower) return "exact-label";
+  if (prepared.aliasesLower.includes(token)) return "exact-alias";
+  if (prepared.labelLower.startsWith(token)) return "prefix-label";
+  if (prepared.aliasesLower.some((alias) => alias.startsWith(token))) return "prefix-alias";
+  if (prepared.keywordsLower.some((keyword) => keyword.includes(token))) return "keyword";
+  if (token.length >= 3 && prepared.fuzzyCandidates.length > 0) {
+    const fuzzyHit = prepared.fuzzyCandidates.some((candidate) => {
       const result = fuzzyMatch(candidate, token, 2);
       return result.match && result.score >= 0.6;
     });
     if (fuzzyHit) return "fuzzy";
   }
-  if (description.includes(token)) return "description";
+  if (prepared.descriptionLower.includes(token)) return "description";
   return null;
+}
+
+function scoreNormalizedCommand(
+  command: Command,
+  normalized: string,
+  tokens: string[],
+): CommandMatch | null {
+  const prepared = prepareCommand(command);
+
+  if (normalized === prepared.labelLower) {
+    return { command, tier: "exact-label", score: COMMAND_TIER_SCORES["exact-label"] };
+  }
+  if (prepared.aliasesLower.includes(normalized)) {
+    return { command, tier: "exact-alias", score: COMMAND_TIER_SCORES["exact-alias"] };
+  }
+
+  let weakest: CommandMatchTier | null = null;
+  for (const token of tokens) {
+    const tier = tokenTier(prepared, token);
+    if (!tier) return null;
+    if (weakest === null || COMMAND_TIER_SCORES[tier] < COMMAND_TIER_SCORES[weakest]) {
+      weakest = tier;
+    }
+  }
+  if (!weakest) return null;
+  return { command, tier: weakest, score: COMMAND_TIER_SCORES[weakest] };
 }
 
 /**
@@ -155,27 +207,7 @@ function tokenTier(command: Command, token: string): CommandMatchTier | null {
 export function scoreCommand(command: Command, query: string): CommandMatch | null {
   const normalized = normalizeCommandQuery(query);
   if (!normalized) return null;
-
-  const label = command.label.toLowerCase();
-  if (normalized === label) {
-    return { command, tier: "exact-label", score: COMMAND_TIER_SCORES["exact-label"] };
-  }
-  const aliases = (command.aliases ?? []).map((alias) => alias.toLowerCase());
-  if (aliases.includes(normalized)) {
-    return { command, tier: "exact-alias", score: COMMAND_TIER_SCORES["exact-alias"] };
-  }
-
-  const tokens = normalized.split(" ");
-  let weakest: CommandMatchTier | null = null;
-  for (const token of tokens) {
-    const tier = tokenTier(command, token);
-    if (!tier) return null;
-    if (weakest === null || COMMAND_TIER_SCORES[tier] < COMMAND_TIER_SCORES[weakest]) {
-      weakest = tier;
-    }
-  }
-  if (!weakest) return null;
-  return { command, tier: weakest, score: COMMAND_TIER_SCORES[weakest] };
+  return scoreNormalizedCommand(command, normalized, normalized.split(" "));
 }
 
 /**
@@ -183,11 +215,14 @@ export function scoreCommand(command: Command, query: string): CommandMatch | nu
  * order for ties.
  */
 export function matchCommands(commands: Command[], query: string): CommandMatch[] {
+  const normalized = normalizeCommandQuery(query);
+  if (!normalized) return [];
+  const tokens = normalized.split(" ");
   const scored: Array<CommandMatch & { order: number }> = [];
-  commands.forEach((command, order) => {
-    const match = scoreCommand(command, query);
+  for (let order = 0; order < commands.length; order++) {
+    const match = scoreNormalizedCommand(commands[order], normalized, tokens);
     if (match) scored.push({ ...match, order });
-  });
+  }
   scored.sort((a, b) => b.score - a.score || a.order - b.order);
   return scored.map(({ order: _order, ...match }) => match);
 }
@@ -840,6 +875,8 @@ export const REGISTRY_COMMAND_EXCEPTIONS: Record<string, string> = {
   "import-twitter-video": "Ungated-with-rationale: uses the Rust backend, which ships on iOS too (audit §Command palette).",
   "go-import-needs-review": "Needs-review queue surface; reachable on every platform.",
   "go-web-browser": "In-app webview surface; platform-neutral.",
+  "go-study-plans": "Study Plans destination; works across all supported platforms.",
+  "create-study-plan": "Study Plan draft action; dispatches destination handoff without invoking a platform-exclusive native bridge.",
   "interface-zoom-in":
     "Desktop-only by construction: buildInterfaceZoomCommands returns [] unless isDesktopInterfaceZoomSupported() (desktop Tauri, macOS 11+).",
   "interface-zoom-out":

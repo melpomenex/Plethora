@@ -388,11 +388,12 @@ impl AutoTranscriptionQueue {
             anyhow::bail!("No readable transcript segments were saved");
         }
         let mut completion = repo.pool().begin().await?;
-        sqlx::query("UPDATE documents SET content = ? WHERE id = ?")
-            .bind(&full_text)
-            .bind(&entry.document_id)
-            .execute(&mut *completion)
-            .await?;
+        crate::database::repository::sync_document_transcript_content(
+            &mut *completion,
+            &entry.document_id,
+            &full_text,
+        )
+        .await?;
 
         // Mark transcript as completed
         sqlx::query("UPDATE transcripts SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = ?")
@@ -400,6 +401,7 @@ impl AutoTranscriptionQueue {
         .execute(&mut *completion)
         .await?;
         completion.commit().await?;
+        crate::commands::ai_learning::try_enqueue_document(app, &entry.document_id);
 
         // Cleanup WAV (best-effort)
         if let Err(e) = std::fs::remove_file(&wav_path) {

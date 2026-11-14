@@ -48,12 +48,17 @@ export const AttemptSourceAction: React.FC<AttemptSourceActionProps> = ({
   if (sourceRef.jump) {
     if (sourceRef.jump.kind === 'pdf') {
       locationLabel = `p. ${sourceRef.jump.pageNumber}`;
-    } else if (sourceRef.jump.kind === 'youtube' || sourceRef.jump.kind === 'audio') {
-      const mins = Math.floor(sourceRef.jump.timeSeconds / 60);
-      const secs = (sourceRef.jump.timeSeconds % 60).toString().padStart(2, '0');
+    } else if (sourceRef.jump.kind === 'youtube' || sourceRef.jump.kind === 'audio' || sourceRef.jump.kind === 'video') {
+      const totalSecs = Math.max(0, Math.floor(sourceRef.jump.timeSeconds));
+      const mins = Math.floor(totalSecs / 60);
+      const secs = (totalSecs % 60).toString().padStart(2, '0');
       locationLabel = `${mins}:${secs}`;
     } else if (sourceRef.jump.kind === 'epub') {
       locationLabel = 'EPUB';
+    } else if (sourceRef.jump.kind === 'html' || sourceRef.jump.kind === 'markdown' || sourceRef.jump.kind === 'text') {
+      locationLabel = sourceRef.sectionLabel || (sourceRef.jump.scrollPercent !== undefined ? `${Math.round(sourceRef.jump.scrollPercent)}%` : 'Passage');
+    } else if (sourceRef.jump.kind === 'image') {
+      locationLabel = sourceRef.sectionLabel || 'Image';
     }
   } else if (sourceRef.sectionLabel) {
     locationLabel = sourceRef.sectionLabel;

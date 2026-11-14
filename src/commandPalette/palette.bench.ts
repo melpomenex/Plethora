@@ -26,6 +26,8 @@ import type { StartupProgressItem } from "../types/startup";
 import type { PaletteScope } from "./types";
 import { matchCommands } from "./registry";
 import { CommandCategory, type Command } from "./commandModel";
+import { matchDocumentTitlesSync } from "./paletteSearchAdapter";
+import type { Document } from "../types/document";
 
 const rng = seededRandom(0x5ea1ec7);
 
@@ -283,6 +285,46 @@ bench("commandPalette/registry-match-full-registry", () => {
   let acc = 0;
   for (const query of REGISTRY_QUERIES) {
     acc += matchCommands(REGISTRY_COMMANDS, query).length;
+  }
+  sink ^= acc;
+});
+
+/* ------------------------------------------------------------------------- */
+/* Stage A document title index (optimize-command-palette-search-latency)    */
+/* ------------------------------------------------------------------------- */
+
+const STAGE_A_DOCS: Document[] = documents.map((doc, i) => ({
+  id: doc.id,
+  title:
+    i % 97 === 0
+      ? `Deep Attention Quantum Paper ${i}`
+      : `Seeded Study Source ${i} ${QUERY_WORDS[i % QUERY_WORDS.length]}`,
+  filePath: `/tmp/${doc.id}.${doc.fileType}`,
+  fileType: doc.fileType,
+  dateAdded: doc.dateModified,
+  dateModified: doc.dateModified,
+  extractCount: 0,
+  learningItemCount: 0,
+  priorityRating: 3,
+  prioritySlider: 50,
+  priorityScore: 50,
+  isArchived: doc.isArchived,
+  isFavorite: false,
+  isDismissed: doc.isDismissed,
+  collectionId: doc.collectionId,
+  category: i % 5 === 0 ? "Neuroscience" : "General",
+  tags: doc.tags,
+}));
+
+const STAGE_A_QUERIES = ["deep attention", "study source 995", "quantum", "neuroscience"];
+
+bench("commandPalette/stage-a-titles-3000-docs", () => {
+  let acc = 0;
+  for (const q of STAGE_A_QUERIES) {
+    acc += matchDocumentTitlesSync(STAGE_A_DOCS, { query: q }, {
+      activeCollectionId: "col-a",
+      limit: 30,
+    }).length;
   }
   sink ^= acc;
 });

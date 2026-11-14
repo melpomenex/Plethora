@@ -8,7 +8,10 @@
  */
 
 import {
+  ensureAIDocumentsIndexed,
   retrieveFromLibrary,
+  sampleLibraryDocumentChunks,
+  type ChunkLocation,
   type EmbeddingConfig,
   type RetrievalFilters,
   type RetrievalResponse,
@@ -60,6 +63,11 @@ export interface HydrateEvidenceOptions {
   listConfirmedConceptLinksFn?: () => Promise<ConceptLink[]>;
   listConceptsFn?: () => Promise<Concept[]>;
   resolveSourceRefsFn?: (inputs: StudySourceRefInput[]) => Promise<StudySourceResolution[]>;
+  ensureDocumentsIndexedFn?: (documentIds: string[]) => Promise<unknown>;
+  sampleChunksFn?: (
+    documentIds: string[],
+    options?: { extractIds?: string[]; perDocumentLimit?: number }
+  ) => Promise<RetrievalResult[]>;
 }
 
 export interface HydratedEvidenceResult {
@@ -79,6 +87,7 @@ export interface HydratedEvidenceResult {
     candidatesInScope: number;
     submittedPassages: number;
     rejectedPassages: number;
+    unverifiedReasons?: Record<string, number>;
     retrievalMs: number;
     verificationMs: number;
     verifiedPassages: number;
@@ -111,18 +120,49 @@ async function runConcurrent<T, R>(
   return results;
 }
 
-function mapLocationToJump(loc?: import('../../../api/ai-learning').ChunkLocation): ExactSearchHitLocation | undefined {
-  if (!loc) return undefined;
-  if (loc.sourceType === 'pdf' && loc.pageNumber !== undefined) {
-    return { kind: 'pdf', pageNumber: loc.pageNumber };
+function mapLocationToJump(
+  loc?: ChunkLocation,
+  docSourceType?: string,
+  excerpt?: string
+): ExactSearchHitLocation | undefined {
+  if (!loc && !docSourceType) return undefined;
+  const docType = docSourceType?.toLowerCase() ?? '';
+  const locType = loc?.sourceType?.toLowerCase() ?? '';
+  let effectiveType =
+    !locType || locType === 'transcript' || locType === 'session' || locType === 'fts' || locType === 'extract'
+      ? docType || locType || 'text'
+      : locType;
+  if (effectiveType === 'other') effectiveType = 'text';
+
+  const quote = excerpt?.trim().slice(0, 120).replace(/\s+/g, ' ');
+  const textQuote = quote ? quote : undefined;
+
+  if (effectiveType === 'pdf' && typeof loc?.pageNumber === 'number' && loc.pageNumber >= 1) {
+    return { kind: 'pdf', pageNumber: loc.pageNumber, ...(textQuote ? { textQuote } : {}) };
   }
-  if (loc.sourceType === 'epub' && loc.cfiRange) {
-    return { kind: 'epub', cfi: loc.cfiRange, cfiRange: loc.cfiRange };
+  if (effectiveType === 'epub' && loc?.cfiRange?.trim()) {
+    return {
+      kind: 'epub',
+      cfi: loc.cfiRange,
+      cfiRange: loc.cfiRange,
+      ...(textQuote ? { textQuote } : {}),
+    };
   }
-  if (loc.sourceType === 'audio') {
-    return { kind: 'audio', timeSeconds: Math.floor((loc.timestampMs || loc.startMs || 0) / 1000) };
+  if (effectiveType === 'youtube' || effectiveType === 'video' || effectiveType === 'audio') {
+    const rawMs = loc?.startMs ?? loc?.timestampMs ?? 0;
+    const timeSeconds = Number.isFinite(rawMs) ? Math.max(0, Math.floor(rawMs / 1000)) : 0;
+    const segmentId = loc?.segmentId ?? loc?.startSegmentId;
+    return {
+      kind: effectiveType,
+      timeSeconds,
+      ...(segmentId ? { segmentId } : {}),
+      ...(textQuote ? { textQuote } : {}),
+    };
   }
-  return undefined;
+  if (effectiveType === 'html' || effectiveType === 'markdown' || effectiveType === 'image' || effectiveType === 'text') {
+    return { kind: effectiveType, ...(textQuote ? { textQuote } : {}) };
+  }
+  return textQuote ? { kind: 'text', textQuote } : undefined;
 }
 
 /**
@@ -230,6 +270,8 @@ export async function hydrateCurriculumEvidence(
     listConfirmedConceptLinksFn = listConfirmedConceptLinks,
     listConceptsFn = listConcepts,
     resolveSourceRefsFn = resolveStudySourceRefs,
+    ensureDocumentsIndexedFn = options.retrieveFn ? undefined : ensureAIDocumentsIndexed,
+    sampleChunksFn = options.retrieveFn ? undefined : sampleLibraryDocumentChunks,
   } = options;
 
   const allowedDocIdsList = getAllowedDocumentIds(sourceScope);
@@ -259,6 +301,13 @@ export async function hydrateCurriculumEvidence(
   let retrievedCandidates = 0;
   let candidatesInScope = 0;
   const retrievalStarted = performance.now();
+
+  if (ensureDocumentsIndexedFn) {
+    await beforeQuery?.();
+    signal?.throwIfAborted();
+    await ensureDocumentsIndexedFn(allowedDocIdsList).catch(() => undefined);
+    signal?.throwIfAborted();
+  }
 
   async function retrieve(query: string, k: number): Promise<RetrievalResult[]> {
     await beforeQuery?.();
@@ -326,33 +375,71 @@ export async function hydrateCurriculumEvidence(
     }
   }
 
+  if (sampleChunksFn) {
+    const coveredDocIds = new Set(uniqueHits.map((hit) => hit.documentId));
+    const missingDocIds = allowedDocIdsList.filter((id) => !coveredDocIds.has(id));
+    if (uniqueHits.length === 0 || missingDocIds.length > 0) {
+      const targetDocIds = uniqueHits.length === 0 ? allowedDocIdsList : missingDocIds;
+      const sampled = await sampleChunksFn(targetDocIds, {
+        extractIds: allowedExtractIds.size > 0 ? [...allowedExtractIds] : undefined,
+        perDocumentLimit: uniqueHits.length === 0 ? 4 : 2,
+      }).catch(() => [] as RetrievalResult[]);
+      const inScopeSampled = sampled.filter((hit) => {
+        if (!allowedDocIds.has(hit.documentId)) return false;
+        const extractId = hit.location?.extractId ?? (hit.sourceType === 'extract' ? hit.sourceId : undefined);
+        return fullDocumentIds.has(hit.documentId) || (!!extractId && allowedExtractIds.has(extractId));
+      });
+      if (inScopeSampled.length > 0 && modes.size === 0) {
+        modes.add('lexicalOnly');
+      }
+      for (const hit of inScopeSampled) {
+        addHit(hit);
+      }
+    }
+  }
+
   signal?.throwIfAborted();
-  const refInputs: StudySourceRefInput[] = uniqueHits.filter((hit) => hit.text.trim()).map((hit) => ({
-    documentId: hit.documentId,
-    extractId: hit.location?.extractId ?? (hit.sourceType === 'extract' ? hit.sourceId : undefined),
-    excerpt: hit.text.trim().slice(0, EVIDENCE_LIMITS.MAX_EXCERPT_CHARS).replace(/[\uD800-\uDBFF]$/, ''),
-    documentTitle: hit.documentTitle,
-    sourceType: hit.sourceType,
-    revision: documentsById.get(hit.documentId)?.revision,
-    jump: mapLocationToJump(hit.location),
-    chunk: hit.location && hit.location.sourceType !== 'fts' && hit.chunkId ? {
-      chunkId: hit.chunkId,
-      ordinal: hit.ordinal,
-      startOffset: hit.location.startOffset,
-      endOffset: hit.location.endOffset,
-    } : undefined,
-  }));
+  const refInputs: StudySourceRefInput[] = uniqueHits.filter((hit) => hit.text.trim()).map((hit) => {
+    const doc = documentsById.get(hit.documentId);
+    const trimmedExcerpt = hit.text
+      .trim()
+      .slice(0, EVIDENCE_LIMITS.MAX_EXCERPT_CHARS)
+      .replace(/[\uD800-\uDBFF]$/, '');
+    return {
+      documentId: hit.documentId,
+      extractId: hit.location?.extractId ?? (hit.sourceType === 'extract' ? hit.sourceId : undefined),
+      excerpt: trimmedExcerpt,
+      documentTitle: hit.documentTitle,
+      sourceType: hit.sourceType,
+      revision: doc?.revision,
+      jump: mapLocationToJump(hit.location, doc?.sourceType, trimmedExcerpt),
+      chunk: hit.location && hit.location.sourceType !== 'fts' && hit.chunkId ? {
+        chunkId: hit.chunkId,
+        ordinal: hit.ordinal,
+        startOffset: hit.location.startOffset,
+        endOffset: hit.location.endOffset,
+      } : undefined,
+    };
+  });
   const verificationStarted = performance.now();
   const resolutions = refInputs.length ? await resolveSourceRefsFn(refInputs) : [];
-  const verifiedRefs = resolutions.flatMap(({ status, ref }, index) => {
+  const unverifiedReasons: Record<string, number> = {};
+  const verifiedRefs = resolutions.flatMap(({ status, reasonKey, ref }, index) => {
     const input = refInputs[index];
     // Rust serializes a missing extract ID as null. Document inputs omit it.
     const extractId = ref.extractId ?? undefined;
-    return status === 'current' && input && ref.documentId === input.documentId &&
+    const verified = status === 'current' && input && ref.documentId === input.documentId &&
       extractId === input.extractId && (!input.revision || ref.revision === input.revision) &&
       ref.excerpt === input.excerpt.replace(/\r\n/g, '\n') &&
-      ref.revisionKind !== 'unknown'
-      ? [{ ...ref, extractId }] : [];
+      ref.revisionKind !== 'unknown';
+    if (verified) {
+      return [{ ...ref, extractId }];
+    }
+    const key = reasonKey || (status !== 'current'
+      ? `study_source.status.${status}`
+      : 'study_source.verification.field_mismatch');
+    unverifiedReasons[key] = (unverifiedReasons[key] ?? 0) + 1;
+    return [];
   });
   const verificationMs = performance.now() - verificationStarted;
   const refKey = (ref: { documentId: string; extractId?: string; excerpt: string }) =>
@@ -381,6 +468,7 @@ export async function hydrateCurriculumEvidence(
       candidatesInScope,
       submittedPassages: refInputs.length,
       rejectedPassages: refInputs.length - verifiedRefs.length,
+      ...(Object.keys(unverifiedReasons).length > 0 ? { unverifiedReasons } : {}),
       retrievalMs,
       verificationMs,
       verifiedPassages: plan.allHandles.length,

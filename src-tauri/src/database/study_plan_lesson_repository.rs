@@ -75,9 +75,9 @@ impl StudyPlanLessonRepository {
 
         let id = format!("spl_{}", Uuid::new_v4());
         let now = Utc::now().to_rfc3339();
-        let authority = input.knowledge_authority_json.unwrap_or_else(|| {
-            "{\"kind\":\"library\",\"policy\":\"source-only\"}".to_string()
-        });
+        let authority = input
+            .knowledge_authority_json
+            .unwrap_or_else(|| "{\"kind\":\"library\",\"policy\":\"source-only\"}".to_string());
         let style = match input.style.unwrap_or_default() {
             LessonStyle::ExplainCheck => "explain-check".to_string(),
             LessonStyle::Challenge => "challenge".to_string(),
@@ -155,16 +155,13 @@ impl StudyPlanLessonRepository {
         &self,
         input: SaveStudyPlanLessonCheckpointInput,
     ) -> Result<StudyPlanLesson, StudyCommandError> {
-        let current = self
-            .get_lesson(&input.lesson_id)
-            .await?
-            .ok_or_else(|| {
-                StudyCommandError::new(
-                    StudyErrorCode::NotFound,
-                    "study_plan.error.lesson_not_found",
-                    false,
-                )
-            })?;
+        let current = self.get_lesson(&input.lesson_id).await?.ok_or_else(|| {
+            StudyCommandError::new(
+                StudyErrorCode::NotFound,
+                "study_plan.error.lesson_not_found",
+                false,
+            )
+        })?;
 
         if current.revision != input.expected_revision {
             let mut details = crate::models::study_source::StudyCommandErrorDetails::default();
@@ -258,7 +255,9 @@ mod tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        crate::database::migrations::run_migrations(&pool).await.unwrap();
+        crate::database::migrations::run_migrations(&pool)
+            .await
+            .unwrap();
         pool
     }
 
@@ -373,10 +372,7 @@ mod tests {
         assert_eq!(switched.style, LessonStyle::Challenge);
         assert_eq!(switched.turn_count, 0); // historical turns unchanged
 
-        let listed = repo
-            .list_lessons_for_node("spv_1", "spn_1")
-            .await
-            .unwrap();
+        let listed = repo.list_lessons_for_node("spv_1", "spn_1").await.unwrap();
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].id, created.id);
     }

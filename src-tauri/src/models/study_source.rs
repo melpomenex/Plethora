@@ -286,3 +286,61 @@ pub struct StudySourceResolution {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason_key: Option<String>,
 }
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum StudySourceReadiness {
+    Ready,
+    Indexing,
+    NeedsTranscript,
+    NeedsOcr,
+    AiExcluded,
+    LocalOnly,
+    Unavailable,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct StudySourceCatalogItem {
+    pub id: String,
+    pub kind: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub document_id: Option<String>,
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
+    pub file_type: String,
+    pub source_category: String,
+    pub readiness: StudySourceReadiness,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub readiness_reason: Option<String>,
+    pub is_ai_excluded: bool,
+    pub is_local_only: bool,
+    pub chunk_count: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub index_state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<String>,
+    pub revision: String,
+    pub revision_kind: RevisionKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub collection_id: Option<String>,
+    pub date_added: String,
+    pub tags: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prepare_action: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EnsureStudySourceResult {
+    pub document_id: String,
+    pub promoted: bool,
+    pub title: String,
+    pub source_type: String,
+    pub readiness: StudySourceReadiness,
+    pub revision: String,
+    pub revision_kind: RevisionKind,
+    pub is_ai_excluded: bool,
+    pub is_local_only: bool,
+}

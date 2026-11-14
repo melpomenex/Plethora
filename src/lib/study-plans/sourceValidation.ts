@@ -357,8 +357,16 @@ export function validateExactSearchHitLocation(
   // Check source-type compatibility if sourceType provided
   if (sourceType) {
     const normalizedSource = sourceType.toLowerCase().trim();
-    if (['pdf', 'epub', 'html', 'markdown', 'youtube', 'audio'].includes(normalizedSource)) {
+    if (['pdf', 'epub', 'html', 'markdown', 'youtube', 'audio', 'video', 'text', 'image'].includes(normalizedSource)) {
       if (jump.kind !== normalizedSource) {
+        issues.push({
+          path: `${pathPrefix}.kind`,
+          code: 'source_type_mismatch',
+          messageKey: 'study_source.error.source_type_mismatch',
+        });
+      }
+    } else if (normalizedSource === 'other') {
+      if (!['text', 'markdown'].includes(jump.kind)) {
         issues.push({
           path: `${pathPrefix}.kind`,
           code: 'source_type_mismatch',
@@ -416,7 +424,8 @@ export function validateExactSearchHitLocation(
       break;
     }
     case 'youtube':
-    case 'audio': {
+    case 'audio':
+    case 'video': {
       if (
         typeof jump.timeSeconds !== 'number' ||
         !Number.isFinite(jump.timeSeconds) ||
@@ -431,7 +440,8 @@ export function validateExactSearchHitLocation(
       break;
     }
     case 'html':
-    case 'markdown': {
+    case 'markdown':
+    case 'text': {
       if (jump.scrollPercent !== undefined) {
         if (
           typeof jump.scrollPercent !== 'number' ||
@@ -446,6 +456,9 @@ export function validateExactSearchHitLocation(
           });
         }
       }
+      break;
+    }
+    case 'image': {
       break;
     }
     default: {

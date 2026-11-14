@@ -12,6 +12,29 @@ fn unavailable() -> SessionOperationError {
     SessionOperationError::source_unavailable()
 }
 
+async fn sync_session_document_projection(
+    conn: &mut sqlx::SqliteConnection,
+    transcript_id: i64,
+    document_id: &str,
+    separator: &str,
+) -> SessionResult<()> {
+    let texts: Vec<String> = sqlx::query_scalar(
+        "SELECT text FROM transcript_segments WHERE transcript_id = ?1 ORDER BY ordinal, id",
+    )
+    .bind(transcript_id)
+    .fetch_all(&mut *conn)
+    .await?;
+    let full_text = texts.join(separator);
+    crate::database::repository::sync_document_transcript_content(
+        &mut *conn,
+        document_id,
+        &full_text,
+    )
+    .await
+    .map_err(|_| unavailable())?;
+    Ok(())
+}
+
 fn read_enum<T: DeserializeOwned>(row: &SqliteRow, column: &str) -> SessionResult<T> {
     let value: String = row.try_get(column)?;
     serde_json::from_value(serde_json::Value::String(value)).map_err(|_| unavailable())
@@ -655,24 +678,7 @@ impl Repository {
         .await?;
 
         // 5. Update documents.content projection from canonical source
-        sqlx::query(
-            r#"
-            UPDATE documents
-            SET content = COALESCE((
-                SELECT GROUP_CONCAT(text, ' ')
-                FROM (
-                    SELECT text FROM transcript_segments
-                    WHERE transcript_id = ?1
-                    ORDER BY ordinal, id
-                )
-            ), '')
-            WHERE id = ?2
-            "#,
-        )
-        .bind(transcript_id)
-        .bind(&document_id)
-        .execute(&mut *tx)
-        .await?;
+        sync_session_document_projection(&mut *tx, transcript_id, &document_id, " ").await?;
 
         sqlx::query("UPDATE ai_index_state SET state = 'stale' WHERE document_id = ?1 AND state = 'indexed'")
             .bind(&document_id)
@@ -778,24 +784,7 @@ impl Repository {
         }
 
         // 4. Update documents.content projection from newly committed transcript
-        sqlx::query(
-            r#"
-            UPDATE documents
-            SET content = COALESCE((
-                SELECT GROUP_CONCAT(text, CHAR(10) || CHAR(10))
-                FROM (
-                    SELECT text FROM transcript_segments
-                    WHERE transcript_id = ?1
-                    ORDER BY ordinal, id
-                )
-            ), '')
-            WHERE id = ?2
-            "#,
-        )
-        .bind(transcript_id)
-        .bind(&document_id)
-        .execute(&mut *tx)
-        .await?;
+        sync_session_document_projection(&mut *tx, transcript_id, &document_id, "\n\n").await?;
 
         // 5. Update recording session row with new transcript ID and revision
         let now = chrono::Utc::now().to_rfc3339();
@@ -923,24 +912,7 @@ impl Repository {
         }
 
         // 7. Update documents.content projection from canonical transcript
-        sqlx::query(
-            r#"
-            UPDATE documents
-            SET content = COALESCE((
-                SELECT GROUP_CONCAT(text, CHAR(10) || CHAR(10))
-                FROM (
-                    SELECT text FROM transcript_segments
-                    WHERE transcript_id = ?1
-                    ORDER BY ordinal, id
-                )
-            ), '')
-            WHERE id = ?2
-            "#,
-        )
-        .bind(transcript_id)
-        .bind(&document_id)
-        .execute(&mut *tx)
-        .await?;
+        sync_session_document_projection(&mut *tx, transcript_id, &document_id, "\n\n").await?;
 
         sqlx::query("UPDATE ai_index_state SET state = 'stale' WHERE document_id = ?1 AND state = 'indexed'")
             .bind(&document_id)

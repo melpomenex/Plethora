@@ -64,7 +64,19 @@ export function buildEmbeddingConfig(
 
 /** Location payload for navigating back to a chunk's origin (design D13). */
 export interface ChunkLocation {
-  sourceType: "pdf" | "epub" | "html" | "markdown" | "text" | "fts" | "video" | "audio" | "transcript" | "session";
+  sourceType:
+    | "pdf"
+    | "epub"
+    | "html"
+    | "markdown"
+    | "text"
+    | "fts"
+    | "youtube"
+    | "video"
+    | "audio"
+    | "transcript"
+    | "session"
+    | "image";
   documentId: string;
   ordinal: number;
   startOffset: number;
@@ -96,7 +108,8 @@ export type SemanticSourceType =
   | "card"
   | "figure"
   | "media"
-  | "session";
+  | "session"
+  | "transcript";
 
 export interface RetrievalResult {
   chunkId: string;
@@ -153,7 +166,7 @@ export interface AggregateIndexStatus {
 
 export interface DocumentIndexStatus {
   documentId: string;
-  state: "unindexed" | "queued" | "indexing" | "indexed" | "stale" | "failed";
+  state: "unindexed" | "queued" | "indexing" | "indexed" | "lexical_only" | "stale" | "failed";
   embeddingVersion?: number;
   chunksIndexed: number;
   totalChunks: number;
@@ -287,5 +300,32 @@ export function removeSourceChunks(
     source_type: sourceType,
     sourceId,
     source_id: sourceId,
+  });
+}
+
+/**
+ * Deterministically chunk and FTS-index the requested documents without
+ * incurring paid embedding calls.
+ */
+export function ensureAIDocumentsIndexed(
+  documentIds: string[]
+): Promise<DocumentIndexStatus[]> {
+  return invokeCommand("ai_learning_ensure_documents_indexed", {
+    documentIds,
+    document_ids: documentIds,
+  });
+}
+
+export function sampleLibraryDocumentChunks(
+  documentIds: string[],
+  options: { extractIds?: string[]; perDocumentLimit?: number } = {}
+): Promise<RetrievalResult[]> {
+  return invokeCommand("ai_learning_sample_document_chunks", {
+    documentIds,
+    document_ids: documentIds,
+    extractIds: options.extractIds ?? null,
+    extract_ids: options.extractIds ?? null,
+    perDocumentLimit: options.perDocumentLimit ?? null,
+    per_document_limit: options.perDocumentLimit ?? null,
   });
 }

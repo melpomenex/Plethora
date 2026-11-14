@@ -81,6 +81,8 @@ interface LocalVideoPlayerProps {
   initialEndTime?: number;
   autoPlayOnOpen?: boolean;
   armedExtract?: VideoExtract | null;
+  initialTranscriptHighlightQuery?: string;
+  initialTranscriptSegmentId?: string;
   onVideoContextChange?: (context: {
     videoId: string;
     title: string;
@@ -104,6 +106,8 @@ export function LocalVideoPlayer({
   initialEndTime,
   autoPlayOnOpen = false,
   armedExtract = null,
+  initialTranscriptHighlightQuery,
+  initialTranscriptSegmentId,
   onVideoContextChange,
 }: LocalVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -481,6 +485,12 @@ export function LocalVideoPlayer({
     if (typeof window === 'undefined') return;
     localStorage.setItem('transcript-visibility', String(showTranscript));
   }, [showTranscript]);
+
+  // Open the transcript drawer automatically when jumping directly to a transcript segment or quote.
+  useEffect(() => {
+    if (!initialTranscriptHighlightQuery?.trim() && !initialTranscriptSegmentId) return;
+    setShowTranscript(true);
+  }, [initialTranscriptHighlightQuery, initialTranscriptSegmentId]);
 
   // Persist transcript width to localStorage
   useEffect(() => {
@@ -1920,6 +1930,8 @@ export function LocalVideoPlayer({
                   currentTime={currentTime}
                   onSeek={handleSeek}
                   className="h-full"
+                  highlightQuery={initialTranscriptHighlightQuery}
+                  highlightedSegmentId={initialTranscriptSegmentId}
                   isPlaying={isPlaying}
                   playbackRate={playbackRate}
                   languageSourceId={documentId ?? sourceKey}

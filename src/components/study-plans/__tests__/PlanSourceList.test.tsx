@@ -71,4 +71,21 @@ describe('PlanSourceList context menu', () => {
     expect(screen.queryByRole('menuitem', { name: 'Open source' })).not.toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Remove link' })).toBeInTheDocument();
   });
+
+  it('formats video, text scroll, and image jump locators cleanly', () => {
+    render(
+      <PlanSourceList
+        sourceRefIds={['vid', 'txt', 'img']}
+        sourceResolutions={{
+          vid: { status: 'current', ref: { documentTitle: 'Lecture', jump: { kind: 'video', timeSeconds: 125 } } } as any,
+          txt: { status: 'current', ref: { documentTitle: 'Notes', jump: { kind: 'text', scrollPercent: 42 } } } as any,
+          img: { status: 'current', ref: { documentTitle: 'Slide', sectionLabel: 'Slide 3', jump: { kind: 'image' } } } as any,
+        }}
+      />
+    );
+
+    expect(screen.getByText('125s')).toBeInTheDocument();
+    expect(screen.getByText('42%')).toBeInTheDocument();
+    expect(screen.getByText('Slide 3')).toBeInTheDocument();
+  });
 });

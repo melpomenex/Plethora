@@ -44,6 +44,97 @@ pub struct WorkloadForecastGrouped {
     pub overdue_video_extracts: i64,
 }
 
+/// Update `documents.content` from a canonical transcript and update
+/// `content_hash` / `content_updated_at` / `date_modified` only when the
+/// underlying content actually changed. Marks `'indexed'` AI index rows as
+/// `'stale'` when the content changes. Returns `true` if `content` changed.
+pub async fn sync_document_transcript_content(
+    conn: &mut sqlx::SqliteConnection,
+    document_id: &str,
+    content: &str,
+) -> Result<bool> {
+    let existing: Option<(Option<String>, Option<String>)> =
+        sqlx::query_as("SELECT content, content_hash FROM documents WHERE id = ?1")
+            .bind(document_id)
+            .fetch_optional(&mut *conn)
+            .await?;
+    let Some((existing_content, existing_hash)) = existing else {
+        return Ok(false);
+    };
+
+    let next_hash = crate::processor::generate_content_hash(content);
+    let text_changed = existing_content.as_deref() != Some(content);
+    let now = Utc::now();
+
+    if text_changed {
+        sqlx::query(
+            "UPDATE documents SET content = ?1, content_hash = ?2, content_updated_at = ?3, date_modified = ?3 WHERE id = ?4",
+        )
+        .bind(content)
+        .bind(&next_hash)
+        .bind(now)
+        .bind(document_id)
+        .execute(&mut *conn)
+        .await?;
+
+        sqlx::query(
+            "UPDATE ai_index_state SET state = 'stale' WHERE document_id = ?1 AND state = 'indexed'",
+        )
+        .bind(document_id)
+        .execute(&mut *conn)
+        .await?;
+
+        return Ok(true);
+    }
+
+    if existing_hash.as_deref() != Some(next_hash.as_str()) {
+        sqlx::query(
+            "UPDATE documents SET content_hash = ?1, content_updated_at = COALESCE(content_updated_at, date_added, ?2) WHERE id = ?3",
+        )
+        .bind(&next_hash)
+        .bind(now)
+        .bind(document_id)
+        .execute(&mut *conn)
+        .await?;
+    }
+
+    Ok(false)
+}
+
+/// Find document IDs representing a promoted podcast episode transcript.
+pub async fn find_podcast_episode_document_ids(
+    conn: &mut sqlx::SqliteConnection,
+    episode_id: &str,
+) -> Result<Vec<String>> {
+    let expected_source = format!("podcast:{episode_id}");
+    let like_pattern = format!("%{expected_source}%");
+    let expected_path = format!("podcast://{episode_id}");
+    let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT id, file_path, metadata FROM documents WHERE file_path = ?1 OR metadata LIKE ?2",
+    )
+    .bind(&expected_path)
+    .bind(&like_pattern)
+    .fetch_all(&mut *conn)
+    .await?;
+
+    let mut matched = Vec::new();
+    for (doc_id, file_path, meta_json) in rows {
+        let matches_source = meta_json
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            .and_then(|val| {
+                val.get("source")
+                    .and_then(|s| s.as_str())
+                    .map(|s| s == expected_source)
+            })
+            .unwrap_or(false);
+        if file_path == expected_path || matches_source {
+            matched.push(doc_id);
+        }
+    }
+    Ok(matched)
+}
+
 #[derive(Debug, Clone)]
 pub struct ArenaReviewProvenance<'a> {
     pub schedule_source: &'a str,
@@ -431,6 +522,7 @@ impl Repository {
             tags,
             date_added: row.try_get("date_added")?,
             date_modified: row.try_get("date_modified")?,
+            content_updated_at: row.try_get("content_updated_at").ok().flatten(),
             date_last_reviewed: row.try_get("date_last_reviewed").ok().flatten(),
             extract_count: row.try_get("extract_count").unwrap_or(0),
             learning_item_count: row.try_get("learning_item_count").unwrap_or(0),
@@ -850,10 +942,10 @@ impl Repository {
             INSERT INTO documents (
                 id, collection_id, title, file_path, file_type, content, content_hash,
                 total_pages, current_page, current_scroll_percent, current_cfi, current_view_state, category, tags,
-                date_added, date_modified, date_last_reviewed,
+                date_added, date_modified, content_updated_at, date_last_reviewed,
                 extract_count, learning_item_count, priority_rating, priority_slider, priority_score,
                 is_archived, is_favorite, is_dismissed, metadata, cover_image_url, cover_image_source, is_local_only, is_ai_excluded, privacy_version
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27, ?28, ?29, ?30, ?31, ?32)
             "#,
         )
         .bind(&document.id)
@@ -872,6 +964,7 @@ impl Repository {
         .bind(tags_json)
         .bind(document.date_added)
         .bind(document.date_modified)
+        .bind(document.content_updated_at.unwrap_or(document.date_added))
         .bind(document.date_last_reviewed)
         .bind(document.extract_count)
         .bind(document.learning_item_count)
@@ -1034,6 +1127,7 @@ impl Repository {
                     tags,
                     date_added: row.get("date_added"),
                     date_modified: row.get("date_modified"),
+                    content_updated_at: row.try_get("content_updated_at").ok().flatten(),
                     date_last_reviewed: row.get("date_last_reviewed"),
                     extract_count: row.get("extract_count"),
                     learning_item_count: row.get("learning_item_count"),
@@ -1107,6 +1201,7 @@ impl Repository {
                 tags,
                 date_added: row.get("date_added"),
                 date_modified: row.get("date_modified"),
+                content_updated_at: row.try_get("content_updated_at").ok().flatten(),
                 date_last_reviewed: row.get("date_last_reviewed"),
                 extract_count: row.get("extract_count"),
                 learning_item_count: row.get("learning_item_count"),
@@ -1182,6 +1277,7 @@ impl Repository {
                 tags,
                 date_added: row.get("date_added"),
                 date_modified: row.get("date_modified"),
+                content_updated_at: row.try_get("content_updated_at").ok().flatten(),
                 date_last_reviewed: row.get("date_last_reviewed"),
                 extract_count: row.get("extract_count"),
                 learning_item_count: row.get("learning_item_count"),
@@ -1235,7 +1331,7 @@ impl Repository {
             "SELECT id, collection_id, title, file_path, file_type, \
              NULL AS content, NULL AS content_hash, \
              total_pages, current_page, current_scroll_percent, current_cfi, current_view_state, \
-             position_json, progress_percent, category, tags, date_added, date_modified, \
+             position_json, progress_percent, category, tags, date_added, date_modified, content_updated_at, \
              date_last_reviewed, extract_count, learning_item_count, priority_rating, \
              priority_slider, priority_score, priority_explicitly_set, is_archived, is_favorite, is_dismissed, is_local_only, is_ai_excluded, privacy_version, \
              metadata, cover_image_url, cover_image_source, \
@@ -1276,6 +1372,7 @@ impl Repository {
                 tags,
                 date_added: row.get("date_added"),
                 date_modified: row.get("date_modified"),
+                content_updated_at: row.try_get("content_updated_at").ok().flatten(),
                 date_last_reviewed: row.get("date_last_reviewed"),
                 extract_count: row.get("extract_count"),
                 learning_item_count: row.get("learning_item_count"),
@@ -1326,7 +1423,7 @@ impl Repository {
             "SELECT id, collection_id, title, file_path, file_type, \
              NULL AS content, NULL AS content_hash, \
              total_pages, current_page, current_scroll_percent, current_cfi, current_view_state, \
-             position_json, progress_percent, category, tags, date_added, date_modified, \
+             position_json, progress_percent, category, tags, date_added, date_modified, content_updated_at, \
              date_last_reviewed, extract_count, learning_item_count, priority_rating, \
              priority_slider, priority_score, priority_explicitly_set, is_archived, is_favorite, is_dismissed, is_local_only, is_ai_excluded, privacy_version, \
              metadata, cover_image_url, cover_image_source, \
@@ -1368,6 +1465,7 @@ impl Repository {
                 tags,
                 date_added: row.get("date_added"),
                 date_modified: row.get("date_modified"),
+                content_updated_at: row.try_get("content_updated_at").ok().flatten(),
                 date_last_reviewed: row.get("date_last_reviewed"),
                 extract_count: row.get("extract_count"),
                 learning_item_count: row.get("learning_item_count"),
@@ -1424,7 +1522,7 @@ impl Repository {
             "SELECT id, collection_id, title, file_path, file_type, total_pages,
                     current_page, current_scroll_percent, current_cfi, current_view_state,
                     position_json, progress_percent, category, tags, date_added, date_modified,
-                    date_last_reviewed, extract_count, learning_item_count, priority_rating,
+                    content_updated_at, date_last_reviewed, extract_count, learning_item_count, priority_rating,
                     priority_slider, priority_score, priority_explicitly_set, is_archived, is_favorite, is_dismissed, is_local_only, is_ai_excluded, privacy_version,
                     next_reading_date, reading_count, stability, difficulty, reps,
                     total_time_spent, consecutive_count
@@ -1463,6 +1561,7 @@ impl Repository {
                     tags: serde_json::from_str(&tags_json).unwrap_or_default(),
                     date_added: row.get("date_added"),
                     date_modified: row.get("date_modified"),
+                    content_updated_at: row.try_get("content_updated_at").ok().flatten(),
                     date_last_reviewed: row.try_get("date_last_reviewed").ok(),
                     extract_count: row.try_get("extract_count").unwrap_or(0),
                     learning_item_count: row.try_get("learning_item_count").unwrap_or(0),
@@ -1501,7 +1600,7 @@ impl Repository {
         let rows = sqlx::query(
             "SELECT id, title, file_path, file_type, content_hash, total_pages, current_page, \
              current_scroll_percent, current_cfi, current_view_state, position_json, \
-             progress_percent, category, tags, date_added, date_modified, date_last_reviewed, \
+             progress_percent, category, tags, date_added, date_modified, content_updated_at, date_last_reviewed, \
              extract_count, learning_item_count, priority_rating, priority_slider, priority_score, priority_explicitly_set, \
              is_archived, is_favorite, is_dismissed, is_local_only, is_ai_excluded, privacy_version, metadata, cover_image_url, cover_image_source, \
              next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, consecutive_count, \
@@ -1542,6 +1641,7 @@ impl Repository {
                 tags,
                 date_added: row.get("date_added"),
                 date_modified: row.get("date_modified"),
+                content_updated_at: row.try_get("content_updated_at").ok().flatten(),
                 date_last_reviewed: row.get("date_last_reviewed"),
                 extract_count: row.get("extract_count"),
                 learning_item_count: row.get("learning_item_count"),
@@ -1585,7 +1685,7 @@ impl Repository {
     ) -> Result<Vec<Document>> {
         let columns = "id, title, file_path, file_type, total_pages, current_page, \
              current_scroll_percent, current_cfi, current_view_state, position_json, \
-             progress_percent, category, tags, date_added, date_modified, date_last_reviewed, \
+             progress_percent, category, tags, date_added, date_modified, content_updated_at, date_last_reviewed, \
              extract_count, learning_item_count, priority_rating, priority_slider, priority_score, \
              is_archived, is_favorite, is_dismissed, is_local_only, is_ai_excluded, privacy_version, \
              next_reading_date, reading_count, stability, difficulty, reps, total_time_spent, consecutive_count, \
@@ -1665,6 +1765,7 @@ impl Repository {
                 tags,
                 date_added: row.get("date_added"),
                 date_modified: row.get("date_modified"),
+                content_updated_at: row.try_get("content_updated_at").ok().flatten(),
                 date_last_reviewed: row.get("date_last_reviewed"),
                 extract_count: row.get("extract_count"),
                 learning_item_count: row.get("learning_item_count"),
@@ -1963,13 +2064,21 @@ impl Repository {
         total_pages: Option<i32>,
         metadata: Option<DocumentMetadata>,
     ) -> Result<()> {
+        let computed_hash = content_hash
+            .filter(|h| !h.trim().is_empty())
+            .unwrap_or_else(|| crate::processor::generate_content_hash(content));
+        let now = Utc::now();
         let metadata_json = metadata.as_ref().map(serde_json::to_string).transpose()?;
         let mut tx = self.pool.begin().await?;
         let rows = sqlx::query(
             r#"
             UPDATE documents SET
                 content = ?1,
-                content_hash = COALESCE(?2, content_hash),
+                content_updated_at = CASE
+                    WHEN COALESCE(content, '') != ?1 THEN ?5
+                    ELSE COALESCE(content_updated_at, date_added, ?5)
+                END,
+                content_hash = ?2,
                 total_pages = COALESCE(?3, total_pages),
                 metadata = COALESCE(?4, metadata),
                 date_modified = ?5
@@ -1977,10 +2086,10 @@ impl Repository {
             "#,
         )
         .bind(content)
-        .bind(content_hash)
+        .bind(computed_hash)
         .bind(total_pages)
         .bind(metadata_json)
-        .bind(Utc::now())
+        .bind(now)
         .bind(id)
         .execute(&mut *tx)
         .await?
@@ -2008,22 +2117,30 @@ impl Repository {
         cover_image_url: Option<&str>,
     ) -> Result<()> {
         let metadata_json = serde_json::to_string(metadata)?;
+        let content_hash = crate::processor::generate_content_hash(content);
+        let now = Utc::now();
         sqlx::query(
             r#"
             UPDATE documents SET
                 content = ?1,
+                content_updated_at = CASE
+                    WHEN COALESCE(content, '') != ?1 THEN ?6
+                    ELSE COALESCE(content_updated_at, date_added, ?6)
+                END,
+                content_hash = ?5,
                 metadata = ?2,
                 source_url = COALESCE(?3, source_url),
                 cover_image_url = COALESCE(?4, cover_image_url),
-                date_modified = ?5
-            WHERE id = ?6
+                date_modified = ?6
+            WHERE id = ?7
             "#,
         )
         .bind(content)
         .bind(metadata_json)
         .bind(source_url)
         .bind(cover_image_url)
-        .bind(Utc::now())
+        .bind(&content_hash)
+        .bind(now)
         .bind(id)
         .execute(&self.pool)
         .await?;
@@ -6480,6 +6597,11 @@ impl Repository {
             .await?;
         }
 
+        if !transcript.trim().is_empty() {
+            let mut conn = self.pool.acquire().await?;
+            sync_document_transcript_content(&mut conn, document_id, transcript).await?;
+        }
+
         Ok(())
     }
 
@@ -7283,6 +7405,7 @@ impl Repository {
                 tags,
                 date_added: row.get("date_added"),
                 date_modified: row.get("date_modified"),
+                content_updated_at: row.try_get("content_updated_at").ok().flatten(),
                 date_last_reviewed: row.get("date_last_reviewed"),
                 extract_count: row.get("extract_count"),
                 learning_item_count: row.get("learning_item_count"),
@@ -8657,6 +8780,18 @@ impl Repository {
             .bind(words.as_deref())
             .execute(&mut *tx)
             .await?;
+        }
+        let full_text = segments
+            .iter()
+            .map(|s| s.text.trim())
+            .filter(|t| !t.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        if !full_text.is_empty() {
+            let doc_ids = find_podcast_episode_document_ids(&mut *tx, episode_id).await?;
+            for doc_id in doc_ids {
+                sync_document_transcript_content(&mut *tx, &doc_id, &full_text).await?;
+            }
         }
         tx.commit().await?;
         Ok(())

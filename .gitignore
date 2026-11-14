@@ -42,6 +42,16 @@ marketing/
 # so the public repo carries the video but not the authoring setup.
 video/
 
+# Tutorial video production suite: recordings, audio cache, outputs, and
+# disposable DB snapshots are never committed.
+video-production/node_modules
+video-production/.recording-env/
+video-production/assets/recordings/
+video-production/assets/audio/
+video-production/output/
+video-production/public/recordings/
+video-production/public/audio/
+
 node_modules
 dist
 dist-ssr
@@ -255,3 +265,4 @@ src-tauri/permissions/default.toml
 /openspec/changes/implement-plethora-pro-observability-cost-controls-and-cloud-performance-gates/
 /openspec/changes/productionize-plethora-cloud-deployment/
 DESIGN.md
+video-production/

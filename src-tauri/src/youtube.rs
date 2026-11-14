@@ -1366,20 +1366,27 @@ pub async fn persist_canonical_youtube_transcript(
     .fetch_all(&mut *tx)
     .await
     .map_err(|e| e.to_string())?;
+    let mut ids_to_enqueue = Vec::new();
     for id in &ids {
-        sqlx::query("UPDATE documents SET content=?1 WHERE id=?2")
-            .bind(&text)
-            .bind(id)
-            .execute(&mut *tx)
-            .await
-            .map_err(|e| e.to_string())?;
+        let changed =
+            crate::database::repository::sync_document_transcript_content(&mut *tx, id, &text)
+                .await
+                .map_err(|e| e.to_string())?;
+        let has_chunks: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM semantic_chunks WHERE document_id = ?1)",
+        )
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await
+        .map_err(|e| e.to_string())?;
+        if changed || (!text.trim().is_empty() && !has_chunks) {
+            ids_to_enqueue.push(id.clone());
+        }
     }
     tx.commit().await.map_err(|e| e.to_string())?;
-    if let Some(state) =
-        app.and_then(|app| app.try_state::<crate::commands::ai_learning::AiLearningState>())
-    {
-        for id in ids {
-            state.enqueue_document(id).map_err(|e| e.to_string())?;
+    if let Some(app) = app {
+        for id in ids_to_enqueue {
+            crate::commands::ai_learning::try_enqueue_document(app, &id);
         }
     }
     Ok(())
@@ -1447,6 +1454,16 @@ pub async fn get_youtube_transcript_internal(
     document_id: Option<&str>,
     repo: &Repository,
 ) -> Result<Vec<TranscriptSegment>, String> {
+    get_youtube_transcript_internal_with_app(url, language, document_id, repo, None).await
+}
+
+pub async fn get_youtube_transcript_internal_with_app(
+    url: &str,
+    language: Option<&str>,
+    document_id: Option<&str>,
+    repo: &Repository,
+    app: Option<&AppHandle>,
+) -> Result<Vec<TranscriptSegment>, String> {
     if let Some(video_id) = extract_video_id(url) {
         if let Some(segments) =
             canonical_cached_transcript(repo, &video_id, language, false).await?
@@ -1459,7 +1476,7 @@ pub async fn get_youtube_transcript_internal(
                     &video_id,
                     language,
                     &segments,
-                    None,
+                    app,
                 )
                 .await?;
             }
@@ -1483,7 +1500,7 @@ pub async fn get_youtube_transcript_internal(
             &video_id,
             language,
             &segments,
-            None,
+            app,
         )
         .await?;
     }
@@ -1494,16 +1511,18 @@ pub async fn get_youtube_transcript_internal(
 /// Tauri command: Extract transcript (accepts videoId or URL)
 #[tauri::command]
 pub async fn get_youtube_transcript(
+    app: AppHandle,
     url: String,
     language: Option<String>,
     document_id: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<TranscriptSegment>, String> {
-    get_youtube_transcript_internal(
+    get_youtube_transcript_internal_with_app(
         &url,
         language.as_deref(),
         document_id.as_deref(),
         repo.inner(),
+        Some(&app),
     )
     .await
 }
@@ -1822,11 +1841,16 @@ pub async fn import_youtube_video_internal(
 /// Import YouTube video to database
 #[tauri::command]
 pub async fn import_youtube_video(
+    app: AppHandle,
     url: String,
     collection_id: Option<String>,
     repo: State<'_, Repository>,
 ) -> Result<Document, String> {
-    import_youtube_video_internal(&url, collection_id, repo.inner()).await
+    let created = import_youtube_video_internal(&url, collection_id, repo.inner()).await?;
+    if !created.content.as_deref().unwrap_or("").trim().is_empty() {
+        crate::commands::ai_learning::try_enqueue_document(&app, &created.id);
+    }
+    Ok(created)
 }
 
 /// YouTube chapter data

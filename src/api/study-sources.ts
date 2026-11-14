@@ -7,7 +7,15 @@
  */
 
 import { invokeCommand, isTauri } from '../lib/tauri';
-import type { ResolvedSourceDocument, SelectedSourceScope, StudySourceRefInput, StudySourceResolution, StudySourceScopeV1 } from '../types/studySource';
+import type {
+  EnsureStudySourceResult,
+  ResolvedSourceDocument,
+  SelectedSourceScope,
+  StudySourceCatalogItem,
+  StudySourceRefInput,
+  StudySourceResolution,
+  StudySourceScopeV1,
+} from '../types/studySource';
 import { StudyApiError, normalizeStudyError } from './study-plans';
 
 function ensureNativeSupport(): void {
@@ -88,12 +96,14 @@ export async function resolveStudySourceScope(
   const resolvedDocuments = await Promise.all(documentIds.map(async (id): Promise<ResolvedSourceDocument> => {
     const doc = await getDocument(id);
     if (!doc) throw missing();
+    const contentHash = doc.contentHash?.trim();
+    const contentRevisionTs = doc.contentUpdatedAt?.trim() || doc.dateAdded?.trim();
     return {
       documentId: id,
       title: doc.title,
       sourceType: doc.fileType,
-      revision: doc.contentHash?.trim() || doc.dateModified?.trim() || 'unknown',
-      revisionKind: doc.contentHash?.trim() ? 'content-hash' : doc.dateModified?.trim() ? 'modified-at' : 'unknown',
+      revision: contentHash || contentRevisionTs || 'unknown',
+      revisionKind: contentHash ? 'content-hash' : contentRevisionTs ? 'modified-at' : 'unknown',
       extractIds: extractsByDocument.get(id)?.sort() ?? [],
       isAiExcluded: doc.isAiExcluded === true,
       isLocalOnly: doc.isLocalOnly === true,
@@ -108,4 +118,32 @@ export async function resolveStudySourceScope(
     indexCompleteness: 'unavailable',
     limitations: ['index_not_verified'],
   };
+}
+
+export async function getStudySourceCatalog(
+  includeArchived: boolean = false,
+): Promise<StudySourceCatalogItem[]> {
+  if (!isTauri()) return [];
+  return invokeCommand<StudySourceCatalogItem[]>('get_study_source_catalog', {
+    includeArchived,
+    include_archived: includeArchived,
+  });
+}
+
+export async function ensurePodcastEpisodeDocument(
+  episodeId: string,
+): Promise<EnsureStudySourceResult> {
+  return invokeCommand<EnsureStudySourceResult>('ensure_podcast_episode_document', {
+    episodeId,
+    episode_id: episodeId,
+  });
+}
+
+export async function ensureRssArticleDocument(
+  articleId: string,
+): Promise<EnsureStudySourceResult> {
+  return invokeCommand<EnsureStudySourceResult>('ensure_rss_article_document', {
+    articleId,
+    article_id: articleId,
+  });
 }

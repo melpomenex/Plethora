@@ -7,15 +7,17 @@
 use crate::ai_learning::chunker::{chunk_document, ChunkContext, ChunkInput, ChunkOptions};
 use crate::ai_learning::indexer::build_rich_text_chunks;
 use crate::ai_learning::models::{ChunkLocation, ChunkModel, SOURCE_TYPE_DOCUMENT};
+use crate::commands::search::strip_html_blocks_and_tags;
 use crate::models::study_source::{
-    FieldIssue, RevisionKind, StudyCommandError, StudyErrorCode, StudySourceChunk,
-    StudySourceNavigation, StudySourceRefInput, StudySourceRefV1, StudySourceResolution,
-    StudySourceStatus,
+    EnsureStudySourceResult, FieldIssue, RevisionKind, StudyCommandError, StudyErrorCode,
+    StudySourceCatalogItem, StudySourceChunk, StudySourceNavigation, StudySourceReadiness,
+    StudySourceRefInput, StudySourceRefV1, StudySourceResolution, StudySourceStatus,
 };
+use crate::models::DEFAULT_COLLECTION_ID;
 use chrono::Utc;
 use sha2::{Digest, Sha256};
 use sqlx::{Pool, Row, Sqlite, Transaction};
-use std::collections::{hash_map::Entry, HashMap};
+use std::collections::{hash_map::Entry, HashMap, HashSet};
 use uuid::Uuid;
 
 pub const EXCERPT_MIN_CHARS: usize = 1;
@@ -55,14 +57,109 @@ pub fn normalize_for_match(text: &str) -> String {
     out
 }
 
+fn match_timestamp_bracket(slice: &[u8]) -> Option<usize> {
+    let close_rel = slice.iter().take(12).position(|&b| b == b']')?;
+    let inner = std::str::from_utf8(&slice[1..close_rel]).ok()?;
+    let mut parts = inner.split(':');
+    let first = parts.next()?;
+    let second = parts.next()?;
+    let third = parts.next();
+    if parts.next().is_some() {
+        return None;
+    }
+    let valid = match third {
+        None => {
+            (1..=3).contains(&first.len())
+                && first.bytes().all(|b| b.is_ascii_digit())
+                && second.len() == 2
+                && second.bytes().all(|b| b.is_ascii_digit())
+        }
+        Some(sec) => {
+            (1..=2).contains(&first.len())
+                && first.bytes().all(|b| b.is_ascii_digit())
+                && second.len() == 2
+                && second.bytes().all(|b| b.is_ascii_digit())
+                && sec.len() == 2
+                && sec.bytes().all(|b| b.is_ascii_digit())
+        }
+    };
+    valid.then_some(close_rel + 1)
+}
+
+fn strip_timestamp_markers(text: &str) -> String {
+    let bytes = text.as_bytes();
+    let mut out = String::with_capacity(text.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'[' {
+            if let Some(end_offset) = match_timestamp_bracket(&bytes[i..]) {
+                i += end_offset;
+                continue;
+            }
+        }
+        let ch = text[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
+fn normalized_excerpt_matches(haystack: &str, needle: &str) -> bool {
+    let normalized_needle = normalize_for_match(needle);
+    if normalized_needle.is_empty() {
+        return false;
+    }
+    if normalize_for_match(haystack).contains(&normalized_needle) {
+        return true;
+    }
+    if haystack.contains('[') || needle.contains('[') {
+        let stripped_needle = normalize_for_match(&strip_timestamp_markers(needle));
+        if !stripped_needle.is_empty()
+            && normalize_for_match(&strip_timestamp_markers(haystack)).contains(&stripped_needle)
+        {
+            return true;
+        }
+    }
+    false
+}
+
 fn normalized_match_count(haystack: &str, needle: &str) -> usize {
     let normalized_needle = normalize_for_match(needle);
     if normalized_needle.is_empty() {
         return 0;
     }
-    normalize_for_match(haystack)
+    let exact = normalize_for_match(haystack)
         .match_indices(&normalized_needle)
+        .count();
+    if exact > 0 || (!haystack.contains('[') && !needle.contains('[')) {
+        return exact;
+    }
+    let stripped_needle = normalize_for_match(&strip_timestamp_markers(needle));
+    if stripped_needle.is_empty() {
+        return 0;
+    }
+    normalize_for_match(&strip_timestamp_markers(haystack))
+        .match_indices(&stripped_needle)
         .count()
+}
+
+fn push_segments_json_texts(texts: &mut Vec<String>, raw_json: Option<&str>) {
+    let Some(raw) = raw_json.map(str::trim).filter(|s| !s.is_empty()) else {
+        return;
+    };
+    let Ok(values) = serde_json::from_str::<Vec<serde_json::Value>>(raw) else {
+        return;
+    };
+    let joined = values
+        .iter()
+        .filter_map(|v| v.get("text").and_then(|t| t.as_str()))
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if !joined.is_empty() {
+        texts.push(joined);
+    }
 }
 
 /// Builds the searchable projections of a source: stored plain text first,
@@ -162,8 +259,9 @@ impl StudySourceRepository {
 
             // Fetch live document
             let doc_row = sqlx::query(
-                "SELECT id, title, file_type, file_path, content, html_content, content_hash, date_modified,
-                        is_archived, is_local_only, is_ai_excluded
+                "SELECT id, title, file_type, file_path, content, html_content, content_hash,
+                        COALESCE(content_updated_at, date_added, '') AS content_revision_at,
+                        date_modified, metadata, is_archived, is_local_only, is_ai_excluded
                  FROM documents WHERE id = ?1 LIMIT 1",
             )
             .bind(&input.document_id)
@@ -224,8 +322,15 @@ impl StudySourceRepository {
             let doc_file_type: String = doc
                 .try_get("file_type")
                 .unwrap_or_else(|_| "unknown".to_string());
-            let doc_content_hash = doc.try_get::<Option<String>, _>("content_hash").ok().flatten();
+            let doc_file_path: String = doc.try_get("file_path").unwrap_or_default();
+            let doc_content_hash = doc
+                .try_get::<Option<String>, _>("content_hash")
+                .ok()
+                .flatten();
+            let doc_content_revision_at: String =
+                doc.try_get("content_revision_at").unwrap_or_default();
             let doc_date_modified: String = doc.try_get("date_modified").unwrap_or_default();
+            let doc_metadata: Option<String> = doc.try_get("metadata").ok().flatten();
             let doc_content: Option<String> = doc.try_get("content").ok().flatten();
             let doc_html: Option<String> = doc.try_get("html_content").ok().flatten();
             let is_archived: bool = doc.try_get("is_archived").unwrap_or(false);
@@ -238,18 +343,22 @@ impl StudySourceRepository {
                 .filter(|hash| !hash.is_empty());
             let (live_revision, live_revision_kind) = if let Some(hash) = content_hash {
                 (hash.to_string(), RevisionKind::ContentHash)
-            } else if !doc_date_modified.trim().is_empty() {
+            } else if !doc_content_revision_at.trim().is_empty() {
                 (
-                    doc_date_modified.trim().to_string(),
+                    doc_content_revision_at.trim().to_string(),
                     RevisionKind::ModifiedAt,
                 )
             } else {
                 ("unknown".to_string(), RevisionKind::Unknown)
             };
-            let revision_mismatch = input
-                .revision
-                .as_ref()
-                .is_some_and(|revision| revision != &live_revision);
+            let revision_mismatch = input.revision.as_ref().is_some_and(|revision| {
+                if revision == &live_revision {
+                    return false;
+                }
+                !(live_revision_kind != RevisionKind::ContentHash
+                    && input.revision_kind == Some(RevisionKind::ModifiedAt)
+                    && revision == doc_date_modified.trim())
+            });
 
             // Validate the excerpt against the canonical indexed chunk and the
             // live source. Whitespace is normalized on both sides: the chunker
@@ -298,17 +407,15 @@ impl StudySourceRepository {
                             }],
                         ));
                     }
-                    let ext_content: Option<String> =
-                        ext.try_get("content").ok().flatten();
-                    let ext_html: Option<String> =
-                        ext.try_get("html_content").ok().flatten();
+                    let ext_content: Option<String> = ext.try_get("content").ok().flatten();
+                    let ext_html: Option<String> = ext.try_get("html_content").ok().flatten();
                     let source_texts =
                         collect_source_texts(ext_content.as_deref(), ext_html.as_deref());
                     if input.chunk.is_some() {
                         if let Some(reason) = self
                             .verify_chunk_ref(
                                 input,
-                                &doc_date_modified,
+                                &doc_content_revision_at,
                                 &normalized_excerpt,
                                 &source_texts,
                                 None,
@@ -362,7 +469,7 @@ impl StudySourceRepository {
                     let key = (
                         input.document_id.clone(),
                         live_revision.clone(),
-                        doc_date_modified.clone(),
+                        doc_content_revision_at.clone(),
                     );
                     let projection =
                         match book_chunks.entry(key) {
@@ -401,13 +508,21 @@ impl StudySourceRepository {
                 let source_texts = if book_projection.is_some() {
                     Vec::new()
                 } else {
-                    collect_source_texts(doc_content.as_deref(), doc_html.as_deref())
+                    self.load_live_source_texts(
+                        &input.document_id,
+                        &doc_file_type,
+                        &doc_file_path,
+                        doc_metadata.as_deref(),
+                        doc_content.as_deref(),
+                        doc_html.as_deref(),
+                    )
+                    .await
                 };
                 if input.chunk.is_some() {
                     if let Some(reason) = self
                         .verify_chunk_ref(
                             input,
-                            &doc_date_modified,
+                            &doc_content_revision_at,
                             &normalized_excerpt,
                             &source_texts,
                             book_projection,
@@ -472,11 +587,16 @@ impl StudySourceRepository {
             {
                 if let Some(kind_val) = jump.get("kind").and_then(|k| k.as_str()) {
                     let doc_type_lower = doc_file_type.to_lowercase();
-                    if (doc_type_lower == "pdf" && kind_val != "pdf")
-                        || (doc_type_lower == "epub" && kind_val != "epub")
-                        || (doc_type_lower == "youtube" && kind_val != "youtube")
-                        || (doc_type_lower == "audio" && kind_val != "audio")
-                    {
+                    let compatible = match doc_type_lower.as_str() {
+                        "pdf" | "epub" | "html" | "markdown" | "youtube" | "audio" | "text"
+                        | "image" => kind_val == doc_type_lower,
+                        "video" => matches!(kind_val, "video" | "audio"),
+                        "other" => {
+                            matches!(kind_val, "text" | "markdown" | "audio" | "video" | "image")
+                        }
+                        _ => true,
+                    };
+                    if !compatible {
                         navigation = StudySourceNavigation::Unavailable;
                         reason_key =
                             Some("study_source.unsupported.jump_kind_mismatch".to_string());
@@ -490,11 +610,29 @@ impl StudySourceRepository {
                                 reason_key = Some("study_source.invalid.pdf_page".to_string());
                             }
                         }
-                    } else if kind_val == "youtube" || kind_val == "audio" {
+                    } else if kind_val == "epub" {
+                        let invalid_cfi = jump
+                            .get("cfi")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s.trim().is_empty())
+                            .unwrap_or(true);
+                        if invalid_cfi {
+                            navigation = StudySourceNavigation::Unavailable;
+                            reason_key = Some("study_source.invalid.epub_cfi".to_string());
+                        }
+                    } else if matches!(kind_val, "youtube" | "audio" | "video") {
                         if let Some(sec) = jump.get("timeSeconds").and_then(|s| s.as_f64()) {
                             if sec < 0.0 || !sec.is_finite() {
                                 navigation = StudySourceNavigation::Unavailable;
                                 reason_key = Some("study_source.invalid.media_time".to_string());
+                            }
+                        }
+                    } else if matches!(kind_val, "html" | "markdown" | "text") {
+                        if let Some(pct) = jump.get("scrollPercent").and_then(|s| s.as_f64()) {
+                            if !(0.0..=100.0).contains(&pct) || !pct.is_finite() {
+                                navigation = StudySourceNavigation::Unavailable;
+                                reason_key =
+                                    Some("study_source.invalid.scroll_percent".to_string());
                             }
                         }
                     }
@@ -550,6 +688,117 @@ impl StudySourceRepository {
         Ok(resolutions)
     }
 
+    async fn load_live_source_texts(
+        &self,
+        document_id: &str,
+        file_type: &str,
+        file_path: &str,
+        metadata_json: Option<&str>,
+        doc_content: Option<&str>,
+        doc_html: Option<&str>,
+    ) -> Vec<String> {
+        let mut texts = collect_source_texts(doc_content, doc_html);
+
+        if file_type.eq_ignore_ascii_case("youtube") {
+            let video_id = crate::youtube::extract_video_id(file_path).unwrap_or_default();
+            if let Ok(Some((transcript, segments_json))) = sqlx::query_as::<_, (String, String)>(
+                "SELECT transcript, segments_json
+                 FROM youtube_transcripts
+                 WHERE document_id = ?1 OR (?2 != '' AND video_id = ?2)
+                 ORDER BY CASE WHEN document_id = ?1 THEN 0 ELSE 1 END, date_modified DESC
+                 LIMIT 1",
+            )
+            .bind(document_id)
+            .bind(&video_id)
+            .fetch_optional(&self.pool)
+            .await
+            {
+                if !transcript.trim().is_empty() {
+                    texts.push(transcript);
+                }
+                push_segments_json_texts(&mut texts, Some(&segments_json));
+            }
+        }
+
+        if let Ok(Some((transcript, segments_json))) = sqlx::query_as::<_, (String, String)>(
+            "SELECT transcript, segments_json FROM video_transcripts WHERE document_id = ?1 LIMIT 1",
+        )
+        .bind(document_id)
+        .fetch_optional(&self.pool)
+        .await
+        {
+            if !transcript.trim().is_empty() {
+                texts.push(transcript);
+            }
+            push_segments_json_texts(&mut texts, Some(&segments_json));
+        }
+
+        let podcast_episode_id = metadata_json
+            .and_then(|raw| serde_json::from_str::<serde_json::Value>(raw).ok())
+            .and_then(|val| {
+                val.get("source")
+                    .and_then(|s| s.as_str())
+                    .and_then(|s| s.strip_prefix("podcast:"))
+                    .map(str::to_string)
+            })
+            .or_else(|| file_path.strip_prefix("podcast://").map(str::to_string));
+        if let Some(episode_id) = podcast_episode_id {
+            if let Ok(segs) = sqlx::query_scalar::<_, String>(
+                "SELECT text FROM podcast_transcript_segments WHERE episode_id = ?1 ORDER BY segment_index",
+            )
+            .bind(&episode_id)
+            .fetch_all(&self.pool)
+            .await
+            {
+                let joined = segs
+                    .into_iter()
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                if !joined.is_empty() {
+                    texts.push(joined);
+                }
+            }
+            if let Ok(Some(Some(transcript_text))) = sqlx::query_scalar::<_, Option<String>>(
+                "SELECT transcript_text FROM podcast_episodes WHERE id = ?1 LIMIT 1",
+            )
+            .bind(&episode_id)
+            .fetch_optional(&self.pool)
+            .await
+            {
+                if !transcript_text.trim().is_empty() {
+                    texts.push(transcript_text);
+                }
+            }
+        }
+
+        if let Ok(segs) = sqlx::query_scalar::<_, String>(
+            "SELECT ts.text
+             FROM transcript_segments ts
+             JOIN transcripts t ON t.id = ts.transcript_id
+             LEFT JOIN recording_sessions rs ON rs.transcript_id = t.id
+             WHERE rs.document_id = ?1 OR t.book_id = ?1
+             ORDER BY t.id, ts.ordinal, ts.start_ms, ts.id",
+        )
+        .bind(document_id)
+        .fetch_all(&self.pool)
+        .await
+        {
+            let joined = segs
+                .into_iter()
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect::<Vec<_>>()
+                .join(" ");
+            if !joined.is_empty() {
+                texts.push(joined);
+            }
+        }
+
+        texts
+    }
+
     /// Validates a retrieved chunk as the canonical indexed representation of
     /// an excerpt: identity, document ownership, ordinal, content hash, source
     /// type, excerpt containment, and freshness. Returns a specific reason key
@@ -557,7 +806,7 @@ impl StudySourceRepository {
     async fn verify_chunk_ref(
         &self,
         input: &StudySourceRefInput,
-        doc_date_modified: &str,
+        content_revision_at: &str,
         normalized_excerpt: &str,
         source_texts: &[String],
         book_projection: Option<&BookProjection>,
@@ -572,14 +821,14 @@ impl StudySourceRepository {
             "SELECT c.document_id, c.source_type, c.source_id, c.ordinal, c.text,
                     c.content_hash, c.location_json, i.state AS index_state,
                     (i.document_id IS NOT NULL
-                     AND datetime(i.updated_at) >= datetime(?2)) AS index_current
+                     AND (?2 = '' OR datetime(i.updated_at) >= datetime(?2))) AS index_current
              FROM semantic_chunks c
              LEFT JOIN ai_index_state i ON i.document_id = c.document_id
              WHERE c.id = ?1
              LIMIT 1",
         )
         .bind(&chunk_ref.chunk_id)
-        .bind(doc_date_modified)
+        .bind(content_revision_at)
         .fetch_optional(&self.pool)
         .await
         .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
@@ -626,17 +875,15 @@ impl StudySourceRepository {
             source_type.as_str(),
             crate::ai_learning::models::SOURCE_TYPE_DOCUMENT
                 | crate::ai_learning::models::SOURCE_TYPE_SESSION
-                | "transcript"
+                | crate::ai_learning::models::SOURCE_TYPE_TRANSCRIPT
         ) {
             return Ok(Some(
                 "study_source.stale.chunk_source_type_mismatch".to_string(),
             ));
         }
 
-        if !normalize_for_match(&chunk_text).contains(&excerpt_key) {
-            return Ok(Some(
-                "study_source.stale.chunk_text_mismatch".to_string(),
-            ));
+        if !normalized_excerpt_matches(&chunk_text, &excerpt_key) {
+            return Ok(Some("study_source.stale.chunk_text_mismatch".to_string()));
         }
 
         if let Some(projection) = book_projection {
@@ -687,7 +934,7 @@ impl StudySourceRepository {
         // from the chunker's text).
         let matches_original = source_texts
             .iter()
-            .any(|text| normalize_for_match(text).contains(&excerpt_key));
+            .any(|text| normalized_excerpt_matches(text, &excerpt_key));
         if matches_original {
             return Ok(None);
         }
@@ -700,11 +947,12 @@ impl StudySourceRepository {
 
         let index_state: Option<String> = row.try_get("index_state").ok().flatten();
         let index_current: bool = row.try_get("index_current").unwrap_or(false);
-        let state_current = matches!(index_state.as_deref(), Some("indexed" | "stale"));
+        let state_current = matches!(
+            index_state.as_deref(),
+            Some("indexed" | "lexical_only" | "queued" | "indexing" | "stale")
+        );
         if !index_current || !state_current {
-            return Ok(Some(
-                "study_source.stale.index_not_current".to_string(),
-            ));
+            return Ok(Some("study_source.stale.index_not_current".to_string()));
         }
 
         Ok(None)
@@ -738,7 +986,7 @@ impl StudySourceRepository {
         let excerpt_key = normalize_for_match(normalized_excerpt);
         let count = rows
             .iter()
-            .filter(|(text,)| normalize_for_match(text).contains(&excerpt_key))
+            .filter(|(text,)| normalized_excerpt_matches(text, &excerpt_key))
             .count();
         Ok((count > 0, count))
     }
@@ -932,6 +1180,888 @@ impl StudySourceRepository {
             section_label: r.try_get("section_label").ok().flatten(),
             captured_at: r.try_get("captured_at").unwrap_or_default(),
         }
+    }
+
+    pub async fn get_study_source_catalog(
+        &self,
+        include_archived: bool,
+    ) -> Result<Vec<StudySourceCatalogItem>, StudyCommandError> {
+        let mut index_states: HashMap<String, String> = HashMap::new();
+        if let Ok(rows) =
+            sqlx::query_as::<_, (String, String)>("SELECT document_id, state FROM ai_index_state")
+                .fetch_all(&self.pool)
+                .await
+        {
+            for (doc_id, state) in rows {
+                index_states.insert(doc_id, state);
+            }
+        }
+
+        let mut chunk_counts: HashMap<String, i64> = HashMap::new();
+        if let Ok(rows) = sqlx::query_as::<_, (String, i64)>(
+            "SELECT document_id, COUNT(*) FROM semantic_chunks GROUP BY document_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        {
+            for (doc_id, cnt) in rows {
+                chunk_counts.insert(doc_id, cnt);
+            }
+        }
+
+        let mut yt_docs: HashSet<String> = HashSet::new();
+        let mut yt_videos: HashSet<String> = HashSet::new();
+        if let Ok(rows) = sqlx::query_as::<_, (Option<String>, String)>(
+            "SELECT document_id, video_id FROM youtube_transcripts WHERE length(trim(COALESCE(transcript, ''))) > 0",
+        )
+        .fetch_all(&self.pool)
+        .await
+        {
+            for (doc_id, vid) in rows {
+                if let Some(id) = doc_id {
+                    yt_docs.insert(id);
+                }
+                if !vid.trim().is_empty() {
+                    yt_videos.insert(vid);
+                }
+            }
+        }
+
+        let mut vt_docs: HashSet<String> = HashSet::new();
+        if let Ok(ids) = sqlx::query_scalar::<_, String>(
+            "SELECT DISTINCT document_id FROM video_transcripts WHERE length(trim(COALESCE(transcript, ''))) > 0",
+        )
+        .fetch_all(&self.pool)
+        .await
+        {
+            vt_docs.extend(ids);
+        }
+
+        let mut session_transcript_docs: HashSet<String> = HashSet::new();
+        if let Ok(ids) = sqlx::query_scalar::<_, String>(
+            "SELECT DISTINCT COALESCE(rs.document_id, t.book_id)
+             FROM transcript_segments ts
+             JOIN transcripts t ON t.id = ts.transcript_id
+             LEFT JOIN recording_sessions rs ON rs.transcript_id = t.id
+             WHERE length(trim(COALESCE(ts.text, ''))) > 0
+               AND COALESCE(rs.document_id, t.book_id) IS NOT NULL",
+        )
+        .fetch_all(&self.pool)
+        .await
+        {
+            session_transcript_docs.extend(ids);
+        }
+
+        let mut session_docs: HashSet<String> = HashSet::new();
+        if let Ok(ids) =
+            sqlx::query_scalar::<_, String>("SELECT DISTINCT document_id FROM recording_sessions")
+                .fetch_all(&self.pool)
+                .await
+        {
+            session_docs.extend(ids);
+        }
+
+        let mut active_transcriptions: HashSet<String> = HashSet::new();
+        if let Ok(ids) = sqlx::query_scalar::<_, String>(
+            "SELECT DISTINCT document_id FROM transcription_queue WHERE status IN ('pending', 'processing')",
+        )
+        .fetch_all(&self.pool)
+        .await
+        {
+            active_transcriptions.extend(ids);
+        }
+
+        let mut podcast_seg_episodes: HashSet<String> = HashSet::new();
+        if let Ok(ids) = sqlx::query_scalar::<_, String>(
+            "SELECT DISTINCT episode_id FROM podcast_transcript_segments WHERE length(trim(COALESCE(text, ''))) > 0",
+        )
+        .fetch_all(&self.pool)
+        .await
+        {
+            podcast_seg_episodes.extend(ids);
+        }
+
+        let mut extract_counts: HashMap<String, i64> = HashMap::new();
+        if let Ok(rows) = sqlx::query_as::<_, (String, i64)>(
+            "SELECT document_id, COUNT(*) FROM extracts WHERE length(trim(COALESCE(content, ''))) > 0 GROUP BY document_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        {
+            for (doc_id, cnt) in rows {
+                extract_counts.insert(doc_id, cnt);
+            }
+        }
+
+        let mut annotation_counts: HashMap<String, i64> = HashMap::new();
+        if let Ok(rows) = sqlx::query_as::<_, (String, i64)>(
+            "SELECT document_id, COUNT(*) FROM annotations WHERE length(trim(COALESCE(content, ''))) > 0 GROUP BY document_id",
+        )
+        .fetch_all(&self.pool)
+        .await
+        {
+            for (doc_id, cnt) in rows {
+                annotation_counts.insert(doc_id, cnt);
+            }
+        }
+
+        let mut items = Vec::new();
+        let mut seen_podcast_episodes: HashSet<String> = HashSet::new();
+        let mut seen_rss_ids: HashSet<String> = HashSet::new();
+        let mut seen_rss_urls: HashSet<String> = HashSet::new();
+
+        let doc_rows = sqlx::query(
+            "SELECT id, title, file_path, file_type, content, html_content, content_hash,
+                    content_updated_at, date_added, collection_id, tags, metadata, source_url,
+                    is_ai_excluded, is_local_only
+             FROM documents
+             WHERE (?1 = 1 OR is_archived = 0)
+             ORDER BY date_added DESC",
+        )
+        .bind(if include_archived { 1 } else { 0 })
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+
+        for row in doc_rows {
+            let id: String = row.try_get("id").unwrap_or_default();
+            let title: String = row.try_get("title").unwrap_or_default();
+            let file_path: String = row.try_get("file_path").unwrap_or_default();
+            let file_type: String = row.try_get("file_type").unwrap_or_default();
+            let content: Option<String> = row.try_get("content").ok().flatten();
+            let html_content: Option<String> = row.try_get("html_content").ok().flatten();
+            let content_hash: Option<String> = row.try_get("content_hash").ok().flatten();
+            let content_updated_at: Option<String> =
+                row.try_get("content_updated_at").ok().flatten();
+            let date_added: String = row.try_get("date_added").unwrap_or_default();
+            let collection_id: Option<String> = row.try_get("collection_id").ok().flatten();
+            let tags_raw: String = row.try_get("tags").unwrap_or_else(|_| "[]".to_string());
+            let metadata_raw: Option<String> = row.try_get("metadata").ok().flatten();
+            let source_url: Option<String> = row.try_get("source_url").ok().flatten();
+            let is_ai_excluded = row.try_get::<i64, _>("is_ai_excluded").unwrap_or(0) != 0;
+            let is_local_only = row.try_get::<i64, _>("is_local_only").unwrap_or(0) != 0;
+
+            let tags: Vec<String> = serde_json::from_str(&tags_raw).unwrap_or_default();
+            let meta_val: Option<serde_json::Value> = metadata_raw
+                .as_deref()
+                .and_then(|raw| serde_json::from_str(raw).ok());
+            let meta_source = meta_val
+                .as_ref()
+                .and_then(|v| v.get("source"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let meta_rss_id = meta_val
+                .as_ref()
+                .and_then(|v| v.get("rssArticleId"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+            let meta_site = meta_val
+                .as_ref()
+                .and_then(|v| v.get("siteName"))
+                .and_then(|v| v.as_str())
+                .map(str::to_string);
+
+            let podcast_ep_id = meta_source
+                .as_deref()
+                .and_then(|s| s.strip_prefix("podcast:"))
+                .or_else(|| file_path.strip_prefix("podcast://"))
+                .map(str::to_string);
+            if let Some(ref ep_id) = podcast_ep_id {
+                seen_podcast_episodes.insert(ep_id.clone());
+            }
+            if let Some(rss_id) = file_path
+                .strip_prefix("rss://")
+                .map(str::to_string)
+                .or(meta_rss_id)
+            {
+                seen_rss_ids.insert(rss_id);
+            }
+            if let Some(ref url) = source_url {
+                if !url.trim().is_empty() {
+                    seen_rss_urls.insert(url.clone());
+                }
+            }
+
+            let ft_lower = file_type.to_lowercase();
+            let source_category = if podcast_ep_id.is_some() {
+                "podcast".to_string()
+            } else if file_path.starts_with("rss://") || meta_source.as_deref() == Some("rss") {
+                "rss".to_string()
+            } else if source_url
+                .as_deref()
+                .is_some_and(|u| u.contains("x.com/") || u.contains("twitter.com/"))
+                || meta_source
+                    .as_deref()
+                    .is_some_and(|s| s.starts_with("twitter") || s == "x")
+            {
+                "x-thread".to_string()
+            } else if session_docs.contains(&id) {
+                "recording-session".to_string()
+            } else if ft_lower == "other" {
+                "text".to_string()
+            } else {
+                ft_lower.clone()
+            };
+
+            let chunk_count = chunk_counts.get(&id).copied().unwrap_or(0);
+            let index_state = index_states.get(&id).cloned();
+
+            let has_doc_text = content.as_deref().is_some_and(|s| !s.trim().is_empty())
+                || html_content
+                    .as_deref()
+                    .is_some_and(|s| !s.trim().is_empty());
+            let has_yt_transcript = ft_lower == "youtube"
+                && (yt_docs.contains(&id)
+                    || crate::youtube::extract_video_id(&file_path)
+                        .is_some_and(|vid| yt_videos.contains(&vid)));
+            let has_podcast_transcript = podcast_ep_id
+                .as_deref()
+                .is_some_and(|ep| podcast_seg_episodes.contains(ep));
+            let has_child_text = extract_counts.get(&id).copied().unwrap_or(0) > 0
+                || annotation_counts.get(&id).copied().unwrap_or(0) > 0;
+            let has_extractable_text = has_doc_text
+                || has_yt_transcript
+                || vt_docs.contains(&id)
+                || session_transcript_docs.contains(&id)
+                || has_podcast_transcript
+                || has_child_text
+                || chunk_count > 0;
+
+            let is_indexing = active_transcriptions.contains(&id)
+                || (matches!(index_state.as_deref(), Some("indexing" | "queued"))
+                    && chunk_count == 0);
+
+            let (readiness, readiness_reason, prepare_action) = if is_ai_excluded {
+                (
+                    StudySourceReadiness::AiExcluded,
+                    Some("Excluded from AI processing by document privacy settings".to_string()),
+                    None,
+                )
+            } else if matches!(ft_lower.as_str(), "pdf" | "image") && !has_extractable_text {
+                (
+                    StudySourceReadiness::NeedsOcr,
+                    Some("Document has no extracted text yet; OCR is required".to_string()),
+                    Some("run-ocr".to_string()),
+                )
+            } else if matches!(ft_lower.as_str(), "youtube" | "video" | "audio")
+                && !has_extractable_text
+            {
+                if is_indexing {
+                    (
+                        StudySourceReadiness::Indexing,
+                        Some("Transcription or indexing is in progress".to_string()),
+                        Some("finish-indexing".to_string()),
+                    )
+                } else {
+                    let action = if ft_lower == "youtube" {
+                        "fetch-youtube-transcript"
+                    } else {
+                        "transcribe-media"
+                    };
+                    (
+                        StudySourceReadiness::NeedsTranscript,
+                        Some("Media source needs a transcript before study generation".to_string()),
+                        Some(action.to_string()),
+                    )
+                }
+            } else if !has_extractable_text && ft_lower != "epub" {
+                (
+                    StudySourceReadiness::Unavailable,
+                    Some("Source contains no readable text or annotations".to_string()),
+                    None,
+                )
+            } else if is_indexing {
+                (
+                    StudySourceReadiness::Indexing,
+                    Some("Chunks are currently being indexed".to_string()),
+                    Some("finish-indexing".to_string()),
+                )
+            } else if is_local_only {
+                (
+                    StudySourceReadiness::LocalOnly,
+                    Some(
+                        "Local-only: restricted to on-device AI models and local search"
+                            .to_string(),
+                    ),
+                    None,
+                )
+            } else {
+                (StudySourceReadiness::Ready, None, None)
+            };
+
+            let (revision, revision_kind) = match content_hash.as_deref().map(str::trim) {
+                Some(h) if !h.is_empty() => (h.to_string(), RevisionKind::ContentHash),
+                _ => match content_updated_at.as_deref().map(str::trim) {
+                    Some(ts) if !ts.is_empty() => (ts.to_string(), RevisionKind::ModifiedAt),
+                    _ => (date_added.clone(), RevisionKind::ModifiedAt),
+                },
+            };
+
+            items.push(StudySourceCatalogItem {
+                id: id.clone(),
+                kind: "document".to_string(),
+                document_id: Some(id),
+                title,
+                subtitle: meta_site,
+                file_type,
+                source_category,
+                readiness,
+                readiness_reason,
+                is_ai_excluded,
+                is_local_only,
+                chunk_count,
+                index_state,
+                content_hash,
+                revision,
+                revision_kind,
+                collection_id,
+                date_added,
+                tags,
+                prepare_action,
+            });
+        }
+
+        if let Ok(podcast_rows) = sqlx::query(
+            "SELECT pe.id, pe.title, pe.date_added, pe.published_date, pe.transcript_text,
+                    pe.transcript_status, pf.title AS feed_title
+             FROM podcast_episodes pe
+             JOIN podcast_feeds pf ON pf.id = pe.feed_id
+             ORDER BY COALESCE(pe.published_date, pe.date_added) DESC
+             LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await
+        {
+            for row in podcast_rows {
+                let ep_id: String = row.try_get("id").unwrap_or_default();
+                if ep_id.is_empty() || seen_podcast_episodes.contains(&ep_id) {
+                    continue;
+                }
+                let title: String = row.try_get("title").unwrap_or_default();
+                let date_added: String = row.try_get("date_added").unwrap_or_default();
+                let transcript_text: Option<String> = row.try_get("transcript_text").ok().flatten();
+                let transcript_status: Option<String> =
+                    row.try_get("transcript_status").ok().flatten();
+                let feed_title: Option<String> = row.try_get("feed_title").ok().flatten();
+
+                let trimmed_text = transcript_text
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty());
+                let has_segments = podcast_seg_episodes.contains(&ep_id);
+
+                let (readiness, readiness_reason, prepare_action, revision, revision_kind) =
+                    if trimmed_text.is_some() || has_segments {
+                        let rev = trimmed_text
+                            .map(compute_sha256)
+                            .unwrap_or_else(|| date_added.clone());
+                        let kind = if trimmed_text.is_some() {
+                            RevisionKind::ContentHash
+                        } else {
+                            RevisionKind::ModifiedAt
+                        };
+                        (
+                            StudySourceReadiness::Ready,
+                            None,
+                            Some("promote-podcast".to_string()),
+                            rev,
+                            kind,
+                        )
+                    } else if matches!(
+                        transcript_status.as_deref(),
+                        Some("processing" | "queued" | "pending")
+                    ) {
+                        (
+                            StudySourceReadiness::Indexing,
+                            Some(
+                                "Podcast transcription is currently queued or running".to_string(),
+                            ),
+                            None,
+                            date_added.clone(),
+                            RevisionKind::ModifiedAt,
+                        )
+                    } else {
+                        (
+                            StudySourceReadiness::NeedsTranscript,
+                            Some("Podcast episode has no transcript yet".to_string()),
+                            Some("transcribe-podcast".to_string()),
+                            date_added.clone(),
+                            RevisionKind::ModifiedAt,
+                        )
+                    };
+
+                items.push(StudySourceCatalogItem {
+                    id: format!("podcast:{ep_id}"),
+                    kind: "podcast-episode".to_string(),
+                    document_id: None,
+                    title,
+                    subtitle: feed_title,
+                    file_type: "audio".to_string(),
+                    source_category: "podcast".to_string(),
+                    readiness,
+                    readiness_reason,
+                    is_ai_excluded: false,
+                    is_local_only: false,
+                    chunk_count: 0,
+                    index_state: None,
+                    content_hash: None,
+                    revision,
+                    revision_kind,
+                    collection_id: None,
+                    date_added,
+                    tags: vec!["podcast".to_string()],
+                    prepare_action,
+                });
+            }
+        }
+
+        if let Ok(rss_rows) = sqlx::query(
+            "SELECT ra.id, ra.title, ra.url, ra.full_content, ra.content, ra.summary,
+                    ra.categories, ra.date_added, ra.published_date,
+                    rf.title AS feed_title, rf.collection_id
+             FROM rss_articles ra
+             JOIN rss_feeds rf ON rf.id = ra.feed_id
+             ORDER BY COALESCE(ra.published_date, ra.date_added) DESC
+             LIMIT 500",
+        )
+        .fetch_all(&self.pool)
+        .await
+        {
+            for row in rss_rows {
+                let article_id: String = row.try_get("id").unwrap_or_default();
+                let url: String = row.try_get("url").unwrap_or_default();
+                if article_id.is_empty()
+                    || seen_rss_ids.contains(&article_id)
+                    || (!url.is_empty() && seen_rss_urls.contains(&url))
+                {
+                    continue;
+                }
+                let title: String = row.try_get("title").unwrap_or_default();
+                let full_content: Option<String> = row.try_get("full_content").ok().flatten();
+                let content: Option<String> = row.try_get("content").ok().flatten();
+                let summary: Option<String> = row.try_get("summary").ok().flatten();
+                let categories_raw: String = row
+                    .try_get("categories")
+                    .unwrap_or_else(|_| "[]".to_string());
+                let date_added: String = row.try_get("date_added").unwrap_or_default();
+                let feed_title: Option<String> = row.try_get("feed_title").ok().flatten();
+                let collection_id: Option<String> = row.try_get("collection_id").ok().flatten();
+
+                let raw_html = full_content
+                    .as_deref()
+                    .filter(|s| !s.trim().is_empty())
+                    .or_else(|| content.as_deref().filter(|s| !s.trim().is_empty()))
+                    .or_else(|| summary.as_deref().filter(|s| !s.trim().is_empty()))
+                    .unwrap_or("");
+                let clean_text = strip_html_blocks_and_tags(raw_html);
+                let has_text = !clean_text.trim().is_empty();
+
+                let (readiness, readiness_reason, prepare_action, revision, revision_kind) =
+                    if has_text {
+                        (
+                            StudySourceReadiness::Ready,
+                            None,
+                            Some("promote-rss".to_string()),
+                            compute_sha256(&clean_text),
+                            RevisionKind::ContentHash,
+                        )
+                    } else {
+                        (
+                            StudySourceReadiness::Unavailable,
+                            Some("RSS article has no extractable text content yet".to_string()),
+                            Some("fetch-rss-content".to_string()),
+                            date_added.clone(),
+                            RevisionKind::ModifiedAt,
+                        )
+                    };
+
+                let tags: Vec<String> = serde_json::from_str(&categories_raw).unwrap_or_default();
+
+                items.push(StudySourceCatalogItem {
+                    id: format!("rss:{article_id}"),
+                    kind: "rss-article".to_string(),
+                    document_id: None,
+                    title,
+                    subtitle: feed_title,
+                    file_type: "html".to_string(),
+                    source_category: "rss".to_string(),
+                    readiness,
+                    readiness_reason,
+                    is_ai_excluded: false,
+                    is_local_only: false,
+                    chunk_count: 0,
+                    index_state: None,
+                    content_hash: None,
+                    revision,
+                    revision_kind,
+                    collection_id,
+                    date_added,
+                    tags,
+                    prepare_action,
+                });
+            }
+        }
+
+        Ok(items)
+    }
+
+    pub async fn ensure_podcast_episode_document(
+        &self,
+        episode_id: &str,
+    ) -> Result<EnsureStudySourceResult, StudyCommandError> {
+        let source_tag = format!("podcast:{episode_id}");
+        let file_uri = format!("podcast://{episode_id}");
+
+        let existing = sqlx::query(
+            "SELECT id, title, file_type, content, content_hash, content_updated_at, date_added,
+                    is_ai_excluded, is_local_only
+             FROM documents
+             WHERE (json_valid(metadata) AND json_extract(metadata, '$.source') = ?1)
+                OR file_path = ?2
+             LIMIT 1",
+        )
+        .bind(&source_tag)
+        .bind(&file_uri)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+
+        let segments: Vec<(i64, String)> = sqlx::query_as(
+            "SELECT start_ms, text
+             FROM podcast_transcript_segments
+             WHERE episode_id = ?1
+             ORDER BY segment_index ASC",
+        )
+        .bind(episode_id)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+
+        let formatted_segments = segments
+            .into_iter()
+            .filter_map(|(start_ms, text)| {
+                let trimmed = text.trim();
+                if trimmed.is_empty() {
+                    return None;
+                }
+                let secs = start_ms.max(0) / 1000;
+                Some(format!("[{:02}:{:02}] {trimmed}", secs / 60, secs % 60))
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        if let Some(row) = existing {
+            let doc_id: String = row.try_get("id").unwrap_or_default();
+            let title: String = row.try_get("title").unwrap_or_default();
+            let file_type: String = row.try_get("file_type").unwrap_or_default();
+            let current_content: Option<String> = row.try_get("content").ok().flatten();
+            let mut content_hash: Option<String> = row.try_get("content_hash").ok().flatten();
+            let mut content_updated_at: Option<String> =
+                row.try_get("content_updated_at").ok().flatten();
+            let date_added: String = row.try_get("date_added").unwrap_or_default();
+            let is_ai_excluded = row.try_get::<i64, _>("is_ai_excluded").unwrap_or(0) != 0;
+            let is_local_only = row.try_get::<i64, _>("is_local_only").unwrap_or(0) != 0;
+
+            if current_content
+                .as_deref()
+                .is_none_or(|s| s.trim().is_empty())
+                && !formatted_segments.is_empty()
+            {
+                if let Ok(mut conn) = self.pool.acquire().await {
+                    let _ = crate::database::repository::sync_document_transcript_content(
+                        &mut conn,
+                        &doc_id,
+                        &formatted_segments,
+                    )
+                    .await;
+                }
+                content_hash = Some(compute_sha256(&formatted_segments));
+                content_updated_at = Some(Utc::now().to_rfc3339());
+            }
+
+            let (revision, revision_kind) = match content_hash.as_deref().map(str::trim) {
+                Some(h) if !h.is_empty() => (h.to_string(), RevisionKind::ContentHash),
+                _ => match content_updated_at.as_deref().map(str::trim) {
+                    Some(ts) if !ts.is_empty() => (ts.to_string(), RevisionKind::ModifiedAt),
+                    _ => (date_added, RevisionKind::ModifiedAt),
+                },
+            };
+
+            let readiness = if is_ai_excluded {
+                StudySourceReadiness::AiExcluded
+            } else if is_local_only {
+                StudySourceReadiness::LocalOnly
+            } else {
+                StudySourceReadiness::Ready
+            };
+
+            return Ok(EnsureStudySourceResult {
+                document_id: doc_id,
+                promoted: false,
+                title,
+                source_type: file_type,
+                readiness,
+                revision,
+                revision_kind,
+                is_ai_excluded,
+                is_local_only,
+            });
+        }
+
+        let ep_row = sqlx::query(
+            "SELECT pe.title, pe.audio_url, pe.transcript_text, pf.title AS feed_title
+             FROM podcast_episodes pe
+             LEFT JOIN podcast_feeds pf ON pf.id = pe.feed_id
+             WHERE pe.id = ?1
+             LIMIT 1",
+        )
+        .bind(episode_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?
+        .ok_or_else(|| StudyCommandError::not_found("study_source.podcast.not_found"))?;
+
+        let ep_title: String = ep_row.try_get("title").unwrap_or_default();
+        let audio_url: String = ep_row.try_get("audio_url").unwrap_or_default();
+        let transcript_text: Option<String> = ep_row.try_get("transcript_text").ok().flatten();
+        let feed_title: Option<String> = ep_row.try_get("feed_title").ok().flatten();
+
+        let body = if !formatted_segments.is_empty() {
+            formatted_segments
+        } else {
+            transcript_text
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or("")
+                .to_string()
+        };
+
+        if body.is_empty() {
+            return Err(StudyCommandError::invalid_state(
+                "study_source.podcast.needs_transcript",
+            ));
+        }
+
+        let doc_id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        let hash = compute_sha256(&body);
+        let tags_json = serde_json::json!(["podcast"]).to_string();
+        let metadata_json = serde_json::json!({
+            "source": source_tag,
+            "siteName": feed_title,
+        })
+        .to_string();
+
+        sqlx::query(
+            "INSERT INTO documents (
+                id, collection_id, title, file_path, file_type, content, content_hash,
+                content_updated_at, source_url, author, tags, metadata, date_added, date_modified
+             ) VALUES (?1, ?2, ?3, ?4, 'audio', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?7, ?7)",
+        )
+        .bind(&doc_id)
+        .bind(DEFAULT_COLLECTION_ID)
+        .bind(&ep_title)
+        .bind(&file_uri)
+        .bind(&body)
+        .bind(&hash)
+        .bind(&now)
+        .bind(&audio_url)
+        .bind(feed_title.as_deref())
+        .bind(&tags_json)
+        .bind(&metadata_json)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+
+        Ok(EnsureStudySourceResult {
+            document_id: doc_id,
+            promoted: true,
+            title: ep_title,
+            source_type: "audio".to_string(),
+            readiness: StudySourceReadiness::Ready,
+            revision: hash,
+            revision_kind: RevisionKind::ContentHash,
+            is_ai_excluded: false,
+            is_local_only: false,
+        })
+    }
+
+    pub async fn ensure_rss_article_document(
+        &self,
+        article_id: &str,
+    ) -> Result<EnsureStudySourceResult, StudyCommandError> {
+        let article_row = sqlx::query(
+            "SELECT ra.id, ra.url, ra.title, ra.author, ra.full_content, ra.content,
+                    ra.summary, ra.categories, rf.title AS feed_title, rf.collection_id
+             FROM rss_articles ra
+             LEFT JOIN rss_feeds rf ON rf.id = ra.feed_id
+             WHERE ra.id = ?1
+             LIMIT 1",
+        )
+        .bind(article_id)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?
+        .ok_or_else(|| StudyCommandError::not_found("study_source.rss.not_found"))?;
+
+        let url: String = article_row.try_get("url").unwrap_or_default();
+        let title: String = article_row.try_get("title").unwrap_or_default();
+        let author: Option<String> = article_row.try_get("author").ok().flatten();
+        let full_content: Option<String> = article_row.try_get("full_content").ok().flatten();
+        let content: Option<String> = article_row.try_get("content").ok().flatten();
+        let summary: Option<String> = article_row.try_get("summary").ok().flatten();
+        let categories_raw: String = article_row
+            .try_get("categories")
+            .unwrap_or_else(|_| "[]".to_string());
+        let feed_title: Option<String> = article_row.try_get("feed_title").ok().flatten();
+        let collection_id: String = article_row
+            .try_get::<Option<String>, _>("collection_id")
+            .ok()
+            .flatten()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| DEFAULT_COLLECTION_ID.to_string());
+
+        let raw_html = full_content
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .or_else(|| content.as_deref().filter(|s| !s.trim().is_empty()))
+            .or_else(|| summary.as_deref().filter(|s| !s.trim().is_empty()))
+            .unwrap_or("");
+        let clean_text = strip_html_blocks_and_tags(raw_html);
+        if clean_text.trim().is_empty() {
+            return Err(StudyCommandError::invalid_state(
+                "study_source.rss.no_content",
+            ));
+        }
+
+        let file_uri = format!("rss://{article_id}");
+        let existing = sqlx::query(
+            "SELECT id, title, file_type, content, content_hash, content_updated_at, date_added,
+                    is_ai_excluded, is_local_only
+             FROM documents
+             WHERE file_path = ?1
+                OR (json_valid(metadata) AND json_extract(metadata, '$.rssArticleId') = ?2)
+                OR (?3 != '' AND source_url = ?3)
+             LIMIT 1",
+        )
+        .bind(&file_uri)
+        .bind(article_id)
+        .bind(&url)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+
+        if let Some(row) = existing {
+            let doc_id: String = row.try_get("id").unwrap_or_default();
+            let doc_title: String = row.try_get("title").unwrap_or_default();
+            let file_type: String = row.try_get("file_type").unwrap_or_default();
+            let existing_content: Option<String> = row.try_get("content").ok().flatten();
+            let mut content_hash: Option<String> = row.try_get("content_hash").ok().flatten();
+            let mut content_updated_at: Option<String> =
+                row.try_get("content_updated_at").ok().flatten();
+            let date_added: String = row.try_get("date_added").unwrap_or_default();
+            let is_ai_excluded = row.try_get::<i64, _>("is_ai_excluded").unwrap_or(0) != 0;
+            let is_local_only = row.try_get::<i64, _>("is_local_only").unwrap_or(0) != 0;
+
+            if existing_content
+                .as_deref()
+                .is_none_or(|s| s.trim().is_empty())
+            {
+                let hash = compute_sha256(&clean_text);
+                let now = Utc::now().to_rfc3339();
+                sqlx::query(
+                    "UPDATE documents
+                     SET content = ?1, html_content = ?2, content_hash = ?3, content_updated_at = ?4
+                     WHERE id = ?5",
+                )
+                .bind(&clean_text)
+                .bind(raw_html)
+                .bind(&hash)
+                .bind(&now)
+                .bind(&doc_id)
+                .execute(&self.pool)
+                .await
+                .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+                content_hash = Some(hash);
+                content_updated_at = Some(now);
+            }
+
+            let (revision, revision_kind) = match content_hash.as_deref().map(str::trim) {
+                Some(h) if !h.is_empty() => (h.to_string(), RevisionKind::ContentHash),
+                _ => match content_updated_at.as_deref().map(str::trim) {
+                    Some(ts) if !ts.is_empty() => (ts.to_string(), RevisionKind::ModifiedAt),
+                    _ => (date_added, RevisionKind::ModifiedAt),
+                },
+            };
+
+            let readiness = if is_ai_excluded {
+                StudySourceReadiness::AiExcluded
+            } else if is_local_only {
+                StudySourceReadiness::LocalOnly
+            } else {
+                StudySourceReadiness::Ready
+            };
+
+            return Ok(EnsureStudySourceResult {
+                document_id: doc_id,
+                promoted: false,
+                title: doc_title,
+                source_type: file_type,
+                readiness,
+                revision,
+                revision_kind,
+                is_ai_excluded,
+                is_local_only,
+            });
+        }
+
+        let doc_id = Uuid::new_v4().to_string();
+        let now = Utc::now().to_rfc3339();
+        let hash = compute_sha256(&clean_text);
+        let tags: Vec<String> = serde_json::from_str(&categories_raw).unwrap_or_default();
+        let tags_json = serde_json::to_string(&tags).unwrap_or_else(|_| "[]".to_string());
+        let metadata_json = serde_json::json!({
+            "source": "rss",
+            "rssArticleId": article_id,
+            "siteName": feed_title,
+        })
+        .to_string();
+
+        sqlx::query(
+            "INSERT INTO documents (
+                id, collection_id, title, file_path, file_type, content, html_content,
+                content_hash, content_updated_at, source_url, author, tags, metadata,
+                date_added, date_modified
+             ) VALUES (?1, ?2, ?3, ?4, 'html', ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?8, ?8)",
+        )
+        .bind(&doc_id)
+        .bind(&collection_id)
+        .bind(&title)
+        .bind(&file_uri)
+        .bind(&clean_text)
+        .bind(raw_html)
+        .bind(&hash)
+        .bind(&now)
+        .bind(&url)
+        .bind(author.as_deref())
+        .bind(&tags_json)
+        .bind(&metadata_json)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+
+        Ok(EnsureStudySourceResult {
+            document_id: doc_id,
+            promoted: true,
+            title,
+            source_type: "html".to_string(),
+            readiness: StudySourceReadiness::Ready,
+            revision: hash,
+            revision_kind: RevisionKind::ContentHash,
+            is_ai_excluded: false,
+            is_local_only: false,
+        })
     }
 }
 
@@ -1455,10 +2585,7 @@ mod tests {
         // Fabricated excerpt not present in the canonical chunk.
         let mut fabricated = base.clone();
         fabricated.excerpt = "A hallucinated quotation.".to_string();
-        let res = repo
-            .resolve_study_source_refs(&[fabricated])
-            .await
-            .unwrap();
+        let res = repo.resolve_study_source_refs(&[fabricated]).await.unwrap();
         assert_eq!(res[0].status, StudySourceStatus::Stale);
         assert_eq!(
             res[0].reason_key.as_deref(),
@@ -1775,5 +2902,279 @@ mod tests {
         let fetched = repo.get_source_ref("ssr_test_1").await.unwrap();
         assert!(fetched.is_some());
         assert_eq!(fetched.unwrap().excerpt, "Unique excerpt text");
+    }
+
+    #[tokio::test]
+    async fn test_date_modified_bump_and_lexical_only_state_stay_current() {
+        let pool = create_test_db().await;
+        let repo = StudySourceRepository::new(pool.clone());
+
+        sqlx::query(
+            "INSERT INTO documents
+                (id, title, file_path, file_type, content, content_hash, content_updated_at, date_added, date_modified)
+             VALUES ('doc_yt_playback', 'Lecture Video', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ', 'youtube', '', '', '2026-11-10T10:00:00Z', '2026-11-10T10:00:00Z', '2026-11-14T22:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO youtube_transcripts (id, document_id, video_id, transcript, segments_json, date_created, date_modified)
+             VALUES ('yt_row_1', 'doc_yt_playback', 'dQw4w9WgXcQ', '[0:12] Spaced repetition strengthens memory consolidation.', '[{\"text\":\"Spaced repetition strengthens memory consolidation.\",\"start\":12.0,\"duration\":4.0}]', '2026-11-10T10:00:00Z', '2026-11-10T10:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        seed_chunk(
+            &pool,
+            "chunk_yt_0",
+            "doc_yt_playback",
+            "transcript",
+            None,
+            0,
+            "[0:12] Spaced repetition strengthens memory consolidation.",
+        )
+        .await;
+        seed_index_state(
+            &pool,
+            "doc_yt_playback",
+            "lexical_only",
+            "2026-11-10T11:00:00Z",
+        )
+        .await;
+
+        let res = repo
+            .resolve_study_source_refs(&[StudySourceRefInput {
+                document_id: "doc_yt_playback".to_string(),
+                extract_id: None,
+                excerpt: "Spaced repetition strengthens memory consolidation.".to_string(),
+                excerpt_sha256: None,
+                revision: Some("2026-11-10T10:00:00Z".to_string()),
+                revision_kind: Some(RevisionKind::ModifiedAt),
+                document_title: None,
+                source_type: Some("youtube".to_string()),
+                jump: Some(serde_json::json!({ "kind": "youtube", "timeSeconds": 12.0 })),
+                chunk: Some(chunk_ref(
+                    "chunk_yt_0",
+                    0,
+                    "[0:12] Spaced repetition strengthens memory consolidation.",
+                )),
+                section_label: None,
+            }])
+            .await
+            .unwrap();
+
+        assert_eq!(res[0].status, StudySourceStatus::Current);
+        assert_eq!(res[0].navigation, StudySourceNavigation::Exact);
+        assert_eq!(res[0].reason_key, None);
+    }
+
+    #[tokio::test]
+    async fn test_universal_source_types_and_locators_verify() {
+        let pool = create_test_db().await;
+        let repo = StudySourceRepository::new(pool.clone());
+
+        // 1. Local video backed by video_transcripts + video jump
+        seed_document(
+            &pool,
+            "doc_local_vid",
+            "Local Talk",
+            "video",
+            "",
+            "hash_vid",
+            "2026-11-10T10:00:00Z",
+        )
+        .await;
+        sqlx::query(
+            "INSERT INTO video_transcripts (id, document_id, transcript, segments_json, created_at, updated_at)
+             VALUES ('vt_1', 'doc_local_vid', 'Eigenvalues determine linear stability.', '[{\"text\":\"Eigenvalues determine linear stability.\",\"start\":15,\"end\":20}]', '2026-11-10T10:00:00Z', '2026-11-10T10:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        seed_chunk(
+            &pool,
+            "chunk_vid_0",
+            "doc_local_vid",
+            "transcript",
+            None,
+            0,
+            "[0:15] Eigenvalues determine linear stability.",
+        )
+        .await;
+        seed_index_state(&pool, "doc_local_vid", "indexed", "2026-11-10T10:05:00Z").await;
+
+        // 2. Podcast transcript document (file_type=other, podcast:// path)
+        sqlx::query(
+            "INSERT INTO podcast_feeds (id, title, feed_url, subscribed_at)
+             VALUES ('pf_1', 'Tech Show', 'https://example.com/feed.xml', '2026-11-10T10:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO podcast_episodes (id, feed_id, title, guid, audio_url, date_added)
+             VALUES ('pe_1', 'pf_1', 'Ep 1', 'guid_1', 'https://example.com/1.mp3', '2026-11-10T10:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO podcast_transcript_segments (episode_id, segment_index, start_ms, end_ms, text)
+             VALUES ('pe_1', 0, 5000, 9000, 'Active recall outperforms passive rereading.')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO documents (id, title, file_path, file_type, content, content_hash, content_updated_at, date_added, date_modified)
+             VALUES ('doc_pod_1', 'Ep 1 Transcript', 'podcast://pe_1', 'other', '', 'hash_pod', '2026-11-10T10:00:00Z', '2026-11-10T10:00:00Z', '2026-11-10T10:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        seed_chunk(
+            &pool,
+            "chunk_pod_0",
+            "doc_pod_1",
+            "transcript",
+            None,
+            0,
+            "Active recall outperforms passive rereading.",
+        )
+        .await;
+        seed_index_state(&pool, "doc_pod_1", "queued", "2026-11-10T10:05:00Z").await;
+
+        // 3. Plain text ('other') + text jump
+        seed_document(
+            &pool,
+            "doc_txt_1",
+            "Notes.txt",
+            "other",
+            "Retrieval practice strengthens long-term retention.",
+            "hash_txt",
+            "2026-11-10T10:00:00Z",
+        )
+        .await;
+        seed_chunk(
+            &pool,
+            "chunk_txt_0",
+            "doc_txt_1",
+            SOURCE_TYPE_DOCUMENT,
+            None,
+            0,
+            "Retrieval practice strengthens long-term retention.",
+        )
+        .await;
+        seed_index_state(&pool, "doc_txt_1", "indexing", "2026-11-10T10:05:00Z").await;
+
+        // 4. Image OCR document + image jump
+        seed_document(
+            &pool,
+            "doc_img_1",
+            "Diagram Scan",
+            "image",
+            "Hippocampal replay transfers traces to neocortex.",
+            "hash_img",
+            "2026-11-10T10:00:00Z",
+        )
+        .await;
+        seed_chunk(
+            &pool,
+            "chunk_img_0",
+            "doc_img_1",
+            SOURCE_TYPE_DOCUMENT,
+            None,
+            0,
+            "Hippocampal replay transfers traces to neocortex.",
+        )
+        .await;
+        seed_index_state(&pool, "doc_img_1", "indexed", "2026-11-10T10:05:00Z").await;
+
+        let resolved = repo
+            .resolve_study_source_refs(&[
+                StudySourceRefInput {
+                    document_id: "doc_local_vid".to_string(),
+                    extract_id: None,
+                    excerpt: "Eigenvalues determine linear stability.".to_string(),
+                    excerpt_sha256: None,
+                    revision: Some("hash_vid".to_string()),
+                    revision_kind: Some(RevisionKind::ContentHash),
+                    document_title: None,
+                    source_type: Some("video".to_string()),
+                    jump: Some(serde_json::json!({ "kind": "video", "timeSeconds": 15.0 })),
+                    chunk: Some(chunk_ref(
+                        "chunk_vid_0",
+                        0,
+                        "[0:15] Eigenvalues determine linear stability.",
+                    )),
+                    section_label: None,
+                },
+                StudySourceRefInput {
+                    document_id: "doc_pod_1".to_string(),
+                    extract_id: None,
+                    excerpt: "Active recall outperforms passive rereading.".to_string(),
+                    excerpt_sha256: None,
+                    revision: Some("hash_pod".to_string()),
+                    revision_kind: Some(RevisionKind::ContentHash),
+                    document_title: None,
+                    source_type: Some("audio".to_string()),
+                    jump: Some(serde_json::json!({ "kind": "audio", "timeSeconds": 5.0 })),
+                    chunk: Some(chunk_ref(
+                        "chunk_pod_0",
+                        0,
+                        "Active recall outperforms passive rereading.",
+                    )),
+                    section_label: None,
+                },
+                StudySourceRefInput {
+                    document_id: "doc_txt_1".to_string(),
+                    extract_id: None,
+                    excerpt: "Retrieval practice strengthens long-term retention.".to_string(),
+                    excerpt_sha256: None,
+                    revision: Some("hash_txt".to_string()),
+                    revision_kind: Some(RevisionKind::ContentHash),
+                    document_title: None,
+                    source_type: Some("other".to_string()),
+                    jump: Some(serde_json::json!({ "kind": "text", "scrollPercent": 25.0 })),
+                    chunk: Some(chunk_ref(
+                        "chunk_txt_0",
+                        0,
+                        "Retrieval practice strengthens long-term retention.",
+                    )),
+                    section_label: None,
+                },
+                StudySourceRefInput {
+                    document_id: "doc_img_1".to_string(),
+                    extract_id: None,
+                    excerpt: "Hippocampal replay transfers traces to neocortex.".to_string(),
+                    excerpt_sha256: None,
+                    revision: Some("hash_img".to_string()),
+                    revision_kind: Some(RevisionKind::ContentHash),
+                    document_title: None,
+                    source_type: Some("image".to_string()),
+                    jump: Some(serde_json::json!({ "kind": "image" })),
+                    chunk: Some(chunk_ref(
+                        "chunk_img_0",
+                        0,
+                        "Hippocampal replay transfers traces to neocortex.",
+                    )),
+                    section_label: None,
+                },
+            ])
+            .await
+            .unwrap();
+
+        for item in &resolved {
+            assert_eq!(
+                item.status,
+                StudySourceStatus::Current,
+                "doc {} failed with {:?}",
+                item.ref_item.document_id,
+                item.reason_key
+            );
+            assert_eq!(item.navigation, StudySourceNavigation::Exact);
+        }
     }
 }

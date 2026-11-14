@@ -742,7 +742,10 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(applied.outcomes[0].status, AutoPostponeOutcomeStatus::Postponed);
+        assert_eq!(
+            applied.outcomes[0].status,
+            AutoPostponeOutcomeStatus::Postponed
+        );
 
         // Reopen: the high-priority record keeps its date; only low was postponed.
         let high_saved: String =

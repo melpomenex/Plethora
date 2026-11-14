@@ -7,8 +7,8 @@
 use crate::database::{Repository, StudyPlanRepository};
 use crate::models::{
     CreateStudyPlanInput, LegacyImportResult, NodeActivity, RenameStudyPlanInput,
-    SaveStudyPlanDraftInput, StudyCommandError, StudyPlan, StudyPlanDetail,
-    StudyPlanPreferences, StudyPlanSummary,
+    SaveStudyPlanDraftInput, StudyCommandError, StudyPlan, StudyPlanDetail, StudyPlanPreferences,
+    StudyPlanSummary,
 };
 use tauri::State;
 

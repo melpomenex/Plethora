@@ -118,6 +118,7 @@ export interface SearchResult {
     /** Contextual action dispatch target (when resultKind === "contextual-action"). */
     contextualView?: "document-viewer" | "rss" | "podcast" | "audiobook";
     contextualActionId?: string;
+    intentId?: string;
     /** Learning-item destination (when resultKind === "learning-item"). */
     cardId?: string;
     /** Palette scopes this result is eligible under (scope enforcement). */
@@ -191,6 +192,7 @@ export interface PaletteHubController {
  */
 export function GlobalSearch({
   onSearch,
+  onSearchFast,
   onResultClick,
   onNavigateToDocument,
   recentSearches = [],
@@ -202,6 +204,7 @@ export function GlobalSearch({
   controller,
 }: {
   onSearch: (query: SearchQuery) => Promise<SearchResult[]>;
+  onSearchFast?: (query: SearchQuery) => SearchResult[];
   onResultClick: (result: SearchResult) => void;
   onNavigateToDocument?: (documentId: string) => void;
   recentSearches?: string[];
@@ -260,7 +263,7 @@ export function GlobalSearch({
 
   const isURLMode = urlDetection.isURL && urlDetection.type !== URLType.Unknown;
 
-  // Debounced search
+  // Debounced Stage B search (coalesces keystrokes and drops stale/cancelled responses)
   const debouncedSearch = useMemo(
     () =>
       debounce(async (searchQuery: SearchQuery) => {
@@ -287,14 +290,29 @@ export function GlobalSearch({
             setIsSearching(false);
           }
         }
-      }, 150),
+      }, 100),
     [onSearch]
   );
 
-  // Update search when query or filters change (skip when in URL mode)
+  // Cancel any pending or in-flight search when closing the palette
   useEffect(() => {
+    if (!isOpen) {
+      debouncedSearch.cancel();
+      latestSearchRequestRef.current += 1;
+      setIsSearching(false);
+    }
+  }, [isOpen, debouncedSearch]);
+
+  // Update search when query or filters change (skip when in URL mode or closed)
+  useEffect(() => {
+    if (!isOpen) {
+      debouncedSearch.cancel();
+      return;
+    }
+
     if (isURLMode) {
       // Don't search when URL is detected
+      debouncedSearch.cancel();
       latestSearchRequestRef.current += 1;
       setResults([]);
       setIsSearching(false);
@@ -305,6 +323,7 @@ export function GlobalSearch({
       // Hub: only typed queries hit the providers; empty-input scope views and
       // View all are answered from bounded local data.
       if (!query.trim() || browseAll) {
+        debouncedSearch.cancel();
         latestSearchRequestRef.current += 1;
         setResults([]);
         setIsSearching(false);
@@ -319,26 +338,42 @@ export function GlobalSearch({
         categories: filters.categories.length > 0 ? filters.categories : undefined,
         tags: filters.tags.length > 0 ? filters.tags : undefined,
       };
+      debouncedSearch.cancel();
+      latestSearchRequestRef.current += 1;
+      if (onSearchFast) {
+        const fastResults = onSearchFast(searchQuery);
+        setResults(fastResults);
+        setSearchError(null);
+        setSelectedIndex(0);
+      }
       debouncedSearch(searchQuery);
-      return;
+      return () => {
+        debouncedSearch.cancel();
+      };
     }
 
-    if (query.trim()) {
-      const searchQuery: SearchQuery = {
-        query: query.trim(),
-        types: filters.types.length > 0 ? filters.types : undefined,
-        categories: filters.categories.length > 0 ? filters.categories : undefined,
-        tags: filters.tags.length > 0 ? filters.tags : undefined,
-      };
-      debouncedSearch(searchQuery);
-    } else {
-      // Empty query: still ask for results so contextual "Actions in this view"
-      // can be surfaced as the default palette content. The search handler
-      // returns contextual actions (or an empty list) for an empty query.
-      const searchQuery: SearchQuery = { query: "" };
-      debouncedSearch(searchQuery);
+    const searchQuery: SearchQuery = query.trim()
+      ? {
+          query: query.trim(),
+          types: filters.types.length > 0 ? filters.types : undefined,
+          categories: filters.categories.length > 0 ? filters.categories : undefined,
+          tags: filters.tags.length > 0 ? filters.tags : undefined,
+        }
+      : { query: "" };
+
+    debouncedSearch.cancel();
+    latestSearchRequestRef.current += 1;
+    if (onSearchFast) {
+      const fastResults = onSearchFast(searchQuery);
+      setResults(fastResults);
+      setSearchError(null);
+      setSelectedIndex(0);
     }
-  }, [query, filters, debouncedSearch, isURLMode, controller, scope, browseAll, searchRetryToken]);
+    debouncedSearch(searchQuery);
+    return () => {
+      debouncedSearch.cancel();
+    };
+  }, [isOpen, query, filters, debouncedSearch, onSearchFast, isURLMode, controller, scope, browseAll, searchRetryToken]);
 
   const hasController = Boolean(controller);
   // Reset hub state on an ordinary open and consume any explicit prefill.
@@ -366,9 +401,14 @@ export function GlobalSearch({
   // Focus input when opened (standalone path; the hub owns focus via the
   // modal focus lifecycle).
   useEffect(() => {
-    if (isOpen && !controller) {
-      requestAnimationFrame(() => inputRef.current?.focus());
-    }
+    if (!isOpen || controller) return;
+    inputRef.current?.focus({ preventScroll: true });
+    const frame = window.requestAnimationFrame(() => {
+      if (document.activeElement !== inputRef.current) {
+        inputRef.current?.focus({ preventScroll: true });
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
   }, [isOpen, controller]);
 
   useEffect(() => {
@@ -763,7 +803,7 @@ export function GlobalSearch({
                     </div>
                   )}
                 </div>
-              ) : isSearching ? (
+              ) : isSearching && results.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">
                   <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
                   <p className="mt-2 text-sm">Searching...</p>
@@ -1181,6 +1221,15 @@ function CommandHubLayer(props: CommandHubLayerProps) {
   };
 
   const panelRef = useDialogFocus(true, () => escapeRef.current(), inputRef);
+
+  // Focus the hub combobox synchronously on mount so rapid keystrokes right after
+  // Ctrl/Cmd+K are never dropped while waiting for the next animation frame.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (el && document.activeElement !== el) {
+      el.focus({ preventScroll: true });
+    }
+  }, [inputRef]);
 
   // Real modal containment: inert background, locked scroll.
   useEffect(() => {
@@ -1908,10 +1957,10 @@ function CommandHubLayer(props: CommandHubLayerProps) {
 function debounce<T extends (...args: unknown[]) => unknown>(
   func: T,
   wait: number
-): (...args: Parameters<T>) => void {
-  let timeout: NodeJS.Timeout | null = null;
+): ((...args: Parameters<T>) => void) & { cancel: () => void } {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
 
-  return function executedFunction(...args: Parameters<T>) {
+  const executedFunction = (...args: Parameters<T>) => {
     const later = () => {
       timeout = null;
       func(...args);
@@ -1922,4 +1971,13 @@ function debounce<T extends (...args: unknown[]) => unknown>(
     }
     timeout = setTimeout(later, wait);
   };
+
+  executedFunction.cancel = () => {
+    if (timeout) {
+      clearTimeout(timeout);
+      timeout = null;
+    }
+  };
+
+  return executedFunction;
 }

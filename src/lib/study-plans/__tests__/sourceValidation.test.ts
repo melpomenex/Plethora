@@ -246,6 +246,13 @@ describe('Study Source Reference Validation', () => {
     };
     expect(validateStudySourceRefInput(inputWithValidChunk).ok).toBe(true);
 
+    // Video / Text / Image locators and plain-text (`other`) compatibility
+    expect(validateExactSearchHitLocation({ kind: 'video', timeSeconds: 45, segmentId: 'seg-2' }, 'video')).toHaveLength(0);
+    expect(validateExactSearchHitLocation({ kind: 'video', timeSeconds: -2 }, 'video')).toHaveLength(1);
+    expect(validateExactSearchHitLocation({ kind: 'text', scrollPercent: 40, textQuote: 'Sample note' }, 'other')).toHaveLength(0);
+    expect(validateExactSearchHitLocation({ kind: 'markdown', scrollPercent: 40 }, 'other')).toHaveLength(0);
+    expect(validateExactSearchHitLocation({ kind: 'image', textQuote: 'Diagram OCR label' }, 'image')).toHaveLength(0);
+
     // Invalid chunk offset range (endOffset < startOffset)
     const inputWithBadChunk: StudySourceRefInput = {
       ...inputWithValidChunk,

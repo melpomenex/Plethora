@@ -297,6 +297,7 @@ pub async fn commit_session_unit(
         )
         .await?;
     let _ = app_handle.emit("transcription://queue-updated", ());
+    enqueue_session_document(&repo, &app_handle, &session_id).await;
     Ok(committed)
 }
 
@@ -304,9 +305,14 @@ pub async fn commit_session_unit(
 pub async fn import_session_transcript(
     session_id: String,
     segments: Vec<SessionTranscriptSegmentInput>,
+    app_handle: tauri::AppHandle,
     repo: State<'_, Repository>,
 ) -> Result<usize, SessionOperationError> {
-    repo.import_session_transcript(&session_id, &segments).await
+    let committed = repo
+        .import_session_transcript(&session_id, &segments)
+        .await?;
+    enqueue_session_document(&repo, &app_handle, &session_id).await;
+    Ok(committed)
 }
 
 #[tauri::command]
@@ -345,16 +351,38 @@ pub async fn correct_session_segment(
     expected_revision: i64,
     text: String,
     split_metadata_json: Option<String>,
+    app_handle: tauri::AppHandle,
     repo: State<'_, Repository>,
 ) -> Result<i64, SessionOperationError> {
-    repo.correct_session_segment(
-        &session_id,
-        &segment_key,
-        expected_revision,
-        &text,
-        split_metadata_json.as_deref(),
+    let revision = repo
+        .correct_session_segment(
+            &session_id,
+            &segment_key,
+            expected_revision,
+            &text,
+            split_metadata_json.as_deref(),
+        )
+        .await?;
+    enqueue_session_document(&repo, &app_handle, &session_id).await;
+    Ok(revision)
+}
+
+async fn enqueue_session_document(
+    repo: &Repository,
+    app_handle: &tauri::AppHandle,
+    session_id: &str,
+) {
+    if let Ok(Some(document_id)) = sqlx::query_scalar::<_, Option<String>>(
+        "SELECT document_id FROM recording_sessions WHERE id = ?1",
     )
+    .bind(session_id)
+    .fetch_optional(repo.pool())
     .await
+    {
+        if let Some(doc_id) = document_id.filter(|id| !id.trim().is_empty()) {
+            crate::commands::ai_learning::try_enqueue_document(app_handle, &doc_id);
+        }
+    }
 }
 
 #[tauri::command]

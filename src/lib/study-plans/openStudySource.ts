@@ -22,6 +22,7 @@ import { useDocumentStore } from '../../stores/documentStore';
 import { useTabsStore } from '../../stores/tabsStore';
 import { DocumentViewer } from '../../components/tabs/TabRegistry';
 import { openDocumentAtLocation } from '../../utils/openDocumentAtLocation';
+import type { Document } from '../../types/document';
 import type { StudySourceRefV1, StudySourceResolution } from '../../types/studySource';
 
 export type StudySourceNavigationQuality = 'exact' | 'coarse' | 'unavailable';
@@ -47,6 +48,32 @@ export interface OpenStudySourceOptions {
     originPlanId?: string;
     originTabId?: string;
   };
+}
+
+function isDocumentRevisionStale(doc: Document, ref: StudySourceRefV1): boolean {
+  if (!ref.revision || ref.revision === 'unknown') {
+    return false;
+  }
+
+  if (ref.revisionKind === 'content-hash') {
+    const liveHash = doc.contentHash?.trim();
+    return Boolean(liveHash && liveHash !== ref.revision);
+  }
+
+  const liveContentTimestamp = doc.contentUpdatedAt?.trim() || doc.dateAdded?.trim();
+  if (!liveContentTimestamp) {
+    return false;
+  }
+  if (liveContentTimestamp === ref.revision) {
+    return false;
+  }
+
+  const liveMs = Date.parse(liveContentTimestamp);
+  const refMs = Date.parse(ref.revision);
+  if (Number.isFinite(liveMs) && Number.isFinite(refMs)) {
+    return liveMs > refMs;
+  }
+  return true;
 }
 
 /**
@@ -109,10 +136,7 @@ export async function openStudySource(
     };
   }
 
-  const currentRevision = doc.contentHash || doc.dateModified;
-  const isStale =
-    inputStatus === 'stale' ||
-    Boolean(ref.revision && currentRevision && ref.revision !== currentRevision);
+  const isStale = inputStatus === 'stale' || isDocumentRevisionStale(doc, ref);
 
   if (isStale && !options?.allowCoarseNavigationOnStale) {
     return {

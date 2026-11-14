@@ -228,6 +228,7 @@ pub async fn get_video_chapters(
 /// Set transcript for a video
 #[tauri::command]
 pub async fn set_video_transcript(
+    app_handle: AppHandle,
     document_id: String,
     transcript: String,
     segments: Vec<VideoTranscriptSegment>,
@@ -238,7 +239,13 @@ pub async fn set_video_transcript(
 
     repo.set_video_transcript(&document_id, &transcript, &segments_json)
         .await
-        .map_err(|e| format!("Failed to set transcript: {}", e))
+        .map_err(|e| format!("Failed to set transcript: {}", e))?;
+
+    if !transcript.trim().is_empty() {
+        crate::commands::ai_learning::try_enqueue_document(&app_handle, &document_id);
+    }
+
+    Ok(())
 }
 
 /// Get transcript for a video
@@ -400,13 +407,8 @@ pub async fn generate_video_transcript(
         .await
         .map_err(|e| format!("Failed to save transcript: {}", e))?;
 
-    // Also write to documents.content for AI assistant access
-    if !transcript.is_empty() {
-        let _ = sqlx::query("UPDATE documents SET content = ? WHERE id = ?")
-            .bind(&transcript)
-            .bind(&document_id)
-            .execute(repo.pool())
-            .await;
+    if !transcript.trim().is_empty() {
+        crate::commands::ai_learning::try_enqueue_document(&app_handle, &document_id);
     }
 
     emit_status("completed", None);

@@ -8,8 +8,9 @@ import { useTabsStore, type TabsState } from "../../stores/tabsStore";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import { useUIStore } from "../../stores/uiStore";
 import { useExtractStore } from "../../stores/extractStore";
-import { calculateRelevanceScore, extractSearchTerms, fuzzyMatch, highlightSearchTerms } from "./SearchUtils";
+import { extractSearchTerms, highlightSearchTerms } from "./SearchUtils";
 import { getDocuments as fetchDocuments } from "../../api/documents";
+import { paletteSearch } from "../../api/ftsSearch";
 import { isTauri } from "../../lib/tauri";
 import { classifyPaletteInput } from "../../features/help/helpIntent";
 import { defaultHelpRetrieval } from "../../features/help/helpRetrieval";
@@ -27,8 +28,6 @@ import { urlDetectorUtils } from "../../hooks/useURLDetector";
 import { useI18n } from "../../lib/i18n";
 import type { Document, Extract } from "../../types/document";
 import type { StudyDeck } from "../../types/study-decks";
-import { fetchYouTubeTranscript } from "../../api/youtube";
-import { getTranscript, type TranscriptSegment as WhisperTranscriptSegment } from "../../api/transcription";
 import { useTheme } from "../../contexts/ThemeContext";
 import type { ExactSearchHitLocation, SearchHit } from "../../types/searchHit";
 import { registerCommandPaletteOpenEvents } from "../../utils/commandPaletteEvents";
@@ -36,6 +35,13 @@ import { openDocumentAtLocation } from "../../utils/openDocumentAtLocation";
 import { getSubscribedFeedsAuto, type FeedItem } from "../../api/rss";
 import { useRssStudyStore } from "../../stores/rssStudyStore";
 import { getSubscribedPodcasts, getPodcastEpisodes, getPodcastTranscript } from "../../api/podcast";
+import {
+  mapPaletteSearchItemToSearchResult,
+  matchDocumentTitlesSync,
+  mergeStageResults,
+  searchInMemoryFallback,
+  stripHtmlLight,
+} from "../../commandPalette/paletteSearchAdapter";
 import {
   actionMatchesQuery,
   getActionsForView,
@@ -141,25 +147,6 @@ const STOPWORDS = new Set([
 
 const SHORT_MEANINGFUL_TERMS = new Set(["ai", "ml", "ui", "ux", "vr", "ar", "3d"]);
 
-const extractYouTubeId = (urlOrId: string): string => {
-  if (!urlOrId) return "";
-  if (/^[a-zA-Z0-9_-]{11}$/.test(urlOrId)) return urlOrId;
-
-  const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
-    /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
-    /youtube\.com\/v\/([a-zA-Z0-9_-]{11})/,
-    /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
-  ];
-
-  for (const pattern of patterns) {
-    const match = urlOrId.match(pattern);
-    if (match) return match[1];
-  }
-
-  return urlOrId;
-};
-
 const isMeaningfulTerm = (term: string): boolean => {
   const normalized = term.trim().toLowerCase();
   if (!normalized) return false;
@@ -176,75 +163,12 @@ const isMeaningfulTerm = (term: string): boolean => {
   return SHORT_MEANINGFUL_TERMS.has(normalized);
 };
 
-const buildTranscriptText = (segments: Array<{ text: string }>): string =>
-  segments
-    .map((segment) => segment.text)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-
 const formatTimestamp = (seconds: number): string => {
   const hrs = Math.floor(seconds / 3600);
   const mins = Math.floor((seconds % 3600) / 60);
   const secs = Math.floor(seconds % 60);
   if (hrs > 0) return `${hrs}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   return `${mins}:${secs.toString().padStart(2, "0")}`;
-};
-
-type SearchableTranscriptSegment = {
-  id: string;
-  startSeconds: number;
-  text: string;
-};
-
-const normalizeAudioTranscriptSegments = (segments: unknown[]): SearchableTranscriptSegment[] =>
-  segments
-    .map((segment, index) => {
-      const value = segment as {
-        id?: string | number;
-        text?: string;
-        startTime?: number;
-        start_ms?: number;
-      };
-      const text = typeof value.text === "string" ? value.text.trim() : "";
-      const startSeconds =
-        typeof value.startTime === "number"
-          ? value.startTime
-          : typeof value.start_ms === "number"
-            ? value.start_ms / 1000
-            : 0;
-
-      if (!text || !Number.isFinite(startSeconds)) return null;
-
-      return {
-        id: value.id != null ? String(value.id) : `seg-${index}`,
-        startSeconds: Math.max(0, startSeconds),
-        text,
-      };
-    })
-    .filter((segment): segment is SearchableTranscriptSegment => segment != null);
-
-const readStoredAudioTranscript = (documentId: string): SearchableTranscriptSegment[] => {
-  try {
-    const data = window.localStorage.getItem(`audiobook-${documentId}`);
-    if (!data) return [];
-    const parsed = JSON.parse(data) as { transcript?: { segments?: unknown[] } };
-    const segments = parsed.transcript?.segments;
-    return Array.isArray(segments) ? normalizeAudioTranscriptSegments(segments) : [];
-  } catch {
-    return [];
-  }
-};
-
-const readWhisperTranscript = async (documentId: string): Promise<SearchableTranscriptSegment[]> => {
-  try {
-    const response = await getTranscript(documentId, "default");
-    const segments: WhisperTranscriptSegment[] = response?.segments ?? [];
-    return normalizeAudioTranscriptSegments(segments);
-  } catch (error) {
-    console.warn("[CommandCenter] Failed to load audio transcript", documentId, error);
-    return [];
-  }
 };
 
 // Stable selectors defined outside component to avoid infinite re-renders
@@ -408,10 +332,6 @@ export function CommandCenter() {
   const extractsLoadedRef = useRef(false);
   const documentsSnapshotRef = useRef<Document[]>([]);
   const documentsFetchInFlight = useRef<Promise<Document[]> | null>(null);
-  const transcriptCacheRef = useRef<Map<string, { text: string; lower: string }>>(new Map());
-  const transcriptFetchInFlightRef = useRef<Set<string>>(new Set());
-  const audioTranscriptCacheRef = useRef<Map<string, SearchableTranscriptSegment[]>>(new Map());
-  const htmlTextCacheRef = useRef<Map<string, { text: string; lower: string }>>(new Map());
   const documentsRef = useRef(documents);
   documentsRef.current = documents;
   const extractsRef = useRef(extracts);
@@ -459,8 +379,9 @@ export function CommandCenter() {
     }
   }, [documents.length, documentsLoading, documentsLoaded, loadDocuments]);
 
-  // Pre-fetch all RSS articles once when command palette opens in RSS view
+  // Pre-fetch RSS articles on open only in non-Tauri web mode; Tauri queries rss_articles_fts directly.
   useEffect(() => {
+    if (isTauri()) return;
     const getActiveTab = () => {
       const state = useTabsStore.getState();
       const paneIds = state.getTabPaneIds();
@@ -495,7 +416,7 @@ export function CommandCenter() {
           isRssCacheLoadingRef.current = false;
         }
       };
-      
+
       void loadRssArticlesToCache();
     } else if (!commandPaletteOpen) {
       rssArticlesCacheRef.current = [];
@@ -910,6 +831,35 @@ export function CommandCenter() {
     ]
   );
 
+  const selectedDocumentTitle = useMemo(
+    () => resolveActivePaletteView(documents).documentTitle,
+    [documents, paletteRootPane, paletteNavigationPane]
+  );
+
+  const registryCommands = useMemo(
+    () =>
+      buildCommandRegistry({
+        translate: t,
+        theme,
+        themes,
+        setTheme,
+        isWeb: !isTauri(),
+        selectedDocumentTitle,
+        savedQueues,
+      }),
+    [
+      t,
+      theme,
+      themes,
+      setTheme,
+      selectedDocumentTitle,
+      savedQueues,
+      savedQueueLoading,
+      savedQueueError,
+      paletteSelection,
+    ]
+  );
+
   const handleSearch = useCallback(async (query: SearchQuery): Promise<SearchResult[]> => {
     const term = query.query.toLowerCase().trim();
     const results: SearchResult[] = [];
@@ -922,7 +872,8 @@ export function CommandCenter() {
       .map((item) => item.toLowerCase().trim())
       .filter(Boolean);
     const meaningfulTerms = queryTerms.filter(isMeaningfulTerm);
-    if (meaningfulTerms.length > 0 && !extractsLoadedRef.current) {
+    const isWeb = !isTauri();
+    if (isWeb && meaningfulTerms.length > 0 && !extractsLoadedRef.current) {
       extractsLoadedRef.current = true;
       void loadExtracts();
     }
@@ -936,179 +887,22 @@ export function CommandCenter() {
     const matchesTerms = (text: string, terms: string[]): boolean =>
       terms.some((value) => text.includes(value));
 
-    const fuzzyMatches = (text: string): boolean => {
-      if (!allowContentSearch) return false;
-      if (term.length < 3) return false;
-      if (text.length > 80) return false;
-      const { match, score } = fuzzyMatch(text, term, 2);
-      return match && score >= 0.6;
-    };
-
-    const isWeb = !isTauri();
     const maxResults = 50;
-    const maxDocsToScan = 500;
-    const maxExtractsToScan = 500;
-    const maxTranscriptFetches = 3;
-    let _transcriptFetches = 0;
 
-    const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
-
-    const findAllOccurrences = (haystackLower: string, needleLower: string, limit: number): number[] => {
-      if (!needleLower) return [];
-      const out: number[] = [];
-      let idx = 0;
-      while (idx >= 0 && out.length < limit) {
-        idx = haystackLower.indexOf(needleLower, idx);
-        if (idx >= 0) {
-          out.push(idx);
-          idx += Math.max(1, needleLower.length);
-        }
-      }
-      return out;
-    };
-
-    const excerptFromIndex = (source: string, index: number, rawQuery: string): string => {
-      const context = 90;
-      const start = Math.max(0, index - context);
-      const end = Math.min(source.length, index + context);
-      const slice = source.slice(start, end);
-      const { excerpt } = highlightSearchTerms(slice, rawQuery, 200);
-      return excerpt;
-    };
-
-    const exactQuoteFromIndex = (source: string, index: number, matchedText: string): string => {
-      if (!matchedText) return "";
-      return source
-        .slice(index, index + matchedText.length)
-        .replace(/\s+/g, " ")
-        .trim();
-    };
-
-    const quoteContextFromIndex = (source: string, index: number, matchedText: string): string => {
-      const context = 120;
-      const start = Math.max(0, index - context);
-      const end = Math.min(source.length, index + matchedText.length + context);
-      return source
-        .slice(start, end)
-        .replace(/\s+/g, " ")
-        .trim();
-    };
-
-    const buildPdfPageFromIndex = (doc: Document, index: number, contentLength: number): number => {
-      const totalPages = doc.totalPages ?? doc.metadata?.pageCount ?? 1;
-      if (!contentLength || totalPages <= 1) return 1;
-      const pct = clamp(index / contentLength, 0, 1);
-      return clamp(Math.round(pct * (totalPages - 1)) + 1, 1, totalPages);
-    };
-
-    const getHtmlText = (doc: Document): { text: string; lower: string } => {
-      const cached = htmlTextCacheRef.current.get(doc.id);
-      if (cached) return cached;
-      const html = doc.content ?? "";
-      if (!html) {
-        const empty = { text: "", lower: "" };
-        htmlTextCacheRef.current.set(doc.id, empty);
-        return empty;
-      }
-      try {
-        const parser = new DOMParser();
-        const parsed = parser.parseFromString(html, "text/html");
-        parsed.querySelectorAll("script, style").forEach((el) => el.remove());
-        const text = (parsed.body?.textContent ?? "").replace(/\s+/g, " ").trim();
-        const entry = { text, lower: text.toLowerCase() };
-        htmlTextCacheRef.current.set(doc.id, entry);
-        return entry;
-      } catch {
-        const text = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-        const entry = { text, lower: text.toLowerCase() };
-        htmlTextCacheRef.current.set(doc.id, entry);
-        return entry;
-      }
-    };
-
-    const groupedDocs = new Map<string, {
-      doc: Document;
-      score: number;
-      excerpt?: string;
-      highlights?: string[];
-      transcriptMatch?: boolean;
-      hits: SearchHit[];
-    }>();
-
-    let docsForSearch = docs.length > 0 ? docs : documentsSnapshotRef.current;
-    if (docsForSearch.length === 0 && !documentsLoading) {
-      if (!documentsFetchInFlight.current) {
-        documentsFetchInFlight.current = fetchDocuments().catch((error) => {
-          console.warn("[CommandCenter] Failed to fetch documents for search", error);
-          return [];
-        });
-      }
-      docsForSearch = await documentsFetchInFlight.current;
-      documentsFetchInFlight.current = null;
-      if (docsForSearch.length > 0) {
-        documentsSnapshotRef.current = docsForSearch;
-      }
-    }
-
-    // Active-view resolution (shared by contextual actions and the catalogue).
-    const getActiveTab = () => {
-      const state = useTabsStore.getState();
-      const paneIds = state.getTabPaneIds();
-      if (paneIds.length === 0) return null;
-      const pane = state.findPaneById(state.navigationPaneId ?? paneIds[0]);
-      if (!pane || pane.type !== "tabs" || !pane.activeTabId) return null;
-      return state.tabs.find(t => t.id === pane.activeTabId) || null;
-    };
-    const activeTab = getActiveTab();
-    const selectedDocumentTitle = activeTab?.type === "document-viewer" && activeTab.data?.documentId
-      ? (documents.find(d => d.id === activeTab.data.documentId)?.title ?? null)
-      : null;
-    const isRssView = activeTab?.type === "rss";
-    const isPodcastView = activeTab?.type === "podcast";
-
-    // ---- Contextual palette actions -----------------------------------
-    // Resolve the active view (if supported) and the context the action
-    // `applies()` predicates need, then build the contextual-action results.
-    const contextualView: ContextualViewType | null =
-      activeTab?.type === "document-viewer" || activeTab?.type === "audiobook-epub-sync"
-        ? "document-viewer"
-      : activeTab?.type === "rss" ? "rss"
-      : activeTab?.type === "podcast" ? "podcast"
-      : activeTab?.type === "audiobook" ? "audiobook"
-      : null;
-
-    const contextualContext: ActionContext = (() => {
-      if (contextualView === "document-viewer" && activeTab?.data?.documentId) {
-        const doc = documents.find(d => d.id === activeTab.data!.documentId);
-        const ft = (doc?.fileType || "").toLowerCase();
-        const viewerKind =
-          ft === "pdf" ? "pdf"
-          : ft === "epub" ? "epub"
-          : ft === "markdown" ? "markdown"
-          : ft === "html" ? "html"
-          : ft === "youtube" ? "youtube"
-          : ft === "audio" ? "audio"
-          : "other";
-        return { viewerKind, vimAvailable: true, hasSelection: Boolean(getPaletteSelection()) };
-      }
-      // For RSS/Podcast, target-item-dependent actions are shown by default;
-      // the listener hides them at runtime if there is no current item.
-      return { hasTargetItem: true };
-    })();
+    // Active-view resolution (shared by contextual actions and Stage A/B).
+    const activeViewState = resolveActivePaletteView(docs);
+    const contextualView = activeViewState.view;
+    const contextualContext = activeViewState.context;
+    const isRssView = contextualView === "rss";
+    const isPodcastView = contextualView === "podcast";
 
     const contextualActions: ViewAction[] = contextualView
       ? getActionsForView(contextualView, { ...contextualContext, ...getLiveContext(contextualView) })
       : [];
 
-    // Convert matching contextual actions into palette results. Ranked above
-    // global commands (score 0.95 vs 0.8) so in-context actions win ties.
-    // Empty query shows all applicable actions (the "Actions in this view"
-    // group). Results carry the dispatch target for the click handler.
     const buildContextualResults = (q: string): SearchResult[] => {
       if (!contextualView) return [];
       const matched = contextualActions.filter((a) => actionMatchesQuery(a, q));
-      // Cap to keep the contextual section focused; the rest remain reachable
-      // by typing a more specific query.
       return matched.slice(0, 10).map((action) => ({
         id: `ctx-${action.view}-${action.id}`,
         type: SearchResultType.Command,
@@ -1126,17 +920,10 @@ export function CommandCenter() {
       }));
     };
 
-    // Push contextual-action results into the main result set. They are ranked
-    // above global commands (0.95 > 0.8) by the final sort. This runs for the
-    // document-viewer path (the main branch); RSS/Podcast branches seed their
-    // own `matches` arrays via buildContextualResults above.
     if (contextualView && contextualView !== "rss" && contextualView !== "podcast") {
       results.push(...buildContextualResults(query.query));
     }
 
-    // Empty query: contextual actions are the default palette content (global
-    // commands and content search require a term). Return early here so we
-    // don't run the term-dependent search below.
     if (!term) return results;
 
     if (urlDetectorUtils.isTwitterURL(query.query.trim())) {
@@ -1168,7 +955,7 @@ export function CommandCenter() {
       documentFormat: (liveCtx.viewerKind as any) || undefined,
       ttsActive: false,
       activeAlgorithm: "fsrs",
-      platform: isTauri() ? "desktop-macos" : "desktop-macos",
+      platform: "desktop-macos",
     };
 
     const rawQuery = query.query.trim();
@@ -1177,23 +964,23 @@ export function CommandCenter() {
     if (intent.kind === "product_help" && intent.forcedPrefix) {
       const cleanQ = intent.query;
       const helpResults = defaultHelpRetrieval.search(cleanQ, { context: helpAppContext, limit: 6 });
-      const matches: SearchResult[] = [];
-
-      matches.push({
-        id: "ask-plethora-action",
-        type: SearchResultType.Command,
-        title: `✨ Ask Plethora: "${cleanQ}"`,
-        excerpt: "Launch intelligent grounded assistant across all 75 product docs",
-        score: 10.0,
-        metadata: {
-          groupLabel: "Ask Plethora Assistant",
-          resultKind: "ask-plethora",
-          action: () => {
-            setAskPlethoraInitialQuery(cleanQ);
-            setAskPlethoraModalOpen(true);
+      const matches: SearchResult[] = [
+        {
+          id: "ask-plethora-action",
+          type: SearchResultType.Command,
+          title: `✨ Ask Plethora: "${cleanQ}"`,
+          excerpt: "Launch intelligent grounded assistant across all 75 product docs",
+          score: 10.0,
+          metadata: {
+            groupLabel: "Ask Plethora Assistant",
+            resultKind: "ask-plethora",
+            action: () => {
+              setAskPlethoraInitialQuery(cleanQ);
+              setAskPlethoraModalOpen(true);
+            },
           },
         },
-      });
+      ];
 
       helpResults.forEach((hr) => {
         matches.push({
@@ -1216,27 +1003,12 @@ export function CommandCenter() {
       return matches;
     }
 
-    /* --------------------------------------------------------------------- */
-    /* Unified registry matching (all view branches below share this pass)    */
-    /* --------------------------------------------------------------------- */
-
-    // One registry, one matcher: scores encode the tier hierarchy (exact
-    // label 1.30 → description 0.85) so exact destinations outrank content.
-    // Contextual actions supersede their registry equivalents for this query.
-    const allCommands = buildCommandRegistry({
-      translate: t,
-      theme,
-      themes,
-      setTheme,
-      isWeb,
-      selectedDocumentTitle,
-    });
     const matchedContextualIds = new Set(
       contextualActions
         .filter((action) => actionMatchesQuery(action, query.query))
         .map((action) => action.id)
     );
-    const commandMatches = matchCommands(allCommands, query.query).filter(({ command }) =>
+    const commandMatches = matchCommands(registryCommands, query.query).filter(({ command }) =>
       !(command.suppressedByContextual ?? []).some((id) => matchedContextualIds.has(id))
     );
     const buildCommandResults = (): SearchResult[] =>
@@ -1255,181 +1027,6 @@ export function CommandCenter() {
         },
       }));
 
-    if (isRssView) {
-      try {
-        const lowerQuery = query.query.toLowerCase().trim();
-        const matches: SearchResult[] = [...buildContextualResults(query.query)];
-
-        if (lowerQuery) {
-          let cachedArticles = rssArticlesCacheRef.current;
-          if (cachedArticles.length === 0) {
-            // Fallback if cache is not loaded yet
-            const feeds = await getSubscribedFeedsAuto();
-            const cached: Array<{ item: FeedItem; feedId: string; feedTitle: string }> = [];
-            feeds.forEach((feed) => {
-              (feed.items || []).forEach((item) => {
-                cached.push({
-                  item,
-                  feedId: feed.id,
-                  feedTitle: feed.title,
-                });
-              });
-            });
-            rssArticlesCacheRef.current = cached;
-            cachedArticles = cached;
-          }
-
-          cachedArticles.forEach(({ item, feedId }) => {
-            const title = item.title || "";
-            const desc = item.description || "";
-            const content = item.content || "";
-            
-            const titleMatch = title.toLowerCase().includes(lowerQuery);
-            const descMatch = desc.toLowerCase().includes(lowerQuery);
-            const contentMatch = content.toLowerCase().includes(lowerQuery);
-            
-            if (titleMatch || descMatch || contentMatch) {
-              let score = 0.5;
-              if (titleMatch) score = 0.9;
-              else if (descMatch) score = 0.7;
-              
-              const cleanDesc = desc.replace(/<[^>]+>/g, " ").trim();
-              const excerpt = cleanDesc.length > 150 ? cleanDesc.slice(0, 150) + "..." : cleanDesc;
-              
-              matches.push({
-                id: `rss-${item.id}`,
-                type: SearchResultType.Document,
-                title: item.title,
-                excerpt: excerpt || "Read article",
-                score,
-                metadata: {
-                  resultKind: "rss-article",
-                  articleId: item.id,
-                  feedId: feedId,
-                  category: "RSS Article",
-                } as any
-              });
-            }
-          });
-        }
-        
-        matches.push(...buildCommandResults());
-        
-        return filterResultsByScope(matches, paletteScope)
-          .sort((a, b) => b.score - a.score)
-          .slice(0, maxResults);
-      } catch (err) {
-        console.error("RSS Search error:", err);
-      }
-    }
-
-    if (isPodcastView) {
-      try {
-        const podcasts = await getSubscribedPodcasts();
-        const lowerQuery = query.query.toLowerCase().trim();
-        const matches: SearchResult[] = [...buildContextualResults(query.query)];
-
-        const episodesLists = await Promise.all(
-          podcasts.map(feed => getPodcastEpisodes(feed.id, true).catch(() => []))
-        );
-        
-        for (let fIdx = 0; fIdx < podcasts.length; fIdx++) {
-          const feed = podcasts[fIdx];
-          const eps = episodesLists[fIdx];
-          
-          for (const ep of eps) {
-            const title = ep.title || "";
-            const desc = ep.description || "";
-            const transcriptText = ep.transcriptText || "";
-            
-            const titleMatch = title.toLowerCase().includes(lowerQuery);
-            const descMatch = desc.toLowerCase().includes(lowerQuery);
-            const transcriptMatch = transcriptText.toLowerCase().includes(lowerQuery);
-            
-            if (titleMatch || descMatch || transcriptMatch) {
-              let score = 0.5;
-              if (titleMatch) score = 0.9;
-              else if (descMatch) score = 0.7;
-              else if (transcriptMatch) score = 0.6;
-              
-              const cleanDesc = desc.replace(/<[^>]+>/g, " ").trim();
-              let excerpt = cleanDesc.length > 150 ? cleanDesc.slice(0, 150) + "..." : cleanDesc;
-              
-              let primaryHit: SearchHit | undefined = undefined;
-              const secondaryHits: SearchHit[] = [];
-              
-              if (transcriptMatch) {
-                try {
-                  const transcriptData = await getPodcastTranscript(ep.id);
-                  if (transcriptData?.segments) {
-                    const matchingSegments = transcriptData.segments.filter(
-                      (seg) => seg.text.toLowerCase().includes(lowerQuery)
-                    );
-                    
-                    matchingSegments.forEach((seg, sIdx) => {
-                      const startSec = seg.start / 1000;
-                      const mm = String(Math.floor(startSec / 60)).padStart(2, "0");
-                      const ss = String(Math.floor(startSec % 60)).padStart(2, "0");
-                      const label = `${mm}:${ss}`;
-                      
-                      const hit: SearchHit = {
-                        id: `pod-hit-${ep.id}-${sIdx}`,
-                        location: {
-                          kind: "audio",
-                          timeSeconds: startSec,
-                          textQuote: seg.text,
-                        },
-                        label,
-                        excerptHtml: seg.text.replace(new RegExp(`(${lowerQuery})`, "ig"), "<mark class='bg-amber-200 dark:bg-amber-800 text-foreground'>$1</mark>"),
-                      };
-                      
-                      if (!primaryHit) {
-                        primaryHit = hit;
-                      } else {
-                        secondaryHits.push(hit);
-                      }
-                    });
-                  }
-                } catch (e) {
-                  console.warn("[PodcastSearch] Failed to fetch transcript segments", ep.id, e);
-                }
-              }
-              
-              if (primaryHit) {
-                excerpt = `Transcript match: ${primaryHit.excerptHtml}`;
-              }
-              
-              matches.push({
-                id: `podcast-ep-${ep.id}`,
-                type: SearchResultType.Document,
-                title: ep.title,
-                excerpt: excerpt || "Listen to episode",
-                score,
-                metadata: {
-                  resultKind: "podcast-episode",
-                  episodeId: ep.id,
-                  feedId: feed.id,
-                  category: "Podcast Episode",
-                  transcriptMatch,
-                  primaryHit,
-                  secondaryHits: secondaryHits.length > 0 ? secondaryHits : undefined,
-                } as any
-              });
-            }
-          }
-        }
-        
-        matches.push(...buildCommandResults());
-        
-        return filterResultsByScope(matches, paletteScope)
-          .sort((a, b) => b.score - a.score)
-          .slice(0, maxResults);
-      } catch (err) {
-        console.error("Podcast search error:", err);
-      }
-    }
-
-    // Handle Direct Canonical Lookup and Natural Language Help
     if (intent.kind === "direct_lookup") {
       const direct = intent.directResult;
       results.unshift({
@@ -1486,7 +1083,6 @@ export function CommandCenter() {
         });
       });
     } else if (rawQuery.length >= 3) {
-      // General search: include top matching canonical doc if high score
       const generalHelp = defaultHelpRetrieval.search(rawQuery, { context: helpAppContext, limit: 2 });
       generalHelp.forEach((gh) => {
         if (gh.score > 2.0) {
@@ -1507,41 +1103,232 @@ export function CommandCenter() {
       });
     }
 
+    if (isRssView || isPodcastView) {
+      results.push(...buildContextualResults(query.query));
+    }
     results.push(...buildCommandResults());
 
-    /* --------------------------------------------------------------------- */
-    /* Scope enforcement (revamp-command-palette)                             */
-    /* --------------------------------------------------------------------- */
-
-    // Actions/Settings/Library are command/destination catalogues: everything
-    // needed is already assembled above (contextual actions, commands,
-    // sections, help). No document/extract/card content scan runs for them.
-    if (
-      paletteScope === "actions" ||
-      paletteScope === "settings" ||
-      paletteScope === "library"
-    ) {
+    // Actions/Settings are pure command/destination catalogues.
+    if (paletteScope === "actions" || paletteScope === "settings") {
       return filterResultsByScope(results, paletteScope)
         .sort((a, b) => b.score - a.score)
         .slice(0, maxResults);
     }
 
-    // Cards: bounded lookup over real learning items plus extracts (which
-    // retain their source jump). Loaded only when Cards is actually searched —
-    // All/home never fetches all cards.
-    if (paletteScope === "cards") {
-      const matches: SearchResult[] = [];
-      const isCardDocumentEligible = (documentId: string | undefined | null): boolean => {
-        if (!documentId) return true;
-        const doc = docs.find((d) => d.id === documentId);
-        if (!doc) return true; // outside the bounded cache; still real user data
-        if (!isEligibleDocument(toPaletteDocumentLike(doc))) return false;
-        if (activeCollectionId && doc.collectionId && doc.collectionId !== activeCollectionId) {
-          return false;
+    // Native Tauri Stage B: delegate full-corpus search (documents, semantic chunks,
+    // transcripts, extracts, RSS, podcasts, learning items) to SQLite FTS5 `palette_search`.
+    if (isTauri()) {
+      let backendItems: SearchResult[] = [];
+      let backendError: unknown = null;
+      try {
+        if (paletteScope === "cards") {
+          const [cardRes, extractRes] = await Promise.all([
+            paletteSearch({
+              query: query.query,
+              scope: "cards",
+              limit: maxResults,
+              collectionId: activeCollectionId || undefined,
+              categories: query.categories,
+              tags: query.tags,
+            }),
+            paletteSearch({
+              query: query.query,
+              scope: "documents",
+              resultTypes: ["extract"],
+              limit: maxResults,
+              collectionId: activeCollectionId || undefined,
+              categories: query.categories,
+              tags: query.tags,
+            }),
+          ]);
+          const mappedCards = cardRes.items.map((item) =>
+            mapPaletteSearchItemToSearchResult(item, query.query)
+          );
+          const mappedExtracts = extractRes.items.map((item) => {
+            const converted = mapPaletteSearchItemToSearchResult(item, query.query);
+            return {
+              ...converted,
+              metadata: {
+                ...converted.metadata,
+                scopes: ["documents" as const, "cards" as const],
+              },
+            };
+          });
+          backendItems = [...mappedCards, ...mappedExtracts];
+        } else {
+          const response = await paletteSearch({
+            query: query.query,
+            scope: paletteScope ?? "all",
+            limit: maxResults,
+            collectionId: activeCollectionId || undefined,
+            categories: query.categories,
+            tags: query.tags,
+            resultTypes: query.types?.map((item) => String(item)),
+          });
+          backendItems = response.items.map((item) =>
+            mapPaletteSearchItemToSearchResult(item, query.query)
+          );
         }
-        return true;
-      };
+      } catch (err) {
+        backendError = err;
+        console.warn("[CommandCenter] palette_search IPC failed", err);
+      }
 
+      if (backendError && results.length === 0) {
+        throw backendError;
+      }
+
+      const titleMatches =
+        paletteScope === "library" || paletteScope === "cards"
+          ? []
+          : matchDocumentTitlesSync(docs, query, {
+              activeCollectionId,
+              limit: 30,
+            });
+      const stageAWithTitles = mergeStageResults(results, titleMatches);
+      const merged = mergeStageResults(stageAWithTitles, backendItems);
+      return filterResultsByScope(merged, paletteScope)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, maxResults);
+    }
+
+    // Web / non-Tauri fallback (also powers DOM tests without Rust backend)
+    if (paletteScope === "library") {
+      return filterResultsByScope(results, paletteScope)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, maxResults);
+    }
+
+    if (isRssView) {
+      try {
+        const lowerQuery = query.query.toLowerCase().trim();
+        let cachedArticles = rssArticlesCacheRef.current;
+        if (cachedArticles.length === 0) {
+          const feeds = await getSubscribedFeedsAuto();
+          const cached: Array<{ item: FeedItem; feedId: string; feedTitle: string }> = [];
+          feeds.forEach((feed) => {
+            (feed.items || []).forEach((item) => {
+              cached.push({ item, feedId: feed.id, feedTitle: feed.title });
+            });
+          });
+          rssArticlesCacheRef.current = cached;
+          cachedArticles = cached;
+        }
+        cachedArticles.forEach(({ item, feedId }) => {
+          const title = item.title || "";
+          const desc = stripHtmlLight(item.description || "");
+          const content = stripHtmlLight(item.content || "");
+          const titleMatch = title.toLowerCase().includes(lowerQuery);
+          const descMatch = desc.toLowerCase().includes(lowerQuery);
+          const contentMatch = content.toLowerCase().includes(lowerQuery);
+          if (titleMatch || descMatch || contentMatch) {
+            const score = titleMatch ? 0.9 : descMatch ? 0.7 : 0.5;
+            const excerpt = desc.length > 150 ? desc.slice(0, 150) + "..." : desc;
+            results.push({
+              id: `rss-${item.id}`,
+              type: SearchResultType.Document,
+              title: item.title,
+              excerpt: excerpt || "Read article",
+              score,
+              metadata: {
+                resultKind: "rss-article",
+                articleId: item.id,
+                feedId,
+                category: "RSS Article",
+              },
+            });
+          }
+        });
+        return filterResultsByScope(results, paletteScope)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, maxResults);
+      } catch (err) {
+        console.error("RSS Search error:", err);
+      }
+    }
+
+    if (isPodcastView) {
+      try {
+        const podcasts = await getSubscribedPodcasts();
+        const lowerQuery = query.query.toLowerCase().trim();
+        const episodesLists = await Promise.all(
+          podcasts.map((feed) => getPodcastEpisodes(feed.id, true).catch(() => []))
+        );
+        for (let fIdx = 0; fIdx < podcasts.length; fIdx++) {
+          const feed = podcasts[fIdx];
+          for (const ep of episodesLists[fIdx]) {
+            const title = ep.title || "";
+            const desc = stripHtmlLight(ep.description || "");
+            const transcriptText = ep.transcriptText || "";
+            const titleMatch = title.toLowerCase().includes(lowerQuery);
+            const descMatch = desc.toLowerCase().includes(lowerQuery);
+            const transcriptMatch = transcriptText.toLowerCase().includes(lowerQuery);
+            if (titleMatch || descMatch || transcriptMatch) {
+              const score = titleMatch ? 0.9 : descMatch ? 0.7 : 0.6;
+              let excerpt = desc.length > 150 ? desc.slice(0, 150) + "..." : desc;
+              let primaryHit: SearchHit | undefined;
+              const secondaryHits: SearchHit[] = [];
+              if (transcriptMatch) {
+                try {
+                  const transcriptData = await getPodcastTranscript(ep.id);
+                  if (transcriptData?.segments) {
+                    const matchingSegments = transcriptData.segments.filter((seg) =>
+                      seg.text.toLowerCase().includes(lowerQuery)
+                    );
+                    matchingSegments.slice(0, 6).forEach((seg, sIdx) => {
+                      const startSec = seg.start / 1000;
+                      const label = formatTimestamp(startSec);
+                      const { excerpt: marked } = highlightSearchTerms(seg.text, query.query, 200);
+                      const hit: SearchHit = {
+                        id: `pod-hit-${ep.id}-${sIdx}`,
+                        location: {
+                          kind: "audio",
+                          timeSeconds: startSec,
+                          textQuote: seg.text,
+                        },
+                        label,
+                        excerptHtml: marked,
+                      };
+                      if (!primaryHit) primaryHit = hit;
+                      else secondaryHits.push(hit);
+                    });
+                  }
+                } catch (e) {
+                  console.warn("[PodcastSearch] Failed to fetch transcript segments", ep.id, e);
+                }
+              }
+              if (primaryHit) {
+                excerpt = `Transcript match: ${primaryHit.excerptHtml}`;
+              }
+              results.push({
+                id: `podcast-ep-${ep.id}`,
+                type: SearchResultType.Document,
+                title: ep.title,
+                excerpt: excerpt || "Listen to episode",
+                score,
+                metadata: {
+                  resultKind: "podcast-episode",
+                  episodeId: ep.id,
+                  feedId: feed.id,
+                  category: "Podcast Episode",
+                  transcriptMatch,
+                  primaryHit,
+                  secondaryHits: secondaryHits.length > 0 ? secondaryHits : undefined,
+                },
+              });
+            }
+          }
+        }
+        return filterResultsByScope(results, paletteScope)
+          .sort((a, b) => b.score - a.score)
+          .slice(0, maxResults);
+      } catch (err) {
+        console.error("Podcast search error:", err);
+      }
+    }
+
+    if (paletteScope === "cards") {
+      const cardMatches: SearchResult[] = [];
       try {
         if (!learningItemsPromiseRef.current) {
           learningItemsPromiseRef.current = getAllLearningItems().catch((error) => {
@@ -1551,30 +1338,23 @@ export function CommandCenter() {
           });
         }
         const learningItems = await learningItemsPromiseRef.current;
-
-        let scannedCards = 0;
-        const maxCardScans = 5000;
         for (const item of learningItems) {
-          if (scannedCards >= maxCardScans || matches.length >= maxResults) break;
-          scannedCards += 1;
+          if (cardMatches.length >= maxResults) break;
           if (item.is_suspended) continue;
-          if (!isCardDocumentEligible(item.document_id)) continue;
-
           const question = (item.question ?? "").toLowerCase();
           const answer = (item.answer ?? "").toLowerCase();
           const cloze = (item.cloze_text ?? "").toLowerCase();
-          const questionMatch = matchesTerms(question, searchTerms);
-          const answerMatch = answer ? matchesTerms(answer, searchTerms) : false;
-          const clozeMatch = cloze ? matchesTerms(cloze, searchTerms) : false;
-          if (!questionMatch && !answerMatch && !clozeMatch) continue;
-
+          const qMatch = matchesTerms(question, searchTerms);
+          const aMatch = answer ? matchesTerms(answer, searchTerms) : false;
+          const cMatch = cloze ? matchesTerms(cloze, searchTerms) : false;
+          if (!qMatch && !aMatch && !cMatch) continue;
           const { excerpt } = highlightSearchTerms(item.question ?? "", query.query, 200);
-          matches.push({
+          cardMatches.push({
             id: `card-${item.id}`,
             type: SearchResultType.Flashcard,
             title: item.question || t("palette.cardFallbackTitle"),
             excerpt,
-            score: questionMatch ? 0.9 : clozeMatch ? 0.8 : 0.7,
+            score: qMatch ? 0.9 : cMatch ? 0.8 : 0.7,
             metadata: {
               resultKind: "learning-item",
               cardId: item.id,
@@ -1588,376 +1368,50 @@ export function CommandCenter() {
         console.warn("[CommandCenter] Cards search failed", error);
       }
 
-      let scannedExtracts = 0;
-      for (const extract of exts) {
-        if (scannedExtracts >= maxExtractsToScan || matches.length >= maxResults) break;
-        scannedExtracts += 1;
-        const content = extract.content ?? "";
-        if (!allowContentSearch || !matchesTerms(content.toLowerCase(), searchTerms)) continue;
-        const parentDoc = docs.find((d) => d.id === extract.documentId);
-        if (!parentDoc) continue;
-        if (!isEligibleDocument(toPaletteDocumentLike(parentDoc))) continue;
-        if (
-          activeCollectionId &&
-          parentDoc.collectionId &&
-          parentDoc.collectionId !== activeCollectionId
-        ) {
-          continue;
-        }
-
-        const { excerpt } = highlightSearchTerms(content, query.query, 200);
-        const pageNum = extract.pageNumber && extract.pageNumber > 0 ? extract.pageNumber : 1;
-        matches.push({
-          id: `extract-${extract.id}`,
-          type: SearchResultType.Extract,
-          title: parentDoc.title,
-          excerpt,
-          score: 0.75,
-          metadata: {
-            documentId: parentDoc.id,
-            resultKind: "extract",
-            highlightQuery: query.query,
-            primaryHit: {
-              id: `extract-hit-${extract.id}`,
-              location: {
-                kind: "pdf",
-                pageNumber: pageNum,
-                textQuote: query.query.trim() || undefined,
-              },
-              label: `Page ${pageNum}`,
-              excerptHtml: excerpt,
-            },
-            category: "Extract",
-            scopes: ["cards"],
-          },
-        });
-      }
-
-      return matches.sort((a, b) => b.score - a.score).slice(0, maxResults);
-    }
-
-    // 2. Search Documents (grouped: one row per document)
-    if (!query.types || query.types.includes(SearchResultType.Document)) {
-      const scopedDocs = docsForSearch;
-
-      // Pre-fetch YouTube transcripts concurrently (up to maxTranscriptFetches)
-      // instead of sequential await-in-loop inside the per-document scan
-      if (allowContentSearch) {
-        const youtubeDocsNeedingFetch: Document[] = [];
-        for (const doc of scopedDocs) {
-          if (youtubeDocsNeedingFetch.length >= maxTranscriptFetches) break;
-          if (doc.fileType !== "youtube") continue;
-          if (transcriptCacheRef.current.has(doc.id)) continue;
-          if (transcriptFetchInFlightRef.current.has(doc.id)) continue;
-          youtubeDocsNeedingFetch.push(doc);
-        }
-        if (youtubeDocsNeedingFetch.length > 0) {
-          youtubeDocsNeedingFetch.forEach((doc) => transcriptFetchInFlightRef.current.add(doc.id));
-          await Promise.allSettled(
-            youtubeDocsNeedingFetch.map(async (doc) => {
-              try {
-                const videoId = extractYouTubeId(doc.filePath);
-                if (!videoId) return;
-                const segments = await fetchYouTubeTranscript(videoId);
-                if (segments.length > 0) {
-                  const text = buildTranscriptText(segments);
-                  if (text) {
-                    transcriptCacheRef.current.set(doc.id, { text, lower: text.toLowerCase() });
-                  }
-                }
-              } catch (error) {
-                console.warn("[CommandCenter] Failed to pre-fetch YouTube transcript", doc.id, error);
-              } finally {
-                transcriptFetchInFlightRef.current.delete(doc.id);
-              }
-            })
-          );
-        }
-      }
-
-      let scanned = 0;
-      for (const doc of scopedDocs) {
-        if (scanned >= maxDocsToScan || groupedDocs.size >= maxResults) break;
-        scanned += 1;
-
-        const titleLower = doc.title.toLowerCase();
-        const titleMatch = matchesTerms(titleLower, searchTerms) || (!allowContentSearch && titleLower.includes(term)) || fuzzyMatches(titleLower);
-
-        let content = doc.content ?? "";
-        let contentLower = content.toLowerCase();
-        if (doc.fileType === "html") {
-          const htmlText = getHtmlText(doc);
-          content = htmlText.text;
-          contentLower = htmlText.lower;
-        }
-
-        const contentMatch = !isWeb && allowContentSearch && matchesTerms(contentLower, searchTerms);
-
-        const hits: SearchHit[] = [];
-
-        // Transcript hits (YouTube) — read from cache; pre-fetched concurrently above
-        let transcriptMatch = false;
-        if (allowContentSearch && doc.fileType === "youtube" && groupedDocs.size < maxResults) {
-          const cached = transcriptCacheRef.current.get(doc.id);
-          let transcriptLower: string | null = cached?.lower ?? null;
-
-          if (transcriptLower) {
-            transcriptMatch = matchesTerms(transcriptLower, searchTerms);
-
-            // Re-fetch segments for timestamp-level hits when we have a transcript match
-            try {
-              const videoId = extractYouTubeId(doc.filePath);
-              if (videoId) {
-                const segments = await fetchYouTubeTranscript(videoId);
-                const matchingSegments = segments
-                  .map((seg, idx) => ({ seg, idx }))
-                  .filter(({ seg }) => {
-                    const segLower = seg.text.toLowerCase();
-                    return matchesTerms(segLower, searchTerms);
-                  })
-                  .slice(0, 6);
-
-                matchingSegments.forEach(({ seg, idx }, i) => {
-                  const { excerpt } = highlightSearchTerms(seg.text, query.query, 200);
-                  hits.push({
-                    id: `yt-hit-${doc.id}-${i}`,
-                    location: {
-                      kind: "youtube",
-                      timeSeconds: seg.start,
-                      segmentId: `seg-${idx}`,
-                      textQuote: seg.text,
-                    },
-                    label: formatTimestamp(seg.start),
-                    excerptHtml: excerpt,
-                  });
-                });
-              }
-            } catch (error) {
-              console.warn("[CommandCenter] Failed to fetch YouTube segments for hits", doc.id, error);
-            }
-          }
-        }
-
-        // Transcript hits (local audio)
-        if (allowContentSearch && doc.fileType === "audio" && groupedDocs.size < maxResults) {
-          let segments = audioTranscriptCacheRef.current.get(doc.id) ?? readStoredAudioTranscript(doc.id);
-          if (segments.length > 0) {
-            audioTranscriptCacheRef.current.set(doc.id, segments);
-          } else {
-            segments = await readWhisperTranscript(doc.id);
-            if (segments.length > 0) {
-              audioTranscriptCacheRef.current.set(doc.id, segments);
-            }
-          }
-
-          if (segments.length > 0) {
-            const transcriptText = segments.map((segment) => segment.text).join(" ");
-            const transcriptLower = transcriptText.toLowerCase();
-            transcriptMatch = matchesTerms(transcriptLower, searchTerms);
-
-            const matchingSegments = segments
-              .filter((segment) => matchesTerms(segment.text.toLowerCase(), searchTerms))
-              .slice(0, 6);
-
-            matchingSegments.forEach((segment, i) => {
-              const { excerpt } = highlightSearchTerms(segment.text, query.query, 200);
-              hits.push({
-                id: `audio-hit-${doc.id}-${i}`,
-                location: {
-                  kind: "audio",
-                  timeSeconds: segment.startSeconds,
-                  segmentId: segment.id,
-                  textQuote: segment.text,
-                },
-                label: formatTimestamp(segment.startSeconds),
-                excerptHtml: excerpt,
-              });
-            });
-          }
-        }
-
-        // Text hits (EPUB): preserve document-order match indexes so secondary
-        // match clicks navigate to the selected quote, not the first occurrence.
-        if (allowContentSearch && doc.fileType === "epub") {
-          const epubOccurrences = searchTerms
-            .flatMap((t) => findAllOccurrences(contentLower, t, 50).map((index) => ({ term: t, index })))
-            .sort((a, b) => a.index - b.index)
-            .filter((occurrence, index, list) =>
-              index === 0 || occurrence.index !== list[index - 1].index
-            );
-
-          epubOccurrences.slice(0, 6).forEach(({ term, index }, matchIndex) => {
-            hits.push({
-              id: `hit-${doc.id}-${term}-${index}`,
-              location: {
-                kind: "epub",
-                cfi: "",
-                textQuote: quoteContextFromIndex(content, index, term),
-                matchIndex,
-              },
-              label: "EPUB",
-              excerptHtml: excerptFromIndex(content, index, query.query),
-            });
-          });
-        }
-
-        // Text hits (PDF/HTML/Markdown/etc)
-        if (allowContentSearch && doc.fileType !== "youtube" && doc.fileType !== "audio") {
-          for (const t of searchTerms) {
-            if (hits.length >= 6) break;
-            const occ = findAllOccurrences(contentLower, t, 6 - hits.length);
-            occ.forEach((index, _occIndex) => {
-              if (doc.fileType === "pdf") {
-                const pageNum = buildPdfPageFromIndex(doc, index, Math.max(1, contentLower.length));
-                hits.push({
-                  id: `hit-${doc.id}-${t}-${index}`,
-                  location: {
-                    kind: "pdf",
-                    pageNumber: pageNum,
-                    textQuote: exactQuoteFromIndex(content, index, t),
-                    textOffsetHint: index,
-                  },
-                  label: `Page ${pageNum}`,
-                  excerptHtml: excerptFromIndex(content, index, query.query),
-                });
-              } else if (doc.fileType === "epub") {
-                return;
-              } else if (doc.fileType === "html") {
-                const pct = clamp(Math.round((index / Math.max(1, contentLower.length)) * 100), 0, 100);
-                hits.push({
-                  id: `hit-${doc.id}-${t}-${index}`,
-                  location: {
-                    kind: "html",
-                    scrollPercent: pct,
-                    textQuote: exactQuoteFromIndex(content, index, t),
-                  },
-                  label: `${pct}%`,
-                  excerptHtml: excerptFromIndex(content, index, query.query),
-                });
-              } else if (doc.fileType === "markdown") {
-                const pct = clamp(Math.round((index / Math.max(1, contentLower.length)) * 100), 0, 100);
-                hits.push({
-                  id: `hit-${doc.id}-${t}-${index}`,
-                  location: {
-                    kind: "markdown",
-                    scrollPercent: pct,
-                    textQuote: exactQuoteFromIndex(content, index, t),
-                  },
-                  label: `${pct}%`,
-                  excerptHtml: excerptFromIndex(content, index, query.query),
-                });
-              } else {
-                const pct = clamp(Math.round((index / Math.max(1, contentLower.length)) * 100), 0, 100);
-                hits.push({
-                  id: `hit-${doc.id}-${t}-${index}`,
-                  location: {
-                    kind: "html",
-                    scrollPercent: pct,
-                    textQuote: exactQuoteFromIndex(content, index, t),
-                  },
-                  label: `${pct}%`,
-                  excerptHtml: excerptFromIndex(content, index, query.query),
-                });
-              }
-            });
-          }
-        }
-
-        const isMatch = titleMatch || contentMatch || transcriptMatch || hits.length > 0;
-        if (!isMatch) continue;
-
-        const score = calculateRelevanceScore(
-          { title: doc.title, content: content },
-          query.query,
-          SearchResultType.Document
-        ) / 100;
-
-        groupedDocs.set(doc.id, {
-          doc,
-          score,
-          transcriptMatch,
-          hits,
-        });
-      }
-    }
-
-    // 3. Search Extracts and attach as secondary hits to their parent document.
-    if (!query.types || query.types.includes(SearchResultType.Extract)) {
-      let scanned = 0;
-      for (const extract of exts) {
-        if (scanned >= maxExtractsToScan) break;
-        scanned += 1;
-
-        const content = extract.content ?? "";
-        const contentLower = content.toLowerCase();
-        if (!allowContentSearch || !matchesTerms(contentLower, searchTerms)) continue;
-
-        const docId = extract.documentId;
-        const parentDoc = docs.find((d) => d.id === docId);
-        if (!parentDoc) continue;
-
-        if (!groupedDocs.has(docId) && groupedDocs.size < maxResults) {
-          groupedDocs.set(docId, { doc: parentDoc, score: 0.5, hits: [], transcriptMatch: false });
-        }
-
-        const entry = groupedDocs.get(docId);
-        if (!entry) continue;
-
-        const { excerpt } = highlightSearchTerms(content, query.query, 200);
-        const pageNum = extract.pageNumber && extract.pageNumber > 0 ? extract.pageNumber : 1;
-        entry.hits.push({
-          id: `extract-hit-${extract.id}`,
-          location: {
-            kind: "pdf",
-            pageNumber: pageNum,
-            textQuote: query.query.trim() || undefined,
-          },
-          label: `Page ${pageNum}`,
-          excerptHtml: excerpt,
-        });
-      }
-    }
-
-    // Materialize grouped results: one row per document.
-    groupedDocs.forEach((entry) => {
-      const doc = entry.doc;
-      const sortedHits = entry.hits.slice(0);
-
-      // Prefer timestamped transcript hits first, then extract hits, then others.
-      sortedHits.sort((a, b) => {
-        const ak = a.location.kind;
-        const bk = b.location.kind;
-        const pri = (k: string) => k === "youtube" || k === "audio" ? 0 : k === "pdf" ? 1 : 2;
-        return pri(ak) - pri(bk);
+      const fallbackExtracts = await searchInMemoryFallback({
+        documents: [],
+        extracts: exts,
+        query: { ...query, types: [SearchResultType.Extract] },
+        activeCollectionId,
+        limit: maxResults,
+        allowContentSearch,
+        isWeb,
       });
+      return [...cardMatches, ...fallbackExtracts]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, maxResults);
+    }
 
-      const primaryHit = sortedHits[0];
-      const secondaryHits = sortedHits.slice(1, 6);
+    let docsForSearch = docs.length > 0 ? docs : documentsSnapshotRef.current;
+    if (docsForSearch.length === 0 && !documentsLoading) {
+      if (!documentsFetchInFlight.current) {
+        documentsFetchInFlight.current = fetchDocuments().catch((error) => {
+          console.warn("[CommandCenter] Failed to fetch documents for search", error);
+          return [];
+        });
+      }
+      docsForSearch = await documentsFetchInFlight.current;
+      documentsFetchInFlight.current = null;
+      if (docsForSearch.length > 0) {
+        documentsSnapshotRef.current = docsForSearch;
+      }
+    }
 
-      results.push({
-        id: doc.id,
-        type: SearchResultType.Document,
-        title: doc.title,
-        excerpt: primaryHit?.excerptHtml
-          ? (entry.transcriptMatch ? `Transcript — ${primaryHit.excerptHtml}` : primaryHit.excerptHtml)
-          : undefined,
-        highlights: [],
-        score: entry.score,
-        metadata: {
-          documentId: doc.id,
-          fileType: doc.fileType,
-          category: doc.category,
-          tags: doc.tags ?? [],
-          transcriptMatch: entry.transcriptMatch,
-          highlightQuery: query.query,
-          primaryHit,
-          secondaryHits: secondaryHits.length > 0 ? secondaryHits : undefined,
-        },
-      });
+    const docFallbackResults = await searchInMemoryFallback({
+      documents: docsForSearch,
+      extracts: exts,
+      query,
+      activeCollectionId,
+      limit: maxResults,
+      allowContentSearch,
+      isWeb,
     });
 
-    return results.sort((a, b) => b.score - a.score).slice(0, maxResults);
-  }, [loadExtracts, activeDeck, shouldFilterByDeck, theme.id, theme.name, theme.variant, themes, setTheme, activeCollectionId, t, savedQueues, savedQueueLoading, savedQueueError, paletteSelection]);
+    const combined = mergeStageResults(results, docFallbackResults);
+    return filterResultsByScope(combined, paletteScope)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, maxResults);
+  }, [registryCommands, documentsLoading, activeCollectionId, t, openDocumentInTab]);
 
   const handleResultClick = useCallback((result: SearchResult) => {
     if (result.metadata?.resultKind === "rss-article") {
@@ -2053,19 +1507,185 @@ export function CommandCenter() {
   /* Hub controller handed to the palette shell                              */
   /* ----------------------------------------------------------------------- */
 
+  const handleFastSearch = useCallback(
+    (query: SearchQuery): SearchResult[] => {
+      const term = query.query.trim().toLowerCase();
+      const paletteScope = query.paletteScope;
+      const maxResults = 50;
+      const results: SearchResult[] = [];
+
+      const activeViewState = resolveActivePaletteView(documentsRef.current);
+      const contextualView = activeViewState.view;
+      const contextualActions: ViewAction[] = contextualView
+        ? getActionsForView(contextualView, {
+            ...activeViewState.context,
+            ...getLiveContext(contextualView),
+          })
+        : [];
+
+      const buildContextualResults = (q: string): SearchResult[] => {
+        if (!contextualView) return [];
+        return contextualActions
+          .filter((a) => actionMatchesQuery(a, q))
+          .slice(0, 10)
+          .map((action) => ({
+            id: `ctx-${action.view}-${action.id}`,
+            type: SearchResultType.Command,
+            title: action.title,
+            excerpt: action.subtitle,
+            score: 0.95,
+            metadata: {
+              resultKind: "contextual-action",
+              contextualView: action.view,
+              contextualActionId: action.id,
+              shortcut: action.shortcutHint,
+              category: "Action",
+              groupLabel: "Actions in this view",
+            },
+          }));
+      };
+
+      if (contextualView && contextualView !== "rss" && contextualView !== "podcast") {
+        results.push(...buildContextualResults(query.query));
+      }
+
+      if (!term) return results;
+
+      if (urlDetectorUtils.isTwitterURL(query.query.trim())) {
+        const targetUrl = query.query.trim();
+        const statusId = urlDetectorUtils.extractTwitterStatusID(targetUrl);
+        const username = urlDetectorUtils.extractTwitterUsername(targetUrl);
+        return [
+          {
+            id: `x-thread-${statusId || "action"}`,
+            type: SearchResultType.Command,
+            title: "X Thread: Open and analyze this thread",
+            excerpt: username
+              ? `Open thread by @${username} with summary and learning tools`
+              : "Open and analyze thread in reader",
+            score: 10.0,
+            metadata: {
+              resultKind: "contextual-action",
+              action: async () => {
+                useUIStore.getState().setCommandPaletteOpen(false);
+                const doc = await useDocumentStore.getState().openTwitterThread(targetUrl);
+                openDocumentInTab(doc.id);
+              },
+            },
+          },
+        ];
+      }
+
+      const rawQuery = query.query.trim();
+      const liveCtx = contextualView ? getLiveContext(contextualView) : {};
+      const helpAppContext: Partial<HelpAppContext> = {
+        activeView: contextualView || "dashboard",
+        documentFormat: (liveCtx.viewerKind as any) || undefined,
+        ttsActive: false,
+        activeAlgorithm: "fsrs",
+        platform: "desktop-macos",
+      };
+      const intent = classifyPaletteInput(rawQuery, helpAppContext);
+
+      if (intent.kind === "product_help" && intent.forcedPrefix) {
+        const cleanQ = intent.query;
+        const helpResults = defaultHelpRetrieval.search(cleanQ, { context: helpAppContext, limit: 6 });
+        const matches: SearchResult[] = [
+          {
+            id: "ask-plethora-action",
+            type: SearchResultType.Command,
+            title: `✨ Ask Plethora: "${cleanQ}"`,
+            excerpt: "Launch intelligent grounded assistant across all 75 product docs",
+            score: 10.0,
+            metadata: {
+              groupLabel: "Ask Plethora Assistant",
+              resultKind: "ask-plethora",
+              action: () => {
+                setAskPlethoraInitialQuery(cleanQ);
+                setAskPlethoraModalOpen(true);
+              },
+            },
+          },
+        ];
+        helpResults.forEach((hr) => {
+          matches.push({
+            id: `help-doc-${hr.chunk.id}`,
+            type: SearchResultType.Command,
+            title: `📖 ${hr.chunk.title}`,
+            excerpt: hr.chunk.content.slice(0, 220) + "...",
+            score: 8.0 * (hr.score / 10),
+            metadata: {
+              groupLabel: "Product Documentation",
+              resultKind: "help-article",
+              category: hr.chunk.domain.toUpperCase(),
+              action: () => {
+                setHelpViewerDocId(hr.chunk.docId);
+              },
+            },
+          });
+        });
+        return matches;
+      }
+
+      const matchedContextualIds = new Set(
+        contextualActions
+          .filter((action) => actionMatchesQuery(action, query.query))
+          .map((action) => action.id)
+      );
+      const commandMatches = matchCommands(registryCommands, query.query).filter(({ command }) =>
+        !(command.suppressedByContextual ?? []).some((id) => matchedContextualIds.has(id))
+      );
+
+      if (contextualView === "rss" || contextualView === "podcast") {
+        results.push(...buildContextualResults(query.query));
+      }
+
+      commandMatches.forEach(({ command: cmd, score }) => {
+        results.push({
+          id: `cmd-${cmd.id}`,
+          type: SearchResultType.Command,
+          title: cmd.label,
+          excerpt: cmd.description,
+          score,
+          metadata: {
+            action: cmd.action,
+            resultKind: "command",
+            shortcut: cmd.shortcut,
+            scopes: cmd.scopes,
+            intentId: cmd.intentId,
+          },
+        });
+      });
+
+      if (
+        paletteScope !== "actions" &&
+        paletteScope !== "settings" &&
+        paletteScope !== "library" &&
+        paletteScope !== "cards"
+      ) {
+        const docs =
+          documentsRef.current.length > 0
+            ? documentsRef.current
+            : documentsSnapshotRef.current;
+        results.push(
+          ...matchDocumentTitlesSync(docs, query, {
+            activeCollectionId,
+            limit: 30,
+          })
+        );
+      }
+
+      return filterResultsByScope(results, paletteScope)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, maxResults);
+    },
+    [registryCommands, activeCollectionId, openDocumentInTab]
+  );
+
   const hubController = useMemo<PaletteHubController>(() => {
-    const selectedDocumentTitle = resolveActivePaletteView(documents).documentTitle;
-    const commands = buildCommandRegistry({
-      translate: t,
-      theme,
-      themes,
-      setTheme,
-      isWeb: !isTauri(),
-      selectedDocumentTitle,
-    });
     return {
       home: hubHome,
-      commands,
+      commands: registryCommands,
       expandedExamples: deriveExpandedExamples(t),
       dispatch: executePaletteAction,
       onContextualAction: (view, actionId) => {
@@ -2077,26 +1697,22 @@ export function CommandCenter() {
       saveNote: saveNoteDraft,
     };
   }, [
-    documents,
+    registryCommands,
     savedQueues,
     savedQueueLoading,
     savedQueueError,
     paletteSelection,
-    paletteRootPane,
-    paletteNavigationPane,
     executePaletteAction,
     hubHome,
     saveNoteDraft,
-    setTheme,
     t,
-    theme,
-    themes,
   ]);
 
   return (
     <>
       <GlobalSearch
         onSearch={handleSearch}
+        onSearchFast={handleFastSearch}
         onResultClick={handleResultClick}
         onNavigateToDocument={openDocumentInTab}
         hideTrigger={true}

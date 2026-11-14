@@ -223,4 +223,42 @@ describe('openStudySource', () => {
       })
     );
   });
+
+  it('does not treat dateModified position updates as stale for content-hash or legacy refs', async () => {
+    vi.mocked(useDocumentStore.getState).mockReturnValue({
+      documents: [
+        {
+          id: 'doc-123',
+          title: 'ML Lecture Video',
+          fileType: 'video',
+          contentHash: undefined,
+          contentUpdatedAt: '2026-03-30T10:00:00Z',
+          dateModified: '2026-11-14T18:00:00Z',
+        } as any,
+      ],
+    } as any);
+
+    const legacyTimestampRef: StudySourceRefV1 = {
+      ...mockRef,
+      sourceType: 'video',
+      revision: '2026-03-30T10:00:00Z',
+      revisionKind: 'modified-at',
+      jump: { kind: 'video', timeSeconds: 95, segmentId: 'seg-4', textQuote: 'Machine learning fundamentals' },
+    };
+
+    const result = await openStudySource(legacyTimestampRef);
+    expect(result).toEqual({
+      success: true,
+      navigation: 'exact',
+    });
+    expect(openDocumentAtLocation).toHaveBeenCalledWith(
+      'doc-123',
+      {
+        initialJump: legacyTimestampRef.jump,
+        highlightQuery: legacyTimestampRef.excerpt,
+      },
+      expect.any(Function),
+      undefined
+    );
+  });
 });

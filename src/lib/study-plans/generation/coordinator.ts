@@ -333,7 +333,14 @@ export async function runCurriculumCoordinator(
       : indexedSources === 0
         ? 'study_generation.error.index_not_ready'
         : 'study_generation.error.no_evidence';
-    throw new StudyApiError({ code: 'insufficient_evidence', messageKey, retryable: true });
+    throw new StudyApiError({
+      code: 'insufficient_evidence',
+      messageKey,
+      retryable: true,
+      ...(evidence.retrieval?.unverifiedReasons
+        ? { details: { missingByKind: evidence.retrieval.unverifiedReasons } }
+        : {}),
+    });
   }
   const batches = evidence.batches;
   if (2 * (batches.length + 1) > preflight.maximumModelCalls) {

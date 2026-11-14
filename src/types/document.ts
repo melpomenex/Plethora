@@ -36,6 +36,11 @@ export interface Document {
   tags: string[];
   dateAdded: string;
   dateModified: string;
+  /**
+   * Timestamp updated only when document content or transcript text actually changes
+   * (distinct from `dateModified`, which is updated by reading/playback position writes).
+   */
+  contentUpdatedAt?: string;
   dateLastReviewed?: string;
   extractCount: number;
   learningItemCount: number;

@@ -5652,6 +5652,287 @@ pub const MIGRATIONS: &[Migration] = &[
             ON study_plan_research_snapshots(plan_id, plan_version_id, status, fetched_at DESC);
         "#,
     ),
+    // Migration 150: Decouple content modification timestamps from reading/playback
+    // checkpoints (`date_modified`) and maintain an FTS5 index over `semantic_chunks`.
+    Migration::new(
+        "150_content_revision_and_chunk_fts",
+        r#"
+        ALTER TABLE documents ADD COLUMN content_updated_at TEXT;
+
+        UPDATE documents
+        SET content_updated_at = COALESCE(
+            NULLIF(date_added, ''),
+            NULLIF(date_modified, '')
+        )
+        WHERE content_updated_at IS NULL;
+
+        CREATE VIRTUAL TABLE IF NOT EXISTS semantic_chunks_fts USING fts5(
+            chunk_id UNINDEXED,
+            document_id UNINDEXED,
+            source_type UNINDEXED,
+            text,
+            tokenize = 'porter unicode61'
+        );
+
+        DELETE FROM semantic_chunks_fts;
+        INSERT INTO semantic_chunks_fts(chunk_id, document_id, source_type, text)
+        SELECT id, document_id, source_type, text FROM semantic_chunks;
+
+        DROP TRIGGER IF EXISTS semantic_chunks_fts_insert;
+        DROP TRIGGER IF EXISTS semantic_chunks_fts_update;
+        DROP TRIGGER IF EXISTS semantic_chunks_fts_delete;
+
+        CREATE TRIGGER IF NOT EXISTS semantic_chunks_fts_insert AFTER INSERT ON semantic_chunks BEGIN
+            INSERT INTO semantic_chunks_fts(chunk_id, document_id, source_type, text)
+            VALUES (NEW.id, NEW.document_id, NEW.source_type, NEW.text);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS semantic_chunks_fts_update AFTER UPDATE OF document_id, source_type, text ON semantic_chunks BEGIN
+            DELETE FROM semantic_chunks_fts WHERE chunk_id = OLD.id;
+            INSERT INTO semantic_chunks_fts(chunk_id, document_id, source_type, text)
+            VALUES (NEW.id, NEW.document_id, NEW.source_type, NEW.text);
+        END;
+
+        CREATE TRIGGER IF NOT EXISTS semantic_chunks_fts_delete AFTER DELETE ON semantic_chunks BEGIN
+            DELETE FROM semantic_chunks_fts WHERE chunk_id = OLD.id;
+        END;
+        "#,
+    ),
+    // Migration 151: Unified transcript & learning-item FTS5 indexes plus safe trigger refresh
+    // so Command Palette `palette_search` can search every source type without UI-thread scans.
+    Migration::new(
+        "151_transcript_and_card_search_fts",
+        r#"
+        CREATE VIRTUAL TABLE IF NOT EXISTS transcript_search_fts USING fts5(
+            row_key UNINDEXED,
+            source_kind UNINDEXED,
+            document_id UNINDEXED,
+            source_id UNINDEXED,
+            segment_key UNINDEXED,
+            start_ms UNINDEXED,
+            text,
+            tokenize = 'porter unicode61'
+        );
+
+        DELETE FROM transcript_search_fts;
+
+        INSERT INTO transcript_search_fts(row_key, source_kind, document_id, source_id, segment_key, start_ms, text)
+        SELECT
+            'yt:' || id,
+            'youtube',
+            COALESCE(document_id, ''),
+            video_id,
+            '',
+            '0',
+            transcript
+        FROM youtube_transcripts
+        WHERE length(trim(COALESCE(transcript, ''))) > 0;
+
+        INSERT INTO transcript_search_fts(row_key, source_kind, document_id, source_id, segment_key, start_ms, text)
+        SELECT
+            'vt:' || id,
+            'video',
+            document_id,
+            id,
+            '',
+            '0',
+            transcript
+        FROM video_transcripts
+        WHERE length(trim(COALESCE(transcript, ''))) > 0;
+
+        INSERT INTO transcript_search_fts(row_key, source_kind, document_id, source_id, segment_key, start_ms, text)
+        SELECT
+            'pod:' || pts.id,
+            'podcast',
+            COALESCE(
+                (SELECT d.id FROM documents d WHERE d.file_type = 'audio' AND d.metadata LIKE '%"source":"podcast:' || pts.episode_id || '"%' LIMIT 1),
+                ''
+            ),
+            pts.episode_id,
+            CAST(pts.segment_index AS TEXT),
+            CAST(pts.start_ms AS TEXT),
+            pts.text
+        FROM podcast_transcript_segments pts
+        WHERE length(trim(COALESCE(pts.text, ''))) > 0;
+
+        INSERT INTO transcript_search_fts(row_key, source_kind, document_id, source_id, segment_key, start_ms, text)
+        SELECT
+            'ts:' || ts.id,
+            'session',
+            COALESCE(
+                (SELECT COALESCE(rs.document_id, t.book_id)
+                 FROM transcripts t
+                 LEFT JOIN recording_sessions rs ON rs.id = t.session_id OR rs.transcript_id = t.id
+                 WHERE t.id = ts.transcript_id
+                 LIMIT 1),
+                ''
+            ),
+            CAST(ts.transcript_id AS TEXT),
+            CASE WHEN ts.segment_key != '' THEN ts.segment_key ELSE CAST(ts.id AS TEXT) END,
+            CAST(COALESCE(ts.start_ms, 0) AS TEXT),
+            ts.text
+        FROM transcript_segments ts
+        WHERE length(trim(COALESCE(ts.text, ''))) > 0;
+
+        DROP TRIGGER IF EXISTS transcript_search_fts_yt_insert;
+        DROP TRIGGER IF EXISTS transcript_search_fts_yt_update;
+        DROP TRIGGER IF EXISTS transcript_search_fts_yt_delete;
+        CREATE TRIGGER transcript_search_fts_yt_insert AFTER INSERT ON youtube_transcripts BEGIN
+            INSERT INTO transcript_search_fts(row_key, source_kind, document_id, source_id, segment_key, start_ms, text)
+            VALUES ('yt:' || NEW.id, 'youtube', COALESCE(NEW.document_id, ''), NEW.video_id, '', '0', COALESCE(NEW.transcript, ''));
+        END;
+        CREATE TRIGGER transcript_search_fts_yt_update AFTER UPDATE OF document_id, video_id, transcript ON youtube_transcripts BEGIN
+            DELETE FROM transcript_search_fts WHERE row_key = 'yt:' || OLD.id;
+            INSERT INTO transcript_search_fts(row_key, source_kind, document_id, source_id, segment_key, start_ms, text)
+            VALUES ('yt:' || NEW.id, 'youtube', COALESCE(NEW.document_id, ''), NEW.video_id, '', '0', COALESCE(NEW.transcript, ''));
+        END;
+        CREATE TRIGGER transcript_search_fts_yt_delete AFTER DELETE ON youtube_transcripts BEGIN
+            DELETE FROM transcript_search_fts WHERE row_key = 'yt:' || OLD.id;
+        END;
+
+        DROP TRIGGER IF EXISTS transcript_search_fts_vt_insert;
+        DROP TRIGGER IF EXISTS transcript_search_fts_vt_update;
+        DROP TRIGGER IF EXISTS transcript_search_fts_vt_delete;
+        CREATE TRIGGER transcript_search_fts_vt_insert AFTER INSERT ON video_transcripts BEGIN
+            INSERT INTO transcript_search_fts(row_key, source_kind, document_id, source_id, segment_key, start_ms, text)
+            VALUES ('vt:' || NEW.id, 'video', NEW.document_id, NEW.id, '', '0', COALESCE(NEW.transcript, ''));
+        END;
+        CREATE TRIGGER transcript_search_fts_vt_update AFTER UPDATE OF document_id, transcript ON video_transcripts BEGIN
+            DELETE FROM transcript_search_fts WHERE row_key = 'vt:' || OLD.id;
+            INSERT INTO transcript_search_fts(row_key, source_kind, document_id, source_id, segment_key, start_ms, text)
+            VALUES ('vt:' || NEW.id, 'video', NEW.document_id, NEW.id, '', '0', COALESCE(NEW.transcript, ''));
+        END;
+        CREATE TRIGGER transcript_search_fts_vt_delete AFTER DELETE ON video_transcripts BEGIN
+            DELETE FROM transcript_search_fts WHERE row_key = 'vt:' || OLD.id;
+        END;
+
+        DROP TRIGGER IF EXISTS transcript_search_fts_pod_insert;
+        DROP TRIGGER IF EXISTS transcript_search_fts_pod_update;
+        DROP TRIGGER IF EXISTS transcript_search_fts_pod_delete;
+        CREATE TRIGGER transcript_search_fts_pod_insert AFTER INSERT ON podcast_transcript_segments BEGIN
+            INSERT INTO transcript_search_fts(row_key, source_kind, document_id, source_id, segment_key, start_ms, text)
+            VALUES (
+                'pod:' || NEW.id,
+                'podcast',
+                COALESCE((SELECT d.id FROM documents d WHERE d.file_type = 'audio' AND d.metadata LIKE '%"source":"podcast:' || NEW.episode_id || '"%' LIMIT 1), ''),
+                NEW.episode_id,
+                CAST(NEW.segment_index AS TEXT),
+                CAST(NEW.start_ms AS TEXT),
+                COALESCE(NEW.text, '')
+            );
+        END;
+        CREATE TRIGGER transcript_search_fts_pod_update AFTER UPDATE OF episode_id, segment_index, start_ms, text ON podcast_transcript_segments BEGIN
+            DELETE FROM transcript_search_fts WHERE row_key = 'pod:' || OLD.id;
+            INSERT INTO transcript_search_fts(row_key, source_kind, document_id, source_id, segment_key, start_ms, text)
+            VALUES (
+                'pod:' || NEW.id,
+                'podcast',
+                COALESCE((SELECT d.id FROM documents d WHERE d.file_type = 'audio' AND d.metadata LIKE '%"source":"podcast:' || NEW.episode_id || '"%' LIMIT 1), ''),
+                NEW.episode_id,
+                CAST(NEW.segment_index AS TEXT),
+                CAST(NEW.start_ms AS TEXT),
+                COALESCE(NEW.text, '')
+            );
+        END;
+        CREATE TRIGGER transcript_search_fts_pod_delete AFTER DELETE ON podcast_transcript_segments BEGIN
+            DELETE FROM transcript_search_fts WHERE row_key = 'pod:' || OLD.id;
+        END;
+
+        DROP TRIGGER IF EXISTS transcript_search_fts_ts_insert;
+        DROP TRIGGER IF EXISTS transcript_search_fts_ts_update;
+        DROP TRIGGER IF EXISTS transcript_search_fts_ts_delete;
+        CREATE TRIGGER transcript_search_fts_ts_insert AFTER INSERT ON transcript_segments BEGIN
+            INSERT INTO transcript_search_fts(row_key, source_kind, document_id, source_id, segment_key, start_ms, text)
+            VALUES (
+                'ts:' || NEW.id,
+                'session',
+                COALESCE((SELECT COALESCE(rs.document_id, t.book_id) FROM transcripts t LEFT JOIN recording_sessions rs ON rs.id = t.session_id OR rs.transcript_id = t.id WHERE t.id = NEW.transcript_id LIMIT 1), ''),
+                CAST(NEW.transcript_id AS TEXT),
+                CASE WHEN NEW.segment_key != '' THEN NEW.segment_key ELSE CAST(NEW.id AS TEXT) END,
+                CAST(COALESCE(NEW.start_ms, 0) AS TEXT),
+                COALESCE(NEW.text, '')
+            );
+        END;
+        CREATE TRIGGER transcript_search_fts_ts_update AFTER UPDATE OF transcript_id, start_ms, text, segment_key ON transcript_segments BEGIN
+            DELETE FROM transcript_search_fts WHERE row_key = 'ts:' || OLD.id;
+            INSERT INTO transcript_search_fts(row_key, source_kind, document_id, source_id, segment_key, start_ms, text)
+            VALUES (
+                'ts:' || NEW.id,
+                'session',
+                COALESCE((SELECT COALESCE(rs.document_id, t.book_id) FROM transcripts t LEFT JOIN recording_sessions rs ON rs.id = t.session_id OR rs.transcript_id = t.id WHERE t.id = NEW.transcript_id LIMIT 1), ''),
+                CAST(NEW.transcript_id AS TEXT),
+                CASE WHEN NEW.segment_key != '' THEN NEW.segment_key ELSE CAST(NEW.id AS TEXT) END,
+                CAST(COALESCE(NEW.start_ms, 0) AS TEXT),
+                COALESCE(NEW.text, '')
+            );
+        END;
+        CREATE TRIGGER transcript_search_fts_ts_delete AFTER DELETE ON transcript_segments BEGIN
+            DELETE FROM transcript_search_fts WHERE row_key = 'ts:' || OLD.id;
+        END;
+
+        CREATE VIRTUAL TABLE IF NOT EXISTS learning_item_search USING fts5(
+            item_id UNINDEXED,
+            document_id UNINDEXED,
+            extract_id UNINDEXED,
+            item_type UNINDEXED,
+            question,
+            answer,
+            cloze_text,
+            tags,
+            tokenize = 'porter unicode61'
+        );
+
+        DELETE FROM learning_item_search;
+        INSERT INTO learning_item_search(item_id, document_id, extract_id, item_type, question, answer, cloze_text, tags)
+        SELECT id, COALESCE(document_id, ''), COALESCE(extract_id, ''), item_type, COALESCE(question, ''), COALESCE(answer, ''), COALESCE(cloze_text, ''), COALESCE(tags, '[]')
+        FROM learning_items;
+
+        DROP TRIGGER IF EXISTS learning_item_search_insert;
+        DROP TRIGGER IF EXISTS learning_item_search_update;
+        DROP TRIGGER IF EXISTS learning_item_search_delete;
+        CREATE TRIGGER learning_item_search_insert AFTER INSERT ON learning_items BEGIN
+            INSERT INTO learning_item_search(item_id, document_id, extract_id, item_type, question, answer, cloze_text, tags)
+            VALUES (NEW.id, COALESCE(NEW.document_id, ''), COALESCE(NEW.extract_id, ''), NEW.item_type, COALESCE(NEW.question, ''), COALESCE(NEW.answer, ''), COALESCE(NEW.cloze_text, ''), COALESCE(NEW.tags, '[]'));
+        END;
+        CREATE TRIGGER learning_item_search_update AFTER UPDATE OF document_id, extract_id, item_type, question, answer, cloze_text, tags ON learning_items BEGIN
+            DELETE FROM learning_item_search WHERE item_id = OLD.id;
+            INSERT INTO learning_item_search(item_id, document_id, extract_id, item_type, question, answer, cloze_text, tags)
+            VALUES (NEW.id, COALESCE(NEW.document_id, ''), COALESCE(NEW.extract_id, ''), NEW.item_type, COALESCE(NEW.question, ''), COALESCE(NEW.answer, ''), COALESCE(NEW.cloze_text, ''), COALESCE(NEW.tags, '[]'));
+        END;
+        CREATE TRIGGER learning_item_search_delete AFTER DELETE ON learning_items BEGIN
+            DELETE FROM learning_item_search WHERE item_id = OLD.id;
+        END;
+
+        -- Ensure document_search_update uses delete+insert cleanly so FTS5 never leaves duplicate rows.
+        DROP TRIGGER IF EXISTS document_search_update;
+        CREATE TRIGGER document_search_update AFTER UPDATE OF title, content, file_type ON documents BEGIN
+            DELETE FROM document_search WHERE document_id = OLD.id;
+            INSERT INTO document_search(document_id, title, content, content_type)
+            VALUES (NEW.id, NEW.title, COALESCE(NEW.content, ''), NEW.file_type);
+        END;
+
+        -- Ensure extract_search triggers and contents are consistent (notes + content).
+        DROP TRIGGER IF EXISTS extract_search_insert;
+        DROP TRIGGER IF EXISTS extract_search_update;
+        DROP TRIGGER IF EXISTS extract_search_delete;
+        DELETE FROM extract_search;
+        INSERT INTO extract_search(extract_id, document_id, content)
+        SELECT id, document_id, COALESCE(content, '') || CASE WHEN notes IS NOT NULL AND notes != '' THEN char(10) || notes ELSE '' END
+        FROM extracts;
+        CREATE TRIGGER extract_search_insert AFTER INSERT ON extracts BEGIN
+            INSERT INTO extract_search(extract_id, document_id, content)
+            VALUES (NEW.id, NEW.document_id, COALESCE(NEW.content, '') || CASE WHEN NEW.notes IS NOT NULL AND NEW.notes != '' THEN char(10) || NEW.notes ELSE '' END);
+        END;
+        CREATE TRIGGER extract_search_update AFTER UPDATE OF content, notes ON extracts BEGIN
+            DELETE FROM extract_search WHERE extract_id = OLD.id;
+            INSERT INTO extract_search(extract_id, document_id, content)
+            VALUES (NEW.id, NEW.document_id, COALESCE(NEW.content, '') || CASE WHEN NEW.notes IS NOT NULL AND NEW.notes != '' THEN char(10) || NEW.notes ELSE '' END);
+        END;
+        CREATE TRIGGER extract_search_delete AFTER DELETE ON extracts BEGIN
+            DELETE FROM extract_search WHERE extract_id = OLD.id;
+        END;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
@@ -8678,5 +8959,58 @@ mod tests {
             "All operations must pass foreign_key_check: {:?}",
             fk_violations
         );
+    }
+
+    #[tokio::test]
+    async fn migration_150_and_151_content_updated_at_and_fts_triggers() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        run_migrations(&pool)
+            .await
+            .expect("migrations must apply cleanly");
+
+        // Verify content_updated_at exists and FTS tables stay synced via triggers
+        sqlx::query(
+            "INSERT INTO documents (id, collection_id, title, file_path, file_type, content, date_added, date_modified, content_updated_at)
+             VALUES ('doc-yt-mig', '00000000-0000-0000-0000-000000000001', 'Lecture', 'https://youtu.be/abc123def45', 'youtube', 'hello transcript', '2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO youtube_transcripts (id, document_id, video_id, transcript, segments_json, date_created, date_modified)
+             VALUES ('yt-1', 'doc-yt-mig', 'abc123def45', 'quantum entanglement lecture', '[]', '2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO semantic_chunks (id, document_id, source_type, ordinal, text, content_hash, token_count)
+             VALUES ('chk-1', 'doc-yt-mig', 'transcript', 0, 'quantum entanglement chunk', 'h1', 4)"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let (ts_hits,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM transcript_search_fts WHERE transcript_search_fts MATCH 'entanglement'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(ts_hits, 1);
+
+        let (chunk_hits,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM semantic_chunks_fts WHERE semantic_chunks_fts MATCH 'entanglement'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(chunk_hits, 1);
     }
 }

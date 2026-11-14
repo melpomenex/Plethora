@@ -155,16 +155,24 @@ fn sanitize_fts_query(query: &str) -> String {
     tokens.join(" ")
 }
 
-/// Top documents by bm25 rank via `document_search`.
+/// Top documents by bm25 rank across `document_search` and `semantic_chunks_fts`
+/// while strictly filtering out archived or AI-excluded documents.
 async fn fts_document_prefilter(repo: &Repository, query: &str) -> Option<Vec<String>> {
     let fts_query = sanitize_fts_query(query);
     if fts_query.is_empty() {
         return None;
     }
-    match sqlx::query_as::<_, (String,)>(
-        "SELECT document_id FROM document_search
+    let mut seen = HashSet::new();
+    let mut doc_ids = Vec::new();
+
+    if let Ok(rows) = sqlx::query_as::<_, (String,)>(
+        "SELECT ds.document_id
+         FROM document_search ds
+         JOIN documents d ON d.id = ds.document_id
          WHERE document_search MATCH ?1
-         ORDER BY rank
+           AND d.is_archived = 0
+           AND d.is_ai_excluded = 0
+         ORDER BY ds.rank
          LIMIT ?2",
     )
     .bind(&fts_query)
@@ -172,13 +180,41 @@ async fn fts_document_prefilter(repo: &Repository, query: &str) -> Option<Vec<St
     .fetch_all(repo.pool())
     .await
     {
-        Ok(rows) if !rows.is_empty() => Some(rows.into_iter().map(|(id,)| id).collect()),
-        Ok(_) => None,
-        Err(e) => {
-            // Unindexed FTS table or tokenizer error: degrade to no prefilter.
-            debug!("document_search prefilter failed: {}", e);
-            None
+        for (id,) in rows {
+            if seen.insert(id.clone()) {
+                doc_ids.push(id);
+            }
         }
+    }
+
+    if let Ok(chunk_rows) = sqlx::query_as::<_, (String,)>(
+        "SELECT DISTINCT f.document_id
+         FROM semantic_chunks_fts f
+         JOIN documents d ON d.id = f.document_id
+         WHERE semantic_chunks_fts MATCH ?1
+           AND d.is_archived = 0
+           AND d.is_ai_excluded = 0
+         LIMIT ?2",
+    )
+    .bind(&fts_query)
+    .bind(LEXICAL_PREFILTER_LIMIT)
+    .fetch_all(repo.pool())
+    .await
+    {
+        for (id,) in chunk_rows {
+            if doc_ids.len() >= LEXICAL_PREFILTER_LIMIT as usize {
+                break;
+            }
+            if seen.insert(id.clone()) {
+                doc_ids.push(id);
+            }
+        }
+    }
+
+    if doc_ids.is_empty() {
+        None
+    } else {
+        Some(doc_ids)
     }
 }
 
@@ -196,8 +232,8 @@ async fn semantic_topk(
     let mut builder: QueryBuilder<sqlx::Sqlite> =
         QueryBuilder::new("SELECT c.id, c.document_id, c.source_type, c.source_id, c.ordinal, \
                            c.text, c.heading_path, c.location_json, c.content_hash, c.token_count, e.embedding ");
-    builder.push("FROM semantic_chunks c JOIN semantic_chunk_embeddings e ON e.chunk_id = c.id ");
-    builder.push("WHERE e.model = ");
+    builder.push("FROM semantic_chunks c JOIN semantic_chunk_embeddings e ON e.chunk_id = c.id JOIN documents d ON d.id = c.document_id ");
+    builder.push("WHERE d.is_archived = 0 AND d.is_ai_excluded = 0 AND e.model = ");
     builder.push_bind(model);
     builder.push(" AND e.embedding_version = ");
     builder.push_bind(version);
@@ -307,9 +343,11 @@ fn row_to_result(row: sqlx::sqlite::SqliteRow, score: f32, mode: &str) -> Search
     }
 }
 
-/// Lexical-only results: FTS document hits (mapped to their best-matching
-/// chunk when the document is indexed, otherwise an ephemeral snippet hit)
-/// plus extract hits mapped to their extract chunks.
+/// Lexical-only results: queries `semantic_chunks_fts` across all canonical
+/// chunk types (`document`, `transcript`, `session`, `extract`, `annotation`,
+/// `card`) enforcing `is_archived = 0 AND is_ai_excluded = 0`, with relaxed OR
+/// fallback for multi-word queries and ephemeral `fts-<doc_id>` fallback ONLY
+/// for unchunked eligible documents.
 async fn lexical_results(
     repo: &Repository,
     query: &str,
@@ -322,10 +360,13 @@ async fn lexical_results(
         return Ok(out);
     }
 
-    // Scope the FTS rows before ranking and limiting them. A global cap can
-    // hide selected documents behind higher-ranked hits outside the scope.
     let scoped_docs = filters
         .document_ids
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()?;
+    let scoped_types = filters
+        .source_types
         .as_ref()
         .map(serde_json::to_string)
         .transpose()?;
@@ -333,55 +374,119 @@ async fn lexical_results(
         .source_types
         .as_ref()
         .map(|ts| ts.iter().map(|t| t.as_str()).collect());
-
     let type_ok = |t: &str| allowed_types.as_ref().map_or(true, |set| set.contains(t));
 
-    // Document hits.
-    let doc_rows: Vec<(String, f64, String)> = sqlx::query_as(
-        "SELECT ds.document_id, rank, snippet(document_search, 2, '<mark>', '</mark>', '...', 24)
-         FROM document_search ds
-         WHERE document_search MATCH ?1
-           AND (?3 IS NULL OR ds.document_id IN (SELECT value FROM json_each(?3)))
-         ORDER BY rank
-         LIMIT ?2",
+    if scoped_docs.as_deref() == Some("[]") || scoped_types.as_deref() == Some("[]") {
+        return Ok(out);
+    }
+
+    let mut seen_chunk_ids = HashSet::new();
+    let chunk_limit = (k.saturating_mul(3)).max(32) as i64;
+
+    if let Ok(chunk_rows) = sqlx::query(
+        "SELECT c.id, c.document_id, c.source_type, c.source_id, c.ordinal,
+                c.text, c.heading_path, c.location_json, c.content_hash, c.token_count,
+                semantic_chunks_fts.rank AS bm25_rank
+         FROM semantic_chunks_fts
+         JOIN semantic_chunks c ON c.id = semantic_chunks_fts.chunk_id
+         JOIN documents d ON d.id = c.document_id
+         WHERE semantic_chunks_fts MATCH ?1
+           AND d.is_archived = 0
+           AND d.is_ai_excluded = 0
+           AND (?2 IS NULL OR c.document_id IN (SELECT value FROM json_each(?2)))
+           AND (?3 IS NULL OR c.source_type IN (SELECT value FROM json_each(?3)))
+         ORDER BY semantic_chunks_fts.rank
+         LIMIT ?4",
     )
     .bind(&fts_query)
-    .bind(LEXICAL_PREFILTER_LIMIT)
     .bind(scoped_docs.as_deref())
+    .bind(scoped_types.as_deref())
+    .bind(chunk_limit)
     .fetch_all(repo.pool())
-    .await?;
-
-    for (doc_id, rank, snippet) in doc_rows {
-        if out.len() >= k {
-            break;
-        }
-        let score = normalize_bm25(rank);
-
-        // Prefer the document's best lexical session or document chunk when indexed.
-        if type_ok("session") || type_ok("document") {
-            if let Some(mut chunk) =
-                best_lexical_chunk(repo, &doc_id, "session", &fts_query).await?
-            {
-                chunk.score = score;
-                chunk.mode = RetrievalMode::LexicalOnly.as_str().to_string();
-                out.push(chunk);
-                continue;
+    .await
+    {
+        for row in chunk_rows {
+            if out.len() >= k {
+                break;
+            }
+            let rank: f64 = row.try_get("bm25_rank").unwrap_or(0.0);
+            let result = row_to_result(
+                row,
+                normalize_bm25(rank) as f32,
+                RetrievalMode::LexicalOnly.as_str(),
+            );
+            if seen_chunk_ids.insert(result.chunk_id.clone()) {
+                out.push(result);
             }
         }
-        if type_ok("document") {
-            if let Some(mut chunk) =
-                best_lexical_chunk(repo, &doc_id, "document", &fts_query).await?
+    }
+
+    // Relaxed multi-term OR query over semantic_chunks_fts if strict AND returned < k hits.
+    if out.len() < k {
+        let tokens: Vec<&str> = fts_query.split_whitespace().collect();
+        if tokens.len() > 1 {
+            let or_query = tokens.join(" OR ");
+            if let Ok(or_rows) = sqlx::query(
+                "SELECT c.id, c.document_id, c.source_type, c.source_id, c.ordinal,
+                        c.text, c.heading_path, c.location_json, c.content_hash, c.token_count,
+                        semantic_chunks_fts.rank AS bm25_rank
+                 FROM semantic_chunks_fts
+                 JOIN semantic_chunks c ON c.id = semantic_chunks_fts.chunk_id
+                 JOIN documents d ON d.id = c.document_id
+                 WHERE semantic_chunks_fts MATCH ?1
+                   AND d.is_archived = 0
+                   AND d.is_ai_excluded = 0
+                   AND (?2 IS NULL OR c.document_id IN (SELECT value FROM json_each(?2)))
+                   AND (?3 IS NULL OR c.source_type IN (SELECT value FROM json_each(?3)))
+                 ORDER BY semantic_chunks_fts.rank
+                 LIMIT ?4",
+            )
+            .bind(&or_query)
+            .bind(scoped_docs.as_deref())
+            .bind(scoped_types.as_deref())
+            .bind(chunk_limit)
+            .fetch_all(repo.pool())
+            .await
             {
-                chunk.score = score;
-                chunk.mode = RetrievalMode::LexicalOnly.as_str().to_string();
-                out.push(chunk);
-                continue;
+                for row in or_rows {
+                    if out.len() >= k {
+                        break;
+                    }
+                    let rank: f64 = row.try_get("bm25_rank").unwrap_or(0.0);
+                    let score = (normalize_bm25(rank) * 0.65).max(0.05) as f32;
+                    let result = row_to_result(row, score, RetrievalMode::LexicalOnly.as_str());
+                    if seen_chunk_ids.insert(result.chunk_id.clone()) {
+                        out.push(result);
+                    }
+                }
             }
         }
+    }
 
-        // Unindexed document: ephemeral snippet result (chunkId `fts-…`) so
-        // retrieval still surfaces the hit before the first index build.
-        if type_ok("document") {
+    // Ephemeral fallback ONLY for eligible unchunked documents.
+    if out.len() < k && type_ok("document") {
+        let doc_rows: Vec<(String, f64, String)> = sqlx::query_as(
+            "SELECT ds.document_id, ds.rank, snippet(document_search, 2, '<mark>', '</mark>', '...', 24)
+             FROM document_search ds
+             JOIN documents d ON d.id = ds.document_id
+             WHERE document_search MATCH ?1
+               AND d.is_archived = 0
+               AND d.is_ai_excluded = 0
+               AND NOT EXISTS (SELECT 1 FROM semantic_chunks sc WHERE sc.document_id = ds.document_id)
+               AND (?3 IS NULL OR ds.document_id IN (SELECT value FROM json_each(?3)))
+             ORDER BY ds.rank
+             LIMIT ?2",
+        )
+        .bind(&fts_query)
+        .bind(LEXICAL_PREFILTER_LIMIT)
+        .bind(scoped_docs.as_deref())
+        .fetch_all(repo.pool())
+        .await?;
+
+        for (doc_id, rank, snippet) in doc_rows {
+            if out.len() >= k {
+                break;
+            }
             out.push(SearchResult {
                 chunk_id: format!("fts-{doc_id}"),
                 document_id: doc_id.clone(),
@@ -398,54 +503,55 @@ async fn lexical_results(
                 }),
                 content_hash: String::new(),
                 token_count: 0,
-                score,
+                score: normalize_bm25(rank),
                 mode: RetrievalMode::LexicalOnly.as_str().to_string(),
             });
         }
     }
 
-    // Extract hits map to extract chunks via source_id.
-    let extract_rows: Vec<(String, String, f64)> = sqlx::query_as(
-        "SELECT es.extract_id, es.document_id, rank
-         FROM extract_search es
-         WHERE extract_search MATCH ?1
-           AND (?3 IS NULL OR es.document_id IN (SELECT value FROM json_each(?3)))
-         ORDER BY rank
-         LIMIT ?2",
-    )
-    .bind(&fts_query)
-    .bind(LEXICAL_PREFILTER_LIMIT)
-    .bind(scoped_docs.as_deref())
-    .fetch_all(repo.pool())
-    .await?;
-
-    for (extract_id, doc_id, rank) in extract_rows {
-        if out.len() >= k {
-            break;
-        }
-        if !type_ok("extract") {
-            continue;
-        }
-        let row = sqlx::query(
-            "SELECT id, document_id, source_type, source_id, ordinal, text, heading_path, location_json, content_hash, token_count
-             FROM semantic_chunks
-             WHERE document_id = ?1 AND source_type = 'extract' AND source_id = ?2
-             LIMIT 1",
+    // Extract hits map to extract chunks via source_id when not already emitted.
+    if out.len() < k && type_ok("extract") {
+        let extract_rows: Vec<(String, String, f64)> = sqlx::query_as(
+            "SELECT es.extract_id, es.document_id, es.rank
+             FROM extract_search es
+             JOIN documents d ON d.id = es.document_id
+             WHERE extract_search MATCH ?1
+               AND d.is_archived = 0
+               AND d.is_ai_excluded = 0
+               AND (?3 IS NULL OR es.document_id IN (SELECT value FROM json_each(?3)))
+             ORDER BY es.rank
+             LIMIT ?2",
         )
-        .bind(&doc_id)
-        .bind(&extract_id)
-        .fetch_optional(repo.pool())
+        .bind(&fts_query)
+        .bind(LEXICAL_PREFILTER_LIMIT)
+        .bind(scoped_docs.as_deref())
+        .fetch_all(repo.pool())
         .await?;
-        if let Some(row) = row {
-            let mut result = row_to_result(
-                row,
-                normalize_bm25(rank) as f32,
-                RetrievalMode::LexicalOnly.as_str(),
-            );
-            if !type_ok(&result.source_type) {
-                continue;
+
+        for (extract_id, doc_id, rank) in extract_rows {
+            if out.len() >= k {
+                break;
             }
-            out.push(result);
+            let row = sqlx::query(
+                "SELECT id, document_id, source_type, source_id, ordinal, text, heading_path, location_json, content_hash, token_count
+                 FROM semantic_chunks
+                 WHERE document_id = ?1 AND source_type = 'extract' AND source_id = ?2
+                 LIMIT 1",
+            )
+            .bind(&doc_id)
+            .bind(&extract_id)
+            .fetch_optional(repo.pool())
+            .await?;
+            if let Some(row) = row {
+                let result = row_to_result(
+                    row,
+                    normalize_bm25(rank) as f32,
+                    RetrievalMode::LexicalOnly.as_str(),
+                );
+                if type_ok(&result.source_type) && seen_chunk_ids.insert(result.chunk_id.clone()) {
+                    out.push(result);
+                }
+            }
         }
     }
 
@@ -456,70 +562,8 @@ async fn lexical_results(
     });
     out.truncate(k);
 
-    // Resolve titles once for the survivors.
     resolve_titles(repo, &mut out).await;
     Ok(out)
-}
-
-/// Cheapest-lexical match: the chunk of `document_id` sharing the most query
-/// tokens. Falls back to the first chunk.
-async fn best_lexical_chunk(
-    repo: &Repository,
-    document_id: &str,
-    source_type: &str,
-    fts_query: &str,
-) -> Result<Option<SearchResult>> {
-    let tokens: HashSet<String> = fts_query
-        .split_whitespace()
-        .map(|t| t.trim_matches(|c| c == '"' || c == '*').to_lowercase())
-        .filter(|t| !t.is_empty())
-        .collect();
-
-    let rows = sqlx::query(
-        "SELECT id, document_id, source_type, source_id, ordinal, text, heading_path, location_json, content_hash, token_count
-         FROM semantic_chunks
-         WHERE document_id = ?1 AND source_type = ?2
-         ORDER BY ordinal",
-    )
-    .bind(document_id)
-    .bind(source_type)
-    .fetch_all(repo.pool())
-    .await?;
-
-    let mut best: Option<(usize, SearchResult)> = None;
-    for row in rows {
-        let text: String = row.try_get("text").unwrap_or_default();
-        let lower = text.to_lowercase();
-        let overlap = tokens.iter().filter(|t| lower.contains(t.as_str())).count();
-        let result = row_to_result(row, 0.0, RetrievalMode::LexicalOnly.as_str());
-        if best.as_ref().map(|(o, _)| overlap > *o).unwrap_or(true) {
-            best = Some((overlap, result));
-        }
-    }
-    let (_, mut result) = best.map(|(o, r)| (o, r)).unwrap_or_else(|| {
-        (
-            0,
-            SearchResult {
-                chunk_id: String::new(),
-                document_id: document_id.to_string(),
-                document_title: None,
-                source_type: source_type.to_string(),
-                source_id: None,
-                ordinal: 0,
-                text: String::new(),
-                heading_path: Vec::new(),
-                location: serde_json::Value::Null,
-                content_hash: String::new(),
-                token_count: 0,
-                score: 0.0,
-                mode: RetrievalMode::LexicalOnly.as_str().to_string(),
-            },
-        )
-    });
-    if result.chunk_id.is_empty() {
-        return Ok(None);
-    }
-    Ok(Some(result))
 }
 
 /// FTS5 `rank` is bm25 (negative, more-negative = better). Map to a
@@ -560,6 +604,147 @@ pub async fn resolve_titles(repo: &Repository, results: &mut [SearchResult]) {
             result.document_title = titles.get(&result.document_id).cloned();
         }
     }
+}
+
+/// Evenly samples chunks across ordinal positions (`0 .. len-1`) for each
+/// eligible document (`is_archived = 0 AND is_ai_excluded = 0`). Used as a
+/// bounded coverage fallback when keyword/semantic queries miss long sources
+/// or generic study goals.
+pub async fn sample_document_chunks(
+    repo: &Repository,
+    document_ids: &[String],
+    extract_ids: Option<&[String]>,
+    per_document_limit: usize,
+) -> Result<Vec<SearchResult>> {
+    if document_ids.is_empty() || per_document_limit == 0 {
+        return Ok(Vec::new());
+    }
+    let limit = per_document_limit.clamp(1, 16);
+    let extract_filter: Vec<String> = extract_ids
+        .unwrap_or(&[])
+        .iter()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let mut out = Vec::new();
+    for doc_id in document_ids {
+        let mut id_qb: sqlx::QueryBuilder<'_, sqlx::Sqlite> = sqlx::QueryBuilder::new(
+            "SELECT c.id FROM semantic_chunks c
+             JOIN documents d ON d.id = c.document_id
+             WHERE c.document_id = ",
+        );
+        id_qb.push_bind(doc_id);
+        id_qb.push(" AND d.is_archived = 0 AND d.is_ai_excluded = 0");
+        if extract_filter.is_empty() {
+            id_qb.push(" AND c.source_type IN ('document', 'transcript', 'session', 'extract')");
+        } else {
+            id_qb.push(" AND c.source_type = 'extract' AND c.source_id IN (");
+            let mut sep = id_qb.separated(", ");
+            for ext_id in &extract_filter {
+                sep.push_bind(ext_id);
+            }
+            id_qb.push(")");
+        }
+        id_qb.push(
+            " ORDER BY CASE c.source_type
+                 WHEN 'transcript' THEN 0
+                 WHEN 'session' THEN 1
+                 WHEN 'document' THEN 2
+                 ELSE 3
+             END, c.ordinal ASC",
+        );
+
+        let all_ids: Vec<(String,)> = id_qb.build_query_as().fetch_all(repo.pool()).await?;
+        if all_ids.is_empty() {
+            continue;
+        }
+
+        let mut picked_indices = Vec::new();
+        if all_ids.len() <= limit {
+            picked_indices.extend(0..all_ids.len());
+        } else if limit == 1 {
+            picked_indices.push(0);
+        } else {
+            let max_idx = all_ids.len() - 1;
+            for i in 0..limit {
+                let idx = (i * max_idx) / (limit - 1);
+                if !picked_indices.contains(&idx) {
+                    picked_indices.push(idx);
+                }
+            }
+        }
+
+        let picked_ids: Vec<&str> = picked_indices
+            .iter()
+            .map(|&idx| all_ids[idx].0.as_str())
+            .collect();
+        let mut row_qb: sqlx::QueryBuilder<'_, sqlx::Sqlite> = sqlx::QueryBuilder::new(
+            "SELECT c.id, c.document_id, d.title, c.source_type, c.source_id, c.ordinal,
+                    c.text, c.heading_path, c.location_json, c.content_hash, c.token_count
+             FROM semantic_chunks c
+             JOIN documents d ON d.id = c.document_id
+             WHERE c.id IN (",
+        );
+        let mut sep = row_qb.separated(", ");
+        for cid in &picked_ids {
+            sep.push_bind(*cid);
+        }
+        row_qb.push(") ORDER BY c.ordinal ASC");
+
+        let rows: Vec<(
+            String,
+            String,
+            Option<String>,
+            String,
+            Option<String>,
+            i64,
+            String,
+            String,
+            String,
+            String,
+            i64,
+        )> = row_qb.build_query_as().fetch_all(repo.pool()).await?;
+
+        for (
+            step,
+            (
+                chunk_id,
+                document_id,
+                document_title,
+                source_type,
+                source_id,
+                ordinal,
+                text,
+                hp_json,
+                loc_json,
+                content_hash,
+                token_count,
+            ),
+        ) in rows.into_iter().enumerate()
+        {
+            let heading_path: Vec<String> = serde_json::from_str(&hp_json).unwrap_or_default();
+            let location: serde_json::Value =
+                serde_json::from_str(&loc_json).unwrap_or(serde_json::Value::Null);
+            out.push(SearchResult {
+                chunk_id,
+                document_id,
+                document_title,
+                source_type,
+                source_id,
+                ordinal,
+                text,
+                heading_path,
+                location,
+                content_hash,
+                token_count,
+                score: (0.45 - (step as f64) * 0.005).max(0.05),
+                mode: "lexicalOnly".to_string(),
+            });
+        }
+    }
+
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -616,7 +801,6 @@ mod tests {
             "text",
         )
         .await;
-
 
         let backend = EmbeddingBackend::OnDevice {
             model: crate::ai_learning::embeddings_backend::ON_DEVICE_MODEL,
@@ -985,5 +1169,311 @@ mod tests {
             hit.location["assetUrl"],
             "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA"
         );
+    }
+
+    #[tokio::test]
+    async fn lexical_results_retrieves_transcript_chunks_and_skips_ai_excluded() {
+        use crate::ai_learning::models::SOURCE_TYPE_TRANSCRIPT;
+        let pool = test_pool().await;
+        let repo = Repository::new(pool.clone());
+        seed_document(&pool, "doc-yt-live", "", "youtube").await;
+        seed_document(
+            &pool,
+            "doc-yt-excl",
+            "Spectral decomposition exclusive excluded content",
+            "youtube",
+        )
+        .await;
+        seed_document(&pool, "doc-yt-arch", "", "youtube").await;
+        sqlx::query("UPDATE documents SET is_ai_excluded = 1 WHERE id = 'doc-yt-excl'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE documents SET is_archived = 1 WHERE id = 'doc-yt-arch'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let yt_loc = serde_json::json!({
+            "sourceType": "transcript",
+            "documentId": "doc-yt-live",
+            "ordinal": 0,
+            "startOffset": 0,
+            "endOffset": 45,
+            "timestampMs": 42000,
+        });
+        sqlx::query(
+            "INSERT INTO semantic_chunks (id, document_id, source_type, source_id, ordinal, text, heading_path, location_json, content_hash, token_count, created_at, updated_at)
+             VALUES (?1, ?2, ?3, NULL, 0, ?4, '[]', ?5, ?6, 9, datetime('now'), datetime('now'))",
+        )
+        .bind("chk-yt-1")
+        .bind("doc-yt-live")
+        .bind(SOURCE_TYPE_TRANSCRIPT)
+        .bind("Spectral decomposition orthogonal basis theorem")
+        .bind(yt_loc.to_string())
+        .bind("hash-yt-1")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let arch_loc = serde_json::json!({
+            "sourceType": "transcript",
+            "documentId": "doc-yt-arch",
+            "ordinal": 0,
+            "startOffset": 0,
+            "endOffset": 45,
+            "timestampMs": 88000,
+        });
+        sqlx::query(
+            "INSERT INTO semantic_chunks (id, document_id, source_type, source_id, ordinal, text, heading_path, location_json, content_hash, token_count, created_at, updated_at)
+             VALUES (?1, ?2, ?3, NULL, 0, ?4, '[]', ?5, ?6, 9, datetime('now'), datetime('now'))",
+        )
+        .bind("chk-arch-1")
+        .bind("doc-yt-arch")
+        .bind(SOURCE_TYPE_TRANSCRIPT)
+        .bind("Spectral decomposition archived chunk")
+        .bind(arch_loc.to_string())
+        .bind("hash-arch-1")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        reindex_fts(&pool).await;
+
+        let backend = EmbeddingBackend::OnDevice {
+            model: "embeddinggemma",
+        };
+        let response = retrieve(
+            &repo,
+            &backend,
+            "spectral decomposition",
+            5,
+            &RetrievalFilters::default(),
+        )
+        .await
+        .expect("lexical retrieve succeeds");
+
+        assert_eq!(response.mode, "lexicalOnly");
+        assert!(
+            response
+                .results
+                .iter()
+                .all(|r| r.document_id != "doc-yt-excl"),
+            "is_ai_excluded document must be excluded from lexical FTS results"
+        );
+        assert!(
+            response
+                .results
+                .iter()
+                .all(|r| r.document_id != "doc-yt-arch"),
+            "is_archived document must be excluded from lexical chunk results"
+        );
+        let hit = response
+            .results
+            .iter()
+            .find(|r| r.chunk_id == "chk-yt-1")
+            .expect("transcript chunk returned instead of fts stub");
+        assert_eq!(hit.source_type, SOURCE_TYPE_TRANSCRIPT);
+        assert_eq!(hit.location["timestampMs"], 42000);
+    }
+
+    #[tokio::test]
+    async fn lexical_results_relaxes_multi_word_query_when_strict_and_insufficient() {
+        let pool = test_pool().await;
+        let repo = Repository::new(pool.clone());
+        seed_document(&pool, "doc-relax", "", "markdown").await;
+
+        let loc = serde_json::json!({
+            "sourceType": "markdown",
+            "documentId": "doc-relax",
+            "ordinal": 0,
+            "startOffset": 0,
+            "endOffset": 42,
+        });
+        sqlx::query(
+            "INSERT INTO semantic_chunks (id, document_id, source_type, source_id, ordinal, text, heading_path, location_json, content_hash, token_count, created_at, updated_at)
+             VALUES ('chk-relax-1', 'doc-relax', 'document', NULL, 0, 'Hamiltonian mechanics preserves phase volume.', '[]', ?1, 'hash-relax-1', 8, datetime('now'), datetime('now'))",
+        )
+        .bind(loc.to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let backend = EmbeddingBackend::OnDevice {
+            model: "embeddinggemma",
+        };
+        let response = retrieve(
+            &repo,
+            &backend,
+            "Hamiltonian Frobenius nonexistentterm",
+            5,
+            &RetrievalFilters {
+                document_ids: Some(vec!["doc-relax".to_string()]),
+                source_types: None,
+            },
+        )
+        .await
+        .expect("relaxed retrieve succeeds");
+
+        assert_eq!(response.mode, "lexicalOnly");
+        assert_eq!(response.results.len(), 1);
+        assert_eq!(response.results[0].chunk_id, "chk-relax-1");
+    }
+
+    #[tokio::test]
+    async fn semantic_topk_skips_archived_and_ai_excluded_documents() {
+        use byteorder::{ByteOrder, LittleEndian};
+        let pool = test_pool().await;
+        let repo = Repository::new(pool.clone());
+        seed_document(&pool, "doc-vis-ok", "Allowed diagram", "pdf").await;
+        seed_document(&pool, "doc-vis-arch", "Archived diagram", "pdf").await;
+        seed_document(
+            &pool,
+            "doc-vis-excl",
+            "Transformer architecture attention excluded",
+            "pdf",
+        )
+        .await;
+        sqlx::query("UPDATE documents SET is_archived = 1 WHERE id = 'doc-vis-arch'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE documents SET is_ai_excluded = 1 WHERE id = 'doc-vis-excl'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        reindex_fts(&pool).await;
+
+        let backend = EmbeddingBackend::Mock {
+            dim: 32,
+            model: "mock-cm",
+        };
+        let query = "transformer architecture attention";
+        let query_vec = backend.embed_text(query).await.expect("embed");
+        let mut embedding_bytes = vec![0u8; 32 * 4];
+        LittleEndian::write_f32_into(&query_vec, &mut embedding_bytes);
+
+        for (cid, did, hash) in [
+            ("chk-ok", "doc-vis-ok", "h-ok"),
+            ("chk-arch", "doc-vis-arch", "h-arch"),
+        ] {
+            let loc = serde_json::json!({
+                "sourceType": "pdf",
+                "documentId": did,
+                "ordinal": 0,
+                "startOffset": 0,
+                "endOffset": 20,
+                "pageNumber": 2,
+            });
+            sqlx::query(
+                "INSERT INTO semantic_chunks (id, document_id, source_type, source_id, ordinal, text, heading_path, location_json, content_hash, token_count, created_at, updated_at)
+                 VALUES (?1, ?2, 'document', NULL, 0, 'Transformer architecture attention weights', '[]', ?3, ?4, 6, datetime('now'), datetime('now'))",
+            )
+            .bind(cid)
+            .bind(did)
+            .bind(loc.to_string())
+            .bind(hash)
+            .execute(&pool)
+            .await
+            .unwrap();
+
+            sqlx::query(
+                "INSERT INTO semantic_chunk_embeddings (chunk_id, embedding, model, dimension, embedding_version, content_hash)
+                 VALUES (?1, ?2, 'mock-cm', 32, ?3, ?4)",
+            )
+            .bind(cid)
+            .bind(&embedding_bytes)
+            .bind(backend.embedding_version())
+            .bind(hash)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        let response = retrieve(&repo, &backend, query, 5, &RetrievalFilters::default())
+            .await
+            .expect("semantic retrieve succeeds");
+
+        assert_eq!(response.mode, "semantic");
+        assert!(response.results.iter().any(|r| r.chunk_id == "chk-ok"));
+        assert!(
+            response
+                .results
+                .iter()
+                .all(|r| r.document_id != "doc-vis-arch"),
+            "is_archived doc must never be returned in semantic mode"
+        );
+        assert!(
+            response
+                .results
+                .iter()
+                .all(|r| r.document_id != "doc-vis-excl"),
+            "is_ai_excluded doc must never be returned"
+        );
+    }
+
+    #[tokio::test]
+    async fn sample_document_chunks_stratified_respects_exclusions() {
+        let pool = test_pool().await;
+        let repo = Repository::new(pool.clone());
+
+        seed_document(&pool, "doc-sample-ok", "Long Lecture", "pdf").await;
+        seed_document(&pool, "doc-sample-arch", "Archived Notes", "pdf").await;
+        seed_document(&pool, "doc-sample-excl", "Private Diary", "markdown").await;
+
+        for (cid, doc_id, ordinal) in [
+            ("smp-0", "doc-sample-ok", 0),
+            ("smp-1", "doc-sample-ok", 1),
+            ("smp-2", "doc-sample-ok", 2),
+            ("smp-3", "doc-sample-ok", 3),
+            ("smp-4", "doc-sample-ok", 4),
+            ("smp-5", "doc-sample-ok", 5),
+            ("arch-0", "doc-sample-arch", 0),
+            ("excl-0", "doc-sample-excl", 0),
+        ] {
+            let loc = serde_json::json!({
+                "sourceType": "pdf",
+                "documentId": doc_id,
+                "ordinal": ordinal,
+                "startOffset": 0,
+                "endOffset": 24,
+                "pageNumber": ordinal + 1,
+            });
+            sqlx::query(
+                "INSERT INTO semantic_chunks (id, document_id, source_type, source_id, ordinal, text, heading_path, location_json, content_hash, token_count, created_at, updated_at)
+                 VALUES (?1, ?2, 'document', NULL, ?3, ?4, '[]', ?5, ?6, 4, datetime('now'), datetime('now'))",
+            )
+            .bind(cid)
+            .bind(doc_id)
+            .bind(ordinal)
+            .bind(format!("Passage ordinal {ordinal} in document {doc_id}"))
+            .bind(loc.to_string())
+            .bind(format!("h-{cid}"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+
+        sqlx::query("UPDATE documents SET is_archived = 1 WHERE id = 'doc-sample-arch'")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE documents SET is_ai_excluded = 1 WHERE id = 'doc-sample-excl'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let ids = vec![
+            "doc-sample-ok".to_string(),
+            "doc-sample-arch".to_string(),
+            "doc-sample-excl".to_string(),
+        ];
+        let results = sample_document_chunks(&repo, &ids, None, 3)
+            .await
+            .expect("sample_document_chunks succeeds");
+
+        let ordinals: Vec<i64> = results.iter().map(|r| r.ordinal).collect();
+        assert_eq!(ordinals, vec![0_i64, 2_i64, 5_i64]);
+        assert!(results.iter().all(|r| r.document_id == "doc-sample-ok"));
     }
 }

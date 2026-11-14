@@ -10,16 +10,32 @@
 use crate::ai::embeddings::EmbeddingProviderType;
 use crate::ai_learning::embeddings_backend::EmbeddingBackend;
 use crate::ai_learning::indexer::{
-    aggregate_status, document_statuses, mark_all_stale, reset_index, BackendFactory, IndexerQueue,
-    IndexerRuntimeStatus,
+    aggregate_status, document_statuses, ensure_documents_chunks_indexed, mark_all_stale,
+    reset_index, BackendFactory, IndexerQueue, IndexerRuntimeStatus,
 };
-use crate::ai_learning::models::{RetrievalFilters, RetrievalResponse};
+use crate::ai_learning::models::{
+    DocumentIndexStatus, RetrievalFilters, RetrievalResponse, SearchResult,
+};
 use crate::ai_learning::retrieval::{self, DEFAULT_K};
 use crate::commands::semantic_graph::EmbeddingConfigInput;
 use crate::database::Repository;
 use crate::error::{PlethoraError, Result};
 use std::sync::{Arc, RwLock};
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
+
+/// Best-effort helper to queue a document into `AiLearningState` when running
+/// inside a Tauri app handle.
+pub fn try_enqueue_document(app: &AppHandle, document_id: &str) {
+    if let Some(state) = app.try_state::<AiLearningState>() {
+        if let Err(err) = state.enqueue_document(document_id.to_string()) {
+            tracing::warn!(
+                document_id = document_id,
+                error = %err,
+                "failed to enqueue document for AI indexing"
+            );
+        }
+    }
+}
 
 /// Managed Tauri state holding the indexer worker handle and the latest
 /// embedding configuration supplied by the frontend.
@@ -343,6 +359,33 @@ pub async fn ai_learning_remove_source_chunks(
     Ok(result.rows_affected())
 }
 
+/// Synchronously ensure canonical chunks exist in `semantic_chunks` (and
+/// `semantic_chunks_fts`) for the supplied documents without triggering paid
+/// cloud embeddings.
+#[tauri::command]
+pub async fn ai_learning_ensure_documents_indexed(
+    document_ids: Vec<String>,
+    repo: State<'_, Repository>,
+) -> Result<Vec<DocumentIndexStatus>> {
+    ensure_documents_chunks_indexed(repo.inner(), &document_ids).await
+}
+
+#[tauri::command]
+pub async fn ai_learning_sample_document_chunks(
+    document_ids: Vec<String>,
+    extract_ids: Option<Vec<String>>,
+    per_document_limit: Option<usize>,
+    repo: State<'_, Repository>,
+) -> Result<Vec<SearchResult>> {
+    retrieval::sample_document_chunks(
+        repo.inner(),
+        &document_ids,
+        extract_ids.as_deref(),
+        per_document_limit.unwrap_or(3),
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -521,6 +564,8 @@ mod tests {
             "ai_learning_reset_index",
             "ai_learning_retrieve",
             "ai_learning_remove_source_chunks",
+            "ai_learning_ensure_documents_indexed",
+            "ai_learning_sample_document_chunks",
         ] {
             assert!(name.starts_with("ai_learning_"), "{name} namespace");
         }

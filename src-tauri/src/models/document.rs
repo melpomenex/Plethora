@@ -27,6 +27,8 @@ pub struct Document {
     pub tags: Vec<String>,
     pub date_added: DateTime<Utc>,
     pub date_modified: DateTime<Utc>,
+    #[serde(default)]
+    pub content_updated_at: Option<DateTime<Utc>>,
     pub date_last_reviewed: Option<DateTime<Utc>>,
     pub extract_count: i32,
     pub learning_item_count: i32,
@@ -99,6 +101,8 @@ pub struct StartupDocumentSummary {
     pub tags: Vec<String>,
     pub date_added: DateTime<Utc>,
     pub date_modified: DateTime<Utc>,
+    #[serde(default)]
+    pub content_updated_at: Option<DateTime<Utc>>,
     pub date_last_reviewed: Option<DateTime<Utc>>,
     pub extract_count: i32,
     pub learning_item_count: i32,
@@ -269,6 +273,7 @@ impl Document {
         file_type: FileType,
         collection_id: Option<String>,
     ) -> Self {
+        let now = Utc::now();
         Self {
             id: Uuid::new_v4().to_string(),
             collection_id: collection_id
@@ -287,8 +292,9 @@ impl Document {
             progress_percent: Some(0.0),
             category: None,
             tags: Vec::new(),
-            date_added: Utc::now(),
-            date_modified: Utc::now(),
+            date_added: now,
+            date_modified: now,
+            content_updated_at: Some(now),
             date_last_reviewed: None,
             extract_count: 0,
             learning_item_count: 0,

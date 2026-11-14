@@ -8262,8 +8262,8 @@ export function DocumentViewer({
             <LearningStudio
               documentId={currentDocument.id}
               session={recordingSession}
-              initialSeekTimeSec={initialJump?.kind === "audio" ? initialJump.timeSeconds : undefined}
-              initialTranscriptSegmentId={initialJump?.kind === "audio" ? initialJump.segmentId : undefined}
+              initialSeekTimeSec={initialJump?.kind === "audio" || initialJump?.kind === "video" ? initialJump.timeSeconds : undefined}
+              initialTranscriptSegmentId={initialJump?.kind === "audio" || initialJump?.kind === "video" ? initialJump.segmentId : undefined}
               onBack={handleBack}
             />
           </Suspense>
@@ -8595,10 +8595,24 @@ export function DocumentViewer({
                   className="h-full w-full"
                   mediaType="video"
                   onEnded={onEnded}
-                  initialSeekTime={focusedVideoExtract?.start_time}
+                  initialSeekTime={
+                    focusedVideoExtract?.start_time ??
+                    (initialJump?.kind === "video" || initialJump?.kind === "audio"
+                      ? initialJump.timeSeconds
+                      : undefined)
+                  }
                   initialEndTime={focusedVideoExtract?.end_time}
                   armedExtract={focusedVideoExtract}
-                  autoPlayOnOpen={Boolean(focusedVideoExtract)}
+                  initialTranscriptHighlightQuery={jumpHighlightQuery}
+                  initialTranscriptSegmentId={
+                    initialJump?.kind === "video" || initialJump?.kind === "audio"
+                      ? initialJump.segmentId
+                      : undefined
+                  }
+                  autoPlayOnOpen={
+                    Boolean(focusedVideoExtract) ||
+                    (!!autoPlay && (initialJump?.kind === "video" || initialJump?.kind === "audio"))
+                  }
                   onVideoContextChange={setVideoContext}
                 />
               </div>
@@ -8643,7 +8657,7 @@ export function DocumentViewer({
               </div>
             </div>
           )
-        ) : docType === "markdown" ? (
+        ) : docType === "markdown" || (docType === "other" && Boolean(currentDocument.content)) ? (
           currentDocument.metadata?.structuredContent ? (
             // Imported NotebookLM structured artifact (mind-map / data-table):
             // render through the existing structured viewers rather than as
@@ -8685,7 +8699,11 @@ export function DocumentViewer({
             <MarkdownViewer
               document={currentDocument}
               content={currentDocument.content}
-              initialScrollPercent={initialJump?.kind === "markdown" ? initialJump.scrollPercent : currentDocument.currentScrollPercent}
+              initialScrollPercent={
+                initialJump?.kind === "markdown" || initialJump?.kind === "text"
+                  ? initialJump.scrollPercent
+                  : currentDocument.currentScrollPercent
+              }
               searchQuery={normalizedViewerSearchQuery}
               activeSearchMatchIndex={viewerSearchState.activeMatchIndex}
               onSearchResultsChange={(totalMatches, activeMatchIndex) => {

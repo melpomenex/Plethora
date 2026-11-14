@@ -411,4 +411,179 @@ describe('hydrateCurriculumEvidence', () => {
     expect(res.handleToSourceRefIdMap.size).toBe(0);
     expect(resolveSourceRefsFn).not.toHaveBeenCalled();
   });
+
+  it('maps youtube/video/text/image locations and pre-indexes + stratified-samples uncovered sources cleanly', async () => {
+    const ytScope = {
+      ...dummyScope,
+      selected: { documentIds: ['doc_yt', 'doc_md'], extractIds: [], collectionIds: [], tagIds: [] },
+      resolvedDocuments: [
+        {
+          documentId: 'doc_yt',
+          title: 'Attention Lecture',
+          sourceType: 'youtube',
+          revision: 'sha256:yt1',
+          revisionKind: 'content-hash' as const,
+          extractIds: [],
+          isAiExcluded: false,
+          isLocalOnly: false,
+        },
+        {
+          documentId: 'doc_md',
+          title: 'Attention Notes',
+          sourceType: 'markdown',
+          revision: 'sha256:md1',
+          revisionKind: 'content-hash' as const,
+          extractIds: [],
+          isAiExcluded: false,
+          isLocalOnly: false,
+        },
+      ],
+    };
+
+    const ensureDocumentsIndexedFn = vi.fn().mockResolvedValue([]);
+    const retrieveFn = vi.fn().mockResolvedValue({
+      mode: 'lexicalOnly',
+      candidatesScanned: 1,
+      results: [
+        {
+          chunkId: 'chk_yt_1',
+          documentId: 'doc_yt',
+          documentTitle: 'Attention Lecture',
+          sourceType: 'transcript',
+          sourceId: 'yt_1',
+          ordinal: 2,
+          text: 'Scaled dot-product attention divides by sqrt(d_k).',
+          headingPath: [],
+          score: 0.9,
+          location: {
+            sourceType: 'transcript',
+            documentId: 'doc_yt',
+            ordinal: 2,
+            startOffset: 0,
+            endOffset: 50,
+            startMs: 65000,
+            segmentId: 'seg_2',
+          },
+        },
+      ],
+    });
+    const sampleChunksFn = vi.fn().mockResolvedValue([
+      {
+        chunkId: 'chk_md_0',
+        documentId: 'doc_md',
+        documentTitle: 'Attention Notes',
+        sourceType: 'document',
+        ordinal: 0,
+        text: 'Multi-head attention projects queries across subspaces.',
+        headingPath: [],
+        score: 0.5,
+        location: {
+          sourceType: 'markdown',
+          documentId: 'doc_md',
+          ordinal: 0,
+          startOffset: 0,
+          endOffset: 55,
+        },
+      },
+    ]);
+
+    const capturedInputs: StudySourceRefInput[] = [];
+    const resolveSourceRefsFn = vi.fn().mockImplementation(async (inputs: StudySourceRefInput[]) => {
+      capturedInputs.push(...inputs);
+      return inputs.map((inp, idx) => ({
+        ref: {
+          schemaVersion: 1,
+          id: `ssr_u_${idx}`,
+          documentId: inp.documentId,
+          excerpt: inp.excerpt,
+          revision: inp.revision || 'rev',
+          revisionKind: 'content-hash' as const,
+          excerptSha256: 'sha256_ok',
+          documentTitle: inp.documentTitle || 'Doc',
+          sourceType: inp.documentId === 'doc_yt' ? 'youtube' : 'markdown',
+          jump: inp.jump,
+          capturedAt: '2026-11-10T00:00:00Z',
+        },
+        status: 'current' as const,
+        navigation: 'exact' as const,
+      }));
+    });
+
+    const res = await hydrateCurriculumEvidence({
+      goal: 'Explain scaled dot product attention',
+      sourceScope: ytScope,
+      depth: 'survey',
+      ensureDocumentsIndexedFn,
+      retrieveFn,
+      sampleChunksFn,
+      resolveSourceRefsFn,
+      listConfirmedConceptLinksFn: vi.fn().mockResolvedValue([]),
+    });
+
+    expect(ensureDocumentsIndexedFn).toHaveBeenCalledWith(['doc_md', 'doc_yt']);
+    expect(sampleChunksFn).toHaveBeenCalledWith(['doc_md'], expect.objectContaining({ perDocumentLimit: 2 }));
+    expect(capturedInputs[0].jump).toEqual({
+      kind: 'youtube',
+      timeSeconds: 65,
+      segmentId: 'seg_2',
+      textQuote: 'Scaled dot-product attention divides by sqrt(d_k).',
+    });
+    expect(capturedInputs[1].jump).toEqual({
+      kind: 'markdown',
+      textQuote: 'Multi-head attention projects queries across subspaces.',
+    });
+    expect(res.retrieval?.documentsWithEvidence).toBe(2);
+    expect(res.retrieval?.verifiedPassages).toBe(2);
+  });
+
+  it('tracks privacy-safe unverifiedReasons counts when verification rejects passages', async () => {
+    const res = await hydrateCurriculumEvidence({
+      goal: 'Explain OS concepts',
+      sourceScope: dummyScope,
+      depth: 'survey',
+      retrieveFn: vi.fn().mockResolvedValue({
+        mode: 'lexicalOnly',
+        candidatesScanned: 1,
+        results: [
+          {
+            chunkId: 'chk_stale',
+            documentId: 'doc_1',
+            documentTitle: 'Secret Internal Title',
+            sourceType: 'document',
+            ordinal: 0,
+            text: 'Sensitive secret excerpt text.',
+            headingPath: [],
+            score: 0.8,
+            location: { sourceType: 'pdf', documentId: 'doc_1', ordinal: 0, startOffset: 0, endOffset: 30, pageNumber: 1 },
+          },
+        ],
+      }),
+      resolveSourceRefsFn: vi.fn().mockImplementation(async (inputs: StudySourceRefInput[]) =>
+        inputs.map((inp) => ({
+          ref: {
+            schemaVersion: 1,
+            id: 'ssr_bad',
+            documentId: inp.documentId,
+            excerpt: inp.excerpt,
+            revision: 'rev_1',
+            revisionKind: 'content-hash' as const,
+            excerptSha256: 'hash',
+            documentTitle: 'Secret Internal Title',
+            sourceType: 'pdf',
+            capturedAt: '2026-11-10T00:00:00Z',
+          },
+          status: 'stale' as const,
+          navigation: 'coarse' as const,
+          reasonKey: 'study_source.stale.excerpt_not_in_source',
+        }))
+      ),
+      listConfirmedConceptLinksFn: vi.fn().mockResolvedValue([]),
+    });
+
+    expect(res.batches).toEqual([]);
+    expect(res.retrieval?.rejectedPassages).toBe(1);
+    expect(res.retrieval?.unverifiedReasons).toEqual({
+      'study_source.stale.excerpt_not_in_source': 1,
+    });
+  });
 });

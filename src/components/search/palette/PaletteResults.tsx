@@ -8,10 +8,14 @@
  * secondary hit targets only that hit.
  */
 
+import { useEffect, useState } from "react";
 import { MagnifyingGlass } from "@phosphor-icons/react";
 import { useI18n } from "../../../lib/i18n";
 import type { SearchHit } from "../../../types/searchHit";
 import type { SearchResult } from "../GlobalSearch";
+
+const INITIAL_VISIBLE_RESULTS = 30;
+const VISIBLE_RESULTS_STEP = 30;
 
 export interface PaletteResultsProps {
   results: SearchResult[];
@@ -64,6 +68,17 @@ export function PaletteResults({
   emptyState,
 }: PaletteResultsProps) {
   const { t } = useI18n();
+  const [visibleLimit, setVisibleLimit] = useState(INITIAL_VISIBLE_RESULTS);
+
+  useEffect(() => {
+    setVisibleLimit(INITIAL_VISIBLE_RESULTS);
+  }, [results]);
+
+  useEffect(() => {
+    if (selectedIndex >= visibleLimit) {
+      setVisibleLimit(selectedIndex + VISIBLE_RESULTS_STEP);
+    }
+  }, [selectedIndex, visibleLimit]);
 
   if (isSearching && results.length === 0) {
     return (
@@ -80,6 +95,9 @@ export function PaletteResults({
 
   const selected = results[selectedIndex];
   const secondaryHits = selected?.metadata?.secondaryHits ?? [];
+  const displayedResults =
+    results.length > visibleLimit ? results.slice(0, visibleLimit) : results;
+  const remainingCount = results.length - displayedResults.length;
 
   return (
     <div className="ch-results-wrap">
@@ -89,9 +107,9 @@ export function PaletteResults({
         id={listboxId}
         aria-label={t("palette.resultsLabel")}
       >
-        {results.map((result, index) => {
+        {displayedResults.map((result, index) => {
           const prevGroup =
-            index > 0 ? results[index - 1]?.metadata?.groupLabel : undefined;
+            index > 0 ? displayedResults[index - 1]?.metadata?.groupLabel : undefined;
           const showGroupHeader =
             Boolean(result.metadata?.groupLabel) &&
             result.metadata?.groupLabel !== prevGroup;
@@ -150,6 +168,17 @@ export function PaletteResults({
             </div>
           );
         })}
+        {remainingCount > 0 && (
+          <div className="px-3 py-2 flex justify-center">
+            <button
+              type="button"
+              className="ch-btn ch-btn--secondary"
+              onClick={() => setVisibleLimit((prev) => prev + VISIBLE_RESULTS_STEP)}
+            >
+              Show more ({remainingCount} remaining)
+            </button>
+          </div>
+        )}
       </div>
 
       {secondaryHits.length > 0 && (

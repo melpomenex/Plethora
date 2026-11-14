@@ -17,6 +17,7 @@ pub const SOURCE_TYPE_CARD: &str = "card";
 pub const SOURCE_TYPE_FIGURE: &str = "figure";
 pub const SOURCE_TYPE_MEDIA: &str = "media";
 pub const SOURCE_TYPE_SESSION: &str = "session";
+pub const SOURCE_TYPE_TRANSCRIPT: &str = "transcript";
 
 /// A chunk produced by the chunker, ready to persist into `semantic_chunks`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -121,6 +122,8 @@ pub enum IndexState {
     Queued,
     Indexing,
     Indexed,
+    #[serde(rename = "lexical_only")]
+    LexicalOnly,
     Stale,
     Failed,
 }
@@ -132,6 +135,7 @@ impl IndexState {
             IndexState::Queued => "queued",
             IndexState::Indexing => "indexing",
             IndexState::Indexed => "indexed",
+            IndexState::LexicalOnly => "lexical_only",
             IndexState::Stale => "stale",
             IndexState::Failed => "failed",
         }
@@ -143,6 +147,7 @@ impl IndexState {
             "queued" => IndexState::Queued,
             "indexing" => IndexState::Indexing,
             "indexed" => IndexState::Indexed,
+            "lexical_only" => IndexState::LexicalOnly,
             "stale" => IndexState::Stale,
             "failed" => IndexState::Failed,
             _ => return None,

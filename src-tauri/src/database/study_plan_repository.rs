@@ -12,7 +12,8 @@ use crate::models::study_plan::{
     CreateStudyPlanInput, LegacyImportResult, LibraryKnowledgePolicy, LockConflict,
     MaterialSupport, NodeActivity, PlanPrerequisite, PlanVersionDiff, PlanVersionState,
     SaveStudyPlanDraftInput, StudyDepth, StudyPlan, StudyPlanDetail, StudyPlanKnowledgeAuthority,
-    StudyPlanPreferences, StudyPlanStatus, StudyPlanSummary, StudyPlanVersion, StudyPlanVersionNode,
+    StudyPlanPreferences, StudyPlanStatus, StudyPlanSummary, StudyPlanVersion,
+    StudyPlanVersionNode,
 };
 use crate::models::study_source::{
     FieldIssue, RevisionKind, StudyCommandError, StudyCommandErrorDetails, StudyErrorCode,
@@ -1933,7 +1934,9 @@ mod tests {
         });
         assert_eq!(
             default_knowledge_authority(Some(&library_scope)),
-            StudyPlanKnowledgeAuthority::Library { policy: LibraryKnowledgePolicy::SourceOnly }
+            StudyPlanKnowledgeAuthority::Library {
+                policy: LibraryKnowledgePolicy::SourceOnly
+            }
         );
         assert_eq!(
             default_knowledge_authority(None),
@@ -2209,11 +2212,7 @@ mod tests {
             .await
             .unwrap();
         let published = repo
-            .publish_study_plan_version(
-                &mixed.plan.id,
-                &mixed.version.id,
-                mixed.plan.revision,
-            )
+            .publish_study_plan_version(&mixed.plan.id, &mixed.version.id, mixed.plan.revision)
             .await
             .unwrap();
         assert_eq!(

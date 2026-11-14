@@ -1876,13 +1876,12 @@ mod tests {
 
         // Even though the item is structurally valid and graded correct, no
         // demonstrated evidence row may be created.
-        let ev_rows: Vec<(String,)> = sqlx::query_as(
-            "SELECT id FROM learning_evidence WHERE concept_id = ?1",
-        )
-        .bind(&concept_id)
-        .fetch_all(&pool)
-        .await
-        .unwrap();
+        let ev_rows: Vec<(String,)> =
+            sqlx::query_as("SELECT id FROM learning_evidence WHERE concept_id = ?1")
+                .bind(&concept_id)
+                .fetch_all(&pool)
+                .await
+                .unwrap();
         assert_eq!(ev_rows.len(), 0);
 
         let summary = evidence_repo

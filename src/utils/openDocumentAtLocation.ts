@@ -81,7 +81,10 @@ function buildTabPayload(
       highlightQuery: options.highlightQuery,
       initialJump: options.initialJump,
       jumpRequestId,
-      autoPlay: options.initialJump?.kind === "youtube" || options.initialJump?.kind === "audio",
+      autoPlay:
+        options.initialJump?.kind === "youtube" ||
+        options.initialJump?.kind === "audio" ||
+        options.initialJump?.kind === "video",
       ...(returnContext?.reviewReturn ? { reviewReturn: true, originTabId: returnContext.originTabId } : {}),
     },
   };

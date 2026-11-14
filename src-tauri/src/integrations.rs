@@ -605,6 +605,7 @@ pub async fn import_from_obsidian_internal(
         tags: vec![],
         date_added: chrono::Utc::now(),
         date_modified: chrono::Utc::now(),
+        content_updated_at: Some(chrono::Utc::now()),
         date_last_reviewed: None,
         extract_count: 0,
         learning_item_count: 0,

@@ -752,15 +752,25 @@ async fn run_transcription_job(
     }
 
     // 10. Create Document + Extract records from transcript
-    if let Err(e) =
-        create_transcript_extracts(&repo, &episode, &full_text, auto_segment.unwrap_or(false)).await
+    let created_doc_id = match create_transcript_extracts(
+        &repo,
+        &episode,
+        &full_text,
+        auto_segment.unwrap_or(false),
+    )
+    .await
     {
-        eprintln!(
-            "[transcription] Failed to create transcript extracts for {}: {}",
-            episode_id, e
-        );
-        // Non-fatal — transcript itself is still stored
-    }
+        Ok(doc_id) => doc_id,
+        Err(e) => {
+            eprintln!(
+                "[transcription] Failed to create transcript extracts for {}: {}",
+                episode_id, e
+            );
+            // Non-fatal — transcript itself is still stored
+            None
+        }
+    };
+    enqueue_podcast_documents(&app_handle, &repo, &episode_id, created_doc_id).await;
 
     // 11. Emit completion
     let _ = app_handle.emit(
@@ -805,10 +815,10 @@ async fn create_transcript_extracts(
     episode: &PodcastEpisode,
     full_text: &str,
     auto_segment: bool,
-) -> Result<()> {
+) -> Result<Option<String>> {
     let text = full_text.trim();
     if text.is_empty() {
-        return Ok(());
+        return Ok(None);
     }
 
     let doc_title = format!("{} (Transcript)", episode.title);
@@ -818,6 +828,8 @@ async fn create_transcript_extracts(
         FileType::Other,
     );
     doc.content = Some(text.to_string());
+    doc.content_hash = Some(crate::processor::generate_content_hash(text));
+    doc.content_updated_at = Some(Utc::now());
     doc.tags = vec!["podcast".to_string(), "transcript".to_string()];
     doc.is_favorite = false;
     let mut meta = crate::models::document::DocumentMetadata::default();
@@ -839,7 +851,34 @@ async fn create_transcript_extracts(
         }
     }
 
-    Ok(())
+    Ok(Some(doc.id))
+}
+
+async fn enqueue_podcast_documents(
+    app_handle: &AppHandle,
+    repo: &Repository,
+    episode_id: &str,
+    created_doc_id: Option<String>,
+) {
+    let mut doc_ids = Vec::new();
+    if let Some(id) = created_doc_id {
+        doc_ids.push(id);
+    }
+    if let Ok(mut conn) = repo.pool().acquire().await {
+        if let Ok(existing) =
+            crate::database::repository::find_podcast_episode_document_ids(&mut conn, episode_id)
+                .await
+        {
+            for id in existing {
+                if !doc_ids.contains(&id) {
+                    doc_ids.push(id);
+                }
+            }
+        }
+    }
+    for id in doc_ids {
+        crate::commands::ai_learning::try_enqueue_document(app_handle, &id);
+    }
 }
 
 /// Split text into chunks of roughly `target_len` characters at sentence boundaries.
@@ -1903,11 +1942,15 @@ pub async fn transcribe_audio_file_groq(
         .collect::<Vec<_>>()
         .join(" ");
     if !full_text.is_empty() {
-        let _ = sqlx::query("UPDATE documents SET content = ? WHERE id = ?")
-            .bind(&full_text)
-            .bind(&document_id)
-            .execute(repo.pool())
+        if let Ok(mut conn) = repo.pool().acquire().await {
+            let _ = crate::database::repository::sync_document_transcript_content(
+                &mut conn,
+                &document_id,
+                &full_text,
+            )
             .await;
+        }
+        crate::commands::ai_learning::try_enqueue_document(&app_handle, &document_id);
     }
     let _ = sqlx::query(
         "UPDATE transcripts SET status = 'completed' WHERE book_id = ? AND chapter_id = ?",
@@ -2293,11 +2336,14 @@ async fn run_on_device_transcription_inner(
         .collect::<Vec<_>>()
         .join(" ");
     if !full_text.is_empty() {
-        let _ = sqlx::query("UPDATE documents SET content = ? WHERE id = ?")
-            .bind(&full_text)
-            .bind(document_id)
-            .execute(pool)
+        if let Ok(mut conn) = pool.acquire().await {
+            let _ = crate::database::repository::sync_document_transcript_content(
+                &mut conn,
+                document_id,
+                &full_text,
+            )
             .await;
+        }
     }
     let _ = sqlx::query(
         "UPDATE transcripts SET status = 'completed' WHERE book_id = ? AND chapter_id = ?",
@@ -2367,7 +2413,7 @@ pub async fn transcribe_audio_file_on_device(
             .clone();
         let bridge: Arc<dyn OnDeviceSttBridge> = Arc::new(PluginSttBridge(native));
         let emitter = app_handle.clone();
-        run_on_device_transcription_inner(
+        let count = run_on_device_transcription_inner(
             repo.pool(),
             Some(&jobs),
             &document_id,
@@ -2382,7 +2428,11 @@ pub async fn transcribe_audio_file_on_device(
                 let _ = emitter.emit(event, payload);
             },
         )
-        .await
+        .await?;
+        if count > 0 {
+            crate::commands::ai_learning::try_enqueue_document(&app_handle, &document_id);
+        }
+        Ok(count)
     }
 }
 
@@ -2427,6 +2477,7 @@ pub async fn cancel_on_device_transcription(
 /// Also stores the concatenated full text on the episode row for search/back-compat.
 #[tauri::command]
 pub async fn save_podcast_transcript_segments(
+    app_handle: AppHandle,
     episode_id: String,
     segments: Vec<SaveSegmentInput>,
     repo: State<'_, Repository>,
@@ -2466,9 +2517,14 @@ pub async fn save_podcast_transcript_segments(
         .collect();
     repo.save_podcast_transcript_segments(&episode_id, &seg_models, &word_timings)
         .await?;
+    let mut created_doc_id = None;
     if let Ok(Some(episode)) = repo.get_podcast_episode_by_id(&episode_id).await {
-        let _ = create_transcript_extracts(&repo, &episode, &full_text, false).await;
+        created_doc_id = create_transcript_extracts(&repo, &episode, &full_text, false)
+            .await
+            .ok()
+            .flatten();
     }
+    enqueue_podcast_documents(&app_handle, &repo, &episode_id, created_doc_id).await;
     eprintln!(
         "[podcast-transcribe] save_podcast_transcript_segments: SAVED OK for episode {}",
         episode_id
