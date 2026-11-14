@@ -134,6 +134,20 @@ pub fn build_transcript_text(segments: &[TranscriptSegment]) -> String {
         .join("\n")
 }
 
+/// Builds the canonical `[M:SS]` timed transcript string used across
+/// `youtube_transcripts.transcript`, `documents.content`, and full-text search.
+pub fn build_canonical_timed_transcript_text(segments: &[TranscriptSegment]) -> String {
+    segments
+        .iter()
+        .filter(|s| !s.text.trim().is_empty())
+        .map(|s| {
+            let seconds = s.start.floor() as u64;
+            format!("[{}:{:02}] {}", seconds / 60, seconds % 60, s.text.trim())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 pub fn build_transcript_text_with_chapters(
     segments: &[TranscriptSegment],
     chapters: &[crate::commands::video::VideoChapter],
@@ -1343,15 +1357,7 @@ pub async fn persist_canonical_youtube_transcript(
     }) {
         return Err("Invalid transcript segment timing".into());
     }
-    let text = segments
-        .iter()
-        .filter(|s| !s.text.trim().is_empty())
-        .map(|s| {
-            let seconds = s.start.floor() as u64;
-            format!("[{}:{:02}] {}", seconds / 60, seconds % 60, s.text.trim())
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let text = build_canonical_timed_transcript_text(segments);
     let json = serde_json::to_string(segments).map_err(|e| e.to_string())?;
     let mut tx = repo.pool().begin().await.map_err(|e| e.to_string())?;
     sqlx::query("INSERT INTO youtube_transcripts (id, document_id, video_id, transcript, segments_json, date_created, date_modified, word_timings_version, language) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?8) ON CONFLICT(video_id) DO UPDATE SET document_id=COALESCE(excluded.document_id,youtube_transcripts.document_id), transcript=excluded.transcript, segments_json=excluded.segments_json, date_modified=excluded.date_modified, word_timings_version=excluded.word_timings_version, language=COALESCE(excluded.language,youtube_transcripts.language)")
@@ -1794,7 +1800,7 @@ pub async fn import_youtube_video_internal(
         .map_err(|e| format!("Failed to save document to database: {}", e))?;
 
     // Auto-fetch and save chapters from YouTube (non-blocking, fail gracefully)
-    let chapters = get_youtube_chapters_internal(url, Some(&created.id), repo)
+    let _chapters = get_youtube_chapters_internal(url, Some(&created.id), repo)
         .await
         .unwrap_or_default();
 
@@ -1802,17 +1808,13 @@ pub async fn import_youtube_video_internal(
     if let Ok(segments) = get_youtube_transcript_internal(url, None, Some(&created.id), repo).await
     {
         if !segments.is_empty() {
-            let structured_transcript = if !chapters.is_empty() {
-                build_transcript_text_with_chapters(&segments, &chapters)
-            } else {
-                build_transcript_text(&segments)
-            };
+            let canonical_transcript = build_canonical_timed_transcript_text(&segments);
 
             let content_hash = Some(crate::processor::generate_content_hash(
-                &structured_transcript,
+                &canonical_transcript,
             ));
             let mut metadata = created.metadata.clone().unwrap_or_default();
-            metadata.word_count = Some(structured_transcript.split_whitespace().count() as i32);
+            metadata.word_count = Some(canonical_transcript.split_whitespace().count() as i32);
             metadata.source = Some("youtube".to_string());
             metadata.site_name = Some("YouTube".to_string());
             metadata.fetched_at = Some(chrono::Utc::now());
@@ -1820,7 +1822,7 @@ pub async fn import_youtube_video_internal(
             if repo
                 .update_document_content(
                     &created.id,
-                    &structured_transcript,
+                    &canonical_transcript,
                     content_hash.clone(),
                     None,
                     Some(metadata.clone()),
@@ -1828,7 +1830,7 @@ pub async fn import_youtube_video_internal(
                 .await
                 .is_ok()
             {
-                created.content = Some(structured_transcript);
+                created.content = Some(canonical_transcript);
                 created.content_hash = content_hash;
                 created.metadata = Some(metadata);
             }
