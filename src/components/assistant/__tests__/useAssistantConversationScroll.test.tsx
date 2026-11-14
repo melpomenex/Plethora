@@ -248,4 +248,291 @@ describe("useAssistantConversationScroll", () => {
     // Should fall back to position.top (350) instead of computing invalid delta to 0
     expect(div.scrollTop).toBe(350);
   });
+
+  it("does not lose non-follow position across temporary layout collapse with browser-like scrollTop clamping and delayed onScroll", () => {
+    vi.useFakeTimers();
+    const div = document.createElement("div");
+    let currentScrollHeight = 1200;
+    let currentClientHeight = 300;
+    let internalScrollTop = 0;
+
+    Object.defineProperty(div, "scrollHeight", { get: () => currentScrollHeight, configurable: true });
+    Object.defineProperty(div, "clientHeight", { get: () => currentClientHeight, configurable: true });
+    Object.defineProperty(div, "scrollTop", {
+      get: () => internalScrollTop,
+      set: (value: number) => {
+        const maxScroll = Math.max(0, currentScrollHeight - currentClientHeight);
+        internalScrollTop = Math.max(0, Math.min(value, maxScroll));
+      },
+      configurable: true,
+    });
+
+    const ref = { current: div };
+    const messages = [{ id: "m1" }, { id: "m2" }, { id: "m3" }];
+    const { result, rerender } = renderHook(
+      ({ msgs }) => useAssistantConversationScroll(ref, "scroll-collapse-nonfollow", true, msgs, "conv-collapse-nonfollow"),
+      { initialProps: { msgs: messages } },
+    );
+
+    // User scrolls away from bottom to 350
+    div.dispatchEvent(new Event("wheel"));
+    div.scrollTop = 350;
+    act(() => {
+      result.current.onScroll();
+    });
+    expect(div.scrollTop).toBe(350);
+    expect(result.current.showLatest).toBe(true);
+
+    // Wait beyond the interaction grace window, as during background EPUB reading
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    vi.useRealTimers();
+
+    // Simulate temporary layout collapse (e.g. display: none / height: 0 flex collapse)
+    currentScrollHeight = 0;
+    currentClientHeight = 0;
+    internalScrollTop = 0; // Browser natively clamps scrollTop to 0 when collapsed
+
+    // Layout observer + collapse-time onScroll run during the transient collapse
+    const observer = ControllableResizeObserver.instances[0];
+    act(() => {
+      observer.trigger();
+    });
+    act(() => {
+      // Browser dispatches scroll event while still collapsed -> clears expectedScroll
+      result.current.onScroll();
+    });
+
+    // Layout recovers to scrollable dimensions; delayed collapse scroll event delivers after expand
+    currentScrollHeight = 1200;
+    currentClientHeight = 300;
+    act(() => {
+      result.current.onScroll();
+    });
+    rerender({ msgs: [{ id: "m1" }, { id: "m2" }, { id: "m3" }] });
+    act(() => {
+      ControllableResizeObserver.instances[ControllableResizeObserver.instances.length - 1].trigger();
+    });
+
+    expect(div.scrollTop).toBe(350);
+    expect(result.current.showLatest).toBe(true);
+  });
+
+  it("resets interaction state cleanly when messages change within interaction window", () => {
+    vi.useFakeTimers();
+    const div = document.createElement("div");
+    let internalScrollTop = 700;
+    Object.defineProperty(div, "scrollHeight", { value: 1000, configurable: true });
+    Object.defineProperty(div, "clientHeight", { value: 300, configurable: true });
+    Object.defineProperty(div, "scrollTop", {
+      get: () => internalScrollTop,
+      set: (value: number) => {
+        internalScrollTop = Math.max(0, Math.min(value, 700));
+      },
+      configurable: true,
+    });
+    const ref = { current: div };
+    const { result, rerender } = renderHook(
+      ({ msgs }) => useAssistantConversationScroll(ref, "scroll-timer-cleanup", true, msgs, "conv-timer-cleanup"),
+      { initialProps: { msgs: [{ id: "m1" }, { id: "m2" }] } },
+    );
+
+    // User wheel interaction happens right before a messages update
+    div.dispatchEvent(new Event("wheel"));
+    div.scrollTop = 300;
+    act(() => {
+      result.current.onScroll();
+    });
+
+    // Trigger messages reference change while 250ms interaction timer is still pending
+    rerender({ msgs: [{ id: "m1" }, { id: "m2" }, { id: "m3" }] });
+
+    // Advance well past 250ms; interaction flag must NOT stay stuck true
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    vi.useRealTimers();
+
+    // Now an involuntary reset to scrollTop = 0 without user interaction must not overwrite saved position
+    div.scrollTop = 0;
+    act(() => {
+      result.current.onScroll();
+    });
+
+    expect(div.scrollTop).toBe(300);
+    expect(result.current.showLatest).toBe(true);
+  });
+
+  it("ignores programmatic scroll events after restoration and preserves manual position across 30s of periodic background updates", () => {
+    vi.useFakeTimers();
+    try {
+      const div = document.createElement("div");
+      let currentScrollHeight = 1600;
+      let currentClientHeight = 350;
+      let internalScrollTop = 0;
+
+      const msg0 = document.createElement("div");
+      msg0.dataset.assistantMessageId = "m0";
+      const msg1 = document.createElement("div");
+      msg1.dataset.assistantMessageId = "m1";
+      div.appendChild(msg0);
+      div.appendChild(msg1);
+
+      const zeroRect = {
+        top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0, x: 0, y: 0, toJSON: () => {},
+      };
+      div.getBoundingClientRect = () => (currentClientHeight === 0 ? zeroRect : {
+        top: 0, bottom: currentClientHeight, left: 0, right: 300, width: 300, height: currentClientHeight, x: 0, y: 0, toJSON: () => {},
+      });
+      msg0.getBoundingClientRect = () => (currentClientHeight === 0 ? zeroRect : {
+        top: -internalScrollTop, bottom: 430 - internalScrollTop, left: 0, right: 300, width: 300, height: 430, x: 0, y: -internalScrollTop, toJSON: () => {},
+      });
+      msg1.getBoundingClientRect = () => {
+        if (currentClientHeight === 0) return zeroRect;
+        const top = 440 - internalScrollTop;
+        return {
+          top, bottom: top + 200, left: 0, right: 300, width: 300, height: 200, x: 0, y: top, toJSON: () => {},
+        };
+      };
+
+      Object.defineProperty(div, "scrollHeight", { get: () => currentScrollHeight, configurable: true });
+      Object.defineProperty(div, "clientHeight", { get: () => currentClientHeight, configurable: true });
+      Object.defineProperty(div, "scrollTop", {
+        get: () => internalScrollTop,
+        set: (value: number) => {
+          const maxScroll = Math.max(0, currentScrollHeight - currentClientHeight);
+          internalScrollTop = Math.max(0, Math.min(value, maxScroll));
+        },
+        configurable: true,
+      });
+
+      const ref = { current: div };
+      let currentMessages = [{ id: "m0" }, { id: "m1" }];
+      const { result, rerender } = renderHook(
+        ({ msgs }) => useAssistantConversationScroll(ref, "scroll-30s-stability", true, msgs, "conv-30s"),
+        { initialProps: { msgs: currentMessages } },
+      );
+
+      // User manually scrolls to m1 with offset 20
+      div.dispatchEvent(new Event("wheel"));
+      div.scrollTop = 420;
+      act(() => {
+        result.current.onScroll();
+      });
+      expect(div.scrollTop).toBe(420);
+      expect(result.current.showLatest).toBe(true);
+
+      // Clear interaction grace window
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+
+      const observer = ControllableResizeObserver.instances[0];
+
+      // Simulate 30 seconds of periodic background updates (EPUB reading ticks, ResizeObserver,
+      // new Assistant messages appended below, and transient collapses).
+      for (let second = 1; second <= 30; second++) {
+        act(() => {
+          vi.advanceTimersByTime(1000);
+        });
+        if (second % 7 === 0) {
+          // Transient collapse and recovery
+          currentScrollHeight = 0;
+          currentClientHeight = 0;
+          internalScrollTop = 0;
+          act(() => {
+            observer.trigger();
+          });
+          currentScrollHeight = 1600 + second * 20;
+          currentClientHeight = 350;
+          act(() => {
+            observer.trigger();
+          });
+          // Delayed programmatic scroll event delivered right after restoration
+          act(() => {
+            result.current.onScroll();
+          });
+        } else {
+          // Periodic background rerenders and ResizeObserver ticks during EPUB layout updates
+          currentScrollHeight = 1600 + second * 20;
+          currentMessages = second % 10 === 0
+            ? [...currentMessages, { id: `m-new-${second}` }]
+            : [...currentMessages];
+          rerender({ msgs: currentMessages });
+          act(() => {
+            observer.trigger();
+          });
+          // Programmatic restore scroll event must not corrupt saved anchor or position
+          act(() => {
+            result.current.onScroll();
+          });
+        }
+
+        expect(div.scrollTop).toBe(420);
+        expect(result.current.showLatest).toBe(true);
+      }
+
+      // Clicking "Latest message" returns to bottom follow mode and tracks subsequent messages
+      act(() => {
+        result.current.showNewest();
+      });
+      expect(result.current.showLatest).toBe(false);
+      expect(div.scrollTop).toBe(currentScrollHeight - currentClientHeight);
+
+      currentScrollHeight += 240;
+      rerender({ msgs: [...currentMessages, { id: "m-final" }] });
+      expect(div.scrollTop).toBe(currentScrollHeight - currentClientHeight);
+      expect(result.current.showLatest).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("respects slow scrollbar pointer drag to top beyond 250ms while preserving bottom follow otherwise", () => {
+    vi.useFakeTimers();
+    try {
+      const div = document.createElement("div");
+      let internalScrollTop = 700;
+      Object.defineProperty(div, "scrollHeight", { value: 1000, configurable: true });
+      Object.defineProperty(div, "clientHeight", { value: 300, configurable: true });
+      Object.defineProperty(div, "scrollTop", {
+        get: () => internalScrollTop,
+        set: (value: number) => {
+          internalScrollTop = Math.max(0, Math.min(value, 700));
+        },
+        configurable: true,
+      });
+      const ref = { current: div };
+      const { result } = renderHook(() =>
+        useAssistantConversationScroll(ref, "scroll-slow-drag-top", true, [{ id: "m1" }, { id: "m2" }], "conv-slow-drag"),
+      );
+
+      // Start pointer drag and hold for 600ms (> 250ms grace timeout) before reaching top
+      div.dispatchEvent(new Event("pointerdown"));
+      act(() => {
+        vi.advanceTimersByTime(600);
+      });
+      div.scrollTop = 0;
+      act(() => {
+        result.current.onScroll();
+      });
+      window.dispatchEvent(new Event("pointerup"));
+
+      expect(div.scrollTop).toBe(0);
+      expect(result.current.showLatest).toBe(true);
+
+      // Wait past grace window and fire ResizeObserver: intentional top position must hold
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+      act(() => {
+        ControllableResizeObserver.instances[0].trigger();
+      });
+      expect(div.scrollTop).toBe(0);
+      expect(result.current.showLatest).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
