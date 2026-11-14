@@ -64,16 +64,23 @@ jobs:
           # Compiling the final plethora-tauri lib needs more memory than the
           # 16 GB runner provides; when RAM+swap ran out, the kernel/oomd took
           # the runner agent down mid-compile ("runner received a shutdown
-          # signal"). A 16 GB swapfile plus stopping systemd-oomd (which kills
-          # the whole user slice on memory-pressure spikes) turns the hard
-          # failure into a slower-but-successful compile.
+          # signal"). Match the desktop release build's 32 GB swapfile,
+          # systemd-oomd mask, and runner OOM protection so the large Android
+          # link can finish under memory pressure.
           sudo swapoff -a || true
           sudo rm -f /swapfile
-          sudo fallocate -l 16G /swapfile
+          sudo fallocate -l 32G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
+          sudo sysctl -w vm.swappiness=80
+          sudo sysctl -w vm.vfs_cache_pressure=50
           sudo systemctl stop systemd-oomd 2>/dev/null || true
+          sudo systemctl disable --now systemd-oomd 2>/dev/null || true
+          sudo systemctl mask systemd-oomd 2>/dev/null || true
+          for pid in $(pgrep -f "Runner\\.(Listener|Worker)" 2>/dev/null || true); do
+            echo -1000 | sudo tee "/proc/$pid/oom_score_adj" >/dev/null 2>&1 || true
+          done
           free -m
 
       - name: Set up Java (Temurin 17)
