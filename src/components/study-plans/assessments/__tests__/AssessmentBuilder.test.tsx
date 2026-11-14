@@ -4,7 +4,9 @@ import React from 'react';
 import { AssessmentBuilder } from '../AssessmentBuilder';
 import { BlueprintService } from '../../../../lib/study-plans/assessments/blueprintService';
 import * as preflightModule from '../../../../lib/study-plans/generation/preflight';
+import * as curriculumPreflightModule from '../../../../lib/study-plans/generation/curriculumPreflight';
 import * as coordinatorModule from '../../../../lib/study-plans/assessments/generationCoordinator';
+import { StudyApiError } from '../../../../api/study-plans';
 import type { BlueprintDetail } from '../../../../types/assessmentQuestions';
 import type { StudyPlanDetail } from '../../../../types/learningPaths';
 import type { StudyAiPreflight } from '../../../../lib/study-plans/generation/types';
@@ -337,5 +339,47 @@ describe('AssessmentBuilder Component (C3-T08)', () => {
     await waitFor(() => expect(screen.getByText('Start Assessment')).toBeInTheDocument());
     expect(screen.queryByText('Add Manual Question')).not.toBeInTheDocument();
     expect(screen.queryByText(/Manual Question Editor/)).not.toBeInTheDocument();
+  });
+
+  it('still resolves AI preflight and surfaces stale_source error instead of "AI Provider Unavailable"', async () => {
+    vi.mocked(curriculumPreflightModule.refreshCurriculumScope).mockRejectedValueOnce(
+      new StudyApiError({
+        code: 'stale_source',
+        messageKey: 'study_generation.error.source_changed',
+        retryable: false,
+      })
+    );
+    vi.mocked(preflightModule.performStudyAiPreflight).mockResolvedValueOnce({
+      preflight: {
+        ...mockPreflight,
+        providerId: 'cloud-llm',
+        sendsSourceOffDevice: true,
+        billable: true,
+      },
+      route: { provider: { id: 'cloud-llm' }, task: {} } as any,
+    });
+    vi.mocked(BlueprintService.createBlueprint).mockResolvedValueOnce(mockCreatedDetail);
+
+    render(<AssessmentBuilder planDetail={mockPlanDetail} initialMode="practice" onClose={vi.fn()} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('AI Execution & Call Budget')).toBeInTheDocument();
+    });
+    expect(preflightModule.performStudyAiPreflight).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documents: [
+          expect.objectContaining({
+            id: 'doc_1',
+            isAiExcluded: false,
+            isLocalOnly: false,
+          }),
+        ],
+        inspectOnly: true,
+      })
+    );
+    expect(screen.queryByText('AI Provider Unavailable')).not.toBeInTheDocument();
+    expect(
+      screen.getByText('A selected source changed. Review the plan’s sources before trying again.')
+    ).toBeInTheDocument();
   });
 });

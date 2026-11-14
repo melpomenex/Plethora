@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
+  getUsableStudyCloudConfig,
   performStudyAiPreflight,
+  resolveStudyTaskRoute,
   validatePreflightUnchanged,
   classifyRouteDestination,
 } from '../preflight';
+import { useLLMProvidersStore, type LLMProviderConfig } from '../../../../stores/llmProvidersStore';
 import type { AITaskRoute } from '../../../ai/tasks/router';
 import type { AITaskDefinition } from '../../../ai/tasks/types';
 import type { AIProvider } from '../../../ai/providers/types';
@@ -316,5 +319,61 @@ describe('Study AI Preflight & Privacy Gating (C2-T05)', () => {
         messageKey: 'study_generation.error.provider_changed_on_resume',
       })
     );
+  });
+
+  it('skips unusable enabled providers and resolves an enabled OpenRouter config', async () => {
+    const previousProviders = useLLMProvidersStore.getState().providers;
+    const routerAliasProvider: LLMProviderConfig = {
+      id: 'p_router',
+      provider: 'openrouter',
+      name: 'Auto Router',
+      apiKey: 'sk-router',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      model: 'openrouter/auto',
+      enabled: true,
+      temperature: 0.7,
+      maxTokens: 4096,
+    };
+    const usableOpenRouterProvider: LLMProviderConfig = {
+      id: 'p_openrouter',
+      provider: 'openrouter',
+      name: 'OpenRouter MiniMax',
+      apiKey: 'sk-openrouter-valid',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      model: 'minimax/minimax-m3.1-flash',
+      enabled: true,
+      temperature: 0.7,
+      maxTokens: 4096,
+    };
+
+    try {
+      useLLMProvidersStore.setState({
+        providers: [routerAliasProvider, usableOpenRouterProvider],
+      });
+
+      const selected = getUsableStudyCloudConfig();
+      expect(selected?.id).toBe('p_openrouter');
+      expect(selected?.model).toBe('minimax/minimax-m3.1-flash');
+
+      const fullTask: AITaskDefinition<never, unknown> = {
+        ...dummyTask,
+        modelClass: 'full',
+      };
+      const route = await resolveStudyTaskRoute(fullTask);
+      expect(route).not.toBeNull();
+      expect(route?.provider.kind).toBe('cloud');
+
+      const result = await performStudyAiPreflight({
+        primaryTask: fullTask,
+        documents: [{ id: 'doc_1', title: 'Doc 1' }],
+        sourceExcerptCount: 2,
+        cloudDisclosureAccepted: true,
+        costConsentAccepted: true,
+      });
+      expect(result.preflight.model?.id).toBe('minimax/minimax-m3.1-flash');
+      expect(result.preflight.model?.configId).toBe('p_openrouter');
+    } finally {
+      useLLMProvidersStore.setState({ providers: previousProviders });
+    }
   });
 });

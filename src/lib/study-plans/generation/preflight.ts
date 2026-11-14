@@ -80,6 +80,15 @@ function pinCloud(config: LLMProviderConfig): PinnedCloudProvider {
   return provider;
 }
 
+export function getUsableStudyCloudConfig(): LLMProviderConfig | null {
+  const active = getActiveCloudConfig();
+  if (active && isUsableStudyModel(active)) return active;
+  const fallback = useLLMProvidersStore
+    .getState()
+    .providers.find((config) => isUsableStudyModel(config));
+  return fallback ?? null;
+}
+
 export async function resolveStudyTaskRoute(
   task: AITaskDefinition<never, unknown>,
   selectedConfigId?: string,
@@ -91,11 +100,11 @@ export async function resolveStudyTaskRoute(
       ? resolveTaskRoute(task, { providers: [pinCloud(config)] })
       : null;
   }
-  const activeConfig = getActiveCloudConfig();
+  const activeConfig = getUsableStudyCloudConfig();
   const candidates = getRoutingProviders().flatMap((provider) => {
     if (provider.kind !== 'cloud') return [provider];
     if (authorizedProviderId && authorizedProviderId !== provider.id) return [];
-    return activeConfig && isUsableStudyModel(activeConfig) ? [pinCloud(activeConfig)] : [];
+    return activeConfig ? [pinCloud(activeConfig)] : [];
   }).filter((provider) => !authorizedProviderId || provider.id === authorizedProviderId);
   return resolveTaskRoute(task, { providers: candidates });
 }
@@ -181,8 +190,8 @@ export async function performStudyAiPreflight(
     });
   }
   if (route.provider instanceof CloudProvider && !pinnedConfigurations.has(route.provider)) {
-    const config = getActiveCloudConfig();
-    if (!config || !isUsableStudyModel(config)) {
+    const config = getUsableStudyCloudConfig();
+    if (!config) {
       throw new StudyApiError({ code: 'provider_unavailable', messageKey: 'study_generation.error.no_provider_available', retryable: true });
     }
     route = { ...route, provider: pinCloud(config) };

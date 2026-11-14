@@ -43,11 +43,13 @@ import type {
   QuotaSlot,
   QuotaReport,
 } from '../../../types/assessmentQuestions';
-import type { StudySourceRefV1 } from '../../../types/studySource';
+import type { StudySourceRefV1, StudySourceScopeV1 } from '../../../types/studySource';
 import type { StudyAiPreflight, StudyJobProgress } from '../../../lib/study-plans/generation/types';
 import type { StudyPlanDetail } from '../../../types/learningPaths';
 import type { ExternalSnapshot } from '../../../lib/study-plans/webresearch/snapshots';
 import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+import { useLLMProvidersStore } from '../../../stores/llmProvidersStore';
+import { useSettingsStore } from '../../../stores/settingsStore';
 
 
 export interface AssessmentBuilderProps {
@@ -68,6 +70,30 @@ export interface AssessmentBuilderProps {
 }
 
 export type BuilderState = 'loading' | 'idle' | 'generating' | 'needs-review' | 'ready' | 'error';
+
+function buildInspectPreflightParams(
+  effectiveScope: StudySourceScopeV1,
+  sourceRefs: StudyPlanDetail['sourceRefs'] | undefined,
+  requestedCount: number,
+  batchSize: number,
+) {
+  const docs = effectiveScope.resolvedDocuments.map((doc) => ({
+    id: doc.documentId,
+    isAiExcluded: doc.isAiExcluded,
+    isLocalOnly: doc.isLocalOnly,
+  }));
+  const refs = Object.values(sourceRefs || {}).filter((resolution) =>
+    resolution.status === 'current' && effectiveScope.resolvedDocuments.some((doc) =>
+      doc.documentId === resolution.ref.documentId && doc.revision === resolution.ref.revision &&
+      (!resolution.ref.extractId || doc.extractIds.includes(resolution.ref.extractId))));
+  return {
+    primaryTask: studyQuestionTask as any,
+    documents: docs,
+    sourceExcerptCount: refs.length,
+    plannedModelSteps: Math.ceil(requestedCount / batchSize),
+    inspectOnly: true,
+  };
+}
 
 function createManualQuestion(slot: QuotaSlot, points: number, sourceRefId?: string, learningObjectives: string[] = []): AssessmentQuestion {
   const sourceRefIds = sourceRefId ? [sourceRefId] : [];
@@ -163,6 +189,23 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
   const [preflightRoute, setPreflightRoute] = useState<StudyPreflightResult['route'] | null>(null);
 
   const abortControllerRef = useRef<AbortController | null>(null);
+  const llmProviders = useLLMProvidersStore((s) => s.providers);
+  const strictLocalOnly = useSettingsStore((s) => s.settings.ai?.strictLocalOnly === true);
+  const providerSignature = JSON.stringify({
+    strictLocalOnly,
+    providers: llmProviders.map((p) => ({
+      id: p.id,
+      provider: p.provider,
+      model: p.model,
+      enabled: p.enabled,
+      baseUrl: p.baseUrl ?? '',
+      hasKey: Boolean(p.apiKey?.trim()),
+    })),
+  });
+  const effectiveScopeRef = useRef<StudySourceScopeV1 | null>(null);
+  const latestProviderSignatureRef = useRef<string>(providerSignature);
+  latestProviderSignatureRef.current = providerSignature;
+  const lastProviderSignatureRef = useRef<string>(providerSignature);
   const batchSize = resolveBatchSize(isMobile);
   const callBudget = calculateModelCallBudget(config?.requestedCount ?? 0, batchSize);
   // Inspect-only preflight runs before the user can accept consent, so its
@@ -311,27 +354,32 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       }
 
       // Inspect the live frozen scope before showing budget, route, or consent details.
+      // Keep source-scope validation independent from AI provider preflight so a stale
+      // source reports a source error without falsely claiming no AI provider is configured.
+      const frozenScope = loadedDetail.revision.sourceScope;
+      let effectiveScope = frozenScope;
+      if (frozenScope.resolvedDocuments.length) {
+        try {
+          effectiveScope = await refreshCurriculumScope(frozenScope);
+        } catch (scopeErr: any) {
+          effectiveScope = frozenScope;
+          setErrorBanner(
+            studyErrorMessage(scopeErr, translateRecentFeature("studyPlans.ui.operation-failed"))
+          );
+        }
+      }
+      effectiveScopeRef.current = effectiveScope;
+      lastProviderSignatureRef.current = latestProviderSignatureRef.current;
+
       try {
-        const frozenScope = loadedDetail.revision.sourceScope;
-        const liveScope = frozenScope.resolvedDocuments.length
-          ? await refreshCurriculumScope(frozenScope)
-          : frozenScope;
-        const docs = liveScope.resolvedDocuments.map((doc) => ({
-          id: doc.documentId,
-          isAiExcluded: doc.isAiExcluded,
-          isLocalOnly: doc.isLocalOnly,
-        }));
-        const refs = Object.values(planDetail?.sourceRefs || {}).filter((resolution) =>
-          resolution.status === 'current' && liveScope.resolvedDocuments.some((doc) =>
-            doc.documentId === resolution.ref.documentId && doc.revision === resolution.ref.revision &&
-            (!resolution.ref.extractId || doc.extractIds.includes(resolution.ref.extractId))));
-        const res = await performStudyAiPreflight({
-          primaryTask: studyQuestionTask as any,
-          documents: docs,
-          sourceExcerptCount: refs.length,
-          plannedModelSteps: Math.ceil(loadedDetail.revision.config.requestedCount / batchSize),
-          inspectOnly: true,
-        });
+        const res = await performStudyAiPreflight(
+          buildInspectPreflightParams(
+            effectiveScope,
+            planDetail?.sourceRefs,
+            loadedDetail.revision.config.requestedCount,
+            batchSize,
+          )
+        );
         setPreflight(res.preflight);
         setPreflightRoute(res.route);
       } catch {
@@ -342,11 +390,41 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       setErrorBanner(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.operation-failed")));
       setState('error');
     }
-  }, [initialRevisionId, planDetail, initialConfig, initialTitle, batchSize]);
+  }, [initialRevisionId, planDetail, initialConfig, initialTitle, initialMode, batchSize]);
 
   useEffect(() => {
     initBlueprint();
   }, [initBlueprint]);
+
+  useEffect(() => {
+    if (!detail || !effectiveScopeRef.current || lastProviderSignatureRef.current === providerSignature) {
+      return;
+    }
+    lastProviderSignatureRef.current = providerSignature;
+    let active = true;
+    const requestedCount = config?.requestedCount ?? detail.revision.config.requestedCount;
+    void performStudyAiPreflight(
+      buildInspectPreflightParams(
+        effectiveScopeRef.current,
+        planDetail?.sourceRefs,
+        requestedCount,
+        batchSize,
+      )
+    )
+      .then((res) => {
+        if (!active) return;
+        setPreflight(res.preflight);
+        setPreflightRoute(res.route);
+      })
+      .catch(() => {
+        if (!active) return;
+        setPreflight(null);
+        setPreflightRoute(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [providerSignature, detail, config?.requestedCount, batchSize, planDetail?.sourceRefs]);
 
   useEffect(() => {
     let active = true;
