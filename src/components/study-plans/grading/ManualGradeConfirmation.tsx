@@ -109,7 +109,7 @@ export const ManualGradeConfirmation: React.FC<ManualGradeConfirmationProps> = (
           {criteria.map((c) => {
                         return (
             <div key={c.criterionId} className="p-3 text-xs flex flex-wrap items-center justify-between gap-2">
-              <div className="space-y-0.5 max-w-[70%]">
+              <div className="space-y-0.5 min-w-0 flex-1 sm:max-w-[70%]">
                 <span className="font-semibold text-on-surface block">
                   {c.title}
                 </span>

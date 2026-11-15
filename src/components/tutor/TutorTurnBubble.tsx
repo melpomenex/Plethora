@@ -19,7 +19,7 @@ export function TutorTurnBubble({ turn }: { turn: TutorTranscriptTurn }) {
   if (turn.role === "user") {
     return (
       <div className="flex justify-end" data-tutor-role="user">
-        <p className="max-w-[85%] rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-[14px] leading-relaxed text-primary-foreground whitespace-pre-wrap">
+        <p className="max-w-[85%] rounded-2xl rounded-br-md bg-primary px-3.5 py-2 text-[14px] leading-relaxed text-primary-foreground whitespace-pre-wrap break-words">
           {turn.text}
         </p>
       </div>
@@ -59,7 +59,7 @@ export function TutorTurnBubble({ turn }: { turn: TutorTranscriptTurn }) {
           </span>
         )}
       </div>
-      <div className="max-w-[95%] rounded-2xl rounded-bl-md border border-border bg-background px-3.5 py-2 text-[14px] leading-relaxed text-foreground">
+      <div className="max-w-[95%] min-w-0 break-words rounded-2xl rounded-bl-md border border-border bg-background px-3.5 py-2 text-[14px] leading-relaxed text-foreground">
         <AssistantResponseContent content={turn.text} markdown={false} />
       </div>
       {turn.stuckDetected && (

@@ -255,19 +255,19 @@ export const LessonView: React.FC<LessonViewProps> = ({
   };
 
   return (
-    <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-4">
-      <div className="flex items-center gap-3 pb-3 border-b border-surface-200 dark:border-surface-700">
+    <div className="w-full min-w-0 max-w-3xl mx-auto p-4 sm:p-6 space-y-4">
+      <div className="flex flex-wrap items-center gap-3 pb-3 border-b border-surface-200 dark:border-surface-700">
         <Button variant="text" size="iconSm" onClick={onClose} aria-label={translateRecentFeature("studyPlans.ui.close-lesson.69113ec3")}>
           <ArrowLeft size={18} />
         </Button>
-        <div className="min-w-0">
-          <h2 className="text-base font-bold text-surface-900 dark:text-surface-100 truncate">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-base font-bold text-surface-900 dark:text-surface-100 break-words sm:truncate">
             {node?.title ?? translateRecentFeature("i18nAudit.ui.lesson.e576e3fa")}
           </h2>
           <p className="text-xs text-surface-500">
             {isModelOnly ? translateRecentFeature("studyPlans.ui.ai-knowledge-only-unverified.d562ef98") : translateRecentFeature("studyPlans.ui.library-backed-pinned-author.322190e1")}{translateRecentFeature("studyPlans.ui.objective-var0.ac8c14a9", {var0: objectiveIndex + 1})}</p>
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2 shrink-0">
           <label className="text-xs text-surface-500" htmlFor="lesson-style">{translateRecentFeature("studyPlans.ui.style.8c1182dc")}</label>
           <select
             id="lesson-style"
@@ -300,7 +300,7 @@ export const LessonView: React.FC<LessonViewProps> = ({
       <div className="rounded-xl border border-surface-200 dark:border-surface-700 p-4 space-y-3">
         <div className="flex items-start gap-2 text-sm">
           <ChatsCircle size={18} className="text-primary-500 flex-shrink-0 mt-0.5" />
-          <p id="lesson-prompt" className="whitespace-pre-line font-medium text-on-surface dark:text-on-surface-dark">
+          <p id="lesson-prompt" className="min-w-0 whitespace-pre-line break-words font-medium text-on-surface dark:text-on-surface-dark">
             {prompt}
           </p>
         </div>

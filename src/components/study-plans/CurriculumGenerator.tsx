@@ -327,12 +327,12 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
         className={`${dialogSurface} adaptive-dialog-panel adaptive-dialog-centered study-plans-dialog-wide max-w-4xl w-full overflow-y-auto rounded-3xl p-4 sm:p-6 space-y-6 shadow-2xl`}
       >
         {/* Top Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-surface-200 dark:border-surface-700">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-primary-500/10 text-primary-600 dark:text-primary-400 flex items-center justify-center">
+        <div className="flex items-center justify-between gap-2 pb-3 border-b border-surface-200 dark:border-surface-700">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 shrink-0 rounded-full bg-primary-500/10 text-primary-600 dark:text-primary-400 flex items-center justify-center">
               <Sparkle size={18} />
             </div>
-            <div>
+            <div className="min-w-0">
               <h2 id={titleId} className="text-lg font-bold text-surface-900 dark:text-surface-100">
                 {translateRecentFeature("studyPlans.ui.generate-curriculum.e5c7d8bf")}</h2>
               <p id={descId} className="text-xs text-surface-500">
@@ -344,7 +344,7 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
             onClick={closeWhenIdle}
             aria-label={translateRecentFeature("studyPlans.ui.close-generator.ce3a9e44")}
             disabled={jobStatus === 'running'}
-            className="p-1.5 rounded-full hover:bg-surface-100 dark:hover:bg-surface-800 text-surface-500"
+            className="shrink-0 p-1.5 rounded-full hover:bg-surface-100 dark:hover:bg-surface-800 text-surface-500"
           >
             <X size={18} />
           </button>

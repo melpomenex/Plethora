@@ -57,7 +57,7 @@ export function getActiveCloudConfig(): LLMProviderConfig | null {
     .providers.find(
       (p) =>
         p.enabled &&
-        (p.apiKey.trim().length > 0 || providerAllowsKeylessAccess(p.provider, p.baseUrl))
+        ((p.apiKey ?? "").trim().length > 0 || providerAllowsKeylessAccess(p.provider, p.baseUrl))
     );
   return found ?? null;
 }

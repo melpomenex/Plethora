@@ -110,12 +110,12 @@ export const CurriculumDraftPreview: React.FC<CurriculumDraftPreviewProps> = ({
   return (
     <div
       aria-label={translateRecentFeature("studyPlans.ui.curriculum-draft-preview-con.a22e5813")}
-      className="max-w-5xl mx-auto p-6 space-y-6"
+      className="w-full min-w-0 max-w-5xl mx-auto p-4 sm:p-6 space-y-6"
     >
       {diagnosticSlot}
       {/* Header bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-surface-200 dark:border-surface-700">
-        <div>
+        <div className="min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border border-primary-500/30 text-primary-600 dark:text-primary-400 bg-primary-500/10">{translateRecentFeature("studyPlans.ui.draft-preview-v-var0.89eabe22", {var0: planDetail.version.version})}</span>
             {isRulesOnly ? (

@@ -142,12 +142,20 @@ test("320px: editor transitions into lesson and assessment builder", async ({ pa
   await expect(lessonDialog).toBeVisible();
   const lessonBounds = await lessonDialog.evaluate((element) => {
     const rect = element.getBoundingClientRect();
-    return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right };
+    return {
+      top: rect.top,
+      bottom: rect.bottom,
+      left: rect.left,
+      right: rect.right,
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    };
   });
   expect(lessonBounds.top).toBeGreaterThanOrEqual(0);
   expect(lessonBounds.bottom).toBeLessThanOrEqual(520);
   expect(lessonBounds.left).toBeGreaterThanOrEqual(0);
   expect(lessonBounds.right).toBeLessThanOrEqual(320);
+  expect(lessonBounds.scrollWidth).toBeLessThanOrEqual(lessonBounds.clientWidth);
   await page.getByRole("button", { name: "Close lesson" }).click();
 
   await page.getByRole("tab", { name: "Assessments" }).click();

@@ -198,11 +198,11 @@ export const SourceScopePicker: React.FC<SourceScopePickerProps> = ({
       <legend className="max-w-full px-2 text-sm font-semibold text-surface-900 dark:text-surface-100">
         {translateRecentFeature("studyPlans.ui.source-material-scope-option.d9e5626e")}</legend>
 
-      <div className="flex items-center justify-between gap-3 mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
         <p className="text-xs text-surface-600 dark:text-surface-400">
           {translateRecentFeature("studyPlans.ui.select-material-from-your-li.4b689a08")}</p>
         <span
-          className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+          className={`shrink-0 text-xs font-semibold px-2 py-0.5 rounded-full ${
             isAtLimit
               ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
               : 'text-surface-500'

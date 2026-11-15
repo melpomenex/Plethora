@@ -82,7 +82,7 @@ export function TutorSheet({
 }: TutorSheetProps) {
   const { t } = useI18n();
   const ai = useAiAvailability("prompt");
-  const hasByoProvider = useLLMProvidersStore((state) => state.providers.some((provider) => provider.enabled && provider.apiKey.trim().length > 0));
+  const hasByoProvider = useLLMProvidersStore((state) => state.providers.some((provider) => provider.enabled && (provider.apiKey ?? "").trim().length > 0));
 
   const sessionRef = useRef<TutorSession | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -339,7 +339,7 @@ export function TutorSheet({
     <MobileContextMenuSheet open={open} onClose={onClose} variant="content" title={t("aiTutor.title")}>
       <div data-tutor-sheet="true" className="px-4 pb-4 space-y-3">
         {/* Header: topic, provider indicator, bounded turn budget */}
-        <div className="flex items-start gap-2 pt-1">
+        <div className="flex flex-wrap items-start gap-2 pt-1">
           <button
             className="p-1 -ml-1 text-muted-foreground"
             aria-label={t("aiTutor.close")}
@@ -363,7 +363,7 @@ export function TutorSheet({
             <p className="text-[11px] text-muted-foreground" data-tutor-privacy="true">{privacyPolicy.disclosure} Session retention only.</p>
           </div>
           <span
-            className={`text-[11px] px-2 py-0.5 rounded ${
+            className={`shrink-0 text-[11px] px-2 py-0.5 rounded ${
               ai.path === "ondevice"
                 ? "bg-success/15 text-success"
                 : ai.path === "cloud"

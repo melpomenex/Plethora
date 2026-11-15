@@ -94,10 +94,10 @@ export const PlanNodeEditor: React.FC<PlanNodeEditorProps> = ({
   };
 
   return (
-    <div className="space-y-6 p-6 rounded-2xl bg-surface-50 dark:bg-surface-800/50 border border-surface-200 dark:border-surface-700/80">
+    <div className="space-y-6 p-4 sm:p-6 rounded-2xl bg-surface-50 dark:bg-surface-800/50 border border-surface-200 dark:border-surface-700/80">
       {/* Header with Title and Lock / Tombstone badges */}
       <div className="flex items-start justify-between gap-4 pb-4 border-b border-surface-200 dark:border-surface-700">
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 mb-2">
             <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-primary-500/10 text-primary-600 dark:text-primary-400 border border-primary-500/20">
               {node.included ? translateRecentFeature("i18nAudit.ui.topic-var0.971fc321", {var0: node.position + 1}) : translateRecentFeature("studyPlans.ui.removed-topic.37236a73")}

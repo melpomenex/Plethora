@@ -121,4 +121,45 @@ describe('C7-T04 source-scoped Study tutor', () => {
     await waitFor(() => expect(startSpy).toHaveBeenCalled());
     startSpy.mockRestore();
   });
+
+  it('does not crash when an enabled provider has undefined apiKey (keyless local provider)', async () => {
+    const { useLLMProvidersStore } = await import('../../../../stores/llmProvidersStore');
+    const prevProviders = useLLMProvidersStore.getState().providers;
+    useLLMProvidersStore.setState({
+      providers: [
+        {
+          id: 'ollama-1',
+          provider: 'ollama',
+          name: 'Ollama',
+          apiKey: undefined as unknown as string,
+          model: 'llama3.2',
+          enabled: true,
+          temperature: 0.7,
+          maxTokens: 4096,
+        },
+      ],
+    });
+    const startSpy = vi.spyOn(TutorSession, 'start').mockResolvedValue({
+      getTranscript: () => [],
+      getPolicyState: () => ({ hintThread: { level: 0, consecutiveHints: 0 }, tutorTurnCount: 0, stuckCounter: 0, forcedExplain: false, ended: false }),
+      limits: { maxSessionTurns: 20 },
+      ended: false,
+    } as never);
+    try {
+      render(
+        <StudyTutorHost
+          open
+          planId="p"
+          planVersionId="v"
+          nodeId="n"
+          sourceRefs={[ref('r1', 'doc-1')]}
+          onClose={() => {}}
+        />,
+      );
+      await waitFor(() => expect(document.querySelector('[data-tutor-sheet="true"]')).not.toBeNull());
+    } finally {
+      startSpy.mockRestore();
+      useLLMProvidersStore.setState({ providers: prevProviders });
+    }
+  });
 });

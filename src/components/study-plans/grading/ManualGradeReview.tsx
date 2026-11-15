@@ -276,7 +276,7 @@ export const ManualGradeReview: React.FC<ManualGradeReviewProps> = ({
         aria-modal="true"
         aria-labelledby="manual-review-confirmation-title"
       >
-        <div className="adaptive-dialog-panel adaptive-dialog-centered study-plans-dialog-wide w-full max-w-2xl my-8 overflow-y-auto rounded-2xl">
+        <div className="adaptive-dialog-panel adaptive-dialog-centered study-plans-dialog-wide w-full max-w-2xl overflow-y-auto rounded-2xl">
           <ManualGradeConfirmation
             questionTitle={q.prompt}
             calculatedPoints={computedScore.points}

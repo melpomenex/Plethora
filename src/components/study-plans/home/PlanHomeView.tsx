@@ -101,11 +101,11 @@ export const PlanHomeView: React.FC<PlanHomeViewProps> = ({
           { id: 'review-due', label: translateRecentFeature("tabs.review"), onClick: onOpenReview },
         ]);
         }}
-        className="rounded-2xl border border-surface-200 dark:border-surface-700 p-4 flex items-center justify-between gap-3"
+        className="rounded-2xl border border-surface-200 dark:border-surface-700 p-4 flex flex-wrap items-center justify-between gap-3"
       >
-        <div className="flex items-center gap-2">
-          <CalendarCheck size={18} className="text-primary-500" />
-          <div>
+        <div className="flex items-center gap-2 min-w-0">
+          <CalendarCheck size={18} className="text-primary-500 shrink-0" />
+          <div className="min-w-0">
             <div className="text-xs font-semibold text-surface-700 dark:text-surface-200">{translateRecentFeature("studyPlans.ui.due-reviews.fc994bca")}</div>
             <div className="text-sm text-surface-500">
               {projection.dueReviewCount == null ? translateRecentFeature("studyPlans.ui.unavailable.a79c5108") : translateRecentFeature("i18nAudit.ui.var0-due.f33c0abe", {var0: projection.dueReviewCount})}
