@@ -63,6 +63,16 @@ export interface SelectionActionBarProps {
   /** Capture-build path to the real Learn-this proposal UI. */
   onLearnThis?: () => void;
   showLearnThis?: boolean;
+  /** Inherited priority slider (1..100) for inline provenance chip. */
+  prioritySlider?: number;
+  priorityExplicitlySet?: boolean;
+  parentTitle?: string;
+  /** Called on Shift+Wheel over the priority inheritance chip. */
+  onNudgePriority?: (nextSlider: number, delta: number) => void;
+  /** 1-keystroke background Chained Cloze action ([C]). */
+  onChainedCloze?: () => void;
+  /** Open selection-anchored Socratic Margin thread (Cmd/Ctrl + J). */
+  onOpenSocraticMargin?: () => void;
 }
 
 function Chip({
@@ -106,6 +116,12 @@ export function SelectionActionBar({
   onMeasure,
   onLearnThis,
   showLearnThis = false,
+  prioritySlider,
+  priorityExplicitlySet,
+  parentTitle,
+  onNudgePriority,
+  onChainedCloze,
+  onOpenSocraticMargin,
 }: SelectionActionBarProps) {
   const { t } = useI18n();
   const { reducedMotion } = usePresentation();
@@ -188,6 +204,55 @@ export function SelectionActionBar({
           />
         );
       })}
+      {typeof prioritySlider === "number" && (
+        <span
+          data-priority-inheritance-chip="true"
+          title="Shift+Wheel to nudge priority ±5%"
+          onWheel={(e) => {
+            if (e.shiftKey && onNudgePriority) {
+              e.preventDefault();
+              const delta = e.deltaY < 0 ? -5 : 5;
+              const next = Math.max(1, Math.min(100, prioritySlider + delta));
+              onNudgePriority(next, delta);
+            }
+          }}
+          className="mr-1 inline-flex h-8 shrink-0 items-center rounded-full border border-outline-variant/50 bg-surface-container px-2.5 text-[11px] font-medium text-on-surface-variant select-none"
+        >
+          {`P${prioritySlider} • ${
+            !priorityExplicitlySet && parentTitle
+              ? `Inherited from ${parentTitle}`
+              : "Explicit"
+          }`}
+        </span>
+      )}
+      {canExtract && onChainedCloze && (
+        <button
+          type="button"
+          data-chained-cloze="true"
+          aria-label="Chained Cloze"
+          onClick={onChainedCloze}
+          className="md-state flex h-11 shrink-0 items-center gap-1 rounded-full px-3 text-[13px] font-medium text-primary transition-colors"
+        >
+          <kbd className="rounded border border-outline-variant/60 bg-surface-container px-1 py-0.5 font-mono text-[10px]">
+            C
+          </kbd>
+          <span>Cloze</span>
+        </button>
+      )}
+      {onOpenSocraticMargin && (
+        <button
+          type="button"
+          data-socratic-trigger="true"
+          aria-label="Socratic Margin"
+          onClick={onOpenSocraticMargin}
+          className="md-state flex h-11 shrink-0 items-center gap-1 rounded-full px-3 text-[13px] font-medium text-primary transition-colors"
+        >
+          <kbd className="rounded border border-outline-variant/60 bg-surface-container px-1 py-0.5 font-mono text-[10px]">
+            ⌘J
+          </kbd>
+          <span>Socratic</span>
+        </button>
+      )}
       <Chip
         reducedMotion={reducedMotion}
         label={t("selectionBar.more")}

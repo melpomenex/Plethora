@@ -6,11 +6,26 @@
  */
 
 import { createFeedbackInteractionId, emitUserInteraction } from "../lib/feedback/orchestrator";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { createExtract, CreateExtractInput, Extract } from "../api/extracts";
 import { useToast } from "../components/common/Toast";
 import { useExtractStore } from "../stores/extractStore";
 import { handleAutoGeneration, handleAutoSummarization } from "../utils/aiExtractUtils";
+import { dispatchPriorityCommit } from "../services/priority/priorityCommit";
+import { isEditableEventTarget } from "../components/queue/EndOfItemTriageBar";
+
+export const PRIORITY_NUDGE_STEP = 5;
+export const PRIORITY_NUDGE_WINDOW_MS = 4000;
+
+export function clampPrioritySlider(slider: number): number {
+  return Math.max(1, Math.min(100, Math.round(slider)));
+}
+
+export interface ExtractPriorityNudgeWindow {
+  extractId: string;
+  prioritySlider: number;
+  expiresAt: number;
+}
 
 interface UseToastExtractOptions {
   onEditExtract?: (extract: Extract) => void;
@@ -20,6 +35,69 @@ export function useToastExtract(options?: UseToastExtractOptions) {
   const toast = useToast();
   const { lastHighlightColor, setLastHighlightColor, loadExtracts } = useExtractStore();
   const pendingRef = useRef<Set<string>>(new Set());
+  const [nudgeWindow, setNudgeWindow] = useState<ExtractPriorityNudgeWindow | null>(null);
+  const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const scheduleNudgeExpiry = useCallback(() => {
+    if (nudgeTimerRef.current) {
+      clearTimeout(nudgeTimerRef.current);
+    }
+    nudgeTimerRef.current = setTimeout(() => {
+      setNudgeWindow(null);
+      nudgeTimerRef.current = null;
+    }, PRIORITY_NUDGE_WINDOW_MS);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (nudgeTimerRef.current) {
+        clearTimeout(nudgeTimerRef.current);
+      }
+    };
+  }, []);
+
+  const nudgeExtractPriority = useCallback(
+    async (delta: number) => {
+      if (!nudgeWindow) return null;
+      const nextSlider = clampPrioritySlider(nudgeWindow.prioritySlider + delta);
+      const nextWindow: ExtractPriorityNudgeWindow = {
+        extractId: nudgeWindow.extractId,
+        prioritySlider: nextSlider,
+        expiresAt: Date.now() + PRIORITY_NUDGE_WINDOW_MS,
+      };
+      setNudgeWindow(nextWindow);
+      scheduleNudgeExpiry();
+
+      try {
+        await dispatchPriorityCommit({ kind: "extract", id: nudgeWindow.extractId }, nextSlider);
+        const pctLabel = delta < 0 ? `-${Math.abs(delta)}%` : `+${Math.abs(delta)}%`;
+        toast.success(`Priority ${nextSlider} (${pctLabel})`);
+      } catch (error) {
+        console.error("Failed to nudge extract priority:", error);
+      }
+      return nextSlider;
+    },
+    [nudgeWindow, scheduleNudgeExpiry, toast]
+  );
+
+  useEffect(() => {
+    if (!nudgeWindow) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isEditableEventTarget(e.target) || isEditableEventTarget(document.activeElement)) {
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        void nudgeExtractPriority(-PRIORITY_NUDGE_STEP);
+      } else if (e.key === "ArrowDown") {
+        e.preventDefault();
+        void nudgeExtractPriority(PRIORITY_NUDGE_STEP);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [nudgeWindow, nudgeExtractPriority]);
 
   const createInstantExtract = useCallback(
     async (params: {
@@ -29,8 +107,9 @@ export function useToastExtract(options?: UseToastExtractOptions) {
       pageNumber?: number;
       selectionContext?: unknown;
       note?: string;
+      parentPrioritySlider?: number;
     }): Promise<Extract | null> => {
-      const { documentId, text, color, pageNumber, selectionContext, note } = params;
+      const { documentId, text, color, pageNumber, selectionContext, note, parentPrioritySlider } = params;
 
       const trimmedText = text.trim();
       if (!trimmedText || trimmedText.length < 3) return null;
@@ -67,7 +146,17 @@ export function useToastExtract(options?: UseToastExtractOptions) {
           console.error("Auto-summarization failed:", err)
         );
 
-        toast.success("Highlight saved", undefined, {
+        const initialSlider = clampPrioritySlider(
+          extract.priority_slider ?? parentPrioritySlider ?? 50
+        );
+        setNudgeWindow({
+          extractId: extract.id,
+          prioritySlider: initialSlider,
+          expiresAt: Date.now() + PRIORITY_NUDGE_WINDOW_MS,
+        });
+        scheduleNudgeExpiry();
+
+        toast.success("Highlight saved", `Priority ${initialSlider} • ↑/↓ to adjust`, {
           feedback: { interactionId, origin: "user", hapticHandled: true },
           action: {
             label: "Edit",
@@ -85,8 +174,8 @@ export function useToastExtract(options?: UseToastExtractOptions) {
         pendingRef.current.delete(dedupeKey);
       }
     },
-    [lastHighlightColor, setLastHighlightColor, loadExtracts, toast, options]
+    [lastHighlightColor, setLastHighlightColor, loadExtracts, scheduleNudgeExpiry, toast, options]
   );
 
-  return { createInstantExtract };
+  return { createInstantExtract, nudgeWindow, nudgeExtractPriority };
 }

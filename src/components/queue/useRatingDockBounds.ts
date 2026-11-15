@@ -12,6 +12,8 @@ export function useRatingDockBounds(frame: RefObject<HTMLDivElement | null>, hea
       const start = Math.max(box.top + 112, (header.current?.getBoundingClientRect().bottom ?? box.top) + 8);
       const end = geometry ? geometry.viewportTop + geometry.viewportHeight - bottomDockClearance(geometry)
         : Math.min(box.bottom - 12, (footer.current?.getBoundingClientRect().top ?? box.bottom) - 8);
+      element.style.setProperty("--queue-chrome-top", `${Math.max(68, start - box.top)}px`);
+      element.style.setProperty("--queue-chrome-bottom", `${Math.max(92, box.bottom - end)}px`);
       element.style.setProperty("--rating-dock-bottom", `${Math.max(0, box.bottom - end)}px`);
       element.style.setProperty("--rating-dock-start", `${start - box.top}px`);
       element.style.setProperty("--rating-dock-center", `${(start + end) / 2 - box.top}px`);

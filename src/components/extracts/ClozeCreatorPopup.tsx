@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from "react";
-import { Check, Scissors, X } from "@phosphor-icons/react";
+import { Check, ClipboardText, Scissors, X } from "@phosphor-icons/react";
 import { createClozeFromExtract } from "../../api/extract-review";
 import type { LearningItem } from "../../api/learning-items";
 import { cn } from "../../utils";
 import { useI18n } from "../../lib/i18n";
+import type { DockedCreatorExtensionProps } from "./QACreatorPopup";
 
-interface ClozeCreatorPopupProps {
+interface ClozeCreatorPopupProps extends DockedCreatorExtensionProps {
     extractId: string;
     selectedText: string;
     /** Full extract passage shown as read-only context when available. */
@@ -15,7 +16,17 @@ interface ClozeCreatorPopupProps {
     onCancel: () => void;
 }
 
-export function ClozeCreatorPopup({ extractId, selectedText, extractContent, selectionRange: _selectionRange, onCreated, onCancel }: ClozeCreatorPopupProps) {
+export function ClozeCreatorPopup({
+    extractId,
+    selectedText,
+    extractContent,
+    selectionRange: _selectionRange,
+    mode = "modal",
+    dockPosition = "right",
+    onGrabSelection,
+    onCreated,
+    onCancel,
+}: ClozeCreatorPopupProps) {
     const { t } = useI18n();
     // Pre-fill with selected text wrapped in cloze deletion syntax [1...]
     // Wait, backend expects cloze_text (full text with clozes) and cloze_ranges.
@@ -95,6 +106,18 @@ export function ClozeCreatorPopup({ extractId, selectedText, extractContent, sel
         return () => textarea.removeEventListener("keydown", handleKeyDown);
     }, [text]);
 
+    const handleInsertSelection = () => {
+        const custom = onGrabSelection?.();
+        const grabbed =
+            custom && custom.trim()
+                ? custom.trim()
+                : typeof window !== "undefined"
+                  ? window.getSelection()?.toString().trim() ?? ""
+                  : "";
+        if (!grabbed) return;
+        setText((prev) => (prev.trim() ? `${prev.trimEnd()}\n${grabbed}` : grabbed));
+    };
+
     const handleSubmit = async () => {
         if (!text.trim() || isSubmitting) return;
 
@@ -137,14 +160,63 @@ export function ClozeCreatorPopup({ extractId, selectedText, extractContent, sel
         }
     };
 
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <div
-                className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-                onClick={onCancel}
-            />
+    const handleSubmitRef = useRef(handleSubmit);
+    handleSubmitRef.current = handleSubmit;
+    const onCancelRef = useRef(onCancel);
+    onCancelRef.current = onCancel;
 
-            <div className="relative w-full max-w-2xl bg-card border border-border rounded-xl shadow-2xl flex flex-col max-h-[90vh]">
+    useEffect(() => {
+        const handleWindowKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                onCancelRef.current();
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+                void handleSubmitRef.current();
+            }
+        };
+        window.addEventListener("keydown", handleWindowKeyDown);
+        return () => window.removeEventListener("keydown", handleWindowKeyDown);
+    }, []);
+
+    const isDocked = mode === "docked";
+
+    return (
+        <div
+            className={cn(
+                isDocked
+                    ? cn(
+                          "fixed z-40 pointer-events-none flex p-4",
+                          dockPosition === "bottom"
+                              ? "inset-x-0 bottom-0 justify-center"
+                              : "inset-x-0 bottom-0 justify-center lg:inset-x-auto lg:inset-y-0 lg:right-0 lg:justify-end lg:items-center"
+                      )
+                    : "fixed inset-0 z-50 flex items-center justify-center p-4"
+            )}
+        >
+            {!isDocked && (
+                <div
+                    className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+                    onClick={onCancel}
+                />
+            )}
+
+            <div
+                data-split-sheet="true"
+                data-creator-mode={mode}
+                onKeyDown={(e) => {
+                    if (e.key !== "Escape") {
+                        e.stopPropagation();
+                    }
+                }}
+                className={cn(
+                    "pointer-events-auto relative bg-card border border-border rounded-xl shadow-2xl flex flex-col",
+                    isDocked
+                        ? dockPosition === "bottom"
+                            ? "w-full max-w-3xl max-h-[380px]"
+                            : "w-full max-w-3xl max-h-[380px] lg:w-[min(420px,92vw)] lg:max-h-[90vh]"
+                        : "w-full max-w-2xl max-h-[90vh]"
+                )}
+            >
                 {/* Header */}
                 <div className="flex items-center justify-between p-6 border-b border-border">
                     <div className="flex items-center gap-3">
@@ -175,7 +247,17 @@ export function ClozeCreatorPopup({ extractId, selectedText, extractContent, sel
                         </div>
                     )}
                     <div className="flex flex-col gap-2">
-                        <label className="text-sm font-medium text-foreground">{t("extracts.cardText")}</label>
+                        <div className="flex items-center justify-between gap-2">
+                            <label className="text-sm font-medium text-foreground">{t("extracts.cardText")}</label>
+                            <button
+                                type="button"
+                                onClick={handleInsertSelection}
+                                className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                            >
+                                <ClipboardText className="w-3.5 h-3.5" />
+                                Insert Current Selection
+                            </button>
+                        </div>
                         <textarea
                             ref={textareaRef}
                             value={text}

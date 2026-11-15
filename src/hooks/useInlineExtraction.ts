@@ -2,6 +2,8 @@
 import { useEffect, useCallback, useRef } from "react";
 import { useToast } from "../components/common/Toast";
 import { useI18n } from "../lib/i18n";
+import { createExtract } from "../api/extracts";
+import { createClozeFromExtract } from "../api/extract-review";
 
 export interface ExtractOptions {
   documentId: string;
@@ -53,7 +55,7 @@ export function useInlineExtraction({
     if (selection) selection.removeAllRanges();
   }, []);
 
-  const flashSelection = useCallback((range: Range) => {
+  const flashSelection = useCallback((range: Range, variant: "blue" | "green" = "blue") => {
     const selection = window.getSelection();
     if (!selection) return;
 
@@ -64,12 +66,16 @@ export function useInlineExtraction({
     for (let i = 0; i < rects.length; i++) {
       const rect = rects[i];
       const flash = document.createElement("div");
-      flash.className = "absolute pointer-events-none animate-flash-extract";
+      flash.className =
+        variant === "green"
+          ? "absolute pointer-events-none animate-flash-extract-green"
+          : "absolute pointer-events-none animate-flash-extract";
       flash.style.left = `${rect.left + window.scrollX}px`;
       flash.style.top = `${rect.top + window.scrollY}px`;
       flash.style.width = `${rect.width}px`;
       flash.style.height = `${rect.height}px`;
-      flash.style.backgroundColor = "rgba(59, 130, 246, 0.2)";
+      flash.style.backgroundColor =
+        variant === "green" ? "rgba(34, 197, 94, 0.35)" : "rgba(59, 130, 246, 0.2)";
       flash.style.zIndex = "9999";
       document.body.appendChild(flash);
       flashes.push(flash);
@@ -77,7 +83,7 @@ export function useInlineExtraction({
 
     setTimeout(() => {
       flashes.forEach((f) => f.remove());
-    }, 300);
+    }, 450);
   }, []);
 
   const handleExtract = useCallback(async () => {
@@ -164,9 +170,51 @@ export function useInlineExtraction({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [enabled, handleExtract, handleCloze]);
 
+  const createChainedClozeFromSelection = useCallback(
+    async (params: {
+      documentId: string;
+      text: string;
+      scrollContainer?: HTMLElement | null;
+      range?: Range | null;
+      parentPrioritySlider?: number;
+      pageNumber?: number;
+    }) => {
+      const trimmed = params.text.trim();
+      if (!trimmed || trimmed.length < 3) return null;
+
+      const savedScrollTop = params.scrollContainer?.scrollTop ?? null;
+      const extract = await createExtract({
+        document_id: params.documentId,
+        content: trimmed,
+        page_number: params.pageNumber,
+      });
+
+      const card = await createClozeFromExtract(extract.id, trimmed, [[0, trimmed.length]]);
+
+      if (params.range) {
+        flashSelection(params.range, "green");
+      }
+
+      if (params.scrollContainer && savedScrollTop !== null) {
+        requestAnimationFrame(() => {
+          if (params.scrollContainer) {
+            params.scrollContainer.scrollTop = savedScrollTop;
+          }
+        });
+      }
+
+      toast.success("Chained Cloze created", `{{c1::${trimmed.slice(0, 32)}${trimmed.length > 32 ? "..." : ""}}}`);
+      return { extract, card };
+    },
+    [flashSelection, toast]
+  );
+
   return {
     handleExtract,
     handleCloze,
+    createChainedClozeFromSelection,
+    getSelectionInfo,
+    clearSelection,
   };
 }
 
@@ -180,5 +228,9 @@ export const flashAnimationStyles = `
   
   .animate-flash-extract {
     animation: flash-extract 0.3s ease-out;
+  }
+
+  .animate-flash-extract-green {
+    animation: flash-extract 0.45s ease-out;
   }
 `;
