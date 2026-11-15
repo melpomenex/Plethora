@@ -84,6 +84,12 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && (inputs.build_ref || inputs.version_tag) || github.ref }}
           submodules: recursive
 
+      - name: Exclude workspace and Cargo from Windows Defender
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, "$env:USERPROFILE\.cargo", "$env:USERPROFILE\.rustup", "$env:RUNNER_TEMP", "$env:USERPROFILE\AppData\Local\npm-cache" -ErrorAction SilentlyContinue
+
       - name: Install Vulkan SDK for Windows Whisper sidecar
         if: matrix.os == 'windows'
         shell: pwsh
@@ -276,9 +282,6 @@ jobs:
       #     # Enable keychain access for GitHub Actions
       #     security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$APPLE_CERTIFICATE_PASSWORD" login.keychain-db || true
 
-      - name: Build frontend
-        run: npm run build
-
       - name: Build sidecar binaries (if missing)
         run: node scripts/download-sidecars.js
 
@@ -332,18 +335,15 @@ jobs:
           POCKET_TTS_BUNDLE_RUNTIME: "1"
           LIBSQLITE3_SYS_USE_PKG_CONFIG: ${{ matrix.os == 'linux' && '1' || '0' }}
           SQLITE3_STATIC: ${{ matrix.os == 'linux' && '0' || '1' }}
-          CARGO_BUILD_JOBS: ${{ matrix.id == 'linux-x86_64' && '1' || (matrix.id == 'linux-aarch64' && '1' || (matrix.id == 'windows-x86_64' && '2' || (matrix.id == 'macos-aarch64' && '3' || ''))) }}
+          CARGO_BUILD_JOBS: "4"
           # Fallback must be a valid integer: an empty CARGO_PROFILE_* env var
           # makes cargo abort with "cannot parse integer from empty string".
           # 16 is cargo's default release codegen-units (no-op when unset).
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
-          # The in-process ThinLTO link of the final lib OOM-killed rustc on
-          # every Linux runner during the v3.0.0 attempts (signal 9 in the
-          # container, runner-agent shutdown signals on the VM legs), even at
-          # codegen-units=16 and CARGO_BUILD_JOBS=2. Drop LTO on Linux legs
-          # only; macOS (7 GB) completed the identical ThinLTO build, so the
-          # non-Linux artifacts keep cross-crate inlining.
-          CARGO_PROFILE_RELEASE_LTO: ${{ matrix.os == 'linux' && 'off' || 'thin' }}
+          # ThinLTO on 16 GB runners either OOM-killed Linux or thrashed the
+          # Windows pagefile for 4.5+ hours. Keep LTO off across CI legs so
+          # releases finish in ~30-45m instead of 2-5+ hours.
+          CARGO_PROFILE_RELEASE_LTO: "off"
           # Fully serialize Linux builds and route linking through lld: the
           # final-crate cdylib link against ~250 rlibs is the memory peak that
           # killed the runner agents; one rustc at a time plus lld keeps it
@@ -634,9 +634,6 @@ jobs:
           test "${TAURI_VERSION}" = "${TAG_VERSION}"
           test "${CARGO_VERSION}" = "${TAG_VERSION}"
 
-      - name: Build frontend
-        run: npm run build
-
       - name: Build sidecar binaries (if missing)
         run: node scripts/download-sidecars.js
 
@@ -654,7 +651,7 @@ jobs:
           # + serialized builds + lld keep the compile inside runner RAM.
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           CARGO_PROFILE_RELEASE_LTO: "off"
-          CARGO_BUILD_JOBS: "1"
+          CARGO_BUILD_JOBS: "4"
           RUSTFLAGS: -C link-arg=-fuse-ld=lld
 
       # ci-build-appimage.sh repacks the AppImage after Tauri builds it
@@ -836,9 +833,6 @@ jobs:
           test "${TAURI_VERSION}" = "${TAG_VERSION}"
           test "${CARGO_VERSION}" = "${TAG_VERSION}"
 
-      - name: Build frontend
-        run: npm run build
-
       - name: Build sidecar binaries (if missing)
         run: node scripts/download-sidecars.js
         env:
@@ -859,7 +853,7 @@ jobs:
           RUSTFLAGS: -C link-arg=-lsqlite3 -C link-arg=-lzstd -C link-arg=-fuse-ld=lld
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           CARGO_PROFILE_RELEASE_LTO: "off"
-          CARGO_BUILD_JOBS: "1"
+          CARGO_BUILD_JOBS: "4"
 
       - name: Create Pacman package
         run: |

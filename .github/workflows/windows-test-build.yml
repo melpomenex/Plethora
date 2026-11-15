@@ -69,6 +69,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Exclude workspace and Cargo from Windows Defender
+        shell: pwsh
+        run: |
+          Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE, "$env:USERPROFILE\.cargo", "$env:USERPROFILE\.rustup", "$env:RUNNER_TEMP", "$env:USERPROFILE\AppData\Local\npm-cache" -ErrorAction SilentlyContinue
+
       - name: Install Vulkan SDK for Windows Whisper sidecar
         shell: pwsh
         run: ./scripts/install-windows-vulkan-sdk.ps1
@@ -94,9 +99,6 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
-
-      - name: Build frontend
-        run: npm run build
 
       - name: Build sidecar binaries (if missing)
         run: node scripts/download-sidecars.js
@@ -142,9 +144,9 @@ jobs:
           SQLITE3_STATIC: "1"
           VCPKGRS_DYNAMIC: "0"
           SQLX_OFFLINE: "true"
-          CARGO_BUILD_JOBS: "2"
+          CARGO_BUILD_JOBS: "4"
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
-          CARGO_PROFILE_RELEASE_LTO: "thin"
+          CARGO_PROFILE_RELEASE_LTO: "off"
 
       # The identity package must have been produced by the pack step: without it
       # the bundle ships no identity at all (verify-windows-manifests.ps1 then

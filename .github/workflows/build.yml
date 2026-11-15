@@ -86,6 +86,9 @@ jobs:
           SQLITE3_STATIC: "1"
           VCPKGRS_DYNAMIC: "0"
           SQLX_OFFLINE: "true"
+          CARGO_BUILD_JOBS: "4"
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+          CARGO_PROFILE_RELEASE_LTO: "off"
 
       - name: Verify Windows bundles include NotebookLM runtime
         shell: pwsh
@@ -279,11 +282,12 @@ jobs:
           POCKET_TTS_BUNDLE_RUNTIME: "1"
           LIBSQLITE3_SYS_USE_PKG_CONFIG: ${{ matrix.os == 'linux' && '1' || '0' }}
           SQLITE3_STATIC: ${{ matrix.os == 'linux' && '0' || '1' }}
-          CARGO_BUILD_JOBS: ${{ matrix.id == 'linux-x86_64' && '2' || (matrix.id == 'linux-aarch64' && '2' || (matrix.id == 'windows-x86_64' && '2' || (matrix.id == 'macos-aarch64' && '3' || ''))) }}
+          CARGO_BUILD_JOBS: "4"
           # Fallback must be a valid integer: an empty CARGO_PROFILE_* env var
           # makes cargo abort with "cannot parse integer from empty string".
           # 16 is cargo's default release codegen-units (no-op when unset).
-          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: ${{ matrix.os == 'linux' && '4' || '16' }}
+          CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
+          CARGO_PROFILE_RELEASE_LTO: "off"
           VCPKGRS_DYNAMIC: ${{ matrix.os == 'windows' && '0' || '' }}
           SQLX_OFFLINE: "true"
           TAURI_SIGNING_IDENTITY: "-"

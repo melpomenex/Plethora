@@ -321,7 +321,7 @@ jobs:
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.workers.max=2 -Dkotlin.daemon.jvm.options=-Xmx1g"
           # Serialize cargo jobs so the linker/LTO pass doesn't compound memory
           # pressure on top of Gradle's JVM.
-          CARGO_BUILD_JOBS: "1"
+          CARGO_BUILD_JOBS: "4"
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           CARGO_PROFILE_RELEASE_LTO: "off"
           # The tauri CLI already cargo-builds the Rust lib and symlinks it into
