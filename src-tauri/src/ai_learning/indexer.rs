@@ -430,6 +430,10 @@ pub async fn index_document_once(
     all_chunks.extend(build_card_chunks(repo, document_id).await);
 
     let total = all_chunks.len() as i64;
+    // Reconcile stored chunks before the empty-result return so stale source
+    // content is removed when a document no longer produces indexable chunks.
+    apply_chunk_diff(repo, document_id, &all_chunks).await?;
+
     if all_chunks.is_empty() {
         // Nothing indexable (e.g. a scanned PDF awaiting OCR): record an
         // honest empty success so the document is not perpetually requeued.
@@ -445,9 +449,6 @@ pub async fn index_document_once(
         .await?;
         return Ok(IndexOutcome::Completed);
     }
-
-    // 3. Hash diff: delete orphans, insert new, refresh metadata of retained.
-    apply_chunk_diff(repo, document_id, &all_chunks).await?;
 
     // 4. Embed missing/stale chunks, per-chunk commits, interrupt checks.
     let embed = embed_chunks(repo, document_id, backend, should_continue).await?;

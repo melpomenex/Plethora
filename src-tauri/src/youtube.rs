@@ -2175,13 +2175,13 @@ mod canonical_transcript_tests {
             .connect("sqlite::memory:")
             .await
             .unwrap();
-        sqlx::query("CREATE TABLE documents (id TEXT PRIMARY KEY, file_path TEXT, file_type TEXT, content TEXT); CREATE TABLE youtube_transcripts (id TEXT PRIMARY KEY, document_id TEXT, video_id TEXT UNIQUE, transcript TEXT NOT NULL, segments_json TEXT NOT NULL, date_created TEXT, date_modified TEXT, word_timings_version INTEGER, language TEXT)").execute(&pool).await.unwrap();
+        sqlx::query("CREATE TABLE documents (id TEXT PRIMARY KEY, file_path TEXT, file_type TEXT, content TEXT, content_hash TEXT, content_updated_at TEXT, date_modified TEXT); CREATE TABLE youtube_transcripts (id TEXT PRIMARY KEY, document_id TEXT, video_id TEXT UNIQUE, transcript TEXT NOT NULL, segments_json TEXT NOT NULL, date_created TEXT, date_modified TEXT, word_timings_version INTEGER, language TEXT); CREATE TABLE ai_index_state (document_id TEXT PRIMARY KEY, state TEXT NOT NULL); CREATE TABLE semantic_chunks (id TEXT PRIMARY KEY, document_id TEXT NOT NULL)").execute(&pool).await.unwrap();
         Repository::new(pool)
     }
     #[tokio::test]
     async fn canonical_persistence_updates_document_and_serves_cache_without_network() {
         let repo = repo().await;
-        sqlx::query("INSERT INTO documents VALUES ('doc','https://youtube.com/watch?v=video123','youtube',NULL)").execute(repo.pool()).await.unwrap();
+        sqlx::query("INSERT INTO documents (id, file_path, file_type, content) VALUES ('doc','https://youtube.com/watch?v=video123','youtube',NULL)").execute(repo.pool()).await.unwrap();
         let segments = vec![TranscriptSegment {
             start: 7190.0,
             duration: 10.0,
@@ -2226,7 +2226,7 @@ mod canonical_transcript_tests {
     #[tokio::test]
     async fn persist_canonical_transcript_keeps_every_segment() {
         let repo = repo().await;
-        sqlx::query("INSERT INTO documents VALUES ('doc-long','https://youtube.com/watch?v=longvideo123','youtube',NULL)")
+        sqlx::query("INSERT INTO documents (id, file_path, file_type, content) VALUES ('doc-long','https://youtube.com/watch?v=longvideo123','youtube',NULL)")
             .execute(repo.pool())
             .await
             .unwrap();

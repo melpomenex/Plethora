@@ -1,5 +1,10 @@
+### Added
+
+- **Interactive study plan graph** — Explore plans visually, inspect their structure, and navigate the learning path and its sources.
+
 ### Fixed & Improved
 
-- **Assistant conversation scroll position** — Preserve the user's position when reading earlier messages, preventing automatic jumps to the top during temporary panel layout changes beside a document or EPUB.
-- **Transcription runtime packaging** — Pin Cactus 4.1.0 at an immutable upstream revision so release builds use a stable transcription sidecar.
-- **Release packaging reliability** — Improve release asset backfills and make release script tests more portable across environments.
+- **Study sources and search** — Improve source grounding and validation, remove stale indexed chunks when sources disappear, and expand command palette search and navigation.
+- **Assessment preflight** — Preserve a usable AI assessment generation route when provider checks need a fallback.
+- **YouTube transcripts** — Use canonical timed transcript content so saved transcripts retain the intended text and timing.
+- **Android release builds** — Harden build memory handling to reduce out-of-memory failures.

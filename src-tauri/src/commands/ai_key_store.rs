@@ -432,7 +432,7 @@ mod tests {
     /// migrated forward — without the legacy entry being deleted.
     #[tokio::test]
     async fn read_through_legacy_keyring_migrates_without_deleting() {
-        force_keyring_for_tests();
+        let _keyring_override = force_keyring_for_tests();
         let keyring = MemoryKeyring::new();
         keyring.seed(LEGACY_KEYRING_SERVICE, "openai", "sk-legacy");
 
@@ -461,7 +461,7 @@ mod tests {
     /// readable and copied forward; the legacy file survives.
     #[tokio::test]
     async fn read_through_legacy_encrypted_file_copies_forward() {
-        force_keyring_for_tests();
+        let _keyring_override = force_keyring_for_tests();
         let keyring = MemoryKeyring::new();
         let base = temp_dir("file");
         let new_dir = base.join("com.plethora.app");
@@ -496,7 +496,7 @@ mod tests {
     /// Explicit removal (user disconnect) clears BOTH service entries.
     #[tokio::test]
     async fn remove_clears_new_and_legacy_entries() {
-        force_keyring_for_tests();
+        let _keyring_override = force_keyring_for_tests();
         let keyring = MemoryKeyring::new();
         keyring.seed(KEYRING_SERVICE, "openai", "sk-new");
         keyring.seed(LEGACY_KEYRING_SERVICE, "openai", "sk-old");

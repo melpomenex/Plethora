@@ -240,7 +240,7 @@ mod tests {
         let extract = Extract::new(private.id.clone(), "Private quote".into());
         repo.create_extract(&extract).await.unwrap();
         let mut card = LearningItem::new(ItemType::Flashcard, "Cross-source question?".into());
-        card.document_id = Some(public.id.clone());
+        card.document_id = Some(private.id.clone());
         card.extract_id = Some(extract.id.clone());
         repo.create_learning_item(&card).await.unwrap();
         let count: i64 =

@@ -34,8 +34,9 @@ pub fn env_or_legacy(name: &str) -> Option<String> {
 /// without mutating process environment variables (which would race other
 /// parallel tests).
 #[cfg(test)]
-static TEST_FORCE_KEYRING: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+thread_local! {
+    static TEST_FORCE_KEYRING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
 
 /// Returns `true` only when the user has explicitly opted into OS keychain use
 /// via `PLETHORA_USE_KEYCHAIN=1` (legacy `INCREMENTUM_USE_KEYCHAIN=1`
@@ -43,17 +44,47 @@ static TEST_FORCE_KEYRING: std::sync::atomic::AtomicBool =
 pub fn keychain_enabled() -> bool {
     #[cfg(test)]
     {
-        if TEST_FORCE_KEYRING.load(std::sync::atomic::Ordering::Relaxed) {
+        if TEST_FORCE_KEYRING.get() {
             return true;
         }
     }
     env_or_legacy("PLETHORA_USE_KEYCHAIN").as_deref() == Some("1")
 }
 
-/// Force-enable the keychain path for the duration of a test.
+/// Force-enable the keychain path for the scope of a test on the current
+/// thread. The guard restores the prior value when dropped, so one test cannot
+/// opt later tests into the operating system keychain.
 #[cfg(test)]
-pub fn force_keyring_for_tests() {
-    TEST_FORCE_KEYRING.store(true, std::sync::atomic::Ordering::Relaxed);
+pub fn force_keyring_for_tests() -> TestKeyringOverride {
+    let previous = TEST_FORCE_KEYRING.replace(true);
+    TestKeyringOverride { previous }
+}
+
+#[cfg(test)]
+pub struct TestKeyringOverride {
+    previous: bool,
+}
+
+#[cfg(test)]
+impl Drop for TestKeyringOverride {
+    fn drop(&mut self) {
+        TEST_FORCE_KEYRING.set(self.previous);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{force_keyring_for_tests, TEST_FORCE_KEYRING};
+
+    #[test]
+    fn test_keyring_override_is_scoped_and_restored() {
+        assert!(!TEST_FORCE_KEYRING.get());
+        {
+            let _override = force_keyring_for_tests();
+            assert!(TEST_FORCE_KEYRING.get());
+        }
+        assert!(!TEST_FORCE_KEYRING.get());
+    }
 }
 
 /// The OS keychain operations the secret stores need, behind a trait so unit

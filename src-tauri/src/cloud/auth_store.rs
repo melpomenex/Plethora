@@ -530,7 +530,7 @@ mod tests {
     /// forward, and the legacy entry survives.
     #[tokio::test]
     async fn read_through_legacy_keyring_migrates_without_deleting() {
-        force_keyring_for_tests();
+        let _keyring_override = force_keyring_for_tests();
         let keyring = MemoryKeyring::new();
         let token = sample_token();
         keyring.seed(
@@ -565,7 +565,7 @@ mod tests {
     /// is copied forward; the legacy file survives.
     #[tokio::test]
     async fn read_through_legacy_encrypted_file_copies_forward() {
-        force_keyring_for_tests();
+        let _keyring_override = force_keyring_for_tests();
         let keyring = MemoryKeyring::new();
         let base = temp_dir("file");
         let new_dir = base.join("com.plethora.app");

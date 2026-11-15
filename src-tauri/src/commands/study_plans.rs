@@ -206,7 +206,7 @@ mod tests {
                 locked: false,
                 user_added: true,
                 user_modified: false,
-                material_support: MaterialSupport::Grounded,
+                material_support: MaterialSupport::NotValidated,
                 why_here: None,
                 source_ref_ids: vec![],
             }]),
