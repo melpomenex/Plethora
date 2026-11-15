@@ -1484,13 +1484,19 @@ export function DocumentViewer({
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "j") {
-        const target = event.target as HTMLElement | null;
-        if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
-          return;
-        }
+      const target = event.target as HTMLElement | null;
+      if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+        return;
+      }
+      const mod = event.metaKey || event.ctrlKey;
+      if (!mod || event.altKey) return;
+      const lower = event.key.toLowerCase();
+      if (!event.shiftKey && lower === "j") {
         event.preventDefault();
         setIsSocraticMarginOpen((prev) => !prev);
+      } else if (event.shiftKey && lower === "q") {
+        event.preventDefault();
+        setIsDockedQAOpen((prev) => !prev);
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -5013,15 +5019,15 @@ export function DocumentViewer({
         }
       }
 
-      // J / K smooth scrolling
-      if (lowerKey === "j") {
+      // J / K smooth scrolling (only when no modifier keys are held)
+      if (!e.ctrlKey && !e.metaKey && !e.altKey && lowerKey === "j") {
         e.preventDefault();
         if (docType === "html") {
           scrollHtmlIframe("down");
         } else if (docType === "markdown") {
           scrollDocumentContainer("down");
         }
-      } else if (lowerKey === "k") {
+      } else if (!e.ctrlKey && !e.metaKey && !e.altKey && lowerKey === "k") {
         e.preventDefault();
         if (docType === "html") {
           scrollHtmlIframe("up");
@@ -7201,9 +7207,31 @@ export function DocumentViewer({
         }
 
         const lowerKey = e.key.toLowerCase();
+        const mod = e.metaKey || e.ctrlKey;
         if (isCommandPaletteOpenShortcut(e)) {
           e.preventDefault();
           dispatchCommandPaletteOpen();
+        } else if (
+          mod &&
+          !e.altKey &&
+          ((!e.shiftKey && (e.key === "\\" || e.code === "Backslash")) ||
+            (e.shiftKey && lowerKey === "q") ||
+            (!e.shiftKey && lowerKey === "j"))
+        ) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          window.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: e.key,
+              code: e.code,
+              ctrlKey: e.ctrlKey,
+              metaKey: e.metaKey,
+              shiftKey: e.shiftKey,
+              altKey: e.altKey,
+              bubbles: true,
+              cancelable: true,
+            })
+          );
         } else if (e.key === "Escape") {
           e.preventDefault();
           e.stopImmediatePropagation();
@@ -7213,10 +7241,10 @@ export function DocumentViewer({
           if (activeExtractSelection) {
             clearTextSelection();
           }
-        } else if (lowerKey === "j") {
+        } else if (!mod && !e.altKey && lowerKey === "j") {
           e.preventDefault();
           scrollHtmlIframe("down");
-        } else if (lowerKey === "k") {
+        } else if (!mod && !e.altKey && lowerKey === "k") {
           e.preventDefault();
           scrollHtmlIframe("up");
         }

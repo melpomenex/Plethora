@@ -133,8 +133,8 @@ export function MainLayout() {
         useUIStore.getState().toggleDensityMode();
       }
     };
-    window.addEventListener("keydown", handleDensityKeyDown);
-    return () => window.removeEventListener("keydown", handleDensityKeyDown);
+    window.addEventListener("keydown", handleDensityKeyDown, true);
+    return () => window.removeEventListener("keydown", handleDensityKeyDown, true);
   }, []);
 
   // Find the first tab pane and its active tab for keyboard navigation

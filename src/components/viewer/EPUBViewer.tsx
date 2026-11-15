@@ -646,7 +646,9 @@ export function EPUBViewer({
   passageContentBridge,
 }: EPUBViewerProps) {
   const viewerRef = useRef<HTMLDivElement>(null);
-  const { breakoutTrigger, breakoutModal } = useBreakoutOverlay(viewerRef);
+  const { attachToDocument: attachBreakoutToDocument, breakoutTrigger, breakoutModal } = useBreakoutOverlay(viewerRef);
+  const attachBreakoutToDocumentRef = useRef(attachBreakoutToDocument);
+  attachBreakoutToDocumentRef.current = attachBreakoutToDocument;
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rendition, setRendition] = useState<any>(null);
@@ -2097,6 +2099,9 @@ export function EPUBViewer({
             contents.document.addEventListener("contextmenu", handleAnnotationContextMenu);
             annotationMenuDetachers.push(() => contents.document.removeEventListener("contextmenu", handleAnnotationContextMenu));
 
+            const epubIframeEl = (contents.window?.frameElement || viewerRef.current?.querySelector("iframe")) as HTMLIFrameElement | null;
+            annotationMenuDetachers.push(attachBreakoutToDocumentRef.current(contents.document, epubIframeEl));
+
             // Forward click events from EPUB iframe to parent window for overlay toggle
             contents.document.addEventListener("click", (e: MouseEvent) => {
               if ((e.target as HTMLElement).closest('a, button, input, select, textarea, .interactive')) {
@@ -2133,6 +2138,34 @@ export function EPUBViewer({
             contents.window.addEventListener("keydown", handleCommandPaletteHotkey, true);
             contents.window.addEventListener("keydown", handleExtractTextHotkey, true);
             contents.window.addEventListener("keydown", handlePriorityHotkey, true);
+            const handleOverhaulIframeShortcuts = (e: KeyboardEvent) => {
+              const mod = e.metaKey || e.ctrlKey;
+              if (!mod || e.altKey) return;
+              const lower = e.key.toLowerCase();
+              const isDensity = !e.shiftKey && (e.key === "\\" || e.code === "Backslash");
+              const isDockedQA = e.shiftKey && lower === "q";
+              const isSocratic = !e.shiftKey && lower === "j";
+              if (!isDensity && !isDockedQA && !isSocratic) return;
+              const target = e.target as HTMLElement | null;
+              if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+                return;
+              }
+              e.preventDefault();
+              e.stopImmediatePropagation();
+              window.dispatchEvent(
+                new KeyboardEvent("keydown", {
+                  key: e.key,
+                  code: e.code,
+                  ctrlKey: e.ctrlKey,
+                  metaKey: e.metaKey,
+                  shiftKey: e.shiftKey,
+                  altKey: e.altKey,
+                  bubbles: true,
+                  cancelable: true,
+                })
+              );
+            };
+            contents.window.addEventListener("keydown", handleOverhaulIframeShortcuts, true);
             // Reserved interface-zoom chords must be claimed before the document
             // forwarders below. `rendered` can fire repeatedly for the same iframe
             // window, so the shared helper attaches at most once per window.
@@ -3422,14 +3455,15 @@ export function EPUBViewer({
     )) return;
 
     const lowerKey = e.key.toLowerCase();
+    const hasModifier = e.ctrlKey || e.metaKey || e.altKey;
 
-    // J / K scroll navigation (suppressed when vim reading mode is active)
-    if (lowerKey === "j") {
+    // J / K scroll navigation (suppressed when vim reading mode is active or modifiers held)
+    if (!hasModifier && lowerKey === "j") {
       if (useVimModeStore.getState().mode === "inactive") {
         e.preventDefault();
         scrollEpub("down");
       }
-    } else if (lowerKey === "k") {
+    } else if (!hasModifier && lowerKey === "k") {
       if (useVimModeStore.getState().mode === "inactive") {
         e.preventDefault();
         scrollEpub("up");
@@ -3437,12 +3471,12 @@ export function EPUBViewer({
     }
 
     // H / L and Arrow keys for TOC navigation (suppressed when vim mode is active)
-    else if (lowerKey === "h" || e.key === "ArrowLeft") {
+    else if ((!hasModifier && lowerKey === "h") || e.key === "ArrowLeft") {
       if (useVimModeStore.getState().mode === "inactive") {
         e.preventDefault();
         void handlePrevToc();
       }
-    } else if (lowerKey === "l" || e.key === "ArrowRight") {
+    } else if ((!hasModifier && lowerKey === "l") || e.key === "ArrowRight") {
       if (useVimModeStore.getState().mode === "inactive") {
         e.preventDefault();
         void handleNextToc();

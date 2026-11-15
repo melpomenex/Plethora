@@ -218,6 +218,37 @@ export function useBreakoutOverlay(containerRef: RefObject<HTMLElement | null>) 
     });
   }, []);
 
+  const attachToDocument = useCallback(
+    (doc: Document, frameElement?: HTMLIFrameElement | null) => {
+      const handleOverOrFocus = (event: Event) => {
+        const target = event.target;
+        if (!(target instanceof doc.defaultView!.Element || target instanceof Element)) return;
+        const block = (target as Element).closest(BREAKOUT_BLOCK_SELECTOR);
+        if (!block) return;
+        const rect = block.getBoundingClientRect();
+        const frameRect = frameElement?.getBoundingClientRect();
+        const top = (frameRect?.top ?? 0) + rect.top;
+        const right = (frameRect?.left ?? 0) + rect.right;
+        setHoveredBlock({
+          title: resolveBreakoutTitle(block),
+          html: block.outerHTML,
+          rect: {
+            top: Math.max(8, top + 6),
+            right: Math.max(8, window.innerWidth - right + 6),
+          },
+        });
+      };
+
+      doc.addEventListener("mouseover", handleOverOrFocus);
+      doc.addEventListener("focusin", handleOverOrFocus);
+      return () => {
+        doc.removeEventListener("mouseover", handleOverOrFocus);
+        doc.removeEventListener("focusin", handleOverOrFocus);
+      };
+    },
+    []
+  );
+
   useEffect(() => {
     const root = containerRef.current;
     if (!root) return;
@@ -279,6 +310,7 @@ export function useBreakoutOverlay(containerRef: RefObject<HTMLElement | null>) 
 
   return {
     openBreakout,
+    attachToDocument,
     breakoutTrigger,
     breakoutModal,
   };
