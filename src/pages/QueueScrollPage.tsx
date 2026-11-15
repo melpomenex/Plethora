@@ -56,7 +56,7 @@ import { sanitizeHtml } from "../components/common/RichContentRenderer";
 import { getDueExtracts, submitExtractReview } from "../api/extract-review";
 import { useVideoExtractReview } from "../hooks/useVideoExtractReview";
 import { deleteVideoExtract, setVideoExtractQueueMembership } from "../api/video-extracts";
-import { createExtract, deleteExtract, getExtract, type Extract } from "../api/extracts";
+import { createExtract, deleteExtract, getExtract, updateExtract, type Extract } from "../api/extracts";
 import { dispatchPriorityCommit, resolveDisplaySlider, resolveExtractDisplaySlider } from "../services/priority/priorityCommit";
 import { usePriorityPopup } from "../components/documents/usePriorityPopup";
 import { eventMatchesCombo, getShortcutCombo } from "../components/common/KeyboardShortcuts";
@@ -142,8 +142,17 @@ import { useQueueTimeTracker, type QueueTimedTarget } from "../hooks/useQueueTim
 import { DocumentViewer as DocumentViewerTab } from "../components/tabs/TabRegistry";
 import { ScrollQueueSettings } from "../components/queue/ScrollQueueSettings";
 import { ScrollOverlayControls } from "../components/queue/ScrollOverlayControls";
+import { EndOfItemTriageBar, isEditableEventTarget } from "../components/queue/EndOfItemTriageBar";
+import { buildTimeboxPlaylist, type TimeboxPresetId } from "../utils/timeboxPlaylistBuilder";
+import { TimeboxSessionLauncher, TimeboxCompletionRing } from "../components/queue/TimeboxSessionLauncher";
+import {
+  TriageCompostSweepModal,
+  getStaleCompostCandidates,
+  type CompostCandidate,
+} from "../components/queue/TriageCompostSweepModal";
+import type { QueueProvenanceInfo } from "../components/queue/QueueProvenancePill";
 import type { ExtractSourceContext } from "../types/extractNavigation";
-import { bulkSuspendItems, bulkUpdateTypedItemPriorities, getQueueExternalPriorities } from "../api/queue";
+import { bulkSuspendItems, bulkUpdateTypedItemPriorities, getQueueExternalPriorities, postponeItem } from "../api/queue";
 import { ModernSummaryPanel } from "../components/media/summary";
 import { useSummaryCache } from "../utils/rssSummary";
 import {
@@ -635,6 +644,46 @@ export function QueueScrollPage() {
     setIsImageExpanded(settings.rssQueue.showCoverImage ?? false);
   }, [currentIndex, settings.rssQueue.showCoverImage]);
   const [scrollItems, setScrollItems] = useState<ScrollItem[]>([]);
+  const [isCompostSweepOpen, setIsCompostSweepOpen] = useState(false);
+  const [activeTimeboxPreset, setActiveTimeboxPreset] = useState<TimeboxPresetId | null>(null);
+  const [unboxedItemsBackup, setUnboxedItemsBackup] = useState<ScrollItem[] | null>(null);
+
+  const compostCandidates = useMemo<CompostCandidate[]>(() => {
+    const extractItems = scrollItems
+      .filter((item) => item.type === "extract" && item.extract)
+      .map((item) => ({
+        id: item.extract!.id,
+        title: item.documentTitle || "Extract",
+        content: item.extract!.content,
+        prioritySlider: item.extract!.priority_slider ?? item.queuePriority ?? 50,
+        postponeCount: (item.extract as { postpone_count?: number }).postpone_count ?? 0,
+        documentTitle: item.documentTitle,
+      }));
+    return getStaleCompostCandidates(extractItems, 3);
+  }, [scrollItems]);
+
+  const handleSelectTimeboxPreset = useCallback(
+    (preset: TimeboxPresetId) => {
+      const source = unboxedItemsBackup ?? scrollItems;
+      if (!unboxedItemsBackup) {
+        setUnboxedItemsBackup(scrollItems);
+      }
+      const playlist = buildTimeboxPlaylist(source, { preset });
+      setActiveTimeboxPreset(preset);
+      setScrollItems(playlist.items);
+      setCurrentIndex(0);
+    },
+    [scrollItems, unboxedItemsBackup]
+  );
+
+  const handleClearTimeboxPreset = useCallback(() => {
+    setActiveTimeboxPreset(null);
+    if (unboxedItemsBackup) {
+      setScrollItems(unboxedItemsBackup);
+      setUnboxedItemsBackup(null);
+      setCurrentIndex(0);
+    }
+  }, [unboxedItemsBackup]);
   const [externalPriorities, setExternalPriorities] = useState<Record<string, number>>({});
   const externalPriorityRevision = useRef(0);
   const [externalPrioritiesLoaded, setExternalPrioritiesLoaded] = useState(false);
@@ -2518,6 +2567,50 @@ export function QueueScrollPage() {
     return result;
   }, [detailsQueueItem, postponeItemSmart, queryClient]);
 
+  const currentProvenanceInfo = useMemo<QueueProvenanceInfo | undefined>(() => {
+    if (!currentItem) return undefined;
+    const isInheritedChild =
+      currentItem.type === "extract"
+        ? currentItem.extract?.priority_slider == null
+        : currentItem.type === "flashcard"
+          ? currentItem.learningItem?.priority_explicitly_set === false
+          : currentItem.type === "video-extract"
+            ? true
+            : false;
+    const explicitSet =
+      currentItem.type === "document"
+        ? Boolean(currentDocument?.priorityExplicitlySet ?? true)
+        : !isInheritedChild;
+
+    return {
+      itemId: currentItem.id,
+      itemType: currentItem.type,
+      orderingMode: strictManual ? "strict_manual" : "adaptive",
+      algorithmType:
+        currentItem.learningItem?.algorithm_type ??
+        detailsQueueItem?.algorithmType ??
+        settings.learning?.algorithm,
+      prioritySlider: currentPrioritySlider ?? 50,
+      priorityExplicitlySet: explicitSet,
+      parentDocumentId: currentItem.documentId,
+      parentDocumentTitle:
+        currentItem.type === "document"
+          ? undefined
+          : (currentDocument?.title || currentItem.documentTitle || undefined),
+      stability:
+        currentItem.learningItem?.memory_state?.stability ??
+        detailsQueueItem?.stability,
+      retrievability: detailsQueueItem?.retrievability,
+    };
+  }, [
+    currentItem,
+    currentDocument,
+    currentPrioritySlider,
+    detailsQueueItem,
+    settings.learning?.algorithm,
+    strictManual,
+  ]);
+
   const handleNavigateToTaggedItem = useCallback((item: TaggedItemSummary) => {
     if (item.itemType === "document") {
       addTab({
@@ -3139,6 +3232,30 @@ export function QueueScrollPage() {
     resetScrollToTop();
   }, [currentIndex, resetScrollToTop, isNeuralMode, scrollItems, documentsMap, toast, t, currentItem]);
 
+  const handleProvenanceSnooze = useCallback(
+    async (days: number) => {
+      if (!currentItem) return;
+      const targetId =
+        detailsQueueItem?.id ??
+        (currentItem.type === "flashcard"
+          ? currentItem.learningItem?.id
+          : currentItem.type === "extract"
+            ? currentItem.extract?.id
+            : currentItem.type === "video-extract"
+              ? currentItem.videoExtract?.id
+              : currentItem.documentId) ??
+        currentItem.id;
+      const targetType =
+        detailsQueueItem?.itemType ??
+        (currentItem.type === "flashcard" ? "learning-item" : currentItem.type);
+      await postponeItem(targetId, days, targetType);
+      setItemsReviewedThisSession((prev) => prev + 1);
+      advanceAfterRemoval(currentItem.id);
+      void loadQueue();
+    },
+    [advanceAfterRemoval, currentItem, detailsQueueItem, loadQueue]
+  );
+
   const handleDetailsDelete = useCallback(async () => {
     if (!currentItem || isRating) return;
     const flashcardId = currentItem.type === "flashcard" ? currentItem.learningItem?.id : undefined;
@@ -3553,10 +3670,8 @@ export function QueueScrollPage() {
       // Don't trigger if typing in input
       const target = e.target as HTMLElement | null;
       if (
-        target?.tagName === "INPUT" ||
-        target?.tagName === "TEXTAREA" ||
-        target?.tagName === "SELECT" ||
-        target?.isContentEditable
+        isEditableEventTarget(target) ||
+        isEditableEventTarget(document.activeElement)
       ) {
         return;
       }
@@ -3670,6 +3785,18 @@ export function QueueScrollPage() {
       } else if (e.key === "ArrowLeft") {
         e.preventDefault();
         scrollContentVertically("up");
+      }
+
+      // Cmd+Shift+Q / Ctrl+Shift+Q to toggle docked Q&A creator when on an extract
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "q") {
+        if (currentItem?.type === "extract" && currentItem.extract) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          setActiveExtractForQA((prev) =>
+            prev === currentItem.extract!.id ? null : currentItem.extract!.id
+          );
+          return;
+        }
       }
 
       // Cmd+E / Ctrl+E to edit card when on a flashcard
@@ -4776,11 +4903,16 @@ export function QueueScrollPage() {
           </>
         )}
         <div
+          data-queue-stage-item-type={renderedItem?.type ?? "empty"}
           className={cn(
             "h-full min-h-0 flex-1 min-w-0 overflow-hidden transition-opacity duration-300 relative",
             isTransitioning ? "opacity-0" : "opacity-100"
           )}
-          style={{ minWidth: READER_MIN_WIDTH }}
+          style={{
+            minWidth: READER_MIN_WIDTH,
+            ["--queue-chrome-top" as any]: "68px",
+            ["--queue-chrome-bottom" as any]: "92px",
+          }}
         >
           {renderedItem?.type === "video-extract" && renderedItem.videoExtract ? (
             <DocumentViewer
@@ -5203,12 +5335,38 @@ export function QueueScrollPage() {
       </div>
 
       {/* Popups */}
+      <TriageCompostSweepModal
+        isOpen={isCompostSweepOpen}
+        candidates={compostCandidates}
+        onKeepAndBoost={async (candidate, nextSlider) => {
+          await dispatchPriorityCommit({ kind: "extract", id: candidate.id }, nextSlider);
+        }}
+        onDemoteToVault={async (candidate) => {
+          await postponeItem(candidate.id, 90, "extract");
+          await dispatchPriorityCommit({ kind: "extract", id: candidate.id }, 90);
+        }}
+        onSummarizeAndDrop={async (candidate, summaryText) => {
+          await updateExtract({ id: candidate.id, note: summaryText });
+          await postponeItem(candidate.id, 365, "extract");
+        }}
+        onArchiveOrDelete={async (candidate) => {
+          await deleteExtract(candidate.id);
+          advanceAfterRemoval(`extract-${candidate.id}`);
+        }}
+        onClose={() => {
+          setIsCompostSweepOpen(false);
+          void loadQueue();
+        }}
+      />
+
       {activeExtractForCloze && (
         <ClozeCreatorPopup
           extractId={activeExtractForCloze.id}
           selectedText={activeExtractForCloze.text}
           extractContent={activeExtractForCloze.extractContent}
           selectionRange={activeExtractForCloze.range}
+          mode="docked"
+          onGrabSelection={() => window.getSelection()?.toString().trim() || null}
           onCreated={(item) => {
             setActiveExtractForCloze(null);
             setDueFlashcards(prev => [item, ...prev]);
@@ -5220,6 +5378,8 @@ export function QueueScrollPage() {
       {activeExtractForQA && (
         <QACreatorPopup
           extractId={activeExtractForQA}
+          mode="docked"
+          onGrabSelection={() => window.getSelection()?.toString().trim() || null}
           onCreated={(item) => {
             setActiveExtractForQA(null);
             setDueFlashcards(prev => [item, ...prev]);
@@ -5524,6 +5684,45 @@ export function QueueScrollPage() {
         compositionReport={compositionReport}
       />
 
+      {/* End-of-Item Micro-Triage Bar above [data-rating-dock] */}
+      {showControls && renderedItem && renderedItem.type !== "flashcard" && !isMobile && (
+        <div className="fixed bottom-[88px] left-1/2 -translate-x-1/2 z-20 pointer-events-auto">
+          <EndOfItemTriageBar
+            enableSpaceKey={renderedItem.type === "extract"}
+            onNext={goToNext}
+            onExtract={() => {
+              if (renderedItem.type === "extract" && renderedItem.extract) {
+                const selectedText = window.getSelection()?.toString().trim() || renderedItem.extract.content;
+                setActiveExtractForCloze({
+                  id: renderedItem.extract.id,
+                  text: selectedText,
+                  extractContent: renderedItem.extract.content,
+                  range: [0, 0],
+                });
+              } else if (renderedItem.type === "document" && renderedItem.documentId) {
+                setIsExtractDialogOpen(true);
+              }
+            }}
+            onCreateQA={() => {
+              if (renderedItem.type === "extract" && renderedItem.extract) {
+                setActiveExtractForQA(renderedItem.extract.id);
+              } else if (renderedItem.type === "document" && renderedItem.documentId) {
+                setFlashcardStudioSeed({
+                  key: `scroll-doc-${renderedItem.documentId}-${Date.now()}`,
+                  excerpt: window.getSelection()?.toString().trim() || renderedItem.documentTitle || "",
+                  draftCardType: "qa",
+                  resetDraftCards: true,
+                  autoEditDraft: false,
+                  documentId: renderedItem.documentId,
+                });
+              }
+            }}
+            onArchive={() => void handleDismiss()}
+            onOpenPriority={typeof currentPrioritySlider === "number" ? openCurrentItemPriority : undefined}
+          />
+        </div>
+      )}
+
       {/* Overlay Controls */}
       <ScrollOverlayControls
         showControls={showControls}
@@ -5572,6 +5771,36 @@ export function QueueScrollPage() {
         onDismiss={handleDismiss}
         prioritySlider={currentPrioritySlider}
         onPriorityChange={currentPrioritySlider !== undefined ? handlePriorityChange : undefined}
+        provenanceInfo={currentProvenanceInfo}
+        onSnooze={currentProvenanceInfo ? handleProvenanceSnooze : undefined}
+        onOrderingModeChange={() => {
+          useQueueStore.getState().invalidateQueueGeneration();
+          void loadQueue();
+        }}
+        timeboxRingSlot={
+          <div className="flex items-center gap-1.5">
+            {activeTimeboxPreset && (
+              <TimeboxCompletionRing
+                completedCount={currentIndex}
+                totalCount={scrollItems.length}
+              />
+            )}
+            <TimeboxSessionLauncher
+              activePreset={activeTimeboxPreset}
+              onSelectPreset={handleSelectTimeboxPreset}
+              onClearPreset={handleClearTimeboxPreset}
+            />
+            {compostCandidates.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setIsCompostSweepOpen(true)}
+                className="rounded-lg border border-amber-400/40 bg-amber-500/20 px-2.5 py-1.5 text-xs font-medium text-amber-200 hover:bg-amber-500/30 transition-colors"
+              >
+                Compost ({compostCandidates.length})
+              </button>
+            )}
+          </div>
+        }
         onGoToNext={goToNext}
         onGoToPrevious={goToPrevious}
         isAssistantVisible={isAssistantVisible}

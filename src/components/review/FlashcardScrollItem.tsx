@@ -14,6 +14,9 @@ import {
 import type { LearningItem } from "../../api/learning-items";
 import { FLASHCARD_REVEAL_EVENT } from "../../pages/queueScrollKeyboard";
 import { cn } from "../../utils";
+import { SESSION_CHROME_BOUNDS } from "../queue/SessionChromeHeader";
+import { useUIStore } from "../../stores/uiStore";
+import { LeechRefactorWizard } from "./LeechRefactorWizard";
 import { warmAnkiLatexNormalization } from "../../utils/ankiLatex";
 import { useHapticFeedback } from "../../hooks/useHapticFeedback";
 import { isClozeCardType, hasRawClozeSyntax } from "../../utils/cloze";
@@ -38,6 +41,11 @@ interface FlashcardScrollItemProps {
      *  gate its global 1-4 rating keys on the same "reveal first" rule the
      *  card's own rating buttons follow). */
     onRevealChange?: (revealed: boolean) => void;
+    leechThreshold?: number;
+    parentExtractText?: string | null;
+    onSplitClozes?: (candidates: string[]) => Promise<void> | void;
+    onRewriteWithAi?: () => Promise<string | null> | void;
+    onDemoteToExtract?: () => Promise<void> | void;
 }
 
 /**
@@ -52,11 +60,18 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
     onCreateFlashcard,
     onCreateCloze,
     onCreateQA,
-    onRevealChange
+    onRevealChange,
+    leechThreshold = 4,
+    parentExtractText,
+    onSplitClozes,
+    onRewriteWithAi,
+    onDemoteToExtract,
 }: FlashcardScrollItemProps) {
     const [isAnswerRevealed, setIsAnswerRevealed] = useState(false);
+    const [isLeechDismissed, setIsLeechDismissed] = useState(false);
     const { click } = useHapticFeedback();
     const containerRef = useRef<HTMLDivElement>(null);
+    const densityMode = useUIStore((s) => s.densityMode);
     // Six-grade schedulers (Adaptive/Precision) rate on the native 0-5
     // scale — same shared control, keyboard mapping, and touch joystick as
     // the review session.
@@ -191,52 +206,101 @@ export const FlashcardScrollItem = React.memo(function FlashcardScrollItem({
                 : "Relearning";
 
     return (
-        <div data-paper-surface="inset" ref={containerRef} className="h-full w-full flex flex-col items-center justify-center p-8 bg-gradient-to-b from-background to-muted/30">
-            {/* Card Type Badge */}
-            <div className="absolute top-6 left-6 flex items-center gap-2">
-                <span className="px-3 py-1.5 bg-purple-500/20 text-purple-400 rounded-lg text-sm font-medium">
-                    {learningItem.item_type}
-                </span>
-                <span className="px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-sm font-medium">
-                    {stateLabel}
-                </span>
-                {learningItem.review_count > 0 && (
-                    <span className="px-2 py-1 text-xs text-muted-foreground">
-                        Reviewed {learningItem.review_count}x
-                    </span>
-                )}
-            </div>
-
-            {/* Top Right Controls */}
-            {(onEdit || onDelete) && (
-                <div className="absolute top-6 right-6 flex items-center gap-2">
-                    {onEdit && (
-                        <button
-                            onClick={onEdit}
-                            data-testid="review-card-edit"
-                            className="p-2 rounded-lg bg-card/80 border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shadow-sm"
-                            title="Edit Flashcard (Cmd+E / Ctrl+E)"
-                            aria-label="Edit Flashcard"
-                        >
-                            <Pencil className="w-4 h-4" />
-                        </button>
-                    )}
-                    {onDelete && (
-                        <button
-                            onClick={onDelete}
-                            data-testid="review-card-delete"
-                            className="p-2 rounded-lg bg-card/80 border border-border hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shadow-sm"
-                            title="Delete Flashcard"
-                            aria-label="Delete Flashcard"
-                        >
-                            <Trash className="w-4 h-4" />
-                        </button>
-                    )}
-                </div>
+        <div
+            data-paper-surface="inset"
+            data-flashcard-scroll-surface="true"
+            ref={containerRef}
+            className={cn(
+                "h-full w-full flex flex-col items-center justify-center bg-gradient-to-b from-background to-muted/30 overflow-y-auto",
+                SESSION_CHROME_BOUNDS.SAFE_CONTENT_CLASS
             )}
-
+        >
             {/* Flashcard Container */}
             <div className="w-full max-w-3xl">
+                {/* In-flow card metadata & quick edit/delete row (avoids header chrome collision) */}
+                <div className="flex items-center justify-between gap-2 mb-4 flex-wrap">
+                    <div className="flex items-center gap-2">
+                        <span className="px-3 py-1.5 bg-purple-500/20 text-purple-400 rounded-lg text-sm font-medium">
+                            {learningItem.item_type}
+                        </span>
+                        <span className="px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg text-sm font-medium">
+                            {stateLabel}
+                        </span>
+                        {learningItem.review_count > 0 && (
+                            <span className="px-2 py-1 text-xs text-muted-foreground">
+                                Reviewed {learningItem.review_count}x
+                            </span>
+                        )}
+                        {densityMode === "architect" && (
+                            <div
+                                data-architect-telemetry="true"
+                                className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1 font-mono text-[11px] text-muted-foreground"
+                            >
+                                <span>
+                                    S {learningItem.memory_state?.stability !== undefined ? `${learningItem.memory_state.stability.toFixed(1)}d` : `${learningItem.interval}d`}
+                                </span>
+                                <span>
+                                    D {learningItem.memory_state?.difficulty !== undefined ? learningItem.memory_state.difficulty.toFixed(1) : learningItem.difficulty.toFixed(1)}
+                                </span>
+                                <span>Lapses {learningItem.lapses}</span>
+                            </div>
+                        )}
+                    </div>
+
+                    {(onEdit || onDelete) && (
+                        <div className="top-6 right-6 flex items-center gap-2">
+                            {onEdit && (
+                                <button
+                                    onClick={onEdit}
+                                    data-testid="review-card-edit"
+                                    className="p-2 rounded-lg bg-card/80 border border-border hover:bg-muted text-muted-foreground hover:text-foreground transition-colors shadow-sm"
+                                    title="Edit Flashcard (Cmd+E / Ctrl+E)"
+                                    aria-label="Edit Flashcard"
+                                >
+                                    <Pencil className="w-4 h-4" />
+                                </button>
+                            )}
+                            {onDelete && (
+                                <button
+                                    onClick={onDelete}
+                                    data-testid="review-card-delete"
+                                    className="p-2 rounded-lg bg-card/80 border border-border hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shadow-sm"
+                                    title="Delete Flashcard"
+                                    aria-label="Delete Flashcard"
+                                >
+                                    <Trash className="w-4 h-4" />
+                                </button>
+                            )}
+                        </div>
+                    )}
+                </div>
+                {/* Leech Refactor Wizard */}
+                {(learningItem.lapses ?? 0) >= leechThreshold && !isLeechDismissed && (
+                    <LeechRefactorWizard
+                        cardId={learningItem.id}
+                        question={learningItem.question}
+                        answer={learningItem.answer}
+                        lapses={learningItem.lapses ?? 0}
+                        leechThreshold={leechThreshold}
+                        parentExtractText={parentExtractText}
+                        onSplitClozes={
+                            onSplitClozes ??
+                            ((candidates) => {
+                                if (onCreateCloze && candidates[0]) {
+                                    onCreateCloze(candidates[0], [0, candidates[0].length]);
+                                }
+                            })
+                        }
+                        onRewriteWithAi={onRewriteWithAi}
+                        onDemoteToExtract={
+                            onDemoteToExtract ??
+                            (() => {
+                                onRate(1);
+                            })
+                        }
+                        onDismiss={() => setIsLeechDismissed(true)}
+                    />
+                )}
                 {/* Actions Bar */}
                 {(onCreateFlashcard || onCreateCloze || onCreateQA) && (learningItem.tags?.includes("kindle") || learningItem.extract_id) && (
                     <div className="flex items-center justify-center gap-3 mb-5 pointer-events-auto">
