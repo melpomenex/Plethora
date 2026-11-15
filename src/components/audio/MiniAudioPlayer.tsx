@@ -13,7 +13,9 @@ import {
   ArrowClockwise,
   ArrowCounterClockwise,
   BookOpen,
+  BookmarkSimple,
   Broadcast,
+  CaretDown,
   CaretUp,
   Headphones,
   Pause,
@@ -27,7 +29,11 @@ import type { AudioSourceKey } from "../../types/audioEdition";
 import { IconButton } from "../md3/IconButton";
 import { useI18n } from "../../lib/i18n";
 import { highestOverlayPriority, subscribeOverlayStack } from "../../lib/overlayStack";
-import { useAudioPlaybackStore } from "../../stores/audioPlaybackStore";
+import {
+  ALLOWED_PLAYBACK_RATES,
+  useAudioPlaybackStore,
+} from "../../stores/audioPlaybackStore";
+import { isEditableEventTarget } from "../queue/EndOfItemTriageBar";
 import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../../services/audio/audioPlaybackRollout";
 import { audioTime, runAudioAction } from "./audioPlayerActions";
 import "./audio-player.css";
@@ -384,7 +390,45 @@ function AudioPlayerLiveStatus() {
   );
 }
 
-function MiniAudioPlayer({
+function MiniWaveformScrubBar() {
+  const position = useAudioPlaybackStore((state) => state.snapshot?.positionSec ?? 0);
+  const duration = useAudioPlaybackStore((state) => state.snapshot?.durationSec ?? 0);
+  const ratio = duration && duration > 0 ? Math.min(1, Math.max(0, position / duration)) : 0;
+  const bars = [0.35, 0.7, 0.55, 0.9, 0.45, 0.8, 0.65, 1.0, 0.5, 0.75, 0.6, 0.85];
+
+  return (
+    <div
+      data-waveform-scrub="true"
+      className="flex h-4 items-end gap-0.5 px-1 cursor-pointer"
+      role="slider"
+      aria-label="Audio waveform scrub"
+      aria-valuemin={0}
+      aria-valuemax={duration || 100}
+      aria-valuenow={Math.round(position)}
+      onClick={(e) => {
+        if (!duration || duration <= 0) return;
+        const rect = e.currentTarget.getBoundingClientRect();
+        const clickRatio = Math.min(1, Math.max(0, (e.clientX - rect.left) / Math.max(1, rect.width)));
+        const targetSec = clickRatio * duration;
+        void runAudioAction((owner) => owner.seekRelative(targetSec - position));
+      }}
+    >
+      {bars.map((height, idx) => {
+        const barRatio = (idx + 1) / bars.length;
+        const active = barRatio <= ratio;
+        return (
+          <span
+            key={idx}
+            className={`w-1 rounded-full transition-colors ${active ? "bg-primary" : "bg-muted-foreground/30"}`}
+            style={{ height: `${Math.round(height * 100)}%` }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+export function MiniAudioPlayer({
   mobile,
   onExpand,
 }: {
@@ -394,13 +438,102 @@ function MiniAudioPlayer({
   const { t } = useI18n();
   const title = useAudioPlaybackStore(state => state.snapshot?.metadata.title ?? "");
   const section = useAudioPlaybackStore(state => state.snapshot?.section?.title ?? "");
+  const playing = useAudioPlaybackStore(state => state.snapshot?.playIntent ?? false);
+  const playbackRate = useAudioPlaybackStore(state => state.playbackRate);
+  const setPlaybackRate = useAudioPlaybackStore(state => state.setPlaybackRate);
+  const pipCollapsed = useAudioPlaybackStore(state => state.pipCollapsed);
+  const togglePipCollapsed = useAudioPlaybackStore(state => state.togglePipCollapsed);
+  const contentRole = useAudioPlaybackStore(state => state.contentRole);
+  const bookmarkLast30s = useAudioPlaybackStore(state => state.bookmarkLast30s);
+  const [bookmarkFeedback, setBookmarkFeedback] = useState<string | null>(null);
   const attentionId = useId();
   const hasQueue = useAudioPlaybackStore(state => (state.snapshot?.queue?.length ?? 0) > 1);
   const error = useAudioPlaybackStore(state =>
     Boolean(state.snapshot?.error || state.storageError || state.controlError || state.adapterError),
   );
+
+  const handleBookmark30s = () => {
+    const snippet = bookmarkLast30s();
+    if (snippet) {
+      setBookmarkFeedback(`Saved ${snippet.startTime}s–${snippet.endTime}s`);
+      setTimeout(() => setBookmarkFeedback(null), 2000);
+    }
+  };
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isEditableEventTarget(event.target)) return;
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (event.key === "b" || event.key === "B") {
+        event.preventDefault();
+        handleBookmark30s();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
+
+  const cycleSpeed = () => {
+    const idx = ALLOWED_PLAYBACK_RATES.indexOf(
+      playbackRate as (typeof ALLOWED_PLAYBACK_RATES)[number],
+    );
+    const next = ALLOWED_PLAYBACK_RATES[(idx + 1) % ALLOWED_PLAYBACK_RATES.length];
+    setPlaybackRate(next);
+  };
+
+  if (pipCollapsed && !mobile) {
+    return (
+      <section
+        className="audio-mini-player audio-mini-pip-collapsed flex items-center gap-2 rounded-full border border-border bg-card/95 px-3 py-1.5 shadow-lg backdrop-blur"
+        data-pip-collapsed="true"
+        aria-label={t("audio.player")}
+      >
+        <IconButton
+          size="sm"
+          variant="filled"
+          icon={playing ? Pause : Play}
+          aria-label={t(playing ? "audio.pause" : "audio.play")}
+          onClick={() => void runAudioAction(owner => (playing ? owner.pause() : owner.play()))}
+        />
+        <span className="max-w-[140px] truncate text-xs font-medium text-foreground">
+          {title || t("audio.player")}
+        </span>
+        <button
+          type="button"
+          data-speed-selector="true"
+          onClick={cycleSpeed}
+          className="rounded px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted"
+          aria-label="Cycle playback speed"
+        >
+          {playbackRate}x
+        </button>
+        <button
+          type="button"
+          data-bookmark-30s="true"
+          onClick={handleBookmark30s}
+          className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground hover:bg-muted"
+          title="Bookmark & Extract Last 30s [B]"
+          aria-label="Bookmark last 30 seconds"
+        >
+          <BookmarkSimple className="h-3.5 w-3.5" />
+          <span>[B]</span>
+        </button>
+        <IconButton
+          size="sm"
+          icon={CaretUp}
+          aria-label="Expand PiP player"
+          onClick={togglePipCollapsed}
+        />
+      </section>
+    );
+  }
+
   return (
-    <section className="audio-mini-player" aria-label={t("audio.player")}>
+    <section
+      className="audio-mini-player"
+      data-pip-collapsed="false"
+      aria-label={t("audio.player")}
+    >
       <MiniProgressRail />
       <button
         type="button"
@@ -420,9 +553,36 @@ function MiniAudioPlayer({
         )}
       </button>
       <AudioTransport mobile={mobile} />
+      {!mobile && <MiniWaveformScrubBar />}
       {!mobile && <MiniElapsedReadout />}
       {!mobile && (
-        <div className="audio-player-secondary flex items-center">
+        <div className="audio-player-secondary flex items-center gap-1">
+          <span
+            data-content-role={contentRole}
+            className="rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground"
+          >
+            {contentRole === "extract" ? "Extract" : contentRole === "qa_prompt" ? "Q&A" : "Summary"}
+          </span>
+          <button
+            type="button"
+            data-speed-selector="true"
+            onClick={cycleSpeed}
+            className="rounded border border-border px-1.5 py-0.5 text-xs font-medium text-foreground hover:bg-muted"
+            aria-label="Playback speed"
+          >
+            {playbackRate}x
+          </button>
+          <button
+            type="button"
+            data-bookmark-30s="true"
+            onClick={handleBookmark30s}
+            className="inline-flex items-center gap-1 rounded border border-border px-1.5 py-0.5 text-xs font-medium text-foreground hover:bg-muted"
+            title="Bookmark & Extract Last 30s [B]"
+            aria-label="Bookmark last 30 seconds"
+          >
+            <BookmarkSimple className="h-3.5 w-3.5" />
+            <span>{bookmarkFeedback ?? "[B] 30s"}</span>
+          </button>
           {hasQueue && (
             <IconButton
               icon={Queue}
@@ -430,6 +590,11 @@ function MiniAudioPlayer({
               onClick={event => onExpand(event.currentTarget)}
             />
           )}
+          <IconButton
+            icon={CaretDown}
+            aria-label="Collapse to PiP pill"
+            onClick={togglePipCollapsed}
+          />
           <IconButton
             className="audio-player-expand-secondary"
             icon={CaretUp}

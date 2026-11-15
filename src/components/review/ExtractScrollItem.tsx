@@ -27,11 +27,18 @@ import { useI18n } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { resolveExtractDisplay } from "../../lib/extractDisclosure";
 import { cn } from "../../utils";
+import { SESSION_CHROME_BOUNDS } from "../queue/SessionChromeHeader";
+import { isEditableEventTarget } from "../queue/EndOfItemTriageBar";
+import { useUIStore } from "../../stores/uiStore";
+import { useDocumentStore } from "../../stores/documentStore";
+import { GhostContextPeek } from "./GhostContextPeek";
 import { renderMarkdown } from "../../utils/markdown";
+import { useBreakoutOverlay } from "../viewer/BreakoutOverlayModal";
 
 interface ExtractScrollItemProps {
     extract: Extract;
     documentTitle: string;
+    parentContent?: string | null;
     onRate: (rating: number) => void;
     onCreateCloze: (selectedText: string, range: [number, number]) => void;
     onCreateQA: () => void;
@@ -46,6 +53,7 @@ interface ExtractScrollItemProps {
 export function ExtractScrollItem({
     extract,
     documentTitle,
+    parentContent,
     onRate,
     onCreateCloze,
     onCreateQA,
@@ -53,6 +61,13 @@ export function ExtractScrollItem({
     onUpdate
 }: ExtractScrollItemProps) {
     const { t } = useI18n();
+    const densityMode = useUIStore((s) => s.densityMode);
+    const storeParentContent = useDocumentStore(
+        (s) => s.documents.find((d) => d.id === extract.document_id)?.content
+    );
+    const resolvedParentContent = parentContent !== undefined ? parentContent : storeParentContent;
+    const [isPeekingContext, setIsPeekingContext] = useState(false);
+    const overscrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     // Opt-in: progressive summaries are never generated (or shown) unless the
     // user asked for them in Settings → AI → Summarization.
     const summariesEnabled = useSettingsStore(
@@ -62,6 +77,8 @@ export function ExtractScrollItem({
     const [notes, setNotes] = useState(extract.notes ?? "");
     const [saveStatus, setSaveStatus] = useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
     const contentRef = useRef<HTMLTextAreaElement>(null);
+    const proseRef = useRef<HTMLDivElement>(null);
+    const { breakoutTrigger, breakoutModal } = useBreakoutOverlay(proseRef);
     const lastSavedRef = useRef({ content: extract.content, notes: extract.notes ?? "" });
     const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -133,21 +150,16 @@ export function ExtractScrollItem({
         setSaveStatus("idle");
     }, [extract.id, extract.content, extract.notes]);
 
-    // Keyboard shortcuts: 1-4 to rate, C for Cloze, Q for QA
+    // Keyboard shortcuts: 1-4 to rate, C for Cloze (Q is handled by EndOfItemTriageBar)
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            // Don't trigger if typing in input
-            if ((e.target as HTMLElement).tagName === "INPUT" ||
-                (e.target as HTMLElement).tagName === "TEXTAREA") {
+            if (isEditableEventTarget(e.target) || isEditableEventTarget(document.activeElement)) {
                 return;
             }
 
             if (e.key === "c" || e.key === "C") {
                 e.preventDefault();
                 handleCreateCloze();
-            } else if (e.key === "q" || e.key === "Q") {
-                e.preventDefault();
-                onCreateQA();
             } else if (e.key === "1") {
                 onRate(1);
             } else if (e.key === "2") {
@@ -161,7 +173,36 @@ export function ExtractScrollItem({
 
         window.addEventListener("keydown", handleKeyDown);
         return () => window.removeEventListener("keydown", handleKeyDown);
-    }, [onRate, onCreateQA, onCreateCloze]);
+    }, [onRate, onCreateCloze]);
+
+    // Bare Alt hold reveals GhostContextPeek; releasing Alt collapses it
+    useEffect(() => {
+        const handleAltDown = (e: KeyboardEvent) => {
+            if (e.key === "Alt" && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+                if (isEditableEventTarget(e.target) || isEditableEventTarget(document.activeElement)) {
+                    return;
+                }
+                setIsPeekingContext(true);
+            }
+        };
+        const handleAltUp = (e: KeyboardEvent) => {
+            if (e.key === "Alt") {
+                setIsPeekingContext(false);
+            }
+        };
+        const handleBlur = () => setIsPeekingContext(false);
+        window.addEventListener("keydown", handleAltDown);
+        window.addEventListener("keyup", handleAltUp);
+        window.addEventListener("blur", handleBlur);
+        return () => {
+            window.removeEventListener("keydown", handleAltDown);
+            window.removeEventListener("keyup", handleAltUp);
+            window.removeEventListener("blur", handleBlur);
+            if (overscrollTimerRef.current) {
+                clearTimeout(overscrollTimerRef.current);
+            }
+        };
+    }, []);
 
     useEffect(() => {
         if (content === lastSavedRef.current.content && notes === lastSavedRef.current.notes) {
@@ -306,7 +347,13 @@ export function ExtractScrollItem({
     };
 
     return (
-        <div className="h-full w-full flex flex-col items-center justify-center p-8 bg-gradient-to-b from-background to-muted/30">
+        <div
+            data-extract-scroll-surface="true"
+            className={cn(
+                "h-full w-full flex flex-col items-center justify-center bg-gradient-to-b from-background to-muted/30 overflow-y-auto",
+                SESSION_CHROME_BOUNDS.SAFE_CONTENT_CLASS
+            )}
+        >
             {/* Extract Container */}
             <div className="w-full max-w-4xl flex flex-col gap-6">
                 {/* Header: badges + document title (in-flow, occupies its own space above the content) */}
@@ -330,6 +377,17 @@ export function ExtractScrollItem({
                                 {t("extractScrollItem.level", { current: display.stage, total: extract.max_disclosure_level })}
                             </span>
                         )}
+                        {densityMode === "architect" && (
+                            <div
+                                data-architect-telemetry="true"
+                                className="flex items-center gap-2 rounded-lg border border-border/60 bg-muted/40 px-2.5 py-1 font-mono text-[11px] text-muted-foreground"
+                            >
+                                <span>P{extract.priority_slider ?? 50}</span>
+                                <span>S {extract.memory_state?.stability !== undefined ? `${extract.memory_state.stability.toFixed(1)}d` : "—"}</span>
+                                <span>D {extract.memory_state?.difficulty !== undefined ? extract.memory_state.difficulty.toFixed(1) : "—"}</span>
+                                <span>Reviews {extract.review_count}</span>
+                            </div>
+                        )}
                     </div>
                     <div className="flex items-center gap-4 max-w-md min-w-0 text-sm text-muted-foreground">
                         <span className="truncate" title={documentTitle}>
@@ -341,7 +399,16 @@ export function ExtractScrollItem({
                 </div>
 
                 {/* Actions Bar */}
-                <div className="flex items-center justify-end gap-3">
+                <div className="flex items-center justify-end gap-3 flex-wrap">
+                    <button
+                        type="button"
+                        onClick={() => setIsPeekingContext((prev) => !prev)}
+                        aria-pressed={isPeekingContext}
+                        className="px-3 py-2 bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg font-medium text-xs flex items-center gap-1.5 border border-border/60 transition-colors"
+                    >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>Peek Context (Alt)</span>
+                    </button>
                     {onCreateFlashcard && (
                         <button
                             onClick={() => onCreateFlashcard(extract.content)}
@@ -370,8 +437,31 @@ export function ExtractScrollItem({
                     </button>
                 </div>
 
+                <GhostContextPeek
+                    isPeeking={isPeekingContext}
+                    documentTitle={documentTitle}
+                    parentContent={resolvedParentContent}
+                    extractText={content}
+                />
+
                 {/* Content Editor / Progressive Disclosure */}
-                <div data-extract-scroll="true" className="bg-card border border-border rounded-2xl shadow-xl min-h-[300px] max-h-[60vh] overflow-y-auto relative">
+                <div
+                    data-extract-scroll="true"
+                    onWheel={(e) => {
+                        if (e.currentTarget.scrollTop <= 0 && e.deltaY < -35) {
+                            setIsPeekingContext(true);
+                            if (overscrollTimerRef.current) {
+                                clearTimeout(overscrollTimerRef.current);
+                            }
+                            overscrollTimerRef.current = setTimeout(() => {
+                                setIsPeekingContext(false);
+                            }, 2500);
+                        } else if (e.deltaY > 10 && isPeekingContext) {
+                            setIsPeekingContext(false);
+                        }
+                    }}
+                    className="bg-card border border-border rounded-2xl shadow-xl min-h-[300px] max-h-[60vh] overflow-y-auto relative"
+                >
                     {display.kind === "full" && (
                         <>
                             {contentLevelLabel && (
@@ -425,9 +515,12 @@ export function ExtractScrollItem({
                                 </div>
                             )}
                             <div
+                                ref={proseRef}
                                 className="p-10 text-lg leading-relaxed text-foreground prose prose-lg dark:prose-invert max-w-none"
                                 dangerouslySetInnerHTML={{ __html: renderMarkdown(display.text) }}
                             />
+                            {breakoutTrigger}
+                            {breakoutModal}
                         </>
                     )}
 

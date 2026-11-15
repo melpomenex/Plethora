@@ -6,11 +6,13 @@ import {
   KeyReturn,
   MagnifyingGlass,
   Play,
+  Scissors,
   Lightning,
 } from "@phosphor-icons/react";
 import { KaraokeText } from "./KaraokeText";
 import { LanguageTranscriptDomBridge } from "../language/LanguageTranscriptDomBridge";
 import { synthesizeWordTimings, type WordTiming } from "../../utils/wordTimings";
+import { createVideoExtract } from "../../api/video-extracts";
 
 /**
  * Auto-follow tuning constants.
@@ -82,9 +84,95 @@ export interface TranscriptSearchState {
   activeSegmentId: string | null;
 }
 
+export interface TranscriptSliceBounds {
+  startTime: number;
+  endTime: number;
+  transcriptText: string;
+}
+
+export function formatSliceTimestamp(seconds: number): string {
+  const safe = Math.max(0, Math.floor(seconds));
+  const mins = Math.floor(safe / 60);
+  const secs = safe % 60;
+  return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+export function resolveTranscriptSelectionBounds(
+  segments: TranscriptSegment[],
+  selection: { startIndex?: number; endIndex?: number; text?: string }
+): TranscriptSliceBounds | null {
+  if (!segments || segments.length === 0) return null;
+
+  if (
+    typeof selection.startIndex === "number" &&
+    typeof selection.endIndex === "number" &&
+    selection.startIndex >= 0 &&
+    selection.endIndex >= 0
+  ) {
+    const lo = Math.min(selection.startIndex, selection.endIndex);
+    const hi = Math.max(selection.startIndex, selection.endIndex);
+    const first = segments[lo];
+    const last = segments[hi];
+    if (!first || !last) return null;
+    const startTime = Math.floor(first.start);
+    const endTime = Math.ceil(last.end);
+    const transcriptText = (
+      selection.text?.trim() ||
+      segments
+        .slice(lo, hi + 1)
+        .map((s) => s.text)
+        .join(" ")
+        .trim()
+    );
+    if (!transcriptText || startTime >= endTime) return null;
+    return { startTime, endTime, transcriptText };
+  }
+
+  const needle = (selection.text ?? "").replace(/\s+/g, " ").trim();
+  if (!needle) return null;
+
+  const spans: Array<{ segment: TranscriptSegment; from: number; to: number }> = [];
+  let cursor = 0;
+  const joinedParts: string[] = [];
+  for (const seg of segments) {
+    const norm = seg.text.replace(/\s+/g, " ").trim();
+    if (!norm) continue;
+    if (joinedParts.length > 0) {
+      cursor += 1; // space separator
+    }
+    const from = cursor;
+    const to = cursor + norm.length;
+    spans.push({ segment: seg, from, to });
+    joinedParts.push(norm);
+    cursor = to;
+  }
+
+  const joined = joinedParts.join(" ");
+  const matchIdx = joined.toLowerCase().indexOf(needle.toLowerCase());
+  if (matchIdx === -1) return null;
+  const matchEnd = matchIdx + needle.length;
+
+  const intersecting = spans.filter(
+    (sp) => sp.to > matchIdx && sp.from < matchEnd
+  );
+  if (intersecting.length === 0) return null;
+
+  const startTime = Math.floor(intersecting[0].segment.start);
+  const endTime = Math.ceil(intersecting[intersecting.length - 1].segment.end);
+  if (startTime >= endTime) return null;
+
+  return {
+    startTime,
+    endTime,
+    transcriptText: needle,
+  };
+}
+
 interface TranscriptSyncProps {
   segments: TranscriptSegment[];
   currentTime: number;
+  documentId?: string;
+  onCaptureVideoSlice?: (slice: TranscriptSliceBounds) => Promise<void> | void;
   onSeek?: (time: number) => void;
   /**
    * @deprecated use the in-header auto-follow toggle instead. Only used as the
@@ -220,6 +308,7 @@ const formatTime = (time: number) => {
 
 interface TranscriptRowProps {
   segment: TranscriptSegment;
+  segmentIndex: number;
   isActive: boolean;
   isExternallyHighlighted: boolean;
   isSearchHit: boolean;
@@ -239,6 +328,7 @@ interface TranscriptRowProps {
 
 const TranscriptRow = React.memo(function TranscriptRow({
   segment,
+  segmentIndex,
   isActive,
   isExternallyHighlighted,
   isSearchHit,
@@ -332,6 +422,7 @@ const TranscriptRow = React.memo(function TranscriptRow({
           {/* Text */}
           <span
             data-language-transcript-segment={segment.id}
+            data-segment-index={segmentIndex}
             className={`${compact ? "text-[15px] leading-6" : "text-sm"} ${
               isActive ? "text-foreground font-medium" : "text-foreground/90"
             }`}
@@ -363,6 +454,8 @@ const TranscriptRow = React.memo(function TranscriptRow({
 export function TranscriptSync({
   segments = [],
   currentTime,
+  documentId,
+  onCaptureVideoSlice,
   onSeek,
   autoScroll = true,
   showTimestamps = true,
@@ -385,6 +478,8 @@ export function TranscriptSync({
 }: TranscriptSyncProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState<number>(-1);
+  const [selectionSlice, setSelectionSlice] = useState<TranscriptSliceBounds | null>(null);
+  const [isCapturingSlice, setIsCapturingSlice] = useState(false);
   // Persistent auto-follow preference (default on). When off, the active
   // segment is still highlighted but the panel never auto-scrolls. A stored
   // value always wins; otherwise the legacy `autoScroll` prop seeds the default
@@ -742,21 +837,111 @@ export function TranscriptSync({
     onSeek?.(segment.start);
   }, [indexById, onSeek]);
 
+  const resolveDomSegmentIndex = (node: Node | null): number | undefined => {
+    let current: Node | null = node;
+    while (current) {
+      if (current instanceof Element) {
+        const raw = current.getAttribute("data-segment-index");
+        if (raw !== null) {
+          const parsed = Number.parseInt(raw, 10);
+          if (!Number.isNaN(parsed) && parsed >= 0) return parsed;
+        }
+      }
+      current = current.parentNode;
+    }
+    return undefined;
+  };
+
   const handleSelection = () => {
-    if (!onSelectionChange) return;
-    
+    const canCaptureSlice = Boolean(documentId || onCaptureVideoSlice);
+    if (!onSelectionChange && !canCaptureSlice) return;
+
+    const updateSlice = () => {
+      const selection = window.getSelection();
+      const selectedText = selection?.toString().trim() ?? "";
+      if (!selection || !selectedText) {
+        if (canCaptureSlice) setSelectionSlice(null);
+        return;
+      }
+      if (canCaptureSlice) {
+        const startIndex = resolveDomSegmentIndex(selection.anchorNode);
+        const endIndex = resolveDomSegmentIndex(selection.focusNode);
+        setSelectionSlice(
+          resolveTranscriptSelectionBounds(segments, {
+            startIndex,
+            endIndex,
+            text: selectedText,
+          })
+        );
+      }
+      if (onSelectionChange) {
+        onSelectionChange(selectedText);
+      }
+    };
+
+    if (canCaptureSlice && !onSelectionChange) {
+      updateSlice();
+      return;
+    }
+
     // Clear previous timeout
     if (selectionTimeoutRef.current) {
       clearTimeout(selectionTimeoutRef.current);
     }
-    
-    // Debounce selection to avoid spamming
+
+    if (canCaptureSlice) {
+      // Update the capture pill immediately on mouseup/keyup so it feels snappy
+      const selection = window.getSelection();
+      const selectedText = selection?.toString().trim() ?? "";
+      if (selection && selectedText) {
+        const startIndex = resolveDomSegmentIndex(selection.anchorNode);
+        const endIndex = resolveDomSegmentIndex(selection.focusNode);
+        setSelectionSlice(
+          resolveTranscriptSelectionBounds(segments, {
+            startIndex,
+            endIndex,
+            text: selectedText,
+          })
+        );
+      } else {
+        setSelectionSlice(null);
+      }
+    }
+
+    // Debounce onSelectionChange callback to avoid spamming
     selectionTimeoutRef.current = setTimeout(() => {
       const selection = window.getSelection();
       if (selection && selection.toString().trim()) {
-        onSelectionChange(selection.toString().trim());
+        onSelectionChange?.(selection.toString().trim());
       }
     }, 500);
+  };
+
+  const handleCaptureVideoSlice = async () => {
+    if (!selectionSlice || isCapturingSlice) return;
+    setIsCapturingSlice(true);
+    try {
+      if (onCaptureVideoSlice) {
+        await onCaptureVideoSlice(selectionSlice);
+      } else if (documentId) {
+        const title =
+          selectionSlice.transcriptText.length > 80
+            ? `${selectionSlice.transcriptText.slice(0, 77)}...`
+            : selectionSlice.transcriptText;
+        await createVideoExtract({
+          document_id: documentId,
+          start_time: selectionSlice.startTime,
+          end_time: selectionSlice.endTime,
+          title: title || "Video Slice",
+          transcript_text: selectionSlice.transcriptText,
+          add_to_queue: true,
+        });
+      }
+      setSelectionSlice(null);
+      window.getSelection()?.removeAllRanges();
+    } finally {
+      setIsCapturingSlice(false);
+    }
   };
 
   useEffect(() => {
@@ -952,6 +1137,7 @@ export function TranscriptSync({
               <TranscriptRow
                 key={segment.id}
                 segment={segment}
+                segmentIndex={segmentIndex}
                 isActive={isActive}
                 isExternallyHighlighted={isExternallyHighlighted}
                 isSearchHit={Boolean(
@@ -978,6 +1164,23 @@ export function TranscriptSync({
           segments={segments}
           sourceId={languageSourceId}
         />
+      )}
+      {selectionSlice && (documentId || onCaptureVideoSlice) && (
+        <div className="sticky bottom-3 z-20 flex justify-center px-3 pointer-events-none">
+          <button
+            type="button"
+            data-capture-video-slice="true"
+            disabled={isCapturingSlice}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => void handleCaptureVideoSlice()}
+            className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-xs font-medium text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors disabled:opacity-60"
+          >
+            <span>
+              Capture Video Slice [{formatSliceTimestamp(selectionSlice.startTime)} -{" "}
+              {formatSliceTimestamp(selectionSlice.endTime)}]
+            </span>
+          </button>
+        </div>
       )}
       </div>
 

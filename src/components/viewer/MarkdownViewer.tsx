@@ -6,6 +6,7 @@ import { useI18n } from "../../lib/i18n";
 import { Sparkle } from "@phosphor-icons/react";
 import type { SelectionContext } from "../../types/selection";
 import { applyAnchoredTextHighlights, buildTextSelectionContext, type AnchoredTextHighlight } from "../../utils/textHighlights";
+import { useBreakoutOverlay } from "./BreakoutOverlayModal";
 
 interface MarkdownViewerProps {
   document: Document;
@@ -53,6 +54,7 @@ export function MarkdownViewer({
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const { breakoutTrigger, breakoutModal } = useBreakoutOverlay(contentRef);
   const isRestoringRef = useRef(false);
   const hasRestoredRef = useRef(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; selectedText: string } | null>(null);
@@ -329,6 +331,8 @@ export function MarkdownViewer({
       ) : (
         <div className="text-muted-foreground italic">{t("viewer.noContentAvailable")}</div>
       )}
+      {breakoutTrigger}
+      {breakoutModal}
 
       {contextMenu && onCreateFlashcard && (
         <>

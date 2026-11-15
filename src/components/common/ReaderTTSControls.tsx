@@ -66,6 +66,10 @@ import { usePresentation, useIsEink } from "../../contexts/PresentationContext";
 import { WordHighlightLayer } from "./WordHighlightLayer";
 import { useToast } from "./Toast";
 import { createExtract } from "../../api/extracts";
+import {
+  getActiveRoleVoiceId,
+  useAudioPlaybackStore,
+} from "../../stores/audioPlaybackStore";
 
 interface TTSStartPosition {
   pageNumber: number | null;
@@ -1042,9 +1046,12 @@ ref: React.ForwardedRef<ReaderTTSHandle>
         // Session epoch: a retarget/stop/voice change while this request is in
         // flight invalidates its result — stale audio must never play. The
         // IndexedDB cache write (inside generateSpeech) stays valid.
+        const audioRole = useAudioPlaybackStore.getState().contentRole;
+        const effectiveVoiceId = audioRole === "extract" ? voiceId : getActiveRoleVoiceId();
+        useAudioPlaybackStore.getState().setRecentTranscriptText(chunkText);
         const result = await generateSpeech(settings, {
           text: chunkText,
-          voiceId,
+          voiceId: effectiveVoiceId,
           includeTimings: true,
         });
 

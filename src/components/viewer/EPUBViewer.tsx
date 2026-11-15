@@ -2,6 +2,7 @@ import { useResolvedThemeAppearance } from '../../themes/appearanceContext';
 import { paperReaderCss } from '../../themes/paperMaterialCss';
 import { preserveEpubPublisherStyles, restoreEpubPublisherStyles, epubUsesPublisherAppearance, setEpubDefaultStyleEnabled } from './epubAppearance';
 import { epubAnnotationTargetsAtPoint, type ReaderContextMenuPayload, type PersistedEpubHighlight } from "./annotationContextMenu";
+import { useBreakoutOverlay } from "./BreakoutOverlayModal";
 import { useEffect, useRef, useState, useCallback, type MouseEvent } from "react";
 import type { EpubSelectionContext, SelectionContext } from "../../types/selection";
 import type { DocumentMetadata, Document } from "../../types/document";
@@ -645,6 +646,7 @@ export function EPUBViewer({
   passageContentBridge,
 }: EPUBViewerProps) {
   const viewerRef = useRef<HTMLDivElement>(null);
+  const { breakoutTrigger, breakoutModal } = useBreakoutOverlay(viewerRef);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [rendition, setRendition] = useState<any>(null);
@@ -4000,6 +4002,8 @@ export function EPUBViewer({
           Ctrl +/-/+ to resize • Ctrl+Scroll to resize • Ctrl+0 to reset
         </div>
       )}
+      {breakoutTrigger}
+      {breakoutModal}
     </div>
   );
 }

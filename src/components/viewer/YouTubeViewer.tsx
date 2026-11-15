@@ -1789,6 +1789,7 @@ export function YouTubeViewer({
                 <TranscriptSync
                   segments={transcript}
                   currentTime={currentTime}
+                  documentId={documentId}
                   onSeek={handleSeek}
                   onSelectionChange={onSelectionChange}
                   className="flex-1 min-h-0"

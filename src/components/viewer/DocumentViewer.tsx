@@ -104,6 +104,9 @@ import { EditableContentPalette } from "../common/EditableContentPalette";
 import { useToast } from "../common/Toast";
 import { tourAnchor } from "../onboarding/tour/anchors";
 import { CreateExtractDialog } from "../extracts/CreateExtractDialog";
+import { QACreatorPopup } from "../extracts/QACreatorPopup";
+import { SocraticMarginThread } from "./SocraticMarginThread";
+import { isEditableEventTarget } from "../queue/EndOfItemTriageBar";
 import { EditExtractDialog } from "../extracts/EditExtractDialog";
 import type { PdfRect, PdfSelectionContext, SelectionContext, TextSelectionContext, EpubSelectionContext } from "../../types/selection";
 import { legacyFromCanonicalRect } from "../../lib/pdf/coordinates";
@@ -111,6 +114,7 @@ import { createExtract, type Extract } from "../../api/extracts";
 import { shouldAutoExtract } from "./extractModeGate";
 import { QueueNavigationControls } from "../queue/QueueNavigationControls";
 import { resolveDisplaySlider, getPriorityInfo } from "../documents/usePriorityPopup";
+import { dispatchPriorityCommit } from "../../services/priority/priorityCommit";
 import { DocumentMinimap, type MinimapSegment } from "./DocumentMinimap";
 import { useInlineExtraction, flashAnimationStyles } from "../../hooks/useInlineExtraction";
 import { useToastExtract } from "../../hooks/useToastExtract";
@@ -1475,6 +1479,23 @@ export function DocumentViewer({
   const [pdfTextSelectionCapability, setPdfTextSelectionCapability] = useState<PdfTextSelectionCapability | null>(null);
   const [isExtractDialogOpen, setIsExtractDialogOpen] = useState(false);
   const [flashcardStudioSeed, setFlashcardStudioSeed] = useState<{ key: string; documentId?: string | null; excerpt?: string; draftCardType?: "qa" | "cloze" | "multiple-choice" | "image-occlusion" | null; imageAssetId?: string; resetDraftCards?: boolean; autoEditDraft?: boolean; extractId?: string; deckTag?: string | null; languageProvenance?: { profileId?: string; sourceAnchor?: unknown; sourceFingerprint?: string; origin?: string } } | null>(null);
+  const [isDockedQAOpen, setIsDockedQAOpen] = useState(false);
+  const [isSocraticMarginOpen, setIsSocraticMarginOpen] = useState(false);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "j") {
+        const target = event.target as HTMLElement | null;
+        if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)) {
+          return;
+        }
+        event.preventDefault();
+        setIsSocraticMarginOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   useEffect(() => {
     const onLanguageMiningDraft = (event: Event) => {
@@ -2434,7 +2455,7 @@ export function DocumentViewer({
     }
   }, [toast, loadExtracts, selectionContext]);
 
-  useInlineExtraction({
+  const { createChainedClozeFromSelection } = useInlineExtraction({
     documentId,
     onExtract: handleInlineExtract,
     onCloze: handleInlineCloze,
@@ -4860,10 +4881,13 @@ export function DocumentViewer({
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Don't trigger if typing in input
-      if ((e.target as HTMLElement).tagName === "INPUT" ||
-        (e.target as HTMLElement).tagName === "TEXTAREA" ||
-        (e.target as HTMLElement).isContentEditable) {
+      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "q") {
+        e.preventDefault();
+        setIsDockedQAOpen((prev) => !prev);
+        return;
+      }
+      // Don't trigger if typing in input or docked split-sheet
+      if (isEditableEventTarget(e.target) || isEditableEventTarget(document.activeElement)) {
         return;
       }
       const isFocusedInViewer = 
@@ -8227,6 +8251,7 @@ export function DocumentViewer({
           <div {...tourAnchor("readerExtractsPanel")} className="p-6 bg-background h-full overflow-auto">
             <ExtractsList
               documentId={currentDocument.id}
+              documentTitle={currentDocument.title}
               focusedExtractId={focusedExtractId}
               sourceContext={extractSourceContext}
               onBackToSource={extractSourceContext ? () => setViewMode("document") : undefined}
@@ -9372,6 +9397,28 @@ export function DocumentViewer({
         readerContainerRef={containerRef}
         showLearnThis={Boolean(captureReader?.selection && !captureCardPreview)}
         onLearnThis={openMarketingLearnThis}
+        prioritySlider={currentDocument ? resolveDisplaySlider(currentDocument) : undefined}
+        priorityExplicitlySet={Boolean(currentDocument?.priorityExplicitlySet ?? true)}
+        parentTitle={currentDocument?.title}
+        onNudgePriority={(nextSlider) => {
+          if (!currentDocument) return;
+          void dispatchPriorityCommit({ kind: "document", id: currentDocument.id }, nextSlider);
+        }}
+        onOpenSocraticMargin={() => setIsSocraticMarginOpen(true)}
+        onChainedCloze={() => {
+          const text = activeExtractSelection?.trim() || window.getSelection()?.toString().trim() || "";
+          if (!text || !documentId) return;
+          const sel = window.getSelection();
+          const range = sel && sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
+          void createChainedClozeFromSelection({
+            documentId,
+            text,
+            scrollContainer: containerRef.current,
+            range,
+            parentPrioritySlider: currentDocument ? resolveDisplaySlider(currentDocument) : undefined,
+          });
+          selectionController.dismiss({ suppressCurrentText: true });
+        }}
       />
 
       {/* Mobile AskSheet (mobile-ask-sheet-library-qa): bottom-sheet composer
@@ -9643,6 +9690,49 @@ export function DocumentViewer({
         isOpen={!!flashcardStudioSeed}
         onClose={() => setFlashcardStudioSeed(null)}
         seed={flashcardStudioSeed}
+      />
+
+      {isDockedQAOpen && (
+        <QACreatorPopup
+          documentId={currentDocument.id}
+          mode="docked"
+          onGrabSelection={() =>
+            activeExtractSelection?.trim() ||
+            window.getSelection()?.toString().trim() ||
+            null
+          }
+          onCreated={() => {
+            setIsDockedQAOpen(false);
+          }}
+          onCancel={() => setIsDockedQAOpen(false)}
+        />
+      )}
+
+      <SocraticMarginThread
+        isOpen={isSocraticMarginOpen}
+        documentId={currentDocument.id}
+        selectedText={
+          activeExtractSelection?.trim() ||
+          window.getSelection()?.toString().trim() ||
+          lastSelectionRef.current ||
+          ""
+        }
+        onClose={() => setIsSocraticMarginOpen(false)}
+        onConvertToExtract={async ({ content, notes }) => {
+          await createExtract({
+            document_id: currentDocument.id,
+            content,
+            note: notes,
+          });
+        }}
+        onConvertToFlashcard={async ({ question, answer }) => {
+          await createLearningItem({
+            document_id: currentDocument.id,
+            item_type: "Flashcard",
+            question,
+            answer,
+          });
+        }}
       />
 
       {/* Vim reading mode indicator */}
