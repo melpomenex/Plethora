@@ -5,7 +5,11 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { invokeCommand } from "../lib/tauri";
-import { ObsidianGraph, type ObsidianGraphHandle } from "../components/graph/ObsidianGraph";
+import {
+  ObsidianGraph,
+  type GraphHeatmapMode,
+  type ObsidianGraphHandle,
+} from "../components/graph/ObsidianGraph";
 import { KnowledgeUniverseLazy } from "../components/graph/KnowledgeUniverseLazy";
 import {
   GraphActiveFilterSummary,
@@ -81,6 +85,8 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
     captureConnection ? `extract-${captureConnection.fromId}` : null,
   );
   const [viewMode, setViewMode] = useState<KnowledgeGraphViewMode>("graph");
+  const [heatmapMode, setHeatmapMode] = useState<GraphHeatmapMode>("default");
+  const [lassoSelectedIds, setLassoSelectedIds] = useState<string[]>([]);
   const [filtersOpen, setFiltersOpen] = useState(() => {
     if (captureConnection) return false;
     return isSheetSurface ? false : readGraphFilterSidebarOpen(mode);
@@ -705,19 +711,93 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
           className="relative min-h-0 min-w-0 flex-1 overflow-hidden"
         >
           {viewMode === "graph" ? (
-            <ObsidianGraph
-              ref={graphRef}
-              data={filteredData}
-              onNodeClick={handleNodeClick}
-              onNodeDoubleClick={handleNodeDoubleClick}
-              onNodeContextMenu={handleNodeContextMenu}
-              selectedNode={selectedNode || undefined}
-              enablePhysics={!captureConnection}
-              showLabels={true}
-              layout={layout}
-              linkDistance={graphLinkDistance}
-              nodeScale={graphNodeScale}
-            />
+            <>
+              <div
+                data-heatmap-switcher="true"
+                className="absolute top-3 left-3 z-20 flex items-center gap-1 rounded-lg border border-border bg-card/90 p-1 backdrop-blur-sm shadow-sm"
+              >
+                {(
+                  [
+                    { id: "default", label: "Default" },
+                    { id: "retrievability_leech", label: "Retrievability / Leech" },
+                    { id: "extract_density", label: "Extract Density" },
+                  ] as const
+                ).map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setHeatmapMode(item.id)}
+                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                      heatmapMode === item.id
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+              <ObsidianGraph
+                ref={graphRef}
+                data={filteredData}
+                onNodeClick={handleNodeClick}
+                onNodeDoubleClick={handleNodeDoubleClick}
+                onNodeContextMenu={handleNodeContextMenu}
+                selectedNode={selectedNode || undefined}
+                highlightedNodes={lassoSelectedIds.length > 0 ? lassoSelectedIds : undefined}
+                heatmapMode={heatmapMode}
+                onLassoSelect={setLassoSelectedIds}
+                enablePhysics={!captureConnection}
+                showLabels={true}
+                layout={layout}
+                linkDistance={graphLinkDistance}
+                nodeScale={graphNodeScale}
+              />
+              {lassoSelectedIds.length > 0 && (
+                <div
+                  data-lasso-action-bar="true"
+                  className="absolute bottom-4 left-1/2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-card/95 px-4 py-2 text-xs shadow-xl backdrop-blur"
+                >
+                  <span className="font-semibold text-foreground">
+                    {lassoSelectedIds.length} nodes selected
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      toast?.success?.(
+                        "Cram Session",
+                        `Queued ${lassoSelectedIds.length} lassoed nodes for cram review.`
+                      );
+                      setLassoSelectedIds([]);
+                    }}
+                    className="rounded-full bg-primary px-3 py-1 font-medium text-primary-foreground hover:bg-primary/90"
+                  >
+                    Launch Cram ({lassoSelectedIds.length} nodes)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      toast?.success?.(
+                        "Focused Assessment",
+                        `Prepared assessment draft from ${lassoSelectedIds.length} nodes.`
+                      );
+                      setLassoSelectedIds([]);
+                    }}
+                    className="rounded-full border border-border bg-background px-3 py-1 font-medium text-foreground hover:bg-muted"
+                  >
+                    Create Focused Assessment
+                  </button>
+                  <button
+                    type="button"
+                    aria-label="Clear lasso selection"
+                    onClick={() => setLassoSelectedIds([])}
+                    className="rounded-full px-2 py-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                  >
+                    ×
+                  </button>
+                </div>
+              )}
+            </>
           ) : (
             <KnowledgeUniverseLazy
               nodes={filteredData.nodes}

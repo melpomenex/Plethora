@@ -16,6 +16,62 @@ import {
   X,
 } from "@phosphor-icons/react";
 
+export type GraphHeatmapMode = "default" | "retrievability_leech" | "extract_density";
+
+export interface HeatmapNodeMetrics {
+  id: string;
+  x?: number;
+  y?: number;
+  lapses?: number;
+  retrievability?: number;
+  unprocessedExtractCount?: number;
+  type?: GraphNodeType;
+}
+
+export function resolveHeatmapNodeColor(
+  node: HeatmapNodeMetrics,
+  mode: GraphHeatmapMode,
+  fallbackColor = "#64748b"
+): string {
+  if (mode === "default") return fallbackColor;
+  if (mode === "retrievability_leech") {
+    if ((node.lapses ?? 0) >= 4) return "#ef4444";
+    if (typeof node.retrievability === "number" && node.retrievability < 0.65) {
+      return "#f97316";
+    }
+    if (typeof node.retrievability === "number" && node.retrievability >= 0.85) {
+      return "#10b981";
+    }
+    return "#64748b";
+  }
+  const count = node.unprocessedExtractCount ?? 0;
+  if (count >= 9) return "#ec4899";
+  if (count >= 4) return "#a855f7";
+  if (count >= 1) return "#38bdf8";
+  return "#64748b";
+}
+
+export function computeLassoSelectedNodes(
+  nodes: Array<{ id: string; x: number; y: number }>,
+  bounds: { minX: number; maxX: number; minY: number; maxY: number },
+  transform: { x: number; y: number; k: number }
+): string[] {
+  const left = Math.min(bounds.minX, bounds.maxX);
+  const right = Math.max(bounds.minX, bounds.maxX);
+  const top = Math.min(bounds.minY, bounds.maxY);
+  const bottom = Math.max(bounds.minY, bounds.maxY);
+
+  const selected: string[] = [];
+  for (const node of nodes) {
+    const sx = node.x * transform.k + transform.x;
+    const sy = node.y * transform.k + transform.y;
+    if (sx >= left && sx <= right && sy >= top && sy <= bottom) {
+      selected.push(node.id);
+    }
+  }
+  return selected;
+}
+
 export interface ObsidianGraphProps {
   data: GraphData;
   onNodeClick?: (node: GraphNode) => void;
@@ -23,6 +79,8 @@ export interface ObsidianGraphProps {
   onNodeContextMenu?: (node: GraphNode, position: { x: number; y: number }) => void;
   selectedNode?: string;
   highlightedNodes?: string[];
+  heatmapMode?: GraphHeatmapMode;
+  onLassoSelect?: (nodeIds: string[]) => void;
   enablePhysics?: boolean;
   showLabels?: boolean;
   layout?: LayoutAlgorithm;
@@ -476,6 +534,8 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
   onNodeContextMenu,
   selectedNode,
   highlightedNodes = [],
+  heatmapMode = "default",
+  onLassoSelect,
   enablePhysics = true,
   showLabels = true,
   layout: layoutProp,
@@ -490,6 +550,12 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
   const { theme } = useTheme();
 
   const [transform, setTransform] = useState({ x: 0, y: 0, k: 1 });
+  const [lassoRect, setLassoRect] = useState<{
+    startX: number;
+    startY: number;
+    endX: number;
+    endY: number;
+  } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [hoveredNode, setHoveredNode] = useState<string | null>(null);
@@ -1009,13 +1075,22 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
 
       ctx.globalAlpha = opacity;
 
-      if (isLowZoom) {
-        // LOW LOD: simple colored dot, slightly larger for clusters
-        const r = clusterCount > 0 ? radius * 1.3 : radius * 0.7;
+      if (isLowZoom || heatmapMode !== "default") {
+        // LOW LOD or active heatmap: colored circle using heatmap resolver
+        const r = clusterCount > 0 ? radius * 1.3 : isLowZoom ? radius * 0.7 : radius;
         ctx.beginPath();
         ctx.arc(node.x, node.y, r, 0, Math.PI * 2);
-        ctx.fillStyle = config.color;
+        ctx.fillStyle = resolveHeatmapNodeColor(
+          node as unknown as HeatmapNodeMetrics,
+          heatmapMode,
+          config.color
+        );
         ctx.fill();
+        if (isSelected || isHighlighted) {
+          ctx.strokeStyle = theme.colors.onBackground;
+          ctx.lineWidth = 2 / zoom;
+          ctx.stroke();
+        }
       } else {
         // MEDIUM + HIGH LOD (cached sprite draw)
         let state: "normal" | "hovered" | "selected" | "medium" = "normal";
@@ -1221,6 +1296,14 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
   // ── Mouse handlers ─────────────────────────────────────────────
 
   const handleMouseDown = (e: React.MouseEvent) => {
+    if (e.button === 0 && e.shiftKey) {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const startX = e.clientX - rect.left;
+      const startY = e.clientY - rect.top;
+      setLassoRect({ startX, startY, endX: startX, endY: startY });
+      return;
+    }
     if (e.button === 0) {
       setIsDragging(true);
       setDragStart({ x: e.clientX - transform.x, y: e.clientY - transform.y });
@@ -1228,6 +1311,16 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    if (lassoRect) {
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setLassoRect({
+        ...lassoRect,
+        endX: e.clientX - rect.left,
+        endY: e.clientY - rect.top,
+      });
+      return;
+    }
     if (isDragging) {
       setTransform({
         ...transform,
@@ -1262,6 +1355,21 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
   };
 
   const handleMouseUp = () => {
+    if (lassoRect) {
+      const selected = computeLassoSelectedNodes(
+        simulationNodes,
+        {
+          minX: lassoRect.startX,
+          maxX: lassoRect.endX,
+          minY: lassoRect.startY,
+          maxY: lassoRect.endY,
+        },
+        transform
+      );
+      setLassoRect(null);
+      onLassoSelect?.(selected);
+      return;
+    }
     setIsDragging(false);
   };
 
@@ -1393,6 +1501,18 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
 
   return (
     <div ref={containerRef} className="relative w-full h-full overflow-hidden">
+      {lassoRect && (
+        <div
+          data-lasso-marquee="true"
+          className="pointer-events-none absolute z-30 border border-dashed border-primary bg-primary/15"
+          style={{
+            left: Math.min(lassoRect.startX, lassoRect.endX),
+            top: Math.min(lassoRect.startY, lassoRect.endY),
+            width: Math.abs(lassoRect.endX - lassoRect.startX),
+            height: Math.abs(lassoRect.endY - lassoRect.startY),
+          }}
+        />
+      )}
       <canvas
         ref={canvasRef}
         className="absolute inset-0 cursor-grab active:cursor-grabbing"

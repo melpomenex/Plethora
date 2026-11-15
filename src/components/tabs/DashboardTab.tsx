@@ -31,6 +31,7 @@ import { validCaptureUrl } from "../../utils/captureSource";
 import { useToast } from "../common/Toast";
 import { CaptureActivityCard } from "../analytics/CaptureActivityCard";
 import { StudyPlansDashboardCard } from "../study-plans/StudyPlansDashboardCard";
+import { TodaysHorizonBanner } from "../dashboard/TodaysHorizonBanner";
 import { QuickReviewWidget } from "../review/QuickReviewWidget";
 import { ActionButton, FocusPanel, SummarySection } from "../common/UI";
 import { AdaptiveContentHeader, SafeScrollContainer } from "../adaptive";
@@ -493,8 +494,25 @@ export function DashboardTab() {
           />
         </div>
 
+        {/* Today's Horizon Bridge */}
+        <TodaysHorizonBanner
+          activePlansCount={0}
+          pendingAssessmentsCount={0}
+          dueReviewsCount={stats?.cards_due_today ?? 0}
+          highPriorityExtractsCount={stats?.due_documents ?? 0}
+          unreadDiscoveryCount={resumableDocs.length}
+          onResumeMilestone={() => {
+            const studyPlansSection = document.querySelector('[data-study-plans-card="true"]');
+            studyPlansSection?.scrollIntoView({ behavior: "smooth", block: "center" });
+          }}
+          onLaunchQueue={() => {
+            const queueAction = quickActions.find((a) => a.id === "queue");
+            if (queueAction) openTab(queueAction);
+          }}
+        />
+
         {/* Study Plans Section */}
-        <div className="mb-6 md:mb-8">
+        <div className="mb-6 md:mb-8" data-study-plans-card="true">
           <StudyPlansDashboardCard />
         </div>
 

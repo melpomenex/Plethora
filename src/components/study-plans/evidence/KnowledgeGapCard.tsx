@@ -3,7 +3,11 @@ import type { KnowledgeGapView } from '../../../types/learningEvidence';
 import type { TargetedPracticeOptions } from '../../../lib/study-plans/remediation/remediationService';
 import { GapEvidencePanel } from './GapEvidencePanel';
 import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
+import { createExtract } from '../../../api/extracts';
+import { createLearningItem } from '../../../api/learning-items';
+import { dispatchPriorityCommit } from '../../../services/priority/priorityCommit';
 
+export const URGENT_REMEDIATION_PRIORITY_SLIDER = 8;
 
 export interface KnowledgeGapCardProps {
   gap: KnowledgeGapView;
@@ -12,6 +16,10 @@ export interface KnowledgeGapCardProps {
   onPrepareAssessment?: (gap: KnowledgeGapView, mode: 'practice' | 'exam', options?: TargetedPracticeOptions) => void;
   onOpenLesson?: (nodeId: string) => void;
   onProposeCards?: (gap: KnowledgeGapView) => void;
+  onInjectIntoQueue?: (
+    gap: KnowledgeGapView,
+    options: { priorityDisplaySlider: number; documentId: string | null }
+  ) => Promise<void>;
 }
 
 function structuralNote(kind: KnowledgeGapView['kind']): string | null {
@@ -21,11 +29,54 @@ function structuralNote(kind: KnowledgeGapView['kind']): string | null {
   return null;
 }
 
-export const KnowledgeGapCard: React.FC<KnowledgeGapCardProps> = ({ gap, onDismiss, onOpenSource, onPrepareAssessment, onOpenLesson, onProposeCards }) => {
+export const KnowledgeGapCard: React.FC<KnowledgeGapCardProps> = ({ gap, onDismiss, onOpenSource, onPrepareAssessment, onOpenLesson, onProposeCards, onInjectIntoQueue }) => {
         useI18n();
         const note = structuralNote(gap.kind);
   const [emphasis, setEmphasis] = useState<'recall' | 'application' | 'transfer'>('recall');
   const [paper, setPaper] = useState<'fresh' | 'same'>('fresh');
+  const [injectStatus, setInjectStatus] = useState<'idle' | 'injecting' | 'queued' | 'error'>('idle');
+
+  const resolvedDocumentId =
+    (gap.evidence.find((e) => typeof e.payload?.documentId === 'string')?.payload?.documentId as string | undefined) ??
+    gap.evidence.find((e) => e.sourceRefId)?.sourceRefId ??
+    null;
+
+  const handleInjectWeakConcepts = async () => {
+    if (injectStatus === 'injecting' || injectStatus === 'queued') return;
+    setInjectStatus('injecting');
+    try {
+      if (onInjectIntoQueue) {
+        await onInjectIntoQueue(gap, {
+          priorityDisplaySlider: URGENT_REMEDIATION_PRIORITY_SLIDER,
+          documentId: resolvedDocumentId,
+        });
+      } else if (resolvedDocumentId) {
+        const evidenceText = gap.evidence
+          .map((e) => e.description)
+          .filter(Boolean)
+          .join('\n');
+        const extract = await createExtract({
+          document_id: resolvedDocumentId,
+          content: evidenceText ? `${gap.conceptName}\n\n${evidenceText}` : gap.conceptName,
+          note: `Remediation extract for gap: ${gap.conceptName}`,
+        });
+        await dispatchPriorityCommit(
+          { kind: 'extract', id: extract.id },
+          URGENT_REMEDIATION_PRIORITY_SLIDER
+        );
+        await createLearningItem({
+          document_id: resolvedDocumentId,
+          extract_id: extract.id,
+          item_type: 'Flashcard',
+          question: `Recall and explain: ${gap.conceptName}`,
+          answer: evidenceText || gap.conceptName,
+        });
+      }
+      setInjectStatus('queued');
+    } catch {
+      setInjectStatus('error');
+    }
+  };
   return (
     <article
       aria-label={translateRecentFeature("studyPlans.ui.knowledge-gap-var0.548db1bf", {var0: gap.conceptName})}
@@ -54,6 +105,25 @@ export const KnowledgeGapCard: React.FC<KnowledgeGapCardProps> = ({ gap, onDismi
           {' '}{translateRecentFeature("studyPlans.ui.var0-sessions-not-a-mastery-.3210c1f4", {var0: gap.demonstrated.independentSessions})}</p>
       )}
       <GapEvidencePanel gap={gap} onOpenSource={onOpenSource} />
+      {gap.status === 'active' && (resolvedDocumentId || onInjectIntoQueue) && (
+        <div className="flex items-center gap-2 pt-1">
+          <button
+            type="button"
+            data-testid={`gap-inject-queue-${gap.id}`}
+            disabled={injectStatus === 'injecting' || injectStatus === 'queued'}
+            onClick={() => void handleInjectWeakConcepts()}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/20 disabled:opacity-60"
+          >
+            {injectStatus === 'injecting'
+              ? 'Injecting into Queue...'
+              : injectStatus === 'queued'
+                ? 'Queued for Urgent Review (P8)'
+                : injectStatus === 'error'
+                  ? 'Retry Inject Weak Concepts into Queue'
+                  : 'Inject Weak Concepts into Queue'}
+          </button>
+        </div>
+      )}
       {gap.status === 'active' && gap.demonstrated && (onPrepareAssessment || onProposeCards) && (
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-2">
