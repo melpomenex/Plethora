@@ -3,6 +3,8 @@ import { buildCommandRegistry, matchCommands, type RegistryDeps } from "../regis
 import { NAVIGATION_DESTINATIONS } from "../../navigation/tabDestinations";
 import { en } from "../../lib/i18n/locales/en";
 import { settleDestinationAction, useDestinationActionStore } from "../destinationActions";
+import { getQueueOrderingMode, setQueueOrderingMode } from "../../stores/queueOrderingSettings";
+import { useUIStore } from "../../stores/uiStore";
 
 function makeDeps(overrides: Partial<RegistryDeps> = {}): RegistryDeps {
   return {
@@ -167,5 +169,37 @@ describe("action acceptance: representative operations execute their real workfl
       queueId: "q1",
     });
     settlePending();
+  });
+
+  it("UX02-T02: switches queue ordering to strict_manual and toggles Zen/Architect density with hotkey badges", async () => {
+    setQueueOrderingMode("adaptive");
+    useUIStore.getState().setDensityMode("zen");
+
+    const setTheme = vi.fn();
+    const commands = buildCommandRegistry(makeDeps({ setTheme }));
+
+    const strictMatch = matchFirst(commands, "strict manual");
+    expect(strictMatch.command.id).toBe("queue.ordering-strict-manual");
+    await strictMatch.command.action();
+    expect(getQueueOrderingMode()).toBe("strict_manual");
+
+    const densityMatch = matchFirst(commands, "zen mode");
+    expect(densityMatch.command.id).toBe("view.toggle-density");
+    expect(densityMatch.command.shortcut).toBeTruthy();
+    await densityMatch.command.action();
+    expect(useUIStore.getState().densityMode).toBe("architect");
+
+    const qaMatch = matchFirst(commands, "docked qa");
+    expect(qaMatch.command.id).toBe("extract.open-docked-qa");
+    expect(qaMatch.command.shortcut).toBeTruthy();
+
+    const clozeMatch = matchFirst(commands, "chained cloze");
+    expect(clozeMatch.command.id).toBe("extract.chained-cloze");
+    expect(clozeMatch.command.shortcut).toBe("Alt+Z");
+
+    const themeMatch = matchFirst(commands, "cycle theme");
+    expect(themeMatch.command.id).toBe("theme.cycle");
+    await themeMatch.command.action();
+    expect(setTheme).toHaveBeenCalledWith("theme-light");
   });
 });

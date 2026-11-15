@@ -1,6 +1,33 @@
 import { create } from "zustand";
 import { ViewName } from "../types";
 
+export type UIDensityMode = "zen" | "architect";
+export const UI_DENSITY_STORAGE_KEY = "plethora_ui_density_mode";
+
+function readInitialDensityMode(): UIDensityMode {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      const saved = window.localStorage.getItem(UI_DENSITY_STORAGE_KEY);
+      if (saved === "zen" || saved === "architect") {
+        return saved;
+      }
+    }
+  } catch {
+    // Ignore storage errors
+  }
+  return "zen";
+}
+
+function persistDensityMode(mode: UIDensityMode): void {
+  try {
+    if (typeof window !== "undefined" && window.localStorage) {
+      window.localStorage.setItem(UI_DENSITY_STORAGE_KEY, mode);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
 export interface CaptureImportInitialData {
   filePath?: string;
   filePaths?: string[];
@@ -39,8 +66,9 @@ interface UIState {
   // Twitter / X Video Import Dialog
   twitterImportDialogOpen: boolean;
 
-  // Theme
+  // Theme & Density
   theme: "light" | "dark";
+  densityMode: UIDensityMode;
 
   // Actions
   setCurrentView: (view: ViewName) => void;
@@ -60,6 +88,8 @@ interface UIState {
   setPasteExtractDialogOpen: (open: boolean) => void;
   setTwitterImportDialogOpen: (open: boolean) => void;
   setTheme: (theme: "light" | "dark") => void;
+  setDensityMode: (mode: UIDensityMode) => void;
+  toggleDensityMode: () => void;
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -79,6 +109,7 @@ export const useUIStore = create<UIState>((set) => ({
   pasteExtractDialogOpen: false,
   twitterImportDialogOpen: false,
   theme: "dark",
+  densityMode: readInitialDensityMode(),
 
   // Actions
   setCurrentView: (currentView) => set({ currentView }),
@@ -123,4 +154,16 @@ export const useUIStore = create<UIState>((set) => ({
   setTwitterImportDialogOpen: (twitterImportDialogOpen) => set({ twitterImportDialogOpen }),
 
   setTheme: (theme) => set({ theme }),
+
+  setDensityMode: (densityMode) => {
+    persistDensityMode(densityMode);
+    set({ densityMode });
+  },
+
+  toggleDensityMode: () =>
+    set((state) => {
+      const next: UIDensityMode = state.densityMode === "zen" ? "architect" : "zen";
+      persistDensityMode(next);
+      return { densityMode: next };
+    }),
 }));

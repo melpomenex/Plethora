@@ -26,6 +26,7 @@ import {
   ClockCounterClockwise,
   Command as CommandIcon,
   Compass,
+  Eye,
   Gear,
   Globe,
   Graph,
@@ -64,6 +65,7 @@ import { getPaletteSelection } from "./selectionTranslation";
 import { useSavedQueueStore } from "../stores/savedQueueStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { useUIStore } from "../stores/uiStore";
+import { getQueueOrderingMode, setQueueOrderingMode } from "../stores/queueOrderingSettings";
 import { isNativeAndroid, isTauri, isMac, nativePlatform } from "../lib/tauri";
 import { fuzzyMatch } from "../utils/fuzzy";
 import { useLibraryAskHandoffStore } from "./libraryAskHandoff";
@@ -850,6 +852,127 @@ function buildPaletteOwnedCommands(deps: RegistryDeps): Command[] {
       aliases: ["refresh feeds", "sync feeds", "update feeds"],
       suppressedByContextual: ["rss.refreshFeed"],
     }),
+    createCommand({
+      id: "view.toggle-density",
+      intentId: "action:toggle-density-mode",
+      label: "Toggle Zen / Architect Mode",
+      description: "Switch between distraction-free Zen Mode and telemetry-rich Architect Mode",
+      icon: <Eye className="w-4 h-4" />,
+      category: CommandCategory.General,
+      shortcut: isMac() ? "⌘\\" : "Ctrl+\\",
+      action: () => {
+        const ui = useUIStore.getState();
+        ui.toggleDensityMode();
+        ui.setCommandPaletteOpen(false);
+      },
+      keywords: ["zen", "architect", "density", "telemetry", "minimal", "ui"],
+      aliases: ["zen mode", "architect mode", "toggle density"],
+    }),
+    createCommand({
+      id: "queue.ordering-adaptive",
+      intentId: "action:queue-ordering-adaptive",
+      label: "Queue: Switch to Adaptive Ordering",
+      description: "Let DAQE & FSRS-7 adaptively schedule your queue",
+      icon: <ListChecks className="w-4 h-4" />,
+      category: CommandCategory.Review,
+      action: () => {
+        setQueueOrderingMode("adaptive");
+        useUIStore.getState().setCommandPaletteOpen(false);
+      },
+      keywords: ["queue", "ordering", "adaptive", "daqe", "fsrs"],
+      aliases: ["adaptive ordering"],
+    }),
+    createCommand({
+      id: "queue.ordering-strict-manual",
+      intentId: "action:queue-ordering-strict-manual",
+      label: "Queue: Switch to Strict Manual Ordering",
+      description: "Pin queue strictly to explicit manual priority order",
+      icon: <ListChecks className="w-4 h-4" />,
+      category: CommandCategory.Review,
+      action: () => {
+        setQueueOrderingMode("strict_manual");
+        useUIStore.getState().setCommandPaletteOpen(false);
+      },
+      keywords: ["queue", "ordering", "strict", "manual", "priority", "pinned"],
+      aliases: ["strict manual", "manual ordering"],
+    }),
+    createCommand({
+      id: "queue.ordering-toggle",
+      intentId: "action:queue-ordering-toggle",
+      label: "Queue: Toggle Adaptive / Strict Manual Ordering",
+      description: "Switch between Adaptive DAQE and Strict Manual queue ordering",
+      icon: <ListChecks className="w-4 h-4" />,
+      category: CommandCategory.Review,
+      action: () => {
+        const next = getQueueOrderingMode() === "strict_manual" ? "adaptive" : "strict_manual";
+        setQueueOrderingMode(next);
+        useUIStore.getState().setCommandPaletteOpen(false);
+      },
+      keywords: ["queue", "ordering", "toggle", "adaptive", "strict", "manual"],
+      aliases: ["toggle queue ordering"],
+    }),
+    createCommand({
+      id: "extract.open-docked-qa",
+      intentId: "action:open-docked-qa",
+      label: "Extract: Open Docked Q&A Split-Sheet",
+      description: "Toggle the non-blocking Q&A creator split-sheet",
+      icon: <ChatCircleDots className="w-4 h-4" />,
+      category: CommandCategory.Extracts,
+      shortcut: isMac() ? "⌘⇧Q" : "Ctrl+Shift+Q",
+      action: () => {
+        useUIStore.getState().setCommandPaletteOpen(false);
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Q",
+            shiftKey: true,
+            ctrlKey: !isMac(),
+            metaKey: isMac(),
+            bubbles: true,
+          })
+        );
+      },
+      keywords: ["extract", "qa", "flashcard", "split", "sheet", "docked"],
+      aliases: ["docked qa", "create qa split sheet"],
+    }),
+    createCommand({
+      id: "extract.chained-cloze",
+      intentId: "action:chained-cloze",
+      label: "Extract: Create Chained Cloze",
+      description: "Create a child extract and background cloze card from selection",
+      icon: <Scissors className="w-4 h-4" />,
+      category: CommandCategory.Extracts,
+      shortcut: "Alt+Z",
+      action: () => {
+        useUIStore.getState().setCommandPaletteOpen(false);
+        window.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "z",
+            altKey: true,
+            bubbles: true,
+          })
+        );
+      },
+      keywords: ["extract", "cloze", "chained", "selection", "card"],
+      aliases: ["chained cloze"],
+    }),
+    createCommand({
+      id: "theme.cycle",
+      intentId: "action:theme-cycle",
+      label: "Theme: Switch / Cycle Color Theme",
+      description: "Cycle through available color themes",
+      icon: <Palette className="w-4 h-4" />,
+      category: CommandCategory.General,
+      action: () => {
+        if (deps.themes.length > 0) {
+          const idx = deps.themes.findIndex((th) => th.id === deps.theme.id);
+          const next = deps.themes[(idx + 1) % deps.themes.length];
+          deps.setTheme(next.id);
+        }
+        useUIStore.getState().setCommandPaletteOpen(false);
+      },
+      keywords: ["theme", "color", "dark", "light", "cycle", "switch"],
+      aliases: ["cycle theme", "switch theme"],
+    }),
   ];
 }
 
@@ -883,6 +1006,13 @@ export const REGISTRY_COMMAND_EXCEPTIONS: Record<string, string> = {
     "Desktop-only by construction: buildInterfaceZoomCommands returns [] unless isDesktopInterfaceZoomSupported() (desktop Tauri, macOS 11+).",
   "interface-zoom-reset":
     "Desktop-only by construction: buildInterfaceZoomCommands returns [] unless isDesktopInterfaceZoomSupported() (desktop Tauri, macOS 11+).",
+  "view.toggle-density": "Pure UI state toggle (Zen/Architect density mode); platform-neutral.",
+  "queue.ordering-adaptive": "Pure UI/localStorage queue ordering preference; platform-neutral.",
+  "queue.ordering-strict-manual": "Pure UI/localStorage queue ordering preference; platform-neutral.",
+  "queue.ordering-toggle": "Pure UI/localStorage queue ordering preference; platform-neutral.",
+  "extract.open-docked-qa": "Dispatches standard DOM keydown toggle for docked Q&A split-sheet; platform-neutral.",
+  "extract.chained-cloze": "Dispatches standard DOM Alt+Z trigger for Chained Cloze; platform-neutral.",
+  "theme.cycle": "Pure UI theme state cycle; platform-neutral.",
 };
 
 /**

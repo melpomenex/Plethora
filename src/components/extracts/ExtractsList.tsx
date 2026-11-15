@@ -34,11 +34,13 @@ import { EditableContentPalette } from "../common/EditableContentPalette";
 import { CompactTagEditor } from "../common/CompactTagEditor";
 import { CreateExtractDialog } from "./CreateExtractDialog";
 import { applyAnchoredTextHighlights, buildTextSelectionContext, type AnchoredTextHighlight } from "../../utils/textHighlights";
+import { SubwayMinimap, SubwayMinimapIcon } from "../viewer/SubwayMinimap";
 import type { TextSelectionContext } from "../../types/selection";
 import type { ExtractSourceContext } from "../../types/extractNavigation";
 
 interface ExtractsListProps {
   documentId: string;
+  documentTitle?: string;
   focusedExtractId?: string;
   sourceContext?: ExtractSourceContext;
   onBackToSource?: () => void;
@@ -102,12 +104,14 @@ function ExtractTextContent({ extract, highlights, onSelection }: ExtractTextCon
 
 export function ExtractsList({
   documentId,
+  documentTitle,
   focusedExtractId,
   sourceContext,
   onBackToSource,
   onResumeQueue,
 }: ExtractsListProps) {
   const [extracts, setExtracts] = useState<Extract[]>([]);
+  const [showSubwayMinimap, setShowSubwayMinimap] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [generatingIds, setGeneratingIds] = useState<Set<string>>(new Set());
@@ -478,11 +482,41 @@ export function ExtractsList({
         </div>
       )}
 
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-2xl font-bold text-foreground">
           {t("extracts.title")} ({extracts.length})
         </h2>
+        <button
+          type="button"
+          onClick={() => setShowSubwayMinimap((prev) => !prev)}
+          aria-pressed={showSubwayMinimap}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+        >
+          <SubwayMinimapIcon className="h-3.5 w-3.5" />
+          <span>Subway Map</span>
+        </button>
       </div>
+
+      {showSubwayMinimap && (
+        <SubwayMinimap
+          documentTitle={documentTitle || sourceContext?.sourceTitle || "Document"}
+          activeExtractId={focusedExtractId}
+          extracts={extracts.map((ext) => ({
+            id: ext.id,
+            title: ext.content.slice(0, 72) || "Untitled extract",
+            stability: ext.memory_state?.stability,
+            reps: ext.reps ?? ext.review_count,
+            nextReview: ext.next_review_date,
+            cards: [],
+          }))}
+          onSelectExtract={(id) => {
+            const el = document.querySelector(`[data-extract-id="${id}"]`);
+            if (el && typeof el.scrollIntoView === "function") {
+              el.scrollIntoView({ behavior: "smooth", block: "center" });
+            }
+          }}
+        />
+      )}
 
       {/* Bulk Operation Result */}
       {bulkOperationResult && (

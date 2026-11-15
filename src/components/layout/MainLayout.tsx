@@ -125,6 +125,18 @@ export function MainLayout() {
     void captureController.rehydrate();
   }, []);
 
+  // Global Cmd/Ctrl + \ toggle between Zen and Architect UI density modes
+  useEffect(() => {
+    const handleDensityKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && !e.altKey && (e.key === "\\" || e.code === "Backslash")) {
+        e.preventDefault();
+        useUIStore.getState().toggleDensityMode();
+      }
+    };
+    window.addEventListener("keydown", handleDensityKeyDown);
+    return () => window.removeEventListener("keydown", handleDensityKeyDown);
+  }, []);
+
   // Find the first tab pane and its active tab for keyboard navigation
   useEffect(() => {
     const findFirstTabPane = (pane: typeof rootPane): typeof rootPane | null => {

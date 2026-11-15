@@ -250,7 +250,7 @@ export function CommandPalette({ isOpen, onClose, commands }: CommandPaletteProp
 
                             {/* Shortcut */}
                             {cmd.shortcut && (
-                              <kbd className="px-2 py-1 bg-muted text-muted-foreground text-xs rounded">
+                              <kbd className="ml-auto shrink-0 px-2 py-0.5 bg-muted border border-border/70 text-muted-foreground font-mono text-xs rounded">
                                 {cmd.shortcut}
                               </kbd>
                             )}

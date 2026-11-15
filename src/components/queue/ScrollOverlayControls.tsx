@@ -3,15 +3,11 @@ import {
   Brain,
   CaretDown,
   CaretUp,
-  ChatCircle,
   CheckCircle,
   EyeSlash,
   Flag,
   Lightbulb,
-  Lightning,
   List,
-  Rss,
-  Sliders,
   Sparkle,
   Star,
   TextT,
@@ -31,8 +27,12 @@ import { cn } from "../../utils";
 import { RatingOrb, type RatingOrbAction } from "../review/RatingOrb";
 import { useBottomControlsGeometry } from "../mobile/BottomControlsGeometry";
 import { useRatingDockBounds } from "./useRatingDockBounds";
-import { emitInteractionFeedback, emitUserInteraction } from "../../lib/feedback/orchestrator";
+import { emitInteractionFeedback } from "../../lib/feedback/orchestrator";
 import { usePriorityCommitState } from "../../services/priority/priorityCommit";
+import { SessionChromeHeader } from "./SessionChromeHeader";
+import { QueueProvenancePill, type QueueProvenanceInfo } from "./QueueProvenancePill";
+import { useUIStore } from "../../stores/uiStore";
+import type { QueueOrderingMode } from "../../types/queue";
 
 interface ScrollOverlayControlsProps {
   showControls: boolean;
@@ -92,6 +92,15 @@ interface ScrollOverlayControlsProps {
   onExitNeural?: () => void;
   /** Render slot for ItemDetailsPopover in top bar */
   detailsButton?: React.ReactNode;
+  /** Optional Queue Provenance Pill slot mounted in header */
+  provenanceSlot?: React.ReactNode;
+  /** Structured provenance info to auto-render QueueProvenancePill in header */
+  provenanceInfo?: QueueProvenanceInfo;
+  onSnooze?: (days: number) => void | Promise<void>;
+  onOrderingModeChange?: (mode: QueueOrderingMode) => void;
+  provenanceOpenRequestKey?: number;
+  /** Optional Timebox completion ring slot mounted in header */
+  timeboxRingSlot?: React.ReactNode;
   prioritySlider?: number;
   /** i18n labels (optional — falls back to English) */
   labels?: {
@@ -174,7 +183,7 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   isRating,
   scrollViewMode,
   helpText,
-  isEpub = false,
+  isEpub: _isEpub = false,
   isMobile = false,
   ratingOrbsPosition = "right",
   onUpdateRatingOrbsPosition,
@@ -183,10 +192,10 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   onShowRssSettings,
   onSetScrollViewMode,
   onOpenExtractDialog,
-  onOpenEpubToc,
-  onOpenEpubSettings,
-  onEpubPreviousPage,
-  onEpubNextPage,
+  onOpenEpubToc: _onOpenEpubToc,
+  onOpenEpubSettings: _onOpenEpubSettings,
+  onEpubPreviousPage: _onEpubPreviousPage,
+  onEpubNextPage: _onEpubNextPage,
   onRate,
   onDismiss,
   onPriorityChange,
@@ -203,6 +212,12 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
   onGoNeural,
   onExitNeural,
   detailsButton,
+  provenanceSlot,
+  provenanceInfo,
+  onSnooze,
+  onOrderingModeChange,
+  provenanceOpenRequestKey,
+  timeboxRingSlot,
   prioritySlider,
   labels,
 }: ScrollOverlayControlsProps) {
@@ -362,15 +377,31 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
           ? "bg-emerald-500/30"
         : "bg-yellow-500/30";
 
-  const priorityControl = showControls && onPriorityChange && typeof prioritySlider === "number" ? (
-    <ScrollPriorityControl
-      key={itemId ?? `${itemType}:${itemDocumentId}:${currentIndex}`}
-      isMobile={isMobile}
-      value={prioritySlider}
-      onChange={onPriorityChange}
-      labels={labels}
-    />
+  const densityMode = useUIStore((s) => s.densityMode);
+  const priorityControl = showControls && densityMode === "architect" && onPriorityChange && typeof prioritySlider === "number" ? (
+    <div data-architect-telemetry="true">
+      <ScrollPriorityControl
+        key={itemId ?? `${itemType}:${itemDocumentId}:${currentIndex}`}
+        isMobile={isMobile}
+        value={prioritySlider}
+        onChange={onPriorityChange}
+        labels={labels}
+      />
+    </div>
   ) : null;
+
+  const resolvedProvenanceSlot =
+    provenanceSlot ??
+    (showControls && provenanceInfo ? (
+      <QueueProvenancePill
+        info={provenanceInfo}
+        isMobile={isMobile}
+        onSnooze={onSnooze}
+        onPriorityChange={onPriorityChange}
+        onOrderingModeChange={onOrderingModeChange}
+        openRequestKey={provenanceOpenRequestKey}
+      />
+    ) : undefined);
 
   return (
     <>
@@ -379,172 +410,47 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
     <div data-queue-overlay ref={overlayRef} inert={bottomGeometry?.blocked || undefined} aria-hidden={bottomGeometry?.blocked || undefined}
       style={bottomGeometry ? { top: bottomGeometry.viewportTop, height: bottomGeometry.viewportHeight, bottom: "auto" } : undefined}
       className={cn("fixed inset-0 pointer-events-none transition-all duration-300 z-50", showControls ? "opacity-100 visible" : "opacity-0 invisible")}>
-      {/* Top Bar */}
-      <div ref={headerRef} data-queue-header className={cn("absolute top-0 left-0 right-0 pb-4 bg-gradient-to-b from-black/50 to-transparent pointer-events-none", isMobile ? "queue-mobile-header" : "pt-[calc(16px+env(safe-area-inset-top,0px))] px-4")}>
-        <div className={cn("flex items-center justify-between max-w-7xl mx-auto", isMobile && "flex-wrap gap-2")}>
-          <div className={cn("flex items-center gap-3 pointer-events-auto", isMobile && "flex-wrap min-w-0 max-w-full gap-2")}>
-            <button
-              onClick={() => {
-                emitUserInteraction("queue.closed");
-                onExit();
-              }}
-              onPointerDown={() => emitUserInteraction("queue.closed")}
-              className={cn("p-2 rounded-lg bg-black/40 backdrop-blur-sm hover:bg-black/60 transition-colors", isMobile && "min-h-11 min-w-11 shrink-0")}
-              title={labels?.exit ?? "Exit scroll mode"}
-            >
-              <X className="w-5 h-5 text-white" />
-            </button>
-            {isNeuralMode ? (
-              // Neural banner: distinct violet color signals the creative mode.
-              // Shows the remaining count and an exit that restores the reading
-              // session (does not close the tab).
-              <div className={cn("flex items-center gap-2 text-white font-medium text-sm bg-violet-600/70 backdrop-blur-sm px-3 py-2 rounded-lg", isMobile && "flex-wrap min-w-0 max-w-full break-words")}>
-                <Lightning className="w-4 h-4 text-violet-200" weight="fill" />
-                <span className="text-violet-50">{labels?.reviewMode ?? "Neural review"}</span>
-                {neuralRemaining !== null && (
-                  <span className="text-violet-200/90">· {neuralRemaining}</span>
-                )}
-                <button
-                  onClick={onExitNeural}
-                  className={cn("ml-1 px-2 py-0.5 rounded bg-white/20 hover:bg-white/30 transition-colors text-xs text-white", isMobile && "min-h-11 min-w-11")}
-                  title={labels?.exitNeural ?? "Exit neural review"}
-                >
-                  {labels?.exitNeural ?? "Exit"}
-                </button>
-              </div>
-            ) : (
-              <div className="text-white font-medium text-sm bg-black/40 backdrop-blur-sm px-3 py-2 rounded-lg">
-                {currentIndex + 1 + sessionOffset} / {totalItems + sessionOffset}
-              </div>
-            )}
-          </div>
+      {/* Standardized invariant Top Bar across Flashcard, Extract, Doc & Video */}
+      <SessionChromeHeader
+        headerRef={headerRef}
+        isMobile={isMobile}
+        currentIndex={currentIndex}
+        totalItems={totalItems}
+        sessionOffset={sessionOffset}
+        itemType={itemType}
+        itemTitle={itemTitle}
+        typeLabel={typeLabel}
+        typeColor={typeColor}
+        isDocOrRss={isDocOrRss}
+        isNeuralMode={isNeuralMode}
+        neuralRemaining={neuralRemaining}
+        canGoNeural={canGoNeural}
+        isNeuralLoading={isNeuralLoading}
+        isSummaryActive={isSummaryActive}
+        isAssistantVisible={isAssistantVisible}
+        priorityControl={priorityControl}
+        detailsButton={detailsButton}
+        provenanceSlot={resolvedProvenanceSlot}
+        timeboxRingSlot={timeboxRingSlot}
+        labels={labels}
+        onExit={onExit}
+        onExitNeural={onExitNeural}
+        onShowSettings={onShowSettings}
+        onShowRssSettings={onShowRssSettings}
+        onGoNeural={onGoNeural}
+        onToggleSummary={onToggleSummary}
+        onToggleAssistant={onToggleAssistant}
+      />
 
-          <div className={cn("flex items-center gap-3 pointer-events-auto", isMobile && "flex-wrap min-w-0 max-w-full gap-2")}>
-            {/* Disable EPUB reader buttons on mobile overlay to reduce clutter */}
-            {false && isEpub && (
-              <div className="flex items-center gap-1 rounded-lg bg-black/40 p-1 backdrop-blur-sm">
-                <button
-                  type="button"
-                  onClick={onOpenEpubToc}
-                  className="rounded-md px-2 py-1.5 text-xs font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-                  title="Table of contents"
-                >
-                  TOC
-                </button>
-                <button
-                  type="button"
-                  onClick={onOpenEpubSettings}
-                  className="rounded-md px-2 py-1.5 text-xs font-semibold text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-                  title="Reading settings"
-                >
-                  Aa
-                </button>
-                <button
-                  type="button"
-                  onClick={onEpubPreviousPage}
-                  className="rounded-md p-1.5 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-                  title="Previous EPUB page"
-                >
-                  <CaretUp className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={onEpubNextPage}
-                  className="rounded-md p-1.5 text-white/80 transition-colors hover:bg-white/10 hover:text-white"
-                  title="Next EPUB page"
-                >
-                  <CaretDown className="h-4 w-4" />
-                </button>
-              </div>
-            )}
-            {priorityControl}
-            {detailsButton}
-            {!isMobile && (
-              <>
-                <button onClick={onShowSettings} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black/40 backdrop-blur-sm text-white text-sm transition-colors hover:bg-black/60" title={labels?.settings ?? "Queue Settings"}>
-                  <Sliders className="w-4 h-4" />
-                  {labels?.settings ?? "Settings"}
-                </button>
-                <button onClick={onShowRssSettings} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-black/40 backdrop-blur-sm text-white text-sm transition-colors hover:bg-black/60" title={labels?.rss ?? "RSS Settings"}>
-                  <Rss className="w-4 h-4" />
-                  {labels?.rss ?? "RSS"}
-                </button>
-                {/* Go neural — explore related material via spreading activation
-                    from the current item. Disabled for RSS/podcast (no element_tree
-                    node) and while a queue is building. Desktop-only to match the
-                    other action buttons. */}
-                {onGoNeural && !isNeuralMode && (
-                  <button
-                    onClick={onGoNeural}
-                    disabled={!canGoNeural || isNeuralLoading}
-                    className={cn(
-                      "flex items-center gap-2 px-3 py-2 rounded-lg backdrop-blur-sm text-white text-sm transition-colors",
-                      canGoNeural && !isNeuralLoading
-                        ? "bg-violet-600/70 hover:bg-violet-600"
-                        : "bg-black/40 opacity-50 cursor-not-allowed",
-                    )}
-                    title={
-                      !canGoNeural
-                        ? (labels?.goNeuralTooltip ?? "Open a document, card, or extract to explore related material")
-                        : (labels?.goNeuralTooltip ?? "Explore material related to this item")
-                    }
-                  >
-                    {isNeuralLoading ? (
-                      <span className="inline-block animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white" />
-                    ) : (
-                      <Brain className="w-4 h-4" />
-                    )}
-                    {labels?.goNeural ?? "Go neural"}
-                  </button>
-                )}
-                {/* AI Summary toggle (document / rss items only). */}
-                {isDocOrRss && onToggleSummary && (
-                  <button
-                    onClick={onToggleSummary}
-                    className={cn(
-                      "flex items-center gap-2 px-3 py-2 rounded-lg backdrop-blur-sm text-white text-sm transition-colors",
-                      isSummaryActive
-                        ? "bg-[#ffb000] text-black hover:bg-[#ffb000]/90"
-                        : "bg-black/40 hover:bg-black/60"
-                    )}
-                    title={isSummaryActive ? (labels?.closeSummary ?? "Close summary") : (labels?.summarize ?? "Summarize")}
-                    aria-pressed={isSummaryActive}
-                  >
-                    <Sparkle className="w-4 h-4" />
-                    {isSummaryActive ? (labels?.closeSummary ?? "Summary") : (labels?.summarize ?? "Summarize")}
-                  </button>
-                )}
-                {/* Assistant Show/Hide toggle (desktop; not for flashcard items). */}
-                {itemType !== "flashcard" && onToggleAssistant && (
-                  <button
-                    onClick={onToggleAssistant}
-                    className={cn(
-                      "flex items-center gap-2 px-3 py-2 rounded-lg backdrop-blur-sm text-white text-sm transition-colors",
-                      isAssistantVisible
-                        ? "bg-primary/80 hover:bg-primary"
-                        : "bg-black/40 hover:bg-black/60"
-                    )}
-                    title={isAssistantVisible ? (labels?.hideAssistant ?? "Hide Assistant") : (labels?.showAssistant ?? "Show Assistant")}
-                    aria-pressed={isAssistantVisible}
-                  >
-                    <ChatCircle className="w-4 h-4" />
-                    {isAssistantVisible ? (labels?.hideAssistant ?? "Assistant") : (labels?.showAssistant ?? "Assistant")}
-                  </button>
-                )}
-                <div className="text-white text-sm bg-black/40 backdrop-blur-sm px-3 py-2 rounded-lg max-w-[200px] sm:max-w-md truncate">
-                  <span className="flex items-center gap-2 truncate">
-                    <span className={cn("px-1.5 py-0.5 rounded text-xs shrink-0", typeColor)}>{typeLabel}</span>
-                    <span className="truncate">{itemTitle}</span>
-                  </span>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-
-      {/* Scroll Mode Toolbar: measured together with session actions. */}
+      {/* Scroll Mode Toolbar sits cleanly below the fixed header coordinate without mutating [data-queue-header] height. */}
       {isDocOrRss && (
-        <div data-queue-modes className={cn("flex justify-center pointer-events-none", isMobile ? "mt-2" : "mt-3")}>
+        <div
+          data-queue-modes
+          className={cn(
+            "absolute left-1/2 -translate-x-1/2 z-20 flex justify-center pointer-events-none",
+            isMobile ? "top-[calc(64px+env(safe-area-inset-top,0px))]" : "top-[calc(66px+env(safe-area-inset-top,0px))]"
+          )}
+        >
           <div className={cn("flex items-center gap-1 px-2 py-1.5 bg-black/40 backdrop-blur-sm rounded-lg pointer-events-auto", isMobile && "flex-wrap max-w-full")}>
             {itemDocumentId && (
               <div className="flex items-center gap-0.5 bg-white/10 rounded-md p-0.5">
@@ -568,8 +474,6 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
         </div>
       )}
 
-      </div>
-
       {/* Shared presentation retains this reader's grading and docking handlers. */}
       {showRatingControls && (showRatingButtons || itemType === "flashcard" || itemType === "extract") && (() => {
         const isHorizontal = ratingOrbsPosition === "top" || ratingOrbsPosition === "bottom";
@@ -587,9 +491,15 @@ export const ScrollOverlayControls = React.memo(function ScrollOverlayControls({
           ];
         return <div
           data-rating-dock data-edge={ratingOrbsPosition} data-horizontal={isHorizontal}
+          data-dock-standardized="true"
           style={dragPos ? { position: "fixed", left: dragPos.x, top: dragPos.y, bottom: "auto", transform: "none", zIndex: 100 } : undefined}
-          className={cn("rating-dock absolute", isHorizontal ? "left-1/2 -translate-x-1/2 flex-row" : "-translate-y-1/2 flex-col",
-            ratingOrbsPosition === "left" && "left-6", ratingOrbsPosition === "right" && "right-6")}
+          className={cn(
+            "rating-dock absolute z-30 min-h-[56px]",
+            isHorizontal ? "left-1/2 -translate-x-1/2 flex-row" : "-translate-y-1/2 flex-col",
+            ratingOrbsPosition === "left" && "left-6",
+            ratingOrbsPosition === "right" && "right-6",
+            ratingOrbsPosition === "bottom" && "bottom-6"
+          )}
         >
           <div className="rating-dock-actions">
             {actions.map(({ action, title, icon: Icon, run }) => <RatingOrb key={action} action={action} title={title}
