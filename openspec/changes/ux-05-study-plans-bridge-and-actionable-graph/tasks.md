@@ -1,0 +1,15 @@
+# Tasks: ux-05-study-plans-bridge-and-actionable-graph
+
+**Dependencies:** Coordinates with Study Plans contracts (`openspec/planning/study-plans-assessments-program/02-SHARED-CONTRACTS.md`) and `GracefulAiFallbackCard` for `ux-04` Socratic Margin. Mark `[x]` and update `00-UX-MASTER-HANDOFF.md` + Lemmalog after every task.
+
+## 1. Horizon Bridge & Gap Feedback Loop
+
+- [x] 1.1 **UX05-T01 — Build Today's Horizon unified launch banner in DashboardTab.** Dependencies: none. **Files:** create **NEW** `src/components/dashboard/TodaysHorizonBanner.tsx`, **NEW** `src/components/dashboard/__tests__/TodaysHorizonBanner.test.tsx`; modify `src/components/tabs/DashboardTab.tsx`. **Implement:** Render symmetric two-lane horizon bridging Top-Down Milestones (Study Plans & due Assessments) and Bottom-Up Organic Discovery (due FSRS cards & high-priority extracts) with 1-click launch buttons and resilient empty states. Verify: `npx tsc --noEmit && npm run test:run -- src/components/dashboard/__tests__/TodaysHorizonBanner.test.tsx`.
+
+- [x] 1.2 **UX05-T02 — Add 1-click Inject Weak Concepts into Queue loop on KnowledgeGapCard.** Dependencies: none. **Files:** modify `src/components/study-plans/evidence/KnowledgeGapCard.tsx`; create **NEW** `src/components/study-plans/evidence/__tests__/KnowledgeGapCard.queueInject.test.tsx`. **Implement:** Add `Inject Weak Concepts into Queue` action creating high-priority (`Priority < 10`, slider `8`) extracts + flashcards linked to the source document/paragraph, preventing duplicate submissions cleanly. Verify: `npx tsc --noEmit && npm run test:run -- src/components/study-plans/evidence/__tests__/KnowledgeGapCard.queueInject.test.tsx`.
+
+## 2. Graceful AI Fallbacks & Knowledge Network Actionability
+
+- [x] 2.1 **UX05-T03 — Build GracefulAiFallbackCard and wire into AI prompt panels.** Dependencies: UX01-T04, UX04-T04. **Files:** create **NEW** `src/components/common/GracefulAiFallbackCard.tsx`, **NEW** `src/components/common/__tests__/GracefulAiFallbackCard.test.tsx`; modify `src/components/extracts/QACreatorPopup.tsx`, `src/components/viewer/SocraticMarginThread.tsx`, `src/components/review/LeechRefactorWizard.tsx`. **Implement:** Render `Local LLM Offline` / `Request Timeout` status badges preserving user quote & prompt context with 1-click **Fallback to Manual Extract** and **Retry with Smaller Context (50%)**. Verify: `npx tsc --noEmit && npm run test:run -- src/components/common/__tests__/GracefulAiFallbackCard.test.tsx`.
+
+- [x] 2.2 **UX05-T04 — Add Knowledge Network Heatmaps and Shift+Drag Lasso-to-Queue.** Dependencies: none. **Files:** modify `src/components/graph/ObsidianGraph.tsx`, `src/pages/KnowledgeGraphPage.tsx`; create **NEW** `src/components/graph/__tests__/ObsidianGraph.heatmapLasso.test.tsx`. **Implement:** Export `resolveHeatmapNodeColor` (`Retrievability / Leech` & `Unprocessed Extract Density`) and `computeLassoSelectedNodes` (`Shift+Drag` marquee selection), wiring a floating cram/assessment launcher bar when nodes are lassoed. Verify: `npx tsc --noEmit && npm run test:run -- src/components/graph/__tests__/ObsidianGraph.heatmapLasso.test.tsx`.

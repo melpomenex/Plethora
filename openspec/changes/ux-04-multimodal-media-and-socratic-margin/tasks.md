@@ -1,0 +1,15 @@
+# Tasks: ux-04-multimodal-media-and-socratic-margin
+
+**Dependencies:** Independent UI enhancements except `SocraticMarginThread` coordinates gracefully with `GracefulAiFallbackCard` (`ux-05`). Mark `[x]` and update `00-UX-MASTER-HANDOFF.md` + Lemmalog after every task.
+
+## 1. Media Transcript & Role-Voice TTS PiP
+
+- [x] 1.1 **UX04-T01 — Implement Transcript-First Video Slice extraction.** Dependencies: none. **Files:** modify `src/components/media/TranscriptSync.tsx`, `src/components/media/TranscriptPanel.tsx`, `src/components/viewer/YouTubeViewer.tsx`; create **NEW** `src/components/media/__tests__/TranscriptSliceExtraction.test.tsx`. **Implement:** Add `resolveTranscriptSelectionBounds` to map selected transcript text segments to `[startTime, endTime]` and render `Capture Video Slice [mm:ss - mm:ss]` calling `createVideoExtract`. Verify: `npx tsc --noEmit && npm run test:run -- src/components/media/__tests__/TranscriptSliceExtraction.test.tsx`.
+
+- [x] 1.2 **UX04-T02 — Upgrade MiniAudioPlayer & audioPlaybackStore with PiP collapse, 1.0x-2.5x speed, Role Voices, and [B] 30s capture.** Dependencies: none. **Files:** modify `src/stores/audioPlaybackStore.ts`, `src/components/audio/MiniAudioPlayer.tsx`, `src/components/common/ReaderTTSControls.tsx`; create **NEW** `src/components/audio/__tests__/MiniAudioPlayer.roleVoice.test.tsx`. **Implement:** Add persistent collapsible bottom-right PiP chrome, waveform scrub bar, `1.0x–2.5x` speed selector, `[B]` Bookmark & Extract Last 30s action, and Voice A / chime + Voice B role switching. Verify: `npx tsc --noEmit && npm run test:run -- src/components/audio/__tests__/MiniAudioPlayer.roleVoice.test.tsx`.
+
+## 2. Breakout Viewer & Socratic Margin
+
+- [x] 2.1 **UX04-T03 — Build Table, Math & Code BreakoutOverlayModal.** Dependencies: none. **Files:** create **NEW** `src/components/viewer/BreakoutOverlayModal.tsx`, **NEW** `src/components/viewer/__tests__/BreakoutOverlayModal.test.tsx`; modify `src/components/viewer/EPUBViewer.tsx`, `src/components/viewer/MarkdownViewer.tsx`, `src/components/review/ExtractScrollItem.tsx`. **Implement:** Attach hover/focus "Breakout View" triggers on wide tables, `.katex-display`, and `<pre><code>` blocks opening an isolated `0.5x–3.0x` pan-and-zoom modal using high-contrast reader theme tokens. Verify: `npx tsc --noEmit && npm run test:run -- src/components/viewer/__tests__/BreakoutOverlayModal.test.tsx`.
+
+- [x] 2.2 **UX04-T04 — Build Selection-Anchored SocraticMarginThread (Cmd/Ctrl + J).** Dependencies: none. **Files:** create **NEW** `src/components/viewer/SocraticMarginThread.tsx`, **NEW** `src/components/viewer/__tests__/SocraticMarginThread.test.tsx`; modify `src/components/viewer/DocumentViewer.tsx`, `src/components/viewer/selectionInteraction/SelectionActionBar.tsx`. **Implement:** Bind `Cmd/Ctrl + J` (and toolbar trigger) to open an inline margin AI thread anchored to the active selection with 1-click **Convert Explanation to Extract** and **Convert to Flashcard** actions. Verify: `npx tsc --noEmit && npm run test:run -- src/components/viewer/__tests__/SocraticMarginThread.test.tsx`.
