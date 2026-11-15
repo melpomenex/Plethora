@@ -44,6 +44,7 @@ import { PullToRefresh } from "./PullToRefresh";
 import { bulkSuspendItems, bulkUnsuspendItems } from "../../api/queue";
 import { createExtract } from "../../api/extracts";
 import { dismissDocument } from "../../api/documents";
+import { dispatchPriorityCommit } from "../../services/priority/priorityCommit";
 import { useI18n } from "../../lib/i18n";
 import { useLongPress } from "../../hooks/useLongPress";
 import { useIsActiveTab } from "../common/Tabs";
@@ -1076,7 +1077,15 @@ export function MobileQueueView({
         <div className="mb-2 flex items-center justify-between gap-1.5">
           <button
             type="button"
-            onClick={() => onThumbArcPriorityNudge?.(-10, filteredItems[0])}
+            onClick={() => {
+              const active = filteredItems[0];
+              if (onThumbArcPriorityNudge) {
+                onThumbArcPriorityNudge(-10, active);
+              } else if (active?.documentId) {
+                const next = Math.max(1, (active.priority ?? 50) - 10);
+                void dispatchPriorityCommit({ kind: "document", id: active.documentId }, next);
+              }
+            }}
             className="flex-1 rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-muted"
           >
             Boost Priority (-10)
@@ -1087,7 +1096,11 @@ export function MobileQueueView({
             onClick={() => {
               const next = !commuteAudioMode;
               setCommuteAudioMode(next);
-              onToggleCommuteAudio?.(next);
+              if (onToggleCommuteAudio) {
+                onToggleCommuteAudio(next);
+              } else if (next) {
+                onOpenScrollMode?.({ mode: "optimal" });
+              }
             }}
             className={cn(
               "inline-flex items-center justify-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium transition-colors",
@@ -1101,7 +1114,15 @@ export function MobileQueueView({
           </button>
           <button
             type="button"
-            onClick={() => onThumbArcPriorityNudge?.(10, filteredItems[0])}
+            onClick={() => {
+              const active = filteredItems[0];
+              if (onThumbArcPriorityNudge) {
+                onThumbArcPriorityNudge(10, active);
+              } else if (active?.documentId) {
+                const next = Math.min(100, (active.priority ?? 50) + 10);
+                void dispatchPriorityCommit({ kind: "document", id: active.documentId }, next);
+              }
+            }}
             className="flex-1 rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-muted"
           >
             Defer (+10)
@@ -1112,7 +1133,14 @@ export function MobileQueueView({
             <button
               key={rating}
               type="button"
-              onClick={() => onThumbArcRate?.(rating, filteredItems[0])}
+              onClick={() => {
+                const active = filteredItems[0];
+                if (onThumbArcRate) {
+                  onThumbArcRate(rating, active);
+                } else if (active) {
+                  onStartReview?.(active.learningItemId ?? active.id);
+                }
+              }}
               className={cn(
                 "rounded-xl py-2 text-xs font-semibold capitalize transition-colors",
                 rating === "again"

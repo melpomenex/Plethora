@@ -10,6 +10,8 @@ import {
 import { isNeedsReview, type BrowserOrganizationTarget } from "../lib/smartTagging/browserImportOrganization";
 import { useSmartTaggingQueueStore } from "../stores/smartTaggingQueueStore";
 import type { ItemTagTarget } from "../lib/tagEditing/types";
+import { IngestionAirlockModal } from "../components/import/IngestionAirlockModal";
+import { dispatchPriorityCommit } from "../services/priority/priorityCommit";
 
 function itemTagTarget(target: BrowserOrganizationTarget): ItemTagTarget {
   return {
@@ -36,6 +38,7 @@ export function ImportNeedsReviewPage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [airlockTarget, setAirlockTarget] = useState<BrowserOrganizationTarget | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -157,6 +160,9 @@ export function ImportNeedsReviewPage() {
                   </div>
 
                   <div className="mt-4 flex flex-wrap justify-end gap-2">
+                    <ActionButton variant="tertiary" size="compact" disabled={busy} onClick={() => setAirlockTarget(target)}>
+                      Airlock Triage
+                    </ActionButton>
                     <ActionButton variant="tertiary" size="compact" disabled={busy} onClick={() => void act(target, "dismiss")}>
                       <X className="h-4 w-4" /> Dismiss
                     </ActionButton>
@@ -173,6 +179,24 @@ export function ImportNeedsReviewPage() {
           </div>
         )}
       </div>
+      <IngestionAirlockModal
+        isOpen={airlockTarget !== null}
+        title={airlockTarget?.title || "Untitled import"}
+        content={airlockTarget?.content || ""}
+        onClose={() => setAirlockTarget(null)}
+        onCommit={async (payload) => {
+          if (!airlockTarget) return;
+          const target = airlockTarget;
+          if (target.targetType === "document" || target.targetType === "extract") {
+            await dispatchPriorityCommit(
+              { kind: target.targetType, id: target.targetId },
+              payload.prioritySlider
+            );
+          }
+          await act(target, payload.tier === "reference" ? "dismiss" : "confirm");
+          setAirlockTarget(null);
+        }}
+      />
     </main>
   );
 }
