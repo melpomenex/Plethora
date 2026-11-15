@@ -28,6 +28,7 @@ import {
   Clock,
   DeviceMobile,
   DotsThree,
+  Headphones,
   MagnifyingGlass,
   Play,
   Sliders,
@@ -41,6 +42,7 @@ import { cn } from "../../utils";
 import { SwipeableItem } from "./SwipeableItem";
 import { PullToRefresh } from "./PullToRefresh";
 import { bulkSuspendItems, bulkUnsuspendItems } from "../../api/queue";
+import { createExtract } from "../../api/extracts";
 import { dismissDocument } from "../../api/documents";
 import { useI18n } from "../../lib/i18n";
 import { useLongPress } from "../../hooks/useLongPress";
@@ -74,6 +76,11 @@ interface MobileQueueViewProps {
     mode?: "queue-list" | "optimal";
     itemTypes?: SessionItemTypes;
   }) => void;
+  onThumbArcRate?: (rating: "again" | "hard" | "good" | "easy", item?: QueueItem) => void;
+  onThumbArcPriorityNudge?: (delta: number, item?: QueueItem) => void;
+  onInstantExtractParagraph?: (paragraphText: string, item?: QueueItem) => Promise<void> | void;
+  onToggleCommuteAudio?: (enabled: boolean) => void;
+  activeReadableParagraphs?: string[];
 }
 
 type QuickFilter = "today" | "all" | "new";
@@ -87,7 +94,15 @@ export function MobileQueueView({
   onStartReview,
   onOpenDocument,
   onOpenScrollMode,
+  onThumbArcRate,
+  onThumbArcPriorityNudge,
+  onInstantExtractParagraph,
+  onToggleCommuteAudio,
+  activeReadableParagraphs,
 }: MobileQueueViewProps) {
+  const [commuteAudioMode, setCommuteAudioMode] = useState(false);
+  const [capturedToast, setCapturedToast] = useState<string | null>(null);
+  const lastTapRef = useRef<{ idx: number; time: number }>({ idx: -1, time: 0 });
   const {
     items,
     isLoading,
@@ -990,6 +1005,129 @@ export function MobileQueueView({
       {/* Stats Footer */}
       <div className="px-4 py-2 border-t border-border bg-card/30 text-center text-xs text-muted-foreground">
         {t("mobileQueue.itemsReady", { count: filteredItems.length })}
+      </div>
+
+      {/* Quick-Reading Paragraph Preview with Double-Tap Instant Extraction */}
+      {(() => {
+        const activeItem = filteredItems[0];
+        const paragraphs =
+          activeReadableParagraphs ??
+          (activeItem?.question ? [activeItem.question] : []);
+        if (paragraphs.length === 0) return null;
+        const triggerParagraphCapture = async (text: string) => {
+          if (onInstantExtractParagraph) {
+            await onInstantExtractParagraph(text, activeItem);
+          } else if (activeItem?.documentId) {
+            await createExtract({
+              document_id: activeItem.documentId,
+              content: text,
+              tags: ["mobile-inbox"],
+            });
+          }
+          setCapturedToast("Captured to Inbox");
+          setTimeout(() => setCapturedToast(null), 2200);
+        };
+        return (
+          <div className="mx-3 mb-2 rounded-xl border border-border bg-card/70 p-3 space-y-2">
+            <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+              <span>Double-tap paragraph to capture to Desktop Inbox</span>
+              {capturedToast && (
+                <span
+                  role="status"
+                  data-captured-inbox-toast="true"
+                  className="rounded-full bg-emerald-500/20 px-2 py-0.5 font-medium text-emerald-500"
+                >
+                  {capturedToast}
+                </span>
+              )}
+            </div>
+            {paragraphs.map((para, idx) => (
+              <p
+                key={idx}
+                data-paragraph-index={idx}
+                style={{ touchAction: "manipulation" }}
+                onDoubleClick={() => void triggerParagraphCapture(para)}
+                onPointerUp={() => {
+                  const now = Date.now();
+                  if (
+                    lastTapRef.current.idx === idx &&
+                    now - lastTapRef.current.time < 320
+                  ) {
+                    lastTapRef.current = { idx: -1, time: 0 };
+                    void triggerParagraphCapture(para);
+                  } else {
+                    lastTapRef.current = { idx, time: now };
+                  }
+                }}
+                className="cursor-pointer rounded-lg p-1.5 text-sm leading-relaxed text-foreground active:bg-primary/10"
+              >
+                {para}
+              </p>
+            ))}
+          </div>
+        );
+      })()}
+
+      {/* One-Handed Bottom Thumb-Arc Dock */}
+      <div
+        data-mobile-thumb-arc="true"
+        className="sticky bottom-0 z-30 mx-2 mb-2 rounded-t-[28px] rounded-b-2xl border border-border bg-card/95 px-3 py-2.5 pb-safe shadow-xl backdrop-blur"
+      >
+        <div className="mb-2 flex items-center justify-between gap-1.5">
+          <button
+            type="button"
+            onClick={() => onThumbArcPriorityNudge?.(-10, filteredItems[0])}
+            className="flex-1 rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-muted"
+          >
+            Boost Priority (-10)
+          </button>
+          <button
+            type="button"
+            aria-pressed={commuteAudioMode}
+            onClick={() => {
+              const next = !commuteAudioMode;
+              setCommuteAudioMode(next);
+              onToggleCommuteAudio?.(next);
+            }}
+            className={cn(
+              "inline-flex items-center justify-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium transition-colors",
+              commuteAudioMode
+                ? "bg-primary text-primary-foreground"
+                : "border border-border bg-background text-foreground hover:bg-muted"
+            )}
+          >
+            <Headphones className="h-3.5 w-3.5" />
+            <span>Commute Audio Queue</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onThumbArcPriorityNudge?.(10, filteredItems[0])}
+            className="flex-1 rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-muted"
+          >
+            Defer (+10)
+          </button>
+        </div>
+        <div className="grid grid-cols-4 gap-1.5">
+          {(["again", "hard", "good", "easy"] as const).map((rating) => (
+            <button
+              key={rating}
+              type="button"
+              onClick={() => onThumbArcRate?.(rating, filteredItems[0])}
+              className={cn(
+                "rounded-xl py-2 text-xs font-semibold capitalize transition-colors",
+                rating === "again"
+                  ? "bg-red-500/15 text-red-500"
+                  : rating === "hard"
+                    ? "bg-amber-500/15 text-amber-500"
+                    : rating === "good"
+                      ? "bg-emerald-500/15 text-emerald-500"
+                      : "bg-sky-500/15 text-sky-500"
+              )}
+            >
+              {rating.charAt(0).toUpperCase() + rating.slice(1)}
+            </button>
+          ))}
+        </div>
       </div>
 
       <QueueItemActionSheet

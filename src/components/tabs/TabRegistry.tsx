@@ -51,6 +51,7 @@ export const ImageRegistryTab = debugLazy("ImageRegistryTab", () => import("./Im
 export const PodcastTab = debugLazy("PodcastTab", () => import("../media/PodcastManager").then(m => ({ default: m.PodcastManager })));
 export const AudiobooksTab = debugLazy("AudiobooksTab", () => import("./AudiobooksTab").then(m => ({ default: m.AudiobooksTab })));
 export const ImportNeedsReviewTab = debugLazy("ImportNeedsReviewTab", () => import("../../pages/ImportNeedsReviewPage").then(m => ({ default: m.ImportNeedsReviewTab })));
+export const IngestionAirlockModal = debugLazy("IngestionAirlockModal", () => import("../import/IngestionAirlockModal").then(m => ({ default: m.IngestionAirlockModal })));
 export const StudyPlansTab = debugLazy("StudyPlansTab", () => import("../study-plans/StudyPlansTab").then(m => ({ default: m.StudyPlansTab })));
 
 /**
