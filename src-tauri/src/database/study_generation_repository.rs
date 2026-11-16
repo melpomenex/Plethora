@@ -15,7 +15,7 @@ use sqlx::{Pool, Row, Sqlite};
 use std::collections::HashSet;
 use uuid::Uuid;
 
-pub const LEASE_DURATION_SECONDS: i64 = 120;
+pub const LEASE_DURATION_SECONDS: i64 = 600;
 
 #[derive(Clone)]
 pub struct StudyGenerationRepository {
@@ -86,40 +86,43 @@ impl StudyGenerationRepository {
 
         // Validate target revision if target is a study plan version (curriculum)
         if input.kind == StudyJobKind::Curriculum {
-            let version_row =
-                sqlx::query("SELECT version, state FROM study_plan_versions WHERE id = ?1")
-                    .bind(&input.target_id)
-                    .fetch_optional(&self.pool)
-                    .await
-                    .map_err(|e| {
-                        StudyCommandError::storage_failed(format!(
-                            "Failed to query target draft: {}",
-                            e
-                        ))
-                    })?;
+            let version_row = sqlx::query(
+                "SELECT v.state, p.revision AS plan_revision, p.draft_version_id
+                 FROM study_plan_versions v
+                 JOIN study_plans p ON p.id = v.plan_id
+                 WHERE v.id = ?1",
+            )
+            .bind(&input.target_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| {
+                StudyCommandError::storage_failed(format!("Failed to query target draft: {}", e))
+            })?;
 
             match version_row {
                 Some(row) => {
-                    let version: i64 = row.get("version");
                     let state: String = row.get("state");
-                    if state != "draft" {
-                        return Err(StudyCommandError::invalid_state(format!(
-                            "Target plan version {} is in state '{}', must be draft",
-                            input.target_id, state
-                        )));
+                    let plan_revision: i64 = row.get("plan_revision");
+                    let draft_version_id: Option<String> = row.get("draft_version_id");
+                    if state != "draft"
+                        || draft_version_id
+                            .as_deref()
+                            .is_some_and(|id| id != input.target_id)
+                    {
+                        return Err(StudyCommandError::invalid_state(
+                            "study_generation.error.no_active_draft",
+                        ));
                     }
-                    if version != input.target_revision {
-                        return Err(StudyCommandError::stale_revision(format!(
-                            "Target plan version revision mismatch: expected {}, got {}",
-                            input.target_revision, version
-                        )));
+                    if plan_revision != input.target_revision {
+                        return Err(StudyCommandError::stale_revision(
+                            "study_plan.error.stale_revision",
+                        ));
                     }
                 }
                 None => {
-                    return Err(StudyCommandError::not_found(format!(
-                        "Target study plan version '{}' not found",
-                        input.target_id
-                    )));
+                    return Err(StudyCommandError::not_found(
+                        "study_generation.error.no_active_draft",
+                    ));
                 }
             }
         }
@@ -1475,5 +1478,58 @@ mod tests {
             .await;
         assert!(claim_err.is_err());
         assert_eq!(claim_err.unwrap_err().code, StudyErrorCode::InvalidState);
+    }
+
+    #[tokio::test]
+    async fn test_curriculum_job_validates_plan_revision_not_version_number() {
+        let (repo, pool) = setup_test_repo().await;
+
+        // Simulate a plan that has been edited/saved so study_plans.revision = 3
+        // while study_plan_versions.version remains 1.
+        sqlx::query(
+            "UPDATE study_plans SET revision = 3, draft_version_id = 'spv_draft_1' WHERE id = 'plan_1'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Passing version=1 as target_revision must fail with StaleRevision and a valid message_key.
+        let stale_err = repo
+            .start_study_generation_job(StartStudyJobInput {
+                kind: StudyJobKind::Curriculum,
+                target_id: "spv_draft_1".to_string(),
+                target_revision: 1,
+                creation_key: "ck_stale_rev".to_string(),
+                request_hash: "req_hash_stale".to_string(),
+                preflight: serde_json::json!({}),
+                steps: vec![CreateStudyStepInput {
+                    step_key: "decompose:0000".to_string(),
+                    ordinal: 0,
+                    input_hash: "hash_0".to_string(),
+                }],
+            })
+            .await
+            .unwrap_err();
+        assert_eq!(stale_err.code, StudyErrorCode::StaleRevision);
+        assert_eq!(stale_err.message_key, "study_plan.error.stale_revision");
+
+        // Passing plan.revision=3 must succeed.
+        let job = repo
+            .start_study_generation_job(StartStudyJobInput {
+                kind: StudyJobKind::Curriculum,
+                target_id: "spv_draft_1".to_string(),
+                target_revision: 3,
+                creation_key: "ck_plan_rev_3".to_string(),
+                request_hash: "req_hash_rev_3".to_string(),
+                preflight: serde_json::json!({}),
+                steps: vec![CreateStudyStepInput {
+                    step_key: "decompose:0000".to_string(),
+                    ordinal: 0,
+                    input_hash: "hash_0".to_string(),
+                }],
+            })
+            .await
+            .unwrap();
+        assert_eq!(job.target_revision, 3);
     }
 }

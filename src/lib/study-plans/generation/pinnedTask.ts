@@ -18,6 +18,8 @@ import { classifyRouteDestination, resolveStudyTaskRoute, validatePreflightUncha
 import { evaluateStudyPrivacy } from './privacy';
 import { StudyApiError } from '../../../api/study-plans';
 
+export const LOCAL_STUDY_TASK_TIMEOUT_MS = 300_000;
+
 export interface RunPinnedStudyTaskOptions extends AITaskRunOptions {
   /** Optional pre-resolved route from performStudyAiPreflight */
   preflightRoute?: AITaskRoute | null;
@@ -61,15 +63,25 @@ export async function runPinnedStudyTask<I, O>(
 
   // Validate that the resolved provider matches the frozen preflight
   validatePreflightUnchanged(frozenPreflight, route);
+  const destination = classifyRouteDestination(route);
   if (frozenPreflight.model || !options.resolveRouteFn) {
     evaluateStudyPrivacy({
       documents: [],
-      generationDestination: classifyRouteDestination(route),
+      generationDestination: destination,
       embeddingDestination: typeof frozenPreflight.embeddingDestination === 'object' ? frozenPreflight.embeddingDestination : null,
       cloudDisclosureAccepted: frozenPreflight.cloudDisclosureAccepted,
       costConsentAccepted: frozenPreflight.costConsentAccepted,
     });
   }
+
+  // Local/on-device models run substantially slower than cloud APIs; give them
+  // a 5-minute budget unless the caller already specified a custom timeout.
+  const isLocalDestination = !destination.sendsOffDevice || route.provider.kind === 'ondevice';
+  const configuredTimeoutMs = options.timeoutMs ?? (
+    isLocalDestination
+      ? Math.max(route.task.timeoutMs ?? 0, LOCAL_STUDY_TASK_TIMEOUT_MS)
+      : undefined
+  );
 
   // Execute the pre-resolved task (which may be a reasoning twin) on the pinned provider
   // Passing options.provider explicitly suppresses runTask's internal fallback loop
@@ -83,6 +95,7 @@ export async function runPinnedStudyTask<I, O>(
     {
       ...options,
       ...(configuredOutputLimit != null && { maxOutputTokens: configuredOutputLimit }),
+      ...(configuredTimeoutMs != null && { timeoutMs: configuredTimeoutMs }),
       provider: route.provider,
       ...(frozenPreflight.model && { streaming: false }),
     }

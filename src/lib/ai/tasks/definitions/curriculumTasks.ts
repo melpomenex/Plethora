@@ -30,7 +30,7 @@ export const MODEL_ONLY_CURRICULUM_DECOMPOSE_FALLBACK_TASK_ID = 'study-curriculu
 export const MODEL_ONLY_CURRICULUM_PREREQUISITE_TASK_ID = 'study-curriculum-model-only-prerequisites';
 export const MODEL_ONLY_CURRICULUM_PREREQUISITE_FALLBACK_TASK_ID = 'study-curriculum-model-only-prerequisites-full';
 
-export const CURRICULUM_TASK_TIMEOUT_MS = 60_000;
+export const CURRICULUM_TASK_TIMEOUT_MS = 120_000;
 export const CURRICULUM_DECOMPOSE_MAX_TOKENS = 1800;
 export const CURRICULUM_PREREQUISITE_MAX_TOKENS = 1200;
 

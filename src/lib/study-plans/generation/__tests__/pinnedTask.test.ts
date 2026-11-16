@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { runPinnedStudyTask } from '../pinnedTask';
+import { LOCAL_STUDY_TASK_TIMEOUT_MS, runPinnedStudyTask } from '../pinnedTask';
 import type { AITaskDefinition, AITaskResult } from '../../../ai/tasks/types';
 import type { AITaskRoute } from '../../../ai/tasks/router';
 import type { AIProvider } from '../../../ai/providers/types';
@@ -172,5 +172,62 @@ describe('Pinned Study Task Execution (C2-T05)', () => {
     });
 
     expect(runTaskModule.runTask).not.toHaveBeenCalled();
+  });
+
+  it('extends timeoutMs for local/on-device providers so slow local inference does not time out early', async () => {
+    const localProvider: AIProvider = {
+      ...createMockProvider('ondevice'),
+      kind: 'ondevice',
+    };
+    const localRoute: AITaskRoute = {
+      task: mockPrimaryTask as unknown as AITaskDefinition<never, unknown>,
+      provider: localProvider,
+      requestedModelClass: 'reasoning',
+      servedModelClass: 'reasoning',
+      fallbackPath: 'none',
+    };
+    const localPreflight: StudyAiPreflight = {
+      ...frozenPreflight,
+      providerId: 'ondevice',
+      sendsSourceOffDevice: false,
+      billable: false,
+      generationDestination: {
+        providerClass: 'ondevice',
+        locality: 'ondevice',
+        keyless: true,
+        billable: false,
+        sendsOffDevice: false,
+        requiresDisclosure: false,
+        requiresCostConsent: false,
+        reasonKey: 'ai.destination.ondevice',
+      },
+    };
+    vi.mocked(runTaskModule.runTask).mockResolvedValue({
+      output: { topics: ['Topic 1'] },
+      text: '{"topics":["Topic 1"]}',
+      taskId: 'study-decompose',
+      providerId: 'ondevice',
+      providerKind: 'ondevice',
+      requestedModelClass: 'reasoning',
+      servedModelClass: 'reasoning',
+      fallbackPath: 'none',
+      validationOutcome: 'native-structured',
+    } as any);
+
+    await runPinnedStudyTask(
+      mockPrimaryTask,
+      { text: 'Source text' },
+      { preflightRoute: localRoute },
+      localPreflight
+    );
+
+    expect(runTaskModule.runTask).toHaveBeenCalledWith(
+      mockPrimaryTask,
+      { text: 'Source text' },
+      expect.objectContaining({
+        provider: localProvider,
+        timeoutMs: LOCAL_STUDY_TASK_TIMEOUT_MS,
+      })
+    );
   });
 });
