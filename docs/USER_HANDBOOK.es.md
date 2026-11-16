@@ -163,6 +163,16 @@ El archivo debe ser un objeto plano que asigne el texto de la pregunta a los dat
 - Dejar caer el mismo archivo dos veces no creará duplicados: se omitirán las tarjetas existentes.
 - Las tarjetas marcadas como `known_pile: true` se importan como suspendidas.
 
+#### Esclusa de ingesta y pre-segmentación por capítulos / H2
+
+En **Necesita revisión** (*Needs Review*), haz clic en **Airlock Triage** para enrutar recortes web o documentos largos antes de que saturen tu cola activa:
+- **`[1]` Curso activo alta prioridad (`P10`)**: se encola de inmediato para estudio urgente.
+- **`[2]` Evergreen baja prioridad (`P65`)**: se programa en la ingesta incremental normal.
+- **`[3]` Solo referencia (`P95`, archivado)**: se guarda para consulta sin entrar en la cola SRS pendiente.
+- **`[C]` Pre-segmentar por capítulos / encabezados H2**: divide documentos Markdown (`## ` / `# `) o HTML (`<h2>` / `<h1>`) en subsecciones ordenadas que heredan la prioridad elegida.
+
+**Ejemplo:** Importar un artículo Markdown con 3 secciones `##` con **Pre-Chunk by Chapter / H2 Headings** activado y pulsar `1` crea 3 secciones tituladas con prioridad 10.
+
 ### Visor de documentos
 
 Una vez importado, abra cualquier documento para acceder:
@@ -189,6 +199,26 @@ Una vez importado, abra cualquier documento para acceder:
 3. **Agregar nota**: seleccione texto → Haga clic en el botón "Nota"
    - Adjunte sus pensamientos/notas
    - Las notas aparecen con extractos.
+
+4. **Creador dividido de P&R / Cloze (`Ctrl/Cmd + Mayús + Q`)**:
+   - Abre la creación de P&R o Cloze acoplada junto al lector sin tapar el pasaje.
+   - Usa **Insert Selection into Question** o **Insert Selection into Answer** para insertar el texto seleccionado en el campo activo.
+
+5. **Chip de herencia de prioridad y Cloze encadenado (`C`)**:
+   - La barra de selección muestra la prioridad heredada (`P<N>`). Mantén `Mayús` + rueda (`Shift+Wheel`) para ajustar la prioridad ±5 %.
+   - Durante 4 segundos tras crear un extracto en línea, `Flecha arriba` / `Flecha abajo` ajusta su prioridad.
+   - Haz clic en **[C] Cloze** para crear una tarjeta Cloze encadenada en una sola pulsación sin salir del lector.
+
+6. **Margen socrático anclado a la selección (`Ctrl/Cmd + J`) y respaldo IA elegante**:
+   - Selecciona un pasaje y pulsa `Ctrl/Cmd + J` (o haz clic en **⌘J Socratic**) para abrir un hilo IA anclado a tu cita.
+   - Pulsa **Convert Explanation to Extract** o **Convert to Flashcard** para guardar cualquier explicación en un clic.
+   - Si el LLM local o remoto está desconectado o expira, **Graceful AI Fallback** conserva tu cita y pregunta y ofrece **Fallback to Manual Extract** o **Retry with Smaller Context (50 %)**.
+
+7. **Vista Breakout para tablas, matemáticas y código**:
+   - Pasa el cursor o enfoca cualquier bloque `<table>`, `.katex-display` o `<pre><code>` (en Markdown, EPUB o Extractos) y pulsa **Breakout View** para abrir un modal aislado con paneo y zoom `0.5x–3.0x` (`+`, `-`, `0` para restablecer, `Esc` para cerrar).
+
+8. **Minimapa Metro (Subway Minimap)**:
+   - Activa **Subway Map** en el panel de Extractos para ver las secciones y extractos coloreados por nivel de dominio.
 
 ### Organización del documento
 
@@ -630,6 +660,17 @@ Las filas de extracción en la cola abren un **lector de extractos** dedicado: e
 - Lea el contenido completo del extracto (HTML enriquecido cuando se conserva, texto sin formato en caso contrario)
 - **Califíquelo** (Otra vez / Difícil / Bueno / Fácil): la cola se actualiza inmediatamente con el nuevo programa, no es necesario recargar
 - **Documento de código abierto** para volver al visor de documentos en la tarjeta resaltada del extracto. Si el documento fuente ya no se puede cargar, el botón se desactiva con una explicación.
+- **Vista previa fantasma de contexto (mantener `Alt`)**: mantén `Alt` (o pulsa el conmutador de vista previa) al revisar un extracto para ver los párrafos circundantes del documento padre sin salir de la cola.
+- **Barra de triaje al final del elemento**: al final de un extracto, usa las acciones rápidas (`Keep`, `Postpone`, `Archive`) para procesar pasajes terminados.
+
+### Modos de sesión, higiene de cola y ergonomía móvil
+
+- **Densidad Zen vs Arquitecto (`Ctrl/Cmd + \`)**: alterna globalmente entre el modo **Zen** (lectura limpia sin telemetría) y el modo **Architect** (telemetría FSRS completa: estabilidad, dificultad e intervalos).
+- **Cabecera de sesión unificada y píldora de procedencia**: cambia entre orden **Adaptive** y **Strict Manual** desde la cabecera y pulsa la píldora de procedencia para saltar al documento origen.
+- **Listas de tiempo limitado (Timebox) y anillo de progreso**: inicia sesiones acotadas (**15m**, **45m**, **10m Commute**) desde la vista de desplazamiento y sigue el anillo de 0–100 %.
+- **Barrido de compostaje (Triage Compost Sweep)**: limpia rápidamente extractos pospuestos antiguos con `[J]`, `[K]`, `[L]` y `[Backspace]`.
+- **Asistente en línea de refactorización de sanguijuelas (`lapses >= 4`)**: las tarjetas con 4 o más fallos muestran **Split into Simpler Clozes**, **Rewrite via Local AI** o **Demote to Reading Extract**.
+- **Ergonomía móvil**: en teléfono, usa el selector **Commute Audio Queue**, el dock inferior para una mano **Bottom Thumb-Arc** (`Again`/`Hard`/`Good`/`Easy` y `Boost Priority (-10)` / `Defer (+10)`) y **doble toque en cualquier párrafo** para enviarlo al instante a la bandeja de entrada de escritorio.
 
 ### Sistema de prioridades
 
@@ -969,6 +1010,11 @@ El índice de madurez general es `matureCount / itemCount`.
 ### Descripción general del panel
 
 El panel de Analytics proporciona información completa:
+
+**Today's Horizon y puente con Planes de estudio:**
+- **Hitos descendentes (Top-Down)**: muestra planes de estudio activos, próximos temas y evaluaciones pendientes con lanzamiento en un clic (**Resume Milestone**).
+- **Descubrimiento orgánico ascendente (Bottom-Up)**: muestra repasos FSRS pendientes y extractos prioritarios con **Launch Queue Session** en un clic.
+- **Inyectar conceptos débiles en la cola**: en cualquier *Knowledge Gap Card*, pulsa **Inject Weak Concepts into Queue** para crear un extracto urgente (`Prioridad 8`) y una tarjeta vinculada al pasaje origen.
 
 **Métricas clave:**
 - **Tarjetas vencidas hoy**: número en espera de revisión
@@ -1665,6 +1711,8 @@ Visualice las conexiones entre sus conocimientos:
 - Resaltar elementos relacionados
 - Exportar como imagen
 - Identificar lagunas de conocimiento
+- **Modos de mapa de calor**: alterna entre **Default**, **Retrievability / Leech** (carmesí para `4+` fallos, ámbar para baja recuperabilidad, esmeralda para recuerdo sano) y **Extract Density** (extractos sin procesar).
+- **Lazo `Mayús+Arrastrar` a la cola**: mantén `Mayús` y arrastra un recuadro sobre nodos en el lienzo 2D para seleccionar los nodos encerrados y pulsar **Launch Cram** o **Create Focused Assessment**.
 
 ### Lector RSS
 
@@ -1824,6 +1872,16 @@ Genere transcripciones para archivos de video locales en la aplicación de escri
 3. Elige modelo e idioma
 4. Haga clic en **Generar transcripción**
 
+**Extracción de fragmentos de vídeo desde la transcripción:**
+- Selecciona texto a lo largo de uno o varios segmentos de transcripción (YouTube o vídeo local) para mostrar **Capture Video Slice `[mm:ss - mm:ss]`** y crear un extracto de vídeo con marcas de tiempo en tu cola.
+
+### Reproductor TTS PiP persistente y voces por rol (`MiniAudioPlayer`)
+
+- **PiP plegable abajo a la derecha**: contrae la barra de audio a una píldora flotante compacta mientras lees o repasas.
+- **Barra de onda y velocidad (`1.0x–2.5x`)**: haz clic en la onda para buscar y alterna entre `1.0x`, `1.25x`, `1.5x`, `2.0x` y `2.5x`.
+- **Voces por rol y campanilla de transición**: distingue la narración de **Extracto** de las indicaciones de **P&R / Resumen** con una campanilla sutil y voces separadas.
+- **`[B]` Marcar los últimos 30 s**: pulsa `B` (fuera de campos de texto) o haz clic en **[B] 30s** para guardar los últimos 30 segundos como marcador de audio.
+
 Notas:
 - La transcripción se ejecuta localmente en su máquina
 - Requiere una ruta de archivo local (no disponible para videos solo web)
@@ -1954,6 +2012,11 @@ Acceso rápido a todos los comandos:
 - "Crear tarjeta"
 - "Abrir configuración"
 - "Exportar datos"
+- "Toggle Zen / Architect Density Mode" (`Ctrl/Cmd + \`)
+- "Queue Ordering: Adaptive / Strict Manual"
+- "Open Docked Q&A Creator" (`Ctrl/Cmd + Shift + Q`)
+- "Chained Cloze from Selection"
+- "Cycle Theme"
 
 ### Modo Vimium
 
@@ -2396,6 +2459,7 @@ Exporte sus datos antes de cambios importantes (Configuración → Copia de segu
 | `Ctrl/Cmd + +` | Ampliar el zoom de la interfaz (escritorio, 70–150 %) |
 | `Ctrl/Cmd + -` | Reducir el zoom de la interfaz (escritorio, 70–150 %) |
 | `Ctrl/Cmd + 0` | Restablecer el zoom de la interfaz al 100 % (escritorio) |
+| `Ctrl/Cmd + \` | Alternar modo de densidad Zen / Architect |
 | `Ctrl/Cmd + /` | Mostrar atajos de teclado |
 | `?` | Mostrar atajos de teclado (sin modificador) |
 
@@ -2434,6 +2498,13 @@ Exporte sus datos antes de cambios importantes (Configuración → Copia de segu
 | `Ctrl/Cmd + C` | Copiar texto seleccionado |
 | `Ctrl/Cmd + E` | Crear extracto de la selección |
 | `Ctrl/Cmd + H` | Selección destacada |
+| `Ctrl/Cmd + Mayús + Q` | Abrir/cerrar creador acoplado de P&R |
+| `Ctrl/Cmd + J` | Abrir/cerrar hilo socrático anclado a la selección |
+| `C` | Crear Cloze encadenado en 1 tecla desde la selección |
+| `B` | Guardar marcador de los últimos 30 s de TTS/audio (fuera de campos) |
+| `Alt` (mantener) | Vista previa fantasma de contexto en revisión de extractos |
+| `Mayús + Rueda` | Ajustar prioridad ±5 % en el chip de prioridad |
+| `Mayús + Arrastrar` | Seleccionar con lazo nodos en el Grafo 2D |
 | `Ctrl/Cmd + Scroll` | Ampliar el documento (también hay controles en la barra de herramientas) |
 | `F11` | Pantalla completa |
 

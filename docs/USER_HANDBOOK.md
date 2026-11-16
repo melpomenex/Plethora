@@ -181,6 +181,16 @@ The file should be a flat object mapping question text to card data:
 - Dropping the same file twice won't create duplicates — existing cards are skipped.
 - Cards marked `known_pile: true` are imported as suspended.
 
+#### Ingestion Airlock & Chapter/H2 Pre-Chunking
+
+When staging incoming browser clips or long documents in **Needs Review**, click **Airlock Triage** to route material before it floods your active queue:
+- **`[1]` Active Course High-Priority (`P10`)**: Queues immediately for urgent study.
+- **`[2]` Evergreen Low-Priority (`P65`)**: Schedules into normal incremental intake.
+- **`[3]` Reference Only Vault (`P95`, Archived)**: Stores for reference/search without entering your due SRS queue.
+- **`[C]` Pre-Chunk by Chapter / H2 Headings**: Splits Markdown (`## ` / `# `) or HTML (`<h2>` / `<h1>`) documents into ordered child sections that inherit the chosen tier priority.
+
+**Example:** Importing a 3-section Markdown article (`## Consensus Basics`, `## Leader Election`, `## Log Replication`) with **Pre-Chunk by Chapter / H2 Headings** enabled and pressing `1` creates 3 titled sections at Priority 10.
+
 ### Document Viewer
 
 Once imported, open any document to access:
@@ -207,6 +217,26 @@ Once imported, open any document to access:
 3. **Add Note**: Select text → Click "Note" button
    - Attach your thoughts/notes
    - Notes appear with extracts
+
+4. **Docked Split Q&A / Cloze Creator (`Ctrl/Cmd + Shift + Q`)**:
+   - Opens Q&A or Cloze creation side-by-side with the reader instead of blocking the passage.
+   - Use **Insert Selection into Question** or **Insert Selection into Answer** to pull highlighted text directly into the active field.
+
+5. **Priority Inheritance Chip & Chained Cloze (`C`)**:
+   - The selection bar displays the document's inherited priority (`P<N>`). Hold `Shift` and scroll over the chip (`Shift+Wheel`) to nudge priority ±5%.
+   - After creating an inline extract, `ArrowUp` / `ArrowDown` adjusts its priority for 4 seconds.
+   - Click **[C] Cloze** to generate a chained cloze card in one keystroke without leaving the reader.
+
+6. **Selection-Anchored Socratic Margin (`Ctrl/Cmd + J`) & Graceful AI Fallbacks**:
+   - Highlight a passage and press `Ctrl/Cmd + J` (or click **⌘J Socratic**) to open an inline AI thread anchored to your quote.
+   - Click **Convert Explanation to Extract** or **Convert to Flashcard** to save any AI explanation in one click.
+   - If your local or remote LLM is offline or times out, **Graceful AI Fallback** preserves your quote and prompt and offers **Fallback to Manual Extract** or **Retry with Smaller Context (50%)**.
+
+7. **Table, Math & Code Breakout View**:
+   - Hover or focus any wide `<table>`, `.katex-display` equation, or `<pre><code>` block (in Markdown, EPUB, or Extracts) and click **Breakout View** to open an isolated `0.5x–3.0x` pan-and-zoom modal (`+`, `-`, `0` to reset, `Esc` to close).
+
+8. **Subway Minimap**:
+   - Toggle **Subway Map** in the Extracts sidebar to view document sections and extracts color-coded by mastery state.
 
 ### Document Organization
 
@@ -655,6 +685,17 @@ Extract rows in the queue open a dedicated **extract reader** — the extract's 
 - Read the extract's full content (rich HTML when preserved, plain text otherwise)
 - **Rate** it (Again / Hard / Good / Easy) — the queue updates immediately with the new schedule, no reload needed
 - **Open source document** to jump back into the document viewer at the extract's highlighted card. If the source document can no longer be loaded, the button is disabled with an explanation
+- **Ghost Context Peek (`Alt`-hold)**: Hold `Alt` (or click the context peek toggle) while reviewing an extract to preview surrounding paragraphs from the parent document without leaving the queue
+- **End-of-Item Triage Bar**: At the bottom of an extract, use quick triage actions (`Keep`, `Postpone`, `Archive`) to dispose of finished or low-value passages
+
+### Queue Session Modes, Hygiene & Mobile Ergonomics
+
+- **Zen vs. Architect Density (`Ctrl/Cmd + \`)**: Toggle globally between **Zen** mode (clean reading/review surface with scheduling telemetry hidden) and **Architect** mode (full FSRS stability, difficulty, and interval telemetry visible).
+- **Unified Session Header & Provenance Pill**: Switch between **Adaptive** and **Strict Manual** ordering directly from the session header, and click the provenance pill to jump to the item's source document.
+- **Timebox Playlists & Completion Ring**: Launch bounded sessions (**15m**, **45m**, or **10m Commute**) from the Queue Scroll view and track progress with the 0–100% completion ring.
+- **Triage Compost Sweep**: Open the Compost Sweep modal in Queue Scroll view to rapidly triage stale postponed items using `[J]`, `[K]`, `[L]`, and `[Backspace]`.
+- **Inline Leech Refactor Wizard**: Flashcards with `4+` lapses automatically display a refactor banner offering **Split into Simpler Clozes**, **Rewrite via Local AI**, or **Demote to Reading Extract**.
+- **Mobile Queue Ergonomics**: On phone layouts, use the **Commute Audio Queue** toggle, the one-handed **Bottom Thumb-Arc** dock (`Again`/`Hard`/`Good`/`Easy` and `Boost Priority (-10)`/`Defer (+10)`), and **double-tap any preview paragraph** to capture it straight to your Desktop Inbox.
 
 ### Priority System
 
@@ -1000,6 +1041,11 @@ overall maturity ratio is `matureCount / itemCount`.
 ### Dashboard Overview
 
 The Analytics dashboard provides comprehensive insights:
+
+**Today's Horizon & Study Plans Bridge:**
+- **Top-Down Milestones**: Shows active Study Plans, upcoming curriculum topics, and pending Assessments with a 1-click **Resume Milestone** launcher.
+- **Bottom-Up Organic Discovery**: Shows due FSRS reviews and high-priority extracts with a 1-click **Launch Queue Session** launcher.
+- **Inject Weak Concepts into Queue**: On any Knowledge Gap Card, click **Inject Weak Concepts into Queue** to spawn a high-urgency (`Priority 8`) extract and linked flashcard from the underlying source passage.
 
 **Key Metrics:**
 - **Cards Due Today**: Number awaiting review
@@ -1684,6 +1730,8 @@ Visualize connections between your knowledge:
 - Highlight related items
 - Export as image
 - Identify knowledge gaps
+- **Heatmap Modes**: Switch between **Default**, **Retrievability / Leech** (crimson for leeches with `4+` lapses, amber for low retrievability, emerald for healthy recall), and **Extract Density** (colored by unprocessed extract count).
+- **`Shift+Drag` Lasso-to-Queue**: Hold `Shift` and drag a marquee box over nodes on the 2D canvas to select them and **Launch Cram** or **Create Focused Assessment** from the floating action bar.
 
 ### RSS Reader
 
@@ -1853,6 +1901,16 @@ Generate transcripts for local video files in the Tauri desktop app.
 3. Choose a model and language
 4. Click **Generate Transcript**
 
+**Transcript-First Video Slice Extraction:**
+- Highlight any span across one or more transcript segments in YouTube or local video transcripts to reveal **Capture Video Slice `[mm:ss - mm:ss]`**, creating a timestamped video extract directly in your queue.
+
+### Persistent TTS PiP & Role Voices (`MiniAudioPlayer`)
+
+- **Collapsible Bottom-Right PiP**: Collapse the audio bar into a compact floating pill while reading or reviewing.
+- **Waveform Scrub & Speed (`1.0x–2.5x`)**: Click anywhere on the waveform bar to seek and cycle playback speed between `1.0x`, `1.25x`, `1.5x`, `2.0x`, and `2.5x`.
+- **Role Voices & Transition Chime**: Distinguishes **Extract** narration from **Q&A / Summary** prompts with a subtle transition chime and separate voice IDs.
+- **`[B]` Bookmark Last 30s**: Press `B` (outside text inputs) or click **[B] 30s** to capture the last 30 seconds of spoken transcript as an audio bookmark snippet.
+
 Notes:
 - Transcription runs locally on your machine
 - Requires a local file path (not available for web-only videos)
@@ -1983,6 +2041,11 @@ Quick access to all commands:
 - "Create card"
 - "Open settings"
 - "Export data"
+- "Toggle Zen / Architect Density Mode" (`Ctrl/Cmd + \`)
+- "Queue Ordering: Adaptive / Strict Manual"
+- "Open Docked Q&A Creator" (`Ctrl/Cmd + Shift + Q`)
+- "Chained Cloze from Selection"
+- "Cycle Theme"
 
 ### Vimium Mode
 
@@ -2427,6 +2490,7 @@ Export your data before major changes (Settings → Backup → Export)
 | `Ctrl/Cmd + +` | Increase interface zoom (desktop, 70–150%) |
 | `Ctrl/Cmd + -` | Decrease interface zoom (desktop, 70–150%) |
 | `Ctrl/Cmd + 0` | Reset interface zoom to 100% (desktop) |
+| `Ctrl/Cmd + \` | Toggle Zen / Architect UI density mode |
 | `Ctrl/Cmd + /` | Show keyboard shortcuts |
 | `?` | Show keyboard shortcuts (no modifier) |
 
@@ -2465,6 +2529,13 @@ Export your data before major changes (Settings → Backup → Export)
 | `Ctrl/Cmd + C` | Copy selected text |
 | `Ctrl/Cmd + E` | Create extract from selection |
 | `Ctrl/Cmd + H` | Highlight selection |
+| `Ctrl/Cmd + Shift + Q` | Toggle docked Split Q&A Creator |
+| `Ctrl/Cmd + J` | Toggle selection-anchored Socratic Margin thread |
+| `C` | Create 1-keystroke Chained Cloze from selection |
+| `B` | Bookmark & extract last 30s of active TTS/audio (outside inputs) |
+| `Alt` (hold) | Ghost Context Peek inside Extract review |
+| `Shift + Wheel` | Nudge priority ±5% on SelectionActionBar priority chip |
+| `Shift + Drag` | Lasso-select nodes on 2D Knowledge Graph |
 | `Ctrl/Cmd + Scroll` | Zoom the document (toolbar controls also available) |
 | `F11` | Full screen |
 

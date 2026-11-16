@@ -163,6 +163,16 @@ Die Datei sollte ein flaches Objekt sein, das den Fragetext den Kartendaten zuor
 - Wenn Sie dieselbe Datei zweimal löschen, entstehen keine Duplikate – vorhandene Karten werden übersprungen.
 - Karten mit der Markierung „known_pile: true“ werden als gesperrt importiert.
 
+#### Import-Schleuse (Airlock) & Kapitel-/H2-Vorabaufteilung
+
+Klicken Sie unter **Überprüfung erforderlich** (*Needs Review*) auf **Airlock Triage**, um eingehende Web-Clips oder lange Dokumente vor der aktiven Warteschlange zu routen:
+- **`[1]` Aktiver Kurs hohe Priorität (`P10`)**: wird sofort für dringendes Lernen eingereiht.
+- **`[2]` Evergreen niedrige Priorität (`P65`)**: wird in das reguläre inkrementelle Lesen eingeplant.
+- **`[3]` Nur Referenz-Tresor (`P95`, archiviert)**: wird für Suche/Referenz abgelegt, ohne die SRS-Warteschlange zu füllen.
+- **`[C]` Nach Kapiteln / H2-Überschriften aufteilen**: zerlegt Markdown (`## ` / `# `) oder HTML (`<h2>` / `<h1>`) in geordnete Unterabschnitte mit geerbter Tier-Priorität.
+
+**Beispiel:** Beim Import eines Markdown-Artikels mit 3 `##`-Abschnitten, aktiviertem **Pre-Chunk by Chapter / H2 Headings** und Taste `1` entstehen 3 betitelte Abschnitte mit Priorität 10.
+
 ### Dokumentbetrachter
 
 Öffnen Sie nach dem Import ein beliebiges Dokument, um darauf zuzugreifen:
@@ -189,6 +199,26 @@ Die Datei sollte ein flaches Objekt sein, das den Fragetext den Kartendaten zuor
 3. **Notiz hinzufügen**: Text auswählen → Klicken Sie auf die Schaltfläche „Notiz“.
    - Hängen Sie Ihre Gedanken/Notizen an
    - Notizen erscheinen mit Auszügen
+
+4. **Angedockter Split-Q&A- / Lückentext-Editor (`Strg/Befehl + Umschalt + Q`)**:
+   - Öffnet Q&A oder Cloze direkt neben dem Reader, ohne die Textstelle zu verdecken.
+   - Über **Insert Selection into Question** oder **Insert Selection into Answer** fügen Sie markierten Text direkt in das aktive Feld ein.
+
+5. **Prioritäts-Vererbungs-Chip & verkettetes Cloze (`C`)**:
+   - Die Auswahlleiste zeigt die geerbte Priorität (`P<N>`). Mit `Umschalt + Scrollrad` (`Shift+Wheel`) passen Sie die Priorität um ±5 % an.
+   - 4 Sekunden lang nach einer Inline-Extraktion steuern `Pfeil hoch` / `Pfeil runter` die Priorität.
+   - Mit **[C] Cloze** erstellen Sie per einzelnem Tastendruck ein verkettetes Cloze ohne den Reader zu verlassen.
+
+6. **Auswahlverankerter sokratischer Rand-Thread (`Strg/Befehl + J`) & Graceful AI Fallback**:
+   - Markieren Sie Text und drücken Sie `Strg/Befehl + J` (oder **⌘J Socratic**), um einen KI-Rand-Thread zu Ihrer Stelle zu öffnen.
+   - Über **Convert Explanation to Extract** oder **Convert to Flashcard** speichern Sie jede Erklärung mit einem Klick.
+   - Ist das lokale oder Remote-LLM offline oder läuft in ein Timeout, bewahrt **Graceful AI Fallback** Zitat und Frage und bietet **Fallback to Manual Extract** sowie **Retry with Smaller Context (50 %)**.
+
+7. **Tabellen-, Mathe- & Code-Breakout-Ansicht**:
+   - Fahren Sie mit der Maus über einen `<table>`-, `.katex-display`- oder `<pre><code>`-Block (in Markdown, EPUB oder Auszügen) und klicken Sie auf **Breakout View**, um ein isoliertes `0.5x–3.0x`-Pan-und-Zoom-Modal (`+`, `-`, `0` zum Zurücksetzen, `Esc` zum Schließen) zu öffnen.
+
+8. **Subway-Minimap**:
+   - Aktivieren Sie **Subway Map** in der Auszüge-Seitenleiste, um Dokumentabschnitte und Auszüge nach Beherrschungsgrad farbcodiert anzuzeigen.
 
 ### Dokumentenorganisation
 
@@ -630,6 +660,17 @@ Extraktzeilen in der Warteschlange öffnen einen speziellen **Extraktleser** –
 - Lesen Sie den vollständigen Inhalt des Auszugs (Rich-HTML, wenn er erhalten bleibt, andernfalls Nur-Text).
 - **Bewerten** Sie es (Erneut / Schwierig / Gut / Leicht) – die Warteschlange wird sofort mit dem neuen Zeitplan aktualisiert, ein Neuladen ist nicht erforderlich
 - **Open-Source-Dokument**, um auf der markierten Karte des Auszugs zurück in den Dokument-Viewer zu springen. Wenn das Quelldokument nicht mehr geladen werden kann, wird die Schaltfläche mit einer Erklärung deaktiviert
+- **Ghost Context Peek (`Alt` halten)**: Halten Sie während der Auszugswiederholung `Alt` gedrückt (oder nutzen Sie den Peek-Schalter), um umliegende Absätze des Quelldokuments inline anzuzeigen.
+- **Triage-Leiste am Elementende**: Am Ende eines Auszugs stehen Schnellaktionen (`Keep`, `Postpone`, `Archive`) bereit.
+
+### Sitzungsmodi, Warteschlangen-Hygiene & Mobile Ergonomie
+
+- **Zen- vs. Architect-Dichtemodus (`Strg/Befehl + \`)**: Schaltet global zwischen **Zen** (ruhige Oberfläche ohne Telemetrie) und **Architect** (vollständige FSRS-Stabilitäts-, Schwierigkeits- und Intervall-Telemetrie) um.
+- **Einheitliche Sitzungskopfzeile & Herkunfts-Pill**: Wechseln Sie im Header zwischen **Adaptive** und **Strict Manual** und springen Sie über die Herkunfts-Pill direkt zum Quelldokument.
+- **Timebox-Playlists & Fortschrittsring**: Starten Sie zeitlich begrenzte Sitzungen (**15m**, **45m**, **10m Commute**) in der Scroll-Ansicht und verfolgen Sie den 0–100 %-Fortschrittsring.
+- **Triage Compost Sweep**: Bereinigen Sie lange verschobene Auszüge blitzschnell mit `[J]`, `[K]`, `[L]` und `[Backspace]`.
+- **Inline-Leech-Refactor-Assistent (`lapses >= 4`)**: Karten mit mindestens 4 Fehlversuchen zeigen **Split into Simpler Clozes**, **Rewrite via Local AI** oder **Demote to Reading Extract** an.
+- **Mobile Warteschlangen-Ergonomie**: Auf Smartphones stehen der **Commute Audio Queue**-Schalter, das einhändige **Bottom Thumb-Arc**-Dock (`Again`/`Hard`/`Good`/`Easy` sowie `Boost Priority (-10)` / `Defer (+10)`) und **Doppeltippen auf Absätze** zur Sofort-Erfassung in den Desktop-Posteingang bereit.
 
 ### Prioritätssystem
 
@@ -969,6 +1010,11 @@ Das Gesamtreifeverhältnis beträgt „matureCount / itemCount“.
 ### Dashboard-Übersicht
 
 Das Analytics-Dashboard bietet umfassende Einblicke:
+
+**Today's Horizon & Lernplan-Brücke:**
+- **Top-Down-Meilensteine**: Zeigt aktive Lernpläne, anstehende Themen und fällige Prüfungen mit 1-Klick-Start (**Resume Milestone**).
+- **Bottom-Up-Entdeckung**: Zeigt fällige FSRS-Karten und priorisierte Auszüge mit 1-Klick-Start (**Launch Queue Session**).
+- **Schwache Konzepte in Warteschlange injizieren**: Klicken Sie auf einer *Knowledge Gap Card* auf **Inject Weak Concepts into Queue**, um einen dringenden Auszug (`Priorität 8`) samt verknüpfter Karteikarte aus der Quelle zu erzeugen.
 
 **Wichtige Kennzahlen:**
 - **Heute fällige Karten**: Nummer wartet auf Überprüfung
@@ -1665,6 +1711,8 @@ Visualisieren Sie Zusammenhänge zwischen Ihrem Wissen:
 - Markieren Sie verwandte Elemente
 - Als Bild exportieren
 - Identifizieren Sie Wissenslücken
+- **Heatmap-Modi**: Wechseln Sie zwischen **Default**, **Retrievability / Leech** (Karmesinrot bei `4+` Fehlern, Bernstein bei niedriger Abrufbarkeit, Smaragdgrün bei gesunder Erinnerung) und **Extract Density** (unbearbeitete Auszüge).
+- **`Umschalt+Ziehen`-Lasso zur Warteschlange**: Halten Sie `Umschalt` gedrückt und ziehen Sie ein Lasso über Knoten im 2D-Graphen, um **Launch Cram** oder **Create Focused Assessment** zu starten.
 
 ### RSS-Reader
 
@@ -1826,6 +1874,16 @@ Generieren Sie Transkripte für lokale Videodateien in der Tauri-Desktop-App.
 3. Wählen Sie ein Modell und eine Sprache
 4. Klicken Sie auf **Transkript generieren**
 
+**Transkript-basierte Video-Slice-Extraktion:**
+- Markieren Sie einen Bereich über ein oder mehrere Transkript-Segmente (YouTube oder lokales Video), um **Capture Video Slice `[mm:ss - mm:ss]`** anzuzeigen und einen zeitgestempelten Video-Auszug direkt in die Warteschlange zu legen.
+
+### Persistenter TTS-PiP-Player & Rollenstimmen (`MiniAudioPlayer`)
+
+- **Einklappbares PiP unten rechts**: Klappen Sie den Audio-Player während des Lesens oder Lernens zu einer kompakten Pill zusammen.
+- **Wellenform-Scrubber & Geschwindigkeit (`1.0x–2.5x`)**: Klicken Sie zum Spulen auf die Wellenform und wechseln Sie zwischen `1.0x`, `1.25x`, `1.5x`, `2.0x` und `2.5x`.
+- **Rollenstimmen & Übergangston**: Trennt **Extract**-Vorlesen von **Q&A / Summary**-Prompts mit dezentem Signalton und separaten Stimmen.
+- **`[B]` Letzte 30 s als Lesezeichen**: Drücken Sie `B` (außerhalb von Textfeldern) oder klicken Sie auf **[B] 30s**, um die letzten 30 Sekunden als Audio-Lesezeichen zu sichern.
+
 Hinweise:
 - Die Transkription wird lokal auf Ihrem Computer ausgeführt
 - Erfordert einen lokalen Dateipfad (nicht verfügbar für reine Webvideos)
@@ -1956,6 +2014,11 @@ Schnellzugriff auf alle Befehle:
 - „Karte erstellen“
 - „Einstellungen öffnen“
 - „Daten exportieren“
+- „Toggle Zen / Architect Density Mode“ (`Strg/Befehl + \`)
+- „Queue Ordering: Adaptive / Strict Manual“
+- „Open Docked Q&A Creator“ (`Strg/Befehl + Umschalt + Q`)
+- „Chained Cloze from Selection“
+- „Cycle Theme“
 
 ### Vimium-Modus
 
@@ -2398,6 +2461,7 @@ Exportieren Sie Ihre Daten vor größeren Änderungen (Einstellungen → Backup 
 | `Strg/Befehl + +` | Schnittstellen-Zoom vergrößern (Desktop, 70–150 %) |
 | `Strg/Befehl + -` | Schnittstellen-Zoom verkleinern (Desktop, 70–150 %) |
 | `Strg/Befehl + 0` | Schnittstellen-Zoom auf 100 % zurücksetzen (Desktop) |
+| `Strg/Befehl + \` | Zen- / Architect-UI-Dichtemodus umschalten |
 | `Strg/Befehl + /` | Tastaturkürzel anzeigen |
 | `?` | Tastaturkürzel anzeigen (kein Modifikator) |
 
@@ -2436,6 +2500,13 @@ Exportieren Sie Ihre Daten vor größeren Änderungen (Einstellungen → Backup 
 | `Strg/Befehl + C` | Ausgewählten Text kopieren |
 | „Strg/Befehl + E“ | Auszug aus Auswahl erstellen |
 | `Strg/Befehl + H` | Auswahl hervorheben |
+| `Strg/Befehl + Umschalt + Q` | Angedockten Split-Q&A-Editor umschalten |
+| `Strg/Befehl + J` | Auswahlverankerten sokratischen Rand-Thread umschalten |
+| `C` | Verkettetes Cloze mit 1 Taste aus Auswahl erstellen |
+| `B` | Letzte 30 s Audio/TTS als Lesezeichen sichern (außerhalb von Eingabefeldern) |
+| `Alt` (halten) | Ghost Context Peek in der Auszugs-Wiederholung |
+| `Umschalt + Scrollrad` | Priorität um ±5 % auf dem Prioritäts-Chip anpassen |
+| `Umschalt + Ziehen` | Knoten im 2D-Wissensgraphen per Lasso auswählen |
 | `Strg/Befehl + Scrollen` | Dokument zoomen (auch über die Symbolleisten-Steuerelemente) |
 | `F11` | Vollbild |
 

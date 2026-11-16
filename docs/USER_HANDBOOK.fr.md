@@ -143,6 +143,16 @@ Le fichier doit être un objet plat mappant le texte de la question aux données
 - Supprimer deux fois le même fichier ne créera pas de doublons : les cartes existantes sont ignorées.
 - Les cartes marquées «known_pile: true» sont importées comme suspendues.
 
+#### Sas d'ingestion et pré-découpage par chapitres / titres H2
+
+Dans **À réviser** (Needs Review), cliquez sur **Airlock Triage** pour router les captures Web ou longs documents avant qu'ils n'encombrent votre file active :
+- **`[1]` Cours actif haute priorité (`P10`)** : mis en file immédiatement pour étude urgente.
+- **`[2]` Evergreen basse priorité (`P65`)** : planifié dans la lecture incrémentale normale.
+- **`[3]` Référence uniquement (`P95`, archivé)** : conservé pour recherche sans entrer dans la file SRS.
+- **`[C]` Pré-découper par chapitres / titres H2** : découpe les documents Markdown (`## ` / `# `) ou HTML (`<h2>` / `<h1>`) en sections ordonnées héritant de la priorité choisie.
+
+**Exemple :** Importer un article Markdown à 3 sections `##` avec **Pre-Chunk by Chapter / H2 Headings** activé et appuyer sur `1` crée 3 sections titrées en priorité 10.
+
 ### Visionneuse de documents
 
 Une fois importé, ouvrez n'importe quel document pour accéder :
@@ -169,6 +179,26 @@ Une fois importé, ouvrez n'importe quel document pour accéder :
 3. **Ajouter une note** : Sélectionnez le texte → Cliquez sur le bouton « Note »
    - Joignez vos pensées/notes
    - Des notes apparaissent avec des extraits
+
+4. **Créateur Q&R / Texte à trous ancré (`Ctrl/Cmd + Maj + Q`)** :
+   - Ouvre la création Q&R ou Cloze côte à côte avec le lecteur sans masquer le passage.
+   - Utilisez **Insert Selection into Question** ou **Insert Selection into Answer** pour insérer le texte sélectionné.
+
+5. **Puce d'héritage de priorité et Cloze enchaîné (`C`)** :
+   - La barre de sélection affiche la priorité héritée (`P<N>`). Maintenez `Maj` + molette (`Shift+Wheel`) pour ajuster la priorité de ±5 %.
+   - Pendant 4 secondes après une extraction en ligne, `Flèche haut` / `Flèche bas` ajuste la priorité.
+   - Cliquez sur **[C] Cloze** pour créer une carte Cloze enchaînée en une frappe sans quitter le lecteur.
+
+6. **Marge socratique ancrée à la sélection (`Ctrl/Cmd + J`) et secours IA gracieux** :
+   - Sélectionnez un passage et appuyez sur `Ctrl/Cmd + J` (ou cliquez sur **⌘J Socratic**) pour ouvrir un fil IA ancré à votre citation.
+   - Cliquez sur **Convert Explanation to Extract** ou **Convert to Flashcard** pour enregistrer l'explication en un clic.
+   - Si le LLM local ou distant est hors ligne ou expire, **Graceful AI Fallback** conserve votre citation et votre question et propose **Fallback to Manual Extract** ou **Retry with Smaller Context (50 %)**.
+
+7. **Vue éclatée Tableaux, Maths & Code (Breakout View)** :
+   - Survolez ou focalisez un bloc `<table>`, `.katex-display` ou `<pre><code>` (Markdown, EPUB ou Extraits) puis cliquez sur **Breakout View** pour ouvrir une fenêtre isolée de panoramique et zoom `0.5x–3.0x` (`+`, `-`, `0` pour réinitialiser, `Échap` pour fermer).
+
+8. **Minimappe Métro (Subway Minimap)** :
+   - Activez **Subway Map** dans le panneau Extraits pour visualiser les sections et extraits colorés selon leur niveau de maîtrise.
 
 ### Organisation des documents
 
@@ -610,6 +640,17 @@ Les lignes d'extraction dans la file d'attente ouvrent un **lecteur d'extrait** 
 - Lire le contenu complet de l'extrait (HTML riche lorsqu'il est conservé, texte brut dans le cas contraire)
 - **Évaluez** (Encore / Difficile / Bon / Facile) - la file d'attente se met à jour immédiatement avec le nouveau calendrier, aucun rechargement n'est nécessaire
 - **Document open source** pour revenir à la visionneuse de documents sur la carte en surbrillance de l'extrait. Si le document source ne peut plus être chargé, le bouton est désactivé avec une explication
+- **Aperçu contextuel fantôme (maintenir `Alt`)** : maintenez `Alt` (ou cliquez sur le bouton d'aperçu) pendant la révision d'un extrait pour afficher les paragraphes voisins du document parent sans quitter la file
+- **Barre de triage en fin d'élément** : au bas d'un extrait, utilisez les actions rapides (`Keep`, `Postpone`, `Archive`) pour traiter immédiatement les passages terminés
+
+### Modes de session, hygiène de file et ergonomie mobile
+
+- **Densité Zen vs Architecte (`Ctrl/Cmd + \`)** : basculez globalement entre le mode **Zen** (lecture épurée sans télémétrie) et le mode **Architect** (télémétrie FSRS complète : stabilité, difficulté, intervalles).
+- **En-tête de session unifié et puce de provenance** : basculez entre l'ordre **Adaptive** et **Strict Manual** dans l'en-tête et cliquez sur la puce de provenance pour ouvrir le document source.
+- **Listes minutées (Timebox) et anneau de progression** : lancez des sessions bornées (**15m**, **45m**, **10m Commute**) depuis la vue défilement et suivez l'avancement de 0 à 100 %.
+- **Balayage de compostage (Triage Compost Sweep)** : triez rapidement les extraits reportés de longue date avec `[J]`, `[K]`, `[L]` et `[Backspace]`.
+- **Assistant de refonte des sangsues (`lapses >= 4`)** : les cartes ayant 4 échecs ou plus affichent un assistant proposant **Split into Simpler Clozes**, **Rewrite via Local AI** ou **Demote to Reading Extract**.
+- **Ergonomie mobile** : sur téléphone, profitez du mode **Commute Audio Queue**, du dock à une main **Bottom Thumb-Arc** (`Again`/`Hard`/`Good`/`Easy` + `Boost Priority (-10)` / `Defer (+10)`) et du **double-tap sur un paragraphe** pour l'envoyer instantanément vers la boîte de réception bureau.
 
 ### Système de priorité
 
@@ -949,6 +990,11 @@ le ratio de maturité global est « matureCount / itemCount ».
 ### Présentation du tableau de bord
 
 Le tableau de bord Analytics fournit des informations complètes :
+
+**Today's Horizon et passerelle Plans d'étude :**
+- **Jalons descendants (Top-Down)** : affiche les plans d'étude actifs, les prochains thèmes et les évaluations dues avec un bouton **Resume Milestone** en un clic.
+- **Découverte organique ascendante (Bottom-Up)** : affiche les révisions FSRS dues et les extraits prioritaires avec **Launch Queue Session** en un clic.
+- **Injecter les concepts faibles dans la file** : sur une carte de lacune (*Knowledge Gap Card*), cliquez sur **Inject Weak Concepts into Queue** pour créer un extrait urgent (`Priorité 8`) et une carte liée au passage source.
 
 **Mesures clés :**
 - **Cartes dues aujourd'hui** : numéro en attente d'examen
@@ -1645,6 +1691,8 @@ Visualisez les liens entre vos connaissances :
 - Mettre en surbrillance les éléments associés
 - Exporter sous forme d'image
 - Identifier les lacunes dans les connaissances
+- **Modes de carte thermique** : basculez entre **Default**, **Retrievability / Leech** (rouge pour `4+` échecs, orange pour faible rappel, vert pour rappel sain) et **Extract Density** (densité d'extraits non traités).
+- **Lasso `Maj+Glisser` vers la file** : maintenez `Maj` et tracez un rectangle sur le graphe 2D pour sélectionner les nœuds inclus et lancer **Launch Cram** ou **Create Focused Assessment**.
 
 ### Lecteur RSS
 
@@ -1804,6 +1852,16 @@ Remarques :
 - La transcription s'exécute localement sur votre machine
 - Nécessite un chemin de fichier local (non disponible pour les vidéos Web uniquement)
 
+**Extraction de tranches vidéo depuis la transcription :**
+- Sélectionnez un passage à travers un ou plusieurs segments de transcription (YouTube ou vidéo locale) pour afficher **Capture Video Slice `[mm:ss - mm:ss]`** et créer un extrait vidéo horodaté dans votre file.
+
+### Lecteur TTS PiP persistant et voix par rôle (`MiniAudioPlayer`)
+
+- **PiP réductible en bas à droite** : repliez le mini-lecteur en pilule flottante compacte pendant la lecture ou la révision.
+- **Barre de forme d'onde et vitesse (`1.0x–2.5x`)** : cliquez sur la forme d'onde pour naviguer et alternez la vitesse entre `1.0x`, `1.25x`, `1.5x`, `2.0x` et `2.5x`.
+- **Voix par rôle et carillon de transition** : distingue la narration d'**Extrait** des invites **Q&R / Résumé** avec un léger carillon et des voix distinctes.
+- **`[B]` Marquer les 30 dernières secondes** : appuyez sur `B` (hors champ texte) ou cliquez sur **[B] 30s** pour enregistrer les 30 dernières secondes en signet audio.
+
 ### Transcription de livres audio (application de bureau)
 
 Créez des transcriptions pour les livres audio afin de permettre la sélection et la synchronisation du texte.
@@ -1930,6 +1988,11 @@ Accès rapide à toutes les commandes :
 - "Créer une carte"
 - "Ouvrir les paramètres"
 - "Exporter des données"
+- « Toggle Zen / Architect Density Mode » (`Ctrl/Cmd + \`)
+- « Queue Ordering: Adaptive / Strict Manual »
+- « Open Docked Q&A Creator » (`Ctrl/Cmd + Shift + Q`)
+- « Chained Cloze from Selection »
+- « Cycle Theme »
 
 ### Mode Vimium
 
@@ -2339,6 +2402,7 @@ Exportez vos données avant les changements majeurs (Paramètres → Sauvegarde 
 | `Ctrl/Cmd + +` | Augmenter le zoom de l'interface (bureau, 70–150 %) |
 | `Ctrl/Cmd + -` | Diminuer le zoom de l'interface (bureau, 70–150 %) |
 | `Ctrl/Cmd + 0` | Réinitialiser le zoom de l'interface à 100 % (bureau) |
+| `Ctrl/Cmd + \` | Basculer entre les modes de densité Zen et Architect |
 | `Ctrl/Cmd + /` | Afficher les raccourcis clavier |
 | `?` | Afficher les raccourcis clavier (pas de modificateur) |
 
@@ -2377,6 +2441,13 @@ Exportez vos données avant les changements majeurs (Paramètres → Sauvegarde 
 | `Ctrl/Cmd + C` | Copier le texte sélectionné |
 | `Ctrl/Cmd + E` | Créer un extrait de la sélection |
 | `Ctrl/Cmd + H` | Sélection des surbrillance |
+| `Ctrl/Cmd + Maj + Q` | Ouvrir/fermer le créateur Q&R ancré |
+| `Ctrl/Cmd + J` | Ouvrir/fermer le fil socratique ancré à la sélection |
+| `C` | Créer un Cloze enchaîné en 1 touche depuis la sélection |
+| `B` | Enregistrer un signet des 30 dernières secondes audio/TTS (hors saisie) |
+| `Alt` (maintenir) | Aperçu contextuel fantôme pendant la révision d'extrait |
+| `Maj + Molette` | Ajuster la priorité de ±5 % sur la puce de priorité |
+| `Maj + Glisser` | Sélectionner au lasso des nœuds du graphe 2D |
 | `Ctrl/Cmd + Molette` | Zoomer le document (les contrôles de la barre d'outils restent disponibles) |
 | 'F11' | Plein écran |
 
