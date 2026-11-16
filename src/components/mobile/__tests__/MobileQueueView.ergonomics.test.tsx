@@ -11,7 +11,7 @@ vi.mock("../../../stores/queueStore", () => ({
             id: "q-1",
             documentId: "doc-raft",
             documentTitle: "Raft Consensus",
-            itemType: "extract",
+            itemType: "document",
             queuePosition: 1,
             queueTotal: 1,
             isUpNext: true,
@@ -111,5 +111,41 @@ describe("MobileQueueView.ergonomics", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Commute Audio Queue/i }));
     expect(onToggleCommuteAudio).toHaveBeenCalledWith(true);
+  });
+
+  it("shows the Up next target label and starts speech readout for Commute Audio Queue without opening Scroll Mode", async () => {
+    const onOpenScrollMode = vi.fn();
+    const speak = vi.fn();
+    const cancel = vi.fn();
+    vi.stubGlobal("speechSynthesis", { speak, cancel });
+    vi.stubGlobal(
+      "SpeechSynthesisUtterance",
+      class {
+        text: string;
+        onend: (() => void) | null = null;
+        onerror: (() => void) | null = null;
+        constructor(text: string) {
+          this.text = text;
+        }
+      }
+    );
+
+    render(<MobileQueueView onOpenScrollMode={onOpenScrollMode} />);
+
+    const context = document.querySelector('[data-thumb-arc-context="true"]');
+    expect(context?.textContent).toContain("Up next: Raft Consensus");
+    expect(context?.textContent).toContain("Rate #1 to review");
+
+    fireEvent.click(screen.getByRole("button", { name: /Commute Audio Queue/i }));
+    await waitFor(() => {
+      expect(speak).toHaveBeenCalledTimes(1);
+    });
+    expect(onOpenScrollMode).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: /Stop Audio Queue/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Stop Audio Queue/i }));
+    expect(cancel).toHaveBeenCalled();
+
+    vi.unstubAllGlobals();
   });
 });
