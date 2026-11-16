@@ -6,6 +6,7 @@ import type {
   MediaInspection,
   MediaPlaybackPlan,
   MediaRuntimeCapabilities,
+  MediaStreamSessionInfo,
   MediaTransportProbe,
   StartMediaCompatibilityJobInput,
   MediaPlaybackPlanInput,
@@ -106,4 +107,18 @@ export function subscribeToMediaCompatibilityJobs(
 /** Probe the app's loopback media server without downloading the file. */
 export function probeMediaTransport(url: string): Promise<MediaTransportProbe> {
   return invokeCommand<MediaTransportProbe>("probe_media_transport", { url });
+}
+
+/** Start an on-demand seekable HLS streaming session for a local media file. */
+export function startMediaStreamSession(
+  request: StartMediaCompatibilityJobInput,
+): Promise<MediaStreamSessionInfo> {
+  return invokeCommand<MediaStreamSessionInfo>("start_media_stream_session", {
+    request,
+  });
+}
+
+/** Stop and clean up an active on-demand HLS streaming session. */
+export function stopMediaStreamSession(sessionId: string): Promise<void> {
+  return invokeCommand<void>("stop_media_stream_session", { sessionId });
 }

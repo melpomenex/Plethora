@@ -10,6 +10,7 @@ pub mod decision;
 pub mod ffmpeg;
 pub mod jobs;
 pub mod probe;
+pub mod streaming;
 pub mod transport;
 pub mod types;
 

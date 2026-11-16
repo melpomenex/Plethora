@@ -457,6 +457,15 @@ pub enum PlaybackStrategy {
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
+pub enum DeliveryMode {
+    #[default]
+    Native,
+    Stream,
+    Cache,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum PlanConfidence {
     Certain,
     Probable,
@@ -516,6 +525,7 @@ pub struct MediaPlaybackPlan {
     pub source_fingerprint: String,
     pub inspection_hash: String,
     pub strategy: PlaybackStrategy,
+    pub delivery_mode: DeliveryMode,
     pub confidence: PlanConfidence,
     pub reasons: Vec<String>,
     pub selected_video_index: Option<i32>,

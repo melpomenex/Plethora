@@ -261,3 +261,47 @@ pub async fn prune_media_compatibility_cache(
 pub async fn probe_media_transport(url: String) -> Result<MediaTransportProbe, MediaCompatError> {
     transport::probe_media_transport(&url).await
 }
+
+/// Start an on-demand seekable HLS streaming session for a local media file.
+#[tauri::command]
+pub async fn start_media_stream_session(
+    app_handle: tauri::AppHandle,
+    repo: tauri::State<'_, crate::database::Repository>,
+    request: StartMediaCompatibilityJobRequest,
+) -> Result<super::streaming::MediaStreamSessionInfo, MediaCompatError> {
+    let _ = crate::media_server::start(&app_handle)
+        .await
+        .map_err(source_error)?;
+    let canonical =
+        authorized_document_path(&app_handle, &repo, &request.document_id, &request.file_path)
+            .await?;
+    let inspection = inspect_authorized(&canonical, Some(&request.document_id), &repo).await?;
+    let capabilities = capabilities::detect(false).await;
+    let plan = decision::plan(
+        &request.document_id,
+        &inspection,
+        &capabilities,
+        &request.client_support,
+        request.policy,
+        request.recovery.as_ref(),
+        None,
+    );
+    if plan.requires_consent && !request.consent_granted {
+        return Err(MediaCompatError::new(
+            MediaFailureCode::ConversionFailed,
+            "User confirmation is required before streaming this video transcode.",
+        ));
+    }
+    super::streaming::global_manager()
+        .start_session(request.document_id, canonical, inspection, plan)
+        .await
+}
+
+/// Stop and clean up an active on-demand HLS streaming session.
+#[tauri::command]
+pub async fn stop_media_stream_session(session_id: String) -> Result<(), MediaCompatError> {
+    super::streaming::global_manager()
+        .stop_session(&session_id)
+        .await;
+    Ok(())
+}

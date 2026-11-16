@@ -18,6 +18,8 @@ import {
   inspectLocalMedia,
   planMediaPlayback,
   startMediaCompatibilityJob,
+  startMediaStreamSession,
+  stopMediaStreamSession,
   cancelMediaCompatibilityJob,
   subscribeToMediaCompatibilityJobs,
 } from "../api/mediaCompatibility";
@@ -75,6 +77,7 @@ export interface MediaCompatibilityController {
   cancelJob: () => Promise<void>;
   retry: () => void;
   tryOriginal: () => void;
+  recoverFromStreamError: () => Promise<boolean>;
   refreshCapabilities: () => Promise<void>;
   dismiss: () => void;
 }
@@ -113,8 +116,19 @@ export function useMediaCompatibility(
   const capabilitiesRef = useRef<MediaRuntimeCapabilities | null>(null);
   const supportRef = useRef<DeclaredCodecSupport | null>(null);
   const jobRef = useRef<MediaCompatibilityJobEvent | null>(null);
+  const streamSessionIdRef = useRef<string | null>(null);
   const lastSequence = useRef(0);
   const cancelledRef = useRef(false);
+
+  const cleanupStreamSession = useCallback(() => {
+    const sessionId = streamSessionIdRef.current;
+    if (sessionId) {
+      streamSessionIdRef.current = null;
+      void stopMediaStreamSession(sessionId).catch((error) => {
+        console.warn("[media.compat] failed to stop stream session", error);
+      });
+    }
+  }, []);
 
   const cleanupListener = useCallback(() => {
     if (unlisten.current) {
@@ -158,6 +172,29 @@ export function useMediaCompatibility(
     if (!documentId || !filePath || !inspectionRef.current || !supportRef.current) return;
     const inspection = inspectionRef.current;
     try {
+      if (plan.deliveryMode === "stream") {
+        cleanupStreamSession();
+        const session = await startMediaStreamSession({
+          documentId,
+          filePath,
+          inspectionFingerprint: inspection.source.fingerprint,
+          clientSupport: supportRef.current,
+          policy,
+          consentGranted,
+        });
+        if (cancelledRef.current) {
+          void stopMediaStreamSession(session.sessionId).catch(() => {});
+          return;
+        }
+        streamSessionIdRef.current = session.sessionId;
+        setState({
+          kind: "ready",
+          inspection,
+          plan,
+          artifactUrl: session.playlistUrl,
+        });
+        return;
+      }
       const job = await startMediaCompatibilityJob({
         documentId,
         filePath,
@@ -264,6 +301,7 @@ export function useMediaCompatibility(
     return () => {
       cancelledRef.current = true;
       cleanupListener();
+      cleanupStreamSession();
     };
     // policyKey/nonce are intentional re-run triggers; the string key prevents
     // inline object identity from causing repeated inspection.
@@ -334,9 +372,31 @@ export function useMediaCompatibility(
 
   const tryOriginal = useCallback(() => {
     void cancelJob();
+    cleanupStreamSession();
     const plan = planRef.current ?? undefined;
     setState({ kind: "native", inspection: inspectionRef.current ?? undefined, plan });
-  }, [cancelJob]);
+  }, [cancelJob, cleanupStreamSession]);
+
+  const recoverFromStreamError = useCallback(async (): Promise<boolean> => {
+    const plan = planRef.current;
+    const inspection = inspectionRef.current;
+    const capabilities = capabilitiesRef.current;
+    if (!plan || !inspection || !capabilities) return false;
+    if (plan.strategy !== "remux" && plan.strategy !== "audio_transcode") {
+      return false;
+    }
+    cleanupStreamSession();
+    try {
+      await buildAndDispatchPlan(inspection, capabilities, {
+        trigger: "native_failed",
+        failureCode: "video_decoder_unavailable",
+      });
+      return true;
+    } catch (error) {
+      console.warn("[media.compat] stream recovery failed", error);
+      return false;
+    }
+  }, [buildAndDispatchPlan, cleanupStreamSession]);
 
   const refreshCapabilities = useCallback(async () => {
     try {
@@ -365,6 +425,7 @@ export function useMediaCompatibility(
     cancelJob,
     retry,
     tryOriginal,
+    recoverFromStreamError,
     refreshCapabilities,
     dismiss,
   };

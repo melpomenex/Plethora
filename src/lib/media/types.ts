@@ -291,7 +291,15 @@ export interface DeclaredCodecSupport {
 }
 
 export type PlaybackStrategy = "native" | "remux" | "audio_transcode" | "video_transcode" | "unavailable";
+export type DeliveryMode = "native" | "stream" | "cache";
 export type PlanConfidence = "certain" | "probable" | "indeterminate";
+
+export interface MediaStreamSessionInfo {
+  sessionId: string;
+  playlistUrl: string;
+  durationSeconds: number;
+  segmentDurationSeconds: number;
+}
 
 export interface CachedArtifact {
   cacheKey: string;
@@ -308,6 +316,7 @@ export interface MediaPlaybackPlan {
   sourceFingerprint: string;
   inspectionHash: string;
   strategy: PlaybackStrategy;
+  deliveryMode?: DeliveryMode;
   confidence: PlanConfidence;
   reasons: string[];
   selectedVideoIndex?: number | null;

@@ -66,6 +66,7 @@ import {
 import { classifyPlaybackFailure, type PlaybackFailureInput } from "../../lib/media/errorClassification";
 import type { MediaPlaybackFailure } from "../../lib/media/types";
 import { probeMediaTransport } from "../../api/mediaCompatibility";
+import { attachMediaSource, isHlsPlaylistUrl } from "../../lib/media/hlsPlayback";
 import { formatVideoTimestamp } from "../../lib/ai/assistant/videoContextPlanner";
 
 interface LocalVideoPlayerProps {
@@ -238,9 +239,30 @@ export function LocalVideoPlayer({
     compatibility.state.kind === "preparing" || compatibility.state.kind === "consent";
   const activeSource = resolvedSourceIndex !== null ? normalizedSources[resolvedSourceIndex] ?? null : null;
   const activeSrc = artifactSrc ?? activeSource?.src ?? "";
+  const isHlsStream = isHlsPlaylistUrl(activeSrc);
   const activeSourceStrategy = artifactSrc
     ? "media-compatibility"
     : activeSource?.strategy ?? "unresolved";
+
+  useEffect(() => {
+    if (mediaType === "audio" || !isHlsStream || !activeSrc) return;
+    const video = videoRef.current;
+    if (!video) return;
+    const attached = attachMediaSource(video, activeSrc, (detail) => {
+      console.warn("[LocalVideoPlayer] HLS playback error", detail);
+      void (async () => {
+        const recovered = await compatibility.recoverFromStreamError();
+        if (!recovered) {
+          await classifyAndSetFailure({
+            playErrorMessage: detail,
+          });
+        }
+      })();
+    });
+    return () => {
+      attached.cleanup();
+    };
+  }, [activeSrc, isHlsStream, mediaType]);
 
   useEffect(() => {
     documentIdRef.current = documentId;
@@ -388,7 +410,7 @@ export function LocalVideoPlayer({
 
   const classifyAndSetFailure = useCallback(async (input: PlaybackFailureInput) => {
     let transport = input.transport ?? null;
-    if (!transport && activeSrc.startsWith("http://127.0.0.1:")) {
+    if (!transport && activeSrc.startsWith("http://127.0.0.1:") && !isHlsPlaylistUrl(activeSrc)) {
       try {
         transport = await probeMediaTransport(activeSrc);
       } catch {
@@ -1406,7 +1428,7 @@ export function LocalVideoPlayer({
   ) : (
     <video
       ref={videoRef}
-      src={activeSrc}
+      src={isHlsStream ? undefined : activeSrc}
       preload="metadata"
       playsInline
       className="w-full max-h-full bg-black cursor-pointer"

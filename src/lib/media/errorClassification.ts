@@ -202,12 +202,13 @@ function codecEvidenceFailure(input: PlaybackFailureInput): MediaPlaybackFailure
     return failure("media_corrupt", input, inspection.probeError ?? "probe_failed", false);
   }
 
+  const isCompatOutput = input.strategy === "media-compatibility";
   const linux = input.capabilities?.platform === "linux";
-  if (linux && inspection.subtitleStreams.some((stream) => stream.kind === "bitmap")) {
+  if (!isCompatOutput && linux && inspection.subtitleStreams.some((stream) => stream.kind === "bitmap")) {
     return failure("bitmap_subtitle_unsupported", input, "bitmap_subtitles_present");
   }
 
-  if (support(input, "demuxers", inspection.container) === "unsupported") {
+  if (!isCompatOutput && support(input, "demuxers", inspection.container) === "unsupported") {
     return failure("container_unsupported", input, inspection.container ?? undefined);
   }
 

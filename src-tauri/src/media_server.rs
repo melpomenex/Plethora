@@ -116,6 +116,7 @@ pub async fn start(app_handle: &tauri::AppHandle) -> Result<u16, String> {
             let app = Router::new()
                 .route("/stream", get(stream_handler))
                 .merge(crate::epub_server::router())
+                .merge(crate::media_compat::streaming::router())
                 .with_state(state);
 
             tokio::spawn(async move {

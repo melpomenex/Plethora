@@ -9,9 +9,9 @@ use uuid::Uuid;
 
 use super::types::{
     AudioStreamInfo, CachedArtifact, CapabilityLevel, CompatibilityMode, ConversionEstimate,
-    ConversionQuality, DeclaredCodecSupport, HdrInfo, HdrKind, MediaFailureCode, MediaInspection,
-    MediaPlaybackPlan, MediaProcessingPolicy, OutputProfile, PlanConfidence, PlatformKind,
-    PlaybackRecoveryContext, PlaybackStrategy, SubtitlePolicy, VideoStreamInfo,
+    ConversionQuality, DeclaredCodecSupport, DeliveryMode, HdrInfo, HdrKind, MediaFailureCode,
+    MediaInspection, MediaPlaybackPlan, MediaProcessingPolicy, OutputProfile, PlanConfidence,
+    PlatformKind, PlaybackRecoveryContext, PlaybackStrategy, SubtitlePolicy, VideoStreamInfo,
 };
 
 fn merge_level(a: CapabilityLevel, b: CapabilityLevel) -> CapabilityLevel {
@@ -683,10 +683,6 @@ pub fn plan(
 
         let floor = estimate_output_floor(inspection, strategy, policy.quality, selected_video);
         let cache_limit = u64::from(policy.cache_limit_gb) * 1024 * 1024 * 1024;
-        if can_convert && floor > cache_limit {
-            can_convert = false;
-            unavailable_reason = Some("cache_limit_too_small".to_string());
-        }
 
         if can_convert {
             if policy.mode == CompatibilityMode::Never {
@@ -705,6 +701,11 @@ pub fn plan(
                 }
             }
         }
+        let delivery_mode = if can_convert {
+            DeliveryMode::Stream
+        } else {
+            DeliveryMode::Native
+        };
 
         let estimate = ConversionEstimate {
             source_bytes: inspection.size_bytes,
@@ -731,6 +732,7 @@ pub fn plan(
             source_fingerprint: inspection.source.fingerprint.clone(),
             inspection_hash: inspection_hash(inspection),
             strategy,
+            delivery_mode,
             confidence: base_confidence(capabilities, container_level, video_level, audio_level),
             reasons,
             selected_video_index: selected_video.map(|video| video.index),
@@ -766,6 +768,7 @@ pub fn plan(
             source_fingerprint: inspection.source.fingerprint.clone(),
             inspection_hash: inspection_hash(inspection),
             strategy,
+            delivery_mode: DeliveryMode::Native,
             confidence: base_confidence(capabilities, container_level, video_level, audio_level),
             reasons,
             selected_video_index: selected_video.map(|video| video.index),
@@ -814,6 +817,7 @@ fn unavailable_plan(
         source_fingerprint: inspection.source.fingerprint.clone(),
         inspection_hash: inspection_hash(inspection),
         strategy: PlaybackStrategy::Unavailable,
+        delivery_mode: DeliveryMode::Native,
         confidence: PlanConfidence::Indeterminate,
         reasons,
         selected_video_index: selected_video.map(|video| video.index),
@@ -1043,5 +1047,46 @@ mod tests {
             None,
         );
         assert_eq!(plan.strategy, PlaybackStrategy::Native);
+    }
+
+    #[test]
+    fn large_movie_streams_without_cache_limit_block() {
+        let caps = capabilities(PlatformKind::Linux);
+        let mut movie = inspection("hevc", "aac", true);
+        movie.size_bytes = Some(60 * 1024 * 1024 * 1024);
+        movie.duration_seconds = Some(6782.0);
+        let mut p = policy();
+        p.cache_limit_gb = 25;
+        let plan = plan("doc", &movie, &caps, &declared(), p, None, None);
+        assert_eq!(plan.strategy, PlaybackStrategy::Remux);
+        assert_eq!(plan.delivery_mode, DeliveryMode::Stream);
+        assert!(plan.can_convert);
+        assert_eq!(plan.unavailable_reason, None);
+        assert!(!plan.requires_consent);
+    }
+
+    #[test]
+    fn never_policy_disables_conversion_and_streaming() {
+        let caps = capabilities(PlatformKind::Linux);
+        let movie = inspection("hevc", "aac", true);
+        let mut p = policy();
+        p.mode = CompatibilityMode::Never;
+        let plan = plan("doc", &movie, &caps, &declared(), p, None, None);
+        assert!(!plan.can_convert);
+        assert_eq!(plan.delivery_mode, DeliveryMode::Native);
+        assert_eq!(plan.unavailable_reason.as_deref(), Some("policy_never"));
+    }
+
+    #[test]
+    fn expensive_video_transcode_still_requires_consent() {
+        let mut caps = capabilities(PlatformKind::Linux);
+        caps.decoders
+            .insert("hevc".into(), CapabilityLevel::Unsupported);
+        let mut movie = inspection("hevc", "aac", false);
+        movie.duration_seconds = Some(3600.0);
+        let plan = plan("doc", &movie, &caps, &declared(), policy(), None, None);
+        assert_eq!(plan.strategy, PlaybackStrategy::VideoTranscode);
+        assert_eq!(plan.delivery_mode, DeliveryMode::Stream);
+        assert!(plan.requires_consent);
     }
 }

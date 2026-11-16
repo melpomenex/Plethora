@@ -193,6 +193,7 @@
     "defuddle": "^0.19.2",
     "dompurify": "^3.4.2",
     "epubjs": "^0.3.93",
+    "hls.js": "^1.7.4",
     "https-proxy-agent": "^7.0.6",
     "idb": "^8.0.3",
     "jszip": "^3.10.1",
