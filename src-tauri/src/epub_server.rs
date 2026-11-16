@@ -27,18 +27,26 @@ use crate::media_server::{
 };
 use axum::{
     body::Body,
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{header, HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
     routing::get,
     Router,
 };
-use std::{path::PathBuf, time::Instant};
+use std::{
+    collections::{HashMap, VecDeque},
+    io::{BufReader, Read},
+    path::PathBuf,
+    sync::{Arc, Mutex, OnceLock},
+    time::Instant,
+};
 use tokio::{
     fs::File,
     io::{AsyncReadExt, AsyncSeekExt, SeekFrom},
 };
 use tokio_util::io::ReaderStream;
+use uuid::Uuid;
+use zip::ZipArchive;
 
 /// `Content-Type` for EPUB resources. EPUBs are ZIP containers; the registered
 /// media type is `application/epub+zip` (RFC 4839).
@@ -50,16 +58,220 @@ struct EpubParams {
     path: String,
 }
 
-/// Build the `/epub` route, meant to be merged into the shared media-server
-/// `Router` (see `media_server::start`).
+/// Build the `/epub` and `/epub-entries` routes, meant to be merged into the
+/// shared media-server `Router` (see `media_server::start`).
 pub(crate) fn router() -> Router<MediaServerState> {
     Router::new()
         .route("/epub", get(epub_handler))
         // epub.js decides whether a URL is an archived EPUB or an unpacked
-        // directory from the URL pathname.  Keep the legacy route above for
-        // compatibility, but advertise this extension-bearing route so it
-        // opens the streamed ZIP instead of requesting /META-INF/container.xml.
+        // directory from the URL pathname.  Keep the legacy routes for
+        // compatibility, while primary opens use `/epub-entries/<token>/`
+        // so epub.js fetches only the entries it needs on demand.
         .route("/epub/book.epub", get(epub_handler))
+        .route("/epub-entries/:token/*entry_path", get(epub_entries_handler))
+}
+
+type CachedZip = Arc<Mutex<ZipArchive<BufReader<std::fs::File>>>>;
+
+const MAX_REGISTERED_EPUBS: usize = 256;
+const MAX_CACHED_ARCHIVES: usize = 6;
+
+#[derive(Default)]
+struct EpubRegistry {
+    token_to_path: HashMap<String, PathBuf>,
+    path_to_token: HashMap<PathBuf, String>,
+    token_order: VecDeque<String>,
+    archive_cache: Vec<(String, CachedZip)>,
+}
+
+impl EpubRegistry {
+    fn register(&mut self, canonical_path: PathBuf) -> String {
+        if let Some(existing) = self.path_to_token.get(&canonical_path) {
+            return existing.clone();
+        }
+        let token = Uuid::new_v4().simple().to_string();
+        self.token_to_path
+            .insert(token.clone(), canonical_path.clone());
+        self.path_to_token.insert(canonical_path, token.clone());
+        self.token_order.push_back(token.clone());
+
+        while self.token_order.len() > MAX_REGISTERED_EPUBS {
+            if let Some(evicted) = self.token_order.pop_front() {
+                if let Some(old_path) = self.token_to_path.remove(&evicted) {
+                    self.path_to_token.remove(&old_path);
+                }
+                self.archive_cache.retain(|(t, _)| t != &evicted);
+            }
+        }
+        token
+    }
+
+    fn resolve_path(&self, token: &str) -> Option<PathBuf> {
+        self.token_to_path.get(token).cloned()
+    }
+
+    fn get_cached_archive(&mut self, token: &str) -> Option<CachedZip> {
+        let idx = self
+            .archive_cache
+            .iter()
+            .position(|(t, _)| t == token)?;
+        let entry = self.archive_cache.remove(idx);
+        let arc = Arc::clone(&entry.1);
+        self.archive_cache.push(entry);
+        Some(arc)
+    }
+
+    fn insert_cached_archive(&mut self, token: String, archive: CachedZip) {
+        self.archive_cache.retain(|(t, _)| t != &token);
+        if self.archive_cache.len() >= MAX_CACHED_ARCHIVES {
+            self.archive_cache.remove(0);
+        }
+        self.archive_cache.push((token, archive));
+    }
+}
+
+static EPUB_REGISTRY: OnceLock<Mutex<EpubRegistry>> = OnceLock::new();
+
+fn epub_registry() -> &'static Mutex<EpubRegistry> {
+    EPUB_REGISTRY.get_or_init(|| Mutex::new(EpubRegistry::default()))
+}
+
+fn register_epub_path(canonical_path: PathBuf) -> Result<String, String> {
+    let mut guard = epub_registry()
+        .lock()
+        .map_err(|_| "EPUB registry lock poisoned".to_string())?;
+    Ok(guard.register(canonical_path))
+}
+
+fn normalize_epub_entry_path(raw: &str) -> Result<String, StatusCode> {
+    let trimmed = raw.trim_start_matches('/');
+    if trimmed.is_empty() || trimmed.contains('\\') || trimmed.contains('\0') {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let mut parts = Vec::new();
+    for segment in trimmed.split('/') {
+        if segment.is_empty() || segment == "." {
+            continue;
+        }
+        if segment == ".." {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+        parts.push(segment);
+    }
+    if parts.is_empty() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok(parts.join("/"))
+}
+
+fn content_type_for_epub_entry(entry_path: &str) -> &'static str {
+    let ext = entry_path
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase();
+    match ext.as_str() {
+        "xhtml" | "xht" => "application/xhtml+xml; charset=utf-8",
+        "html" | "htm" => "text/html; charset=utf-8",
+        "opf" => "application/oebps-package+xml; charset=utf-8",
+        "ncx" => "application/x-dtbncx+xml; charset=utf-8",
+        "xml" => "application/xml; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "js" | "mjs" => "application/javascript; charset=utf-8",
+        "json" => "application/json; charset=utf-8",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "avif" => "image/avif",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        "mp3" => "audio/mpeg",
+        "m4a" | "mp4" => "audio/mp4",
+        "ogg" => "audio/ogg",
+        _ => "application/octet-stream",
+    }
+}
+
+async fn read_epub_entry(token: &str, entry_path: &str) -> Result<Vec<u8>, StatusCode> {
+    let (file_path, cached_archive) = {
+        let mut guard = epub_registry()
+            .lock()
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let path = guard.resolve_path(token).ok_or(StatusCode::NOT_FOUND)?;
+        let cached = guard.get_cached_archive(token);
+        (path, cached)
+    };
+
+    let token_owned = token.to_string();
+    let entry_owned = entry_path.to_string();
+
+    tokio::task::spawn_blocking(move || -> Result<Vec<u8>, StatusCode> {
+        let archive_arc = match cached_archive {
+            Some(arc) => arc,
+            None => {
+                let file =
+                    std::fs::File::open(&file_path).map_err(|_| StatusCode::NOT_FOUND)?;
+                let archive = ZipArchive::new(BufReader::new(file))
+                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+                let arc = Arc::new(Mutex::new(archive));
+                if let Ok(mut guard) = epub_registry().lock() {
+                    guard.insert_cached_archive(token_owned, Arc::clone(&arc));
+                }
+                arc
+            }
+        };
+
+        let mut archive = archive_arc
+            .lock()
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let mut entry = match archive.by_name(&entry_owned) {
+            Ok(entry) => entry,
+            Err(zip::result::ZipError::FileNotFound) => return Err(StatusCode::NOT_FOUND),
+            Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+        };
+        let mut buf = Vec::with_capacity(entry.size().min(16 * 1024 * 1024) as usize);
+        entry
+            .read_to_end(&mut buf)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        Ok(buf)
+    })
+    .await
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+}
+
+/// Serve a single entry from a token-registered `.epub` archive on demand.
+async fn epub_entries_handler(
+    Path((token, raw_entry_path)): Path<(String, String)>,
+) -> axum::response::Response {
+    let entry_path = match normalize_epub_entry_path(&raw_entry_path) {
+        Ok(path) => path,
+        Err(status) => return (status, "invalid epub entry path").into_response(),
+    };
+
+    match read_epub_entry(&token, &entry_path).await {
+        Ok(bytes) => {
+            let content_type = content_type_for_epub_entry(&entry_path);
+            let len = bytes.len() as u64;
+            let mut response = response_with_body(
+                StatusCode::OK,
+                content_type,
+                len,
+                None,
+                Body::from(bytes),
+            );
+            response.headers_mut().insert(
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("private, max-age=3600"),
+            );
+            response
+        }
+        Err(StatusCode::NOT_FOUND) => (StatusCode::NOT_FOUND, "epub entry not found").into_response(),
+        Err(status) => (status, "failed to read epub entry").into_response(),
+    }
 }
 
 /// Serve a local `.epub` file with complete or single-range responses.
@@ -188,65 +400,6 @@ async fn epub_handler(
     )
 }
 
-/// Copy `source` into `app_cache_dir/incrementum/epub-mirror` so it becomes
-/// servable under [`canonical_path_within_roots`], and return the mirror's
-/// canonical path. Idempotent: reuses an existing mirror whose size still
-/// matches the source instead of re-copying on every open.
-///
-/// Unlike audio (copied into app storage once, at import time), EPUBs are
-/// imported in place and normally live wherever the user picked them from on
-/// disk (`document.rs`, `import_from_path`) — outside `app_data_dir` /
-/// `app_cache_dir`. That was fine for the whole-file Tauri IPC read this
-/// module replaced (reachable only from the app's own webview), but the
-/// loopback HTTP server it introduced is reachable by any local process, so
-/// `canonical_path_within_roots` correctly refuses to serve the original path
-/// directly. Mirroring lazily here — rather than widening the allowed roots —
-/// keeps that containment check meaningful while still letting every
-/// already-imported book stream.
-fn mirror_epub_into_app_storage(
-    app_handle: &tauri::AppHandle,
-    source: &std::path::Path,
-) -> Result<PathBuf, String> {
-    use std::hash::{Hash, Hasher};
-    use tauri::Manager;
-
-    let cache_dir = app_handle
-        .path()
-        .app_cache_dir()
-        .map_err(|error| format!("Failed to resolve app cache directory: {error}"))?
-        .join("incrementum")
-        .join("epub-mirror");
-    std::fs::create_dir_all(&cache_dir)
-        .map_err(|error| format!("Failed to create epub mirror directory: {error}"))?;
-
-    let source_len = std::fs::metadata(source)
-        .map_err(|error| format!("Cannot stat epub file: {error}"))?
-        .len();
-
-    // Stable per-source-path filename so repeated opens of the same document
-    // reuse one mirror instead of accumulating copies.
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    source.to_string_lossy().hash(&mut hasher);
-    let path_hash = hasher.finish();
-    let original_filename = source
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or("book.epub");
-    let safe_filename = original_filename.replace(['/', '\\', ':'], "_");
-    let dest = cache_dir.join(format!("{path_hash:016x}-{safe_filename}"));
-
-    let up_to_date = std::fs::metadata(&dest)
-        .map(|dest_meta| dest_meta.len() == source_len)
-        .unwrap_or(false);
-    if !up_to_date {
-        std::fs::copy(source, &dest)
-            .map_err(|error| format!("Failed to stage epub for streaming: {error}"))?;
-    }
-
-    std::fs::canonicalize(&dest)
-        .map_err(|error| format!("Cannot resolve staged epub path: {error}"))
-}
-
 /// Reject payloads that cannot possibly be EPUB archives before handing them
 /// to epub.js. A malformed/ciphertext file can leave JSZip's asynchronous open
 /// unresolved on Android, which presents as an infinite "Loading EPUB" screen.
@@ -267,41 +420,34 @@ fn validate_epub_archive(path: &std::path::Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Return an `http://127.0.0.1:<port>/epub/book.epub?path=<encoded>` URL for an EPUB
-/// file. Starts the shared media/epub server on first call.
+/// Return an `http://127.0.0.1:<port>/epub-entries/<token>/` directory-style
+/// base URL for an EPUB file. Starts the shared media/epub server on first call.
 ///
-/// Mirrors `media_server::get_media_stream_url`; the URL it returns is handed
-/// directly to epubjs in the frontend (`ePub(url)`). If `file_path` isn't
-/// already under an allowed root, it's mirrored into app storage first (see
-/// [`mirror_epub_into_app_storage`]).
+/// The frontend opens this URL with `ePub(url, { openAs: "directory" })` so
+/// epub.js fetches only `META-INF/container.xml`, the `.opf` manifest,
+/// navigation, and the active spine entries on demand — without copying the
+/// archive to mirror storage or downloading the entire `.epub` into JS memory.
 #[tauri::command]
 pub async fn get_epub_stream_url(
     app_handle: tauri::AppHandle,
     file_path: String,
 ) -> Result<String, String> {
-    let roots = crate::media_server::allowed_media_roots(&app_handle)?;
     let source_canonical = std::fs::canonicalize(&file_path)
         .map_err(|error| format!("Cannot stat epub file: {error}"))?;
     validate_epub_archive(&source_canonical)?;
 
-    let canonical = match canonical_path_within_roots(&source_canonical, &roots) {
-        Ok(path) => path,
-        Err(_) => mirror_epub_into_app_storage(&app_handle, &source_canonical)?,
-    };
-
-    let metadata =
-        std::fs::metadata(&canonical).map_err(|error| format!("Cannot stat epub file: {error}"))?;
+    let metadata = std::fs::metadata(&source_canonical)
+        .map_err(|error| format!("Cannot stat epub file: {error}"))?;
+    let token = register_epub_path(source_canonical.clone())?;
     let port = crate::media_server::start(&app_handle).await?;
-    let canonical_string = canonical.to_string_lossy().into_owned();
-    let encoded = urlencoding::encode(&canonical_string);
     tracing::info!(
-        "[epub.source_resolution] file={} size={} strategy=local-epub-server port={}",
-        path_label(&canonical),
+        "[epub.source_resolution] file={} size={} strategy=local-epub-entries port={}",
+        path_label(&source_canonical),
         metadata.len(),
         port
     );
     Ok(format!(
-        "http://127.0.0.1:{port}/epub/book.epub?path={encoded}"
+        "http://127.0.0.1:{port}/epub-entries/{token}/"
     ))
 }
 
@@ -560,6 +706,110 @@ mod tests {
         // Do not consume the body: constructing a response for a large file
         // must not read it into memory before the client requests bytes.
         drop(response);
+        fs::remove_dir_all(root).expect("cleanup");
+    }
+
+    fn create_zip_epub(entries: &[(&str, &[u8])]) -> (std::path::PathBuf, std::path::PathBuf) {
+        use std::io::Write;
+        let root = std::env::temp_dir().join(format!("plethora-epub-zip-{}", Uuid::new_v4()));
+        fs::create_dir_all(&root).expect("create test root");
+        let path = root.join("book.epub");
+        let file = fs::File::create(&path).expect("create zip");
+        let mut writer = zip::ZipWriter::new(file);
+        let options = zip::write::FileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
+        for (name, content) in entries {
+            writer.start_file(*name, options).expect("start zip entry");
+            writer.write_all(content).expect("write zip entry");
+        }
+        writer.finish().expect("finish zip");
+        (root, path)
+    }
+
+    #[tokio::test]
+    async fn epub_entries_serves_individual_files_with_mime_types() {
+        let container_xml = br#"<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>"#;
+        let opf = br#"<package version="3.0"></package>"#;
+        let chapter = br#"<html xmlns="http://www.w3.org/1999/xhtml"><body><p>Hello</p></body></html>"#;
+        let css = b"body { color: #111; }";
+        let png = b"\x89PNG\r\n\x1a\n";
+
+        let (root, path) = create_zip_epub(&[
+            ("META-INF/container.xml", container_xml),
+            ("OEBPS/content.opf", opf),
+            ("OEBPS/ch1.xhtml", chapter),
+            ("OEBPS/Styles/main.css", css),
+            ("OEBPS/Images/cover.png", png),
+        ]);
+        let canonical = fs::canonicalize(&path).expect("canonical");
+        let token = register_epub_path(canonical).expect("register token");
+        let app = router().with_state(test_state(&root));
+
+        let req_cases: Vec<(&str, &str, &[u8])> = vec![
+            ("META-INF/container.xml", "application/xml; charset=utf-8", container_xml),
+            ("OEBPS/content.opf", "application/oebps-package+xml; charset=utf-8", opf),
+            ("OEBPS/ch1.xhtml", "application/xhtml+xml; charset=utf-8", chapter),
+            ("OEBPS/Styles/main.css", "text/css; charset=utf-8", css),
+            ("OEBPS/Images/cover.png", "image/png", png),
+        ];
+
+        for (entry, expected_ct, expected_body) in req_cases {
+            let response = app
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(format!("/epub-entries/{token}/{entry}"))
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("response");
+            assert_eq!(response.status(), StatusCode::OK, "entry {entry}");
+            assert_eq!(response.headers()[header::CONTENT_TYPE], expected_ct);
+            assert_eq!(
+                to_bytes(response.into_body(), 4096).await.unwrap().as_ref(),
+                expected_body
+            );
+        }
+
+        // Missing entry -> 404
+        let missing_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/epub-entries/{token}/OEBPS/missing.xhtml"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(missing_resp.status(), StatusCode::NOT_FOUND);
+
+        // Unknown token -> 404
+        let bad_token_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/epub-entries/nonexistent-token/META-INF/container.xml")
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(bad_token_resp.status(), StatusCode::NOT_FOUND);
+
+        // Path traversal -> 400
+        let traversal_resp = app
+            .oneshot(
+                Request::builder()
+                    .uri(format!("/epub-entries/{token}/OEBPS/../../etc/passwd"))
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(traversal_resp.status(), StatusCode::BAD_REQUEST);
+
         fs::remove_dir_all(root).expect("cleanup");
     }
 }

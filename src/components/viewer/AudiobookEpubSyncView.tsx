@@ -111,6 +111,7 @@ export function AudiobookEpubSyncView({
   const containerRef = useRef<HTMLDivElement>(null);
   const [epubKey, setEpubKey] = useState(0);
 
+  const [epubFileUrl, setEpubFileUrl] = useState<string | null>(null);
   const [epubFileData, setEpubFileData] = useState<Uint8Array | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -260,9 +261,16 @@ export function AudiobookEpubSyncView({
         // AudiobookViewer owns the local media lifecycle. In particular, the
         // desktop M4B preparation + range-server path must not be bypassed by
         // handing it a second, pre-resolved source from the split view.
-        const epubData = await documentsApi.readDocumentFile(epubDoc!.filePath);
+        const streamUrl = await documentsApi.getEpubStreamUrl(epubDoc!.filePath);
         if (cancelled) return;
-        setEpubFileData(epubData);
+        if (streamUrl) {
+          setEpubFileUrl(streamUrl);
+          setEpubFileData(null);
+        } else {
+          const epubData = await documentsApi.readDocumentFile(epubDoc!.filePath);
+          if (cancelled) return;
+          setEpubFileData(epubData);
+        }
       } catch (err) {
         if (!cancelled) setLoadError(err instanceof Error ? err.message : "Failed to load documents");
       } finally {
@@ -653,7 +661,7 @@ export function AudiobookEpubSyncView({
         </button>
       </div>
 
-      {isLoading || !epubFileData ? (
+      {isLoading || (!epubFileUrl && !epubFileData) ? (
         <div className="flex items-center justify-center flex-1">
           <CircleNotch className="w-6 h-6 animate-spin text-muted-foreground" />
         </div>
@@ -661,9 +669,11 @@ export function AudiobookEpubSyncView({
         <div className="flex-1 min-h-0">
           <EPUBViewer
             key={epubKey}
+            fileUrl={epubFileUrl}
             fileData={epubFileData}
             fileName={epubDoc.title}
             documentId={epubDoc.id}
+            doc={epubDoc}
             onLoad={handleEpubLoad}
             onAllSpeechSectionsChange={handleSpeechSections}
             syncSegments={useWordSync ? undefined : syncSegments}

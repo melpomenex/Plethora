@@ -68,6 +68,8 @@ const mockBook = {
   },
   locations: {
     generate: vi.fn().mockResolvedValue([]),
+    load: vi.fn(),
+    save: vi.fn(() => '["cfi1"]'),
     percentageFromCfi: vi.fn().mockReturnValue(0),
   },
   destroy: vi.fn(),
@@ -224,6 +226,32 @@ describe("EPUBViewer", () => {
       reader.unmount();
       for (const key of ["started", "manager", "q", "_display"]) delete runtime[key];
       runtime.display = originalDisplay;
+    }
+  });
+
+  it("opens /epub-entries/ URLs in directory mode, restores doc.currentCfi without backend fetch, and restores cached locations", async () => {
+    localStorage.setItem("epub-locations:doc-fast-epub:1200", '["epubcfi(/6/2!/4/2/1:0)"]');
+    const reader = render(
+      <EPUBViewer
+        documentId="doc-fast-epub"
+        doc={{ id: "doc-fast-epub", title: "Fast Book", currentCfi: "epubcfi(/6/4!/4/2/1:0)" } as any}
+        fileName="fast.epub"
+        fileUrl="http://127.0.0.1:4321/epub-entries/abc123/"
+      />
+    );
+    try {
+      await waitFor(() => expect(ePub).toHaveBeenCalledWith(
+        "http://127.0.0.1:4321/epub-entries/abc123/",
+        { openAs: "directory" }
+      ));
+      await waitFor(() => expect(mockRendition.display).toHaveBeenCalledWith("epubcfi(/6/4!/4/2/1:0)"));
+      await waitFor(() =>
+        expect(mockBook.locations.load).toHaveBeenCalledWith('["epubcfi(/6/2!/4/2/1:0)"]')
+      );
+      expect(mockBook.locations.generate).not.toHaveBeenCalled();
+    } finally {
+      localStorage.removeItem("epub-locations:doc-fast-epub:1200");
+      reader.unmount();
     }
   });
 

@@ -818,28 +818,34 @@ export function EPUBViewer({
     }
   }, [documentId]);
 
+  const docRef = useRef(doc);
+  docRef.current = doc;
+
   const loadReadingPosition = useCallback(async (): Promise<string | null> => {
     if (!documentId) return null;
 
-    // First check localStorage (always available, fast)
+    // Fast path: check already-hydrated doc prop and localStorage synchronously
+    // so initial display never blocks on a redundant getDocumentAuto IPC.
+    const propCfi = docRef.current?.currentCfi || (docRef.current as any)?.current_cfi;
+    if (propCfi) {
+      return propCfi;
+    }
+
     const localCfi = localStorage.getItem(`epub-position-${documentId}`);
+    if (localCfi) {
+      return localCfi;
+    }
 
-    try {
-      const doc = await getDocumentAuto(documentId);
-      const remoteCfi = doc?.current_cfi || doc?.currentCfi;
-
-      // Prefer remote if available and newer, otherwise use local
-      if (remoteCfi) {
-        return remoteCfi;
-      }
-      if (localCfi) {
-        return localCfi;
-      }
-    } catch {
-      // API failed - use localStorage as fallback
-      console.warn("EPUBViewer: Failed to load position from backend, using localStorage");
-      if (localCfi) {
-        return localCfi;
+    // Only query backend if caller didn't supply a hydrated doc object.
+    if (!docRef.current) {
+      try {
+        const fetched = await getDocumentAuto(documentId);
+        const remoteCfi = fetched?.current_cfi || fetched?.currentCfi;
+        if (remoteCfi) {
+          return remoteCfi;
+        }
+      } catch {
+        console.warn("EPUBViewer: Failed to load position from backend");
       }
     }
     return null;
@@ -1482,6 +1488,7 @@ export function EPUBViewer({
     let bookDestroyed = false;
     let locationsSettled = true; // tracks whether background locations.generate() has settled
     let destroyBookWhenLocationsSettled = false;
+    let locationsScheduleCancel: (() => void) | null = null;
     let savePositionTimer: ReturnType<typeof setTimeout> | null = null;
     let retryCount = 0;
     const maxRetries = 10;
@@ -1519,8 +1526,9 @@ export function EPUBViewer({
         // type inference treats our query-backed stream URL as a directory on
         // Android and otherwise requests `/epub/META-INF/container.xml`
         // instead of fetching the ZIP bytes from `/epub/book.epub`.
+        const openAs = fileUrl?.includes("/epub-entries/") ? "directory" : "epub";
         const epubBook = fileUrl
-          ? ePub(fileUrl, { openAs: "epub" })
+          ? ePub(fileUrl, { openAs })
           : ePub(fileData!.slice().buffer);
         bookInstance = epubBook;
         setBook(epubBook);
@@ -1604,28 +1612,35 @@ export function EPUBViewer({
           console.warn("EPUBViewer: Failed to apply Queue.dequeue patch", e);
         }
 
-        const tocData = await epubBook.loaded.navigation;
-        
-        let filteredToc = tocData.toc;
-        const startIdx = metadataRef.current?.chunkStartSpineIndex;
-        const endIdx = metadataRef.current?.chunkEndSpineIndex;
-        if (startIdx !== undefined || endIdx !== undefined) {
-          try {
-            await epubBook.loaded.spine;
-            filteredToc = filterTocItems(tocData.toc, epubBook, startIdx, endIdx);
-          } catch (e) {
-            console.warn("EPUBViewer: Failed to filter TOC items:", e);
-          }
-        }
-
-        setToc(filteredToc);
-        tocRef.current = filteredToc;
-        onLoadRef.current?.(filteredToc);
-        if (documentId) {
-          try {
-            useDocumentOutlineStore.getState().setOutline(documentId, { epubToc: filteredToc });
-          } catch {}
-        }
+        // Load TOC/navigation concurrently so initial chapter rendering never
+        // waits on nav.xhtml / toc.ncx parsing.
+        void Promise.resolve(epubBook.loaded.navigation)
+          .then(async (tocData: any) => {
+            if (!mounted || !tocData) return;
+            let filteredToc = tocData.toc;
+            const startIdx = metadataRef.current?.chunkStartSpineIndex;
+            const endIdx = metadataRef.current?.chunkEndSpineIndex;
+            if (startIdx !== undefined || endIdx !== undefined) {
+              try {
+                await epubBook.loaded.spine;
+                filteredToc = filterTocItems(tocData.toc, epubBook, startIdx, endIdx);
+              } catch (e) {
+                console.warn("EPUBViewer: Failed to filter TOC items:", e);
+              }
+            }
+            if (!mounted) return;
+            setToc(filteredToc);
+            tocRef.current = filteredToc;
+            onLoadRef.current?.(filteredToc);
+            if (documentId) {
+              try {
+                useDocumentOutlineStore.getState().setOutline(documentId, { epubToc: filteredToc });
+              } catch {}
+            }
+          })
+          .catch((e: unknown) => {
+            console.warn("EPUBViewer: Failed to load TOC navigation:", e);
+          });
 
         const initializeRendition = async (): Promise<boolean> => {
           if (!mounted) return false;
@@ -2351,25 +2366,80 @@ export function EPUBViewer({
 
           if (!mounted) return true;
 
-          // Generate locations in the background to avoid blocking initial render.
-          // Tracked so the viewer does not destroy the book (which nulls
-          // Locations internals) while generation is still in flight — otherwise
-          // a queued `process()` job resolves and reads `this._locations.concat()`
-          // against undefined, throwing the epub-vendor "concat" TypeError that
-          // surfaces when the document is rated "read" mid-load on mobile.
+          // Restore cached locations synchronously when available, or defer
+          // generation until idle after initial paint so we never scan every
+          // chapter during document open.
           const locationChunkSize = isMobile ? 800 : 1200;
-          locationsSettled = false;
-          void epubBook.locations.generate(locationChunkSize).then(
-            () => {
-              locationsSettled = true;
-              if (destroyBookWhenLocationsSettled) destroyBookInstance();
-            },
-            (err: unknown) => {
-              locationsSettled = true;
-              if (destroyBookWhenLocationsSettled) destroyBookInstance();
-              console.warn("EPUBViewer: Failed to generate locations:", err);
-            },
-          );
+          const locationsCacheKey = documentId
+            ? `epub-locations:${documentId}:${locationChunkSize}`
+            : null;
+          let restoredFromCache = false;
+          if (locationsCacheKey && typeof epubBook.locations?.load === "function") {
+            try {
+              const cachedLocations = localStorage.getItem(locationsCacheKey);
+              if (cachedLocations) {
+                epubBook.locations.load(cachedLocations);
+                restoredFromCache = true;
+              }
+            } catch {
+              // Ignore corrupted cache and regenerate in idle time.
+            }
+          }
+
+          if (!restoredFromCache && typeof epubBook.locations?.generate === "function") {
+            const startLocationsGeneration = () => {
+              locationsScheduleCancel = null;
+              if (!mounted) return;
+              locationsSettled = false;
+              void epubBook.locations.generate(locationChunkSize).then(
+                () => {
+                  locationsSettled = true;
+                  if (locationsCacheKey && typeof epubBook.locations?.save === "function") {
+                    try {
+                      const serialized = epubBook.locations.save();
+                      if (typeof serialized === "string" && serialized.length > 0) {
+                        localStorage.setItem(locationsCacheKey, serialized);
+                      }
+                    } catch {
+                      // Evict older epub-locations entries on quota overflow and retry once.
+                      try {
+                        for (let i = localStorage.length - 1; i >= 0; i--) {
+                          const k = localStorage.key(i);
+                          if (k && k.startsWith("epub-locations:") && k !== locationsCacheKey) {
+                            localStorage.removeItem(k);
+                          }
+                        }
+                        const serialized = epubBook.locations.save();
+                        if (typeof serialized === "string" && serialized.length > 0) {
+                          localStorage.setItem(locationsCacheKey, serialized);
+                        }
+                      } catch {
+                        // Ignore storage quota errors
+                      }
+                    }
+                  }
+                  if (destroyBookWhenLocationsSettled) destroyBookInstance();
+                },
+                (err: unknown) => {
+                  locationsSettled = true;
+                  if (destroyBookWhenLocationsSettled) destroyBookInstance();
+                  console.warn("EPUBViewer: Failed to generate locations:", err);
+                },
+              );
+            };
+
+            const ric = (window as any).requestIdleCallback as
+              | ((cb: () => void, opts?: { timeout: number }) => number)
+              | undefined;
+            const cic = (window as any).cancelIdleCallback as ((id: number) => void) | undefined;
+            if (typeof ric === "function" && typeof cic === "function") {
+              const idleId = ric(startLocationsGeneration, { timeout: 2000 });
+              locationsScheduleCancel = () => cic(idleId);
+            } else {
+              const timerId = window.setTimeout(startLocationsGeneration, 1200);
+              locationsScheduleCancel = () => window.clearTimeout(timerId);
+            }
+          }
 
           const updateProgress = (location: any) => {
             if (!location || !location.start || !epubBook.locations) return;
@@ -2533,6 +2603,8 @@ export function EPUBViewer({
 
     return () => {
       mounted = false;
+      locationsScheduleCancel?.();
+      locationsScheduleCancel = null;
       for (const detach of annotationMenuDetachers) detach();
       // V2: book close ends the reading context — detach iframe bridges and
       // invalidate (aborts in-flight selection actions, clears stale CFI refs).

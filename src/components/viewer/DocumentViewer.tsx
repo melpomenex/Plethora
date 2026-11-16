@@ -3672,6 +3672,13 @@ export function DocumentViewer({
       // Mark as viewed in session (for smart queue filtering)
       markItemViewed(documentId, false);
 
+      const storeDoc = useDocumentStore.getState().documents.find((d) => d.id === documentId);
+      const startedFromStore = Boolean(storeDoc && (storeDoc.filePath || storeDoc.content));
+      if (startedFromStore && storeDoc) {
+        setCurrentDocument(storeDoc);
+        void loadDocumentData(storeDoc);
+      }
+
       // A document can briefly fail to resolve right after import (e.g. the
       // backend write hasn't settled yet), so retry a couple of times before
       // treating it as genuinely missing.
@@ -3680,6 +3687,7 @@ export function DocumentViewer({
           .then((fetched) => {
             if (cancelled) return;
             if (!fetched) {
+              if (startedFromStore) return;
               if (attemptsLeft > 0) {
                 setTimeout(() => {
                   if (!cancelled) attemptHydrate(attemptsLeft - 1);
@@ -3692,10 +3700,12 @@ export function DocumentViewer({
               return;
             }
             setCurrentDocument(fetched);
-            loadDocumentData(fetched);
+            if (!startedFromStore || fetched.filePath !== storeDoc?.filePath) {
+              void loadDocumentData(fetched);
+            }
           })
           .catch((error) => {
-            if (!cancelled) {
+            if (!cancelled && !startedFromStore) {
               console.error("Failed to hydrate document by id:", error);
               setIsLoading(false);
               setMediaError(error instanceof Error ? error.message : String(error));
