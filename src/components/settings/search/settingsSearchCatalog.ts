@@ -1326,6 +1326,16 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     targetId: "ai.occlusion",
   },
   {
+    id: "ai.mirageVision",
+    kind: "setting",
+    section: SettingsTab.AI,
+    label: lit("Mirage Vision Engine (Local)"),
+    groupPath: [lit("AI Learning System Features")],
+    aliases: [lit("mirage"), lit("cactus vision"), lit("local ocr")],
+    keywords: ["mirage", "cactus", "vision", "ocr", "polygon", "occlusion"],
+    targetId: "ai.mirageVision",
+  },
+  {
     id: "ai.semanticIndex",
     kind: "setting",
     section: SettingsTab.AI,

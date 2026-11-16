@@ -5933,6 +5933,54 @@ pub const MIGRATIONS: &[Migration] = &[
         END;
         "#,
     ),
+    // Migration 152: Mirage Vision Engine visual metadata & SQLite FTS5 visual search
+    Migration::new(
+        "152_mirage_visual_search",
+        r#"
+        CREATE TABLE IF NOT EXISTS image_visual_metadata (
+            asset_id TEXT PRIMARY KEY REFERENCES image_assets(id) ON DELETE CASCADE,
+            scene_description TEXT NOT NULL DEFAULT '',
+            objects_text TEXT NOT NULL DEFAULT '',
+            objects_json TEXT NOT NULL DEFAULT '[]',
+            ocr_text TEXT NOT NULL DEFAULT '',
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            relations_json TEXT NOT NULL DEFAULT '[]',
+            raw_json TEXT NOT NULL DEFAULT '{}',
+            indexed_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_image_visual_metadata_indexed_at
+            ON image_visual_metadata(indexed_at);
+
+        CREATE VIRTUAL TABLE IF NOT EXISTS image_visual_search_fts USING fts5(
+            asset_id UNINDEXED,
+            scene_text,
+            objects_text,
+            ocr_text,
+            tags_text,
+            tokenize = 'porter unicode61'
+        );
+
+        DROP TRIGGER IF EXISTS image_visual_search_fts_insert;
+        DROP TRIGGER IF EXISTS image_visual_search_fts_update;
+        DROP TRIGGER IF EXISTS image_visual_search_fts_delete;
+
+        CREATE TRIGGER image_visual_search_fts_insert AFTER INSERT ON image_visual_metadata BEGIN
+            INSERT INTO image_visual_search_fts(asset_id, scene_text, objects_text, ocr_text, tags_text)
+            VALUES (NEW.asset_id, NEW.scene_description, NEW.objects_text, NEW.ocr_text, NEW.tags_json);
+        END;
+
+        CREATE TRIGGER image_visual_search_fts_update AFTER UPDATE ON image_visual_metadata BEGIN
+            DELETE FROM image_visual_search_fts WHERE asset_id = OLD.asset_id;
+            INSERT INTO image_visual_search_fts(asset_id, scene_text, objects_text, ocr_text, tags_text)
+            VALUES (NEW.asset_id, NEW.scene_description, NEW.objects_text, NEW.ocr_text, NEW.tags_json);
+        END;
+
+        CREATE TRIGGER image_visual_search_fts_delete AFTER DELETE ON image_visual_metadata BEGIN
+            DELETE FROM image_visual_search_fts WHERE asset_id = OLD.asset_id;
+        END;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
@@ -9012,5 +9060,41 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(chunk_hits, 1);
+    }
+
+    #[tokio::test]
+    async fn migration_152_mirage_visual_search_fts_triggers() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        run_migrations(&pool)
+            .await
+            .expect("migrations must apply cleanly");
+
+        sqlx::query(
+            "INSERT INTO image_assets (id, mime_type, file_name, content, byte_size, sha256, width, height, created_at, updated_at)
+             VALUES ('img-vis-1', 'image/png', 'circuit.png', X'89504E47', 4, 'sha-vis-1', 100, 100, '2026-11-16T00:00:00Z', '2026-11-16T00:00:00Z')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO image_visual_metadata (asset_id, scene_description, objects_text, objects_json, ocr_text, tags_json, relations_json, raw_json, indexed_at)
+             VALUES ('img-vis-1', 'A red circuit diagram on white paper', 'red circuit diagram', '[]', 'Vout = Vin * R2 / (R1 + R2)', '[\"red circuit diagram\", \"schematic\"]', '[]', '{}', '2026-11-16T00:00:00Z')"
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let (hits,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM image_visual_search_fts WHERE image_visual_search_fts MATCH 'circuit AND diagram'"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(hits, 1);
     }
 }

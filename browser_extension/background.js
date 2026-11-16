@@ -401,6 +401,12 @@ function createContextMenus() {
       title: 'Create Image Occlusion in Plethora',
       contexts: ['image']
     });
+
+    chrome.contextMenus.create({
+      id: 'visual-clip-mirage',
+      title: '📸 Visual Clip (Mirage OCR + Figures)',
+      contexts: ['page']
+    });
   });
 }
 
@@ -448,8 +454,53 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     case 'create-image-occlusion':
       await createImageOcclusionFromBrowser(info, tab);
       break;
+
+    case 'visual-clip-mirage':
+      await visualClipMirage(tab);
+      break;
   }
 });
+
+async function visualClipMirage(tab) {
+  try {
+    const activeTab = tab || (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+    if (!activeTab) {
+      return { success: false, error: 'No active tab to capture' };
+    }
+    const dataUrl = await chrome.tabs.captureVisibleTab(activeTab.windowId, { format: 'png' });
+    const buildPayload = globalThis.IncrementumExtensionShared?.buildMirageClipPayload;
+    const payload = buildPayload
+      ? buildPayload({
+          dataUrl,
+          sourceUrl: activeTab.url,
+          title: activeTab.title,
+        })
+      : {
+          imageBase64: dataUrl.split(',')[1] || dataUrl,
+          mimeType: 'image/png',
+          sourceUrl: activeTab.url,
+          title: activeTab.title,
+        };
+
+    const config = await getApiConfig();
+    const headers = { 'Content-Type': 'application/json' };
+    if (config.apiKey) headers['X-API-Key'] = config.apiKey;
+
+    const resp = await fetch(`${config.baseUrl}/ai/mirage-clip`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(payload),
+    });
+    if (!resp.ok) {
+      const text = await resp.text();
+      return { success: false, error: text || `HTTP ${resp.status}` };
+    }
+    const data = await resp.json();
+    return { success: true, ...data };
+  } catch (err) {
+    return { success: false, error: err?.message || String(err) };
+  }
+}
 
 async function openImageOcclusionEditor(imageUrl, tab) {
   if (!imageUrl || !tab?.id) {
@@ -956,6 +1007,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
         case 'createImageOcclusionCard':
           sendResponse(await createImageOcclusionCard(message.data || {}, sender.tab?.id));
+          break;
+
+        case 'visualClipMirage':
+          sendResponse(await visualClipMirage(message.tab || sender.tab));
           break;
 
         case 'createExtract': {

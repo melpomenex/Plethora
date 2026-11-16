@@ -1,7 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CircleNotch, ImageSquare, Minus, Plus, WarningCircle, X } from "@phosphor-icons/react";
-import { convertFileSrc, isTauri } from "../../lib/tauri";
+import { CircleNotch, ImageSquare, Minus, Plus, Polygon, WarningCircle, X } from "@phosphor-icons/react";
+import { convertFileSrc, invokeCommand, isTauri } from "../../lib/tauri";
 import { readDocumentFile } from "../../api/documents";
+import {
+  analyzeImageWithMirage,
+  createMirageRegionOcclusionCard,
+  type MirageAnalyzeResult,
+} from "../../api/vision";
+import { MiragePolygonOverlay } from "./MiragePolygonOverlay";
+import type { ImageOcclusionRegion } from "../../types/learningItemInteractions";
 import { useI18n } from "../../lib/i18n";
 
 /**
@@ -42,6 +49,12 @@ export function ImageViewer({ documentId, title, filePath }: ImageViewerProps) {
   const [loaded, setLoaded] = useState(false);
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [mirageActive, setMirageActive] = useState(false);
+  const [mirageLoading, setMirageLoading] = useState(false);
+  const [mirageError, setMirageError] = useState<string | null>(null);
+  const [mirageResult, setMirageResult] = useState<MirageAnalyzeResult | null>(null);
+  const [mirageAssetId, setMirageAssetId] = useState<string | null>(null);
+  const [createdRegionIds, setCreatedRegionIds] = useState<Set<string>>(new Set());
   const dragRef = useRef<{ startX: number; startY: number; panX: number; panY: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const objectUrlRef = useRef<string | null>(null);
@@ -130,6 +143,68 @@ export function ImageViewer({ documentId, title, filePath }: ImageViewerProps) {
     setPan({ x: 0, y: 0 });
   };
 
+  const toggleMirageTapToMask = useCallback(async () => {
+    if (mirageActive) {
+      setMirageActive(false);
+      return;
+    }
+    setMirageActive(true);
+    if (mirageResult) {
+      return;
+    }
+    setMirageLoading(true);
+    setMirageError(null);
+    try {
+      const analysis = await analyzeImageWithMirage(
+        isWebUrl(filePath)
+          ? { base64Data: filePath }
+          : { filePath }
+      );
+      setMirageResult(analysis);
+    } catch (err) {
+      setMirageError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setMirageLoading(false);
+    }
+  }, [filePath, mirageActive, mirageResult]);
+
+  const handleTapToMaskRegion = useCallback(
+    async (region: ImageOcclusionRegion) => {
+      try {
+        let assetId = mirageAssetId;
+        if (!assetId) {
+          const bytes = await readDocumentFile(filePath);
+          const b64 = btoa(
+            Array.from(new Uint8Array(bytes))
+              .map((b) => String.fromCharCode(b))
+              .join("")
+          );
+          const asset = await invokeCommand<{ id: string }>("ingest_image_asset", {
+            base64Data: b64,
+            fileName: title,
+          });
+          assetId = asset.id;
+          setMirageAssetId(assetId);
+        }
+        await createMirageRegionOcclusionCard({
+          assetId,
+          region,
+          allRegions: mirageResult?.regions,
+          documentId,
+          prompt: mirageResult?.response.scene
+            ? `Identify the masked region (${mirageResult.response.scene})`
+            : undefined,
+        });
+        if (region.id) {
+          setCreatedRegionIds((prev) => new Set(prev).add(region.id!));
+        }
+      } catch (err) {
+        setMirageError(err instanceof Error ? err.message : String(err));
+      }
+    },
+    [documentId, filePath, mirageAssetId, mirageResult, title]
+  );
+
   return (
     <div className="h-full flex flex-col bg-background">
       {/* Toolbar */}
@@ -171,9 +246,32 @@ export function ImageViewer({ documentId, title, filePath }: ImageViewerProps) {
             >
               <X className="w-4 h-4" />
             </button>
+            <button
+              type="button"
+              data-testid="mirage-tap-to-mask-toggle"
+              onClick={() => void toggleMirageTapToMask()}
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium transition-colors ${
+                mirageActive
+                  ? "bg-primary text-primary-foreground"
+                  : "hover:bg-muted text-foreground"
+              }`}
+              title="Mirage Tap-to-Mask: detect objects & text polygons to create occlusion cards"
+            >
+              {mirageLoading ? (
+                <CircleNotch className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Polygon className="w-3.5 h-3.5" />
+              )}
+              <span>Tap-to-Mask</span>
+            </button>
           </div>
         )}
       </div>
+      {mirageError && (
+        <div className="px-4 py-1.5 text-xs bg-destructive/10 text-destructive border-b border-destructive/20">
+          {mirageError}
+        </div>
+      )}
 
       {/* Canvas */}
       <div
@@ -209,23 +307,36 @@ export function ImageViewer({ documentId, title, filePath }: ImageViewerProps) {
               onPointerUp={handlePointerUp}
               onPointerCancel={handlePointerUp}
             >
-              <img
-                src={imageSrc.src}
-                alt={title}
-                draggable={false}
-                onLoad={() => setLoaded(true)}
-                onError={() => {
-                  setError(t("viewer.imageDecodeFailed"));
-                  setLoaded(false);
-                }}
-                className="max-w-none"
+              <div
+                className="relative inline-block"
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${scale})`,
                   transformOrigin: "center",
                   transition: dragRef.current ? "none" : "transform 80ms ease-out",
-                  maxHeight: "100%",
                 }}
-              />
+              >
+                <img
+                  src={imageSrc.src}
+                  alt={title}
+                  draggable={false}
+                  onLoad={() => setLoaded(true)}
+                  onError={() => {
+                    setError(t("viewer.imageDecodeFailed"));
+                    setLoaded(false);
+                  }}
+                  className="max-w-none block"
+                  style={{
+                    maxHeight: "100%",
+                  }}
+                />
+                {mirageActive && mirageResult && mirageResult.regions.length > 0 && (
+                  <MiragePolygonOverlay
+                    regions={mirageResult.regions}
+                    onRegionClick={handleTapToMaskRegion}
+                    createdRegionIds={createdRegionIds}
+                  />
+                )}
+              </div>
             </div>
           )
         )}

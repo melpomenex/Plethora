@@ -106,7 +106,7 @@ export interface SearchResult {
     action?: () => void | Promise<void>;
     sectionId?: string;
     targetPath?: string;
-    resultKind?: "section" | "command" | "rss-article" | "podcast-episode" | "contextual-action" | "help-article" | "ask-plethora" | "learning-item" | "extract";
+    resultKind?: "section" | "command" | "rss-article" | "podcast-episode" | "contextual-action" | "help-article" | "ask-plethora" | "learning-item" | "extract" | "image-asset";
     articleId?: string;
     feedId?: string;
     episodeId?: string;

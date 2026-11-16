@@ -531,6 +531,7 @@ pub async fn start_server(
         .route("/ai/process", post(handle_ai_request))
         .route("/ai/status", get(handle_ai_status))
         .route("/ai/image-occlusion", post(handle_image_occlusion_request))
+        .route("/ai/mirage-clip", post(handle_mirage_clip_request))
         .route(
             "/api/image-registry/ingest",
             post(handle_image_registry_ingest),
@@ -2645,6 +2646,7 @@ fn is_public_browser_extension_endpoint(path: &str, method: &axum::http::Method)
         || (path == "/ai/process" && method == axum::http::Method::POST)
         || (path == "/ai/status" && method == axum::http::Method::GET)
         || (path == "/ai/image-occlusion" && method == axum::http::Method::POST)
+        || (path == "/ai/mirage-clip" && method == axum::http::Method::POST)
         || (path == "/api/image-registry/ingest" && method == axum::http::Method::POST)
         || (path == "/api/theme" && method == axum::http::Method::GET)
 }
@@ -2819,6 +2821,137 @@ async fn handle_image_occlusion_request(
         Err(error) => error_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("Failed to save image occlusion card: {}", error),
+        ),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct MirageClipRequest {
+    image_base64: String,
+    mime_type: Option<String>,
+    file_name: Option<String>,
+    source_url: Option<String>,
+    title: Option<String>,
+    document_id: Option<String>,
+    note: Option<String>,
+    tags: Option<Vec<String>>,
+}
+
+/// Visual Clipper endpoint for canvas-rendered or non-selectable browser pages
+/// (Kindle Cloud Reader, Google Books, slide decks). Decodes the viewport
+/// screenshot, runs Mirage locally, and saves a structured extract with
+/// reading-order OCR text and cropped figure assets.
+async fn handle_mirage_clip_request(
+    State(state): State<ServerState>,
+    Json(payload): Json<MirageClipRequest>,
+) -> Response {
+    let raw_b64 = payload
+        .image_base64
+        .split_once(',')
+        .map(|(_, rest)| rest)
+        .unwrap_or(payload.image_base64.as_str());
+    let bytes = match general_purpose::STANDARD.decode(raw_b64.as_bytes()) {
+        Ok(b) if !b.is_empty() && b.len() <= IMAGE_OCCLUSION_DECODED_MAX_BYTES => b,
+        Ok(_) => {
+            return error_response(
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "Clipped screenshot must be between 1 byte and 7 MB",
+            )
+        }
+        Err(_) => {
+            return error_response(StatusCode::BAD_REQUEST, "Invalid base64 screenshot payload")
+        }
+    };
+
+    let target_doc_id = if let Some(doc_id) = payload
+        .document_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        doc_id.to_string()
+    } else {
+        let doc_title = payload
+            .title
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("Visual Clip")
+            .to_string();
+        let file_path = payload
+            .source_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("mirage://visual-clip")
+            .to_string();
+
+        match sqlx::query_scalar::<_, String>(
+            "SELECT id FROM documents WHERE file_path = ?1 LIMIT 1",
+        )
+        .bind(&file_path)
+        .fetch_optional(state.repo.pool())
+        .await
+        {
+            Ok(Some(existing_id)) => existing_id,
+            _ => {
+                let mut doc = Document::new(doc_title, file_path, FileType::Html);
+                doc.collection_id = resolve_browser_import_collection_id(&state.repo).await;
+                match state.repo.create_document(&doc).await {
+                    Ok(created) => created.id,
+                    Err(e) => {
+                        return error_response(
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            &format!("Failed to create target document: {}", e),
+                        )
+                    }
+                }
+            }
+        }
+    };
+
+    let engine = state.app_handle.state::<crate::vision::MirageEngine>();
+    match crate::commands::vision::snap_image_bytes_to_extract_inner(
+        bytes,
+        payload.mime_type,
+        payload.file_name,
+        target_doc_id,
+        payload.source_url,
+        payload.note,
+        payload.tags,
+        None,
+        &state.repo,
+        engine.inner(),
+    )
+    .await
+    {
+        Ok(res) => {
+            let _ = state.app_handle.emit(
+                "browser-sync://extract-saved",
+                json!({
+                    "extract_id": res.extract.id,
+                    "document_id": res.extract.document_id,
+                    "source_asset_id": res.source_asset_id,
+                }),
+            );
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "extract_id": res.extract.id,
+                    "document_id": res.extract.document_id,
+                    "source_asset_id": res.source_asset_id,
+                    "cropped_figure_asset_ids": res.cropped_figure_asset_ids,
+                    "scene": res.scene,
+                    "reading_order_text": res.reading_order_text,
+                })),
+            )
+                .into_response()
+        }
+        Err(e) => error_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("Mirage visual clip failed: {}", e),
         ),
     }
 }

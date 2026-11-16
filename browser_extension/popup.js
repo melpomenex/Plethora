@@ -34,6 +34,13 @@ class PopupController {
       this.toggleExtractMode();
     });
 
+    const visualClipBtn = document.getElementById('visual-clip-mirage');
+    if (visualClipBtn) {
+      visualClipBtn.addEventListener('click', () => {
+        this.visualClipMirage();
+      });
+    }
+
     document.getElementById('quick-extract').addEventListener('click', () => {
       this.quickExtract();
     });
@@ -50,6 +57,27 @@ class PopupController {
       e.preventDefault();
       chrome.runtime.openOptionsPage();
     });
+  }
+
+  async visualClipMirage() {
+    const btn = document.getElementById('visual-clip-mirage');
+    if (btn) btn.disabled = true;
+    try {
+      const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+      const res = await chrome.runtime.sendMessage({
+        action: 'visualClipMirage',
+        tab,
+      });
+      if (res?.success) {
+        this.showNotification?.('Visual extract saved via Mirage!') || window.close();
+      } else {
+        this.showNotification?.(res?.error || 'Visual clip failed', 'error');
+      }
+    } catch (err) {
+      this.showNotification?.(err.message || 'Visual clip failed', 'error');
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   }
 
   // Highlight color: quick swatch selection persisted to sync settings so the

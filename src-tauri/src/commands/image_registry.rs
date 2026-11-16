@@ -376,7 +376,7 @@ pub fn parse_svg_dimensions(svg_bytes: &[u8]) -> (Option<i32>, Option<i32>) {
     (width, height)
 }
 
-async fn ingest_image_bytes(
+pub(crate) async fn ingest_image_bytes(
     bytes: Vec<u8>,
     mime_type: Option<String>,
     file_name: Option<String>,

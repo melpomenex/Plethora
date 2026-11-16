@@ -511,6 +511,8 @@ pub async fn run_palette_search(
     let include_podcasts = matches!(scope.as_str(), "all" | "library")
         && (allows_type("podcast-episode") || allows_type("media"));
     let include_cards = matches!(scope.as_str(), "all" | "cards") && allows_type("flashcard");
+    let include_visual = matches!(scope.as_str(), "all" | "images" | "visual")
+        && (allows_type("visual") || allows_type("image"));
 
     let mut doc_groups: HashMap<String, PaletteSearchItem> = HashMap::new();
     let mut standalone_items: Vec<PaletteSearchItem> = Vec::new();
@@ -1134,6 +1136,92 @@ pub async fn run_palette_search(
                     primary_hit: None,
                     secondary_hits: Vec::new(),
                     scopes: vec!["cards".to_string()],
+                });
+            }
+        }
+    }
+
+    // 7. Mirage Visual Semantic Search FTS5
+    if include_visual {
+        if let Ok(visual_rows) = sqlx::query(
+            r#"
+            SELECT
+                fts.asset_id,
+                m.scene_description,
+                m.ocr_text,
+                m.tags_json,
+                m.indexed_at,
+                a.file_name,
+                a.mime_type,
+                bm25(image_visual_search_fts, 2.0, 2.5, 1.2, 2.0) AS rank_score
+            FROM image_visual_search_fts fts
+            JOIN image_visual_metadata m ON m.asset_id = fts.asset_id
+            LEFT JOIN image_assets a ON a.id = fts.asset_id
+            WHERE image_visual_search_fts MATCH ?1
+            ORDER BY rank_score ASC
+            LIMIT ?2
+            "#,
+        )
+        .bind(&fts_query)
+        .bind(branch_limit)
+        .fetch_all(repo.pool())
+        .await
+        {
+            for row in visual_rows {
+                let asset_id: String = row.try_get("asset_id").unwrap_or_default();
+                if asset_id.is_empty() {
+                    continue;
+                }
+                let scene: String = row.try_get("scene_description").unwrap_or_default();
+                let ocr_text: String = row.try_get("ocr_text").unwrap_or_default();
+                let tags_raw: String = row.try_get("tags_json").unwrap_or_else(|_| "[]".into());
+                let tags: Vec<String> = serde_json::from_str(&tags_raw).unwrap_or_default();
+                let file_name: Option<String> = row.try_get("file_name").ok().flatten();
+                let mime_type: Option<String> = row.try_get("mime_type").ok().flatten();
+                let indexed_at: String = row.try_get("indexed_at").unwrap_or_default();
+                let rank_score: f64 = row.try_get("rank_score").unwrap_or(0.0);
+
+                let title = file_name
+                    .clone()
+                    .filter(|s| !s.trim().is_empty())
+                    .unwrap_or_else(|| {
+                        if !scene.trim().is_empty() {
+                            scene.chars().take(80).collect()
+                        } else {
+                            format!("Visual Asset {}", &asset_id[..8.min(asset_id.len())])
+                        }
+                    });
+                let excerpt = if !scene.trim().is_empty() {
+                    Some(scene)
+                } else if !ocr_text.trim().is_empty() {
+                    Some(ocr_text.chars().take(160).collect())
+                } else {
+                    None
+                };
+
+                standalone_items.push(PaletteSearchItem {
+                    id: asset_id.clone(),
+                    result_type: "visual".to_string(),
+                    result_kind: Some("image-asset".to_string()),
+                    title,
+                    excerpt,
+                    score: 56.0 + (-rank_score).max(0.0),
+                    document_id: None,
+                    article_id: None,
+                    feed_id: None,
+                    episode_id: None,
+                    card_id: None,
+                    category: Some("Mirage Visual".to_string()),
+                    tags,
+                    file_type: mime_type,
+                    date_added: Some(indexed_at.clone()),
+                    date_modified: Some(indexed_at),
+                    transcript_match: false,
+                    page_number: None,
+                    timestamp_ms: None,
+                    primary_hit: None,
+                    secondary_hits: Vec::new(),
+                    scopes: vec!["images".to_string(), "visual".to_string()],
                 });
             }
         }

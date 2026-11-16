@@ -84,6 +84,7 @@ pub mod tags;
 pub mod tas;
 pub mod transcription_config;
 pub mod video;
+pub mod vision;
 pub mod youtube_playlist;
 pub use crate::error::Result;
 
@@ -155,6 +156,7 @@ pub use study_sources::*;
 pub use substack::*;
 pub use transcription_config::*;
 pub use video::*;
+pub use vision::*;
 pub use youtube_playlist::*;
 
 pub use cloud::backup::*;

@@ -60,6 +60,7 @@ pub mod transcription;
 mod tts;
 mod twitter;
 mod utils;
+pub mod vision;
 mod youtube;
 // `screenshot` requires the `xcap` crate, which only has a backend on desktop
 // (see the target-specific dependency in Cargo.toml). On android/ios the
@@ -1434,6 +1435,14 @@ pub fn run() {
                 app.manage(commands::ai_learning::AiLearningState::new(
                     repo.clone(),
                 ));
+                let mirage_engine =
+                    vision::MirageEngine::with_models_dir(app_dir.join("models"));
+                app.manage(mirage_engine.clone());
+                vision::search_worker::spawn_background_visual_indexer(
+                    repo.clone(),
+                    mirage_engine,
+                    16,
+                );
                 // On-device embedding bridge (task 4.5, design D10): hand the
                 // indexer a direct Rust→Kotlin path into the android-genai
                 // plugin's EmbeddingGemma command. Android only; everywhere
@@ -1695,6 +1704,14 @@ pub fn run() {
             commands::get_bundled_help_index,
             commands::search_help_docs_native,
             commands::get_documents,
+            commands::mirage_status,
+            commands::mirage_ensure_model,
+            commands::mirage_analyze_image,
+            commands::mirage_snap_to_extract,
+            commands::mirage_generate_occlusion_cards,
+            commands::mirage_create_region_occlusion_card,
+            commands::mirage_search_visual,
+            commands::mirage_index_asset,
             commands::create_language_profile,
             commands::get_language_profiles,
             commands::get_language_profile,
@@ -1833,6 +1850,8 @@ pub fn run() {
             media_compat::commands::get_media_compatibility_cache_usage,
             media_compat::commands::clear_media_compatibility_cache,
             media_compat::commands::prune_media_compatibility_cache,
+            media_compat::commands::start_media_stream_session,
+            media_compat::commands::stop_media_stream_session,
             epub_server::get_epub_stream_url,
             web_proxy::get_web_proxy_url,
             web_proxy::set_web_bridge_script,

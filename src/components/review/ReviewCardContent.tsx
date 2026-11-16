@@ -260,6 +260,44 @@ export const ReviewCardContent = React.memo(function ReviewCardContent({
                     ? region.id === occlusionEval.targetRegion.id
                     : region === occlusionEval.targetRegion;
 
+                  if (region.points && region.points.length >= 3) {
+                    const ptsAttr = region.points.map((p) => `${p.x},${p.y}`).join(" ");
+                    return (
+                      <svg
+                        key={region.id || `${region.x}-${region.y}-${region.width}-${region.height}`}
+                        data-testid="occlusion-region-overlay"
+                        data-occlusion-target={isTarget ? "true" : "false"}
+                        viewBox="0 0 100 100"
+                        preserveAspectRatio="none"
+                        className={cn(
+                          "pointer-events-none absolute inset-0 h-full w-full",
+                          isTarget ? "z-10" : "z-0"
+                        )}
+                      >
+                        <polygon
+                          points={ptsAttr}
+                          fill={region.color || "#0f172a"}
+                          fillOpacity={0.96}
+                          stroke={isTarget ? "#6366f1" : "rgba(255,255,255,0.25)"}
+                          strokeWidth={isTarget ? 0.9 : 0.4}
+                        />
+                        {isTarget && !showAnswer && (
+                          <text
+                            x={region.x + region.width / 2}
+                            y={region.y + region.height / 2}
+                            textAnchor="middle"
+                            dominantBaseline="central"
+                            fill="#ffffff"
+                            fontSize="5"
+                            fontWeight="bold"
+                          >
+                            ?
+                          </text>
+                        )}
+                      </svg>
+                    );
+                  }
+
                   return (
                     <div
                       key={region.id || `${region.x}-${region.y}-${region.width}-${region.height}`}

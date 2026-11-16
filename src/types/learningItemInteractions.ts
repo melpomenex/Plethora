@@ -5,6 +5,11 @@ export interface MultipleChoiceOption {
   feedback?: string;
 }
 
+export interface ImageOcclusionPoint {
+  x: number;
+  y: number;
+}
+
 export interface ImageOcclusionRegion {
   id?: string;
   x: number;
@@ -13,6 +18,8 @@ export interface ImageOcclusionRegion {
   height: number;
   label?: string;
   color?: string;
+  /** Optional polygon mask vertices in 0–100 percentage coordinates (Mirage mask_format="polygons"). */
+  points?: ImageOcclusionPoint[];
 }
 
 export interface LearningItemInteractionMetadata {

@@ -528,6 +528,43 @@
     return payload;
   }
 
+  function buildMirageClipPayload({
+    dataUrl,
+    sourceUrl,
+    title,
+    note,
+    tags,
+  } = {}) {
+    if (typeof dataUrl !== 'string' || !dataUrl.trim()) {
+      throw new Error('Missing screenshot dataUrl for Mirage visual clip');
+    }
+    const commaIdx = dataUrl.indexOf(',');
+    const header = commaIdx >= 0 ? dataUrl.slice(0, commaIdx) : '';
+    const imageBase64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1).trim() : dataUrl.trim();
+    const mimeMatch = header.match(/^data:([^;]+);base64$/i);
+    const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+
+    const decodedBytes = estimateBase64DecodedBytes(imageBase64);
+    const sizeCheck = validateImageDecodedSize(decodedBytes);
+    if (!sizeCheck.ok) {
+      throw new Error(sizeCheck.message || 'Screenshot exceeds maximum allowed size');
+    }
+
+    const payload = {
+      imageBase64,
+      mimeType,
+      fileName: `visual-clip-${Date.now()}.png`,
+      sourceUrl: typeof sourceUrl === 'string' && sourceUrl.trim() ? sourceUrl.trim() : undefined,
+      title: typeof title === 'string' && title.trim() ? title.trim() : undefined,
+      note: typeof note === 'string' && note.trim() ? note.trim() : undefined,
+      tags: Array.isArray(tags) && tags.length > 0 ? tags : ['mirage-clip'],
+    };
+    for (const key of Object.keys(payload)) {
+      if (payload[key] === undefined) delete payload[key];
+    }
+    return payload;
+  }
+
   /**
    * Preset highlight color palette for text extracts. The default is the
    * warm peach the content script used before colors became user-selectable.
@@ -558,6 +595,7 @@
     normalizeCaptureContext,
     buildCaptureContext,
     buildImageIngestPayload,
+    buildMirageClipPayload,
     fitAiRequestToBudget,
     checkRequestBudget,
     estimateBase64DecodedBytes,

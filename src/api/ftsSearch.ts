@@ -76,7 +76,8 @@ export interface PaletteSearchItem {
     | "help-article"
     | "ask-plethora"
     | "learning-item"
-    | "extract";
+    | "extract"
+    | "image-asset";
   title: string;
   excerpt?: string;
   score: number;
