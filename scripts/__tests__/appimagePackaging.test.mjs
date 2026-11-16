@@ -45,3 +45,8 @@ test("AppImage permissions are normalized before appimagetool packages the AppDi
   assert.ok(packageAppDir > appRun, "normalization happens before appimagetool runs");
 });
 
+test("AppImage output path uses active Cargo profile APPIMAGE_DIR", () => {
+  assert.match(script, /EXPECTED_APPIMAGE="\$APPIMAGE_DIR\//);
+  assert.match(script, /mkdir -p "\$\(dirname "\$EXPECTED_APPIMAGE"\)"/);
+});
+

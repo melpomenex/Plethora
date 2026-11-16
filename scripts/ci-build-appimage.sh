@@ -31,7 +31,7 @@ APPIMAGETOOL_APPIMAGE="$WORK_DIR/appimagetool.AppImage"
 APPIMAGETOOL_BIN="$WORK_DIR/squashfs-root/AppRun"
 RUNTIME_FILE="$WORK_DIR/runtime-x86_64"
 
-EXPECTED_APPIMAGE="$(node -e 'const c=require("./src-tauri/tauri.conf.json"); console.log(`src-tauri/target/release/bundle/appimage/${c.productName}_${c.version}_amd64.AppImage`)')"
+EXPECTED_APPIMAGE="$APPIMAGE_DIR/$(node -e 'const c=require("./src-tauri/tauri.conf.json"); console.log(`${c.productName}_${c.version}_amd64.AppImage`)')"
 
 # Do not let a failed Tauri invocation fall through to packaging yesterday's
 # AppDir. Move any prior bundle aside so only this invocation can produce the
@@ -358,6 +358,7 @@ if [[ ! -f "$PACKAGED_APPIMAGE" ]]; then
   exit 1
 fi
 
+mkdir -p "$(dirname "$EXPECTED_APPIMAGE")"
 mv -f "$PACKAGED_APPIMAGE" "$EXPECTED_APPIMAGE"
 
 if [[ ! -f "$EXPECTED_APPIMAGE" ]]; then
