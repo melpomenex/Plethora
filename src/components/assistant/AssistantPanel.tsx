@@ -385,9 +385,21 @@ const getConversationKey = (ctx?: AssistantContext): string => {
   return "general";
 };
 
-const readStoredConversations = (): StoredConversationMap => {
+/**
+ * Video documents transiently switch between `document:<id>` (before video
+ * metadata/transcript loads) and `video:<id>` (once videoContext arrives).
+ * Checking the sibling key prevents losing chat history across restarts.
+ */
+const getSiblingDocumentVideoKey = (ctx: AssistantContext | undefined, primaryKey: string): string | undefined => {
+  const docId = ctx?.documentId;
+  if (!docId) return undefined;
+  if (primaryKey === `video:${docId}`) return `document:${docId}`;
+  if (primaryKey === `document:${docId}`) return `video:${docId}`;
+  return undefined;
+};
+
+const parseStoredConversations = (raw: string | null | undefined): StoredConversationMap => {
   try {
-    const raw = localStorage.getItem(ASSISTANT_CONVERSATIONS_KEY);
     if (!raw) return {};
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
@@ -418,7 +430,57 @@ const readStoredConversations = (): StoredConversationMap => {
   }
 };
 
-const writeStoredConversations = (conversations: StoredConversationMap) => {
+const readStoredConversations = (): StoredConversationMap => {
+  try {
+    return parseStoredConversations(localStorage.getItem(ASSISTANT_CONVERSATIONS_KEY));
+  } catch (error) {
+    console.warn("Failed to read stored assistant conversations:", error);
+    return {};
+  }
+};
+
+let sqliteWriteInFlight = false;
+let sqlitePendingPayload: string | null = null;
+let sqliteHydrationPromise: Promise<StoredConversationMap | null> | null = null;
+
+const flushAssistantConversationsToSqlite = (payload: string) => {
+  if (!isTauri()) return;
+  sqlitePendingPayload = payload;
+  if (sqliteWriteInFlight) return;
+  sqliteWriteInFlight = true;
+  void (async () => {
+    try {
+      while (sqlitePendingPayload !== null) {
+        const nextPayload = sqlitePendingPayload;
+        sqlitePendingPayload = null;
+        await invokeCommand("assistant_panel_conversations_set", { payload: nextPayload });
+      }
+    } catch (error) {
+      console.warn("Failed to persist assistant conversations to SQLite:", error);
+    } finally {
+      sqliteWriteInFlight = false;
+    }
+  })();
+};
+
+const loadAssistantConversationsFromSqliteOnce = (): Promise<StoredConversationMap | null> => {
+  if (!isTauri()) return Promise.resolve(null);
+  if (!sqliteHydrationPromise) {
+    sqliteHydrationPromise = (async () => {
+      try {
+        const raw = await invokeCommand<string | null>("assistant_panel_conversations_get");
+        if (!raw) return null;
+        return parseStoredConversations(raw);
+      } catch (error) {
+        console.warn("Failed to load assistant conversations from SQLite:", error);
+        return null;
+      }
+    })();
+  }
+  return sqliteHydrationPromise;
+};
+
+const writeStoredConversations = (conversations: StoredConversationMap, options?: { skipSqlite?: boolean }) => {
   try {
     // Persist review drafts, not whole source passages: the agent artifact
     // already keeps source references/statuses, and a restored run re-reads
@@ -447,7 +509,11 @@ const writeStoredConversations = (conversations: StoredConversationMap) => {
         ),
       };
     }
-    localStorage.setItem(ASSISTANT_CONVERSATIONS_KEY, JSON.stringify(sanitized));
+    const serialized = JSON.stringify(sanitized);
+    localStorage.setItem(ASSISTANT_CONVERSATIONS_KEY, serialized);
+    if (!options?.skipSqlite) {
+      flushAssistantConversationsToSqlite(serialized);
+    }
   } catch (error) {
     console.warn("Failed to persist assistant conversation:", error);
   }
@@ -1142,7 +1208,14 @@ export function AssistantPanel({
     setAgentScope(undefined);
     setAgentRevokedSourceIds([]);
     activeConversationKeyRef.current = sessionKey;
-    const stored = readStoredConversations()[sessionKey];
+    const allStored = readStoredConversations();
+    let stored = allStored[sessionKey];
+    if (!stored || stored.messages.length === 0) {
+      const siblingKey = getSiblingDocumentVideoKey(context, sessionKey);
+      if (siblingKey && allStored[siblingKey]?.messages.length) {
+        stored = allStored[siblingKey];
+      }
+    }
     setHydratedSessionKey(sessionKey);
     setIsLoading(false);
     const storedMessages = stored?.messages ?? [];
@@ -1210,6 +1283,45 @@ export function AssistantPanel({
     lastContextSignatureRef.current = null;
     clearAttachedImages();
   }, [sessionKey]);
+
+  useEffect(() => {
+    if (!isTauri() || isMobileSession) return;
+    let cancelled = false;
+    void loadAssistantConversationsFromSqliteOnce().then((sqliteMap) => {
+      if (cancelled || !sqliteMap) return;
+      const localMap = readStoredConversations();
+      let changed = false;
+      const merged: StoredConversationMap = { ...localMap };
+      for (const [key, sqliteConv] of Object.entries(sqliteMap)) {
+        const localConv = merged[key];
+        const sqliteHasMessages = sqliteConv.messages.length > 0;
+        const localHasMessages = Boolean(localConv && localConv.messages.length > 0);
+        if (
+          !localConv ||
+          (sqliteHasMessages && !localHasMessages) ||
+          sqliteConv.updatedAt > localConv.updatedAt
+        ) {
+          merged[key] = sqliteConv;
+          changed = true;
+        }
+      }
+      if (changed) {
+        writeStoredConversations(merged, { skipSqlite: true });
+      }
+      const activeKey = activeConversationKeyRef.current;
+      const siblingKey = getSiblingDocumentVideoKey(context, activeKey);
+      const restored =
+        (merged[activeKey]?.messages.length ? merged[activeKey] : undefined) ??
+        (siblingKey && merged[siblingKey]?.messages.length ? merged[siblingKey] : undefined);
+      if (restored && restored.messages.length > 0) {
+        setMessages((prev) => (prev.length === 0 ? restored.messages : prev));
+        setScope((prev) => (prev === "chat" && restored.scope ? restored.scope : prev));
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionKey, isMobileSession]);
 
   useEffect(() => {
     const key = activeConversationKeyRef.current;
@@ -3503,6 +3615,14 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     setAgentDraft(undefined);
     setIsLoading(false);
     setMessages([]);
+    const siblingKey = getSiblingDocumentVideoKey(context, sessionKey);
+    if (siblingKey) {
+      const conversations = readStoredConversations();
+      if (conversations[siblingKey]) {
+        delete conversations[siblingKey];
+        writeStoredConversations(conversations);
+      }
+    }
     if (isMobileSession) {
       setInput("");
       setScope("chat");
@@ -3778,6 +3898,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
   return (
     <div
       ref={panelRef}
+      data-assistant-panel="true"
       data-paper-surface="chrome" className={`flex flex-col h-full max-h-full min-h-0 overflow-hidden bg-card ${position === "right" ? "border-l" : "border-r"} border-border relative ${className}`}
       style={{ width: fillContainer ? "100%" : isCollapsed ? "auto" : width, containerType: "size" }}
       onContextMenu={(e) => handleContextMenu(e)}
@@ -4891,6 +5012,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         visible={assistantContextMenu.visible}
         position={assistantContextMenu.position}
         onClose={assistantContextMenu.hideMenu}
+        preserveSelection
       />
 
       {/* Resize Handle - positioned based on panel position */}

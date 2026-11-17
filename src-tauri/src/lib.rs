@@ -1899,6 +1899,8 @@ pub fn run() {
             commands::ai_conversation_replace_sources,
             commands::ai_conversation_journal_import,
             commands::ai_conversation_list_import_journal,
+            commands::assistant_panel_conversations_get,
+            commands::assistant_panel_conversations_set,
             commands::update_learning_item_content_with_version,
             commands::update_learning_item_tags,
             commands::update_learning_item_priority,

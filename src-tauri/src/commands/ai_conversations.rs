@@ -324,3 +324,21 @@ pub async fn ai_conversation_list_import_journal(
         })
         .collect())
 }
+
+const ASSISTANT_PANEL_CONVERSATIONS_SETTING_KEY: &str = "assistant_panel_conversations_v1";
+
+#[tauri::command]
+pub async fn assistant_panel_conversations_get(
+    repo: State<'_, Repository>,
+) -> Result<Option<String>> {
+    repo.get_setting(ASSISTANT_PANEL_CONVERSATIONS_SETTING_KEY).await
+}
+
+#[tauri::command]
+pub async fn assistant_panel_conversations_set(
+    payload: String,
+    repo: State<'_, Repository>,
+) -> Result<()> {
+    repo.set_setting(ASSISTANT_PANEL_CONVERSATIONS_SETTING_KEY, &payload)
+        .await
+}

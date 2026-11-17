@@ -184,4 +184,24 @@ describe("AssistantPanel stable mobile session", () => {
       expect(screen.getByRole("textbox")).toHaveValue("retained despite quota");
     } finally { setItem.mockRestore(); warning.mockRestore(); }
   });
+
+  it("restores a video conversation when reopened with document context before video metadata loads", async () => {
+    localStorage.setItem(
+      CONVERSATIONS_KEY,
+      JSON.stringify({
+        "video:vid-42": {
+          messages: [
+            { id: "u1", role: "user", content: "Explain this video", timestamp: 1 },
+            { id: "a1", role: "assistant", content: "Saved video assistant output", timestamp: 2 },
+          ],
+          scope: "document",
+          input: "",
+          updatedAt: 2,
+        },
+      }),
+    );
+
+    render(<AssistantPanel context={{ type: "document", documentId: "vid-42", metadata: { title: "Video 42" } }} />);
+    expect(await screen.findByText("Saved video assistant output")).toBeInTheDocument();
+  });
 });
