@@ -30,12 +30,15 @@ function ResponseBody({
   markdown: boolean;
   className: string;
 }) {
-  const html = useMemo(() => {
-    if (!markdown && !onTimestampClick) return "";
+  const hasTimestamps = Boolean(onTimestampClick);
+  // React replaces the text nodes when the inner HTML prop changes identity.
+  // Keep the prop stable while opening menus or updating the seek callback.
+  const innerHtml = useMemo(() => {
+    if (!markdown && !hasTimestamps) return undefined;
     const root = document.createElement("div");
     if (markdown) root.innerHTML = DOMPurify.sanitize(renderMarkdown(content));
     else root.textContent = content;
-    if (onTimestampClick) {
+    if (hasTimestamps) {
       const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
       const nodes: Text[] = [];
       while (walker.nextNode()) nodes.push(walker.currentNode as Text);
@@ -55,15 +58,15 @@ function ResponseBody({
         if (last) { fragment.append(text.slice(last)); node.replaceWith(fragment); }
       }
     }
-    return root.innerHTML;
-  }, [content, markdown, onTimestampClick]);
+    return { __html: root.innerHTML };
+  }, [content, markdown, hasTimestamps]);
 
   if (!content) return null;
-  return markdown || onTimestampClick ? (
+  return innerHtml ? (
     <div className={`${className} ${markdown ? "" : "whitespace-pre-wrap"}`} onClick={(event) => {
       const button = (event.target as HTMLElement).closest<HTMLButtonElement>("button[data-seconds]");
       if (button) onTimestampClick?.(Number(button.dataset.seconds));
-    }} dangerouslySetInnerHTML={{ __html: html }} />
+    }} dangerouslySetInnerHTML={innerHtml} />
   ) : (
     <div className={`${className} whitespace-pre-wrap`}>{content}</div>
   );

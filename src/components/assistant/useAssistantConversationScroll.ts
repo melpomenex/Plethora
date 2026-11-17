@@ -80,6 +80,16 @@ function restorePosition(container: HTMLElement, position: ScrollPosition, wasCo
   return container.scrollTop !== previousTop;
 }
 
+function hasActiveSelectionInside(container: HTMLElement): boolean {
+  const win = container.ownerDocument?.defaultView ?? (typeof window !== "undefined" ? window : undefined);
+  const sel = win?.getSelection();
+  if (!sel || sel.rangeCount === 0 || !sel.toString().trim()) return false;
+  return (
+    (sel.anchorNode !== null && container.contains(sel.anchorNode)) ||
+    (sel.focusNode !== null && container.contains(sel.focusNode))
+  );
+}
+
 /** Preserve a reader-controlled position while messages stream or resize. */
 export function useAssistantConversationScroll(
   containerRef: RefObject<HTMLDivElement | null>,
@@ -94,7 +104,9 @@ export function useAssistantConversationScroll(
   const [showLatest, setShowLatest] = useState(false);
   const expectedScroll = useRef<number | null>(null);
   const recentInteractionRef = useRef(false);
+  const discreteInteractionRef = useRef(false);
   const pointerHeldRef = useRef(false);
+  const scrollbarDragRef = useRef(false);
   const touchHeldRef = useRef(false);
   const interactionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pointerHoldTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -126,14 +138,18 @@ export function useAssistantConversationScroll(
     }, POINTER_HOLD_FALLBACK_MS);
   }, []);
 
-  const markUserInteraction = useCallback(() => {
+  const markUserInteraction = useCallback((discrete = false) => {
     wasCollapsedRef.current = false;
     recentInteractionRef.current = true;
+    if (discrete) {
+      discreteInteractionRef.current = true;
+    }
     if (interactionTimerRef.current !== null) {
       clearTimeout(interactionTimerRef.current);
     }
     interactionTimerRef.current = setTimeout(() => {
       recentInteractionRef.current = false;
+      discreteInteractionRef.current = false;
       interactionTimerRef.current = null;
     }, INTERACTION_GRACE_MS);
   }, []);
@@ -170,11 +186,15 @@ export function useAssistantConversationScroll(
 
     const currentSaved = readPosition(effectiveKey);
     const userActive = isUserInteracting();
+    const intentionalScrollToTop =
+      discreteInteractionRef.current ||
+      touchHeldRef.current ||
+      scrollbarDragRef.current;
     // Protect both follow mode and non-follow manual positions from involuntary collapse/clamp scroll events.
     if (currentSaved) {
       const savedAwayFromTop = currentSaved.follow || currentSaved.top > 0;
       const collapsedClampReset = wasCollapsedRef.current && Math.abs(container.scrollTop - currentSaved.top) >= 1;
-      const unexpectedTopJump = !userActive && container.scrollTop === 0 && savedAwayFromTop;
+      const unexpectedTopJump = (!userActive || !intentionalScrollToTop) && container.scrollTop === 0 && savedAwayFromTop;
       if (collapsedClampReset || unexpectedTopJump) {
         wasCollapsedRef.current = false;
         const moved = restorePosition(container, currentSaved, wasConnectedRef.current);
@@ -215,20 +235,25 @@ export function useAssistantConversationScroll(
     wasCollapsedRef.current = false;
     expectedScroll.current = null;
 
-    const handleDiscreteInteraction = () => markUserInteraction();
+    const handleDiscreteInteraction = () => markUserInteraction(true);
     const handlePointerUp = () => {
       if (!pointerHeldRef.current) return;
       pointerHeldRef.current = false;
+      scrollbarDragRef.current = false;
       if (pointerHoldTimerRef.current !== null) {
         clearTimeout(pointerHoldTimerRef.current);
         pointerHoldTimerRef.current = null;
       }
-      markUserInteraction();
+      markUserInteraction(false);
     };
-    const handlePointerDown = () => {
+    const handlePointerDown = (event: PointerEvent) => {
       pointerHeldRef.current = true;
+      scrollbarDragRef.current = event.target === container;
       schedulePointerHoldExpiry();
-      markUserInteraction();
+      markUserInteraction(false);
+      if (!scrollbarDragRef.current) {
+        discreteInteractionRef.current = false;
+      }
     };
     const handlePointerMove = (event: PointerEvent) => {
       if (pointerHeldRef.current && event.buttons === 0) {
@@ -261,6 +286,7 @@ export function useAssistantConversationScroll(
       observedElementsRef.current = new WeakSet();
       observer = new ResizeObserver(() => {
         if (pointerHeldRef.current || touchHeldRef.current) return;
+        if (hasActiveSelectionInside(container)) return;
         const current = readPosition(effectiveKey);
         if (!current) return;
         if (!isContainerValidForRestore(container, wasConnectedRef.current)) {
@@ -297,7 +323,9 @@ export function useAssistantConversationScroll(
       ownerWin?.removeEventListener("blur", handlePointerUp);
       clearInteractionTimers();
       recentInteractionRef.current = false;
+      discreteInteractionRef.current = false;
       pointerHeldRef.current = false;
+      scrollbarDragRef.current = false;
       touchHeldRef.current = false;
       wasCollapsedRef.current = false;
       expectedScroll.current = null;

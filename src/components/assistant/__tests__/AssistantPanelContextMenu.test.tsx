@@ -33,6 +33,7 @@ describe("AssistantPanel Context Menu", () => {
     const { container } = render(<AssistantPanel />);
     const panel = container.firstChild as HTMLElement;
     expect(panel).toBeTruthy();
+    expect(panel.getAttribute("data-assistant-panel")).toBe("true");
 
     fireEvent.contextMenu(panel, { clientX: 100, clientY: 200 });
 
@@ -42,7 +43,7 @@ describe("AssistantPanel Context Menu", () => {
     });
   });
 
-  it("handles selected text extraction via context menu", async () => {
+  it("handles selected text copy and extraction via context menu", async () => {
     const { container } = render(<AssistantPanel />);
     const panel = container.firstChild as HTMLElement;
 
@@ -53,8 +54,17 @@ describe("AssistantPanel Context Menu", () => {
     fireEvent.contextMenu(panel, { clientX: 150, clientY: 250 });
 
     await waitFor(() => {
+      expect(screen.getByText("Copy Selection")).toBeTruthy();
       expect(screen.getByText("Extract Selection")).toBeTruthy();
       expect(screen.getByText("Ask about Selection")).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText("Copy Selection"));
+    expect(integrationsApi.copyToClipboard).toHaveBeenCalledWith("Selected text from assistant response");
+
+    fireEvent.contextMenu(panel, { clientX: 150, clientY: 250 });
+    await waitFor(() => {
+      expect(screen.getByText("Extract Selection")).toBeTruthy();
     });
 
     const extractBtn = screen.getByText("Extract Selection");

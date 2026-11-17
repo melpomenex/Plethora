@@ -535,4 +535,95 @@ describe("useAssistantConversationScroll", () => {
       vi.useRealTimers();
     }
   });
+
+  it("preserves scrollTop on ResizeObserver while text is selected inside the container", () => {
+    const div = document.createElement("div");
+    const child = document.createElement("p");
+    child.textContent = "Selectable assistant response";
+    div.appendChild(child);
+
+    let internalScrollTop = 320;
+    Object.defineProperty(div, "scrollHeight", { value: 1000, configurable: true });
+    Object.defineProperty(div, "clientHeight", { value: 300, configurable: true });
+    Object.defineProperty(div, "scrollTop", {
+      get: () => internalScrollTop,
+      set: (value: number) => {
+        internalScrollTop = Math.max(0, Math.min(value, 700));
+      },
+      configurable: true,
+    });
+    const ref = { current: div };
+    const { result } = renderHook(() =>
+      useAssistantConversationScroll(ref, "scroll-selection-preserve", true, [{ id: "m1" }, { id: "m2" }], "conv-sel"),
+    );
+
+    // User scrolled to 320
+    div.dispatchEvent(new Event("pointerdown"));
+    div.scrollTop = 320;
+    act(() => {
+      result.current.onScroll();
+    });
+    window.dispatchEvent(new Event("pointerup"));
+
+    // Simulate active selection inside container and a subsequent resize (e.g. composer/chip layout change)
+    const getSelectionSpy = vi.spyOn(window, "getSelection").mockReturnValue({
+      rangeCount: 1,
+      toString: () => "assistant response",
+      anchorNode: child.firstChild,
+      focusNode: child.firstChild,
+    } as unknown as Selection);
+
+    try {
+      internalScrollTop = 320;
+      act(() => {
+        ControllableResizeObserver.instances[0].trigger();
+      });
+      expect(div.scrollTop).toBe(320);
+    } finally {
+      getSelectionSpy.mockRestore();
+    }
+  });
+
+  it("blocks involuntary scrollTop=0 jumps during pointerdown on message text", () => {
+    const div = document.createElement("div");
+    const msg = document.createElement("div");
+    msg.dataset.assistantMessageId = "m2";
+    const textNode = document.createElement("p");
+    textNode.textContent = "Long assistant response";
+    msg.appendChild(textNode);
+    div.appendChild(msg);
+
+    let internalScrollTop = 410;
+    Object.defineProperty(div, "scrollHeight", { value: 1000, configurable: true });
+    Object.defineProperty(div, "clientHeight", { value: 300, configurable: true });
+    Object.defineProperty(div, "scrollTop", {
+      get: () => internalScrollTop,
+      set: (value: number) => {
+        internalScrollTop = Math.max(0, Math.min(value, 700));
+      },
+      configurable: true,
+    });
+    const ref = { current: div };
+    const { result } = renderHook(() =>
+      useAssistantConversationScroll(ref, "scroll-pointer-child-top-jump", true, [{ id: "m1" }, { id: "m2" }], "conv-child"),
+    );
+
+    // User scrolled to 410 via wheel
+    div.dispatchEvent(new Event("wheel"));
+    div.scrollTop = 410;
+    act(() => {
+      result.current.onScroll();
+    });
+
+    // Pointer down on child text (not the container scrollbar)
+    textNode.dispatchEvent(new Event("pointerdown", { bubbles: true }));
+    // Involuntary reset to 0 while pointer is held on child text
+    internalScrollTop = 0;
+    act(() => {
+      result.current.onScroll();
+    });
+    window.dispatchEvent(new Event("pointerup"));
+
+    expect(div.scrollTop).toBe(410);
+  });
 });

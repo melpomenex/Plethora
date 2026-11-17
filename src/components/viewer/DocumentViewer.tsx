@@ -6,6 +6,11 @@ import { lazy as lazyTranslation, Suspense as TranslationSuspense } from "react"
 import { usePaletteSelection, getPaletteSelection, type PaletteSelection } from "../../commandPalette/selectionTranslation";
 import { requestDestinationAction } from "../../commandPalette/destinationActions";
 import { textAnnotationTargetsAtPoint, type ReaderContextMenuPayload, type PersistedEpubHighlight } from "./annotationContextMenu";
+import {
+  isDesktopSelectionInViewerContent,
+  isMobileSelectionInViewerContent,
+  shouldDismissViewerSelectionOnMouseDown,
+} from "./documentSelectionBoundary";
 import { AnnotationRemovalMenu } from "./AnnotationRemovalMenu";
 import { emitUserInteraction, emitInteractionFeedback } from "../../lib/feedback/orchestrator";
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, lazy, Suspense, type CSSProperties } from "react";
@@ -4584,13 +4589,7 @@ export function DocumentViewer({
     const handleSelection = () => {
       const selection = window.getSelection();
       if (!selection) return;
-      const anchorElement = selection.anchorNode instanceof Element
-        ? selection.anchorNode
-        : selection.anchorNode?.parentElement;
-      const focusElement = selection.focusNode instanceof Element
-        ? selection.focusNode
-        : selection.focusNode?.parentElement;
-      if (anchorElement?.closest(".textLayer") || focusElement?.closest(".textLayer")) {
+      if (!isDesktopSelectionInViewerContent(selection, containerRef.current)) {
         return;
       }
       updateSelection(selection.toString(), undefined);
@@ -4654,26 +4653,7 @@ export function DocumentViewer({
     // A live, non-empty selection anchored inside document content, or null.
     const readDocumentSelection = (): Selection | null => {
       const selection = window.getSelection();
-      if (!selection || selection.rangeCount === 0) return null;
-
-      const text = selection.toString().trim();
-      if (!text) return null;
-
-      const anchorElement = selection.anchorNode instanceof Element
-        ? selection.anchorNode
-        : selection.anchorNode?.parentElement;
-      const focusElement = selection.focusNode instanceof Element
-        ? selection.focusNode
-        : selection.focusNode?.parentElement;
-
-      const isInDocumentContent = anchorElement?.closest("[data-document-content='true']") ||
-        focusElement?.closest("[data-document-content='true']") ||
-        anchorElement?.closest(".prose") ||
-        focusElement?.closest(".prose") ||
-        anchorElement?.closest(".textLayer") ||
-        focusElement?.closest(".textLayer");
-
-      return isInDocumentContent ? selection : null;
+      return isMobileSelectionInViewerContent(selection, containerRef.current) ? selection : null;
     };
 
     // Scroll dismissal: close the sheet, drop app-level selection state, and
@@ -4699,6 +4679,8 @@ export function DocumentViewer({
 
     const isDocumentContentScrollTarget = (target: EventTarget | null): target is Element => {
       if (!(target instanceof Element)) return false;
+      if (!containerRef.current?.contains(target)) return false;
+      if (target.closest("[data-assistant-panel='true']")) return false;
       return target.closest("[data-document-content='true'], .prose, .textLayer") !== null;
     };
 
@@ -4781,7 +4763,11 @@ export function DocumentViewer({
       // A fresh gesture in the content can re-select suppressed text
       // deliberately — clear the dismissal guard so the sheet may open again.
       // Touches on the sheet/scrim (outside the content) keep the guard.
-      if (e.target instanceof Element) {
+      if (
+        e.target instanceof Element &&
+        containerRef.current?.contains(e.target) &&
+        !e.target.closest("[data-assistant-panel='true']")
+      ) {
         const inContent = e.target.closest("[data-document-content='true'], .prose, .textLayer");
         if (inContent) {
           dismissedSelectionKeyRef.current = null;
@@ -4827,14 +4813,7 @@ export function DocumentViewer({
   // dialog, or a context menu dismisses the selection; Escape dismisses it too.
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      // Don't dismiss when interacting with the floating button, dialogs, or
-      // context menus — those own their own dismissal and shouldn't fight this.
-      if (
-        target.closest('[data-extract-button="true"]') ||
-        target.closest('[role="dialog"]') ||
-        target.closest('.context-menu')
-      ) {
+      if (!shouldDismissViewerSelectionOnMouseDown(e.target)) {
         return;
       }
       if (activeExtractSelection) {

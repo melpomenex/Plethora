@@ -10,9 +10,11 @@ import { useSettingsStore } from "../stores/settingsStore";
 import { loadLocale, type SupportedLocale } from "../lib/i18n";
 import { requestLearningAgentMode } from "../lib/ai/assistant/learningAgentHandoff";
 import { requestOverlayBack } from "../lib/overlayStack";
+import type { Document } from "../types/document";
 import type { ThemeId } from "../types/theme";
 
 const params = new URLSearchParams(location.search);
+const readerFixture = params.has("reader-selection");
 const mobile = params.has("mobile");
 const keyboard = params.has("keyboard");
 const pickerFixture = params.has("picker");
@@ -42,6 +44,28 @@ const context = {
   ...(params.has("actions") ? { selection: "Complex cells convert nutrients into usable energy.", coverage: "window" as const, position: { pageNumber: 42 } } : {}),
   metadata: { title: "What this musician’s identity crisis teaches us about navigating change" },
 };
+const Reader = readerFixture ? (await import("../components/viewer/DocumentViewer")).DocumentViewer : null;
+if (readerFixture) {
+  const { useDocumentStore } = await import("../stores/documentStore");
+  const readerDocument: Document = {
+    id: context.documentId,
+    title: context.metadata.title,
+    filePath: "reader-fixture.txt",
+    fileType: "other",
+    content: context.content,
+    tags: [],
+    dateAdded: "2026-01-01",
+    dateModified: "2026-01-01",
+    extractCount: 0,
+    learningItemCount: 0,
+    priorityRating: 0,
+    prioritySlider: 0,
+    priorityScore: 0,
+    isArchived: false,
+    isFavorite: false,
+  };
+  useDocumentStore.setState({ documents: [readerDocument] });
+}
 document.documentElement.style.fontSize = params.has("zoom") ? "200%" : "100%";
 localStorage.removeItem("assistant-panel-conversations-v1");
 if (params.has("scroll")) {
@@ -82,12 +106,16 @@ window.assistantControlsFixture = { openAgent: () => { requestLearningAgentMode(
 function Harness() {
   const [open, setOpen] = useState(true);
   const [partial, setPartial] = useState(params.has("partial"));
+  const [readerSelection, setReaderSelection] = useState("");
   const closeRef = useRef<HTMLButtonElement>(null);
   const sheetRef = useDialogFocus(mobile && open, () => setOpen(false), closeRef, { priority: 60, global: true, containFocus: !partial });
   const viewportHeight = "var(--harness-viewport-height, 100dvh)";
   const available = keyboard ? `calc(${viewportHeight} - 280px)` : viewportHeight;
   if (!open) return <p>Assistant closed</p>;
   return <div style={{ minHeight: viewportHeight }} className="flex flex-col bg-background text-foreground">
+    {Reader && <div className="fixed inset-y-0 left-0 w-1/2">
+      <Reader documentId={context.documentId} onSelectionChange={setReaderSelection} embedded />
+    </div>}
     {pickerFixture && <div data-harness-reader className="fixed inset-y-0 w-1/2 overflow-auto" style={{ [position === "right" ? "left" : "right"]: 0 }}>
       {Array.from({ length: 40 }, (_, index) => <p key={index} className="p-4">{context.content}</p>)}
     </div>}
@@ -103,7 +131,8 @@ function Harness() {
         }}
         className="min-h-0 overflow-hidden"
       >
-        <AssistantPanel context={context} position={position} fillContainer appendContextMessages={false}
+        <AssistantPanel context={Reader ? { ...context, selection: readerSelection } : context}
+          position={position} fillContainer appendContextMessages={false}
           conversationKey="controls-fixture"
           mobilePresentation={mobile ? { visible: true, actionsSuppressed: keyboard, sheet: {
             detent: partial ? "partial" : "expanded", hasPartial: true,

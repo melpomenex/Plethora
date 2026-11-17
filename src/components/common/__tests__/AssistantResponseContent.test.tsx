@@ -43,4 +43,19 @@ describe("AssistantResponseContent", () => {
     expect(screen.queryByRole("button", { name: "Seek to [01:10]" })).toBeNull();
   });
 
+  it("keeps selectable text nodes when a video response rerenders", () => {
+    const content = "Select this passage before [14:25].";
+    const initialSeek = vi.fn();
+    const updatedSeek = vi.fn();
+    const { rerender } = render(<AssistantResponseContent content={content} onTimestampClick={initialSeek} />);
+    const originalText = screen.getByText(/Select this passage/).firstChild;
+
+    rerender(<AssistantResponseContent content={content} onTimestampClick={updatedSeek} />);
+
+    expect(screen.getByText(/Select this passage/).firstChild).toBe(originalText);
+    fireEvent.click(screen.getByRole("button", { name: "Seek to [14:25]" }));
+    expect(updatedSeek).toHaveBeenCalledWith(865);
+    expect(initialSeek).not.toHaveBeenCalled();
+  });
+
 });
