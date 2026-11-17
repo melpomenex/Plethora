@@ -6,7 +6,7 @@
  * - openspec/changes/implement-resumable-examination-sessions/ (C4-T07)
  */
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   GraduationCap,
   ArrowLeft,
@@ -18,7 +18,8 @@ import type { AttemptDetail } from '../../../types/assessmentSessions';
 import { calculateAttemptScoreSummary } from '../../../lib/study-plans/attempts/attemptScoring';
 import { checkGradingRecoveryStatus } from '../../../lib/study-plans/grading/gradingRecovery';
 import { startExamAttempt } from '../../../api/exam-sessions';
-import { getAssessmentBlueprintRevision } from '../../../api/assessment-blueprints';
+import { questionReadingProps, useAttemptReadingContext } from './useAttemptReadingContext';
+import { useTabId } from '../../common/Tabs/TabContent';
 import { ObjectiveScoreSummary } from './ObjectiveScoreSummary';
 import { QuestionResultCard } from './QuestionResultCard';
 import { GradingRecoveryPanel } from '../grading/GradingRecoveryPanel';
@@ -48,7 +49,6 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
     useI18n();
     const [filter, setFilter] = useState<ResultFilter>('all');
   const [isRetaking, setIsRetaking] = useState(false);
-  const [isUnverifiedModelOnly, setIsUnverifiedModelOnly] = useState(false);
   const [reviewingItem, setReviewingItem] = useState<{
     question: AssessmentQuestionRevision;
     submissionId: string;
@@ -57,20 +57,8 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
   } | null>(null);
 
   const { attempt, responses, submissions = [], currentGrades, questions = [] } = detail;
-
-  useEffect(() => {
-    let stale = false;
-    if (!attempt.blueprintRevisionId) return;
-    void getAssessmentBlueprintRevision(attempt.blueprintRevisionId).then(
-      (blueprint) => {
-        if (!stale && blueprint?.revision?.config?.knowledgePolicy === 'model-only') {
-          setIsUnverifiedModelOnly(true);
-        }
-      },
-      () => undefined
-    );
-    return () => { stale = true; };
-  }, [attempt.blueprintRevisionId]);
+  const originTabId = useTabId();
+  const readingContext = useAttemptReadingContext(attempt);
 
   const scoreSummary = useMemo(
     () => calculateAttemptScoreSummary(attempt.id, questions, currentGrades),
@@ -133,7 +121,7 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
       role="main"
       aria-label={translateRecentFeature("studyPlans.ui.examination-results.6f3c2d7c")}
     >
-      {isUnverifiedModelOnly && (
+      {readingContext?.modelOnly && (
         <div
           role="status"
           className="flex items-start gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-800 dark:text-amber-200"
@@ -238,7 +226,6 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
             const submissionId = submission?.id || item.grade?.responseSubmissionId || '';
             const draft = item.responseDraft;
             const studentResponse = (draft as any)?.text || (draft as any)?.content || (typeof draft === 'string' ? draft : '');
-
             return (
               <QuestionResultCard
                 key={item.question.id}
@@ -247,6 +234,8 @@ export const AttemptResults: React.FC<AttemptResultsProps> = ({
                 responseDraft={item.responseDraft}
                 responseMark={item.responseMark}
                 grade={item.grade}
+                {...questionReadingProps(readingContext, item.question, item.grade)}
+                originTabId={originTabId}
                 onManualReviewClick={
                   submissionId
                     ? () =>

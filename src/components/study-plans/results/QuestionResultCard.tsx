@@ -21,8 +21,10 @@ import type {
   EssayQuestion,
 } from '../../../types/assessmentQuestions';
 import type { GradeRecord, ResponseMark } from '../../../types/assessmentSessions';
-import type { StudySourceRefV1 } from '../../../types/studySource';
+import type { StudySourceRefV1, StudySourceResolution } from '../../../types/studySource';
+import type { StudyReadingAssignment } from '../../../types/studyReading';
 import { AttemptSourceAction } from './AttemptSourceAction';
+import { ReviewSupportingPassage } from './ReviewSupportingPassage';
 import { RubricResult } from '../grading/RubricResult';
 import { t as translateRecentFeature, useI18n } from "../../../lib/i18n";
 
@@ -36,6 +38,9 @@ export interface QuestionResultCardProps {
   history?: GradeRecord[];
   onManualReviewClick?: () => void;
   sourceRefs?: StudySourceRefV1[];
+  evidence?: StudySourceResolution[];
+  readingAssignment?: StudyReadingAssignment;
+  originTabId?: string;
   className?: string;
 }
 
@@ -48,6 +53,9 @@ export const QuestionResultCard: React.FC<QuestionResultCardProps> = ({
   history = [],
   onManualReviewClick,
   sourceRefs = [],
+  evidence = [],
+  readingAssignment,
+  originTabId,
   className = '',
 }) => {
         useI18n();
@@ -241,12 +249,16 @@ export const QuestionResultCard: React.FC<QuestionResultCardProps> = ({
       )}
 
       {/* Grounding Source Citations */}
-      {sourceRefs.length > 0 && (
+      {(sourceRefs.length > 0 || evidence.length > 0 || readingAssignment) && (
         <div className="pt-2 border-t border-outline-variant/30 space-y-2">
           <span className="text-[11px] font-bold text-on-surface-variant dark:text-on-surface-variant-dark flex items-center gap-1.5 uppercase">
             <BookOpen size={14} className="text-primary dark:text-primary-dark" />
             {translateRecentFeature("studyPlans.ui.grounding-sources.59d3db36")}</span>
           <div className="flex flex-wrap gap-2">
+            {readingAssignment && <ReviewSupportingPassage assignment={readingAssignment} originTabId={originTabId} />}
+            {evidence.map((resolution) => (
+              <AttemptSourceAction key={resolution.ref.id} sourceRef={resolution.ref} resolution={resolution} originTabId={originTabId} />
+            ))}
             {sourceRefs.map((ref) => (
               <AttemptSourceAction key={ref.id} sourceRef={ref} />
             ))}

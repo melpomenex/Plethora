@@ -3,7 +3,7 @@ import { paperReaderCss } from '../../themes/paperMaterialCss';
 import { preserveEpubPublisherStyles, restoreEpubPublisherStyles, epubUsesPublisherAppearance, setEpubDefaultStyleEnabled } from './epubAppearance';
 import { epubAnnotationTargetsAtPoint, type ReaderContextMenuPayload, type PersistedEpubHighlight } from "./annotationContextMenu";
 import { useBreakoutOverlay } from "./BreakoutOverlayModal";
-import { useEffect, useRef, useState, useCallback, type MouseEvent } from "react";
+import { useEffect, useRef, useState, useCallback, type MouseEvent, type ReactNode } from "react";
 import type { EpubSelectionContext, SelectionContext } from "../../types/selection";
 import type { DocumentMetadata, Document } from "../../types/document";
 import ePub from "epubjs";
@@ -571,6 +571,8 @@ interface EPUBViewerProps {
   metadata?: DocumentMetadata;
   onIframeWindowReady?: (iframeWindow: Window) => void;
   onBack?: () => void;
+  readingToolbarAction?: ReactNode;
+  autoFocusContent?: boolean;
   embedded?: boolean;
   onVimRuntimeChange?: (runtime: EpubVimRuntime | null) => void;
   /**
@@ -640,11 +642,15 @@ export function EPUBViewer({
   metadata,
   onIframeWindowReady,
   onBack,
+  readingToolbarAction,
+  autoFocusContent = true,
   embedded = false,
   onVimRuntimeChange,
   selectionInteractionBridge,
   passageContentBridge,
 }: EPUBViewerProps) {
+  const autoFocusContentRef = useRef(autoFocusContent);
+  autoFocusContentRef.current = autoFocusContent;
   const viewerRef = useRef<HTMLDivElement>(null);
   const { attachToDocument: attachBreakoutToDocument, breakoutTrigger, breakoutModal } = useBreakoutOverlay(viewerRef);
   const attachBreakoutToDocumentRef = useRef(attachBreakoutToDocument);
@@ -1743,15 +1749,45 @@ export function EPUBViewer({
                 range.setEnd(end.node, end.offset);
                 return section.cfiFromRange(range);
               },
+              cfiForDomRange: (range) => section.cfiFromRange(range),
             })),
             currentSpineIndex: () => Number((rendition.currentLocation?.() as any)?.start?.index ?? 0),
             currentCfi: () => String((rendition.currentLocation?.() as any)?.start?.cfi ?? "") || null,
             currentWindow: () => (rendition.getContents?.() as any)?.[0]?.window ?? null,
             reveal: async (cfi: string, signal?: AbortSignal) => {
               if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-              await rendition.display(cfi);
+              const ticket = owner.beginToc();
+              const cancel = () => { if (owner.owns(ticket)) owner.userScroll(); };
+              signal?.addEventListener("abort", cancel, { once: true });
+              try {
+                await rendition.display(cfi);
+              } finally {
+                signal?.removeEventListener("abort", cancel);
+                if (owner.settle(ticket)) resizeGuard.flush(cfi);
+              }
               if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
             },
+            alignReadingStart: (range) => {
+              const manager = (rendition as unknown as { manager?: {
+                container?: HTMLElement; isPaginated?: boolean;
+                scrollTo?: (left: number, top: number, silent: boolean) => void;
+              } }).manager;
+              const frame = range.startContainer.ownerDocument?.defaultView?.frameElement;
+              const container = manager?.container;
+              const first = Array.from(range.getClientRects()).find((rect) => rect.width > 0 && rect.height > 0);
+              if (!frame || !container || !first || manager?.isPaginated) return;
+              const delta = frame.getBoundingClientRect().top + first.top - container.getBoundingClientRect().top;
+              const top = Math.max(0, Math.min(container.scrollTop + delta - 18, container.scrollHeight - container.clientHeight));
+              manager?.scrollTo?.(container.scrollLeft, top, true);
+            },
+            bookRangeFromCfi: async (cfi) => {
+              try { return await epubBook.getRange(cfi); } catch { return null; }
+            },
+            renderedSections: () => (rendition.getContents() as unknown as Array<{
+              sectionIndex: number;
+              document: globalThis.Document;
+            }>).flatMap((contents) => contents.document.body
+              ? [{ spineIndex: contents.sectionIndex, root: contents.document.body }] : []),
             rangeFromCfi: (cfi: string) => {
               try { return rendition.getRange?.(cfi) ?? null; } catch { return null; }
             },
@@ -2193,20 +2229,18 @@ export function EPUBViewer({
             
             // Auto-focus the iframe window to enable immediate keyboard navigation.
             //
-            // Never steal focus from a field the user is typing in: showing the
-            // on-screen keyboard resizes the viewport, which makes epub.js
-            // re-render and re-run this — so without the guard, tapping any
-            // input layered over the reader (the selection sheet's question box,
-            // search, a dialog) focused it, opened the keyboard, and then had
-            // focus yanked back 150ms later, closing the keyboard again.
+            // A delayed focus can scroll to a preloaded frame during a
+            // guided jump or steal focus from controls outside the book.
             try {
               setTimeout(() => {
+                if (!autoFocusContentRef.current) return;
                 const active = document.activeElement as HTMLElement | null;
                 if (
                   active &&
                   (active.tagName === "INPUT" ||
                     active.tagName === "TEXTAREA" ||
-                    active.isContentEditable)
+                    active.isContentEditable ||
+                    active.closest('[role="menu"], [aria-haspopup="menu"][aria-expanded="true"]'))
                 ) {
                   return;
                 }
@@ -3799,12 +3833,13 @@ export function EPUBViewer({
           {/* Mobile chrome - Top Bar */}
           <div
             className={cn(
-              "absolute left-0 right-0 top-0 z-40 transition-all duration-300",
+              "z-40 transition-all duration-300",
+              readingToolbarAction && chromeVisible ? "relative shrink-0" : "absolute left-0 right-0 top-0",
               chromeVisible ? "opacity-100 translate-y-0" : "opacity-0 -translate-y-full pointer-events-none"
             )}
           >
               <div className="mx-3 mt-3 rounded-2xl bg-background/95 backdrop-blur border border-border shadow-lg">
-                <div className="flex items-center justify-between px-4 py-3">
+                <div className={cn("flex items-center justify-between px-4 py-3", readingToolbarAction && "max-sm:px-2")}>
                   <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
                     {onBack && !embedded && (
                       <button
@@ -3825,7 +3860,10 @@ export function EPUBViewer({
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0">
-                    <span className="text-xs text-muted-foreground">{progressPercent}%</span>
+                    {chromeVisible && readingToolbarAction}
+                    <span className={cn("text-xs text-muted-foreground", readingToolbarAction && "hidden sm:inline")}>
+                      {progressPercent}%
+                    </span>
                     <button
                       type="button"
                       data-chrome-control="true"

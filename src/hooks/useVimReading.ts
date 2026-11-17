@@ -104,6 +104,7 @@ export function useVimReading({
   // Create a stable keydown handler function
   const makeKeyHandler = useCallback(() => {
     return (e: KeyboardEvent) => {
+      if ((e.target as Element | null)?.closest?.('[role="menu"]')) return;
       const engine = engineRef.current;
       if (!engine) return;
 

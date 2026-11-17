@@ -46,6 +46,8 @@ export interface PlanOutlineProps {
   onChangeNodes: (updatedNodes: StudyPlanVersionNode[]) => void;
   onChangeNode?: (updatedNode: StudyPlanVersionNode) => void;
   onStartLesson?: (nodeId: string) => void;
+  onOpenReading?: (nodeId: string) => void;
+  readingActionLabel?: (nodeId: string) => string | undefined;
   isReadOnly?: boolean;
 }
 
@@ -58,6 +60,8 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
   onChangeNodes,
   onChangeNode,
   onStartLesson,
+  onOpenReading,
+  readingActionLabel,
   isReadOnly = false,
 }) => {
         useI18n();
@@ -150,6 +154,10 @@ export const PlanOutline: React.FC<PlanOutlineProps> = ({
 
     if (onStartLesson) {
       items.push({ id: 'start-lesson', label: translateRecentFeature("studyPlans.ui.start-lesson.a198f27f"), icon: <PlayCircle size={16} />, onClick: () => onStartLesson(node.nodeId) });
+    }
+    const readLabel = readingActionLabel?.(node.nodeId);
+    if (readLabel && onOpenReading) {
+      items.push({ id: 'read-topic', label: readLabel, onClick: () => onOpenReading(node.nodeId) });
     }
 
     if (!isReadOnly) {

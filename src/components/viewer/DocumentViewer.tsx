@@ -147,6 +147,9 @@ import type { DocumentInitialJump, ExtractSourceContext } from "../../types/extr
 import type { DocumentSearchState } from "../../types/searchHit";
 import { ReaderTTSControls, type ReaderTTSHandle } from "../common/ReaderTTSControls";
 import { useIsActiveTab, usePaneId, useTabId } from "../common/Tabs/TabContent";
+import { useStudyTrail } from "../../lib/study-plans/reading/trailController";
+import { useStudyTrailReader } from "../../lib/study-plans/reading/useStudyTrailReader";
+import { StudyTrailControls } from "./StudyTrailControls";
 import { useTabReactivation } from "../../hooks/useTabReactivation";
 import { generateShareUrl, copyShareLink, DocumentState, parseStateFromUrl } from "../../lib/shareLink";
 import { usePdfUrlState } from "../../hooks/usePdfUrlState";
@@ -750,6 +753,9 @@ export function DocumentViewer({
 
   const paneId = usePaneId();
   const tabId = useTabId();
+  const studyRequest = useStudyTrail((state) => tabId && state.tabId === tabId &&
+    state.request?.assignment.documentId === documentId ? state.request : null);
+  const hasStudyTrailControls = useStudyTrail((state) => Boolean(tabId && state.tabId === tabId && state.request));
   // TabContent already tracks the active tab for the current pane. Using that
   // context avoids a startup race where the tab store has not yet rebuilt its
   // pane indexes, which otherwise prevents the active viewer from hydrating.
@@ -2795,7 +2801,7 @@ export function DocumentViewer({
     sourceRevision: passageSourceRevision,
     adapterFactory: passageAdapterFactory,
     adapterKey: passageAdapterKey,
-    isForeground: isTabActive && viewMode === "document",
+    isForeground: isTabActive && viewMode === "document" && !studyRequest,
     featureEnabled: settings.features.aiExtractWorthiness !== false,
     durable: true,
     handlers: passageHandlers,
@@ -6977,12 +6983,21 @@ export function DocumentViewer({
 
     const searchMarks = Array.from(doc.querySelectorAll("mark[data-search-highlight='true']")) as HTMLElement[];
     const normalizedQuote = initialJump.textQuote?.trim().toLowerCase();
+    if (!normalizedQuote && initialJump.selector) {
+      try {
+        const targets = doc.querySelectorAll(initialJump.selector);
+        if (targets.length === 1) {
+          targets[0].scrollIntoView({ block: "start", inline: "nearest" });
+          return;
+        }
+      } catch { /* An old selector can fall back to the saved approximate scroll position. */ }
+    }
     const targetMark =
       (normalizedQuote
         ? searchMarks.find((mark) => (mark.textContent ?? "").trim().toLowerCase() === normalizedQuote) ??
           searchMarks.find((mark) => (mark.textContent ?? "").trim().toLowerCase().includes(normalizedQuote))
         : undefined) ??
-      searchMarks[0];
+      (normalizedQuote ? searchMarks[0] : undefined);
 
     if (targetMark) {
       targetMark.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
@@ -7331,6 +7346,27 @@ export function DocumentViewer({
     };
   }, [isHtmlViewer, viewMode, captureHtmlScrollState, handleScrollPositionChange, currentDocument?.id]);
 
+  const [markdownStudyRoot, setMarkdownStudyRoot] = useState<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!studyRequest || studyRequest.coarse || studyRequest.signal.aborted) return;
+    setViewMode("document");
+    setIsPaletteMode(false);
+    if (studyRequest.assignment.format === "pdf") setPdfViewMode("pdf");
+  }, [studyRequest]);
+  useStudyTrailReader({
+    document: currentDocument,
+    tabId,
+    foreground: isTabActive,
+    ready: !isLoading && viewMode === "document" && !isPaletteMode &&
+      (docType !== "html" || isHtmlFrameReady) && (docType !== "pdf" || pdfViewMode !== "ocr-html"),
+    surfaceCanShowPassage: docType !== "pdf" || pdfViewMode !== "ocr-html",
+    appearanceKey: appearance?.readerTokens.accent ?? appliedReaderTheme?.id,
+    epub: epubVimRuntime,
+    pdf: pdfVimRuntime,
+    root: docType === "html" && isHtmlFrameReady
+      ? iframeElement?.contentDocument?.body ?? null : markdownStudyRoot,
+  });
+
   if (!currentDocument) {
     // Some embedded surfaces can mount briefly without a document id while
     // their parent is restoring its queue item. Do not let that placeholder
@@ -7348,6 +7384,9 @@ export function DocumentViewer({
   // the document identity is known, don't let DocumentViewer's hydration gate
   // hide that player behind a permanent "Loading document..." state.
   const canRenderAudioViewer = renderEditionPlayer;
+  const studyTrailControls = !embedded && isTabActive && tabId && hasStudyTrailControls
+    ? <StudyTrailControls tabId={tabId} />
+    : null;
 
   return (
     <div
@@ -7387,6 +7426,7 @@ export function DocumentViewer({
 
             {/* Right: Search, Extract, and More menu */}
             <div className="flex items-center gap-1.5 flex-shrink-0">
+              {!showSearch && studyTrailControls}
               {showSearch ? (
                 <div className="absolute inset-x-0 inset-y-0 bg-card z-50 flex items-center gap-2 p-2">
                   <input
@@ -7884,6 +7924,7 @@ export function DocumentViewer({
         </div>
 
         <div className="flex min-w-0 max-w-full flex-[1_1_24rem] flex-wrap items-center justify-end gap-1 overflow-x-auto pr-1 sm:gap-2 sm:pr-0">
+          {studyTrailControls}
           {/* Search */}
           {showSearch ? (
             <div className="flex items-center gap-2 bg-muted rounded-md p-1">
@@ -8494,6 +8535,8 @@ export function DocumentViewer({
             documentId={currentDocument.id}
             doc={currentDocument}
             onBack={handleBack}
+            readingToolbarAction={isMobileTouch && !isFullscreen ? studyTrailControls : null}
+            autoFocusContent={!studyRequest}
             embedded={embedded}
             onLoad={(toc) => handleDocumentLoad(0, toc)}
             onSelectionChange={updateSelection}
@@ -8741,7 +8784,9 @@ export function DocumentViewer({
             <MarkdownViewer
               document={currentDocument}
               content={currentDocument.content}
+              onContentRoot={setMarkdownStudyRoot}
               initialScrollPercent={
+                studyRequest && !studyRequest.coarse ? undefined :
                 initialJump?.kind === "markdown" || initialJump?.kind === "text"
                   ? initialJump.scrollPercent
                   : currentDocument.currentScrollPercent
@@ -8981,12 +9026,13 @@ export function DocumentViewer({
                 scrollHtmlFrameToInitialHit();
                 // Restore saved scroll position (skip if initialJump already scrolled)
                 const pending = htmlRestorationPendingRef.current;
-                const waitForScrollRestore = Boolean(pending && !initialJump);
-                if (pending && !initialJump) {
+                const waitForScrollRestore = Boolean(pending && !initialJump && !studyRequest);
+                if (pending && !initialJump && !studyRequest) {
                   // Wait a short delay to ensure injected styles are reflowed by the browser,
                   // avoiding scroll clamping issues on unrendered/unexpanded document.
                   setTimeout(() => {
                     try {
+                      if (useStudyTrail.getState().tabId === tabId) return;
                       const win = iframeRef.current?.contentWindow;
                       const doc = iframeRef.current?.contentDocument;
                       if (win && doc) {
@@ -9629,6 +9675,7 @@ export function DocumentViewer({
                 <span className="text-sm font-medium text-foreground">{t("viewer.exitFullscreenShort")}</span>
                 <span className="text-xs text-muted-foreground ml-2">{t("viewer.pressF11OrEsc")}</span>
               </button>
+              {studyTrailControls}
               {GLOBAL_AUDIO_PLAYBACK_ENABLED && <FullscreenAudioChromeButton label={t("audio.player")} />}
             </div>
           </div>
@@ -9804,7 +9851,7 @@ export function DocumentViewer({
 
       {/* Passage extract-worthiness indicator (absolute chrome; reserves no
           document space and hides while the adapter is detached). */}
-      <PassageScoreOverlay
+      {!studyRequest && <PassageScoreOverlay
         results={passageScoring.results}
         projectRects={passageScoring.projectRects}
         narrow={isMobileTouch}
@@ -9822,7 +9869,7 @@ export function DocumentViewer({
         statusReasonKey={passageScoring.statusReasonKey}
         canCreateObjects={passageHandlers.canCreateObjects}
         learnThisEnabled={aiLearnThisEnabled}
-      />
+      />}
     </div>
   );
 }

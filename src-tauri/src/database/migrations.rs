@@ -5981,6 +5981,19 @@ pub const MIGRATIONS: &[Migration] = &[
         END;
         "#,
     ),
+    Migration::new(
+        "153_study_reading_trails",
+        r#"
+        CREATE TABLE study_reading_trails (
+            version_id TEXT PRIMARY KEY REFERENCES study_plan_versions(id) ON DELETE CASCADE,
+            revision INTEGER NOT NULL CHECK (revision > 0),
+            manifest_json TEXT NOT NULL,
+            session_json TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL
+        );
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

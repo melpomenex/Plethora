@@ -25,6 +25,7 @@ interface MarkdownViewerProps {
   onCreateFlashcard?: (excerpt: string) => void;
   /** Callback when user right-clicks on selected text */
   onContextMenu?: (event: ReaderContextMenuPayload) => void;
+  onContentRoot?: (root: HTMLDivElement | null) => void;
 }
 
 function escapeRegex(term: string): string {
@@ -50,10 +51,15 @@ export function MarkdownViewer({
   onSelectionChange,
   onCreateFlashcard,
   onContextMenu,
+  onContentRoot,
 }: MarkdownViewerProps) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const attachContent = useCallback((root: HTMLDivElement | null) => {
+    contentRef.current = root;
+    onContentRoot?.(root);
+  }, [onContentRoot]);
   const { breakoutTrigger, breakoutModal } = useBreakoutOverlay(contentRef);
   const isRestoringRef = useRef(false);
   const hasRestoredRef = useRef(false);
@@ -327,7 +333,7 @@ export function MarkdownViewer({
     >
       <h1 className="reading-title">{document.title}</h1>
       {content ? (
-        <div ref={contentRef} data-language-content-root="true" dangerouslySetInnerHTML={{ __html: html }} />
+        <div ref={attachContent} data-language-content-root="true" dangerouslySetInnerHTML={{ __html: html }} />
       ) : (
         <div className="text-muted-foreground italic">{t("viewer.noContentAvailable")}</div>
       )}

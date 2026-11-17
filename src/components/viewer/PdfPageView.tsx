@@ -6,7 +6,7 @@ import * as pdfjsLib from "pdfjs-dist";
 // itself, and manages the canvas + text-layer render lifecycle. Using it removes
 // the hand-rolled DOM/cancel/`parentNode-is-null` defensive code that broke
 // text selection on WKWebView and on every pdf.js upgrade.
-import { PDFPageView, EventBus } from "pdfjs-dist/web/pdf_viewer.mjs";
+import { PDFPageView, EventBus, RenderingStates } from "pdfjs-dist/web/pdf_viewer.mjs";
 import type { PageViewport } from "pdfjs-dist";
 import { HighlightLayer, type StoredHighlight } from "./HighlightLayer";
 import { SelectionOverlay } from "./SelectionOverlay";
@@ -207,8 +207,8 @@ export function PdfPageViewWrapper({
 
   // Re-render on scale change (zoom / fit-width / fit-page recalculation).
   // PDFPageView.update({ scale }) sets this.scale, recomputes the viewport, and
-  // triggers a reset+draw internally (standalone mode). We just surface the
-  // resulting canvas/viewport/text layer back to the parent after it settles.
+  // can reset the page, leaving its preserved text layer hidden. The
+  // standalone wrapper owns drawing when there is no rendering queue.
   useEffect(() => {
     const pageView = pageViewRef.current;
     if (!pageView) return;
@@ -217,10 +217,10 @@ export function PdfPageViewWrapper({
     let cancelled = false;
     (async () => {
       try {
-        // update() dispatches pagerendered when done; the event listener above
-        // surfaces canvas/viewport. Wait a microtask for it to flush.
         pageView.update({ scale: pdfScale });
-        await new Promise<void>((r) => setTimeout(r, 0));
+        if (pageView.renderingState === RenderingStates.INITIAL) {
+          await pageView.draw();
+        }
       } catch (err: any) {
         if (cancelled) return;
         if (err?.name === "RenderingCancelledException") return;

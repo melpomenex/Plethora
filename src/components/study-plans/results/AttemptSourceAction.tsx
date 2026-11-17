@@ -9,17 +9,21 @@
 import React, { useState } from 'react';
 import { BookOpen, WarningCircle } from '@phosphor-icons/react';
 import { openStudySource } from '../../../lib/study-plans/openStudySource';
-import type { StudySourceRefV1 } from '../../../types/studySource';
+import type { StudySourceRefV1, StudySourceResolution } from '../../../types/studySource';
 import { useI18n } from "../../../lib/i18n";
 import { studyErrorMessage } from "../../../lib/study-plans/studyErrorMessage";
 
 export interface AttemptSourceActionProps {
   sourceRef: StudySourceRefV1;
+  resolution?: StudySourceResolution;
+  originTabId?: string;
   className?: string;
 }
 
 export const AttemptSourceAction: React.FC<AttemptSourceActionProps> = ({
   sourceRef,
+  resolution,
+  originTabId,
   className = '',
 }) => {
   const { t } = useI18n();
@@ -32,7 +36,9 @@ export const AttemptSourceAction: React.FC<AttemptSourceActionProps> = ({
     setOpening(true);
 
     try {
-      const outcome = await openStudySource(sourceRef);
+      const outcome = await openStudySource(resolution ?? sourceRef, {
+        returnContext: originTabId ? { originTabId } : undefined,
+      });
       if (!outcome.success && 'message' in outcome) {
         setErrorMsg(studyErrorMessage(outcome.message, t("studyPlans.ui.operation-failed")));
       }

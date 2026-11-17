@@ -1057,7 +1057,7 @@ export function PDFViewer({
       const el = span as HTMLElement;
       if (!el.dataset.origHtml) {
         el.dataset.origHtml = el.innerHTML;
-      } else {
+      } else if (el.innerHTML !== el.dataset.origHtml) {
         el.innerHTML = el.dataset.origHtml;
       }
       delete el.dataset.searchMarkCount;
@@ -2701,16 +2701,23 @@ export function PDFViewer({
       },
       revealPage: async (targetPage, signal) => {
         if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
-        setRenderedPageRange((range) => ({ start: Math.min(range.start, targetPage), end: Math.max(range.end, targetPage) }));
+        beginExplicitNavigation();
+        const start = Math.max(metadata?.chunkStartPage ?? 1, targetPage - 2);
+        const end = Math.min(metadata?.chunkEndPage ?? numPages, targetPage + 2);
+        setRenderedPageRange({ start, end });
         onPageChangeRef.current?.(targetPage);
         for (let attempt = 0; attempt < 20; attempt += 1) {
           if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+          const reflowPage = scrollContainerRef.current?.querySelector(`[data-pdf-reflow-page="${targetPage}"]`);
+          if (reflowPage) { reflowPage.scrollIntoView({ block: "start", behavior: "instant" }); return; }
           const pageElement = pageContainerRefs.current[targetPage - 1];
-          if (pageElement) { pageElement.scrollIntoView({ block: "center", behavior: "instant" }); return; }
+          if (pageElement?.isConnected) { pageElement.scrollIntoView({ block: "center", behavior: "instant" }); return; }
           await new Promise((resolve) => setTimeout(resolve, 25));
         }
       },
-      textLayer: (targetPage) => textLayerRootsRef.current[targetPage - 1],
+      textLayer: (targetPage) => scrollContainerRef.current?.querySelector<HTMLElement>(
+        `[data-pdf-reflow-page="${targetPage}"]`,
+      ) ?? textLayerRootsRef.current[targetPage - 1],
       pageSelectionContext: (targetPage, range) => {
         const pageElement = pageContainerRefs.current[targetPage - 1];
         const viewport = pageViewportRefs.current[targetPage - 1];
@@ -2731,7 +2738,12 @@ export function PDFViewer({
     };
     onVimRuntimeChangeRef.current?.(runtime);
     return () => { onVimRuntimeChangeRef.current?.(null); };
-  }, [documentId, numPages, pdf]);
+  }, [beginExplicitNavigation, documentId, metadata?.chunkEndPage, metadata?.chunkStartPage, numPages, pdf]);
+
+  useEffect(() => {
+    if (mobilePdfMode !== "reflow") return;
+    vimRuntimeListenersRef.current.forEach((listener) => listener({ kind: "geometry" }));
+  }, [canonicalPages, mobilePdfMode]);
 
   // Selection persistence (native DOM selection + committed overlay).
   //
@@ -4213,7 +4225,7 @@ export function PDFViewer({
                 <div className="text-muted-foreground">{t("viewer.loadingPdf")}</div>
               </div>
             ) : (
-              <div className="mx-auto flex flex-col items-center gap-6 w-full">
+              <div className="mx-auto flex w-full min-w-max flex-col items-center gap-6">
                 {shouldVirtualize && topSpacerHeight > 0 && (
                   <div
                     aria-hidden="true"

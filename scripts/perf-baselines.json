@@ -7,6 +7,10 @@
   },
   "recordedFrom": "Original cohort: https://github.com/melpomenex/Incrementum/actions/runs/31182419989. Tab-workspace additions and Precision runner-class correction: median of three calibrated Linux x86_64 / Node 22.22.1 runs on 2026-08-13. Anki import Node 24 correction: median of runs 31736712215 and attempts 1-2 of 31737723373. PDF-reflow hot paths (point/rect round trips, canonical anchor resolution): first add-pdf-reflow implementation session, local bench:check run. Canonical documentation and Ask Plethora help retrieval suite recorded locally. Command-palette hub selectors (resume/recent/scope filters): calibrated Linux x86_64 / Node 22.22.1 run on 2026-10-14.",
   "benchmarks": {
+    "resolve a bounded chapter with duplicate phrases": {
+      "cost": 0.11,
+      "reason": "Initial calibrated Guided Reading baseline for resolving a chapter-sized text quote using surrounding context."
+    },
     "kp-timeline/build": {
       "cost": 0.0103,
       "reason": "knowledge-peck-startup-animation: initial baseline for the startup overlay's launch-time registry lookup + phase-closure build (200 iterations)."

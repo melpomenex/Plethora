@@ -72,6 +72,9 @@ export interface StudyPlanGraphViewProps {
   onChangeActivity: (nodeId: string, activity: NodeActivity) => void;
   onStartLesson: (nodeId: string) => void;
   onStartPractice?: (nodeId: string) => void;
+  readingActionLabel?: (nodeId: string, documentId?: string) => string | undefined;
+  onOpenReading?: (nodeId: string, documentId?: string) => void;
+  readingBusy?: boolean;
   onOpenSource: (refId: string, resolution?: StudySourceResolution) => void;
   isReadOnly: boolean;
   mode?: OutlineViewMode;
@@ -126,6 +129,9 @@ export const StudyPlanGraphView: React.FC<StudyPlanGraphViewProps> = ({
   onChangeActivity,
   onStartLesson,
   onStartPractice,
+  readingActionLabel,
+  onOpenReading,
+  readingBusy,
   onOpenSource,
   isReadOnly,
   mode = 'graph',
@@ -1248,6 +1254,9 @@ export const StudyPlanGraphView: React.FC<StudyPlanGraphViewProps> = ({
             onOpenEditDrawer={(id) => setEditingNodeId(id)}
             onStartLesson={onStartLesson}
             onStartPractice={onStartPractice}
+            readingActionLabel={readingActionLabel}
+            onOpenReading={onOpenReading}
+            readingBusy={readingBusy}
             onOpenSource={onOpenSource}
             onToggleHighlight={handleToggleHighlight}
             onAddPrerequisite={handleAddPrerequisite}

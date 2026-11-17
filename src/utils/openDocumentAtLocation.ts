@@ -30,6 +30,10 @@ export interface OpenDocumentAtLocationOptions {
   initialJump?: ExactSearchHitLocation;
   /** Capture previews can outlive a deleted persisted record, including a cached one. */
   ensureExists?: boolean;
+  /** A caller that already checked the live document can reuse that lookup. */
+  resolvedDocument?: Document;
+  signal?: AbortSignal;
+  onOpened?: (tabId: string) => void;
 }
 
 /**
@@ -106,11 +110,13 @@ export async function openDocumentAtLocation(
   addTab: TabsState["addTab"],
   returnContext?: ReviewReturnContext
 ): Promise<boolean> {
-  let doc = useDocumentStore.getState().documents.find((d) => d.id === documentId);
-  if (!doc || options.ensureExists) {
+  let doc = options.resolvedDocument?.id === documentId
+    ? options.resolvedDocument
+    : useDocumentStore.getState().documents.find((d) => d.id === documentId);
+  if (!doc || (options.ensureExists && doc !== options.resolvedDocument)) {
     try { doc = (await getDocument(documentId)) ?? undefined; } catch { return false; }
   }
-  if (!doc) return false;
+  if (!doc || options.signal?.aborted) return false;
   // Record the opening for the palette's "Open recent document" (collection
   // keyed). This is the canonical document-open boundary; mere palette
   // previews never call this helper, so a preview cannot fake reading history.
@@ -136,8 +142,10 @@ export async function openDocumentAtLocation(
     if (existing.paneId) {
       useTabsStore.getState().setActiveTab(existing.paneId, existing.tab.id);
     }
+    options.onOpened?.(existing.tab.id);
     return true;
   }
-  addTab(buildTabPayload(doc, options, jumpRequestId, returnContext));
+  const tabId = addTab(buildTabPayload(doc, options, jumpRequestId, returnContext));
+  options.onOpened?.(tabId);
   return true;
 }

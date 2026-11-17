@@ -7,6 +7,7 @@ export interface EpubVimSectionRuntime {
   cfiForElement(element: Element, edge: "start" | "end"): string;
   cfiForTextOffset(element: Element, offset: number, edge: "start" | "end"): string;
   cfiForRange(startOffset: number, endOffset: number): Promise<string>;
+  cfiForDomRange?(range: Range): string;
 }
 
 export interface EpubVimRuntime {
@@ -18,6 +19,9 @@ export interface EpubVimRuntime {
   reveal(cfi: string, signal?: AbortSignal): Promise<void>;
   rangeFromCfi(cfi: string): Range | null;
   cfiFromRange(range: Range): string;
+  bookRangeFromCfi?(cfi: string): Promise<Range | null>;
+  renderedSections?(): Array<{ spineIndex: number; root: HTMLElement }>;
+  alignReadingStart?(range: Range): void;
   subscribe(listener: (event: { kind: "content" | "geometry" | "destroyed"; spineIndex?: number }) => void): () => void;
 }
 

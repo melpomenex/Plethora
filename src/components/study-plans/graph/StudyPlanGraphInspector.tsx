@@ -25,6 +25,7 @@ import type {
   StudyPlanSourceGraphNode,
 } from '../../../lib/study-plans/graph/types';
 import { t, useI18n } from '../../../lib/i18n';
+import { Button } from '../../md3/Button';
 import { NodeActivityControl } from '../NodeActivityControl';
 import { getEdgeSupportLabel } from './StudyPlanGraphEdge';
 import {
@@ -49,6 +50,9 @@ export interface StudyPlanGraphInspectorProps {
   onOpenEditDrawer: (nodeId: string) => void;
   onStartLesson: (nodeId: string) => void;
   onStartPractice?: (nodeId: string) => void;
+  readingActionLabel?: (nodeId: string, documentId?: string) => string | undefined;
+  onOpenReading?: (nodeId: string, documentId?: string) => void;
+  readingBusy?: boolean;
   onOpenSource: (refId: string, resolution?: StudySourceResolution) => void;
   onToggleHighlight: (kind: 'prerequisites' | 'dependents', nodeId: string) => void;
   onAddPrerequisite: (prerequisiteNodeId: string, dependentNodeId: string) => void;
@@ -97,6 +101,9 @@ export const StudyPlanGraphInspector: React.FC<StudyPlanGraphInspectorProps> = (
   onOpenEditDrawer,
   onStartLesson,
   onStartPractice,
+  readingActionLabel,
+  onOpenReading,
+  readingBusy,
   onOpenSource,
   onToggleHighlight,
   onAddPrerequisite,
@@ -178,12 +185,14 @@ export const StudyPlanGraphInspector: React.FC<StudyPlanGraphInspectorProps> = (
                 const topic = nodeById[topicId];
                 if (!topic) return null;
                 const actStyle = getActivityStyle(topic.activity);
+                const documentId = selectedSourceNode.documentId ?? undefined;
+                const readLabel = documentId && readingActionLabel?.(topicId, documentId);
                 return (
-                  <button
-                    key={topicId}
+                  <div key={topicId} className="flex flex-wrap items-center gap-1">
+                    <button
                     type="button"
                     onClick={() => onSelectTopic(topicId)}
-                    className="w-full text-left px-3 py-2 rounded-xl border flex items-center gap-2 hover:opacity-90 cursor-pointer"
+                    className="min-w-0 flex-1 text-left px-3 py-2 rounded-xl border flex items-center gap-2 hover:opacity-90 cursor-pointer"
                     style={{
                       backgroundColor: tokens.nodeSurface,
                       borderColor: tokens.borderSubtle,
@@ -194,7 +203,13 @@ export const StudyPlanGraphInspector: React.FC<StudyPlanGraphInspectorProps> = (
                       {topic.included ? `${topic.curriculumNumber}. ` : ''}
                       {topic.title}
                     </span>
-                  </button>
+                    </button>
+                    {readLabel && onOpenReading && (
+                      <Button variant="text" size="sm" disabled={readingBusy} onClick={() => onOpenReading(topicId, documentId)}>
+                        {readLabel}
+                      </Button>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -357,6 +372,13 @@ export const StudyPlanGraphInspector: React.FC<StudyPlanGraphInspectorProps> = (
             <PencilSimple size={13} aria-hidden="true" />
             <span>{t('studyPlans.graph.editTopic')}</span>
           </button>
+
+          {onOpenReading && readingActionLabel?.(selectedNode.nodeId) && (
+            <Button variant="tonal" size="sm" disabled={readingBusy} onClick={() => onOpenReading(selectedNode.nodeId)}>
+              <BookOpen size={16} aria-hidden="true" />
+              {readingActionLabel(selectedNode.nodeId)}
+            </Button>
+          )}
 
           {onStartPractice && (
             <button

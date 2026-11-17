@@ -70,6 +70,8 @@ import { StudyPlansScrollContainer } from './StudyPlansScrollContainer';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { studyErrorMessage } from '../../lib/study-plans/studyErrorMessage';
 import { AssessmentList } from './assessments/AssessmentList';
+import { StudyReadingControls, useStudyReading } from './reading/StudyReadingControls';
+import { getAssessmentBlueprintRevision, listAssessmentBlueprints } from '../../api/assessment-blueprints';
 import { WebResearchPanel } from './WebResearchPanel';
 import type { AssessmentConfigV1 } from '../../types/assessmentQuestions';
 import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
@@ -305,6 +307,32 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
       knowledgePolicy: authority.kind === 'model-only' ? 'model-only' : 'source-only',
     }, translateRecentFeature('studyPlans.lesson.practiceTitle', { topic: topic?.title ?? planDetail.plan.title }));
   };
+
+  const handleReadingCheck = async (nodeId: string) => {
+    const { plan, version } = planDetail;
+    const candidates = await listAssessmentBlueprints(plan.id).catch(() => []);
+    const readyChecks = candidates.filter((row) => row.state === 'ready' && row.lifecycle === 'active' &&
+      row.mode === 'practice' && row.questionCount <= 5 && row.currentRevisionId).slice(0, 6);
+    const prepared = await Promise.all(readyChecks.map(({ currentRevisionId }) =>
+      getAssessmentBlueprintRevision(currentRevisionId!).catch(() => null),
+    ));
+    const existing = prepared.find((entry) => entry?.revision.planVersionId === version.id &&
+      entry.revision.config.knowledgePolicy === 'source-only' && entry.revision.config.topicTargets.length === 1 &&
+      entry.revision.config.topicTargets[0].nodeId === nodeId);
+    if (existing) {
+      onOpenAssessmentBuilder?.(plan.id, version.id, existing.revision.id);
+      return;
+    }
+    const topic = nodes.find((node) => node.nodeId === nodeId);
+    onOpenAssessmentBuilder?.(plan.id, version.id, undefined, {
+      ...assessmentConfigForTopic(nodeId),
+      mode: 'practice', requestedCount: 3, timeLimitSeconds: null,
+      typeWeights: { 'single-select': 2, 'multi-select': 0, cloze: 1, 'short-answer': 0, essay: 0 },
+    }, translateRecentFeature('studyPlans.lesson.practiceTitle', { topic: topic?.title ?? plan.title }));
+  };
+  const reading = useStudyReading(planDetail, originTabId, onOpenAssessmentBuilder ? (id) => void handleReadingCheck(id) : undefined);
+  const readingAssignmentFor = (topicId: string, documentId: string) =>
+    reading.trail?.manifest.assignments.find((item) => item.topicId === topicId && item.documentId === documentId);
 
   const handleOpenSource = (refId: string, resolution = planDetail.sourceRefs[refId]) => {
     if (onOpenSource) {
@@ -716,6 +744,8 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
         </div>
       )}
 
+      <StudyReadingControls detail={planDetail} topic={selectedNode} reading={reading} />
+
       {!isDraft && (
         nextStudyNode ? (
           <section
@@ -916,6 +946,10 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
             onChangeActivity={handleActivityChange}
             onStartLesson={handleStartLesson}
             onStartPractice={onOpenAssessmentBuilder ? handleLessonPractice : undefined}
+            readingActionLabel={(topicId, documentId) => (documentId ? readingAssignmentFor(topicId, documentId) : reading.canOpen(topicId))
+              ? reading.label(topicId) : undefined}
+            onOpenReading={(topicId, documentId) => void reading.open(topicId, documentId ? readingAssignmentFor(topicId, documentId)?.id : undefined)}
+            readingBusy={Boolean(reading.status)}
             onOpenSource={handleOpenSource}
             isReadOnly={!isDraft}
             mode="graph"
@@ -942,12 +976,19 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
                   onChangeNodes={handleNodesChange}
                   onChangeNode={handleNodeUpdate}
                   onStartLesson={handleStartLesson}
+                  onOpenReading={(topicId) => void reading.open(topicId)}
+                  readingActionLabel={(topicId) => reading.canOpen(topicId) ? reading.label(topicId) : undefined}
                   isReadOnly={!isDraft}
                 />
               </div>
 
               {/* Right: Selected Node Editor */}
-              <div className="lg:col-span-7">
+              <div className="lg:col-span-7 space-y-3">
+                {selectedNode && reading.canOpen(selectedNode.nodeId) && (
+                  <Button variant="tonal" size="sm" disabled={Boolean(reading.status)} onClick={() => void reading.open(selectedNode.nodeId)}>
+                    {reading.label(selectedNode.nodeId)}
+                  </Button>
+                )}
                 {selectedNode ? (
                   <PlanNodeEditor
                     node={selectedNode}
