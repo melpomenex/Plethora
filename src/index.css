@@ -1008,10 +1008,13 @@
     pointer-events: none;
   }
 
-  /* Scenic animated themes paint on a fixed canvas behind the shell. */
+  /* Scenic animated themes and image-backed themes paint behind the shell. */
   :root[data-theme-animation] body,
   :root[data-theme-animation] #root,
-  :root[data-theme-animation] .adaptive-shell-root {
+  :root[data-theme-animation] .adaptive-shell-root,
+  :root[data-theme-image-backdrop="true"] body,
+  :root[data-theme-image-backdrop="true"] #root,
+  :root[data-theme-image-backdrop="true"] .adaptive-shell-root {
     background: transparent !important;
     background-color: transparent !important;
   }
@@ -1027,9 +1030,32 @@
   :root[data-theme-animation="jellyfish"] .app-shell,
   :root[data-theme-animation="jellyfish"] .bg-background:not(.app-shell),
   :root[data-theme-animation="jellyfish"] .main-content,
-  :root[data-theme-animation="jellyfish"] .bg-cream {
+  :root[data-theme-animation="jellyfish"] .bg-cream,
+  :root[data-theme-image-backdrop="true"] .app-shell,
+  :root[data-theme-image-backdrop="true"] .bg-background:not(.app-shell),
+  :root[data-theme-image-backdrop="true"] .main-content,
+  :root[data-theme-image-backdrop="true"] .bg-cream {
     background: transparent !important;
     background-color: transparent !important;
+  }
+
+  :root[data-theme-image-backdrop="true"] .bg-card {
+    background-color: rgba(var(--theme-card-rgb), var(--theme-surface-opacity, 0.78)) !important;
+    backdrop-filter: blur(14px) saturate(1.2);
+    -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  }
+
+  :root[data-theme-image-backdrop="true"] .bg-sidebar,
+  :root[data-theme-image-backdrop="true"] aside {
+    background-color: rgba(var(--theme-sidebar-rgb), var(--theme-surface-opacity, 0.78)) !important;
+    backdrop-filter: blur(16px) saturate(1.2);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  }
+
+  :root[data-theme-image-backdrop="true"] .bg-toolbar {
+    background-color: rgba(var(--theme-toolbar-rgb), var(--theme-surface-opacity, 0.78)) !important;
+    backdrop-filter: blur(16px) saturate(1.2);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
   }
 
   .theme-backdrop-canvas {

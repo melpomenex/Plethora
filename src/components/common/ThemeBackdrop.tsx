@@ -9,6 +9,7 @@ import {
 } from "./ambient/renderer/createThemeRenderer";
 import { findEffect } from "./ambient/renderer/effects";
 import type { RendererInputs } from "./ambient/renderer/types";
+import { loadBackdropImage } from "../../themes/imageStorage";
 
 /**
  * Ambient animated backdrop. React owns lifecycle and environment state; the
@@ -17,16 +18,20 @@ import type { RendererInputs } from "./ambient/renderer/types";
  * their own canvas element inside the host div below.
  */
 export function ThemeBackdrop() {
-  const { theme, themes = [], previewThemeId = null } = useTheme();
+  const { theme, appliedTheme, themes = [], previewThemeId = null } = useTheme();
   const activeTheme =
-    (previewThemeId !== null && themes.find((t) => t.id === previewThemeId)) || theme;
+    appliedTheme ||
+    (previewThemeId !== null && themes.find((t) => t.id === previewThemeId)) ||
+    theme;
   const settings = useSettingsStore((s) => s.settings.interface);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const controllerRef = useRef<BackdropController | null>(null);
   const [suspended, setSuspended] = useState(false);
   const [isVisible, setIsVisible] = useState(!document.hidden);
+  const [resolvedImageUrl, setResolvedImageUrl] = useState<string | null>(null);
 
   const animation = activeTheme.effects?.backgroundAnimation;
+  const bgImage = activeTheme.effects?.backgroundImage;
   const ambientPaletteId = activeTheme.effects?.ambientPaletteId ?? activeTheme.id;
   const { onBattery } = useBattery();
   const density = settings.animationFrequency;
@@ -182,7 +187,64 @@ export function ThemeBackdrop() {
     });
   }, [brightnessGain]);
 
-  if (!animation || suspended) return null;
+  useEffect(() => {
+    if (!bgImage?.imageId) {
+      setResolvedImageUrl(null);
+      return;
+    }
+    let cancelled = false;
+    loadBackdropImage(bgImage.imageId).then((url) => {
+      if (!cancelled) {
+        setResolvedImageUrl(url || bgImage.thumbnailDataUrl || null);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [bgImage?.imageId, bgImage?.thumbnailDataUrl]);
+
+  if (suspended) return null;
+
+  if (bgImage?.imageId) {
+    const src = resolvedImageUrl || bgImage.thumbnailDataUrl;
+    if (!src) return null;
+    const blurPx = bgImage.blur ?? 6;
+    const brightness = bgImage.brightness ?? 0.95;
+    const scrimOpacity = bgImage.scrimOpacity ?? 0.52;
+    const bgHex = activeTheme.colors?.background || "#121426";
+    return (
+      <div aria-hidden="true" className="theme-backdrop">
+        <img
+          src={src}
+          alt=""
+          className="h-full w-full object-cover"
+          style={{
+            objectPosition: bgImage.position || "center",
+            filter: `blur(${blurPx}px) brightness(${brightness}) saturate(1.08)`,
+            transform: "scale(1.06)",
+          }}
+        />
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundColor: bgHex,
+            opacity: scrimOpacity,
+          }}
+        />
+        <div
+          className="absolute inset-0"
+          style={{
+            background:
+              activeTheme.variant === "dark"
+                ? "radial-gradient(ellipse at center, transparent 35%, rgba(0, 0, 0, 0.42) 100%)"
+                : "radial-gradient(ellipse at center, transparent 40%, rgba(255, 255, 255, 0.25) 100%)",
+          }}
+        />
+      </div>
+    );
+  }
+
+  if (!animation) return null;
   if (!renderable) return null;
   if (!staticRenderable) return null;
 

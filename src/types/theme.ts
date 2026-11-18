@@ -117,10 +117,29 @@ export interface ThemeShadows {
   xl: string;
 }
 
+export interface ThemeBackgroundImage {
+  /** Storage key in IndexedDB (`plethora-theme-images`) for the backdrop image. */
+  imageId: string;
+  /** Tiny data-URL thumbnail for instant swatch/preview rendering. */
+  thumbnailDataUrl?: string;
+  /** Backdrop blur radius in px (0–32). */
+  blur?: number;
+  /** Theme-matched scrim opacity (0.15–0.92). */
+  scrimOpacity?: number;
+  /** Glass surface opacity (0.45–0.96). */
+  surfaceOpacity?: number;
+  /** Image brightness multiplier (0.4–1.3). */
+  brightness?: number;
+  /** CSS object-position (default "center"). */
+  position?: string;
+}
+
 export interface ThemeEffects {
   backgroundAnimation?: string;
   /** Palette key for shared ambient renderers (e.g. jellyfish family). */
   ambientPaletteId?: string;
+  /** Custom user-uploaded image backdrop configuration. */
+  backgroundImage?: ThemeBackgroundImage;
 }
 
 export interface Theme {
@@ -161,6 +180,10 @@ export interface ThemeContextValue {
   previewTheme: (themeId: ThemeId | null) => void;
   /** Commit the previewed theme (if any) as the active theme. */
   commitPreview: () => void;
+  /** Live-apply an unsaved custom Theme object as a preview without persisting it. */
+  previewCustomTheme?: (theme: Theme | null) => void;
+  /** Update an existing custom theme in place and persist. */
+  updateCustomTheme?: (theme: Theme) => void;
 }
 
 /**

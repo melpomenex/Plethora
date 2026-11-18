@@ -63,7 +63,7 @@ export function ThemeCustomizer({ baseTheme, onClose, onSave }: ThemeCustomizerP
   const handleReset = () => {
     const base = baseTheme
       ? themes.find((t) => t.id === baseTheme)
-      : themes.find((t) => t.id === 'modern-dark');
+      : themes.find((t) => t.id === 'modern-dark') || themes[0];
     if (base) {
       setColors(base.colors);
     }

@@ -16,7 +16,8 @@ import { Theme, ThemeContextValue, ThemeId } from "../types/theme";
 // that is both statically and dynamically imported into the static importer's
 // chunk. The full catalog is lazy-loaded on mount (see the effect below).
 import { biolumeAbyssTheme, superGameBroTheme, milkyMatchaTheme, plethoraLaunchTheme, obsidianNoirTheme } from "../themes/fallback";
-import { makeOpaque } from "../themes/color";
+import { makeOpaque, parseColor } from "../themes/color";
+import { deleteBackdropImage } from "../themes/imageStorage";
 import { deriveMaterialRoles } from "../themes/materialRoles";
 import { resolveModeAccent } from "../themes/modeAccent";
 import { resolveRatingColors } from "../themes/ratingColors";
@@ -196,6 +197,27 @@ function applyThemeToDOM(theme: Theme, fontFamilyOverride?: string | null): void
   } else {
     root.removeAttribute("data-theme-animation");
   }
+  const bgImg = theme.effects?.backgroundImage;
+  if (bgImg?.imageId) {
+    root.setAttribute("data-theme-image-backdrop", "true");
+    root.style.setProperty("--theme-surface-opacity", String(bgImg.surfaceOpacity ?? 0.78));
+    const toRgbTuple = (color: string | undefined, fallback: string): string => {
+      const parsed = parseColor(color) ?? parseColor(fallback) ?? { r: 20, g: 22, b: 36 };
+      return `${Math.round(parsed.r)}, ${Math.round(parsed.g)}, ${Math.round(parsed.b)}`;
+    };
+    const fallback = theme.variant === "dark" ? "#141624" : "#f8fafc";
+    root.style.setProperty("--theme-card-rgb", toRgbTuple(theme.colors.card || theme.colors.surface, fallback));
+    root.style.setProperty("--theme-surface-rgb", toRgbTuple(theme.colors.surface, fallback));
+    root.style.setProperty("--theme-sidebar-rgb", toRgbTuple(theme.colors.sidebar || theme.colors.surface, fallback));
+    root.style.setProperty("--theme-toolbar-rgb", toRgbTuple(theme.colors.toolbar || theme.colors.surface, fallback));
+  } else {
+    root.removeAttribute("data-theme-image-backdrop");
+    root.style.removeProperty("--theme-surface-opacity");
+    root.style.removeProperty("--theme-card-rgb");
+    root.style.removeProperty("--theme-surface-rgb");
+    root.style.removeProperty("--theme-sidebar-rgb");
+    root.style.removeProperty("--theme-toolbar-rgb");
+  }
   // Enable Tailwind dark: utilities and native form theming.
   const isDark = theme.variant === "dark";
   root.classList.toggle("dark", isDark);
@@ -295,6 +317,7 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
   // renders. The ThemePicker sets this on hover/keyboard-focus and only calls
   // `commitPreview` (or `setTheme`) on an explicit selection.
   const [previewThemeId, setPreviewThemeId] = useState<ThemeId | null>(null);
+  const [livePreviewTheme, setLivePreviewTheme] = useState<Theme | null>(null);
 
   // Track the ids of known built-in themes. Used to filter builtins out when
   // persisting custom themes. Pre-seeded with the eagerly-loaded fallback ids;
@@ -308,7 +331,9 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
   // context stays the committed theme so the UI can show the "Previewing"
   // notice against the actual active theme.
   const appliedTheme =
-    (previewThemeId !== null && themes.find((t) => t.id === previewThemeId)) || currentTheme;
+    livePreviewTheme ||
+    (previewThemeId !== null && themes.find((t) => t.id === previewThemeId)) ||
+    currentTheme;
 
   const appearance = useAppliedAppearance(appliedTheme);
 
@@ -343,7 +368,7 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
     applyThemeToDOM(appliedTheme, savedFontFamily);
     if (savedFontFamily) loadGoogleFont(savedFontFamily);
     // Never persist a previewed theme as "last selected".
-    if (previewThemeId === null && !captureThemeActive) saveLastThemeId(currentThemeId);
+    if (previewThemeId === null && livePreviewTheme === null && !captureThemeActive) saveLastThemeId(currentThemeId);
 
     // Apply native platform vibrancy if supported
     invokeCommand<boolean>("apply_theme_vibrancy", { themeId: appliedTheme.id, colors: appliedTheme.colors })
@@ -359,18 +384,25 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
         console.error("Failed to apply vibrancy:", err);
         document.documentElement.removeAttribute("data-vibrancy-active");
       });
-  }, [appliedTheme, previewThemeId, currentThemeId, captureThemeActive]);
+  }, [appliedTheme, previewThemeId, livePreviewTheme, currentThemeId, captureThemeActive]);
 
   const setTheme = (themeId: ThemeId) => {
     const theme = themes.find((t) => t.id === themeId);
     if (theme) {
+      setLivePreviewTheme(null);
       setPreviewThemeId(null);
       setCurrentThemeId(themeId);
     }
   };
 
   const previewTheme = (themeId: ThemeId | null) => {
+    setLivePreviewTheme(null);
     setPreviewThemeId(themeId);
+  };
+
+  const previewCustomTheme = (theme: Theme | null) => {
+    if (theme) setPreviewThemeId(null);
+    setLivePreviewTheme(theme);
   };
 
   const commitPreview = () => {
@@ -387,6 +419,18 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
     saveCustomThemes(newThemes.filter((t) => !builtinIds.has(t.id)));
   };
 
+  const updateCustomTheme = (theme: Theme) => {
+    if (builtinThemeIdsRef.current.has(theme.id)) {
+      console.warn("Cannot update built-in theme");
+      return;
+    }
+    const exists = themes.some((t) => t.id === theme.id);
+    const newThemes = exists ? themes.map((t) => (t.id === theme.id ? theme : t)) : [...themes, theme];
+    setThemes(newThemes);
+    const builtinIds = builtinThemeIdsRef.current;
+    saveCustomThemes(newThemes.filter((t) => !builtinIds.has(t.id)));
+  };
+
   const removeCustomTheme = (themeId: ThemeId) => {
     // Prevent removing built-in themes
     if (builtinThemeIdsRef.current.has(themeId)) {
@@ -394,10 +438,15 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
       return;
     }
 
+    const removed = themes.find((t) => t.id === themeId);
     const newThemes = themes.filter((t) => t.id !== themeId);
     setThemes(newThemes);
     const builtinIds = builtinThemeIdsRef.current;
     saveCustomThemes(newThemes.filter((t) => !builtinIds.has(t.id)));
+
+    if (removed?.effects?.backgroundImage?.imageId) {
+      void deleteBackdropImage(removed.effects.backgroundImage.imageId);
+    }
 
     // Switch to default theme if current theme is removed
     if (currentThemeId === themeId) {
@@ -426,6 +475,8 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
       if (existing) {
         const newThemes = themes.map((t) => (t.id === theme.id ? theme : t));
         setThemes(newThemes);
+        const builtinIds = builtinThemeIdsRef.current;
+        saveCustomThemes(newThemes.filter((t) => !builtinIds.has(t.id)));
       } else {
         // Add new theme
         addCustomTheme(theme);
@@ -450,6 +501,8 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
     previewThemeId,
     previewTheme,
     commitPreview,
+    previewCustomTheme,
+    updateCustomTheme,
   };
 
   return <ThemeContext.Provider value={value}><ResolvedAppearanceContext.Provider value={appearance}>{children}</ResolvedAppearanceContext.Provider></ThemeContext.Provider>;

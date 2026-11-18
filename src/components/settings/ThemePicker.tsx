@@ -20,8 +20,10 @@ import {
   Check,
   Download,
   Eye,
+  Image as ImageIcon,
   MagnifyingGlass,
   Palette,
+  SlidersHorizontal,
   Sparkle,
   Trash,
   Upload,
@@ -29,6 +31,8 @@ import {
 } from "@phosphor-icons/react";
 import { invokeCommand } from '../../lib/tauri';
 import { ThemeGallery } from './ThemeGallery';
+import { ImageThemeModal } from './ImageThemeModal';
+import { ThemeCustomizer } from './ThemeCustomizer';
 import { builtInThemes as registeredBuiltInThemes } from '../../themes/builtin';
 import { useI18n } from '../../lib/i18n';
 import { cn } from '../../utils';
@@ -43,6 +47,24 @@ interface ThemePickerProps {
 /** A compact swatch strip built from a theme's key palette colors. */
 function ThemeSwatch({ theme, className }: { theme: Theme; className?: string }) {
   if(theme.material?.kind === "paper") return <PaperMaterialPreview theme={theme} compact/>;
+  if (theme.effects?.backgroundImage?.thumbnailDataUrl) {
+    return (
+      <div
+        className={cn("relative flex h-6 w-14 shrink-0 overflow-hidden rounded-md border border-border", className)}
+        aria-hidden="true"
+      >
+        <img
+          src={theme.effects.backgroundImage.thumbnailDataUrl}
+          alt=""
+          className="h-full w-full object-cover"
+        />
+        <div
+          className="absolute inset-x-0 bottom-0 h-1.5"
+          style={{ backgroundColor: theme.colors.primary }}
+        />
+      </div>
+    );
+  }
   const colors = [
     theme.colors.primary,
     theme.colors.secondary || theme.colors.primary,
@@ -68,6 +90,7 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
     theme,
     themes,
     setTheme,
+    addCustomTheme,
     exportTheme,
     importTheme,
     removeCustomTheme,
@@ -82,6 +105,8 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
   const [animatedFilter, setAnimatedFilter] = useState<AnimatedFilter>("all");
   const [activeIndex, setActiveIndex] = useState(0);
   const [showGallery, setShowGallery] = useState(false);
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [showCustomizer, setShowCustomizer] = useState(false);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -246,6 +271,24 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowImageModal(true)}
+            className="flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-primary transition-colors hover:bg-primary/20"
+            title="Create theme from an image"
+          >
+            <ImageIcon className="h-4 w-4" />
+            <span className="text-sm font-medium">From Image</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowCustomizer(true)}
+            className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-foreground transition-colors hover:bg-muted"
+            title="Customize theme colors"
+          >
+            <SlidersHorizontal className="h-4 w-4" />
+            <span className="text-sm">Custom</span>
+          </button>
           <button
             onClick={() => setShowGallery(true)}
             className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-foreground transition-colors hover:bg-muted"
@@ -510,6 +553,21 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
           onThemeSelect={(themeId) => {
             setTheme(themeId);
             setShowGallery(false);
+          }}
+        />
+      )}
+
+      {showImageModal && (
+        <ImageThemeModal onClose={() => setShowImageModal(false)} />
+      )}
+
+      {showCustomizer && (
+        <ThemeCustomizer
+          baseTheme={theme.id}
+          onClose={() => setShowCustomizer(false)}
+          onSave={(newTheme) => {
+            addCustomTheme(newTheme);
+            setTheme(newTheme.id);
           }}
         />
       )}
