@@ -1005,6 +1005,50 @@ El índice de madurez general es `matureCount / itemCount`.
 
 ---
 
+## Planes de estudio y rutas de lectura guiada (Reading Trails)
+
+Convierte tus libros, artículos y transcripciones en un currículo estructurado basado en objetivos con **Planes de estudio** y **Rutas de lectura guiada**.
+
+### Vistas: Cola, Lista y Grafo
+
+Dentro de la pestaña **Esquema del currículo** de cualquier Plan de estudio, cambia entre tres vistas:
+
+- **Cola (Study Queue)**: Tu cola de lectura paso a paso, destacando la siguiente lectura recomendada (`Continuar aprendiendo`), el tiempo estimado, las próximas asignaciones, los requisitos previos bloqueados y los elementos completados.
+- **Lista**: Explora y edita los nodos del currículo, los objetivos de aprendizaje y los pasajes vinculados.
+- **Grafo**: Visualiza las dependencias de requisitos previos entre temas en un grafo interactivo.
+
+### Generar y personalizar una ruta de lectura
+
+1. Abre un Plan de estudio y selecciona la vista **Cola** en **Esquema del currículo**.
+2. Haz clic en **Generar ruta de estudio** (o **Reconstruir ruta de estudio** tras editar fuentes u objetivos).
+3. Plethora analiza la estructura de tus fuentes seleccionadas — filtrando automáticamente índices, bibliografías y menciones incidentales — y empareja cada objetivo de aprendizaje con segmentos coherentes ordenados por requisitos previos.
+4. Haz clic en **Previsualizar y editar ruta** para revisar la procedencia de cada segmento, intercambiar pasajes alternativos, ajustar el orden manual, posponer elementos o reportar coincidencias irrelevantes.
+
+### Modo de lectura guiada
+
+Al hacer clic en **Iniciar lectura guiada**, el pasaje asignado se abre directamente en el Visor de documentos con la barra lateral **Modo de lectura guiada**:
+
+- **Límites y contexto**: Muestra los marcadores de inicio y fin, la duración estimada y por qué se seleccionó el segmento para el objetivo.
+- **Seguimiento de progreso**: Registra tu progreso dentro del rango asignado (puedes seguir leyendo más allá de los límites en cualquier momento).
+- **Navegación de cola (`Anterior` / `Siguiente`)**: Muévete directamente entre las lecturas del plan mediante **Anterior** / **Siguiente** (o **Siguiente: \<Tema\>**) sin salir del lector.
+- **Notas, extractos y tutor socrático**: Toma notas o abre el panel persistente del **Asistente** (cuyas conversaciones se guardan por documento y vídeo).
+
+### Comprobaciones de comprensión de opción múltiple
+
+Al terminar una lectura, haz clic en **Finalizar lectura → Comprobar comprensión** para abrir una **Comprobación de comprensión (formativa)**:
+
+- **Opción múltiple por defecto**: Presenta una pregunta de 4 opciones (`A`–`D`) basada en el pasaje leído (generada por IA si hay proveedor configurado, o mediante respaldo determinista sin conexión y respetuoso con la privacidad).
+- **Enfoques flexibles**: Cambia entre *Explicar con tus propias palabras*, *Aplicar a un nuevo ejemplo*, *Distinguir ideas relacionadas*, *Seguir el argumento*, *Detectar un error común* y *Síntesis basada en la fuente*, o pulsa **Nueva pregunta**.
+- **Respuesta escrita opcional**: Haz clic en **Escribir mi propia respuesta** si prefieres redactar una explicación abierta.
+- **Retroalimentación inmediata y siguiente lectura**: Al comprobar, se resalta la opción correcta, se muestra la explicación y aparece el botón **Siguiente: \<Tema\>** para pasar de inmediato a la siguiente lectura. Las comprobaciones formativas nunca alteran tus calificaciones formales ni los intervalos FSRS.
+
+### Remediación dirigida y elegibilidad de evaluación
+
+- **Remediación dirigida**: Las lagunas de aprendizaje aparecen automáticamente como elementos de remediación en tu cola, enlazando con los conceptos previos o el pasaje correspondiente.
+- **Elegibilidad de evaluación**: Controla la preparación para evaluaciones formales bajo políticas **Guiada**, **Abierta** o **Exención por examen (Test-Out)**.
+
+---
+
 ## Análisis y seguimiento del progreso
 
 ### Descripción general del panel
@@ -1875,6 +1919,9 @@ Genere transcripciones para archivos de video locales en la aplicación de escri
 **Extracción de fragmentos de vídeo desde la transcripción:**
 - Selecciona texto a lo largo de uno o varios segmentos de transcripción (YouTube o vídeo local) para mostrar **Capture Video Slice `[mm:ss - mm:ss]`** y crear un extracto de vídeo con marcas de tiempo en tu cola.
 
+**Reproducción multimedia local instantánea y streaming HLS:**
+- Los archivos locales de audio/vídeo y las transmisiones HLS comienzan a reproducirse al instante mediante solicitudes de rango sin esperar a cargar el archivo completo.
+
 ### Reproductor TTS PiP persistente y voces por rol (`MiniAudioPlayer`)
 
 - **PiP plegable abajo a la derecha**: contrae la barra de audio a una píldora flotante compacta mientras lees o repasas.
@@ -1904,6 +1951,7 @@ Notas:
 Extraer texto de imágenes:
 
 **Proveedores admitidos:**
+- Motor de visión Mirage (Local) — análisis visual en ingesta de documentos, oclusión de imágenes, búsqueda FTS5 y recortes web
 - GLM-OCR (Local) — OCR multimodal a través de llama.cpp o vLLM
 - Teseracto (Local)
 - Visión de la nube de Google

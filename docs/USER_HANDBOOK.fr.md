@@ -985,6 +985,50 @@ le ratio de maturité global est « matureCount / itemCount ».
 
 ---
 
+## Plans d'étude et parcours de lecture guidée (Reading Trails)
+
+Transformez vos livres, articles et transcriptions en un programme structuré autour de vos objectifs grâce aux **Plans d'étude** et aux **Parcours de lecture guidée**.
+
+### Vues : File d'étude, Liste et Graphe
+
+Dans l'onglet **Plan du programme** d'un Plan d'étude, basculez entre trois vues complémentaires :
+
+- **File d'étude (Study Queue)** : Votre file de lecture étape par étape, mettant en avant la prochaine lecture recommandée (`Poursuivre l'apprentissage`), la durée estimée, les lectures à venir, les prérequis bloqués et les éléments terminés.
+- **Liste** : Parcourez et modifiez les nœuds du programme, les objectifs d'apprentissage et les passages associés.
+- **Graphe** : Visualisez les dépendances et prérequis entre les thèmes dans un graphe interactif.
+
+### Générer et personnaliser un parcours de lecture
+
+1. Ouvrez un Plan d'étude et sélectionnez la vue **File d'étude** sous **Plan du programme**.
+2. Cliquez sur **Générer le parcours d'étude** (ou **Reconstruire le parcours d'étude** après modification des sources ou objectifs).
+3. Plethora analyse la structure de vos documents sources — en filtrant automatiquement tables des matières, bibliographies et mentions accessoires — et associe chaque objectif à des segments cohérents ordonnés selon les prérequis.
+4. Cliquez sur **Prévisualiser et modifier le parcours** pour inspecter la provenance des segments, échanger des passages alternatifs, ajuster l'ordre manuel, reporter un élément ou signaler un résultat non pertinent.
+
+### Mode lecture guidée
+
+Cliquer sur **Démarrer la lecture guidée** ouvre directement le passage assigné dans la visionneuse avec le panneau latéral **Mode lecture guidée** :
+
+- **Limites et contexte** : Affiche les repères de début/fin, la durée estimée et la justification du choix du segment.
+- **Suivi de progression** : Enregistre votre avancement dans la plage assignée (vous pouvez poursuivre la lecture au-delà des limites à tout moment).
+- **Navigation dans la file (`Préc.` / `Suiv.`)** : Passez directement d'une lecture à l'autre dans votre plan d'étude via **Préc.** / **Suiv.** (ou **Suivant : \<Thème\>**) sans quitter le lecteur.
+- **Notes, extraits et tuteur socratique** : Prenez des notes/extraits ou ouvrez le panneau persistant **Assistant** (dont les conversations sont sauvegardées par document et vidéo).
+
+### Contrôles de compréhension à choix multiples
+
+Après avoir terminé un passage, cliquez sur **Terminer la lecture → Vérifier la compréhension** pour ouvrir un **Contrôle de compréhension (formatif)** :
+
+- **Choix multiples par défaut** : Propose une question à 4 choix (`A`–`D`) ancrée dans le passage lu (générée par l'IA si un fournisseur est configuré, sinon via un repli déterministe hors ligne respectant la confidentialité).
+- **Angles de question flexibles** : Basculez entre *Expliquer avec vos propres mots*, *Appliquer à un nouvel exemple*, *Distinguer des notions voisines*, *Suivre l'argumentation*, *Repérer une idée fausse* et *Synthèse ancrée dans la source*, ou cliquez sur **Nouvelle question**.
+- **Réponse rédigée optionnelle** : Cliquez sur **Rédiger ma propre réponse** si vous préférez saisir une explication libre.
+- **Retour immédiat et lecture suivante** : La validation met en évidence la bonne réponse, affiche l'explication et propose le bouton **Suivant : \<Thème\>** pour passer directement à la lecture suivante. Les contrôles formatifs ne modifient jamais vos notes d'examen ni vos intervalles FSRS.
+
+### Remédiation ciblée et éligibilité aux évaluations
+
+- **Remédiation ciblée** : Les lacunes détectées apparaissent automatiquement comme éléments de remédiation dans votre file, renvoyant vers les notions préalables ou le passage concerné.
+- **Éligibilité aux évaluations** : Suivez votre préparation aux évaluations formelles selon les politiques **Guidée**, **Ouverte** ou **Test de dispense (Test-Out)**.
+
+---
+
 ## Analyses et suivi des progrès
 
 ### Présentation du tableau de bord
@@ -1855,6 +1899,9 @@ Remarques :
 **Extraction de tranches vidéo depuis la transcription :**
 - Sélectionnez un passage à travers un ou plusieurs segments de transcription (YouTube ou vidéo locale) pour afficher **Capture Video Slice `[mm:ss - mm:ss]`** et créer un extrait vidéo horodaté dans votre file.
 
+**Lecture multimédia locale instantanée et streaming HLS :**
+- Les fichiers audio/vidéo locaux et les flux HLS démarrent instantanément par requêtes de plage sans attendre le chargement complet du fichier.
+
 ### Lecteur TTS PiP persistant et voix par rôle (`MiniAudioPlayer`)
 
 - **PiP réductible en bas à droite** : repliez le mini-lecteur en pilule flottante compacte pendant la lecture ou la révision.
@@ -1880,6 +1927,7 @@ Remarques :
 Extraire le texte des images :
 
 **Fournisseurs pris en charge :**
+- Moteur de vision Mirage (Local) — indexation visuelle pour l'import de documents, l'occlusion d'images, la recherche FTS5 et les captures web
 - GLM-OCR (Local) — OCR multimodal via llama.cpp ou vLLM
 - Tesseract (local)
 - Google Cloud Vision

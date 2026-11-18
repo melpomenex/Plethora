@@ -13,12 +13,13 @@
 5. [Deck Manager](#deck-manager)
 6. [Review Process](#review-process)
 7. [Queue Management](#queue-management)
-8. [Analytics & Progress Tracking](#analytics--progress-tracking)
-9. [Settings & Customization](#settings--customization)
+8. [Study Plans & Guided Reading Trails](#study-plans--guided-reading-trails)
+9. [Analytics & Progress Tracking](#analytics--progress-tracking)
+10. [Settings & Customization](#settings--customization)
    - [NotebookLM Integration](#notebooklm-integration)
-10. [Advanced Features](#advanced-features)
-11. [Tips & Best Practices](#tips--best-practices)
-12. [Troubleshooting](#troubleshooting)
+11. [Advanced Features](#advanced-features)
+12. [Tips & Best Practices](#tips--best-practices)
+13. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -1036,6 +1037,50 @@ overall maturity ratio is `matureCount / itemCount`.
 
 ---
 
+## Study Plans & Guided Reading Trails
+
+Turn your books, articles, and transcripts into a structured, objective-grounded curriculum with **Study Plans** and **Guided Reading Trails**.
+
+### Study Queue, List & Graph Views
+
+Inside any Study Plan's **Curriculum Outline** tab, switch between three complementary views:
+
+- **Queue**: Your step-by-step **Study Queue**, highlighting the next recommended reading assignment (`Continue Learning`), estimated reading time, upcoming assignments, blocked prerequisites, and completed items.
+- **List**: Browse and edit curriculum nodes, learning objectives, and linked reading passages.
+- **Graph**: Visualize prerequisite dependencies across topics in an interactive curriculum graph.
+
+### Generating & Customizing a Study Trail
+
+1. Open a Study Plan and select the **Queue** view under **Curriculum Outline**.
+2. Click **Generate Study Trail** (or **Rebuild Study Trail** after editing sources or objectives).
+3. Plethora analyzes the structure of your selected source documents — automatically filtering out tables of contents, bibliographies, and incidental mentions — and pairs each learning objective with coherent, prerequisite-ordered reading segments.
+4. Click **Preview & Edit Trail** to inspect segment provenance, swap in alternative passages, adjust manual order, defer items, or report irrelevant matches.
+
+### Guided Reading Mode
+
+Clicking **Start Guided Reading** opens the assigned passage directly in the Document Viewer with a dedicated **Guided Reading Mode** sidebar:
+
+- **Assigned Boundaries & Context**: Displays the start/end section markers, estimated duration, and why this segment was selected for the learning objective.
+- **Progress Tracking**: Tracks your reading progress within the assigned range (you can continue reading beyond the boundaries at any time).
+- **Queue Navigation (`Prev` / `Next`)**: Move directly between reading assignments in your study plan using the **Prev** / **Next** controls (or **Next: \<Topic\>**) without returning to the Study Plans tab.
+- **Notes, Extracts & Socratic Tutor**: Capture notes/extracts or open the persistent **Assistant** panel (whose conversations are saved per document and video) while reading.
+
+### Multiple-Choice Comprehension Checks
+
+After finishing a reading assignment, click **Finish Reading → Check Understanding** to open a low-stakes **Comprehension Check (Formative)**:
+
+- **Multiple Choice by Default**: Presents a 4-option (`A`–`D`) multiple-choice question grounded in the passage you just read (AI-generated when a provider is configured, with a deterministic offline/privacy-safe fallback).
+- **Flexible Question Angles**: Switch between *Explain in your own words*, *Apply to a new example*, *Distinguish related ideas*, *Trace the argument*, *Spot a misconception*, and *Source-grounded synthesis*, or click **New Question**.
+- **Optional Written Mode**: Click **Write my own answer** at any time if you prefer to type a free-form explanation.
+- **Immediate Feedback & Next Assignment**: Checking your answer highlights the correct option, explains the reasoning, and provides a **Next: \<Topic\>** button to advance straight to the next reading assignment. Formative checks never mutate your formal exam grades or FSRS flashcard intervals.
+
+### Targeted Remediation & Assessment Eligibility
+
+- **Targeted Remediation**: Unmet learning gaps surface automatically as remediation items in your Study Queue, linking back to prerequisite concepts or the relevant passage.
+- **Assessment Eligibility**: Track readiness for formal Study Plan assessments under **Guided**, **Open**, or **Test-Out** policies.
+
+---
+
 ## Analytics & Progress Tracking
 
 ### Dashboard Overview
@@ -1904,6 +1949,9 @@ Generate transcripts for local video files in the Tauri desktop app.
 **Transcript-First Video Slice Extraction:**
 - Highlight any span across one or more transcript segments in YouTube or local video transcripts to reveal **Capture Video Slice `[mm:ss - mm:ss]`**, creating a timestamped video extract directly in your queue.
 
+**Instant Local Media Playback & HLS Streaming:**
+- Local audio/video files and HLS streams start playing immediately via streaming range requests without waiting for full-file buffering.
+
 ### Persistent TTS PiP & Role Voices (`MiniAudioPlayer`)
 
 - **Collapsible Bottom-Right PiP**: Collapse the audio bar into a compact floating pill while reading or reviewing.
@@ -1933,6 +1981,7 @@ Notes:
 Extract text from images:
 
 **Supported Providers:**
+- Mirage Vision Engine (Local) — visual indexing across document ingestion, image occlusion, FTS5 search, and browser clips
 - GLM-OCR (Local) — multimodal OCR via llama.cpp or vLLM
 - Tesseract (Local)
 - Google Cloud Vision

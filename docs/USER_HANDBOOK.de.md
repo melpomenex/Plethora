@@ -1005,6 +1005,50 @@ Das Gesamtreifeverhältnis beträgt „matureCount / itemCount“.
 
 ---
 
+## Lernpläne & Geführte Lesepfade (Reading Trails)
+
+Verwandeln Sie Ihre Bücher, Artikel und Transkripte mit **Lernplänen** und **Geführten Lesepfaden** in ein strukturiertes, lernzielorientiertes Curriculum.
+
+### Ansichten: Warteschlange, Liste & Graph
+
+Im Tab **Lehrplan-Gliederung** eines Lernplans können Sie zwischen drei Ansichten wechseln:
+
+- **Warteschlange (Study Queue)**: Ihre schrittweise Lesereihenfolge mit der nächsten empfohlenen Aufgabe (`Lernen fortsetzen`), geschätzter Lesezeit, bevorstehenden Aufgaben, blockierten Voraussetzungen und abgeschlossenen Einträgen.
+- **Liste**: Curriculum-Knoten, Lernziele und verknüpfte Textpassagen durchsuchen und bearbeiten.
+- **Graph**: Abhängigkeiten und Voraussetzungen zwischen Themen im interaktiven Curriculum-Graphen visualisieren.
+
+### Lesepfad erstellen & anpassen
+
+1. Öffnen Sie einen Lernplan und wählen Sie unter **Lehrplan-Gliederung** die Ansicht **Warteschlange**.
+2. Klicken Sie auf **Lernpfad generieren** (oder **Lernpfad neu aufbauen** nach Änderungen an Quellen oder Lernzielen).
+3. Plethora analysiert die Struktur Ihrer ausgewählten Quelldokumente — filtert Inhaltsverzeichnisse, Literaturverzeichnisse und beiläufige Erwähnungen automatisch heraus — und ordnet jedem Lernziel zusammenhängende, nach Voraussetzungen sortierte Leseabschnitte zu.
+4. Klicken Sie auf **Pfad vorschauen & bearbeiten**, um die Herkunft der Abschnitte zu prüfen, alternative Passagen auszuwählen, die Reihenfolge anzupassen, Einträge zurückzustellen oder unpassende Treffer zu melden.
+
+### Geführter Lesemodus
+
+Ein Klick auf **Geführtes Lesen starten** öffnet den zugewiesenen Abschnitt direkt im Dokumentbetrachter mit der Seitenleiste **Geführter Lesemodus**:
+
+- **Abschnittsgrenzen & Kontext**: Zeigt Start-/Endmarkierungen, geschätzte Lesedauer und die Begründung für die Auswahl dieses Abschnitts.
+- **Fortschrittsverfolgung**: Verfolgt Ihren Lesefortschritt innerhalb des zugewiesenen Bereichs (Sie können jederzeit über die Grenzen hinaus weiterlesen).
+- **Warteschlangen-Navigation (`Zurück` / `Weiter`)**: Wechseln Sie direkt über **Zurück** / **Weiter** (oder **Weiter: \<Thema\>**) zwischen den Leseaufgaben Ihres Lernplans, ohne zum Lernplan-Tab zurückzukehren.
+- **Notizen, Auszüge & Sokratischer Tutor**: Erstellen Sie Notizen/Auszüge oder öffnen Sie den persistenten **Assistant**-Bereich (dessen Unterhaltungen pro Dokument und Video gespeichert werden).
+
+### Multiple-Choice-Verständnisprüfungen
+
+Nach dem Lesen klicken Sie auf **Lesen beenden → Verständnis prüfen**, um eine niedrigschwellige **Verständnisprüfung (formativ)** zu öffnen:
+
+- **Standardmäßig Multiple Choice**: Zeigt eine 4-Optionen-Multiple-Choice-Frage (`A`–`D`), die auf dem gelesenen Abschnitt basiert (KI-generiert bei konfiguriertem Anbieter, mit deterministischem Offline-/Datenschutz-Fallback).
+- **Flexible Frageperspektiven**: Wechseln Sie zwischen *In eigenen Worten erklären*, *Auf ein neues Beispiel anwenden*, *Verwandte Ideen abgrenzen*, *Argumentation nachvollziehen*, *Fehlvorstellung erkennen* und *Quellengestützte Synthese*, oder klicken Sie auf **Neue Frage**.
+- **Optionale freie Antwort**: Klicken Sie auf **Eigene Antwort schreiben**, falls Sie stattdessen eine freie Erklärung eingeben möchten.
+- **Sofortiges Feedback & nächste Aufgabe**: Nach dem Prüfen wird die richtige Option hervorgehoben, die Begründung angezeigt und über **Weiter: \<Thema\>** direkt zur nächsten Leseaufgabe gesprungen. Formative Prüfungen verändern niemals Ihre offiziellen Prüfungsergebnisse oder FSRS-Kartenintervalle.
+
+### Gezielte Wiederholung & Prüfungszulassung
+
+- **Gezielte Wiederholung (Targeted Remediation)**: Offene Wissenslücken erscheinen automatisch als Wiederholungseinträge in Ihrer Warteschlange und verweisen auf fehlende Voraussetzungen oder die passende Textstelle.
+- **Prüfungszulassung**: Verfolgen Sie Ihre Prüfungsreife unter den Richtlinien **Geführt**, **Offen** oder **Freitest (Test-Out)**.
+
+---
+
 ## Analysen und Fortschrittsverfolgung
 
 ### Dashboard-Übersicht
@@ -1877,6 +1921,9 @@ Generieren Sie Transkripte für lokale Videodateien in der Tauri-Desktop-App.
 **Transkript-basierte Video-Slice-Extraktion:**
 - Markieren Sie einen Bereich über ein oder mehrere Transkript-Segmente (YouTube oder lokales Video), um **Capture Video Slice `[mm:ss - mm:ss]`** anzuzeigen und einen zeitgestempelten Video-Auszug direkt in die Warteschlange zu legen.
 
+**Sofortige lokale Medienwiedergabe & HLS-Streaming:**
+- Lokale Audio-/Videodateien sowie HLS-Streams starten dank Range-Streaming-Anfragen sofort ohne vollständiges Vorabladen.
+
 ### Persistenter TTS-PiP-Player & Rollenstimmen (`MiniAudioPlayer`)
 
 - **Einklappbares PiP unten rechts**: Klappen Sie den Audio-Player während des Lesens oder Lernens zu einer kompakten Pill zusammen.
@@ -1906,6 +1953,7 @@ Hinweise:
 Text aus Bildern extrahieren:
 
 **Unterstützte Anbieter:**
+- Mirage Vision Engine (Lokal) – visuelle Analyse für Dokumenten-Import, Image Occlusion, FTS5-Suche und Browser-Clips
 - GLM-OCR (Lokal) – multimodale OCR über llama.cpp oder vLLM
 - Tesseract (lokal)
 - Google Cloud Vision
