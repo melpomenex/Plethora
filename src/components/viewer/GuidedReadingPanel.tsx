@@ -21,6 +21,7 @@ import {
 } from '../../lib/study-plans/reading/trailController';
 import { formatEstimatedMinutes } from '../../lib/study-plans/trail/queueProjection';
 import { FormativeCheckDrawer } from '../study-plans/queue/FormativeCheckDrawer';
+import { bottomDockClearance, useBottomControlsGeometry } from '../mobile/BottomControlsGeometry';
 
 export interface GuidedReadingPanelProps {
   tabId: string;
@@ -53,6 +54,7 @@ export const GuidedReadingPanel: React.FC<GuidedReadingPanelProps> = ({
   const guided = useStudyTrail((s) => s.guidedSegment);
   const status = useStudyTrail((s) => s.status);
   const saving = useStudyTrail((s) => s.saving);
+  const bottomGeometry = useBottomControlsGeometry();
   const [showCheck, setShowCheck] = useState(false);
 
   useEffect(() => {
@@ -66,12 +68,32 @@ export const GuidedReadingPanel: React.FC<GuidedReadingPanelProps> = ({
   const progressPct = Math.round(entry.item.readingProgress * 100);
   const neighbors = getGuidedQueueNeighbors(detail, overview, entry.item.id);
 
+  const mobileBottomClearance = bottomGeometry ? bottomDockClearance(bottomGeometry) : undefined;
+  const mobileStyle: React.CSSProperties | undefined = isMobile
+    ? {
+        bottom:
+          mobileBottomClearance !== undefined
+            ? `${mobileBottomClearance}px`
+            : 'calc(env(safe-area-inset-bottom, 0px) + 72px)',
+        ...(bottomGeometry
+          ? {
+              maxHeight: `${Math.max(220, bottomGeometry.viewportHeight - bottomDockClearance(bottomGeometry) - 64)}px`,
+            }
+          : {}),
+      }
+    : undefined;
+
   const containerClass = isMobile
-    ? 'fixed inset-x-0 bottom-0 z-40 max-h-[65vh] overflow-y-auto rounded-t-2xl border-t border-outline-variant bg-card p-4 shadow-xl'
+    ? 'fixed inset-x-2 z-40 max-h-[60vh] overflow-y-auto overscroll-contain rounded-2xl border border-border bg-background/95 backdrop-blur-md p-4 space-y-4 shadow-2xl'
     : 'w-80 shrink-0 border-l border-border bg-card overflow-y-auto p-4 space-y-4';
 
   return (
-    <aside aria-label="Guided Reading Study Trail" data-testid="guided-reading-panel" className={containerClass}>
+    <aside
+      aria-label="Guided Reading Study Trail"
+      data-testid="guided-reading-panel"
+      className={containerClass}
+      style={mobileStyle}
+    >
       <div className="flex items-start justify-between gap-2 border-b border-border pb-3">
         <div className="min-w-0">
           <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-primary">
@@ -195,7 +217,7 @@ export const GuidedReadingPanel: React.FC<GuidedReadingPanelProps> = ({
             setShowCheck(true);
           }}
         >
-          <CheckCircle size={15} />
+          <CheckCircle size={15} className="shrink-0" />
           <span>Finish Reading → Check Understanding</span>
         </Button>
         {neighbors.next && (
@@ -218,7 +240,7 @@ export const GuidedReadingPanel: React.FC<GuidedReadingPanelProps> = ({
           className="w-full justify-center"
           onClick={() => exitStudyTrail(true)}
         >
-          <FloppyDisk size={15} />
+          <FloppyDisk size={15} className="shrink-0" />
           <span>Save & Return to Study Queue</span>
         </Button>
       </div>

@@ -176,7 +176,7 @@ export const FormativeCheckDrawer: React.FC<FormativeCheckDrawerProps> = ({
       className="rounded-2xl border border-outline-variant bg-surface-container-low p-4 sm:p-5 space-y-4"
     >
       <div className="flex items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <span className="text-[11px] font-semibold uppercase tracking-wider text-primary">
             Comprehension Check (Formative)
           </span>
@@ -389,13 +389,13 @@ export const FormativeCheckDrawer: React.FC<FormativeCheckDrawerProps> = ({
           <p className="text-xs text-on-surface-variant">{result.feedback}</p>
           <div className="flex flex-wrap items-center gap-2 pt-1">
             {onNextAssignment && (
-              <Button variant="filled" size="sm" onClick={onNextAssignment}>
-                <span>
+              <Button variant="filled" size="sm" className="max-w-full" onClick={onNextAssignment}>
+                <span className="truncate">
                   {nextAssignmentTitle
                     ? `Next: ${nextAssignmentTitle}`
                     : 'Next Assignment'}
                 </span>
-                <ArrowRight size={14} />
+                <ArrowRight size={14} className="shrink-0" />
               </Button>
             )}
             {result.outcome !== 'understood' && onReturnToReading && (

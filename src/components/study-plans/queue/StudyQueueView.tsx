@@ -342,7 +342,7 @@ export const StudyQueueView: React.FC<StudyQueueViewProps> = ({
                   key={alt.segment.id}
                   type="button"
                   onClick={() => void handleSwapAlternative(next, alt.segment)}
-                  className="text-xs underline text-primary hover:opacity-80"
+                  className="text-left text-xs underline text-primary hover:opacity-80"
                 >
                   {overview.documentTitles[alt.segment.documentId] ?? alt.segment.title} ({alt.segment.title})
                 </button>
@@ -474,7 +474,7 @@ export const StudyQueueView: React.FC<StudyQueueViewProps> = ({
                 key={entry.item.id}
                 className="rounded-xl border border-outline-variant/70 bg-surface-container-low p-3.5 flex flex-wrap items-center justify-between gap-3"
               >
-                <div className="space-y-1">
+                <div className="min-w-0 space-y-1">
                   <div className="text-sm font-medium text-on-surface">{entry.node.title}</div>
                   <p className="text-xs text-on-surface-variant">{entry.objectiveText}</p>
                   <p className="text-xs text-amber-700 dark:text-amber-300 flex items-center gap-1">
