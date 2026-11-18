@@ -8,6 +8,7 @@ import {
   serializeEpubRules,
   isEpubCoverSection,
   normalizeEpubSvgElements,
+  resolveEpubSectionResourceUrls,
   wrapEpubTables,
   getViewerDimensions,
 } from "../EPUBViewer";
@@ -1271,4 +1272,53 @@ describe("wrapEpubTables", () => {
     expect(doc.querySelectorAll(".epub-table-wrapper").length).toBe(1);
   });
 });
+
+describe("resolveEpubSectionResourceUrls", () => {
+  it("resolves relative image, srcset, SVG image, and root-relative URLs against section.url", () => {
+    const doc = new DOMParser().parseFromString(
+      `<!DOCTYPE html>
+      <html xmlns="http://www.w3.org/1999/xhtml" xmlns:xlink="http://www.w3.org/1999/xlink">
+        <head>
+          <link rel="stylesheet" href="../Styles/main.css" />
+        </head>
+        <body>
+          <img id="rel" src="../Images/fig1.png" srcset="../Images/fig1.png 1x, ../Images/fig1@2x.png 2x" />
+          <img id="root-rel" src="/OEBPS/Images/cover.jpg" />
+          <img id="data" src="data:image/png;base64,AAAA" />
+          <img id="abs" src="https://example.com/a.png" />
+          <svg><image id="svg-xlink" xlink:href="../Images/diagram.svg" /></svg>
+          <svg><image id="svg-href" href="local.png" /></svg>
+        </body>
+      </html>`,
+      "application/xhtml+xml",
+    );
+
+    resolveEpubSectionResourceUrls(
+      doc,
+      "http://127.0.0.1:4321/epub-entries/tok123/OEBPS/Text/chapter1.xhtml",
+    );
+
+    expect(doc.getElementById("rel")?.getAttribute("src")).toBe(
+      "http://127.0.0.1:4321/epub-entries/tok123/OEBPS/Images/fig1.png",
+    );
+    expect(doc.getElementById("rel")?.getAttribute("srcset")).toBe(
+      "http://127.0.0.1:4321/epub-entries/tok123/OEBPS/Images/fig1.png 1x, http://127.0.0.1:4321/epub-entries/tok123/OEBPS/Images/fig1@2x.png 2x",
+    );
+    expect(doc.getElementById("root-rel")?.getAttribute("src")).toBe(
+      "http://127.0.0.1:4321/epub-entries/tok123/OEBPS/Images/cover.jpg",
+    );
+    expect(doc.getElementById("data")?.getAttribute("src")).toBe("data:image/png;base64,AAAA");
+    expect(doc.getElementById("abs")?.getAttribute("src")).toBe("https://example.com/a.png");
+    expect(
+      doc.getElementById("svg-xlink")?.getAttributeNS("http://www.w3.org/1999/xlink", "href"),
+    ).toBe("http://127.0.0.1:4321/epub-entries/tok123/OEBPS/Images/diagram.svg");
+    expect(doc.getElementById("svg-href")?.getAttribute("href")).toBe(
+      "http://127.0.0.1:4321/epub-entries/tok123/OEBPS/Text/local.png",
+    );
+    expect(doc.querySelector("link[rel='stylesheet']")?.getAttribute("href")).toBe(
+      "http://127.0.0.1:4321/epub-entries/tok123/OEBPS/Styles/main.css",
+    );
+  });
+});
+
 

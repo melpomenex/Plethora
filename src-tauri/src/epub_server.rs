@@ -228,7 +228,23 @@ async fn read_epub_entry(token: &str, entry_path: &str) -> Result<Vec<u8>, Statu
         let mut archive = archive_arc
             .lock()
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        let mut entry = match archive.by_name(&entry_owned) {
+        let lookup_result = match archive.by_name(&entry_owned) {
+            Ok(_) => Ok(Some(entry_owned.clone())),
+            Err(zip::result::ZipError::FileNotFound) => Ok(None),
+            Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
+        }?;
+        let target_name = match lookup_result {
+            Some(name) => name,
+            None => archive
+                .file_names()
+                .find(|name| {
+                    let normalized = name.trim_start_matches("./");
+                    normalized == entry_owned || normalized.eq_ignore_ascii_case(&entry_owned)
+                })
+                .map(ToOwned::to_owned)
+                .ok_or(StatusCode::NOT_FOUND)?,
+        };
+        let mut entry = match archive.by_name(&target_name) {
             Ok(entry) => entry,
             Err(zip::result::ZipError::FileNotFound) => return Err(StatusCode::NOT_FOUND),
             Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),

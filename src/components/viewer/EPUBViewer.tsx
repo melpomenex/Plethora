@@ -261,6 +261,90 @@ export function isEpubCoverSection(contents: any, context?: any): boolean {
   return false;
 }
 
+const XLINK_NS = "http://www.w3.org/1999/xlink";
+
+/**
+ * Rewrites relative resource URLs (images, SVG `<image>`, media, stylesheets)
+ * in an EPUB section document to absolute URLs against `sectionUrl`.
+ *
+ * When opening an EPUB via `/epub-entries/<token>/` (`openAs: "directory"`),
+ * epub.js skips blobUrl replacement and relies on `<base href>` inside an
+ * `<iframe srcdoc>`. Resolving resource attributes directly ensures images load
+ * reliably even when WebViews restrict or ignore `<base>` in `srcdoc` frames.
+ */
+export function resolveEpubSectionResourceUrls(
+  doc: globalThis.Document | undefined,
+  sectionUrl: string | undefined,
+): void {
+  if (!doc || !sectionUrl || !/^https?:\/\//i.test(sectionUrl)) return;
+
+  const epubEntriesRootMatch = sectionUrl.match(/^(https?:\/\/[^/]+\/epub-entries\/[^/]+\/)/i);
+  const epubRootUrl = epubEntriesRootMatch?.[1];
+
+  const resolveUrl = (raw: string | null): string | null => {
+    const trimmed = raw?.trim();
+    if (!trimmed || /^(?:data:|blob:|https?:|#|mailto:|tel:|javascript:)/i.test(trimmed)) {
+      return null;
+    }
+    try {
+      if (trimmed.startsWith("/") && !trimmed.startsWith("//") && epubRootUrl) {
+        return new URL(trimmed.slice(1), epubRootUrl).toString();
+      }
+      return new URL(trimmed, sectionUrl).toString();
+    } catch {
+      return null;
+    }
+  };
+
+  doc.querySelectorAll("img[src], source[src], video[src], audio[src], track[src], embed[src], input[src]").forEach((el) => {
+    const resolved = resolveUrl(el.getAttribute("src"));
+    if (resolved) el.setAttribute("src", resolved);
+  });
+
+  doc.querySelectorAll("video[poster]").forEach((el) => {
+    const resolved = resolveUrl(el.getAttribute("poster"));
+    if (resolved) el.setAttribute("poster", resolved);
+  });
+
+  doc.querySelectorAll("img[srcset], source[srcset]").forEach((el) => {
+    const srcset = el.getAttribute("srcset");
+    if (!srcset) return;
+    const rewritten = srcset
+      .split(",")
+      .map((part) => {
+        const trimmed = part.trim();
+        if (!trimmed) return part;
+        const spaceIdx = trimmed.search(/\s/);
+        const urlPart = spaceIdx === -1 ? trimmed : trimmed.slice(0, spaceIdx);
+        const descPart = spaceIdx === -1 ? "" : trimmed.slice(spaceIdx);
+        const resolved = resolveUrl(urlPart);
+        return resolved ? `${resolved}${descPart}` : trimmed;
+      })
+      .join(", ");
+    el.setAttribute("srcset", rewritten);
+  });
+
+  doc.querySelectorAll("image").forEach((el) => {
+    const resolvedHref = resolveUrl(el.getAttribute("href"));
+    if (resolvedHref) el.setAttribute("href", resolvedHref);
+
+    const xlinkNsVal = el.getAttributeNS?.(XLINK_NS, "href");
+    const resolvedXlinkNs = resolveUrl(xlinkNsVal ?? null);
+    if (resolvedXlinkNs && typeof el.setAttributeNS === "function") {
+      el.setAttributeNS(XLINK_NS, "xlink:href", resolvedXlinkNs);
+    } else {
+      const resolvedXlink = resolveUrl(el.getAttribute("xlink:href"));
+      if (resolvedXlink) el.setAttribute("xlink:href", resolvedXlink);
+    }
+  });
+
+  doc.querySelectorAll("link[href]").forEach((el) => {
+    const resolved = resolveUrl(el.getAttribute("href"));
+    if (resolved) el.setAttribute("href", resolved);
+  });
+}
+
+
 
 /**
  * Normalizes SVG elements inside an EPUB content document so they scale
@@ -1553,6 +1637,12 @@ export function EPUBViewer({
         epubDiag("ready", { bookReadySettled });
 
         if (!mounted) return;
+
+        if (openAs === "directory") {
+          (epubBook.spine as any)?.hooks?.content?.register?.((doc: globalThis.Document, section: any) => {
+            resolveEpubSectionResourceUrls(doc, section?.url);
+          });
+        }
 
         // Safe monkey-patch for epubjs Section.prototype.destroy race condition:
         // When a rendition is destroyed during a pending section fetch/load, epubjs
