@@ -138,6 +138,129 @@ pub async fn retrieve(
     })
 }
 
+/// Batch retrieval for multiple queries sharing the same `filters` and `backend`.
+/// Embeds all non-empty queries in a single batch and loads candidate chunk
+/// embeddings from SQLite once instead of per query.
+pub async fn retrieve_batch(
+    repo: &Repository,
+    backend: &EmbeddingBackend,
+    queries: &[String],
+    k: usize,
+    filters: &RetrievalFilters,
+) -> Result<Vec<RetrievalResponse>> {
+    if queries.is_empty() {
+        return Ok(Vec::new());
+    }
+    let k = k.clamp(1, MAX_K);
+
+    let non_empty_indices: Vec<usize> = queries
+        .iter()
+        .enumerate()
+        .filter_map(|(idx, q)| if q.trim().is_empty() { None } else { Some(idx) })
+        .collect();
+
+    let mut query_embeddings: Vec<Option<Vec<f32>>> = vec![None; queries.len()];
+    if backend.is_available() && !non_empty_indices.is_empty() {
+        let batch_texts: Vec<String> = non_empty_indices
+            .iter()
+            .map(|&i| queries[i].trim().to_string())
+            .collect();
+        match backend.embed_query_texts(&batch_texts).await {
+            Ok(vecs) if vecs.len() == non_empty_indices.len() => {
+                for (&orig_idx, vec) in non_empty_indices.iter().zip(vecs.into_iter()) {
+                    if !vec.is_empty() {
+                        query_embeddings[orig_idx] = Some(vec);
+                    }
+                }
+            }
+            Ok(_) => {
+                debug!("batch query embedding count mismatch, falling back to lexical");
+            }
+            Err(_) => {
+                debug!("batch query embedding failed, using lexical retrieval");
+            }
+        }
+    }
+
+    let has_any_embedding = query_embeddings.iter().any(|e| e.is_some());
+    let cached_chunks: Vec<(SearchResult, Vec<f32>)> = if has_any_embedding {
+        load_candidate_embeddings(
+            repo,
+            filters.document_ids.as_deref(),
+            filters.source_types.as_deref(),
+            &backend.model_name(),
+            backend.embedding_version(),
+        )
+        .await?
+    } else {
+        Vec::new()
+    };
+
+    let mut responses = Vec::with_capacity(queries.len());
+    for (idx, raw_query) in queries.iter().enumerate() {
+        let query = raw_query.trim();
+        if query.is_empty() {
+            responses.push(RetrievalResponse {
+                results: Vec::new(),
+                mode: RetrievalMode::LexicalOnly.as_str().to_string(),
+                candidates_scanned: 0,
+            });
+            continue;
+        }
+
+        if let (Some(query_vec), false) = (&query_embeddings[idx], cached_chunks.is_empty()) {
+            let mut heap: BinaryHeap<Reverse<ScoredCandidate>> = BinaryHeap::with_capacity(k);
+            let mut scanned = 0usize;
+            for (template, candidate) in &cached_chunks {
+                scanned += 1;
+                if candidate.len() != query_vec.len() {
+                    continue;
+                }
+                let score = crate::ai::embedding_config::cosine_similarity(query_vec, candidate);
+                if !score.is_finite() {
+                    continue;
+                }
+                if heap.len() == k {
+                    if let Some(Reverse(peek)) = heap.peek() {
+                        if score <= peek.score {
+                            continue;
+                        }
+                    }
+                }
+                let mut result = template.clone();
+                result.score = score as f64;
+                let entry = ScoredCandidate { score, result };
+                if heap.len() < k {
+                    heap.push(Reverse(entry));
+                } else if let Some(Reverse(peek)) = heap.peek() {
+                    if score > peek.score {
+                        heap.pop();
+                        heap.push(Reverse(entry));
+                    }
+                }
+            }
+            let deduped = dedup_and_sort_topk(heap, k);
+            if !deduped.is_empty() {
+                responses.push(RetrievalResponse {
+                    results: deduped,
+                    mode: RetrievalMode::Semantic.as_str().to_string(),
+                    candidates_scanned: scanned,
+                });
+                continue;
+            }
+        }
+
+        let results = lexical_results(repo, query, k, filters).await?;
+        responses.push(RetrievalResponse {
+            results,
+            mode: RetrievalMode::LexicalOnly.as_str().to_string(),
+            candidates_scanned: 0,
+        });
+    }
+
+    Ok(responses)
+}
+
 /// FTS5 MATCH query that tolerates arbitrary user input: each token is
 /// quoted and prefix-matched (`"tok"*`), so punctuation/operators in the
 /// query cannot produce MATCH syntax errors.
@@ -294,6 +417,14 @@ async fn semantic_topk(
         }
     }
 
+    let deduped = dedup_and_sort_topk(heap, k);
+    Ok((deduped, scanned))
+}
+
+fn dedup_and_sort_topk(
+    heap: BinaryHeap<Reverse<ScoredCandidate>>,
+    k: usize,
+) -> Vec<SearchResult> {
     let mut out: Vec<SearchResult> = heap.into_iter().map(|Reverse(e)| e.result).collect();
     out.sort_by(|a, b| {
         b.score
@@ -317,7 +448,61 @@ async fn semantic_topk(
             break;
         }
     }
-    Ok((deduped, scanned))
+    deduped
+}
+
+async fn load_candidate_embeddings(
+    repo: &Repository,
+    candidate_docs: Option<&[String]>,
+    source_types: Option<&[String]>,
+    model: &str,
+    version: i64,
+) -> Result<Vec<(SearchResult, Vec<f32>)>> {
+    let mut builder: QueryBuilder<sqlx::Sqlite> =
+        QueryBuilder::new("SELECT c.id, c.document_id, c.source_type, c.source_id, c.ordinal, \
+                           c.text, c.heading_path, c.location_json, c.content_hash, c.token_count, e.embedding ");
+    builder.push("FROM semantic_chunks c JOIN semantic_chunk_embeddings e ON e.chunk_id = c.id JOIN documents d ON d.id = c.document_id ");
+    builder.push("WHERE d.is_archived = 0 AND d.is_ai_excluded = 0 AND e.model = ");
+    builder.push_bind(model);
+    builder.push(" AND e.embedding_version = ");
+    builder.push_bind(version);
+    if let Some(docs) = candidate_docs {
+        if docs.is_empty() {
+            return Ok(Vec::new());
+        }
+        builder.push(" AND c.document_id IN (");
+        let mut separated = builder.separated(", ");
+        for doc in docs {
+            separated.push_bind(doc.clone());
+        }
+        separated.push_unseparated(") ");
+    }
+    if let Some(types) = source_types {
+        if types.is_empty() {
+            return Ok(Vec::new());
+        }
+        builder.push(" AND c.source_type IN (");
+        let mut separated = builder.separated(", ");
+        for t in types {
+            separated.push_bind(t.clone());
+        }
+        separated.push_unseparated(") ");
+    }
+
+    let mut rows = builder.build().fetch(repo.pool());
+    let mut out = Vec::new();
+    while let Some(row) = rows.try_next().await? {
+        let Ok(bytes) = row.try_get::<Vec<u8>, _>("embedding") else {
+            continue;
+        };
+        let candidate = bytes_to_vector(&bytes);
+        if candidate.is_empty() {
+            continue;
+        }
+        let template = row_to_result(row, 0.0, RetrievalMode::Semantic.as_str());
+        out.push((template, candidate));
+    }
+    Ok(out)
 }
 
 fn bytes_to_vector(bytes: &[u8]) -> Vec<f32> {

@@ -361,6 +361,16 @@ impl EmbeddingBackend {
         Ok(out.pop().unwrap_or_default())
     }
 
+    /// Embed a batch of query texts (query-side embedding at retrieval time):
+    /// the on-device backend uses the query prompt template and batches via
+    /// the native cap.
+    pub async fn embed_query_texts(
+        &self,
+        texts: &[String],
+    ) -> Result<Vec<Vec<f32>>, EmbeddingUnavailable> {
+        self.embed_texts_with_kind(texts, "query").await
+    }
+
     /// Shared embed path. `kind` selects the native Gemma prompt template
     /// ("document" for indexed chunks, "query" for retrieval queries).
     async fn embed_texts_with_kind(

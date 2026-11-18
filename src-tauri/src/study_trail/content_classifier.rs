@@ -1,7 +1,7 @@
 use crate::models::study_trail::StructuralClass;
 use crate::study_trail::structural_analyzer::StructuralUnit;
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct ClassificationContext {
     pub allow_bibliography: bool,
     pub allow_toc: bool,

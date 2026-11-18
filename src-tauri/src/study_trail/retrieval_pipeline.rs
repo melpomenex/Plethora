@@ -469,185 +469,243 @@ fn estimate_duration_seconds(word_count: usize, unit: &StructuralUnit) -> i64 {
 
 /// Runs the progressive structural -> classification -> IDF/semantic scoring ->
 /// bounded expansion -> quality -> coverage pipeline.
-pub fn retrieve_segments_for_objective(
-    sources: &[DocumentSourceForTrail],
-    query: &ObjectiveQuery,
-    now_iso: &str,
-) -> ObjectiveRetrievalResult {
-    let mut diagnostics = Vec::new();
-    let available_sources: Vec<&DocumentSourceForTrail> = sources
-        .iter()
-        .filter(|s| {
-            if s.is_ai_excluded {
-                diagnostics.push(format!("Skipped AI-excluded source '{}'", s.document_title));
-                return false;
-            }
-            if s.readiness == SegmentReadinessStatus::NeedsOcr {
-                diagnostics.push(format!(
-                    "Source '{}' requires OCR before text segments can be verified",
-                    s.document_title
+struct PrecomputedUnit {
+    class: StructuralClass,
+    stem_vec: Vec<String>,
+    stem_set: HashSet<String>,
+}
+
+struct CachedContextStats {
+    idf_map: HashMap<String, f64>,
+    excluded_count: usize,
+}
+
+/// Precomputed per-source structural classifications, stemmed tokens, and cached
+/// per-`ClassificationContext` IDF tables so multi-objective trail generation
+/// does not re-stem or re-classify every source unit per objective.
+pub struct PreparedTrailCorpus<'a> {
+    available_sources: Vec<&'a DocumentSourceForTrail>,
+    base_diagnostics: Vec<String>,
+    units: Vec<Vec<PrecomputedUnit>>,
+    context_cache: HashMap<ClassificationContext, CachedContextStats>,
+}
+
+impl<'a> PreparedTrailCorpus<'a> {
+    pub fn new(sources: &'a [DocumentSourceForTrail]) -> Self {
+        let mut base_diagnostics = Vec::new();
+        let available_sources: Vec<&DocumentSourceForTrail> = sources
+            .iter()
+            .filter(|s| {
+                if s.is_ai_excluded {
+                    base_diagnostics
+                        .push(format!("Skipped AI-excluded source '{}'", s.document_title));
+                    return false;
+                }
+                if s.readiness == SegmentReadinessStatus::NeedsOcr {
+                    base_diagnostics.push(format!(
+                        "Source '{}' requires OCR before text segments can be verified",
+                        s.document_title
+                    ));
+                    return false;
+                }
+                if s.readiness == SegmentReadinessStatus::Unavailable {
+                    base_diagnostics
+                        .push(format!("Source '{}' is currently unavailable", s.document_title));
+                    return false;
+                }
+                true
+            })
+            .collect();
+
+        let mut units = Vec::with_capacity(available_sources.len());
+        for source in &available_sources {
+            let mut src_units = Vec::with_capacity(source.units.len());
+            for unit in &source.units {
+                let class = classify_structural_unit(unit);
+                let stem_vec = extract_stemmed_tokens(&format!(
+                    "{} {}",
+                    unit.heading_path.join(" "),
+                    unit.text
                 ));
-                return false;
-            }
-            if s.readiness == SegmentReadinessStatus::Unavailable {
-                diagnostics.push(format!("Source '{}' is currently unavailable", s.document_title));
-                return false;
-            }
-            true
-        })
-        .collect();
-
-    if available_sources.is_empty() {
-        return ObjectiveRetrievalResult {
-            coverage_status: ObjectiveCoverageStatus::SourceUnavailable,
-            segments: vec![],
-            links: vec![],
-            diagnostics,
-        };
-    }
-
-    let obj_stems = extract_stemmed_tokens(&query.objective_text);
-    let title_stems = extract_stemmed_tokens(&query.node_title);
-    let mut primary_map: HashMap<String, f64> = HashMap::new();
-    let mut primary_order: Vec<String> = Vec::new();
-    for s in obj_stems {
-        if !primary_map.contains_key(&s) {
-            primary_order.push(s.clone());
-        }
-        primary_map.insert(s, 1.0);
-    }
-    for s in title_stems {
-        if !primary_map.contains_key(&s) {
-            primary_order.push(s.clone());
-            primary_map.insert(s, 0.75);
-        }
-    }
-    let primary_terms: Vec<(String, f64)> = primary_order
-        .into_iter()
-        .map(|s| {
-            let w = primary_map[&s];
-            (s, w)
-        })
-        .collect();
-
-    let summary_stems: Vec<String> = extract_stemmed_tokens(&query.node_summary)
-        .into_iter()
-        .filter(|s| !primary_map.contains_key(s))
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect();
-
-    let bigrams = extract_stem_bigrams(&format!("{} {}", query.node_title, query.objective_text));
-    let cited_shingles: Vec<HashSet<String>> = query
-        .cited_excerpts
-        .iter()
-        .map(|ex| word_shingles(ex))
-        .filter(|set| !set.is_empty())
-        .collect();
-
-    let signals = QuerySignals {
-        primary_terms,
-        summary_stems,
-        bigrams,
-        cited_shingles,
-        has_retrieval: !query.unit_retrieval_scores.is_empty(),
-    };
-    let keywords = extract_keywords(&format!("{} {}", query.node_title, query.objective_text));
-
-    // Precompute per-unit stems and corpus document frequencies (IDF) over permitted units
-    let mut unit_meta: Vec<Vec<(StructuralClass, bool, Vec<String>, HashSet<String>)>> =
-        Vec::with_capacity(available_sources.len());
-    let mut df_map: HashMap<String, usize> = HashMap::new();
-    let mut permitted_unit_count = 0usize;
-    let mut excluded_count = 0usize;
-
-    for source in &available_sources {
-        let mut src_meta = Vec::with_capacity(source.units.len());
-        for unit in &source.units {
-            let class = classify_structural_unit(unit);
-            let permitted = query.context.is_permitted(class);
-            if !permitted {
-                excluded_count += 1;
-                src_meta.push((class, false, Vec::new(), HashSet::new()));
-                continue;
-            }
-            permitted_unit_count += 1;
-            let stem_vec = extract_stemmed_tokens(&format!(
-                "{} {}",
-                unit.heading_path.join(" "),
-                unit.text
-            ));
-            let stem_set: HashSet<String> = stem_vec.iter().cloned().collect();
-            for s in &stem_set {
-                *df_map.entry(s.clone()).or_insert(0) += 1;
-            }
-            src_meta.push((class, true, stem_vec, stem_set));
-        }
-        unit_meta.push(src_meta);
-    }
-
-    let n_docs = permitted_unit_count.max(1) as f64;
-    let idf_map: HashMap<String, f64> = df_map
-        .into_iter()
-        .map(|(stem, df)| {
-            let idf = ((n_docs + 1.0) / (df as f64 + 1.0)).ln() + 1.0;
-            (stem, idf)
-        })
-        .collect();
-
-    struct ScoredUnit<'a> {
-        source_idx: usize,
-        source: &'a DocumentSourceForTrail,
-        unit_idx: usize,
-        class: StructuralClass,
-        score: f64,
-        rationale: String,
-    }
-
-    let mut per_unit_scores: Vec<Vec<f64>> = Vec::with_capacity(available_sources.len());
-    let mut scored: Vec<ScoredUnit<'_>> = Vec::new();
-
-    for (src_idx, source) in available_sources.iter().enumerate() {
-        let mut scores_for_source = vec![0.0f64; source.units.len()];
-        for (idx, unit) in source.units.iter().enumerate() {
-            let (class, permitted, stem_vec, stem_set) = &unit_meta[src_idx][idx];
-            if !*permitted {
-                continue;
-            }
-            let retrieval_score = query
-                .unit_retrieval_scores
-                .get(&unit.unit_id)
-                .copied()
-                .unwrap_or(0.0);
-            let diversity_penalty = if query.assigned_primary_units.contains(&unit.unit_id) {
-                0.08
-            } else {
-                0.0
-            };
-            let (score, rationale) = score_unit_with_idf(
-                unit,
-                stem_set,
-                stem_vec,
-                *class,
-                &signals,
-                &idf_map,
-                retrieval_score,
-                diversity_penalty,
-            );
-            scores_for_source[idx] = score;
-            if score >= MIN_QUALITY_THRESHOLD {
-                scored.push(ScoredUnit {
-                    source_idx: src_idx,
-                    source,
-                    unit_idx: idx,
-                    class: *class,
-                    score,
-                    rationale,
+                let stem_set: HashSet<String> = stem_vec.iter().cloned().collect();
+                src_units.push(PrecomputedUnit {
+                    class,
+                    stem_vec,
+                    stem_set,
                 });
             }
+            units.push(src_units);
         }
-        per_unit_scores.push(scores_for_source);
+
+        Self {
+            available_sources,
+            base_diagnostics,
+            units,
+            context_cache: HashMap::new(),
+        }
     }
+
+    fn context_stats(&mut self, context: ClassificationContext) -> &CachedContextStats {
+        if !self.context_cache.contains_key(&context) {
+            let mut df_map: HashMap<String, usize> = HashMap::new();
+            let mut permitted_unit_count = 0usize;
+            let mut excluded_count = 0usize;
+
+            for src_units in &self.units {
+                for u in src_units {
+                    if !context.is_permitted(u.class) {
+                        excluded_count += 1;
+                        continue;
+                    }
+                    permitted_unit_count += 1;
+                    for s in &u.stem_set {
+                        *df_map.entry(s.clone()).or_insert(0) += 1;
+                    }
+                }
+            }
+
+            let n_docs = permitted_unit_count.max(1) as f64;
+            let idf_map: HashMap<String, f64> = df_map
+                .into_iter()
+                .map(|(stem, df)| {
+                    let idf = ((n_docs + 1.0) / (df as f64 + 1.0)).ln() + 1.0;
+                    (stem, idf)
+                })
+                .collect();
+
+            self.context_cache.insert(
+                context,
+                CachedContextStats {
+                    idf_map,
+                    excluded_count,
+                },
+            );
+        }
+        &self.context_cache[&context]
+    }
+
+    pub fn retrieve_for_objective(
+        &mut self,
+        query: &ObjectiveQuery,
+        now_iso: &str,
+    ) -> ObjectiveRetrievalResult {
+        let mut diagnostics = self.base_diagnostics.clone();
+
+        if self.available_sources.is_empty() {
+            return ObjectiveRetrievalResult {
+                coverage_status: ObjectiveCoverageStatus::SourceUnavailable,
+                segments: vec![],
+                links: vec![],
+                diagnostics,
+            };
+        }
+
+        let obj_stems = extract_stemmed_tokens(&query.objective_text);
+        let title_stems = extract_stemmed_tokens(&query.node_title);
+        let mut primary_map: HashMap<String, f64> = HashMap::new();
+        let mut primary_order: Vec<String> = Vec::new();
+        for s in obj_stems {
+            if !primary_map.contains_key(&s) {
+                primary_order.push(s.clone());
+            }
+            primary_map.insert(s, 1.0);
+        }
+        for s in title_stems {
+            if !primary_map.contains_key(&s) {
+                primary_order.push(s.clone());
+                primary_map.insert(s, 0.75);
+            }
+        }
+        let primary_terms: Vec<(String, f64)> = primary_order
+            .into_iter()
+            .map(|s| {
+                let w = primary_map[&s];
+                (s, w)
+            })
+            .collect();
+
+        let summary_stems: Vec<String> = extract_stemmed_tokens(&query.node_summary)
+            .into_iter()
+            .filter(|s| !primary_map.contains_key(s))
+            .collect::<HashSet<_>>()
+            .into_iter()
+            .collect();
+
+        let bigrams = extract_stem_bigrams(&format!("{} {}", query.node_title, query.objective_text));
+        let cited_shingles: Vec<HashSet<String>> = query
+            .cited_excerpts
+            .iter()
+            .map(|ex| word_shingles(ex))
+            .filter(|set| !set.is_empty())
+            .collect();
+
+        let signals = QuerySignals {
+            primary_terms,
+            summary_stems,
+            bigrams,
+            cited_shingles,
+            has_retrieval: !query.unit_retrieval_scores.is_empty(),
+        };
+        let keywords = extract_keywords(&format!("{} {}", query.node_title, query.objective_text));
+
+        let _ = self.context_stats(query.context);
+        let stats = &self.context_cache[&query.context];
+        let idf_map = &stats.idf_map;
+        let excluded_count = stats.excluded_count;
+
+        struct ScoredUnit<'b> {
+            source_idx: usize,
+            source: &'b DocumentSourceForTrail,
+            unit_idx: usize,
+            class: StructuralClass,
+            score: f64,
+            rationale: String,
+        }
+
+        let mut per_unit_scores: Vec<Vec<f64>> = Vec::with_capacity(self.available_sources.len());
+        let mut scored: Vec<ScoredUnit<'_>> = Vec::new();
+
+        for (src_idx, source) in self.available_sources.iter().enumerate() {
+            let mut scores_for_source = vec![0.0f64; source.units.len()];
+            for (idx, unit) in source.units.iter().enumerate() {
+                let pre = &self.units[src_idx][idx];
+                if !query.context.is_permitted(pre.class) {
+                    continue;
+                }
+                let retrieval_score = query
+                    .unit_retrieval_scores
+                    .get(&unit.unit_id)
+                    .copied()
+                    .unwrap_or(0.0);
+                let diversity_penalty = if query.assigned_primary_units.contains(&unit.unit_id) {
+                    0.08
+                } else {
+                    0.0
+                };
+                let (score, rationale) = score_unit_with_idf(
+                    unit,
+                    &pre.stem_set,
+                    &pre.stem_vec,
+                    pre.class,
+                    &signals,
+                    idf_map,
+                    retrieval_score,
+                    diversity_penalty,
+                );
+                scores_for_source[idx] = score;
+                if score >= MIN_QUALITY_THRESHOLD {
+                    scored.push(ScoredUnit {
+                        source_idx: src_idx,
+                        source,
+                        unit_idx: idx,
+                        class: pre.class,
+                        score,
+                        rationale,
+                    });
+                }
+            }
+            per_unit_scores.push(scores_for_source);
+        }
 
     if excluded_count > 0 {
         diagnostics.push(format!(
@@ -700,10 +758,9 @@ pub fn retrieve_segments_for_objective(
         // Expand backward at most 1 unit, only if relevant or anchor is short
         if start_idx > 0 {
             let prev = &units[start_idx - 1];
-            let (prev_class, prev_permitted, _, _) = &unit_meta[cand.source_idx][start_idx - 1];
+            let prev_pre = &self.units[cand.source_idx][start_idx - 1];
             let prev_score = src_scores[start_idx - 1];
-            let _ = prev_class;
-            if *prev_permitted
+            if query.context.is_permitted(prev_pre.class)
                 && same_section(prev, anchor_unit)
                 && total_words + prev.word_count <= TARGET_IDEAL_WORDS
                 && ((prev_score >= cand.score * 0.65 && prev_score >= MIN_QUALITY_THRESHOLD)
@@ -718,7 +775,7 @@ pub fn retrieve_segments_for_objective(
         let mut forward_steps = 0usize;
         while end_idx + 1 < units.len() && forward_steps < 2 {
             let next = &units[end_idx + 1];
-            let (_, next_permitted, _, _) = &unit_meta[cand.source_idx][end_idx + 1];
+            let next_pre = &self.units[cand.source_idx][end_idx + 1];
             let next_score = src_scores[end_idx + 1];
             let within_budget = if total_words < 180 {
                 total_words + next.word_count <= TARGET_MAX_WORDS
@@ -727,7 +784,7 @@ pub fn retrieve_segments_for_objective(
             };
             let relevant_continuation =
                 total_words < 200 || next_score >= MIN_QUALITY_THRESHOLD * 0.70;
-            if *next_permitted
+            if query.context.is_permitted(next_pre.class)
                 && same_section(next, anchor_unit)
                 && within_budget
                 && relevant_continuation
@@ -864,4 +921,13 @@ pub fn retrieve_segments_for_objective(
         links,
         diagnostics,
     }
+    }
+}
+
+pub fn retrieve_segments_for_objective(
+    sources: &[DocumentSourceForTrail],
+    query: &ObjectiveQuery,
+    now_iso: &str,
+) -> ObjectiveRetrievalResult {
+    PreparedTrailCorpus::new(sources).retrieve_for_objective(query, now_iso)
 }

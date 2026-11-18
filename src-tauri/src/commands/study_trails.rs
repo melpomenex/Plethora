@@ -19,7 +19,7 @@ use crate::study_trail::content_classifier::ClassificationContext;
 use crate::study_trail::eligibility::evaluate_assessment_eligibility;
 use crate::study_trail::planner::plan_study_trail;
 use crate::study_trail::retrieval_pipeline::{
-    extract_keywords, retrieve_segments_for_objective, DocumentSourceForTrail, ObjectiveQuery,
+    extract_keywords, DocumentSourceForTrail, ObjectiveQuery, PreparedTrailCorpus,
 };
 use crate::study_trail::structural_analyzer::{
     analyze_document_structure, StructuralSourceInput, StructuralUnit, TranscriptUnitInput,
@@ -426,12 +426,10 @@ fn shingles_for_matching(text: &str) -> HashSet<String> {
     words.windows(4).map(|w| w.join(" ")).collect()
 }
 
-fn map_retrieval_hits_to_units(
+fn precompute_unit_shingles(
     sources: &[DocumentSourceForTrail],
-    response: &RetrievalResponse,
-) -> HashMap<String, f64> {
-    let mut scores: HashMap<String, f64> = HashMap::new();
-    let unit_shingles: HashMap<&str, Vec<HashSet<String>>> = sources
+) -> HashMap<&str, Vec<HashSet<String>>> {
+    sources
         .iter()
         .map(|s| {
             (
@@ -442,7 +440,15 @@ fn map_retrieval_hits_to_units(
                     .collect(),
             )
         })
-        .collect();
+        .collect()
+}
+
+fn map_retrieval_hits_to_units(
+    sources: &[DocumentSourceForTrail],
+    unit_shingles: &HashMap<&str, Vec<HashSet<String>>>,
+    response: &RetrievalResponse,
+) -> HashMap<String, f64> {
+    let mut scores: HashMap<String, f64> = HashMap::new();
 
     for hit in &response.results {
         let Some(src) = sources.iter().find(|s| s.document_id == hit.document_id) else {
@@ -620,6 +626,15 @@ pub async fn generate_study_trail_segments_core(
     let mut all_segments = Vec::new();
     let mut all_links = Vec::new();
 
+    struct ObjectiveTask<'a> {
+        node: &'a crate::models::study_plan::StudyPlanVersionNode,
+        obj_idx: usize,
+        obj_text: String,
+        cited_excerpts: Vec<String>,
+        search_query: String,
+    }
+
+    let mut tasks: Vec<ObjectiveTask<'_>> = Vec::new();
     for node in detail.version.nodes.iter().filter(|n| n.included) {
         if let Some(ref filter_node) = input.node_id {
             if &node.node_id != filter_node {
@@ -643,60 +658,92 @@ pub async fn generate_study_trail_segments_core(
             .map(|res| res.ref_item.excerpt.clone())
             .collect();
 
-        let mut node_primary_units: HashSet<String> = HashSet::new();
-
-        for (obj_idx, obj_text) in objectives.iter().enumerate() {
+        for (obj_idx, obj_text) in objectives.into_iter().enumerate() {
             let obj_i64 = obj_idx as i64;
             if let Some(filter_obj) = input.objective_index {
                 if obj_i64 != filter_obj {
                     continue;
                 }
             }
-
-            let unit_retrieval_scores = if eligible_doc_ids.is_empty() {
-                HashMap::new()
-            } else {
-                let filters = RetrievalFilters {
-                    document_ids: Some(eligible_doc_ids.clone()),
-                    source_types: Some(vec![
-                        "document".to_string(),
-                        "transcript".to_string(),
-                        "session".to_string(),
-                    ]),
-                };
-                let search_query = format!("{} {}", node.title, obj_text);
-                match semantic_retrieval::retrieve(repo, &safe_backend, &search_query, 24, &filters)
-                    .await
-                {
-                    Ok(resp) => map_retrieval_hits_to_units(&sources, &resp),
-                    Err(_) => HashMap::new(),
-                }
-            };
-
-            let query = ObjectiveQuery {
-                plan_id: input.plan_id.clone(),
-                version_id: input.version_id.clone(),
-                node_id: node.node_id.clone(),
-                node_title: node.title.clone(),
-                node_summary: node.summary.clone(),
-                objective_index: obj_i64,
-                objective_text: obj_text.clone(),
-                context: ClassificationContext::from_objective_text(obj_text),
+            let search_query = format!("{} {}", node.title, obj_text);
+            tasks.push(ObjectiveTask {
+                node,
+                obj_idx,
+                obj_text,
                 cited_excerpts: cited_excerpts.clone(),
-                unit_retrieval_scores,
-                assigned_primary_units: node_primary_units.clone(),
+                search_query,
+            });
+        }
+    }
+
+    let retrieval_responses: Vec<Option<RetrievalResponse>> =
+        if eligible_doc_ids.is_empty() || tasks.is_empty() {
+            vec![None; tasks.len()]
+        } else {
+            let filters = RetrievalFilters {
+                document_ids: Some(eligible_doc_ids.clone()),
+                source_types: Some(vec![
+                    "document".to_string(),
+                    "transcript".to_string(),
+                    "session".to_string(),
+                ]),
             };
-            let res = retrieve_segments_for_objective(&sources, &query, &now_iso);
-            if let Some(primary) = res.segments.first() {
-                if let Some(ids) = primary.provenance.get("unitIds").and_then(|v| v.as_array()) {
-                    for uid in ids.iter().filter_map(|u| u.as_str()) {
-                        node_primary_units.insert(uid.to_string());
-                    }
+            let queries: Vec<String> = tasks.iter().map(|t| t.search_query.clone()).collect();
+            match semantic_retrieval::retrieve_batch(repo, &safe_backend, &queries, 24, &filters)
+                .await
+            {
+                Ok(resps) if resps.len() == tasks.len() => resps.into_iter().map(Some).collect(),
+                _ => vec![None; tasks.len()],
+            }
+        };
+
+    let has_any_retrieval_hits = retrieval_responses
+        .iter()
+        .any(|r| r.as_ref().is_some_and(|resp| !resp.results.is_empty()));
+    let unit_shingles = if has_any_retrieval_hits {
+        precompute_unit_shingles(&sources)
+    } else {
+        HashMap::new()
+    };
+
+    let mut corpus = PreparedTrailCorpus::new(&sources);
+    let mut node_primary_units_map: HashMap<String, HashSet<String>> = HashMap::new();
+
+    for (task, resp_opt) in tasks.into_iter().zip(retrieval_responses.into_iter()) {
+        let unit_retrieval_scores = match resp_opt {
+            Some(ref resp) if !resp.results.is_empty() => {
+                map_retrieval_hits_to_units(&sources, &unit_shingles, resp)
+            }
+            _ => HashMap::new(),
+        };
+
+        let node_primary_units = node_primary_units_map
+            .entry(task.node.node_id.clone())
+            .or_default();
+
+        let query = ObjectiveQuery {
+            plan_id: input.plan_id.clone(),
+            version_id: input.version_id.clone(),
+            node_id: task.node.node_id.clone(),
+            node_title: task.node.title.clone(),
+            node_summary: task.node.summary.clone(),
+            objective_index: task.obj_idx as i64,
+            objective_text: task.obj_text.clone(),
+            context: ClassificationContext::from_objective_text(&task.obj_text),
+            cited_excerpts: task.cited_excerpts,
+            unit_retrieval_scores,
+            assigned_primary_units: node_primary_units.clone(),
+        };
+        let res = corpus.retrieve_for_objective(&query, &now_iso);
+        if let Some(primary) = res.segments.first() {
+            if let Some(ids) = primary.provenance.get("unitIds").and_then(|v| v.as_array()) {
+                for uid in ids.iter().filter_map(|u| u.as_str()) {
+                    node_primary_units.insert(uid.to_string());
                 }
             }
-            all_segments.extend(res.segments);
-            all_links.extend(res.links);
         }
+        all_segments.extend(res.segments);
+        all_links.extend(res.links);
     }
 
     trail_repo
