@@ -161,6 +161,8 @@ export function LocalVideoPlayer({
   const [sourceFailureStrategy, setSourceFailureStrategy] = useState<string | null>(null);
   const [sourceRetryNonce, setSourceRetryNonce] = useState(0);
   const artifactSwitchRef = useRef<{ time: number; wasPlaying: boolean } | null>(null);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const controlsHideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Transcript panel state
   const [showTranscript, setShowTranscript] = useState(() => {
@@ -1460,6 +1462,36 @@ export function LocalVideoPlayer({
     />
   );
 
+  const showControls = mediaType === "audio" || !isPlaying || controlsVisible;
+
+  const clearControlsHideTimer = useCallback(() => {
+    if (controlsHideTimeoutRef.current) {
+      clearTimeout(controlsHideTimeoutRef.current);
+      controlsHideTimeoutRef.current = null;
+    }
+  }, []);
+
+  const revealControls = useCallback(() => {
+    setControlsVisible(true);
+    clearControlsHideTimer();
+    if (mediaType === "video" && isPlaying) {
+      controlsHideTimeoutRef.current = setTimeout(() => {
+        setControlsVisible(false);
+        controlsHideTimeoutRef.current = null;
+      }, 2500);
+    }
+  }, [clearControlsHideTimer, isPlaying, mediaType]);
+
+  useEffect(() => {
+    if (mediaType === "audio" || !isPlaying) {
+      clearControlsHideTimer();
+      setControlsVisible(true);
+      return;
+    }
+    revealControls();
+    return clearControlsHideTimer;
+  }, [clearControlsHideTimer, isPlaying, mediaType, revealControls]);
+
   const autoInProgress = transcriptionStatus === "queued" || transcriptionStatus === "processing";
   const autoFailed = transcriptionStatus === "failed";
   const autoNeedsModel = transcriptionStatus === "needs-model";
@@ -1479,9 +1511,17 @@ export function LocalVideoPlayer({
         className={cn(
           "relative flex flex-col rounded-lg overflow-hidden flex-shrink-0",
           mediaType === "audio" ? "bg-background" : "bg-black",
-          transcriptLayout === 'side' && showTranscript ? "h-full" : "w-full"
+          transcriptLayout === 'side' && showTranscript ? "h-full" : "w-full",
+          mediaType === "video" && isPlaying && !showControls && "cursor-none"
         )}
         style={transcriptLayout === 'side' && showTranscript ? { flex: 1 } : undefined}
+        onMouseMove={revealControls}
+        onMouseLeave={() => {
+          if (mediaType === "video" && isPlaying) {
+            clearControlsHideTimer();
+            setControlsVisible(false);
+          }
+        }}
         onClick={(e) => {
           const target = e.target as Element | null;
           if (target?.closest?.('[data-local-video-controls="true"]')) return;
@@ -1646,18 +1686,19 @@ export function LocalVideoPlayer({
         {/* Controls Overlay */}
         <div
           className={cn(
-            "absolute inset-0 flex flex-col justify-between opacity-100 transition-opacity px-4 pt-4 pb-6 z-20 pointer-events-none",
+            "absolute inset-0 flex flex-col justify-between transition-opacity duration-200 px-4 pt-4 pb-6 z-20 pointer-events-none",
+            showControls ? "opacity-100" : "opacity-0",
             mediaType === "audio"
               ? "bg-gradient-to-b from-background/80 via-transparent to-background/80"
               : "bg-gradient-to-b from-black/30 via-transparent to-black/50"
           )}
         >
-          <div
-            className="pointer-events-auto flex h-full flex-col justify-between"
-            data-local-video-controls="true"
-          >
+          <div className="flex h-full flex-col justify-between pointer-events-none">
         {/* Top Controls */}
-        <div className="flex items-center justify-between">
+        <div
+          className={cn("flex items-center justify-between", showControls ? "pointer-events-auto" : "pointer-events-none")}
+          data-local-video-controls="true"
+        >
           <div className={cn("text-sm truncate", mediaType === "audio" ? "text-foreground" : "text-white")}>
             {title || (mediaType === "audio" ? t("viewer.audio") : t("viewer.video"))}
           </div>
@@ -1673,7 +1714,10 @@ export function LocalVideoPlayer({
         </div>
 
         {/* Center Controls */}
-        <div className="flex items-center justify-center gap-4">
+        <div
+          className={cn("flex items-center justify-center gap-4", showControls ? "pointer-events-auto" : "pointer-events-none")}
+          data-local-video-controls="true"
+        >
           <button
             onClick={() => seekRelative(-10)}
             className="p-2 hover:bg-white/20 rounded-full transition-colors"
@@ -1720,7 +1764,10 @@ export function LocalVideoPlayer({
         </div>
 
         {/* Bottom Controls */}
-        <div className="space-y-2">
+        <div
+          className={cn("space-y-2", showControls ? "pointer-events-auto" : "pointer-events-none")}
+          data-local-video-controls="true"
+        >
           {/* Progress Bar */}
           <div
             className="w-full h-1 bg-white/30 rounded-full cursor-pointer group"
