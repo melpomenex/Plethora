@@ -7,7 +7,7 @@ import { normalizeThemeMaterial } from '../themes/materials';
  * Manages theme state and CSS variable injection
  */
 
-import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Theme, ThemeContextValue, ThemeId } from "../types/theme";
 // Only import the default fallback themes eagerly, from the dedicated fallback
 // module. Importing them from "../themes/builtin" here would statically link
@@ -395,15 +395,15 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
     }
   };
 
-  const previewTheme = (themeId: ThemeId | null) => {
+  const previewTheme = useCallback((themeId: ThemeId | null) => {
     setLivePreviewTheme(null);
     setPreviewThemeId(themeId);
-  };
+  }, []);
 
-  const previewCustomTheme = (theme: Theme | null) => {
+  const previewCustomTheme = useCallback((theme: Theme | null) => {
     if (theme) setPreviewThemeId(null);
     setLivePreviewTheme(theme);
-  };
+  }, []);
 
   const commitPreview = () => {
     if (previewThemeId !== null && previewThemeId !== currentThemeId) {

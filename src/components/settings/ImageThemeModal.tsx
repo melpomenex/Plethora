@@ -56,15 +56,16 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
   const [surfaceOpacity, setSurfaceOpacity] = useState<number>(defaults.surfaceOpacity ?? 0.76);
   const [brightness, setBrightness] = useState<number>(defaults.brightness ?? 0.95);
 
-  const baseTokens = useMemo(() => {
-    const source = themes[0] || theme;
-    return {
-      typography: source.typography,
-      spacing: source.spacing,
-      radius: source.radius,
-      shadows: source.shadows,
-    };
-  }, [themes, theme]);
+  const baseSource = themes[0] || theme;
+  const baseTokens = useMemo(
+    () => ({
+      typography: baseSource.typography,
+      spacing: baseSource.spacing,
+      radius: baseSource.radius,
+      shadows: baseSource.shadows,
+    }),
+    [baseSource],
+  );
 
   const synthesizedTheme = useMemo(() => {
     if (!prepared || !palette) return null;
@@ -98,23 +99,30 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
     baseTokens,
   ]);
 
+  const previewCustomThemeRef = useRef(previewCustomTheme);
+  previewCustomThemeRef.current = previewCustomTheme;
+
   // Live-apply preview across the entire app while the modal is open.
   useEffect(() => {
-    if (!previewCustomTheme) return;
-    if (prepared && synthesizedTheme) {
-      // Ensure image is in memory cache so ThemeBackdrop renders it immediately.
-      void saveBackdropImage(prepared.imageId, prepared.dataUrl).then(() => {
+    if (!previewCustomTheme || !prepared || !synthesizedTheme) return;
+    let cancelled = false;
+    // Ensure image is in memory cache so ThemeBackdrop renders it immediately.
+    void saveBackdropImage(prepared.imageId, prepared.dataUrl).then(() => {
+      if (!cancelled) {
         previewCustomTheme(synthesizedTheme);
-      });
-    }
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [prepared, synthesizedTheme, previewCustomTheme]);
 
   // Revert preview on unmount.
   useEffect(() => {
     return () => {
-      previewCustomTheme?.(null);
+      previewCustomThemeRef.current?.(null);
     };
-  }, [previewCustomTheme]);
+  }, []);
 
   const fileInputId = "image-theme-file-input";
 
