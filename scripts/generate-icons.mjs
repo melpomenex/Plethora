@@ -175,11 +175,11 @@ function main() {
     // Legacy (non-adaptive) launcher icons at the exact density-bucket sizes
     // (48/72/96/144/192). The pinned `tauri icon` release emits 49px for hdpi;
     // this repo historically shipped the exact bucket sizes, so render them
-    // explicitly from the square master (white background baked in).
+    // explicitly from the transparent foreground (just the bird, no white square).
     const launcherSizes = { mdpi: 48, hdpi: 72, xhdpi: 96, xxhdpi: 144, xxxhdpi: 192 };
     const launcherOut = join(work, 'android-launcher');
     runTauriIcon(
-      [MASTER_SVG, '-o', launcherOut, '-p', Object.values(launcherSizes).join(',')],
+      [FOREGROUND_SVG, '-o', launcherOut, '-p', Object.values(launcherSizes).join(',')],
       'android launcher sizes'
     );
     for (const [density, size] of Object.entries(launcherSizes)) {

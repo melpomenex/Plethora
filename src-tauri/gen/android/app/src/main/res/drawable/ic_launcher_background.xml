@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Plethora adaptive-icon background: solid white to match the icon master
-     (assets/brand/plethora-icon-master.svg). -->
+<!-- Plethora adaptive-icon background: transparent so only the bird mascot head renders on mobile. -->
 <shape xmlns:android="http://schemas.android.com/apk/res/android"
     android:shape="rectangle">
-    <solid android:color="#FFFFFF" />
+    <solid android:color="#00000000" />
 </shape>
