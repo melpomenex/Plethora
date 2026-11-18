@@ -47,15 +47,16 @@ export function useStudyTrailReader(surface: ReaderSurface) {
         try {
           if (assignment.format === 'epub' && epub) cleanup = await attachEpubPassage(epub, request, signal, jump, report);
           else if (assignment.format === 'pdf' && pdf) cleanup = await attachPdfPassage(pdf, request, signal, jump, report);
-          else if (root && (assignment.format === 'html' || assignment.format === 'markdown')) {
+          else if (root && (assignment.format === 'html' || assignment.format === 'markdown' || (assignment.format === 'pdf' && !pdf))) {
             let remove: (() => void) | undefined;
             let initial = jump;
+            let shouldReveal = jump || (assignment.format === 'pdf' && !pdf);
             const present = () => {
               if (signal.aborted) return;
               const result = resolveDomPassage(root, assignment.segments);
               remove?.();
               if (result.status === 'exact' && result.ranges.length) {
-                const revealed = !initial || revealReadingRange(result.ranges[0]);
+                const revealed = !shouldReveal || revealReadingRange(result.ranges[0]);
                 if (revealed) {
                   let paintItems = result.ranges.map((range, index) => ({
                     range, start: index === 0, end: index === result.ranges.length - 1,
@@ -75,6 +76,7 @@ export function useStudyTrailReader(surface: ReaderSurface) {
                 report(result.status === 'ambiguous' ? 'ambiguous' : coarseStudyJump(assignment) ? 'coarse' : 'unsupported');
               }
               initial = false;
+              shouldReveal = false;
             };
             present();
             const observer = new MutationObserver((records) => {

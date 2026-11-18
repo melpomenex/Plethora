@@ -6393,12 +6393,12 @@ export function DocumentViewer({
   );
 
   useLayoutEffect(() => {
-    if (docType === "html") {
+    if (isHtmlViewer) {
       // Prevent a newly navigated srcdoc from painting with its source site's
       // colors before the reader-theme stylesheet has been injected.
       setIsHtmlFrameReady(false);
     }
-  }, [docType, currentDocument?.id, htmlForDisplay]);
+  }, [isHtmlViewer, currentDocument?.id, htmlForDisplay, ocrHtmlForDisplay]);
 
   useEffect(() => {
     if (!isHtmlViewer) return;
@@ -7359,12 +7359,13 @@ export function DocumentViewer({
     tabId,
     foreground: isTabActive,
     ready: !isLoading && viewMode === "document" && !isPaletteMode &&
-      (docType !== "html" || isHtmlFrameReady) && (docType !== "pdf" || pdfViewMode !== "ocr-html"),
-    surfaceCanShowPassage: docType !== "pdf" || pdfViewMode !== "ocr-html",
+      (!isHtmlViewer || isHtmlFrameReady) &&
+      (docType !== "pdf" || pdfViewMode !== "ocr-html" || (isOcrHtml && isHtmlFrameReady)),
+    surfaceCanShowPassage: docType !== "pdf" || pdfViewMode !== "ocr-html" || isOcrHtml,
     appearanceKey: appearance?.readerTokens.accent ?? appliedReaderTheme?.id,
     epub: epubVimRuntime,
     pdf: pdfVimRuntime,
-    root: docType === "html" && isHtmlFrameReady
+    root: isHtmlViewer && isHtmlFrameReady
       ? iframeElement?.contentDocument?.body ?? null : markdownStudyRoot,
   });
 
@@ -8424,9 +8425,15 @@ export function DocumentViewer({
                   srcDoc={ocrHtmlForDisplay}
                   onMouseUp={handleIframeMouseUp}
                   onLoad={() => {
+                    const loadedFrame = iframeRef.current;
                     injectHtmlViewerStyles();
                     attachHtmlIframeContextMenuListener();
                     attachHtmlIframePointerActivityForwarder();
+                    requestAnimationFrame(() => {
+                      if (iframeRef.current === loadedFrame) {
+                        setIsHtmlFrameReady(true);
+                      }
+                    });
                   }}
                 />
               </div>

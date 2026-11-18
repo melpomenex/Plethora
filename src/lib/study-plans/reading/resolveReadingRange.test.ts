@@ -86,4 +86,25 @@ describe('reading quote resolution', () => {
     });
     expect(clippedMatch.status).toBe('exact');
   });
+
+  it('scopes PDF segments to #page-<pageNumber> when present in converted HTML', () => {
+    const doc = document.implementation.createHTMLDocument('Converted PDF');
+    doc.body.innerHTML = [
+      '<div class="page" id="page-1"><p>Repeated passage across pages.</p></div>',
+      '<div class="page" id="page-2"><p>Repeated passage across pages.</p></div>',
+    ].join('');
+
+    const result = resolveDomPassage(doc.body, [
+      {
+        quote: { exact: 'Repeated passage across pages.' },
+        location: { kind: 'pdf', pageNumber: 2 },
+      },
+    ]);
+    expect(result.status).toBe('exact');
+    if (result.status === 'exact') {
+      expect(result.ranges).toHaveLength(1);
+      const container = result.ranges[0].startContainer.parentElement;
+      expect(container?.closest('.page')?.id).toBe('page-2');
+    }
+  });
 });

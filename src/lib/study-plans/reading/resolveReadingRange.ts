@@ -209,7 +209,11 @@ export function resolveDomPassage(root: Element, segments: StudyReadingSegment[]
   let resolve: ReturnType<typeof createReadingRangeResolver> | undefined;
   const ranges: Range[] = [];
   for (const segment of segments) {
-    const selector = segment.location?.kind === 'html' ? segment.location.selector : undefined;
+    const selector = segment.location?.kind === 'html'
+      ? segment.location.selector
+      : segment.location?.kind === 'pdf'
+        ? `#page-${segment.location.pageNumber}`
+        : undefined;
     let scope: Element | undefined;
     if (selector) {
       try {

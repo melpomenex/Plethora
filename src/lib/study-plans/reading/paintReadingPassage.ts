@@ -86,6 +86,41 @@ export function revealReadingRange(range: Range) {
   return readingStartInViewport(range) || readingRangeVisible(range);
 }
 
+function computeClipRect(root: Element, doc: Document, win: Window) {
+  let top = 0;
+  let left = 0;
+  let bottom = win.innerHeight || 99999;
+  let right = win.innerWidth || 99999;
+  const rootRect = root.getBoundingClientRect();
+  if (rootRect.height > 0) {
+    top = Math.max(top, rootRect.top);
+    bottom = Math.min(bottom, rootRect.bottom);
+  }
+  if (rootRect.width > 0) {
+    left = Math.max(left, rootRect.left);
+    right = Math.min(right, rootRect.right);
+  }
+  const insideFrame = Boolean(win.frameElement);
+  for (let el: Element | null = root.parentElement; el && el !== doc.documentElement; el = el.parentElement) {
+    if (insideFrame && el === doc.body) continue;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) continue;
+    const style = win.getComputedStyle(el);
+    const clipsPaint = style.contain?.includes('paint')
+      || style.contain?.includes('strict')
+      || style.contain?.includes('content');
+    if (clipsPaint || /(hidden|clip|scroll|auto|overlay)/.test(style.overflowY)) {
+      top = Math.max(top, rect.top);
+      bottom = Math.min(bottom, rect.bottom);
+    }
+    if (clipsPaint || /(hidden|clip|scroll|auto|overlay)/.test(style.overflowX)) {
+      left = Math.max(left, rect.left);
+      right = Math.min(right, rect.right);
+    }
+  }
+  return { top, left, bottom, right, rootRect };
+}
+
 /**
  * Paint through the browser's range highlight registry where available, paired
  * with a non-blocking geometry overlay (`pointer-events: none`) for visible
@@ -140,20 +175,16 @@ export function paintReadingPassage(
   const draw = () => {
     frame = 0;
     const fragment = doc.createDocumentFragment();
-    const bounds = root.getBoundingClientRect();
-    const clipTop = Math.max(0, bounds.top);
-    const clipBottom = Math.min(win.innerHeight || bounds.bottom, bounds.bottom);
-    const clip = {
-      top: clipTop,
-      bottom: clipBottom > clipTop ? clipBottom : (win.innerHeight || bounds.bottom || 99999),
-    };
+    const clip = computeClipRect(root, doc, win);
 
     function addRect(rect: DOMRect, boundary?: 'start' | 'end') {
       const top = Math.max(clip.top, rect.top);
       const bottom = Math.min(clip.bottom, rect.bottom);
-      if (bottom <= top || rect.right <= 0 || (win.innerWidth && rect.left >= win.innerWidth)) return;
+      const left = Math.max(clip.left, rect.left);
+      const right = Math.min(clip.right, rect.right);
+      if (bottom <= top || right <= left) return;
       const mark = doc.createElement('span');
-      mark.style.cssText = `position:absolute;left:${rect.left}px;top:${top}px;width:${rect.width}px;height:${bottom - top}px;pointer-events:none;`;
+      mark.style.cssText = `position:absolute;left:${left}px;top:${top}px;width:${right - left}px;height:${bottom - top}px;pointer-events:none;`;
       if (boundary) {
         mark.style.borderBottom = `2px ${boundary === 'end' ? 'double' : 'solid'} ${outline}`;
       } else {
@@ -165,12 +196,19 @@ export function paintReadingPassage(
     }
 
     function addBoundaryMarker(rect: DOMRect, kind: 'start' | 'end') {
-      const barTop = kind === 'start'
-        ? Math.max(2, rect.top - 16)
-        : Math.min((win.innerHeight || rect.bottom + 24) - 16, rect.bottom + 2);
-      if (barTop < clip.top - 24 || barTop > clip.bottom + 24) return;
-      const barLeft = Math.max(4, Math.min(rect.left, (win.innerWidth || 800) - 130));
-      const barWidth = Math.max(120, Math.min(bounds.width ? bounds.width - barLeft - 8 : 320, 420));
+      if (rect.right <= clip.left || rect.left >= clip.right) return;
+      const markerHeight = 14;
+      const barTop = kind === 'start' ? rect.top - 16 : rect.bottom + 2;
+      if (barTop < clip.top || barTop + markerHeight > clip.bottom) return;
+      const minLeft = clip.left + 4;
+      const maxLeft = Math.max(minLeft, clip.right - 130);
+      const barLeft = Math.max(minLeft, Math.min(rect.left, maxLeft));
+      const availableWidth = clip.right - barLeft - 8;
+      if (availableWidth < 40) return;
+      const targetWidth = clip.rootRect.width
+        ? Math.min(clip.rootRect.width - (barLeft - clip.rootRect.left) - 8, 420)
+        : 320;
+      const barWidth = Math.max(Math.min(120, availableWidth), Math.min(targetWidth, availableWidth));
       const marker = doc.createElement('div');
       marker.dataset.studyBoundary = kind;
       marker.style.cssText = [
@@ -205,7 +243,7 @@ export function paintReadingPassage(
       fragment.appendChild(marker);
     }
 
-    if (root.isConnected) {
+    if (root.isConnected && clip.bottom > clip.top && clip.right > clip.left) {
       let minTop = Infinity;
       let maxBottom = -Infinity;
       let minLeft = Infinity;
@@ -218,10 +256,12 @@ export function paintReadingPassage(
           if (!useCustomHighlights) addRect(rect);
           const top = Math.max(clip.top, rect.top);
           const bottom = Math.min(clip.bottom, rect.bottom);
-          if (bottom > top) {
+          const left = Math.max(clip.left, rect.left);
+          const right = Math.min(clip.right, rect.right);
+          if (bottom > top && right > left) {
             minTop = Math.min(minTop, top);
             maxBottom = Math.max(maxBottom, bottom);
-            minLeft = Math.min(minLeft, rect.left);
+            minLeft = Math.min(minLeft, left);
           }
         }
         if (start) {
@@ -243,20 +283,22 @@ export function paintReadingPassage(
       }
 
       if (Number.isFinite(minTop) && Number.isFinite(maxBottom) && maxBottom > minTop) {
-        const rail = doc.createElement('div');
-        rail.dataset.studyBoundary = 'rail';
-        const railLeft = Math.max(2, Number.isFinite(minLeft) ? minLeft - 8 : 4);
-        rail.style.cssText = [
-          'position:absolute',
-          `left:${railLeft}px`,
-          `top:${minTop}px`,
-          'width:3px',
-          `height:${maxBottom - minTop}px`,
-          'border-radius:2px',
-          'background:rgba(249,115,22,0.85)',
-          'pointer-events:none',
-        ].join(';');
-        fragment.appendChild(rail);
+        const railLeft = Math.max(clip.left + 2, Number.isFinite(minLeft) ? minLeft - 8 : clip.left + 4);
+        if (railLeft + 3 <= clip.right) {
+          const rail = doc.createElement('div');
+          rail.dataset.studyBoundary = 'rail';
+          rail.style.cssText = [
+            'position:absolute',
+            `left:${railLeft}px`,
+            `top:${minTop}px`,
+            'width:3px',
+            `height:${maxBottom - minTop}px`,
+            'border-radius:2px',
+            'pointer-events:none',
+          ].join(';');
+          rail.style.background = 'rgba(249, 115, 22, 0.85)';
+          fragment.appendChild(rail);
+        }
       }
       if (firstStartRect) addBoundaryMarker(firstStartRect, 'start');
       if (lastEndRect) addBoundaryMarker(lastEndRect, 'end');
@@ -271,7 +313,16 @@ export function paintReadingPassage(
   parentWin?.addEventListener('scroll', update, { capture: true, passive: true });
   parentWin?.addEventListener('resize', update);
   const observer = typeof ResizeObserver === 'undefined' ? undefined : new ResizeObserver(update);
-  observer?.observe(root);
+  if (observer) {
+    observer.observe(root);
+    for (let el: Element | null = root.parentElement; el && el !== doc.documentElement; el = el.parentElement) {
+      const style = win.getComputedStyle(el);
+      if (/(hidden|clip|scroll|auto|overlay)/.test(style.overflowY)
+        || /(hidden|clip|scroll|auto|overlay)/.test(style.overflowX)) {
+        observer.observe(el);
+      }
+    }
+  }
   return () => {
     win.cancelAnimationFrame(frame);
     win.removeEventListener('scroll', update, true);
