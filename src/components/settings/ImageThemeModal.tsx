@@ -116,8 +116,15 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
     };
   }, [previewCustomTheme]);
 
+  const fileInputId = "image-theme-file-input";
+
   const handleFile = useCallback(async (file: File) => {
-    if (!file.type.startsWith("image/")) {
+    const hasImageExt = /\.(png|jpe?g|webp|gif|avif|bmp|heic|heif)$/i.test(file.name || "");
+    const hasKnownNonImageMime =
+      Boolean(file.type) &&
+      !file.type.startsWith("image/") &&
+      file.type !== "application/octet-stream";
+    if (hasKnownNonImageMime && !hasImageExt) {
       setError("Please select an image file (PNG, JPEG, WebP, GIF, or AVIF).");
       return;
     }
@@ -220,16 +227,16 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
             }}
             className={cn(
               "relative flex flex-col items-center justify-center overflow-hidden rounded-xl border-2 border-dashed transition-colors",
-              prepared ? "h-44 border-border" : "h-40 cursor-pointer border-border hover:border-primary/60",
+              prepared ? "h-44 border-border" : "h-40 border-border hover:border-primary/60",
               isDragging && "border-primary bg-primary/10"
             )}
-            onClick={() => !prepared && fileInputRef.current?.click()}
           >
             <input
+              id={fileInputId}
               ref={fileInputRef}
               type="file"
               accept="image/*"
-              className="hidden"
+              className="sr-only"
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 if (file) void handleFile(file);
@@ -258,26 +265,25 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
                 <div className="relative z-10 flex items-center gap-3 rounded-lg border border-white/15 bg-black/45 px-3.5 py-2 text-xs text-white backdrop-blur-md">
                   <ImageIcon className="h-4 w-4" />
                   <span>{prepared.width}×{prepared.height}</span>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      fileInputRef.current?.click();
-                    }}
-                    className="rounded bg-white/15 px-2 py-1 font-medium hover:bg-white/25"
+                  <label
+                    htmlFor={fileInputId}
+                    className="cursor-pointer rounded bg-white/15 px-2.5 py-1.5 font-medium hover:bg-white/25"
                   >
                     Change image
-                  </button>
+                  </label>
                 </div>
               </>
             ) : (
-              <div className="flex flex-col items-center gap-2 px-4 text-center">
+              <label
+                htmlFor={fileInputId}
+                className="flex h-full w-full cursor-pointer flex-col items-center justify-center gap-2 px-4 text-center"
+              >
                 <UploadSimple className="h-7 w-7 text-muted-foreground" />
                 <p className="text-sm font-medium text-foreground">
-                  {isProcessing ? "Extracting OKLCH palette…" : "Drop an image here or click to browse"}
+                  {isProcessing ? "Extracting OKLCH palette…" : "Tap to choose a photo or drop an image"}
                 </p>
                 <p className="text-xs text-muted-foreground">PNG, JPEG, WebP, AVIF, or GIF</p>
-              </div>
+              </label>
             )}
           </div>
 

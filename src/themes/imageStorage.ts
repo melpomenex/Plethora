@@ -136,69 +136,95 @@ function encodeCanvas(canvas: HTMLCanvasElement, quality: number): string {
   return canvas.toDataURL("image/jpeg", quality);
 }
 
+function readBlobAsDataUrl(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        resolve(reader.result);
+      } else {
+        reject(new Error("Failed to read image data"));
+      }
+    };
+    reader.onerror = () => reject(new Error("Failed to read image file"));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function loadImageFromBlob(file: Blob): Promise<HTMLImageElement> {
+  if (typeof URL !== "undefined" && typeof URL.createObjectURL === "function") {
+    const objectUrl = URL.createObjectURL(file);
+    try {
+      return await loadImageElement(objectUrl);
+    } catch {
+      // Android WebView / SAF-backed File objects can fail with blob: URLs;
+      // fall back to FileReader data URL below.
+    } finally {
+      URL.revokeObjectURL(objectUrl);
+    }
+  }
+  const dataUrl = await readBlobAsDataUrl(file);
+  return loadImageElement(dataUrl);
+}
+
 /**
  * Decode an uploaded image file, produce a bounded-size backdrop data URL,
  * a tiny thumbnail data URL, and a 96px RGBA sample buffer for palette extraction.
  */
 export async function prepareBackdropImage(file: Blob): Promise<PreparedBackdropImage> {
-  const objectUrl = URL.createObjectURL(file);
-  try {
-    const img = await loadImageElement(objectUrl);
-    const srcW = img.naturalWidth || img.width;
-    const srcH = img.naturalHeight || img.height;
-    if (!srcW || !srcH) {
-      throw new Error("Image has zero dimensions");
-    }
-
-    // 1. Full backdrop (capped at MAX_BACKDROP_EDGE on longest side)
-    const scale = Math.min(1, MAX_BACKDROP_EDGE / Math.max(srcW, srcH));
-    const dstW = Math.max(1, Math.round(srcW * scale));
-    const dstH = Math.max(1, Math.round(srcH * scale));
-    const mainCanvas = document.createElement("canvas");
-    mainCanvas.width = dstW;
-    mainCanvas.height = dstH;
-    const mainCtx = mainCanvas.getContext("2d");
-    if (!mainCtx) throw new Error("Canvas 2D context unavailable");
-    mainCtx.drawImage(img, 0, 0, dstW, dstH);
-    const dataUrl = encodeCanvas(mainCanvas, 0.86);
-
-    // 2. Tiny 48px thumbnail for swatches
-    const thumbScale = Math.min(1, THUMBNAIL_EDGE / Math.max(srcW, srcH));
-    const thumbW = Math.max(1, Math.round(srcW * thumbScale));
-    const thumbH = Math.max(1, Math.round(srcH * thumbScale));
-    const thumbCanvas = document.createElement("canvas");
-    thumbCanvas.width = thumbW;
-    thumbCanvas.height = thumbH;
-    const thumbCtx = thumbCanvas.getContext("2d");
-    if (!thumbCtx) throw new Error("Canvas 2D context unavailable");
-    thumbCtx.drawImage(img, 0, 0, thumbW, thumbH);
-    const thumbnailDataUrl = encodeCanvas(thumbCanvas, 0.72);
-
-    // 3. 96px sample grid for OKLCH palette extraction
-    const sampleScale = Math.min(1, 96 / Math.max(srcW, srcH));
-    const sampleWidth = Math.max(1, Math.round(srcW * sampleScale));
-    const sampleHeight = Math.max(1, Math.round(srcH * sampleScale));
-    const sampleCanvas = document.createElement("canvas");
-    sampleCanvas.width = sampleWidth;
-    sampleCanvas.height = sampleHeight;
-    const sampleCtx = sampleCanvas.getContext("2d", { willReadFrequently: true });
-    if (!sampleCtx) throw new Error("Canvas 2D context unavailable");
-    sampleCtx.drawImage(img, 0, 0, sampleWidth, sampleHeight);
-    const samplePixels = sampleCtx.getImageData(0, 0, sampleWidth, sampleHeight).data;
-
-    const imageId = `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-
-    return {
-      imageId,
-      dataUrl,
-      thumbnailDataUrl,
-      width: dstW,
-      height: dstH,
-      samplePixels,
-      sampleWidth,
-      sampleHeight,
-    };
-  } finally {
-    URL.revokeObjectURL(objectUrl);
+  const img = await loadImageFromBlob(file);
+  const srcW = img.naturalWidth || img.width;
+  const srcH = img.naturalHeight || img.height;
+  if (!srcW || !srcH) {
+    throw new Error("Image has zero dimensions");
   }
+
+  // 1. Full backdrop (capped at MAX_BACKDROP_EDGE on longest side)
+  const scale = Math.min(1, MAX_BACKDROP_EDGE / Math.max(srcW, srcH));
+  const dstW = Math.max(1, Math.round(srcW * scale));
+  const dstH = Math.max(1, Math.round(srcH * scale));
+  const mainCanvas = document.createElement("canvas");
+  mainCanvas.width = dstW;
+  mainCanvas.height = dstH;
+  const mainCtx = mainCanvas.getContext("2d");
+  if (!mainCtx) throw new Error("Canvas 2D context unavailable");
+  mainCtx.drawImage(img, 0, 0, dstW, dstH);
+  const dataUrl = encodeCanvas(mainCanvas, 0.86);
+
+  // 2. Tiny 48px thumbnail for swatches
+  const thumbScale = Math.min(1, THUMBNAIL_EDGE / Math.max(srcW, srcH));
+  const thumbW = Math.max(1, Math.round(srcW * thumbScale));
+  const thumbH = Math.max(1, Math.round(srcH * thumbScale));
+  const thumbCanvas = document.createElement("canvas");
+  thumbCanvas.width = thumbW;
+  thumbCanvas.height = thumbH;
+  const thumbCtx = thumbCanvas.getContext("2d");
+  if (!thumbCtx) throw new Error("Canvas 2D context unavailable");
+  thumbCtx.drawImage(img, 0, 0, thumbW, thumbH);
+  const thumbnailDataUrl = encodeCanvas(thumbCanvas, 0.72);
+
+  // 3. 96px sample grid for OKLCH palette extraction
+  const sampleScale = Math.min(1, 96 / Math.max(srcW, srcH));
+  const sampleWidth = Math.max(1, Math.round(srcW * sampleScale));
+  const sampleHeight = Math.max(1, Math.round(srcH * sampleScale));
+  const sampleCanvas = document.createElement("canvas");
+  sampleCanvas.width = sampleWidth;
+  sampleCanvas.height = sampleHeight;
+  const sampleCtx = sampleCanvas.getContext("2d", { willReadFrequently: true });
+  if (!sampleCtx) throw new Error("Canvas 2D context unavailable");
+  sampleCtx.drawImage(img, 0, 0, sampleWidth, sampleHeight);
+  const samplePixels = sampleCtx.getImageData(0, 0, sampleWidth, sampleHeight).data;
+
+  const imageId = `img-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+  return {
+    imageId,
+    dataUrl,
+    thumbnailDataUrl,
+    width: dstW,
+    height: dstH,
+    samplePixels,
+    sampleWidth,
+    sampleHeight,
+  };
 }
