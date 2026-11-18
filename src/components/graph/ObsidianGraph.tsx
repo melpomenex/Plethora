@@ -1054,6 +1054,7 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
     }
 
     // ── Draw nodes with LOD ──
+    const placedLabels: Array<{ x1: number; y1: number; x2: number; y2: number }> = [];
     for (const node of simulationNodes) {
       if (!visibleSet.nodes[node.id]) continue;
 
@@ -1106,15 +1107,42 @@ export const ObsidianGraph = forwardRef<ObsidianGraphHandle, ObsidianGraphProps>
         );
 
         if (localShowLabels || isSelected || isHovered) {
-          ctx.fillStyle = isSelected ? theme.colors.onBackground : theme.colors.textSecondary;
           ctx.font = `${isSelected || isHovered ? "bold " : ""}12px ${theme.typography.fontFamily}`;
-          ctx.textAlign = "center";
-          ctx.textBaseline = "top";
-
           let label = node.label;
-          const maxLen = isMedZoom ? 20 : 25;
+          const maxLen = isMedZoom ? 20 : 28;
           if (label.length > maxLen) label = label.substring(0, maxLen - 3) + "...";
-          ctx.fillText(label, node.x, node.y + radius + 8);
+
+          const textW = ctx.measureText(label).width;
+          const labelY = node.y + radius + 8;
+          const box = {
+            x1: node.x - textW / 2 - 6,
+            y1: labelY - 2,
+            x2: node.x + textW / 2 + 6,
+            y2: labelY + 16,
+          };
+          const overlaps =
+            !isSelected &&
+            !isHovered &&
+            placedLabels.some(
+              (b) =>
+                box.x1 < b.x2 &&
+                box.x2 > b.x1 &&
+                box.y1 < b.y2 &&
+                box.y2 > b.y1,
+            );
+
+          if (!overlaps) {
+            placedLabels.push(box);
+            ctx.fillStyle = theme.colors.background + "d9";
+            ctx.beginPath();
+            ctx.roundRect(box.x1, box.y1, box.x2 - box.x1, box.y2 - box.y1, 6);
+            ctx.fill();
+
+            ctx.fillStyle = isSelected ? theme.colors.onBackground : theme.colors.textSecondary;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "top";
+            ctx.fillText(label, node.x, labelY + 1);
+          }
         }
       }
 

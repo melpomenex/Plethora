@@ -11,6 +11,17 @@ import {
   type ObsidianGraphHandle,
 } from "../components/graph/ObsidianGraph";
 import { KnowledgeUniverseLazy } from "../components/graph/KnowledgeUniverseLazy";
+import { KnowledgeAtlasView } from "../components/graph/KnowledgeAtlasView";
+import { KnowledgeDirectoryView } from "../components/graph/KnowledgeDirectoryView";
+import { KnowledgeContextInspector } from "../components/graph/KnowledgeContextInspector";
+import {
+  buildClusterSubgraph,
+  buildDirectoryInsights,
+  buildFocusNeighborhood,
+  buildKnowledgeAtlas,
+  type ClusterSummary,
+  type KnowledgeLens,
+} from "../components/graph/graphAtlasModel";
 import {
   GraphActiveFilterSummary,
   GraphFilterSheet,
@@ -85,6 +96,15 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
     captureConnection ? `extract-${captureConnection.fromId}` : null,
   );
   const [viewMode, setViewMode] = useState<KnowledgeGraphViewMode>("graph");
+  const [graphSubView, setGraphSubView] = useState<"atlas" | "focus" | "directory" | "cloud">(
+    captureConnection ? "focus" : "atlas",
+  );
+  const [focusedClusterId, setFocusedClusterId] = useState<string | null>(null);
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(
+    captureConnection ? `extract-${captureConnection.fromId}` : null,
+  );
+  const [focusDepth, setFocusDepth] = useState<1 | 2>(1);
+  const [lens, setLens] = useState<KnowledgeLens>("structure");
   const [heatmapMode, setHeatmapMode] = useState<GraphHeatmapMode>("default");
   const [lassoSelectedIds, setLassoSelectedIds] = useState<string[]>([]);
   const [filtersOpen, setFiltersOpen] = useState(() => {
@@ -294,6 +314,95 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
   const filteredData = useMemo(() => {
     return applyGraphFilters(graphData.nodes, graphData.edges, filters);
   }, [graphData, filters]);
+
+  const atlas = useMemo(
+    () => buildKnowledgeAtlas(filteredData.nodes, filteredData.edges),
+    [filteredData.nodes, filteredData.edges],
+  );
+
+  const nodeToClusterLabel = useMemo(() => {
+    const clusterById = new Map(atlas.clusters.map((c) => [c.id, c.label]));
+    const map = new Map<string, string>();
+    for (const [nodeId, clusterId] of atlas.nodeToClusterId.entries()) {
+      const label = clusterById.get(clusterId);
+      if (label) map.set(nodeId, label);
+    }
+    return map;
+  }, [atlas]);
+
+  const directoryInsights = useMemo(
+    () => buildDirectoryInsights(filteredData.nodes, filteredData.edges, nodeToClusterLabel),
+    [filteredData.nodes, filteredData.edges, nodeToClusterLabel],
+  );
+
+  const activeCluster = useMemo(
+    () => atlas.clusters.find((c) => c.id === focusedClusterId) ?? null,
+    [atlas.clusters, focusedClusterId],
+  );
+
+  const activeFocusGraphData = useMemo(() => {
+    if (graphSubView === "cloud") return filteredData;
+    if (focusNodeId) {
+      return buildFocusNeighborhood(
+        filteredData.nodes,
+        filteredData.edges,
+        focusNodeId,
+        focusDepth,
+      ).data;
+    }
+    if (activeCluster) {
+      return buildClusterSubgraph(
+        filteredData.nodes,
+        filteredData.edges,
+        activeCluster.nodeIds,
+      );
+    }
+    const fallbackNode = selectedNode ?? filteredData.nodes[0]?.id ?? null;
+    if (fallbackNode) {
+      return buildFocusNeighborhood(
+        filteredData.nodes,
+        filteredData.edges,
+        fallbackNode,
+        focusDepth,
+      ).data;
+    }
+    return filteredData;
+  }, [
+    graphSubView,
+    filteredData,
+    focusNodeId,
+    focusDepth,
+    activeCluster,
+    selectedNode,
+  ]);
+
+  const selectedGroupedNeighbors = useMemo(() => {
+    if (!selectedNode) {
+      return { parents: [], children: [], concepts: [], related: [] };
+    }
+    return buildFocusNeighborhood(filteredData.nodes, filteredData.edges, selectedNode, 1).grouped;
+  }, [selectedNode, filteredData.nodes, filteredData.edges]);
+
+  const handleLensChange = useCallback((nextLens: KnowledgeLens) => {
+    setLens(nextLens);
+    if (nextLens === "memory_health") setHeatmapMode("retrievability_leech");
+    else if (nextLens === "extract_density") setHeatmapMode("extract_density");
+    else setHeatmapMode("default");
+  }, []);
+
+  const handleSelectCluster = useCallback((cluster: ClusterSummary) => {
+    setFocusedClusterId(cluster.id);
+    setFocusNodeId(null);
+    setGraphSubView("focus");
+    window.setTimeout(() => graphRef.current?.fitToView(), 80);
+  }, []);
+
+  const handleFocusOnNode = useCallback((nodeId: string) => {
+    setSelectedNode(nodeId);
+    setFocusNodeId(nodeId);
+    setGraphSubView("focus");
+    window.setTimeout(() => graphRef.current?.fitToView(), 80);
+  }, []);
 
   useEffect(() => {
     if (!captureConnection || filteredData.nodes.length === 0) return;
@@ -712,47 +821,143 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
         >
           {viewMode === "graph" ? (
             <>
+              {/* Unified Sub-View & Lens Bar */}
               <div
                 data-heatmap-switcher="true"
-                className="absolute top-3 left-3 z-20 flex items-center gap-1 rounded-lg border border-border bg-card/90 p-1 backdrop-blur-sm shadow-sm"
+                className="absolute top-3 left-3 right-3 z-20 flex flex-wrap items-center justify-between gap-2 pointer-events-none"
               >
-                {(
-                  [
-                    { id: "default", label: "Default" },
-                    { id: "retrievability_leech", label: "Retrievability / Leech" },
-                    { id: "extract_density", label: "Extract Density" },
-                  ] as const
-                ).map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setHeatmapMode(item.id)}
-                    className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
-                      heatmapMode === item.id
-                        ? "bg-primary text-primary-foreground"
-                        : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                    }`}
-                  >
-                    {item.label}
-                  </button>
-                ))}
+                <div className="pointer-events-auto flex flex-wrap items-center gap-1 rounded-xl border border-border bg-card/95 p-1 shadow-sm backdrop-blur-sm">
+                  {(
+                    [
+                      { id: "atlas", label: "Atlas" },
+                      { id: "focus", label: "Focus Web" },
+                      { id: "directory", label: "Directory" },
+                      { id: "cloud", label: "Full Cloud" },
+                    ] as const
+                  ).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        setGraphSubView(item.id);
+                        if (item.id === "atlas") {
+                          setFocusedClusterId(null);
+                          setFocusNodeId(null);
+                        }
+                      }}
+                      className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                        graphSubView === item.id
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+
+                  {/* Breadcrumb / Hop Depth when in Focus Web */}
+                  {graphSubView === "focus" && (activeCluster || focusNodeId) && (
+                    <div className="ml-1 flex items-center gap-1 border-l border-border pl-2 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGraphSubView("atlas");
+                          setFocusedClusterId(null);
+                          setFocusNodeId(null);
+                        }}
+                        className="text-muted-foreground hover:text-foreground"
+                      >
+                        All Topics
+                      </button>
+                      {activeCluster && (
+                        <>
+                          <span className="text-muted-foreground">/</span>
+                          <button
+                            type="button"
+                            onClick={() => setFocusNodeId(null)}
+                            className="max-w-32 truncate font-medium text-foreground hover:text-primary"
+                          >
+                            {activeCluster.label}
+                          </button>
+                        </>
+                      )}
+                      {focusNodeId && (
+                        <>
+                          <span className="text-muted-foreground">/</span>
+                          <button
+                            type="button"
+                            onClick={() => setFocusDepth((d) => (d === 1 ? 2 : 1))}
+                            className="rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-foreground hover:bg-primary/15 hover:text-primary"
+                            title="Toggle 1-hop / 2-hop neighborhood"
+                          >
+                            {focusDepth}-hop
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <div className="pointer-events-auto flex items-center gap-1 rounded-xl border border-border bg-card/95 p-1 shadow-sm backdrop-blur-sm">
+                  {(
+                    [
+                      { id: "structure", label: "Structure" },
+                      { id: "memory_health", label: "Memory Health" },
+                      { id: "extract_density", label: "Extract Density" },
+                      { id: "orphans_bridges", label: "Orphans & Bridges" },
+                    ] as const
+                  ).map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => handleLensChange(item.id)}
+                      className={`rounded-lg px-2.5 py-1 text-xs font-medium transition-colors ${
+                        lens === item.id
+                          ? "bg-primary/15 text-primary"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <ObsidianGraph
-                ref={graphRef}
-                data={filteredData}
-                onNodeClick={handleNodeClick}
-                onNodeDoubleClick={handleNodeDoubleClick}
-                onNodeContextMenu={handleNodeContextMenu}
-                selectedNode={selectedNode || undefined}
-                highlightedNodes={lassoSelectedIds.length > 0 ? lassoSelectedIds : undefined}
-                heatmapMode={heatmapMode}
-                onLassoSelect={setLassoSelectedIds}
-                enablePhysics={!captureConnection}
-                showLabels={true}
-                layout={layout}
-                linkDistance={graphLinkDistance}
-                nodeScale={graphNodeScale}
-              />
+
+              {filteredData.nodes.length === 0 ||
+              graphSubView === "focus" ||
+              graphSubView === "cloud" ? (
+                <ObsidianGraph
+                  ref={graphRef}
+                  data={filteredData.nodes.length === 0 ? filteredData : activeFocusGraphData}
+                  onNodeClick={handleNodeClick}
+                  onNodeDoubleClick={handleNodeDoubleClick}
+                  onNodeContextMenu={handleNodeContextMenu}
+                  selectedNode={selectedNode || undefined}
+                  highlightedNodes={lassoSelectedIds.length > 0 ? lassoSelectedIds : undefined}
+                  heatmapMode={heatmapMode}
+                  onLassoSelect={setLassoSelectedIds}
+                  enablePhysics={graphSubView === "cloud" && !captureConnection}
+                  showLabels={true}
+                  layout={layout}
+                  linkDistance={graphLinkDistance}
+                  nodeScale={graphNodeScale}
+                />
+              ) : graphSubView === "directory" ? (
+                <KnowledgeDirectoryView
+                  insights={directoryInsights}
+                  selectedNodeId={selectedNode}
+                  onSelectNode={(id) => setSelectedNode(id)}
+                  onFocusNode={handleFocusOnNode}
+                />
+              ) : (
+                <KnowledgeAtlasView
+                  atlas={atlas}
+                  lens={lens}
+                  selectedClusterId={focusedClusterId}
+                  onSelectCluster={handleSelectCluster}
+                  onInspectNode={(id) => setSelectedNode(id)}
+                />
+              )}
               {lassoSelectedIds.length > 0 && (
                 <div
                   data-lasso-action-bar="true"
@@ -827,6 +1032,19 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
             </div>
           )}
         </div>
+
+        {/* Persistent Context Inspector (desktop/tablet graph workspace) */}
+        {!isSheetSurface && viewMode === "graph" && !captureConnection && selectedNodeData && (
+          <KnowledgeContextInspector
+            node={selectedNodeData.node}
+            grouped={selectedGroupedNeighbors}
+            onClose={() => setSelectedNode(null)}
+            onSelectNode={(nodeId) => setSelectedNode(nodeId)}
+            onFocusNode={handleFocusOnNode}
+            onOpenInApp={handleNodeDoubleClick}
+            onDeleteNode={handleNodeDelete}
+          />
+        )}
       </div>
 
       {isSheetSurface && (
@@ -840,8 +1058,8 @@ export function KnowledgeGraphPage({ captureConnection }: KnowledgeGraphPageProp
         />
       )}
 
-      {/* Node Detail Panel */}
-      {selectedNodeData && (
+      {/* Node Detail Panel (mobile sheet, Universe, or capture flow) */}
+      {selectedNodeData && (isSheetSurface || viewMode !== "graph" || Boolean(captureConnection)) && (
         <NodeDetailView
           node={selectedNodeData.node}
           relatedNodes={selectedNodeData.relatedNodes}
