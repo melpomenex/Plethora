@@ -83,6 +83,7 @@ export function useUndoRedo() {
           key: "z",
           ctrlKey: true,
           metaKey: true,
+          shortcutId: "edit.undo",
           description: "Undo",
           handler: () => {
             if (canUndo()) {
@@ -95,6 +96,7 @@ export function useUndoRedo() {
           ctrlKey: true,
           metaKey: true,
           shiftKey: true,
+          shortcutId: "edit.redo",
           description: "Redo",
           handler: () => {
             if (canRedo()) {

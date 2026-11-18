@@ -4,6 +4,7 @@ import { SplitPaneContainer } from "./SplitPaneContainer";
 import { TabContent } from "./TabContent";
 import { useMobileShell } from "../../../hooks/useMobileShell";
 import { useI18n } from "../../../lib/i18n";
+import { eventMatchesCombo, getShortcutCombo } from "../KeyboardShortcuts";
 
 function findFirstTabPane(pane: ReturnType<typeof normalizePane>): TabPane | null {
   if (!pane) return null;
@@ -109,10 +110,17 @@ export function Tabs() {
       // Don't intercept when typing in inputs, textareas, or contentEditable
       const isEditable = target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable;
 
-      // Alt+ArrowLeft / Alt+ArrowRight: Previous/Next tab
-      if (e.altKey && !ctrlOrMeta && (e.key === "ArrowLeft" || e.key === "ArrowRight") && !isEditable) {
+      // Alt+ArrowLeft / Alt+ArrowRight (or customized nav.back / nav.forward): Previous/Next tab
+      const backCombo = getShortcutCombo("nav.back");
+      if (!isEditable && backCombo && eventMatchesCombo(e, backCombo)) {
         e.preventDefault();
-        cycleTab(e.key === "ArrowRight" ? 1 : -1);
+        cycleTab(-1);
+        return;
+      }
+      const forwardCombo = getShortcutCombo("nav.forward");
+      if (!isEditable && forwardCombo && eventMatchesCombo(e, forwardCombo)) {
+        e.preventDefault();
+        cycleTab(1);
         return;
       }
 

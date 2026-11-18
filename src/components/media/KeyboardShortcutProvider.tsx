@@ -69,8 +69,12 @@ export function KeyboardShortcutProvider({ onAction, enabled = true }: KeyboardS
       }
       const combo = parts.join("+");
 
-      // Find matching shortcut
-      const shortcut = shortcuts.find((s) => s.keys === combo);
+      // Find matching shortcut (also match bare shifted symbol keys like "+" or "?"
+      // where Shift is required by the keyboard layout to produce the character).
+      const bareSymbol = !e.ctrlKey && !e.metaKey && !e.altKey && /^[^a-zA-Z0-9]$/.test(e.key) ? e.key : null;
+      const shortcut = shortcuts.find(
+        (s) => s.keys === combo || (bareSymbol !== null && s.keys === bareSymbol)
+      );
       if (shortcut) {
         e.preventDefault();
         e.stopPropagation();

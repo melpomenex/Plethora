@@ -164,13 +164,7 @@ export function MainLayout() {
   // primary-modifier zoom chords have exactly one capture-phase owner.
   useInterfaceZoomBridge();
   useGlobalShortcuts();
-  /* useShortcut("gen.screenshot", (event) => {
-    const target = event.target as HTMLElement;
-    const isInput =
-      target?.tagName === "INPUT" ||
-      target?.tagName === "TEXTAREA" ||
-      target?.isContentEditable;
-    if (isInput) return;
+  useShortcut("gen.screenshot", () => {
     void captureAndSaveScreenshot()
       .then((asset) => {
         if (asset) {
@@ -187,7 +181,25 @@ export function MainLayout() {
           error instanceof Error ? error.message : undefined
         );
       });
-  }); */
+  });
+
+  useShortcut("view.fullscreen", () => {
+    if (typeof document === "undefined") return;
+    if (document.fullscreenElement) {
+      void document.exitFullscreen?.();
+    } else {
+      void document.documentElement.requestFullscreen?.();
+    }
+  });
+
+  useShortcut("nav.up", () => {
+    const activeTab = useTabsStore.getState().tabs.find((tab) => tab.id === activePaneTabId);
+    if (activeTab?.type === "document-viewer") {
+      openTabByType("documents");
+    } else {
+      openTabByType("dashboard");
+    }
+  });
 
   useShortcut("gen.help", () => {
     setIsShortcutsHelpOpen((prev) => !prev);
@@ -228,13 +240,20 @@ export function MainLayout() {
       useSettingsStore.getState().updateSettingsCategory("appearance", { theme: next });
     };
 
+    const handleToggleSidebar = () => {
+      const ui = useUIStore.getState();
+      ui.setSidebarCollapsed(!ui.sidebarCollapsed);
+    };
+
     window.addEventListener("show-shortcuts-help", handleShowHelp);
     window.addEventListener("toggle-theme", handleToggleTheme);
+    window.addEventListener("toggle-sidebar", handleToggleSidebar);
     const handleOpenWorkspaceSwitcher = () => setIsWorkspaceSwitcherOpen(true);
     window.addEventListener("open-workspace-switcher", handleOpenWorkspaceSwitcher);
     return () => {
       window.removeEventListener("show-shortcuts-help", handleShowHelp);
       window.removeEventListener("toggle-theme", handleToggleTheme);
+      window.removeEventListener("toggle-sidebar", handleToggleSidebar);
       window.removeEventListener("open-workspace-switcher", handleOpenWorkspaceSwitcher);
     };
   }, []);

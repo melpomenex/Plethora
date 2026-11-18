@@ -3813,7 +3813,8 @@ export function QueueScrollPage() {
         }
       }
 
-      if (e.key === "F11") {
+      const fullscreenCombo = getShortcutCombo("view.fullscreen");
+      if (fullscreenCombo && eventMatchesCombo(e, fullscreenCombo)) {
         e.preventDefault();
         e.stopImmediatePropagation();
         toggleFullscreen();

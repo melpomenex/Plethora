@@ -42,6 +42,7 @@ import { BreakReminderModal, useBreakReminder } from "./BreakReminderModal";
 import { ZenReviewMode } from "./ZenReviewMode";
 import { FSRSInspector, useFSRSInspector } from "./FSRSInspector";
 import { useToast } from "../common/Toast";
+import { eventMatchesCombo, getShortcutCombo } from "../common/KeyboardShortcuts";
 import { bulkDeleteItems, bulkSuspendItems } from "../../api/queue";
 import { cardMutationCoordinator } from "../../api/learningItemMutationCoordinator";
 import { invokeCommand, openFilePicker } from "../../lib/tauri";
@@ -621,12 +622,11 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
         return;
       }
 
-      // V: view the source passage the current card came from. Disabled while
-      // an arena grade is pending (that chooser owns the keyboard) and on cards
-      // with no source to open; degraded outcomes are announced, never silently
-      // ignored.
+      // V (or customized review.viewSource): view the source passage the current card came from.
+      const viewSourceCombo = getShortcutCombo("review.viewSource");
       if (
-        lowerKey === "v" &&
+        viewSourceCombo &&
+        eventMatchesCombo(e, viewSourceCombo) &&
         currentCard &&
         !pendingArenaReview &&
         hasReachableCardSource(currentCard)
@@ -638,6 +638,20 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
           const key = sourceOutcomeKey(resolution);
           if (key) toast.info(t(key));
         });
+        return;
+      }
+
+      // S (or customized review.skip): skip current card to next card in queue.
+      const skipCombo = getShortcutCombo("review.skip");
+      if (
+        skipCombo &&
+        eventMatchesCombo(e, skipCombo) &&
+        currentCard &&
+        !isSubmitting &&
+        !pendingArenaReview
+      ) {
+        e.preventDefault();
+        goToIndex(currentIndex + 1);
         return;
       }
 
@@ -712,10 +726,14 @@ export function ReviewSession({ onExit }: ReviewSessionProps) {
             handleRating(gradeToRating(grade), grade);
           }
         } else {
-          if (e.key === "1") handleRating(1 as ReviewRating);
-          if (e.key === "2") handleRating(2 as ReviewRating);
-          if (e.key === "3") handleRating(3 as ReviewRating);
-          if (e.key === "4") handleRating(4 as ReviewRating);
+          const againCombo = getShortcutCombo("review.again");
+          const hardCombo = getShortcutCombo("review.hard");
+          const goodCombo = getShortcutCombo("review.good");
+          const easyCombo = getShortcutCombo("review.easy");
+          if (againCombo && eventMatchesCombo(e, againCombo)) handleRating(1 as ReviewRating);
+          else if (hardCombo && eventMatchesCombo(e, hardCombo)) handleRating(2 as ReviewRating);
+          else if (goodCombo && eventMatchesCombo(e, goodCombo)) handleRating(3 as ReviewRating);
+          else if (easyCombo && eventMatchesCombo(e, easyCombo)) handleRating(4 as ReviewRating);
         }
       }
     };

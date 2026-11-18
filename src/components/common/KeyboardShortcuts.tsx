@@ -685,12 +685,16 @@ export function eventMatchesCombo(event: KeyboardEvent, combo: KeyCombo): boolea
   const primaryModifierMatches = usesPrimaryModifier
     ? (isMac ? event.metaKey : event.ctrlKey)
     : true;
+  // Punctuation/symbol keys (e.g. "?", "$", "{", "}", "+") already encode Shift
+  // in event.key, so when combo.shift is omitted, don't reject event.shiftKey.
+  const isUnmodifiedSymbol = combo.shift === undefined && /^[^a-zA-Z0-9]$/.test(combo.key);
+  const shiftMatches = isUnmodifiedSymbol ? true : !!event.shiftKey === !!combo.shift;
 
   return (
     key === comboKey &&
     ctrlMatches &&
     !!event.altKey === !!combo.alt &&
-    !!event.shiftKey === !!combo.shift &&
+    shiftMatches &&
     metaMatches &&
     primaryModifierMatches
   );
@@ -721,11 +725,13 @@ export function useKeyboardShortcuts() {
       }
 
       // Ignore if typing in input
-      const target = e.target as HTMLElement;
+      const target = e.target as HTMLElement | null;
       const isInput =
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable;
+        !!target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable);
 
       if (isInput) return;
 
@@ -761,6 +767,20 @@ export function useShortcut(id: string, handler: (e: KeyboardEvent) => void, ena
     if (!enabled) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.defaultPrevented) return;
+      if (useUIStore.getState().commandPaletteOpen) return;
+
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
+      ) {
+        return;
+      }
+
       const combo = getShortcutCombo(id);
       if (combo && eventMatchesCombo(e, combo)) {
         e.preventDefault();

@@ -28,6 +28,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { cn } from "../../utils";
+import { eventMatchesCombo, getShortcutCombo } from "../common/KeyboardShortcuts";
 import type { PdfDest, ViewState } from "../../types/readerPosition";
 import type { PdfRect, PdfSelectionContext, ViewportRect } from "../../types/selection";
 import type { DocumentPosition } from "../../types/position";
@@ -3623,12 +3624,15 @@ export function PDFViewer({
       } else {
         ocr.exitOcrMode();
       }
-    } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "g") {
-      e.preventDefault();
-      const el = pageInputRef.current;
-      if (el) {
-        el.focus();
-        el.select();
+    } else {
+      const goToPageCombo = getShortcutCombo("doc.go-to-page");
+      if (goToPageCombo && eventMatchesCombo(e.nativeEvent, goToPageCombo)) {
+        e.preventDefault();
+        const el = pageInputRef.current;
+        if (el) {
+          el.focus();
+          el.select();
+        }
       }
     }
   };

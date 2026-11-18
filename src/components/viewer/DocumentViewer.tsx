@@ -2493,6 +2493,26 @@ export function DocumentViewer({
     return () => window.removeEventListener("extract-text", handleExtractText);
   }, [documentId, handleInlineExtract]);
 
+  // Listen for app-wide document-prev / document-next shortcuts (Ctrl+[ / Ctrl+])
+  useEffect(() => {
+    const handlePrevDoc = () => {
+      if (tabContextIsActive && queueNav.totalDocuments > 0) {
+        queueNav.goToPreviousDocument();
+      }
+    };
+    const handleNextDoc = () => {
+      if (tabContextIsActive && queueNav.totalDocuments > 0) {
+        queueNav.goToNextDocument();
+      }
+    };
+    window.addEventListener("document-prev", handlePrevDoc);
+    window.addEventListener("document-next", handleNextDoc);
+    return () => {
+      window.removeEventListener("document-prev", handlePrevDoc);
+      window.removeEventListener("document-next", handleNextDoc);
+    };
+  }, [tabContextIsActive, queueNav]);
+
   // Listen for the app-wide priority shortcut re-dispatched from inside the
   // EPUB iframe (its keydown events never reach the main window listener).
   useEffect(() => {
@@ -4947,10 +4967,12 @@ export function DocumentViewer({
       const mod = e.ctrlKey || e.metaKey;
       const lowerKey = e.key.toLowerCase();
 
-      // F11 for fullscreen toggle
-      if (e.key === "F11") {
+      // F11 (or customized view.fullscreen) for fullscreen toggle
+      const fullscreenCombo = getShortcutCombo("view.fullscreen");
+      if (fullscreenCombo && eventMatchesCombo(e, fullscreenCombo)) {
         e.preventDefault();
         toggleFullscreen();
+        return;
       }
 
       // Ctrl/Cmd + F for search — respect customizable shortcut binding
@@ -4990,8 +5012,13 @@ export function DocumentViewer({
         }
       }
 
-      // Ctrl/Cmd + E for create extract from current selection
-      if (mod && lowerKey === "e") {
+      // Ctrl/Cmd + E (or customized edit.new-extract / edit.extract-text) for create extract from current selection
+      const newExtractCombo = getShortcutCombo("edit.new-extract");
+      const extractTextCombo = getShortcutCombo("edit.extract-text");
+      if (
+        (newExtractCombo && eventMatchesCombo(e, newExtractCombo)) ||
+        (extractTextCombo && eventMatchesCombo(e, extractTextCombo))
+      ) {
         e.preventDefault();
         setInitialHighlightColor(undefined);
         openExtractDialog();

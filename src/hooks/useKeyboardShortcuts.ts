@@ -1,5 +1,8 @@
 import { useEffect, useCallback } from "react";
 import { isTauri, listen } from "../lib/tauri";
+import { eventMatchesCombo, getShortcutCombo } from "../components/common/KeyboardShortcuts";
+import { useUIStore } from "../stores/uiStore";
+import { useTabsStore } from "../stores/tabsStore";
 
 export interface KeyboardShortcut {
   key: string;
@@ -7,6 +10,12 @@ export interface KeyboardShortcut {
   metaKey?: boolean;
   shiftKey?: boolean;
   altKey?: boolean;
+  /** When set, matches against the user's configured combo in useShortcutStore. */
+  shortcutId?: string;
+  /** Allow firing even when the Command Palette is open (e.g. toggle palette). */
+  allowWhenPaletteOpen?: boolean;
+  /** Optional predicate to yield to a more specific view handler. */
+  shouldHandle?: (event: KeyboardEvent) => boolean;
   description: string;
   handler: (event: KeyboardEvent) => void;
   disabled?: boolean;
@@ -35,35 +44,48 @@ export function useKeyboardShortcuts(shortcutGroups: ShortcutGroup[]) {
   // Serialize shortcut definitions to a stable string for dependency comparison
   // to avoid re-registering listeners on every render when the array reference changes.
   const groupsKey = shortcutGroups
-    .map((g) => g.shortcuts.map((s) => `${s.key}:${s.ctrlKey}:${s.metaKey}:${s.shiftKey}:${s.altKey}`).join(","))
+    .map((g) => g.shortcuts.map((s) => `${s.shortcutId ?? s.key}:${s.ctrlKey}:${s.metaKey}:${s.shiftKey}:${s.altKey}`).join(","))
     .join(";");
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Ignore if user is typing in an input, textarea, or contentEditable
-      const target = event.target as HTMLElement;
+      // Ignore if user is typing in an input, textarea, select, or contentEditable
+      const target = event.target as HTMLElement | null;
       if (
-        target.tagName === "INPUT" ||
-        target.tagName === "TEXTAREA" ||
-        target.isContentEditable
+        target &&
+        (target.tagName === "INPUT" ||
+          target.tagName === "TEXTAREA" ||
+          target.tagName === "SELECT" ||
+          target.isContentEditable)
       ) {
         return;
       }
+
+      const paletteOpen = useUIStore.getState().commandPaletteOpen;
 
       // Find matching shortcut
       for (const group of shortcutGroups) {
         for (const shortcut of group.shortcuts) {
           if (shortcut.disabled) continue;
+          if (paletteOpen && !shortcut.allowWhenPaletteOpen) continue;
+          if (shortcut.shouldHandle && !shortcut.shouldHandle(event)) continue;
 
-          const keyMatch = event.key.toLowerCase() === shortcut.key.toLowerCase();
-          // metaKey in a shortcut definition means "primary modifier" (Ctrl on Linux/Windows, Cmd on Mac)
-          const primaryMod = event.metaKey || event.ctrlKey;
-          const ctrlMatch = shortcut.ctrlKey ? event.ctrlKey === true : !shortcut.metaKey ? event.ctrlKey === false : true;
-          const metaMatch = shortcut.metaKey ? primaryMod === true : event.metaKey === false;
-          const shiftMatch = event.shiftKey === (shortcut.shiftKey || false);
-          const altMatch = event.altKey === (shortcut.altKey || false);
+          let matched = false;
+          if (shortcut.shortcutId) {
+            const combo = getShortcutCombo(shortcut.shortcutId);
+            matched = !!combo && eventMatchesCombo(event, combo);
+          } else {
+            const keyMatch = event.key.toLowerCase() === shortcut.key.toLowerCase();
+            // metaKey in a shortcut definition means "primary modifier" (Ctrl on Linux/Windows, Cmd on Mac)
+            const primaryMod = event.metaKey || event.ctrlKey;
+            const ctrlMatch = shortcut.ctrlKey ? event.ctrlKey === true : !shortcut.metaKey ? event.ctrlKey === false : true;
+            const metaMatch = shortcut.metaKey ? primaryMod === true : event.metaKey === false;
+            const shiftMatch = event.shiftKey === (shortcut.shiftKey || false);
+            const altMatch = event.altKey === (shortcut.altKey || false);
+            matched = keyMatch && ctrlMatch && metaMatch && shiftMatch && altMatch;
+          }
 
-          if (keyMatch && ctrlMatch && metaMatch && shiftMatch && altMatch) {
+          if (matched) {
             event.preventDefault();
             event.stopPropagation();
             shortcut.handler(event);
@@ -132,6 +154,15 @@ export function useGlobalShortcuts() {
     }, 0);
   }, []);
 
+  const isReviewOrQueueActive = useCallback(() => {
+    const state = useTabsStore.getState();
+    const activePaneId = state.getTabPaneIds?.()[0];
+    const activePane = activePaneId ? state.findPaneById?.(activePaneId) : undefined;
+    const activeTabId = activePane && activePane.type === "tabs" ? activePane.activeTabId : null;
+    const activeTab = activeTabId ? state.tabs.find((t) => t.id === activeTabId) : undefined;
+    return activeTab?.type === "review" || activeTab?.type === "queue";
+  }, []);
+
   const shortcuts: ShortcutGroup[] = [
     {
       name: "Navigation",
@@ -166,24 +197,6 @@ export function useGlobalShortcuts() {
           description: "Navigate to Dashboard",
           handler: navigateToDashboard,
         },
-        {
-          key: ",",
-          metaKey: true,
-          description: "Navigate to Settings",
-          handler: navigateToSettings,
-        },
-        {
-          key: "o",
-          metaKey: true,
-          description: "Import document",
-          handler: importDocument,
-        },
-        {
-          key: "n",
-          metaKey: true,
-          description: "Import document",
-          handler: importDocument,
-        },
       ],
     },
     {
@@ -192,6 +205,8 @@ export function useGlobalShortcuts() {
         {
           key: "k",
           metaKey: true,
+          shortcutId: "nav.command-palette",
+          allowWhenPaletteOpen: true,
           description: "Open command palette",
           handler: openCommandPalette,
         },
@@ -199,30 +214,44 @@ export function useGlobalShortcuts() {
           key: "p",
           metaKey: true,
           shiftKey: true,
+          allowWhenPaletteOpen: true,
           description: "Open command palette",
           handler: openCommandPalette,
         },
         {
           key: "b",
           metaKey: true,
+          shortcutId: "view.sidebar",
           description: "Toggle sidebar",
           handler: toggleSidebar,
         },
         {
           key: "e",
           metaKey: true,
+          shortcutId: "edit.new-extract",
+          shouldHandle: () => !isReviewOrQueueActive(),
+          description: "Extract text",
+          handler: extractText,
+        },
+        {
+          key: "e",
+          ctrlKey: true,
+          shortcutId: "edit.extract-text",
+          shouldHandle: () => !isReviewOrQueueActive(),
           description: "Extract text",
           handler: extractText,
         },
         {
           key: "[",
-          metaKey: true,
+          ctrlKey: true,
+          shortcutId: "doc.prev",
           description: "Previous document",
           handler: navigateToPrevDocument,
         },
         {
           key: "]",
-          metaKey: true,
+          ctrlKey: true,
+          shortcutId: "doc.next",
           description: "Next document",
           handler: navigateToNextDocument,
         },

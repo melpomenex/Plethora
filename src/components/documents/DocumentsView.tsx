@@ -1244,6 +1244,14 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
         return;
       }
 
+      const docSearchCombo = getShortcutCombo("doc.search");
+      if (docSearchCombo && eventMatchesCombo(event, docSearchCombo)) {
+        event.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+        return;
+      }
+
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         searchRef.current?.focus();

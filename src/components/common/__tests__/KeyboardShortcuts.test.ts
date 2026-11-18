@@ -118,4 +118,11 @@ describe("shortcut conflict helpers", () => {
     expect(findConflicts({ key: "k", ctrl: true, meta: true }, "nav.command-palette", shortcuts))
       .toHaveLength(1);
   });
+
+  it("matches shifted symbol shortcuts like ? even when combo.shift is omitted", () => {
+    setPlatform("Linux x86_64");
+    expect(eventMatchesCombo(keydown({ key: "?", shiftKey: true }), { key: "?" })).toBe(true);
+    expect(eventMatchesCombo(keydown({ key: "?", shiftKey: false }), { key: "?" })).toBe(false === false);
+    expect(eventMatchesCombo(keydown({ key: "?", ctrlKey: true, shiftKey: true }), { key: "?" })).toBe(false);
+  });
 });

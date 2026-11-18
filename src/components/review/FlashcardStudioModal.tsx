@@ -3,6 +3,7 @@ import { scopedBodyTokenBudget } from "../../utils/scopedContextBudget";
 import { enforceAssistantPrivacyAndConsent } from "../../lib/ai/assistant/privacyGate";
 import { safeCardCreationError } from "../../features/assistant/chatFlashcardArtifacts";
 import { resolveAssistantSource } from "../../lib/ai/assistant/sourceEnvelope";
+import { eventMatchesCombo, getShortcutCombo } from "../common/KeyboardShortcuts";
 /**
  * FlashcardStudioModal - AI-Powered Flashcard Creation Studio
  * 
@@ -1468,7 +1469,8 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         handleNewSession();
       }
 
-      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+      const saveCombo = getShortcutCombo("edit.save");
+      if (saveCombo && eventMatchesCombo(e, saveCombo)) {
         e.preventDefault();
         const selected = draftCards.filter((c) => c.selected);
         if (selected.length > 0 && !isSaving) {
@@ -1476,7 +1478,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         }
       }
 
-      if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+      if (e.key === "?" && !e.metaKey && !e.ctrlKey && !e.altKey) {
         const activeElement = document.activeElement;
         if (activeElement?.tagName !== "INPUT" && activeElement?.tagName !== "TEXTAREA") {
           setShowShortcuts(true);
