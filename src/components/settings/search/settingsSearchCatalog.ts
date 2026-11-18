@@ -300,6 +300,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     aliases: [k("settings.searchAlias.vibration"), lit("haptic feedback"), lit("vibrate")],
     keywords: ["vibration", "haptics", "feedback", "vibrate"],
     targetId: "general.haptics",
+    availability: "mobile",
   },
   {
     id: "general.hapticsEnabled",
@@ -311,6 +312,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     aliases: [k("settings.searchAlias.vibration"), lit("vibrate on tap"), lit("haptic feedback")],
     keywords: ["vibration", "haptics", "feedback"],
     targetId: "general.hapticsEnabled",
+    availability: "mobile",
   },
   {
     id: "general.hapticsIntensity",
@@ -322,6 +324,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     aliases: [lit("vibration strength"), lit("haptic strength")],
     keywords: ["intensity", "strength", "haptics", "vibration"],
     targetId: "general.hapticsIntensity",
+    availability: "mobile",
   },
   {
     id: "general.data",
@@ -623,6 +626,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     aliases: [k("settings.searchAlias.volumeButtons"), lit("volume keys"), lit("hardware buttons")],
     keywords: ["volume", "rocker", "buttons", "scroll"],
     targetId: "appearance.volumeRocker",
+    availability: "mobile",
   },
   {
     id: "appearance.compactMode",
@@ -1638,6 +1642,7 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     aliases: [lit("battery saver podcast"), lit("charge only transcription"), lit("mobile energy")],
     keywords: ["podcast", "battery", "charging", "mobile", "energy", "defer"],
     targetId: "settings.podcast.mobile_charging_only",
+    availability: "mobile",
   },
   {
     id: "settings.podcast.min_ad_duration",

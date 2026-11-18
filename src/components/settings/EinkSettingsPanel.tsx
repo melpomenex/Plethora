@@ -14,6 +14,7 @@ import {
 } from "../../lib/displayMode";
 import type { DisplayMode, EinkSettings } from "../../types/display";
 import { useI18n } from "../../lib/i18n";
+import { resolveCurrentAppPlatform } from "../../lib/platformCapabilities";
 import { BookOpen, DeviceMobile, Lightning } from "@phosphor-icons/react";
 
 export function EinkSettingsPanel() {
@@ -22,6 +23,8 @@ export function EinkSettingsPanel() {
     loadSavedEinkSettings()
   );
   const capabilities = getEinkCapabilities();
+  const platform = resolveCurrentAppPlatform();
+  const isMobile = platform === "android" || platform === "ios";
   const { t } = useI18n();
 
   const handleModeChange = (mode: DisplayMode) => {
@@ -82,105 +85,107 @@ export function EinkSettingsPanel() {
         </div>
       </div>
 
-      {/* Reader Optimizations */}
-      <div className="space-y-3 pt-2">
-        <h4 className="text-sm font-medium text-foreground flex items-center gap-1.5">
-          <BookOpen className="w-4 h-4" />
-          {t("settings.readerOptimizations") || "Reader Optimizations"}
-        </h4>
+      {/* Reader Optimizations (mobile only) */}
+      {isMobile && (
+        <div className="space-y-3 pt-2">
+          <h4 className="text-sm font-medium text-foreground flex items-center gap-1.5">
+            <BookOpen className="w-4 h-4" />
+            {t("settings.readerOptimizations") || "Reader Optimizations"}
+          </h4>
 
-        {/* Prefer Paginated Reading */}
-        <div className="flex items-center justify-between py-2 border-b border-border/50">
-          <div>
-            <div className="text-sm font-medium text-foreground">
-              {t("settings.preferPaginated") || "Prefer Paginated Reading"}
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {t("settings.preferPaginatedDesc") || "Discrete page turns instead of continuous scrolling to prevent E-ink ghosting"}
-            </div>
-          </div>
-          <input
-            type="checkbox"
-            checked={einkSettings.preferPaginated}
-            onChange={(e) => handleToggle("preferPaginated", e.target.checked)}
-            className="w-4 h-4 rounded accent-primary cursor-pointer"
-          />
-        </div>
-
-        {/* Tap Zones */}
-        <div className="flex items-center justify-between py-2 border-b border-border/50">
-          <div>
-            <div className="text-sm font-medium text-foreground">
-              {t("settings.tapZones") || "One-Handed Tap Zones"}
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {t("settings.tapZonesDesc") || "Tap left/right edges to flip pages, tap center to show toolbar"}
-            </div>
-          </div>
-          <input
-            type="checkbox"
-            checked={einkSettings.tapZones}
-            onChange={(e) => handleToggle("tapZones", e.target.checked)}
-            className="w-4 h-4 rounded accent-primary cursor-pointer"
-          />
-        </div>
-
-        {/* Volume Buttons Turn Pages */}
-        <div className="flex items-center justify-between py-2 border-b border-border/50">
-          <div>
-            <div className="text-sm font-medium text-foreground">
-              {t("settings.volumeTurnPages") || "Volume Buttons Turn Pages"}
-            </div>
-            <div className="text-xs text-muted-foreground">
-              {t("settings.volumeTurnPagesDesc") || "Use hardware volume rocker to advance pages (preserves volume when audio is playing)"}
-            </div>
-          </div>
-          <input
-            type="checkbox"
-            checked={einkSettings.volumeTurnPages}
-            onChange={(e) => handleToggle("volumeTurnPages", e.target.checked)}
-            className="w-4 h-4 rounded accent-primary cursor-pointer"
-          />
-        </div>
-
-        {/* Invert Volume Keys */}
-        {einkSettings.volumeTurnPages && (
-          <div className="flex items-center justify-between py-2 border-b border-border/50 pl-3">
+          {/* Prefer Paginated Reading */}
+          <div className="flex items-center justify-between py-2 border-b border-border/50">
             <div>
               <div className="text-sm font-medium text-foreground">
-                {t("settings.invertVolumeKeys") || "Invert Volume Buttons"}
+                {t("settings.preferPaginated") || "Prefer Paginated Reading"}
               </div>
               <div className="text-xs text-muted-foreground">
-                {t("settings.invertVolumeKeysDesc") || "Volume Up turns to next page, Volume Down turns to previous page"}
+                {t("settings.preferPaginatedDesc") || "Discrete page turns instead of continuous scrolling to prevent E-ink ghosting"}
               </div>
             </div>
             <input
               type="checkbox"
-              checked={einkSettings.invertVolumeKeys}
-              onChange={(e) => handleToggle("invertVolumeKeys", e.target.checked)}
+              checked={einkSettings.preferPaginated}
+              onChange={(e) => handleToggle("preferPaginated", e.target.checked)}
               className="w-4 h-4 rounded accent-primary cursor-pointer"
             />
           </div>
-        )}
 
-        {/* Grayscale Content */}
-        <div className="flex items-center justify-between py-2">
-          <div>
-            <div className="text-sm font-medium text-foreground">
-              {t("settings.grayscaleContent") || "Grayscale Images"}
+          {/* Tap Zones */}
+          <div className="flex items-center justify-between py-2 border-b border-border/50">
+            <div>
+              <div className="text-sm font-medium text-foreground">
+                {t("settings.tapZones") || "One-Handed Tap Zones"}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {t("settings.tapZonesDesc") || "Tap left/right edges to flip pages, tap center to show toolbar"}
+              </div>
             </div>
-            <div className="text-xs text-muted-foreground">
-              {t("settings.grayscaleContentDesc") || "Convert document figures and photos to high-contrast grayscale"}
-            </div>
+            <input
+              type="checkbox"
+              checked={einkSettings.tapZones}
+              onChange={(e) => handleToggle("tapZones", e.target.checked)}
+              className="w-4 h-4 rounded accent-primary cursor-pointer"
+            />
           </div>
-          <input
-            type="checkbox"
-            checked={einkSettings.grayscaleContent}
-            onChange={(e) => handleToggle("grayscaleContent", e.target.checked)}
-            className="w-4 h-4 rounded accent-primary cursor-pointer"
-          />
+
+          {/* Volume Buttons Turn Pages */}
+          <div className="flex items-center justify-between py-2 border-b border-border/50">
+            <div>
+              <div className="text-sm font-medium text-foreground">
+                {t("settings.volumeTurnPages") || "Volume Buttons Turn Pages"}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {t("settings.volumeTurnPagesDesc") || "Use hardware volume rocker to advance pages (preserves volume when audio is playing)"}
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={einkSettings.volumeTurnPages}
+              onChange={(e) => handleToggle("volumeTurnPages", e.target.checked)}
+              className="w-4 h-4 rounded accent-primary cursor-pointer"
+            />
+          </div>
+
+          {/* Invert Volume Keys */}
+          {einkSettings.volumeTurnPages && (
+            <div className="flex items-center justify-between py-2 border-b border-border/50 pl-3">
+              <div>
+                <div className="text-sm font-medium text-foreground">
+                  {t("settings.invertVolumeKeys") || "Invert Volume Buttons"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  {t("settings.invertVolumeKeysDesc") || "Volume Up turns to next page, Volume Down turns to previous page"}
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={einkSettings.invertVolumeKeys}
+                onChange={(e) => handleToggle("invertVolumeKeys", e.target.checked)}
+                className="w-4 h-4 rounded accent-primary cursor-pointer"
+              />
+            </div>
+          )}
+
+          {/* Grayscale Content */}
+          <div className="flex items-center justify-between py-2">
+            <div>
+              <div className="text-sm font-medium text-foreground">
+                {t("settings.grayscaleContent") || "Grayscale Images"}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {t("settings.grayscaleContentDesc") || "Convert document figures and photos to high-contrast grayscale"}
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              checked={einkSettings.grayscaleContent}
+              onChange={(e) => handleToggle("grayscaleContent", e.target.checked)}
+              className="w-4 h-4 rounded accent-primary cursor-pointer"
+            />
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

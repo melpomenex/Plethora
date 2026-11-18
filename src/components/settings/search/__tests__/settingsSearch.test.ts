@@ -93,9 +93,10 @@ describe("Settings search matcher", () => {
   });
 
   it("finds everyday aliases", () => {
+    const mobile = desktop({ platform: "android" });
     expect(idsFor("bigger text")).toContain("appearance.fontSize");
-    expect(idsFor("volume buttons")).toContain("appearance.volumeRocker");
-    expect(idsFor("vibration")).toContain("general.hapticsEnabled");
+    expect(idsFor("volume buttons", "en", mobile)).toContain("appearance.volumeRocker");
+    expect(idsFor("vibration", "en", mobile)).toContain("general.hapticsEnabled");
     expect(idsFor("dark mode")).toContain("appearance.theme");
     expect(idsFor("speech to text")).toContain("audioTranscription.models");
     // Remote passage-scoring consent is a separate destination from the
@@ -154,9 +155,10 @@ describe("Settings search matcher", () => {
   });
 
   it("matches localized labels, aliases, and CJK text", () => {
+    const mobile = desktop({ platform: "android" });
     expect(idsFor("字体大小", "zh")).toContain("appearance.fontSize");
     expect(idsFor("深色模式", "zh")).toContain("appearance.theme");
-    expect(idsFor("振动", "zh")).toContain("general.hapticsEnabled");
+    expect(idsFor("振动", "zh", mobile)).toContain("general.hapticsEnabled");
     expect(idsFor("语音转文字", "zh")).toContain("audioTranscription.models");
     expect(idsFor("índice", "es").length).toBeGreaterThanOrEqual(0);
     expect(idsFor("Einstellungen", "de").length).toBeGreaterThanOrEqual(0);
@@ -175,8 +177,9 @@ describe("Settings search matcher", () => {
   );
 
   it("keeps English fallback terms searchable in non-English interfaces", () => {
+    const mobile = desktop({ platform: "android" });
     expect(idsFor("font size", "zh")).toContain("appearance.fontSize");
-    expect(idsFor("volume buttons", "ja")).toContain("appearance.volumeRocker");
+    expect(idsFor("volume buttons", "ja", mobile)).toContain("appearance.volumeRocker");
     expect(idsFor("tts", "de")).toContain("tts.enabled");
   });
 
@@ -249,6 +252,12 @@ describe("Settings search matcher", () => {
     expect(idsFor("browser extension", "en", ios)).not.toContain("integrations.browserExtension");
     expect(idsFor("notebooklm", "en", ios)).not.toContain("integrations.notebooklm");
     expect(idsFor("android voice", "en", ios)).not.toContain("tts.androidModels");
+
+    // Mobile-only settings must not appear on desktop
+    expect(idsFor("volume buttons")).not.toContain("appearance.volumeRocker");
+    expect(idsFor("vibration")).not.toContain("general.hapticsEnabled");
+    expect(idsFor("haptic")).not.toContain("general.haptics");
+    expect(idsFor("mobile charging")).not.toContain("settings.podcast.mobile_charging_only");
   });
 
   it("keeps recoverable setup destinations available", () => {

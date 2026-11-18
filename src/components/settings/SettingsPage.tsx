@@ -43,6 +43,7 @@ import { cn } from "../../utils";
 import { importWithRetry } from "../../utils/importWithRetry";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { isTauri } from "../../lib/tauri";
+import { resolveCurrentAppPlatform } from "../../lib/platformCapabilities";
 import { usePlatformCapability } from "../../hooks/usePlatformCapability";
 import { checkForUpdates, setSkippedVersion, type UpdateInfo } from "../../utils/updateChecker";
 import { useAccountStore, useSettingsStore, useTabsStore } from "../../stores";
@@ -1099,6 +1100,8 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
   const [isCheckingUpdates, setIsCheckingUpdates] = useState(false);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const isDesktop = isTauri();
+  const platform = resolveCurrentAppPlatform();
+  const isMobilePlatform = platform === "android" || platform === "ios";
   // §2.2: the updater / check-for-updates row is gated through the platform
   // capability registry — real desktop (and Android sideload) only, never the
   // iOS webview where `isTauri()` alone would wrongly expose self-update
@@ -1331,9 +1334,11 @@ function GeneralSettings({ onChange }: { onChange: () => void }) {
         )}
       </SettingsSection>
 
-      <SettingsSection title={t("haptics.sectionTitle")} searchId="general.haptics">
-        <HapticsSettingsControl />
-      </SettingsSection>
+      {isMobilePlatform && (
+        <SettingsSection title={t("haptics.sectionTitle")} searchId="general.haptics">
+          <HapticsSettingsControl />
+        </SettingsSection>
+      )}
 
       <SettingsSection title={t("settings.data")} description={t("settings.dataDesc")} searchId="general.data">
         <SettingsRow label={t("settings.dataLocation")} description={t("settings.dataLocationDesc")} searchId="general.dataLocation">
@@ -1423,6 +1428,8 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
   const { t } = useI18n();
   const { toolbarPosition, splitViewSpawn } = settings.interface;
   const companion = settings.interface.companion;
+  const platform = resolveCurrentAppPlatform();
+  const isMobilePlatform = platform === "android" || platform === "ios";
 
   // Apply font family when it changes
   useEffect(() => {
@@ -1885,26 +1892,28 @@ function AppearanceSettings({ onChange }: { onChange: () => void }) {
           </div>
         </SettingsRow>
 
-        <SettingsRow
-          label={t("settings.volumeRockerScroll")}
-          description={t("settings.volumeRockerScrollDesc")}
-          searchId="appearance.volumeRocker"
-        >
-          <select
-            className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm min-h-[44px]"
-            value={settings.interface.volumeRockerScroll || "none"}
-            onChange={(e) => {
-              updateSettingsCategory("interface", {
-                volumeRockerScroll: e.target.value as "none" | "page" | "scroll",
-              });
-              onChange();
-            }}
+        {isMobilePlatform && (
+          <SettingsRow
+            label={t("settings.volumeRockerScroll")}
+            description={t("settings.volumeRockerScrollDesc")}
+            searchId="appearance.volumeRocker"
           >
-            <option value="none">Disabled (System Default)</option>
-            <option value="page">Page Up / Down (Next/Prev Page)</option>
-            <option value="scroll">Smooth Scroll Up / Down</option>
-          </select>
-        </SettingsRow>
+            <select
+              className="w-full sm:w-auto px-3 py-2 bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary text-sm min-h-[44px]"
+              value={settings.interface.volumeRockerScroll || "none"}
+              onChange={(e) => {
+                updateSettingsCategory("interface", {
+                  volumeRockerScroll: e.target.value as "none" | "page" | "scroll",
+                });
+                onChange();
+              }}
+            >
+              <option value="none">Disabled (System Default)</option>
+              <option value="page">Page Up / Down (Next/Prev Page)</option>
+              <option value="scroll">Smooth Scroll Up / Down</option>
+            </select>
+          </SettingsRow>
+        )}
 
         <SettingsRow label={t("settings.compactMode")} description={t("settings.compactModeDesc")} searchId="appearance.compactMode">
           <Switch

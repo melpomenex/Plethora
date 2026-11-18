@@ -43,6 +43,11 @@ vi.mock("../../../lib/tauri", async (importOriginal) => ({
   isTauri: () => false,
 }));
 
+vi.mock("../../../lib/platformCapabilities", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../lib/platformCapabilities")>()),
+  resolveCurrentAppPlatform: () => (presentation.mobile ? "android" : "desktop"),
+}));
+
 const DummyTab = () => null;
 
 function openSettingsWithPrevious() {

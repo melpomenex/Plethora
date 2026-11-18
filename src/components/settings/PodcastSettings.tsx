@@ -8,9 +8,12 @@ import {
 } from "../../api/podcastAd";
 import type { PodcastAdSettings } from "../../types/podcastAd";
 import { SettingsSearchTarget } from "./search/SettingsSearchNavigation";
+import { resolveCurrentAppPlatform } from "../../lib/platformCapabilities";
 
 export function PodcastSettings() {
   const { t } = useI18n();
+  const platform = resolveCurrentAppPlatform();
+  const isMobile = platform === "android" || platform === "ios";
   const [settings, setSettings] = useState<PodcastAdSettings>({
     id: "default",
     autoDetectAds: true,
@@ -116,30 +119,32 @@ export function PodcastSettings() {
           </div>
         </SettingsSearchTarget>
 
-        {/* 3. Mobile Charging Only */}
-        <SettingsSearchTarget
-          id="settings.podcast.mobile_charging_only"
-          label="Mobile Charging Only"
-        >
-          <div className="flex items-start justify-between gap-4 py-2">
-            <div className="min-w-0">
-              <div className="text-sm font-medium text-foreground">
-                Defer Processing on Battery
+        {/* 3. Mobile Charging Only (mobile only) */}
+        {isMobile && (
+          <SettingsSearchTarget
+            id="settings.podcast.mobile_charging_only"
+            label="Mobile Charging Only"
+          >
+            <div className="flex items-start justify-between gap-4 py-2">
+              <div className="min-w-0">
+                <div className="text-sm font-medium text-foreground">
+                  Defer Processing on Battery
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  Wait until the mobile device is charging to execute on-device speech models and boundary refinement.
+                </div>
               </div>
-              <div className="text-xs text-muted-foreground mt-0.5">
-                Wait until the mobile device is charging to execute on-device speech models and boundary refinement.
+              <div className="flex-shrink-0 pt-0.5">
+                <Switch
+                  checked={settings.mobileChargingOnly}
+                  onCheckedChange={(val) => handleUpdate({ mobileChargingOnly: val })}
+                  touchTarget
+                  aria-label="Mobile Charging Only"
+                />
               </div>
             </div>
-            <div className="flex-shrink-0 pt-0.5">
-              <Switch
-                checked={settings.mobileChargingOnly}
-                onCheckedChange={(val) => handleUpdate({ mobileChargingOnly: val })}
-                touchTarget
-                aria-label="Mobile Charging Only"
-              />
-            </div>
-          </div>
-        </SettingsSearchTarget>
+          </SettingsSearchTarget>
+        )}
 
         {/* 4. Minimum Ad Duration */}
         <SettingsSearchTarget
