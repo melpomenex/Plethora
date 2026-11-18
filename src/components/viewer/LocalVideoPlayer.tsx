@@ -24,7 +24,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { cn } from '../../utils';
-import { saveDocumentPosition, timePosition } from '../../api/position';
+import { getDocumentPosition, saveDocumentPosition, timePosition } from '../../api/position';
 import { useI18n } from '../../lib/i18n';
 import { getDocumentAuto, updateDocumentProgressAuto } from '../../api/documents';
 import { useToast } from '../common/Toast';
@@ -447,16 +447,18 @@ export function LocalVideoPlayer({
     const video = videoRef.current;
     const time = currentTimeRef.current > 0
       ? currentTimeRef.current
-      : video && Number.isFinite(video.currentTime)
+      : video && Number.isFinite(video.currentTime) && video.currentTime > 0
         ? video.currentTime
         : startTimeRef.current;
-    const wasPlaying = isPlaying || Boolean(video && !video.paused);
+    const wasPlaying = Boolean(video && !video.paused);
     if (time > 0) {
       startTimeRef.current = time;
       setStartTime(time);
     }
-    artifactSwitchRef.current = { time, wasPlaying };
-  }, [artifactSrc, compatibility.state.kind, isPlaying]);
+    if (time > 0 || wasPlaying) {
+      artifactSwitchRef.current = { time, wasPlaying };
+    }
+  }, [artifactSrc, compatibility.state.kind]);
 
   useEffect(() => {
     if (compatibility.state.kind === "failed") return;
@@ -639,7 +641,17 @@ export function LocalVideoPlayer({
     try {
       const doc = await getDocumentAuto(documentId);
       setDocumentFilePath(doc?.filePath ?? null);
-      const savedTime = doc?.currentPage ?? doc?.current_page ?? 0;
+      let savedTime = doc?.currentPage ?? doc?.current_page ?? 0;
+      if (savedTime < 3 && isTauri()) {
+        try {
+          const pos = await getDocumentPosition(documentId);
+          if (pos?.type === "time" && typeof pos.seconds === "number" && pos.seconds >= 3) {
+            savedTime = pos.seconds;
+          }
+        } catch {
+          // Ignore fallback position lookup failure
+        }
+      }
       if (savedTime >= 3) {
         startTimeRef.current = savedTime;
         setStartTime(savedTime);
@@ -1330,10 +1342,13 @@ export function LocalVideoPlayer({
   const handleLoadedMetadata = useCallback(() => {
     if (videoRef.current) {
       syncMediaDuration();
-      const seekTo = artifactSwitchRef.current?.time
-        ?? (typeof initialSeekTime === 'number' && Number.isFinite(initialSeekTime)
-          ? initialSeekTime
-          : startTimeRef.current);
+      const switchTime = artifactSwitchRef.current?.time;
+      const seekTo =
+        switchTime && switchTime > 0
+          ? switchTime
+          : typeof initialSeekTime === 'number' && Number.isFinite(initialSeekTime)
+            ? initialSeekTime
+            : startTimeRef.current;
       if (seekTo > 0) {
         videoRef.current.currentTime = seekTo;
       }
@@ -1423,7 +1438,12 @@ export function LocalVideoPlayer({
       onTimeUpdate={() => {
         handleTimeUpdate();
       }}
-      onSeeked={() => handleTimeUpdate()}
+      onSeeked={() => {
+        handleTimeUpdate();
+        if (videoRef.current && documentIdRef.current) {
+          void savePosition(videoRef.current.currentTime);
+        }
+      }}
       onVolumeChange={handleVolumeChange}
       onError={handleMediaElementError}
       onEnded={() => {
@@ -1450,7 +1470,12 @@ export function LocalVideoPlayer({
       onTimeUpdate={() => {
         handleTimeUpdate();
       }}
-      onSeeked={() => handleTimeUpdate()}
+      onSeeked={() => {
+        handleTimeUpdate();
+        if (videoRef.current && documentIdRef.current) {
+          void savePosition(videoRef.current.currentTime);
+        }
+      }}
       onVolumeChange={handleVolumeChange}
       onError={handleMediaElementError}
       onWheel={handleScroll}
