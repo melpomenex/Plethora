@@ -85,67 +85,10 @@ describe("MobileQueueView.ergonomics", () => {
     expect(await screen.findByText("Captured to Inbox")).toBeInTheDocument();
   });
 
-  it("dispatches Thumb-Arc rating, priority nudge, and Commute Audio Queue toggle", () => {
-    const onThumbArcRate = vi.fn();
-    const onThumbArcPriorityNudge = vi.fn();
-    const onToggleCommuteAudio = vi.fn();
+  it("does not render the bottom thumb-arc rating dock on the queue list", () => {
+    render(<MobileQueueView />);
 
-    render(
-      <MobileQueueView
-        onThumbArcRate={onThumbArcRate}
-        onThumbArcPriorityNudge={onThumbArcPriorityNudge}
-        onToggleCommuteAudio={onToggleCommuteAudio}
-      />
-    );
-
-    const dock = document.querySelector('[data-mobile-thumb-arc="true"]');
-    expect(dock).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Good" }));
-    expect(onThumbArcRate).toHaveBeenCalledTimes(1);
-    expect(onThumbArcRate.mock.calls[0][0]).toBe("good");
-
-    fireEvent.click(screen.getByRole("button", { name: /Boost Priority \(-10\)/i }));
-    expect(onThumbArcPriorityNudge).toHaveBeenCalledTimes(1);
-    expect(onThumbArcPriorityNudge.mock.calls[0][0]).toBe(-10);
-
-    fireEvent.click(screen.getByRole("button", { name: /Commute Audio Queue/i }));
-    expect(onToggleCommuteAudio).toHaveBeenCalledWith(true);
-  });
-
-  it("shows the Up next target label and starts speech readout for Commute Audio Queue without opening Scroll Mode", async () => {
-    const onOpenScrollMode = vi.fn();
-    const speak = vi.fn();
-    const cancel = vi.fn();
-    vi.stubGlobal("speechSynthesis", { speak, cancel });
-    vi.stubGlobal(
-      "SpeechSynthesisUtterance",
-      class {
-        text: string;
-        onend: (() => void) | null = null;
-        onerror: (() => void) | null = null;
-        constructor(text: string) {
-          this.text = text;
-        }
-      }
-    );
-
-    render(<MobileQueueView onOpenScrollMode={onOpenScrollMode} />);
-
-    const context = document.querySelector('[data-thumb-arc-context="true"]');
-    expect(context?.textContent).toContain("Up next: Raft Consensus");
-    expect(context?.textContent).toContain("Rate #1 to review");
-
-    fireEvent.click(screen.getByRole("button", { name: /Commute Audio Queue/i }));
-    await waitFor(() => {
-      expect(speak).toHaveBeenCalledTimes(1);
-    });
-    expect(onOpenScrollMode).not.toHaveBeenCalled();
-    expect(screen.getByRole("button", { name: /Stop Audio Queue/i })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: /Stop Audio Queue/i }));
-    expect(cancel).toHaveBeenCalled();
-
-    vi.unstubAllGlobals();
+    expect(document.querySelector('[data-mobile-thumb-arc="true"]')).toBeNull();
+    expect(document.querySelector('[data-thumb-arc-context="true"]')).toBeNull();
   });
 });

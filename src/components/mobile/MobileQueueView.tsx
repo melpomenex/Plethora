@@ -15,7 +15,7 @@ import { emitUserInteraction } from "../../lib/feedback/orchestrator";
  * - Uses cards optimized for touch
  */
 
-import { useState, useMemo, useEffect, useLayoutEffect, useCallback, useRef } from "react";
+import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { useShallow } from "zustand/react/shallow";
 import {
   Archive,
@@ -28,7 +28,6 @@ import {
   Clock,
   DeviceMobile,
   DotsThree,
-  Headphones,
   MagnifyingGlass,
   Play,
   Sliders,
@@ -42,12 +41,8 @@ import { cn } from "../../utils";
 import { SwipeableItem } from "./SwipeableItem";
 import { PullToRefresh } from "./PullToRefresh";
 import { bulkSuspendItems, bulkUnsuspendItems } from "../../api/queue";
-import { submitReview } from "../../api/review";
 import { createExtract } from "../../api/extracts";
 import { dismissDocument } from "../../api/documents";
-import { dispatchPriorityCommit } from "../../services/priority/priorityCommit";
-import { useListenLaterStore } from "../../stores/listenLaterStore";
-import { bottomDockClearance, useBottomControlsGeometry } from "./BottomControlsGeometry";
 import { useI18n } from "../../lib/i18n";
 import { useLongPress } from "../../hooks/useLongPress";
 import { useIsActiveTab } from "../common/Tabs";
@@ -80,10 +75,7 @@ interface MobileQueueViewProps {
     mode?: "queue-list" | "optimal";
     itemTypes?: SessionItemTypes;
   }) => void;
-  onThumbArcRate?: (rating: "again" | "hard" | "good" | "easy", item?: QueueItem) => void;
-  onThumbArcPriorityNudge?: (delta: number, item?: QueueItem) => void;
   onInstantExtractParagraph?: (paragraphText: string, item?: QueueItem) => Promise<void> | void;
-  onToggleCommuteAudio?: (enabled: boolean) => void;
   activeReadableParagraphs?: string[];
 }
 
@@ -98,53 +90,11 @@ export function MobileQueueView({
   onStartReview,
   onOpenDocument,
   onOpenScrollMode,
-  onThumbArcRate,
-  onThumbArcPriorityNudge,
   onInstantExtractParagraph,
-  onToggleCommuteAudio,
   activeReadableParagraphs,
 }: MobileQueueViewProps) {
-  const [commuteAudioMode, setCommuteAudioMode] = useState(false);
-  const [commuteAudioTitle, setCommuteAudioTitle] = useState<string | null>(null);
-  const commuteAudioActiveRef = useRef(false);
   const [capturedToast, setCapturedToast] = useState<string | null>(null);
   const lastTapRef = useRef<{ idx: number; time: number }>({ idx: -1, time: 0 });
-  const bottomGeometry = useBottomControlsGeometry();
-  const rootRef = useRef<HTMLDivElement>(null);
-  const [dockBottomOffset, setDockBottomOffset] = useState(0);
-
-  useLayoutEffect(() => {
-    const el = rootRef.current;
-    if (!el || !bottomGeometry) {
-      setDockBottomOffset(0);
-      return;
-    }
-    const update = () => {
-      const box = el.getBoundingClientRect();
-      const end =
-        bottomGeometry.viewportTop +
-        bottomGeometry.viewportHeight -
-        bottomDockClearance(bottomGeometry);
-      setDockBottomOffset(Math.max(0, Math.round(box.bottom - end)));
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(el);
-    window.addEventListener("resize", update);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", update);
-    };
-  }, [bottomGeometry]);
-
-  useEffect(() => {
-    return () => {
-      commuteAudioActiveRef.current = false;
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
-    };
-  }, []);
   const {
     items,
     isLoading,
@@ -763,7 +713,7 @@ export function MobileQueueView({
   }, [bulkDelete, toast, t, exitSelection, loadQueue]);
 
   return (
-    <div ref={rootRef} className="flex flex-col w-full min-w-0 h-full bg-background" data-responsive-surface="queue">
+    <div className="flex flex-col w-full min-w-0 h-full bg-background" data-responsive-surface="queue">
       <div className="flex flex-wrap items-center gap-2 px-4 py-2">
         <SavedQueueDropdown onOpenNewQueue={() => setNewQueueOpen(true)} onOpenManageQueues={() => setManageOpen(true)} onQueueSelect={applyQueue} />
       </div>
@@ -1106,220 +1056,6 @@ export function MobileQueueView({
                 {para}
               </p>
             ))}
-          </div>
-        );
-      })()}
-
-      {/* One-Handed Bottom Thumb-Arc Dock */}
-      {(() => {
-        const activeDockItem = filteredItems[0];
-        const stopCommuteAudio = () => {
-          commuteAudioActiveRef.current = false;
-          setCommuteAudioMode(false);
-          setCommuteAudioTitle(null);
-          if (typeof window !== "undefined" && "speechSynthesis" in window) {
-            window.speechSynthesis.cancel();
-          }
-        };
-        const speakQueueItemAt = (index: number) => {
-          if (!commuteAudioActiveRef.current) return;
-          const item = filteredItems[index];
-          if (!item || typeof window === "undefined" || !("speechSynthesis" in window)) {
-            stopCommuteAudio();
-            return;
-          }
-          setCommuteAudioTitle(item.documentTitle);
-          const text = item.question
-            ? `${item.documentTitle}. ${item.question}`
-            : item.documentTitle;
-          const utterance = new SpeechSynthesisUtterance(text);
-          utterance.onend = () => {
-            if (commuteAudioActiveRef.current) {
-              speakQueueItemAt(index + 1);
-            }
-          };
-          utterance.onerror = () => {
-            stopCommuteAudio();
-          };
-          window.speechSynthesis.speak(utterance);
-        };
-        const handleToggleCommute = async () => {
-          const next = !commuteAudioMode;
-          if (onToggleCommuteAudio) {
-            setCommuteAudioMode(next);
-            onToggleCommuteAudio(next);
-            return;
-          }
-          if (!next) {
-            stopCommuteAudio();
-            return;
-          }
-          const listenLaterQueue = useListenLaterStore.getState().queue;
-          const synthesized = listenLaterQueue.find(
-            (entry) => entry.isSynthesized && Boolean(entry.editionId)
-          );
-          if (synthesized) {
-            try {
-              const { playListenLaterItem } = await import(
-                "../../services/audio/listeningQueueProjection"
-              );
-              if (await playListenLaterItem(synthesized)) {
-                commuteAudioActiveRef.current = true;
-                setCommuteAudioMode(true);
-                setCommuteAudioTitle(synthesized.title);
-                return;
-              }
-            } catch {
-              // Fall through to speech synthesis readout.
-            }
-          }
-          if (
-            filteredItems.length > 0 &&
-            typeof window !== "undefined" &&
-            "speechSynthesis" in window
-          ) {
-            window.speechSynthesis.cancel();
-            commuteAudioActiveRef.current = true;
-            setCommuteAudioMode(true);
-            speakQueueItemAt(0);
-            return;
-          }
-          setCommuteAudioMode(false);
-          toast.info(
-            "Commute Audio Queue",
-            "No playable audio items in this queue"
-          );
-        };
-
-        return (
-          <div
-            data-mobile-thumb-arc="true"
-            style={
-              dockBottomOffset > 0
-                ? { marginBottom: `${dockBottomOffset + 8}px` }
-                : undefined
-            }
-            className="sticky bottom-0 z-30 mx-2 mb-2 rounded-t-[28px] rounded-b-2xl border border-border bg-card/95 px-3 py-2.5 pb-safe shadow-xl backdrop-blur"
-          >
-            {activeDockItem && (
-              <div
-                data-thumb-arc-context="true"
-                className="mb-1.5 flex items-center justify-between gap-2 px-1 text-[11px]"
-              >
-                <span className="truncate font-medium text-foreground">
-                  Up next: {activeDockItem.documentTitle}
-                </span>
-                <span className="shrink-0 text-[10px] text-muted-foreground">
-                  {commuteAudioMode && commuteAudioTitle
-                    ? `Listening: ${commuteAudioTitle}`
-                    : activeDockItem.learningItemId
-                      ? "Quick-rate #1"
-                      : "Rate #1 to review"}
-                </span>
-              </div>
-            )}
-            <div className="mb-2 flex items-center justify-between gap-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  if (onThumbArcPriorityNudge) {
-                    onThumbArcPriorityNudge(-10, activeDockItem);
-                  } else if (activeDockItem?.documentId) {
-                    const next = Math.max(1, (activeDockItem.priority ?? 50) - 10);
-                    void dispatchPriorityCommit(
-                      { kind: "document", id: activeDockItem.documentId },
-                      next
-                    );
-                  }
-                }}
-                className="flex-1 rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-muted"
-              >
-                Boost Priority (-10)
-              </button>
-              <button
-                type="button"
-                aria-pressed={commuteAudioMode}
-                onClick={() => void handleToggleCommute()}
-                className={cn(
-                  "inline-flex items-center justify-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium transition-colors",
-                  commuteAudioMode
-                    ? "bg-primary text-primary-foreground"
-                    : "border border-border bg-background text-foreground hover:bg-muted"
-                )}
-              >
-                <Headphones className="h-3.5 w-3.5" />
-                <span>
-                  {commuteAudioMode ? "Stop Audio Queue" : "Commute Audio Queue"}
-                </span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (onThumbArcPriorityNudge) {
-                    onThumbArcPriorityNudge(10, activeDockItem);
-                  } else if (activeDockItem?.documentId) {
-                    const next = Math.min(100, (activeDockItem.priority ?? 50) + 10);
-                    void dispatchPriorityCommit(
-                      { kind: "document", id: activeDockItem.documentId },
-                      next
-                    );
-                  }
-                }}
-                className="flex-1 rounded-full border border-border bg-background px-2.5 py-1 text-[11px] font-medium text-foreground hover:bg-muted"
-              >
-                Defer (+10)
-              </button>
-            </div>
-            <div className="grid grid-cols-4 gap-1.5">
-              {(["again", "hard", "good", "easy"] as const).map((rating) => (
-                <button
-                  key={rating}
-                  type="button"
-                  onClick={() => {
-                    if (onThumbArcRate) {
-                      onThumbArcRate(rating, activeDockItem);
-                    } else if (activeDockItem?.learningItemId) {
-                      const score =
-                        rating === "again"
-                          ? 1
-                          : rating === "hard"
-                            ? 2
-                            : rating === "good"
-                              ? 3
-                              : 4;
-                      void submitReview(activeDockItem.learningItemId, score, 0)
-                        .then(() => {
-                          toast.success(
-                            `Rated ${rating.charAt(0).toUpperCase() + rating.slice(1)}`,
-                            activeDockItem.documentTitle
-                          );
-                          loadQueue();
-                        })
-                        .catch((err) => {
-                          toast.error(
-                            "Rating failed",
-                            err instanceof Error ? err.message : String(err)
-                          );
-                        });
-                    } else if (activeDockItem) {
-                      onStartReview?.(activeDockItem.id);
-                    }
-                  }}
-                  className={cn(
-                    "rounded-xl py-2 text-xs font-semibold capitalize transition-colors",
-                    rating === "again"
-                      ? "bg-red-500/15 text-red-500"
-                      : rating === "hard"
-                        ? "bg-amber-500/15 text-amber-500"
-                        : rating === "good"
-                          ? "bg-emerald-500/15 text-emerald-500"
-                          : "bg-sky-500/15 text-sky-500"
-                  )}
-                >
-                  {rating.charAt(0).toUpperCase() + rating.slice(1)}
-                </button>
-              ))}
-            </div>
           </div>
         );
       })()}
