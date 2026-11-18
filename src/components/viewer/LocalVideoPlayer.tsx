@@ -206,6 +206,7 @@ export function LocalVideoPlayer({
   );
   const [documentFilePath, setDocumentFilePath] = useState<string | null>(null);
   const startTimeRef = useRef(0);
+  const hasAppliedInitialSeekRef = useRef(false);
   const lastSavedTimeRef = useRef(0);
   const autoSaveIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const documentIdRef = useRef(documentId);
@@ -255,6 +256,13 @@ export function LocalVideoPlayer({
     if (mediaType === "audio" || !isHlsStream || !activeSrc) return;
     const video = videoRef.current;
     if (!video) return;
+    const switchTime = artifactSwitchRef.current?.time;
+    const initialStartPosition =
+      switchTime && switchTime > 0
+        ? switchTime
+        : typeof initialSeekTime === "number" && Number.isFinite(initialSeekTime)
+          ? initialSeekTime
+          : startTimeRef.current;
     const attached = attachMediaSource(video, activeSrc, (detail) => {
       console.warn("[LocalVideoPlayer] HLS playback error", detail);
       void (async () => {
@@ -265,11 +273,11 @@ export function LocalVideoPlayer({
           });
         }
       })();
-    });
+    }, initialStartPosition);
     return () => {
       attached.cleanup();
     };
-  }, [activeSrc, isHlsStream, mediaType]);
+  }, [activeSrc, initialSeekTime, isHlsStream, mediaType]);
 
   useEffect(() => {
     documentIdRef.current = documentId;
@@ -484,6 +492,7 @@ export function LocalVideoPlayer({
     setIsPlaying(false);
     setCurrentTime(0);
     currentTimeRef.current = 0;
+    hasAppliedInitialSeekRef.current = false;
     setDuration(0);
     durationRef.current = 0;
     resumePlaybackAfterFallbackRef.current = false;
@@ -656,11 +665,14 @@ export function LocalVideoPlayer({
         startTimeRef.current = savedTime;
         setStartTime(savedTime);
         // Seek immediately if video is already ready
-        if (videoRef.current && videoRef.current.readyState >= 1) {
+        if (
+          videoRef.current &&
+          videoRef.current.readyState >= 1 &&
+          videoRef.current.currentTime < 1
+        ) {
           videoRef.current.currentTime = savedTime;
-        } else {
+          hasAppliedInitialSeekRef.current = true;
         }
-      } else {
       }
     } catch (error) {
       console.error('[LocalVideoPlayer] Failed to load position:', error);
@@ -834,21 +846,26 @@ export function LocalVideoPlayer({
   }, [isPlaying, savePosition]);
 
   useEffect(() => {
-    return () => {
-      // Save on unmount using the ref value (videoRef may be null by now)
+    const flushPosition = () => {
       if (documentIdRef.current && currentTimeRef.current > 0) {
-        // Use a synchronous approach for unmount to ensure it completes
         const timeToSave = Math.floor(currentTimeRef.current);
         const docId = documentIdRef.current;
-        // Avoid saving if time hasn't changed significantly
         if (Math.abs(timeToSave - lastSavedTimeRef.current) >= 1) {
-          // Fire and forget - don't await since we're in cleanup
+          lastSavedTimeRef.current = timeToSave;
           void updateDocumentProgressAuto(docId, timeToSave);
           if (isTauri()) {
             void saveDocumentPosition(docId, timePosition(timeToSave, durationRef.current));
           }
         }
       }
+    };
+
+    window.addEventListener('pagehide', flushPosition);
+    window.addEventListener('beforeunload', flushPosition);
+    return () => {
+      window.removeEventListener('pagehide', flushPosition);
+      window.removeEventListener('beforeunload', flushPosition);
+      flushPosition();
     };
   }, []); // Empty deps - only run on unmount, use refs for values
 
@@ -1349,8 +1366,11 @@ export function LocalVideoPlayer({
           : typeof initialSeekTime === 'number' && Number.isFinite(initialSeekTime)
             ? initialSeekTime
             : startTimeRef.current;
-      if (seekTo > 0) {
+      if (seekTo > 0 && videoRef.current.currentTime < 1) {
         videoRef.current.currentTime = seekTo;
+        if (videoRef.current.currentTime >= 1) {
+          hasAppliedInitialSeekRef.current = true;
+        }
       }
       if (playbackRate !== 1) {
         videoRef.current.playbackRate = playbackRate;
@@ -1366,6 +1386,19 @@ export function LocalVideoPlayer({
     setPlayError(null);
     setSourceFailure(null);
     setSourceFailureStrategy(null);
+    if (videoRef.current && !hasAppliedInitialSeekRef.current) {
+      const switchTime = artifactSwitchRef.current?.time;
+      const seekTo =
+        switchTime && switchTime > 0
+          ? switchTime
+          : typeof initialSeekTime === 'number' && Number.isFinite(initialSeekTime)
+            ? initialSeekTime
+            : startTimeRef.current;
+      if (seekTo >= 3 && videoRef.current.currentTime < 1) {
+        videoRef.current.currentTime = seekTo;
+      }
+      hasAppliedInitialSeekRef.current = true;
+    }
     if (resumePlaybackAfterFallbackRef.current) {
       resumePlaybackAfterFallbackRef.current = false;
       void attemptPlay('fallback-resume');

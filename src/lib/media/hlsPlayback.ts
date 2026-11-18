@@ -17,6 +17,7 @@ export function attachMediaSource(
   video: HTMLVideoElement,
   url: string,
   onFatalError?: (detail: string) => void,
+  startPosition?: number,
 ): AttachedMediaSource {
   if (!isHlsPlaylistUrl(url)) {
     if (video.src !== url) {
@@ -49,6 +50,10 @@ export function attachMediaSource(
     lowLatencyMode: false,
     maxBufferLength: 30,
     maxMaxBufferLength: 60,
+    startPosition:
+      typeof startPosition === "number" && Number.isFinite(startPosition) && startPosition > 0
+        ? startPosition
+        : -1,
   });
 
   hls.on(Hls.Events.ERROR, (_event, data) => {
