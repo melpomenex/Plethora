@@ -92,7 +92,11 @@ export const CurriculumGenerator: React.FC<CurriculumGeneratorProps> = ({
   const embeddingSettings = useSettingsStore((state) => state.settings.embedding);
   const aiSettings = useSettingsStore((state) => state.settings.ai);
   const priorPreflight = recoveryJob?.preflight as StudyAiPreflight | undefined;
-  const [selectedConfigId, setSelectedConfigId] = useState(priorPreflight?.modelSelection ?? '');
+  const priorModelConfigId = priorPreflight?.modelSelection || priorPreflight?.model?.configId || '';
+  const initialConfigId = priorModelConfigId && providers.some((p) => p.id === priorModelConfigId && isUsableStudyModel(p))
+    ? priorModelConfigId
+    : '';
+  const [selectedConfigId, setSelectedConfigId] = useState(initialConfigId);
   const [indexedSourceCount, setIndexedSourceCount] = useState<number | null>(null);
   const [execution, setExecution] = useState<CurriculumExecutionStats>();
   const [retrieval, setRetrieval] = useState<HydratedEvidenceResult['retrieval']>();

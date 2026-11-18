@@ -51,7 +51,7 @@ import { runPinnedStudyTask } from './pinnedTask';
 import { computeRequestHash, sha256 } from './requestHash';
 import { countIndexedCurriculumSources, prepareCurriculumPreflight, refreshCurriculumScope } from './curriculumPreflight';
 import { evaluateStudyPrivacy } from './privacy';
-import { classifyRouteDestination, validatePreflightUnchanged } from './preflight';
+import { classifyRouteDestination } from './preflight';
 import { resolveTaskRoute } from '../../ai/tasks/router';
 import { AIError } from '../../ai/errors';
 import { logModelFailure, MALFORMED_OUTPUT, modelFailure } from './modelFailure';
@@ -269,14 +269,8 @@ export async function runCurriculumCoordinator(
     throw new StudyApiError({ code: 'missing_source', messageKey: 'study_generation.error.source_missing', retryable: false });
   }
   const authorized = await prepare(planDetail.version.sourceScope, preflight.modelSelection || undefined, preflight);
-  if (resumeFrom) {
-    const previous = resumeFrom.preflight as StudyAiPreflight;
-    if (resumeFrom.kind !== 'curriculum' || resumeFrom.targetId !== draftVersionId ||
-        previous.reasoningFallback !== authorized.preflight.reasoningFallback ||
-        !previous.embedding || JSON.stringify(previous.embedding) !== JSON.stringify(authorized.preflight.embedding)) {
-      throw new StudyApiError({ code: 'invalid_state', messageKey: 'study_generation.error.provider_changed_on_resume', retryable: false });
-    }
-    validatePreflightUnchanged(previous, authorized.route);
+  if (resumeFrom && (resumeFrom.kind !== 'curriculum' || resumeFrom.targetId !== draftVersionId)) {
+    throw new StudyApiError({ code: 'invalid_state', messageKey: 'study_generation.error.job_unavailable', retryable: false });
   }
   const refreshScope = deps.refreshScopeFn ?? refreshCurriculumScope;
   const verifyPrivacy = async () => {
@@ -347,14 +341,15 @@ export async function runCurriculumCoordinator(
     throw new StudyApiError({ code: 'invalid_state', messageKey: 'study_generation.error.call_budget_exceeded', retryable: false });
   }
 
+  const hashPreflight = (resumeFrom?.preflight as StudyAiPreflight | undefined) ?? authorized.preflight;
   const requestHash = sha256(JSON.stringify({
     request: computeRequestHash({ ...request, sourceScope: authorized.sourceScope }),
     goal: effectiveGoal,
     targetRevision: resumeFrom?.targetRevision ?? currentRevision,
-    providerId: authorized.preflight.providerId,
+    providerId: hashPreflight.providerId,
     creationKey,
-    modelId: authorized.preflight.model?.id,
-    endpoint: authorized.preflight.model?.endpointHash,
+    modelId: hashPreflight.model?.id,
+    endpoint: hashPreflight.model?.endpointHash,
     evidence: batches.map((batch) => batch.handles.map((item) => [item.documentId, item.extractId, item.revision, item.excerptSha256])),
   }));
   const plannedSteps: CreateStudyStepInput[] = [];

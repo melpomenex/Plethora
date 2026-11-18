@@ -1251,4 +1251,161 @@ describe('Curriculum Coordinator and Job Controller', () => {
       code: 'stale_revision',
     });
   });
+
+  it('allows resuming a checkpointed job with a newly reviewed model, endpoint, and embedding configuration', async () => {
+    const mockPlanDetail = createMockPlanDetail(2);
+    mockPlanDetail.version.nodes = [
+      {
+        nodeId: 'node_1',
+        title: 'Processes',
+        conceptId: 'Processes',
+        summary: 'OS processes',
+        learningObjectives: ['Understand processes'],
+        studyStatus: 'not_started',
+        sourceRefIds: ['ssr_1'],
+        included: true,
+        locked: false,
+      },
+      {
+        nodeId: 'node_2',
+        title: 'Scheduling',
+        conceptId: 'Scheduling',
+        summary: 'CPU scheduling',
+        learningObjectives: ['Understand scheduling'],
+        studyStatus: 'not_started',
+        sourceRefIds: ['ssr_1'],
+        included: true,
+        locked: false,
+      },
+    ];
+
+    const oldPreflight: StudyAiPreflight = {
+      ...dummyPreflight,
+      providerId: 'openai',
+      model: {
+        configId: 'cfg_old',
+        provider: 'OpenAI',
+        name: 'GPT-4o',
+        id: 'gpt-4o',
+        endpointOrigin: 'https://api.openai.com',
+        endpointHash: 'old-endpoint-hash',
+      },
+      embedding: { provider: 'Ollama', model: 'nomic-embed-text', endpointHash: 'old-embed', maximumQueries: 13 },
+    };
+    const newPreflight: StudyAiPreflight = {
+      ...dummyPreflight,
+      providerId: 'ollama:llama3',
+      model: {
+        configId: 'cfg_new',
+        provider: 'Ollama',
+        name: 'Llama 3',
+        id: 'llama3',
+        endpointOrigin: 'http://localhost:11434',
+        endpointHash: 'new-endpoint-hash',
+      },
+      embedding: { provider: 'OpenAI', model: 'text-embedding-3-small', maximumQueries: 13 },
+      cloudDisclosureAccepted: true,
+    };
+
+    const evidenceItem = {
+      handle: 'src_h0',
+      documentId: 'doc_os_1',
+      documentTitle: 'Operating Systems PDF',
+      sourceType: 'pdf' as const,
+      revision: 'rev_os_1',
+      excerpt: 'verified text',
+      excerptSha256: 'stable-sha',
+    };
+    const requestHash = sha256(JSON.stringify({
+      request: computeRequestHash({ ...dummyRequest, sourceScope: dummyScope }),
+      goal: dummyRequest.goal,
+      targetRevision: 2,
+      providerId: oldPreflight.providerId,
+      creationKey: 'ck_resume_new_model',
+      modelId: oldPreflight.model?.id,
+      endpoint: oldPreflight.model?.endpointHash,
+      evidence: [[[evidenceItem.documentId, undefined, evidenceItem.revision, 'stable-sha']]],
+    }));
+
+    const resumeFrom = {
+      id: 'job_resumed_new_model',
+      kind: 'curriculum',
+      targetId: 'spv_draft_1',
+      targetRevision: 2,
+      requestHash,
+      creationKey: 'ck_resume_new_model',
+      status: 'interrupted',
+      nextStepIndex: 1,
+      leaseOwner: 'test_owner',
+      leaseExpiresAt: '2026-11-10T00:02:00Z',
+      cancellationEpoch: 0,
+      attemptCount: 1,
+      preflight: oldPreflight,
+      progress: { completed: 1, total: 2, labelKey: 'resumed' },
+      lastError: null,
+      createdAt: '2026-11-10T00:00:00Z',
+      updatedAt: '2026-11-10T00:00:00Z',
+    } as StudyGenerationJob;
+
+    const resumeJobFn = vi.fn().mockResolvedValue(resumeFrom);
+    const deps: CoordinatorDependencies = {
+      preparePreflightFn: vi.fn().mockResolvedValue({
+        preflight: newPreflight,
+        route: {
+          task: { id: 'study-curriculum-decompose' } as any,
+          provider: {
+            id: 'ollama:llama3',
+            kind: 'cloud',
+            getCapabilities: vi.fn().mockResolvedValue({ textGeneration: true, reasoning: true }),
+            chat: vi.fn(),
+          } as any,
+          requestedModelClass: 'reasoning',
+          servedModelClass: 'reasoning',
+          fallbackPath: 'none',
+        },
+        sourceScope: dummyScope,
+      }),
+      refreshScopeFn: vi.fn().mockResolvedValue(dummyScope),
+      startJobFn: vi.fn(),
+      resumeJobFn,
+      claimStepFn: vi.fn().mockImplementation((jobId, stepKey) => ({ jobId, stepKey, status: 'running' })),
+      completeStepFn: vi.fn().mockResolvedValue({} as any),
+      saveDraftFn: vi.fn().mockImplementation(async (input: SaveStudyPlanDraftInput) => ({
+        ...mockPlanDetail,
+        plan: { ...mockPlanDetail.plan, revision: mockPlanDetail.plan.revision + 1 },
+        version: { ...mockPlanDetail.version, nodes: input.nodes, prerequisites: input.prerequisites },
+      })),
+      getPlanFn: vi.fn().mockResolvedValue(mockPlanDetail),
+      hydrateEvidenceFn: vi.fn().mockResolvedValue({
+        batches: [{ batchIndex: 0, handles: [evidenceItem], totalChars: evidenceItem.excerpt.length }],
+        allHandles: [evidenceItem],
+        handleMap: new Map([['src_h0', evidenceItem]]),
+        handleToSourceRefIdMap: new Map([['src_h0', 'ssr_1']]),
+        resolutions: [{ status: 'current', navigation: 'exact', ref: { id: 'ssr_1', documentId: 'doc_os_1' } }],
+        uniqueHits: [],
+        conceptSeeds: [],
+      }),
+      runPinnedTaskFn: vi.fn().mockResolvedValue({
+        output: { schemaVersion: 1, edges: [] },
+        taskId: 'study-curriculum-prerequisites',
+        providerId: 'ollama:llama3',
+        endpointLocality: 'device',
+        requestedModelClass: 'reasoning',
+        servedModelClass: 'reasoning',
+        fallbackPath: 'none',
+        validationOutcome: 'success',
+      }) as any,
+      resolveSourceRefsFn: vi.fn().mockResolvedValue([]),
+    };
+
+    const result = await runCurriculumCoordinator(dummyRequest, newPreflight, { deps, resumeFrom });
+    expect(result.planDetail.version.nodes).toHaveLength(2);
+    expect(resumeJobFn).toHaveBeenCalledWith(
+      'job_resumed_new_model',
+      expect.objectContaining({
+        providerId: 'ollama:llama3',
+        embedding: newPreflight.embedding,
+      }),
+    );
+  });
 });

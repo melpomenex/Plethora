@@ -203,10 +203,11 @@ export async function runModelOnlyCurriculumCoordinator(
 
   // 3. Plan the two model-only steps and hash job identity including the branch.
   const stepCount = 2;
+  const hashPreflight = (resumeFrom?.preflight as StudyAiPreflight | undefined) ?? authorized.preflight;
   const requestHash = computeModelOnlyRequestHash(
     request,
     resumeFrom?.targetRevision ?? currentRevision,
-    authorized.preflight,
+    hashPreflight,
     creationKey,
     effectiveGoal,
   );
