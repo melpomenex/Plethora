@@ -55,6 +55,7 @@ export function AudiobooksTab() {
   const [sortBy, setSortBy] = useState<"dateAdded" | "title" | "author" | "duration" | "progress">("dateAdded");
   const isActiveTab = useIsActiveTab();
   const editionContextMenu = useContextMenu("audio-edition-context-menu");
+  const bookContextMenu = useContextMenu("audiobook-context-menu");
   const [configureDoc, setConfigureDoc] = useState<Document | null>(null);
   const modal = useModal();
   const toast = useToast();
@@ -575,6 +576,190 @@ export function AudiobooksTab() {
     [showEditionContextMenu]
   );
 
+  const showBookContextMenu = useCallback(
+    (
+      position: { x: number; y: number },
+      book: Document & { computedStatus: "not_started" | "in_progress" | "finished" | "dnf" }
+    ) => {
+      const isDnf = book.computedStatus === "dnf";
+      const isFinished = book.computedStatus === "finished";
+      const hasProgress = (book.progressPercent || 0) > 0 || (book.currentPage || 0) > 0;
+
+      const updateBook = async (updates: Partial<Document>, successMsg?: string) => {
+        const res = await useDocumentStore.getState().updateDocumentOptimistic(book.id, updates);
+        if (res.success) {
+          if (successMsg) toast.success(successMsg);
+        } else {
+          toast.error("Failed to update audiobook", res.error?.message);
+        }
+      };
+
+      const items: ContextMenuItem[] = [
+        {
+          id: "play-book",
+          label: "Play Audiobook",
+          icon: <Play className="w-4 h-4 fill-current" />,
+          onClick: () => {
+            handleOpenBook(book);
+          },
+        },
+        {
+          id: "add-to-queue",
+          label: "Add to Queue",
+          icon: <Plus className="w-4 h-4" />,
+          onClick: async () => {
+            try {
+              await bulkUnsuspendItems([book.id]);
+              await updateBook({ isArchived: false, isDismissed: false });
+              toast.success("Added to Queue");
+            } catch (err: any) {
+              toast.error("Failed to add to queue", err?.message);
+            }
+          },
+        },
+        {
+          id: "remove-from-queue",
+          label: "Remove from Queue",
+          icon: <Archive className="w-4 h-4" />,
+          onClick: async () => {
+            try {
+              await bulkSuspendItems([book.id]);
+              toast.success("Removed from Queue");
+            } catch (err: any) {
+              toast.error("Failed to remove from queue", err?.message);
+            }
+          },
+        },
+        { id: "sep-status", type: ContextMenuItemType.Separator, label: "" },
+        {
+          id: "toggle-favorite",
+          label: book.isFavorite ? "Remove from Favorites" : "Add to Favorites",
+          icon: (
+            <Star
+              className={cn("w-4 h-4", book.isFavorite && "text-amber-500")}
+              weight={book.isFavorite ? "fill" : "regular"}
+            />
+          ),
+          onClick: () => {
+            void updateBook(
+              { isFavorite: !book.isFavorite },
+              book.isFavorite ? "Removed from Favorites" : "Added to Favorites"
+            );
+          },
+        },
+        {
+          id: "toggle-finished",
+          label: isFinished ? "Mark as Unfinished" : "Mark as Finished",
+          icon: <CheckCircle className={cn("w-4 h-4", isFinished && "text-green-500")} />,
+          onClick: () => {
+            if (isFinished) {
+              void updateBook({ progressPercent: 0, currentPage: 0 }, "Marked as unfinished");
+            } else {
+              if (isDnf) {
+                handleToggleDnf(book.id, true);
+              }
+              void updateBook({ progressPercent: 100 }, "Marked as finished");
+            }
+          },
+        },
+        ...(hasProgress
+          ? [
+              {
+                id: "reset-progress",
+                label: "Reset Progress",
+                icon: <ArrowCounterClockwise className="w-4 h-4" />,
+                onClick: () => {
+                  void updateBook({ progressPercent: 0, currentPage: 0 }, "Progress reset");
+                },
+              } satisfies ContextMenuItem,
+            ]
+          : []),
+        {
+          id: "toggle-dnf",
+          label: isDnf ? "Remove DNF Status" : "Mark as DNF (Did Not Finish)",
+          icon: <Archive className="w-4 h-4" />,
+          onClick: () => {
+            handleToggleDnf(book.id, isDnf);
+            toast.success(isDnf ? "Removed DNF status" : "Marked as DNF");
+          },
+        },
+        {
+          id: "add-tag",
+          label: "Add Tag...",
+          icon: <Plus className="w-4 h-4" />,
+          onClick: async () => {
+            const tag = (await modal.prompt("Enter tag name:", "", "Add Tag"))?.trim();
+            if (!tag) return;
+            const next = new Set(book.tags ?? []);
+            next.add(tag);
+            await updateBook({ tags: Array.from(next) }, `Added tag "${tag}"`);
+          },
+        },
+        { id: "sep-copy", type: ContextMenuItemType.Separator, label: "" },
+        {
+          id: "copy-title",
+          label: "Copy Title",
+          icon: <Copy className="w-4 h-4" />,
+          onClick: () => {
+            void navigator.clipboard.writeText(book.title);
+            toast.success("Title copied to clipboard");
+          },
+        },
+        ...(book.metadata?.author
+          ? [
+              {
+                id: "copy-author",
+                label: "Copy Author",
+                icon: <Info className="w-4 h-4" />,
+                onClick: () => {
+                  void navigator.clipboard.writeText(book.metadata!.author!);
+                  toast.success("Author copied to clipboard");
+                },
+              } satisfies ContextMenuItem,
+            ]
+          : []),
+        { id: "sep-danger", type: ContextMenuItemType.Separator, label: "" },
+        {
+          id: "delete-book",
+          label: "Delete Audiobook",
+          icon: <Trash className="w-4 h-4 text-destructive" />,
+          type: ContextMenuItemType.Danger,
+          onClick: () => {
+            void handleDeleteBook(book.id);
+          },
+        },
+      ];
+
+      bookContextMenu.showMenu(position, items);
+    },
+    [bookContextMenu, handleDeleteBook, handleOpenBook, handleToggleDnf, modal, toast]
+  );
+
+  const handleBookContextMenu = useCallback(
+    (
+      e: React.MouseEvent,
+      book: Document & { computedStatus: "not_started" | "in_progress" | "finished" | "dnf" }
+    ) => {
+      e.preventDefault();
+      e.stopPropagation();
+      showBookContextMenu({ x: e.clientX, y: e.clientY }, book);
+    },
+    [showBookContextMenu]
+  );
+
+  const handleBookDotsClick = useCallback(
+    (
+      e: React.MouseEvent,
+      book: Document & { computedStatus: "not_started" | "in_progress" | "finished" | "dnf" }
+    ) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      showBookContextMenu({ x: rect.left, y: rect.bottom + 4 }, book);
+    },
+    [showBookContextMenu]
+  );
+
   // Generate cover art fallback style
   const getCoverFallbackStyle = (title: string) => {
     const hues = [200, 240, 280, 320, 360, 40];
@@ -939,6 +1124,8 @@ export function AudiobooksTab() {
             return (
               <div
                 key={book.id}
+                data-testid={`audiobook-card-${book.id}`}
+                onContextMenu={(e) => handleBookContextMenu(e, book)}
                 className="group relative flex flex-col bg-card border border-border rounded-xl overflow-hidden hover:shadow-lg transition-all duration-300"
               >
                 {/* Cover Art Box */}
@@ -988,18 +1175,33 @@ export function AudiobooksTab() {
                   {/* Actions Dropdown / Context hover */}
                   <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
-                      onClick={() => handleToggleDnf(book.id, isDnf)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleToggleDnf(book.id, isDnf);
+                      }}
                       className="p-1.5 bg-black/70 hover:bg-orange-600 text-white rounded transition-colors"
                       title={isDnf ? "Remove DNF Status" : "Mark as DNF (Did Not Finish)"}
                     >
                       <Archive className="w-3.5 h-3.5" />
                     </button>
                     <button
-                      onClick={() => handleDeleteBook(book.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleDeleteBook(book.id);
+                      }}
                       className="p-1.5 bg-black/70 hover:bg-red-600 text-white rounded transition-colors"
                       title="Delete book"
                     >
                       <Trash className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      onClick={(e) => handleBookDotsClick(e, book)}
+                      className="p-1.5 bg-black/70 hover:bg-black/90 text-white rounded transition-colors"
+                      title="More options"
+                      aria-label={`More options for ${book.title}`}
+                      data-testid={`audiobook-menu-button-${book.id}`}
+                    >
+                      <DotsThreeVertical className="w-3.5 h-3.5" />
                     </button>
                   </div>
 
@@ -1055,6 +1257,15 @@ export function AudiobooksTab() {
         visible={editionContextMenu.visible}
         position={editionContextMenu.position}
         onClose={editionContextMenu.hideMenu}
+      />
+
+      {/* Audiobook Context Menu */}
+      <ContextMenu
+        menuId="audiobook-context-menu"
+        items={bookContextMenu.items}
+        visible={bookContextMenu.visible}
+        position={bookContextMenu.position}
+        onClose={bookContextMenu.hideMenu}
       />
 
       {/* Configure & Recreate Dialog */}
