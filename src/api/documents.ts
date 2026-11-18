@@ -819,6 +819,26 @@ export async function enrichTwitterThread(
   return await invokeCommand<import("../types/document").TwitterThread>("enrich_twitter_thread", { thread });
 }
 
+export interface CachedTwitterVideo {
+  localPath: string;
+  streamUrl: string;
+}
+
+/**
+ * Download (if not already cached) an allow-listed `video.twimg.com` MP4
+ * into the app's videos directory and return its local path + loopback
+ * `media_server` stream URL. Tauri-only.
+ */
+export async function cacheTwitterVideo(
+  mp4Url: string,
+  postId: string
+): Promise<CachedTwitterVideo> {
+  return await invokeCommand<CachedTwitterVideo>("cache_twitter_video", {
+    mp4Url,
+    postId,
+  });
+}
+
 /**
  * Import a Twitter/X video: downloads the best MP4 and creates a Video document.
  * Tauri-only — throws when invoked outside the desktop app.

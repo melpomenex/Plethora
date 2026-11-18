@@ -151,6 +151,8 @@ function Engagement({ post }: { post: TwitterPost }) {
 export interface XPostCardProps {
   post: TwitterPost;
   totalPosts: number;
+  documentId?: string;
+  documentTitle?: string;
   onExtractPost?: (post: TwitterPost) => void;
   onCreateFlashcard?: (post: TwitterPost) => void;
 }
@@ -158,6 +160,8 @@ export interface XPostCardProps {
 export const XPostCard = memo(function XPostCard({
   post,
   totalPosts,
+  documentId,
+  documentTitle,
   onExtractPost,
   onCreateFlashcard,
 }: XPostCardProps) {
@@ -309,7 +313,12 @@ export const XPostCard = memo(function XPostCard({
 
       <ExpandedLinks post={post} />
 
-      <XThreadMediaGrid media={post.media} postId={post.id} />
+      <XThreadMediaGrid
+        media={post.media}
+        postId={post.id}
+        documentId={documentId}
+        documentTitle={documentTitle}
+      />
 
       <XQuoteCard quote={post.quotedPost} parentPost={post} />
 

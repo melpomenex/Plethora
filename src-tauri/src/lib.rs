@@ -2096,6 +2096,7 @@ pub fn run() {
             twitter::get_twitter_thread,
             twitter::import_twitter_thread,
             twitter::enrich_twitter_thread,
+            twitter::cache_twitter_video,
             youtube::get_youtube_chapters,
             commands::import_video_file,
             commands::get_video_storage_path,

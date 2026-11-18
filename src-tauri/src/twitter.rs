@@ -550,6 +550,89 @@ fn sanitize_media_url(url: String) -> String {
     }
 }
 
+/// Parse an `extended_entities.media` or Syndication `mediaDetails` array.
+fn parse_extended_media_array(media_arr: &[serde_json::Value]) -> Vec<TwitterMedia> {
+    let mut media_list = Vec::new();
+    for m in media_arr {
+        let kind = m
+            .get("type")
+            .and_then(|t| t.as_str())
+            .unwrap_or("photo")
+            .to_string();
+        let thumb = m
+            .get("media_url_https")
+            .and_then(|u| u.as_str())
+            .map(str::to_string);
+        let alt_text = m
+            .get("ext_alt_text")
+            .or_else(|| m.get("alt_text"))
+            .and_then(|a| a.as_str())
+            .map(str::to_string);
+
+        let is_video = kind == "video" || kind == "animated_gif";
+        let mut media_url = if is_video {
+            String::new()
+        } else {
+            thumb.clone().unwrap_or_default()
+        };
+        if is_video {
+            if let Some(variants) = m
+                .get("video_info")
+                .and_then(|vi| vi.get("variants"))
+                .and_then(|v| v.as_array())
+            {
+                let mut best_bitrate: i64 = -1;
+                for v in variants {
+                    if v.get("content_type").and_then(|c| c.as_str()) == Some("video/mp4") {
+                        let bitrate = v.get("bitrate").and_then(|b| b.as_i64()).unwrap_or(0);
+                        if bitrate >= best_bitrate {
+                            best_bitrate = bitrate;
+                            if let Some(url) = v.get("url").and_then(|u| u.as_str()) {
+                                media_url = url.to_string();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        let aspect_ratio = m
+            .get("original_info")
+            .and_then(|oi| {
+                let w = oi.get("width")?.as_f64()?;
+                let h = oi.get("height")?.as_f64()?;
+                if h > 0.0 {
+                    Some(w / h)
+                } else {
+                    None
+                }
+            })
+            .or_else(|| {
+                m.get("video_info")
+                    .and_then(|vi| vi.get("aspect_ratio"))
+                    .and_then(|ar| ar.as_array())
+                    .and_then(|arr| {
+                        let num = arr.get(0)?.as_f64()?;
+                        let den = arr.get(1)?.as_f64()?;
+                        if den > 0.0 {
+                            Some(num / den)
+                        } else {
+                            None
+                        }
+                    })
+            });
+
+        media_list.push(TwitterMedia {
+            kind,
+            media_url: sanitize_media_url(media_url),
+            thumbnail_url: thumb,
+            alt_text,
+            aspect_ratio,
+        });
+    }
+    media_list
+}
+
 /// Parse media attachments from GraphQL or Syndication JSON.
 pub fn parse_media(val: &serde_json::Value) -> Vec<TwitterMedia> {
     let val = unwrap_result(val);
@@ -562,82 +645,10 @@ pub fn parse_media(val: &serde_json::Value) -> Vec<TwitterMedia> {
         .and_then(|e| e.get("media"))
         .and_then(|m| m.as_array())
     {
-        for m in media_arr {
-            let kind = m
-                .get("type")
-                .and_then(|t| t.as_str())
-                .unwrap_or("photo")
-                .to_string();
-            let thumb = m
-                .get("media_url_https")
-                .and_then(|u| u.as_str())
-                .map(str::to_string);
-            let alt_text = m
-                .get("ext_alt_text")
-                .or_else(|| m.get("alt_text"))
-                .and_then(|a| a.as_str())
-                .map(str::to_string);
-
-            let mut media_url = thumb.clone().unwrap_or_default();
-            if kind == "video" || kind == "animated_gif" {
-                if let Some(variants) = m
-                    .get("video_info")
-                    .and_then(|vi| vi.get("variants"))
-                    .and_then(|v| v.as_array())
-                {
-                    let mut best_bitrate: i64 = -1;
-                    for v in variants {
-                        if v.get("content_type").and_then(|c| c.as_str()) == Some("video/mp4") {
-                            let bitrate = v.get("bitrate").and_then(|b| b.as_i64()).unwrap_or(0);
-                            if bitrate >= best_bitrate {
-                                best_bitrate = bitrate;
-                                if let Some(url) = v.get("url").and_then(|u| u.as_str()) {
-                                    media_url = url.to_string();
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            let aspect_ratio = m
-                .get("original_info")
-                .and_then(|oi| {
-                    let w = oi.get("width")?.as_f64()?;
-                    let h = oi.get("height")?.as_f64()?;
-                    if h > 0.0 {
-                        Some(w / h)
-                    } else {
-                        None
-                    }
-                })
-                .or_else(|| {
-                    m.get("video_info")
-                        .and_then(|vi| vi.get("aspect_ratio"))
-                        .and_then(|ar| ar.as_array())
-                        .and_then(|arr| {
-                            let num = arr.get(0)?.as_f64()?;
-                            let den = arr.get(1)?.as_f64()?;
-                            if den > 0.0 {
-                                Some(num / den)
-                            } else {
-                                None
-                            }
-                        })
-                });
-
-            media_list.push(TwitterMedia {
-                kind,
-                media_url: sanitize_media_url(media_url),
-                thumbnail_url: thumb,
-                alt_text,
-                aspect_ratio,
-            });
-        }
-        return media_list;
+        return parse_extended_media_array(media_arr);
     }
 
-    // 2. Syndication photos / mediaDetails
+    // 2. Syndication photos / video
     if let Some(photos) = val.get("photos").and_then(|p| p.as_array()) {
         for p in photos {
             if let Some(url) = p.get("url").and_then(|u| u.as_str()) {
@@ -669,7 +680,7 @@ pub fn parse_media(val: &serde_json::Value) -> Vec<TwitterMedia> {
             .get("poster")
             .and_then(|p| p.as_str())
             .map(str::to_string);
-        let mut video_url = thumb.clone().unwrap_or_default();
+        let mut video_url = String::new();
         if let Some(variants) = video.get("variants").and_then(|v| v.as_array()) {
             let mut best_bitrate: i64 = -1;
             for v in variants {
@@ -714,6 +725,13 @@ pub fn parse_media(val: &serde_json::Value) -> Vec<TwitterMedia> {
             alt_text: None,
             aspect_ratio,
         });
+    }
+
+    // 3. Syndication mediaDetails fallback (often present when top-level video/photos are omitted)
+    if media_list.is_empty() {
+        if let Some(media_arr) = val.get("mediaDetails").and_then(|m| m.as_array()) {
+            return parse_extended_media_array(media_arr);
+        }
     }
 
     media_list
@@ -1846,6 +1864,83 @@ async fn download_video(mp4_url: &str, tweet_id: &str) -> Result<(PathBuf, u64),
     Ok((dest, total))
 }
 
+/// Locally cached Twitter video path + loopback stream URL for reliable webview playback.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CachedTwitterVideo {
+    pub local_path: String,
+    pub stream_url: String,
+}
+
+fn is_allowlisted_video_url(url: &str) -> bool {
+    url.to_ascii_lowercase()
+        .starts_with("https://video.twimg.com/")
+}
+
+fn sanitize_post_id(post_id: &str) -> Result<String, String> {
+    let cleaned: String = post_id
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .collect();
+    if cleaned.is_empty() {
+        return Err("Invalid post ID".to_string());
+    }
+    Ok(cleaned)
+}
+
+fn cached_video_filename(post_id: &str, mp4_url: &str) -> String {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    mp4_url.hash(&mut hasher);
+    let hash = hasher.finish();
+    format!("x-cache-{}-{:016x}.mp4", post_id, hash)
+}
+
+async fn download_video_to_path(mp4_url: &str, dest: &std::path::Path) -> Result<(), String> {
+    let resp = HTTP
+        .get(mp4_url)
+        .header("user-agent", UA)
+        .send()
+        .await
+        .map_err(|e| format!("Failed to start video download: {}", e))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("Video download failed: HTTP {}", resp.status()));
+    }
+
+    let part_path = dest.with_extension("mp4.part");
+    use futures::StreamExt;
+    let mut stream = resp.bytes_stream();
+    let mut file = tokio::fs::File::create(&part_path)
+        .await
+        .map_err(|e| format!("Failed to create video cache file: {}", e))?;
+
+    let write_res: Result<(), String> = async {
+        while let Some(chunk) = stream.next().await {
+            let chunk = chunk.map_err(|e| format!("Error reading video stream: {}", e))?;
+            file.write_all(&chunk)
+                .await
+                .map_err(|e| format!("Failed to write video chunk: {}", e))?;
+        }
+        file.flush()
+            .await
+            .map_err(|e| format!("Failed to flush video cache file: {}", e))?;
+        Ok(())
+    }
+    .await;
+
+    if let Err(err) = write_res {
+        let _ = tokio::fs::remove_file(&part_path).await;
+        return Err(err);
+    }
+
+    tokio::fs::rename(&part_path, dest)
+        .await
+        .map_err(|e| format!("Failed to finalize video cache file: {}", e))?;
+
+    Ok(())
+}
+
 // ── Tauri commands ────────────────────────────────────────────────────────
 
 /// Serialize a typed [`ThreadError`] as a JSON object string so the frontend
@@ -1877,6 +1972,43 @@ pub async fn get_twitter_thread(url: String) -> Result<TwitterThread, String> {
 #[tauri::command]
 pub async fn enrich_twitter_thread(thread: TwitterThread) -> Result<TwitterThread, String> {
     enrich_twitter_thread_with(&LiveTweetSource, thread).await
+}
+
+/// Download (if not already cached) an allow-listed `video.twimg.com` MP4 into
+/// the app's `videos/` directory and mint a loopback `media_server` stream URL.
+/// Returning both `localPath` and `streamUrl` lets the X thread reader play
+/// the video reliably in WebKitGTK/Tauri and immediately transcribe it locally.
+#[tauri::command]
+pub async fn cache_twitter_video(
+    app_handle: tauri::AppHandle,
+    repo: State<'_, Repository>,
+    mp4_url: String,
+    post_id: String,
+) -> Result<CachedTwitterVideo, String> {
+    if !is_allowlisted_video_url(&mp4_url) {
+        return Err("Only https://video.twimg.com/ video URLs can be cached".to_string());
+    }
+    let clean_id = sanitize_post_id(&post_id)?;
+    let dir = videos_dir()?;
+    let dest = dir.join(cached_video_filename(&clean_id, &mp4_url));
+
+    let already_cached = tokio::fs::metadata(&dest)
+        .await
+        .map(|m| m.is_file() && m.len() > 0)
+        .unwrap_or(false);
+    if !already_cached {
+        download_video_to_path(&mp4_url, &dest).await?;
+    }
+
+    let local_path = dest.to_string_lossy().into_owned();
+    let stream_url =
+        crate::media_server::mint_stream_url(&app_handle, &local_path, &repo, "twitter-video")
+            .await?;
+
+    Ok(CachedTwitterVideo {
+        local_path,
+        stream_url,
+    })
 }
 
 /// Import a Twitter/X video as a `Video` document.
@@ -3309,5 +3441,71 @@ Third post text.
         assert_eq!(thread.author.name, "realscholar");
         assert_eq!(thread.root_url, "https://x.com/realscholar/status/5000");
         assert_eq!(thread.posts[0].author.screen_name, "realscholar");
+    }
+
+    #[test]
+    fn parse_media_falls_back_to_syndication_media_details() {
+        let payload = serde_json::json!({
+            "mediaDetails": [{
+                "type": "video",
+                "media_url_https": "https://pbs.twimg.com/ext_tw_video_thumb/1/pu/img/thumb.jpg",
+                "video_info": {
+                    "aspect_ratio": [16, 9],
+                    "variants": [
+                        {"content_type": "application/x-mpegURL", "url": "https://video.twimg.com/playlist.m3u8"},
+                        {"bitrate": 832000, "content_type": "video/mp4", "url": "https://video.twimg.com/360p.mp4"},
+                        {"bitrate": 2176000, "content_type": "video/mp4", "url": "https://video.twimg.com/720p.mp4"}
+                    ]
+                }
+            }]
+        });
+        let media = parse_media(&payload);
+        assert_eq!(media.len(), 1);
+        assert_eq!(media[0].kind, "video");
+        assert_eq!(media[0].media_url, "https://video.twimg.com/720p.mp4");
+        assert_eq!(
+            media[0].thumbnail_url.as_deref(),
+            Some("https://pbs.twimg.com/ext_tw_video_thumb/1/pu/img/thumb.jpg")
+        );
+        assert!((media[0].aspect_ratio.unwrap() - 16.0 / 9.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn parse_media_leaves_video_url_empty_when_no_mp4_variant() {
+        let payload = serde_json::json!({
+            "legacy": {
+                "extended_entities": {
+                    "media": [{
+                        "type": "video",
+                        "media_url_https": "https://pbs.twimg.com/thumb.jpg",
+                        "video_info": {
+                            "variants": [
+                                {"content_type": "application/x-mpegURL", "url": "https://video.twimg.com/playlist.m3u8"}
+                            ]
+                        }
+                    }]
+                }
+            }
+        });
+        let media = parse_media(&payload);
+        assert_eq!(media.len(), 1);
+        assert_eq!(media[0].kind, "video");
+        assert_eq!(media[0].media_url, "");
+        assert_eq!(
+            media[0].thumbnail_url.as_deref(),
+            Some("https://pbs.twimg.com/thumb.jpg")
+        );
+    }
+
+    #[test]
+    fn cache_video_helpers_enforce_allowlist_and_safe_filename() {
+        assert!(is_allowlisted_video_url("https://video.twimg.com/ext_tw_video/1/vid.mp4"));
+        assert!(!is_allowlisted_video_url("https://evil.example/vid.mp4"));
+        assert!(!is_allowlisted_video_url("https://pbs.twimg.com/media/img.jpg"));
+        assert_eq!(sanitize_post_id("123456").unwrap(), "123456");
+        assert!(sanitize_post_id("../..").is_err());
+        let name = cached_video_filename("123", "https://video.twimg.com/a.mp4");
+        assert!(name.starts_with("x-cache-123-"));
+        assert!(name.ends_with(".mp4"));
     }
 }

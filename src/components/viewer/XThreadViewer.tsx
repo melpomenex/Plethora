@@ -535,6 +535,8 @@ export function XThreadViewer({ document: doc, onCreateFlashcard, onExtractCreat
                 <XPostCard
                   post={post}
                   totalPosts={totalPosts}
+                  documentId={doc.id}
+                  documentTitle={doc.title}
                   onExtractPost={extractWholePost}
                   onCreateFlashcard={handleCreateFlashcard}
                 />
