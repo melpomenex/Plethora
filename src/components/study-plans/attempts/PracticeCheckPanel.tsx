@@ -99,7 +99,7 @@ export const PracticeCheckPanel: React.FC<PracticeCheckPanelProps> = ({
   return (
     <div className={`space-y-4 pt-4 border-t border-outline-variant/30 ${className}`}>
       {/* Check Action Button */}
-      <div className="flex items-center justify-between gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <span className="text-xs text-on-surface-variant dark:text-on-surface-variant-dark font-medium">
           {translateRecentFeature("studyPlans.ui.practice-mode-check-your-ans.76f23887")}</span>
 

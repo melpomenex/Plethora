@@ -46,10 +46,10 @@ export const GenerationDeficitReport: React.FC<GenerationDeficitReportProps> = (
     <div
       className={`p-4 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50/70 dark:bg-amber-950/30 space-y-4 ${className}`}
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-2.5">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
+        <div className="flex items-start gap-2.5 min-w-0">
           <Warning className="w-5 h-5 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
-          <div>
+          <div className="min-w-0">
             <h4 className="text-sm font-semibold text-amber-900 dark:text-amber-100">{translateRecentFeature("studyPlans.ui.quota-shortfall-detected-var.83959d54", {var0: accepted, var1: requested})}</h4>
             <p className="text-xs text-amber-800 dark:text-amber-200 mt-0.5">
               {accepted === 0
@@ -59,7 +59,7 @@ export const GenerationDeficitReport: React.FC<GenerationDeficitReportProps> = (
           </div>
         </div>
 
-        <div className="flex items-center gap-2 flex-shrink-0">
+        <div className="flex flex-wrap items-center gap-2 sm:flex-shrink-0">
           {onRetryDeficits && (
             <Button
               variant="outlined"
@@ -95,15 +95,15 @@ export const GenerationDeficitReport: React.FC<GenerationDeficitReportProps> = (
                             return (
               <div
                 key={`${d.kind}-${d.topicIndex}-${d.difficulty}-${idx}`}
-                className="p-2 rounded bg-white/60 dark:bg-surface-800/60 border border-amber-200 dark:border-amber-800 flex items-center justify-between"
+                className="p-2 rounded bg-white/60 dark:bg-surface-800/60 border border-amber-200 dark:border-amber-800 flex items-center justify-between gap-2"
               >
-                <div className="truncate">
+                <div className="min-w-0 truncate">
                   <span className="font-semibold text-surface-900 dark:text-surface-100 uppercase text-[10px] mr-1.5 px-1 py-0.5 rounded bg-surface-100 dark:bg-surface-700">
                     {d.kind}
                   </span>
                   <span className="text-surface-600 dark:text-surface-300">{translateRecentFeature("studyPlans.ui.topic-var0-diff-var1.89e73a5e", {var0: d.topicIndex + 1, var1: d.difficulty})}</span>
                 </div>
-                <span className="text-xs font-mono font-bold text-amber-700 dark:text-amber-300">{translateRecentFeature("studyPlans.ui.var0-missing.a937646c", {var0: d.count})}</span>
+                <span className="text-xs font-mono font-bold text-amber-700 dark:text-amber-300 shrink-0">{translateRecentFeature("studyPlans.ui.var0-missing.a937646c", {var0: d.count})}</span>
               </div>
             );
             })}

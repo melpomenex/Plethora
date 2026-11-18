@@ -142,7 +142,7 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
     >
       {/* Top App Bar */}
       <header className="flex flex-wrap items-center justify-between gap-4 pb-4 border-b border-outline-variant/30">
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <Button
             variant="text"
             onClick={onExit}
@@ -161,7 +161,7 @@ export const AttemptRunner: React.FC<AttemptRunnerProps> = ({
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           <AttemptSaveStatus
             isSaving={currentSlot?.isSaving || false}
             hasUnsavedChanges={hasUnsavedChanges}

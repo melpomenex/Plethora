@@ -49,7 +49,7 @@ export const BlueprintProviderSummary: React.FC<BlueprintProviderSummaryProps> =
     <div
       className={`p-4 rounded-xl border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800/40 space-y-3 ${className}`}
     >
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           {isLocal ? (
             <HardDrives className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />

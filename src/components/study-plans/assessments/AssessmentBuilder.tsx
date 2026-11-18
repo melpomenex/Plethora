@@ -570,20 +570,20 @@ export const AssessmentBuilder: React.FC<AssessmentBuilderProps> = ({
       )}
       {/* Header Row */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-4 border-b border-surface-200 dark:border-surface-700">
-        <div className="flex items-center gap-3">
-          <Button variant="text" size="iconSm" onClick={onClose} aria-label={translateRecentFeature("common.back")}>
+        <div className="flex items-center gap-3 w-full sm:w-auto min-w-0 flex-1">
+          <Button variant="text" size="iconSm" onClick={onClose} aria-label={translateRecentFeature("common.back")} className="shrink-0">
             <ArrowLeft className="w-5 h-5" />
           </Button>
-          <div>
-            <div className="flex items-center gap-2">
-              <GraduationCap className="w-5 h-5 text-primary-600 dark:text-primary-400" />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 min-w-0">
+              <GraduationCap className="w-5 h-5 text-primary-600 dark:text-primary-400 shrink-0" />
               <input
                 type="text"
                 value={title}
                 disabled={state === 'generating' || state === 'ready'}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder={translateRecentFeature("studyPlans.ui.assessment-title.be801601")}
-                className="text-lg font-bold text-surface-900 dark:text-surface-100 bg-transparent border-b border-transparent hover:border-surface-300 dark:hover:border-surface-600 focus:border-primary-500 outline-none px-1 py-0.5 rounded"
+                className="min-w-0 flex-1 w-full text-lg font-bold text-surface-900 dark:text-surface-100 bg-transparent border-b border-transparent hover:border-surface-300 dark:hover:border-surface-600 focus:border-primary-500 outline-none px-1 py-0.5 rounded"
                 aria-label={translateRecentFeature("studyPlans.ui.assessment-title.be801601")}
               />
             </div>
