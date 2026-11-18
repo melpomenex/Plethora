@@ -13,6 +13,7 @@ import {
   Check,
   CircleNotch,
   Clock,
+  Copy,
   Flame,
   Sparkle,
   SpeakerHigh,
@@ -22,6 +23,9 @@ import {
 } from "@phosphor-icons/react";
 import { useTTS } from "../../hooks/useTTS";
 import { useI18n } from "../../lib/i18n";
+import { useSurfaceMenu } from "../../hooks/useSurfaceMenu";
+import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
+import { useToast } from "../common/Toast";
 
 interface QuickReviewCard {
   id: string;
@@ -59,6 +63,8 @@ export function QuickReviewWidget({
   className = "",
 }: QuickReviewWidgetProps) {
   const { t } = useI18n();
+  const toast = useToast();
+  const quickReviewMenu = useSurfaceMenu("quick-review-widget-menu");
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -110,6 +116,77 @@ export function QuickReviewWidget({
     }
   }, [currentIndex]);
 
+  const copyText = (text: string, errorLabel: string) => {
+    void navigator.clipboard.writeText(text).then(
+      () => toast.success(t("contextMenu.copiedToClipboard")),
+      () => toast.error(errorLabel),
+    );
+  };
+
+  const buildMenuItems = (): ContextMenuItem[] => {
+    const items: ContextMenuItem[] = [];
+    if (currentCard && currentIndex < reviewCards.length && remainingCount > 0) {
+      if (!isFlipped) {
+        items.push({
+          id: "flip-card",
+          label: t("contextMenu.flipCard"),
+          icon: <Brain className="w-4 h-4 text-primary" />,
+          onClick: handleFlip,
+        });
+      }
+      items.push({
+        id: "read-aloud",
+        label: isSpeaking ? t("common.stop") : t("quickReview.readAloud"),
+        icon: isSpeaking
+          ? <SpeakerSlash className="w-4 h-4 text-primary" />
+          : <SpeakerHigh className="w-4 h-4 text-muted-foreground" />,
+        onClick: () => (isSpeaking ? stop() : speak(isFlipped ? currentCard.back : currentCard.front)),
+      });
+      if (currentIndex > 0) {
+        items.push({
+          id: "previous-card",
+          label: t("quickReview.previousCard"),
+          icon: <CaretLeft className="w-4 h-4 text-muted-foreground" />,
+          onClick: handlePrevious,
+        });
+      }
+      items.push(
+        { id: "sep:1", type: ContextMenuItemType.Separator, label: "" },
+        {
+          id: "copy-front",
+          label: t("contextMenu.copyFront"),
+          icon: <Copy className="w-4 h-4 text-muted-foreground" />,
+          onClick: () => copyText(currentCard.front, t("contextMenu.copyFront")),
+        },
+        {
+          id: "copy-back",
+          label: t("contextMenu.copyBack"),
+          icon: <Copy className="w-4 h-4 text-muted-foreground" />,
+          onClick: () => copyText(currentCard.back, t("contextMenu.copyBack")),
+        },
+      );
+    }
+    if (onExpand) {
+      if (items.length > 0) {
+        items.push({ id: "sep:2", type: ContextMenuItemType.Separator, label: "" });
+      }
+      items.push({
+        id: "open-full-review",
+        label: t("quickReview.openFullReview"),
+        icon: <ArrowsOutSimple className="w-4 h-4 text-muted-foreground" />,
+        onClick: onExpand,
+      });
+    }
+    return items;
+  };
+
+  const handleWidgetContextMenu = (e: React.MouseEvent) => {
+    const items = buildMenuItems();
+    if (items.length > 0) {
+      quickReviewMenu.openEvent(e, items);
+    }
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       // Don't capture shortcuts when user is typing
@@ -150,9 +227,22 @@ export function QuickReviewWidget({
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [currentCard, isFlipped, handleFlip, handleRate]);
 
+  const quickReviewMenuEl = (
+    <ContextMenu
+      menuId="quick-review-widget-menu"
+      items={quickReviewMenu.items}
+      visible={quickReviewMenu.visible}
+      position={quickReviewMenu.position}
+      onClose={quickReviewMenu.closeToTrigger}
+    />
+  );
+
   if (reviewCards.length === 0) {
     return (
-      <div className={`bg-card border border-border rounded-2xl p-6 ${className}`}>
+      <div
+        onContextMenu={handleWidgetContextMenu}
+        className={`bg-card border border-border rounded-2xl p-6 ${className}`}
+      >
         <div className="flex flex-col items-center justify-center text-center py-8">
           <div className="p-4 bg-green-500/10 rounded-full mb-4">
             <Check className="w-8 h-8 text-green-500" />
@@ -162,13 +252,17 @@ export function QuickReviewWidget({
             {t("quickReview.noCardsDue")}
           </p>
         </div>
+        {quickReviewMenuEl}
       </div>
     );
   }
 
   if (currentIndex >= reviewCards.length || remainingCount === 0) {
     return (
-      <div className={`bg-card border border-border rounded-2xl p-6 ${className}`}>
+      <div
+        onContextMenu={handleWidgetContextMenu}
+        className={`bg-card border border-border rounded-2xl p-6 ${className}`}
+      >
         <div className="flex flex-col items-center justify-center text-center py-8">
           <div className="p-4 bg-primary/10 rounded-full mb-4">
             <Target className="w-8 h-8 text-primary" />
@@ -190,12 +284,16 @@ export function QuickReviewWidget({
             </div>
           </div>
         </div>
+        {quickReviewMenuEl}
       </div>
     );
   }
 
   return (
-    <div className={`bg-card border border-border rounded-2xl overflow-hidden ${className}`}>
+    <div
+      onContextMenu={handleWidgetContextMenu}
+      className={`bg-card border border-border rounded-2xl overflow-hidden ${className}`}
+    >
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-border bg-gradient-to-r from-primary/5 to-primary/10">
         <div className="flex items-center gap-3">
@@ -326,6 +424,7 @@ export function QuickReviewWidget({
           </button>
         </div>
       )}
+      {quickReviewMenuEl}
     </div>
   );
 }

@@ -9,9 +9,12 @@ import type {
 import {
   Tray,
   ArrowClockwise,
+  ArrowRight,
   Browsers,
   Warning,
 } from "@phosphor-icons/react";
+import { useSurfaceMenu } from "../../hooks/useSurfaceMenu";
+import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
 
 const SOURCE_LABEL_KEYS: Record<CaptureSource, string> = {
   "browser-extension": "dashboard.captureSource.browserExtension",
@@ -38,11 +41,50 @@ export interface CaptureActivityCardProps {
 }
 
 function CaptureActivitySummary({
-  data, isLoading, error, onRetry, onOpenNeedsReview, source,
-}: Omit<CaptureActivityCardProps, "browserSaves" | "captureShelf"> & { source: CaptureListingSource }) {
+  data, isLoading, error, onRetry, onOpenNeedsReview, source, onViewAll, onOpenMenu,
+}: Omit<CaptureActivityCardProps, "browserSaves" | "captureShelf"> & {
+  source: CaptureListingSource;
+  onViewAll?: () => void;
+  onOpenMenu: (e: React.MouseEvent, items: ContextMenuItem[]) => void;
+}) {
   const { t } = useI18n();
   const total = data?.perDay.reduce((sum, day) => sum + day.count, 0) ?? 0;
   const maxCount = useMemo(() => Math.max(1, ...(data?.perDay.map(day => day.count) ?? [1])), [data]);
+
+  const buildSourceMenuItems = (): ContextMenuItem[] => {
+    const items: ContextMenuItem[] = [];
+    if (onViewAll) {
+      items.push({
+        id: "view-all",
+        label: t("dashboard.viewAll"),
+        icon: <ArrowRight className="h-4 w-4 text-muted-foreground" />,
+        onClick: onViewAll,
+      });
+    }
+    items.push({
+      id: "refresh",
+      label: t("common.refresh"),
+      icon: <ArrowClockwise className="h-4 w-4 text-muted-foreground" />,
+      onClick: onRetry,
+    });
+    return items;
+  };
+
+  const buildNeedsReviewMenuItems = (): ContextMenuItem[] => [
+    {
+      id: "open-needs-review",
+      label: t("contextMenu.openNeedsReview"),
+      icon: <Warning className="h-4 w-4 text-amber-500" />,
+      onClick: onOpenNeedsReview,
+    },
+    { id: "sep:1", type: ContextMenuItemType.Separator, label: "" },
+    {
+      id: "refresh",
+      label: t("common.refresh"),
+      icon: <ArrowClockwise className="h-4 w-4 text-muted-foreground" />,
+      onClick: onRetry,
+    },
+  ];
   return (
     <>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4 text-xs text-muted-foreground">
@@ -115,6 +157,7 @@ function CaptureActivitySummary({
             {data.bySource.map((source) => (
               <div
                 key={source.source}
+                onContextMenu={(e) => onOpenMenu(e, buildSourceMenuItems())}
                 className="p-2 bg-muted/50 rounded-lg text-center"
               >
                 <p className="text-lg font-semibold text-foreground">
@@ -131,6 +174,7 @@ function CaptureActivitySummary({
           {data.needsAttention > 0 && (
             <button
               onClick={onOpenNeedsReview}
+              onContextMenu={(e) => onOpenMenu(e, buildNeedsReviewMenuItems())}
               className="w-full flex items-center gap-2 p-2.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-lg transition-colors text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
               <Warning className="w-4 h-4 text-amber-500 shrink-0" />
@@ -150,15 +194,64 @@ function CaptureActivitySummary({
 
 export function CaptureActivityCard(props: CaptureActivityCardProps) {
   const { t } = useI18n();
-  const source = (props.captureShelf ?? props.browserSaves)?.source ?? "browser-extension";
+  const shelf = props.captureShelf ?? props.browserSaves;
+  const source = shelf?.source ?? "browser-extension";
+  const cardMenu = useSurfaceMenu("capture-activity-card-menu");
+
+  const buildCardMenuItems = (): ContextMenuItem[] => {
+    const items: ContextMenuItem[] = [
+      {
+        id: "refresh",
+        label: t("common.refresh"),
+        icon: <ArrowClockwise className="h-4 w-4 text-muted-foreground" />,
+        onClick: props.onRetry,
+      },
+    ];
+    if (shelf?.onViewAll) {
+      items.push({
+        id: "view-all",
+        label: t("dashboard.viewAll"),
+        icon: <ArrowRight className="h-4 w-4 text-muted-foreground" />,
+        onClick: shelf.onViewAll,
+      });
+    }
+    if (props.data && props.data.needsAttention > 0) {
+      items.push(
+        { id: "sep:1", type: ContextMenuItemType.Separator, label: "" },
+        {
+          id: "open-needs-review",
+          label: t("contextMenu.openNeedsReview"),
+          icon: <Warning className="h-4 w-4 text-amber-500" />,
+          onClick: props.onOpenNeedsReview,
+        },
+      );
+    }
+    return items;
+  };
+
   return (
-    <div className="capture-activity border border-border rounded-xl p-4 md:p-6">
+    <div
+      className="capture-activity border border-border rounded-xl p-4 md:p-6"
+      onContextMenu={(e) => cardMenu.openEvent(e, buildCardMenuItems())}
+    >
       <div className="mb-4 flex items-center gap-2">
         <Browsers className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
         <h2 className="text-base font-semibold text-foreground md:text-lg">{t("dashboard.captureActivity")}</h2>
       </div>
-      {(props.captureShelf ?? props.browserSaves) && <BrowserCaptureShelf {...(props.captureShelf ?? props.browserSaves)!} />}
-      <CaptureActivitySummary {...props} source={source} />
+      {shelf && <BrowserCaptureShelf {...shelf} />}
+      <CaptureActivitySummary
+        {...props}
+        source={source}
+        onViewAll={shelf?.onViewAll}
+        onOpenMenu={(e, items) => cardMenu.openEvent(e, items)}
+      />
+      <ContextMenu
+        menuId="capture-activity-card-menu"
+        items={cardMenu.items}
+        visible={cardMenu.visible}
+        position={cardMenu.position}
+        onClose={cardMenu.closeToTrigger}
+      />
     </div>
   );
 }

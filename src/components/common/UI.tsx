@@ -150,8 +150,19 @@ export function ActionMenu({ label, items, className }: ActionMenuProps) {
   );
 }
 
-export function FocusPanel({ children, className }: { children: ReactNode; className?: string }) {
-  return <section className={cn("rounded-2xl border border-primary/25 bg-primary/[0.07] p-5 sm:p-6", className)}>{children}</section>;
+export function FocusPanel({
+  children,
+  className,
+  ...rest
+}: React.HTMLAttributes<HTMLElement> & { children: ReactNode; className?: string }) {
+  return (
+    <section
+      className={cn("rounded-2xl border border-primary/25 bg-primary/[0.07] p-5 sm:p-6", className)}
+      {...rest}
+    >
+      {children}
+    </section>
+  );
 }
 
 export function SummarySection({ title, children, action }: { title: string; children: ReactNode; action?: ReactNode }) {

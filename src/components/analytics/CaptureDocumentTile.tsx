@@ -28,9 +28,11 @@ export interface CaptureDocumentTileProps {
   source?: CaptureListingSource;
   onOpen: (document: CaptureDocument) => void;
   onOpenOriginal: (document: CaptureDocument) => void;
+  onContextMenu?: (e: React.MouseEvent, document: CaptureDocument) => void;
+  onKeyDown?: (e: React.KeyboardEvent, document: CaptureDocument) => void;
 }
 
-export function CaptureDocumentTile({ document, source = "browser-extension", onOpen, onOpenOriginal }: CaptureDocumentTileProps) {
+export function CaptureDocumentTile({ document, source = "browser-extension", onOpen, onOpenOriginal, onContextMenu, onKeyDown }: CaptureDocumentTileProps) {
   const { t, locale } = useI18n();
   const metadataId = useId();
   const imageUrl = coverUrl(document);
@@ -46,7 +48,11 @@ export function CaptureDocumentTile({ document, source = "browser-extension", on
   const absoluteTime = new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(date);
 
   return (
-    <li className="capture-document-tile">
+    <li
+      className="capture-document-tile"
+      onContextMenu={onContextMenu ? (e) => onContextMenu(e, document) : undefined}
+      onKeyDown={onKeyDown ? (e) => onKeyDown(e, document) : undefined}
+    >
       <button className="capture-document-primary" onClick={() => onOpen(document)} aria-label={t(`${copy}.openSaved`, { title })} aria-describedby={metadataId}>
         <div className="capture-document-media">
           {imageUrl && imageUrl !== failedUrl ? (

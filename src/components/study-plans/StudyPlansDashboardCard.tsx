@@ -10,13 +10,16 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { ArrowRight, GraduationCap, Plus } from '@phosphor-icons/react';
+import { ArrowRight, Copy, GraduationCap, Plus } from '@phosphor-icons/react';
 import { listStudyPlans } from '../../api/study-plans';
 import { requestDestinationAction } from '../../commandPalette/destinationActions';
 import { isTauri } from '../../lib/tauri';
 import type { StudyPlanSummary } from '../../types/learningPaths';
 import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
 import { studyErrorMessage } from "../../lib/study-plans/studyErrorMessage";
+import { useSurfaceMenu } from "../../hooks/useSurfaceMenu";
+import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
+import { useToast } from "../common/Toast";
 
 
 export interface StudyPlansDashboardCardProps {
@@ -24,8 +27,10 @@ export interface StudyPlansDashboardCardProps {
 }
 
 export const StudyPlansDashboardCard: React.FC<StudyPlansDashboardCardProps> = ({ className = '' }) => {
-        useI18n();
-        const [plans, setPlans] = useState<StudyPlanSummary[]>([]);
+  const { t } = useI18n();
+  const toast = useToast();
+  const studyPlansMenu = useSurfaceMenu("study-plans-dashboard-menu");
+  const [plans, setPlans] = useState<StudyPlanSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [navigationError, setNavigationError] = useState<string | null>(null);
@@ -75,6 +80,59 @@ export const StudyPlansDashboardCard: React.FC<StudyPlansDashboardCardProps> = (
     dispatchAction({ destination: 'study-plans', action: 'open-plan', planId });
   };
 
+  const copyText = (text: string, errorLabel: string) => {
+    void navigator.clipboard.writeText(text).then(
+      () => toast.success(t("contextMenu.copiedToClipboard")),
+      () => toast.error(errorLabel),
+    );
+  };
+
+  const buildCardItems = (): ContextMenuItem[] => [
+    {
+      id: "new-plan",
+      label: t("contextMenu.createStudyPlan"),
+      icon: <Plus className="w-4 h-4 text-primary" />,
+      onClick: handleCreate,
+    },
+    {
+      id: "view-all",
+      label: t("contextMenu.viewAllStudyPlans"),
+      icon: <ArrowRight className="w-4 h-4 text-muted-foreground" />,
+      onClick: handleOpenHome,
+    },
+  ];
+
+  const buildPlanItems = (plan: StudyPlanSummary): ContextMenuItem[] => {
+    const items: ContextMenuItem[] = [
+      {
+        id: "open",
+        label: t("contextMenu.open"),
+        icon: <GraduationCap className="w-4 h-4 text-primary" />,
+        onClick: () => handleOpenPlan(plan.id),
+      },
+      { id: "sep:1", type: ContextMenuItemType.Separator, label: "" },
+      {
+        id: "copy-title",
+        label: t("contextMenu.copyTitle"),
+        icon: <Copy className="w-4 h-4 text-muted-foreground" />,
+        onClick: () => copyText(plan.title, t("contextMenu.copyTitle")),
+      },
+    ];
+    if (plan.goal) {
+      items.push({
+        id: "copy-goal",
+        label: t("contextMenu.copyGoal"),
+        icon: <Copy className="w-4 h-4 text-muted-foreground" />,
+        onClick: () => copyText(plan.goal, t("contextMenu.copyGoal")),
+      });
+    }
+    items.push(
+      { id: "sep:2", type: ContextMenuItemType.Separator, label: "" },
+      ...buildCardItems(),
+    );
+    return items;
+  };
+
   if (!isTauri()) {
     return null;
   }
@@ -82,6 +140,7 @@ export const StudyPlansDashboardCard: React.FC<StudyPlansDashboardCardProps> = (
   return (
     <div
       data-testid="study-plans-dashboard-card"
+      onContextMenu={(e) => studyPlansMenu.openEvent(e, buildCardItems())}
       className={`bg-card border border-border rounded-xl p-5 flex flex-col justify-between ${className}`}
     >
       <div>
@@ -130,7 +189,9 @@ export const StudyPlansDashboardCard: React.FC<StudyPlansDashboardCardProps> = (
                 role="button"
                 tabIndex={0}
                 onClick={() => handleOpenPlan(plan.id)}
+                onContextMenu={(e) => studyPlansMenu.openEvent(e, buildPlanItems(plan))}
                 onKeyDown={(e) => {
+                  if (studyPlansMenu.handleRowKeyDown(e, () => buildPlanItems(plan))) return;
                   if (e.key === 'Enter' || e.key === ' ') {
                     e.preventDefault();
                     handleOpenPlan(plan.id);
@@ -164,6 +225,13 @@ export const StudyPlansDashboardCard: React.FC<StudyPlansDashboardCardProps> = (
           <ArrowRight className="w-3 h-3" />
         </button>
       </div>
+      <ContextMenu
+        menuId="study-plans-dashboard-menu"
+        items={studyPlansMenu.items}
+        visible={studyPlansMenu.visible}
+        position={studyPlansMenu.position}
+        onClose={studyPlansMenu.closeToTrigger}
+      />
     </div>
   );
 };

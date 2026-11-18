@@ -1,4 +1,7 @@
-import { ArrowRight, Compass, GraduationCap, Lightning, Sparkle } from "@phosphor-icons/react";
+import { ArrowRight, Compass, GraduationCap, Lightning, Plus, Sparkle } from "@phosphor-icons/react";
+import { useI18n } from "../../lib/i18n";
+import { useSurfaceMenu } from "../../hooks/useSurfaceMenu";
+import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
 
 export interface TodaysHorizonBannerProps {
   activePlansCount: number;
@@ -25,13 +28,80 @@ export function TodaysHorizonBanner({
   onLaunchQueue,
   onCreateStudyPlan,
 }: TodaysHorizonBannerProps) {
+  const { t } = useI18n();
+  const horizonMenu = useSurfaceMenu("todays-horizon-menu");
   const hasTopDown = activePlansCount > 0 || pendingAssessmentsCount > 0;
   const hasBottomUp = dueReviewsCount > 0 || highPriorityExtractsCount > 0 || unreadDiscoveryCount > 0;
+
+  const topDownPrimaryAction = hasTopDown ? onResumeMilestone : (onCreateStudyPlan ?? onResumeMilestone);
+
+  const buildTopDownItems = (): ContextMenuItem[] => {
+    const items: ContextMenuItem[] = [
+      {
+        id: hasTopDown ? "resume-milestone" : "create-study-plan",
+        label: t(hasTopDown ? "contextMenu.resumeMilestone" : "contextMenu.createStudyPlan"),
+        icon: hasTopDown
+          ? <GraduationCap className="h-4 w-4 text-primary" />
+          : <Plus className="h-4 w-4 text-primary" />,
+        onClick: topDownPrimaryAction,
+      },
+    ];
+    if (hasTopDown && onCreateStudyPlan) {
+      items.push({
+        id: "create-study-plan",
+        label: t("contextMenu.createStudyPlan"),
+        icon: <Plus className="h-4 w-4 text-muted-foreground" />,
+        onClick: onCreateStudyPlan,
+      });
+    }
+    items.push(
+      { id: "sep:1", type: ContextMenuItemType.Separator, label: "" },
+      {
+        id: "launch-queue",
+        label: t("contextMenu.launchQueueSession"),
+        icon: <Lightning className="h-4 w-4 text-muted-foreground" />,
+        onClick: onLaunchQueue,
+      },
+    );
+    return items;
+  };
+
+  const buildBottomUpItems = (): ContextMenuItem[] => [
+    {
+      id: "launch-queue",
+      label: t("contextMenu.launchQueueSession"),
+      icon: <Lightning className="h-4 w-4 text-amber-500" />,
+      onClick: onLaunchQueue,
+    },
+    { id: "sep:1", type: ContextMenuItemType.Separator, label: "" },
+    {
+      id: hasTopDown ? "resume-milestone" : "create-study-plan",
+      label: t(hasTopDown ? "contextMenu.resumeMilestone" : "contextMenu.createStudyPlan"),
+      icon: <GraduationCap className="h-4 w-4 text-muted-foreground" />,
+      onClick: topDownPrimaryAction,
+    },
+  ];
+
+  const buildBannerItems = (): ContextMenuItem[] => [
+    {
+      id: hasTopDown ? "resume-milestone" : "create-study-plan",
+      label: t(hasTopDown ? "contextMenu.resumeMilestone" : "contextMenu.createStudyPlan"),
+      icon: <GraduationCap className="h-4 w-4 text-primary" />,
+      onClick: topDownPrimaryAction,
+    },
+    {
+      id: "launch-queue",
+      label: t("contextMenu.launchQueueSession"),
+      icon: <Lightning className="h-4 w-4 text-amber-500" />,
+      onClick: onLaunchQueue,
+    },
+  ];
 
   return (
     <section
       aria-label="Today's Horizon"
       data-todays-horizon="true"
+      onContextMenu={(e) => horizonMenu.openEvent(e, buildBannerItems())}
       className="mb-6 rounded-2xl border border-border bg-card/80 p-4 md:p-5 shadow-sm"
     >
       <div className="mb-3 flex items-center justify-between">
@@ -50,6 +120,7 @@ export function TodaysHorizonBanner({
         {/* Lane 1: Top-Down Milestones */}
         <div
           data-horizon-lane="top-down"
+          onContextMenu={(e) => horizonMenu.openEvent(e, buildTopDownItems())}
           className="flex flex-col justify-between rounded-xl border border-border/80 bg-background/60 p-4"
         >
           <div>
@@ -108,6 +179,7 @@ export function TodaysHorizonBanner({
         {/* Lane 2: Bottom-Up Organic Discovery */}
         <div
           data-horizon-lane="bottom-up"
+          onContextMenu={(e) => horizonMenu.openEvent(e, buildBottomUpItems())}
           className="flex flex-col justify-between rounded-xl border border-border/80 bg-background/60 p-4"
         >
           <div>
@@ -151,6 +223,13 @@ export function TodaysHorizonBanner({
           </div>
         </div>
       </div>
+      <ContextMenu
+        menuId="todays-horizon-menu"
+        items={horizonMenu.items}
+        visible={horizonMenu.visible}
+        position={horizonMenu.position}
+        onClose={horizonMenu.closeToTrigger}
+      />
     </section>
   );
 }

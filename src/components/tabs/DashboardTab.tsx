@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTabsStore } from "../../stores";
+import { useUIStore } from "../../stores/uiStore";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useCollectionStore } from "../../stores/collectionStore";
 import type { TabType } from "../../stores/tabsStore";
@@ -30,6 +31,8 @@ import { openDocumentAtLocation } from "../../utils/openDocumentAtLocation";
 import { openExternal } from "../../lib/tauri";
 import { validCaptureUrl } from "../../utils/captureSource";
 import { useToast } from "../common/Toast";
+import { useSurfaceMenu } from "../../hooks/useSurfaceMenu";
+import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
 import { CaptureActivityCard } from "../analytics/CaptureActivityCard";
 import { StudyPlansDashboardCard } from "../study-plans/StudyPlansDashboardCard";
 import { TodaysHorizonBanner } from "../dashboard/TodaysHorizonBanner";
@@ -38,11 +41,16 @@ import { ActionButton, FocusPanel, SummarySection } from "../common/UI";
 import { AdaptiveContentHeader, SafeScrollContainer } from "../adaptive";
 import { selectDailyFocus } from "./dashboardFocus";
 import {
+  ArrowClockwise,
+  ArrowSquareOut,
   BookOpen,
   Brain,
   CaretRight,
   ChartBar,
+  Command,
+  Copy,
   Files,
+  FolderPlus,
   Gear,
   Headphones,
   Lightning,
@@ -73,7 +81,8 @@ const EMPTY_STARTUP_PROGRESS: StartupProgressItem[] = [];
 
 export function DashboardTab() {
   const { t } = useI18n();
-  const { addTab } = useTabsStore();
+  const { addTab, addTabInBackground } = useTabsStore();
+  const dashboardMenu = useSurfaceMenu("dashboard-surface-menu");
   const documents = useDocumentStore((state) => state.documents);
   const activeCollectionId = useCollectionStore((s) => s.activeCollectionId);
   const mode = usePresentationMode();
@@ -346,8 +355,261 @@ export function DashboardTab() {
   const FocusIcon = focusAction.icon;
   const hasNoDocuments = (stats?.total_documents ?? documents.length) === 0;
 
+  const openTabInBackground = (action: QuickAction) => {
+    addTabInBackground({
+      title: action.tabTitle,
+      icon: null,
+      type: action.tabType,
+      content: action.content,
+      closable: action.closable,
+    });
+  };
+
+  const openDocumentInBackground = (doc: DocumentWithProgress) => {
+    const full = documents.find((d) => d.id === doc.id);
+    const fileType = full?.fileType;
+    const icon = fileType === "pdf"
+      ? "📕"
+      : fileType === "epub"
+        ? "📖"
+        : fileType === "youtube"
+          ? "📺"
+          : fileType === "image"
+            ? "🖼️"
+            : "📄";
+
+    addTabInBackground({
+      title: doc.title,
+      icon,
+      type: "document-viewer",
+      content: DocumentViewer,
+      closable: true,
+      data: { documentId: doc.id },
+    });
+  };
+
+  const refreshDashboard = () => {
+    void loadStats();
+    reloadCaptureActivity();
+  };
+
+  const copyText = (text: string, errorLabel: string) => {
+    void navigator.clipboard.writeText(text).then(
+      () => toast.success(t("contextMenu.copiedToClipboard")),
+      () => toast.error(errorLabel),
+    );
+  };
+
+  const buildSurfaceMenuItems = (): ContextMenuItem[] => [
+    {
+      id: "refresh-dashboard",
+      label: t("contextMenu.refreshDashboard"),
+      icon: <ArrowClockwise className="h-4 w-4 text-muted-foreground" />,
+      onClick: refreshDashboard,
+    },
+    {
+      id: "open-command-palette",
+      label: t("contextMenu.openCommandPalette"),
+      icon: <Command className="h-4 w-4 text-muted-foreground" />,
+      onClick: () => useUIStore.getState().setCommandPaletteOpen(true),
+    },
+    { id: "sep:1", type: ContextMenuItemType.Separator, label: "" },
+    {
+      id: "import-document",
+      label: t("contextMenu.importDocument"),
+      icon: <FolderPlus className="h-4 w-4 text-muted-foreground" />,
+      onClick: importDocument,
+    },
+    {
+      id: "open-library",
+      label: t("contextMenu.openInLibrary"),
+      icon: <Files className="h-4 w-4 text-muted-foreground" />,
+      onClick: () => openTab(quickActions.find((a) => a.id === "documents")!),
+    },
+    {
+      id: "open-settings",
+      label: t("nav.settings"),
+      icon: <Gear className="h-4 w-4 text-muted-foreground" />,
+      onClick: () => openTab(quickActions.find((a) => a.id === "settings")!),
+    },
+  ];
+
+  const buildFocusPanelMenuItems = (): ContextMenuItem[] => {
+    const items: ContextMenuItem[] = [
+      {
+        id: "open-focus",
+        label: hasNoDocuments
+          ? t("dashboard.import")
+          : focusAction.id === "review"
+            ? t("dashboard.startReview")
+            : t("common.open"),
+        icon: <FocusIcon className="h-4 w-4 text-primary" />,
+        onClick: () => {
+          if (hasNoDocuments) {
+            importDocument();
+          } else {
+            openTab(focusAction);
+          }
+        },
+      },
+    ];
+    if (!hasNoDocuments) {
+      items.push({
+        id: "open-focus-background",
+        label: t("contextMenu.openInBackground"),
+        icon: <ArrowSquareOut className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => openTabInBackground(focusAction),
+      });
+    }
+    items.push(
+      { id: "sep:1", type: ContextMenuItemType.Separator, label: "" },
+      {
+        id: "refresh-dashboard",
+        label: t("contextMenu.refreshDashboard"),
+        icon: <ArrowClockwise className="h-4 w-4 text-muted-foreground" />,
+        onClick: refreshDashboard,
+      },
+    );
+    return items;
+  };
+
+  const buildQuickActionMenuItems = (action: QuickAction): ContextMenuItem[] => {
+    const ActionIcon = action.icon;
+    const items: ContextMenuItem[] = [
+      {
+        id: "open",
+        label: t("contextMenu.open"),
+        icon: <ActionIcon className="h-4 w-4 text-primary" />,
+        onClick: () => openTab(action),
+      },
+      {
+        id: "open-background",
+        label: t("contextMenu.openInBackground"),
+        icon: <ArrowSquareOut className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => openTabInBackground(action),
+      },
+    ];
+    if (action.id === "documents") {
+      items.push(
+        { id: "sep:1", type: ContextMenuItemType.Separator, label: "" },
+        {
+          id: "import-document",
+          label: t("contextMenu.importDocument"),
+          icon: <FolderPlus className="h-4 w-4 text-muted-foreground" />,
+          onClick: importDocument,
+        },
+      );
+    }
+    return items;
+  };
+
+  const buildContinueReadingMenuItems = (doc: DocumentWithProgress): ContextMenuItem[] => [
+    {
+      id: "resume",
+      label: t("continueReading.resume"),
+      icon: <BookOpen className="h-4 w-4 text-primary" />,
+      onClick: () => openDocument(doc),
+    },
+    {
+      id: "open-background",
+      label: t("contextMenu.openInBackground"),
+      icon: <ArrowSquareOut className="h-4 w-4 text-muted-foreground" />,
+      onClick: () => openDocumentInBackground(doc),
+    },
+    { id: "sep:1", type: ContextMenuItemType.Separator, label: "" },
+    {
+      id: "copy-title",
+      label: t("contextMenu.copyTitle"),
+      icon: <Copy className="h-4 w-4 text-muted-foreground" />,
+      onClick: () => copyText(doc.title, t("contextMenu.copyTitle")),
+    },
+    {
+      id: "open-library",
+      label: t("contextMenu.openInLibrary"),
+      icon: <Files className="h-4 w-4 text-muted-foreground" />,
+      onClick: () => openTab(quickActions.find((a) => a.id === "documents")!),
+    },
+  ];
+
+  const buildStatsCardMenuItems = (): ContextMenuItem[] => [
+    {
+      id: "view-analytics",
+      label: t("contextMenu.viewAnalytics"),
+      icon: <ChartBar className="h-4 w-4 text-primary" />,
+      onClick: () => openTab(quickActions.find((a) => a.id === "analytics")!),
+    },
+    {
+      id: "start-review",
+      label: t("contextMenu.startReview"),
+      icon: <Brain className="h-4 w-4 text-muted-foreground" />,
+      onClick: () => openTab(quickActions.find((a) => a.id === "review")!),
+    },
+    { id: "sep:1", type: ContextMenuItemType.Separator, label: "" },
+    {
+      id: "refresh-stats",
+      label: t("common.refresh"),
+      icon: <ArrowClockwise className="h-4 w-4 text-muted-foreground" />,
+      onClick: () => void loadStats(),
+    },
+  ];
+
+  const buildStatTileMenuItems = (target: "documents" | "review" | "analytics"): ContextMenuItem[] => {
+    const primary =
+      target === "documents"
+        ? {
+            id: "open-library",
+            label: t("contextMenu.openInLibrary"),
+            icon: <Files className="h-4 w-4 text-primary" />,
+            onClick: () => openTab(quickActions.find((a) => a.id === "documents")!),
+          }
+        : target === "review"
+          ? {
+              id: "start-review",
+              label: t("contextMenu.startReview"),
+              icon: <Brain className="h-4 w-4 text-primary" />,
+              onClick: () => openTab(quickActions.find((a) => a.id === "review")!),
+            }
+          : {
+              id: "view-analytics",
+              label: t("contextMenu.viewAnalytics"),
+              icon: <ChartBar className="h-4 w-4 text-primary" />,
+              onClick: () => openTab(quickActions.find((a) => a.id === "analytics")!),
+            };
+
+    return [
+      primary,
+      { id: "sep:1", type: ContextMenuItemType.Separator, label: "" },
+      {
+        id: "refresh-stats",
+        label: t("common.refresh"),
+        icon: <ArrowClockwise className="h-4 w-4 text-muted-foreground" />,
+        onClick: () => void loadStats(),
+      },
+    ];
+  };
+
+  const buildTipMenuItems = (): ContextMenuItem[] => [
+    {
+      id: "open-command-palette",
+      label: t("contextMenu.openCommandPalette"),
+      icon: <Command className="h-4 w-4 text-primary" />,
+      onClick: () => useUIStore.getState().setCommandPaletteOpen(true),
+    },
+    {
+      id: "copy-tip",
+      label: t("contextMenu.copyTip"),
+      icon: <Copy className="h-4 w-4 text-muted-foreground" />,
+      onClick: () => copyText(t("dashboard.commandPaletteHint"), t("contextMenu.copyTip")),
+    },
+  ];
+
   return (
-    <SafeScrollContainer className="bg-background" data-responsive-surface="dashboard" data-paper-surface="chrome">
+    <SafeScrollContainer
+      className="bg-background"
+      data-responsive-surface="dashboard"
+      data-paper-surface="chrome"
+      onContextMenu={(e) => dashboardMenu.openEvent(e, buildSurfaceMenuItems())}
+    >
       <div className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8 pb-24 md:pb-8">
         <AdaptiveContentHeader
           className="px-0 pt-5 pb-5 md:pt-7 md:pb-7"
@@ -355,7 +617,10 @@ export function DashboardTab() {
           description={t("dashboard.companion")}
         />
 
-        <FocusPanel className="mb-6 md:mb-8">
+        <FocusPanel
+          className="mb-6 md:mb-8"
+          onContextMenu={(e) => dashboardMenu.openEvent(e, buildFocusPanelMenuItems())}
+        >
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <p className="text-sm font-medium text-primary">{t("dashboard.quickActions")}</p>
@@ -406,6 +671,8 @@ export function DashboardTab() {
               <button
                 key={action.id}
                 onClick={() => openTab(action)}
+                onContextMenu={(e) => dashboardMenu.openEvent(e, buildQuickActionMenuItems(action))}
+                onKeyDown={(e) => dashboardMenu.handleRowKeyDown(e, () => buildQuickActionMenuItems(action))}
                 className="group relative flex min-h-[110px] md:min-h-[130px] flex-col items-start rounded-xl border border-border bg-card p-3 md:p-4 text-left transition-all hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
                 <div
@@ -449,6 +716,8 @@ export function DashboardTab() {
                 <button
                   key={doc.id}
                   onClick={() => openDocument(doc)}
+                  onContextMenu={(e) => dashboardMenu.openEvent(e, buildContinueReadingMenuItems(doc))}
+                  onKeyDown={(e) => dashboardMenu.handleRowKeyDown(e, () => buildContinueReadingMenuItems(doc))}
                   className="group text-left p-4 bg-card rounded-xl border border-border transition-all hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary flex flex-col justify-between min-h-[110px]"
                 >
                   <div className="flex items-start justify-between gap-2 mb-2 w-full">
@@ -525,7 +794,10 @@ export function DashboardTab() {
         <SummarySection title={t("dashboard.progress")}>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
           {/* Main Stats Card */}
-          <div className="md:col-span-2 border border-border rounded-xl p-4 md:p-6">
+          <div
+            onContextMenu={(e) => dashboardMenu.openEvent(e, buildStatsCardMenuItems())}
+            className="md:col-span-2 border border-border rounded-xl p-4 md:p-6"
+          >
             <div className="flex items-center justify-between mb-4 md:mb-6">
               <div className="flex items-center gap-2">
                 <TrendUp className="w-5 h-5 text-muted-foreground" />
@@ -543,7 +815,10 @@ export function DashboardTab() {
             </div>
 
             <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6">
-              <div className="text-center md:text-left flex flex-col items-center md:items-start p-2 bg-muted/20 rounded-lg md:bg-transparent md:p-0">
+              <div
+                onContextMenu={(e) => dashboardMenu.openEvent(e, buildStatTileMenuItems("documents"))}
+                className="text-center md:text-left flex flex-col items-center md:items-start p-2 bg-muted/20 rounded-lg md:bg-transparent md:p-0"
+              >
                 <div className="flex items-center justify-center md:justify-start gap-1.5 mb-1 text-muted-foreground w-full">
                   <Files className="w-3.5 h-3.5 md:w-4 md:h-4 text-muted-foreground" />
                   <span className="text-[10px] sm:text-xs md:text-sm font-medium line-clamp-1">
@@ -559,7 +834,10 @@ export function DashboardTab() {
                 </span>
               </div>
 
-              <div className="text-center md:text-left flex flex-col items-center md:items-start p-2 bg-muted/20 rounded-lg md:bg-transparent md:p-0">
+              <div
+                onContextMenu={(e) => dashboardMenu.openEvent(e, buildStatTileMenuItems("review"))}
+                className="text-center md:text-left flex flex-col items-center md:items-start p-2 bg-muted/20 rounded-lg md:bg-transparent md:p-0"
+              >
                 <div className="flex items-center justify-center md:justify-start gap-1.5 mb-1 text-muted-foreground w-full">
                   <Target className="w-3.5 h-3.5 md:w-4 md:h-4 text-muted-foreground" />
                   <span className="text-[10px] sm:text-xs md:text-sm font-medium line-clamp-1">
@@ -575,7 +853,10 @@ export function DashboardTab() {
                 </span>
               </div>
 
-              <div className="text-center md:text-left flex flex-col items-center md:items-start p-2 bg-muted/20 rounded-lg md:bg-transparent md:p-0">
+              <div
+                onContextMenu={(e) => dashboardMenu.openEvent(e, buildStatTileMenuItems("analytics"))}
+                className="text-center md:text-left flex flex-col items-center md:items-start p-2 bg-muted/20 rounded-lg md:bg-transparent md:p-0"
+              >
                 <div className="flex items-center justify-center md:justify-start gap-1.5 mb-1 text-muted-foreground w-full">
                   <Lightning className="w-3.5 h-3.5 md:w-4 md:h-4 text-muted-foreground" />
                   <span className="text-[10px] sm:text-xs md:text-sm font-medium line-clamp-1">
@@ -630,7 +911,10 @@ export function DashboardTab() {
         </SummarySection>
 
         {/* Tips Section */}
-        <div className="mt-6 md:mt-8 p-4 md:p-5 bg-muted/50 border border-border rounded-xl">
+        <div
+          onContextMenu={(e) => dashboardMenu.openEvent(e, buildTipMenuItems())}
+          className="mt-6 md:mt-8 p-4 md:p-5 bg-muted/50 border border-border rounded-xl"
+        >
           <h3 className="font-medium text-sm text-foreground mb-2">
             💡 {t("dashboard.quickTip")}
           </h3>
@@ -652,6 +936,13 @@ export function DashboardTab() {
           />
         </div>
       </div>
+      <ContextMenu
+        menuId="dashboard-surface-menu"
+        items={dashboardMenu.items}
+        visible={dashboardMenu.visible}
+        position={dashboardMenu.position}
+        onClose={dashboardMenu.closeToTrigger}
+      />
     </SafeScrollContainer>
   );
 }
