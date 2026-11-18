@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, type KeyboardEvent, type ComponentType } from "react";
 import { useModal } from "../common/Modal";
 import {
   ArrowsClockwise,
@@ -454,10 +454,85 @@ export function IntegrationSettings() {
     setTimeout(() => setOperationResult(null), 3000);
   };
 
+  const tabRefs = useRef<Partial<Record<IntegrationType, HTMLButtonElement | null>>>({});
+
+  const integrationGroups: Array<{
+    id: string;
+    items: Array<{
+      id: IntegrationType;
+      label: string;
+      icon: ComponentType<{ className?: string }>;
+      visible?: boolean;
+    }>;
+  }> = [
+    {
+      id: "knowledge",
+      items: [
+        { id: "obsidian", label: t("integrations.obsidian"), icon: BookOpen },
+        { id: "anki", label: t("integrations.anki"), icon: Brain },
+        { id: "notebooklm", label: t("integrations.notebooklm"), icon: Sparkle, visible: notebooklmAvailable },
+      ],
+    },
+    {
+      id: "media",
+      items: [
+        { id: "youtube", label: t("integrations.youtubePlaylists"), icon: Queue },
+        { id: "youtube-cookies", label: t("integrations.youtubeCookies"), icon: Cookie },
+        { id: "youtube-transcript", label: t("integrations.youtubeTranscript"), icon: YoutubeLogo },
+        { id: "sponsorblock", label: t("integrations.sponsorBlock"), icon: Scissors },
+      ],
+    },
+    {
+      id: "sync",
+      items: [
+        { id: "extension", label: t("integrations.browserExtension"), icon: Globe, visible: extensionServerAvailable },
+        { id: "api-tokens", label: t("i18nAudit.ui.api-webhooks.cf5ae9f7"), icon: Key, visible: isPlethoraCloudAvailable() },
+      ],
+    },
+  ];
+
+  const visibleGroups = integrationGroups
+    .map((group) => ({
+      ...group,
+      items: group.items.filter((item) => item.visible !== false),
+    }))
+    .filter((group) => group.items.length > 0);
+
+  const visibleTabs = visibleGroups.flatMap((group) => group.items);
+
+  const selectTab = (tabId: IntegrationType, focusTab = false) => {
+    setActiveTab(tabId);
+    const el = tabRefs.current[tabId];
+    if (el) {
+      el.scrollIntoView({ block: "nearest", inline: "nearest" });
+      if (focusTab) {
+        el.focus();
+      }
+    }
+  };
+
+  const handleTabKeyDown = (e: KeyboardEvent<HTMLButtonElement>, currentIndex: number) => {
+    if (visibleTabs.length === 0) return;
+    let nextIndex: number | null = null;
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") {
+      nextIndex = (currentIndex + 1) % visibleTabs.length;
+    } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
+      nextIndex = (currentIndex - 1 + visibleTabs.length) % visibleTabs.length;
+    } else if (e.key === "Home") {
+      nextIndex = 0;
+    } else if (e.key === "End") {
+      nextIndex = visibleTabs.length - 1;
+    }
+    if (nextIndex !== null) {
+      e.preventDefault();
+      selectTab(visibleTabs[nextIndex].id, true);
+    }
+  };
+
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-6">
+    <div className="max-w-5xl mx-auto p-6 space-y-6">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-center gap-3">
         <Plug className="w-6 h-6 text-primary" />
         <h2 className="text-2xl font-bold text-foreground">{t("integrations.title")}</h2>
       </div>
@@ -475,113 +550,58 @@ export function IntegrationSettings() {
         <SettingsSearchTarget id="integrations.reveal.api-tokens" reveal={() => setActiveTab("api-tokens")} />
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6">
-        <button
-          onClick={() => setActiveTab("obsidian")}
-          className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-            activeTab === "obsidian"
-              ? "bg-primary text-primary-foreground"
-              : "bg-secondary text-secondary-foreground hover:opacity-90"
-          }`}
+      {/* Master-detail layout: vertical navigation list on desktop, scrollable single-row tablist on narrow viewports */}
+      <div className="flex flex-col md:flex-row gap-6 items-start">
+        <div
+          role="tablist"
+          aria-label={t("integrations.title")}
+          className="w-full md:w-60 md:shrink-0 flex flex-row md:flex-col gap-1 overflow-x-auto md:overflow-visible pb-2 md:pb-2 md:p-2 border-b border-border md:bg-card md:border md:rounded-xl"
         >
-          <BookOpen className="w-4 h-4" />
-          {t("integrations.obsidian")}
-        </button>
-        <button
-          onClick={() => setActiveTab("anki")}
-          className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-            activeTab === "anki"
-              ? "bg-primary text-primary-foreground"
-              : "bg-secondary text-secondary-foreground hover:opacity-90"
-          }`}
+          {visibleGroups.map((group, groupIndex) => (
+            <div
+              key={group.id}
+              className={`flex flex-row md:flex-col gap-1 shrink-0 md:shrink md:w-full ${
+                groupIndex > 0 ? "md:border-t md:border-border/60 md:pt-1.5 md:mt-1" : ""
+              }`}
+            >
+              {group.items.map((item) => {
+                const Icon = item.icon;
+                const isActive = activeTab === item.id;
+                const flatIndex = visibleTabs.findIndex((tItem) => tItem.id === item.id);
+                return (
+                  <button
+                    key={item.id}
+                    ref={(el) => {
+                      tabRefs.current[item.id] = el;
+                    }}
+                    type="button"
+                    role="tab"
+                    id={`integration-tab-${item.id}`}
+                    aria-selected={isActive}
+                    tabIndex={isActive ? 0 : -1}
+                    title={item.label}
+                    onClick={() => selectTab(item.id)}
+                    onKeyDown={(e) => handleTabKeyDown(e, flatIndex)}
+                    className={`relative flex-none md:w-full flex items-center gap-2.5 px-3 py-2.5 min-h-[40px] rounded-lg text-sm whitespace-nowrap text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary ${
+                      isActive
+                        ? "bg-primary/12 text-primary font-medium after:content-[''] after:absolute after:bottom-0 after:left-2 after:right-2 after:h-[2px] after:bg-primary after:rounded-full md:after:left-0 md:after:right-auto md:after:top-2 md:after:bottom-2 md:after:w-[3px] md:after:h-auto"
+                        : "text-muted-foreground hover:text-foreground hover:bg-muted/60"
+                    }`}
+                  >
+                    <Icon className={`w-4 h-4 shrink-0 ${isActive ? "text-primary" : ""}`} />
+                    <span className="truncate">{item.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        <div
+          role="tabpanel"
+          aria-labelledby={`integration-tab-${activeTab}`}
+          className="flex-1 min-w-0 w-full space-y-6"
         >
-          <Brain className="w-4 h-4" />
-          {t("integrations.anki")}
-        </button>
-        {extensionServerAvailable && (
-          <button
-            onClick={() => setActiveTab("extension")}
-            className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-              activeTab === "extension"
-                ? "bg-primary text-primary-foreground"
-                : "bg-secondary text-secondary-foreground hover:opacity-90"
-            }`}
-          >
-            <Globe className="w-4 h-4" />
-            {t("integrations.browserExtension")}
-          </button>
-        )}
-        {notebooklmAvailable && (
-          <button
-            onClick={() => setActiveTab("notebooklm")}
-            className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-              activeTab === "notebooklm"
-                ? "bg-primary text-primary-foreground"
-                : "bg-secondary text-secondary-foreground hover:opacity-90"
-            }`}
-          >
-            <Sparkle className="w-4 h-4" />
-            {t("integrations.notebooklm")}
-          </button>
-        )}
-        <button
-          onClick={() => setActiveTab("youtube")}
-          className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-            activeTab === "youtube"
-              ? "bg-primary text-primary-foreground"
-              : "bg-secondary text-secondary-foreground hover:opacity-90"
-          }`}
-        >
-          <Queue className="w-4 h-4" />
-          {t("integrations.youtubePlaylists")}
-        </button>
-        <button
-          onClick={() => setActiveTab("youtube-cookies")}
-          className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-            activeTab === "youtube-cookies"
-              ? "bg-primary text-primary-foreground"
-              : "bg-secondary text-secondary-foreground hover:opacity-90"
-          }`}
-        >
-          <Cookie className="w-4 h-4" />
-          {t("integrations.youtubeCookies")}
-        </button>
-        <button
-          onClick={() => setActiveTab("youtube-transcript")}
-          className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-            activeTab === "youtube-transcript"
-              ? "bg-primary text-primary-foreground"
-              : "bg-secondary text-secondary-foreground hover:opacity-90"
-          }`}
-        >
-          <YoutubeLogo className="w-4 h-4" />
-          {t("integrations.youtubeTranscript")}
-        </button>
-        <button
-          onClick={() => setActiveTab("sponsorblock")}
-          className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-            activeTab === "sponsorblock"
-              ? "bg-primary text-primary-foreground"
-              : "bg-secondary text-secondary-foreground hover:opacity-90"
-          }`}
-        >
-          <Scissors className="w-4 h-4" />
-          {t("integrations.sponsorBlock")}
-        </button>
-        {isPlethoraCloudAvailable() && (
-          <button
-            onClick={() => setActiveTab("api-tokens")}
-            className={`px-4 py-2 rounded-lg flex items-center gap-2 transition-colors ${
-              activeTab === "api-tokens"
-                ? "bg-primary text-primary-foreground"
-                : "bg-secondary text-secondary-foreground hover:opacity-90"
-            }`}
-          >
-            <Key className="w-4 h-4" />
-            {t("i18nAudit.ui.api-webhooks.cf5ae9f7")}</button>
-        )}
-      </div>
 
       {/* Result notification */}
       {operationResult && (
@@ -1435,6 +1455,8 @@ export function IntegrationSettings() {
           <ApiTokensIntegrationPanel />
         </SettingsSearchTarget>
       )}
+        </div>
+      </div>
     </div>
   );
 }
