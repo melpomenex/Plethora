@@ -403,7 +403,7 @@ export function SemanticGraphPanel({
                   className="fixed inset-0 z-40" 
                   onClick={() => setShowSearchDropdown(false)} 
                 />
-                <div className="absolute left-1/2 -translate-x-1/2 w-[320px] mt-2 bg-card border border-border rounded-xl shadow-xl z-50 max-h-64 overflow-y-auto p-2 space-y-1 animate-slideDown">
+                <div className="absolute left-1/2 -translate-x-1/2 w-[320px] max-w-[calc(100vw-2rem)] mt-2 bg-card border border-border rounded-xl shadow-xl z-50 max-h-64 overflow-y-auto p-2 space-y-1 animate-slideDown">
                   {searchResults.map(({ node, score, neighborCount }) => {
                     const isRss = node.type === GraphNodeType.Rss;
                     return (
@@ -473,7 +473,7 @@ export function SemanticGraphPanel({
               </button>
 
               {showRssSelector && (
-                <div className="absolute right-0 mt-2 w-96 max-h-[480px] bg-card/95 backdrop-blur-xl border border-border/80 rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden animate-slideDown">
+                <div className="absolute right-0 mt-2 w-96 max-w-[calc(100vw-2rem)] max-h-[480px] bg-card/95 backdrop-blur-xl border border-border/80 rounded-2xl shadow-2xl z-50 flex flex-col overflow-hidden animate-slideDown">
                   {/* Selector Tabs */}
                   <div className="flex border-b border-border/50 bg-muted/40 p-1">
                     {(["quick", "feeds", "articles"] as const).map((tab) => (

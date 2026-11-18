@@ -9,6 +9,8 @@
  */
 
 import { useState, useCallback, useMemo, useEffect } from "react";
+import { createPortal } from "react-dom";
+import { useOverlayDismissal } from "../../hooks/useOverlayDismissal";
 import {
   ArrowsVertical,
   Eye,
@@ -132,10 +134,12 @@ export function RSSQueueSettingsModal({ isOpen, onClose }: RSSQueueSettingsProps
     return "default";
   }, [isFeedIncluded, isFeedExcluded, includedFeedIds.length]);
   
+  useOverlayDismissal(isOpen, onClose);
+
   if (!isOpen) return null;
   
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[var(--md-z-dialog)] flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto bg-card border border-border rounded-lg shadow-xl">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
@@ -530,6 +534,7 @@ export function RSSQueueSettingsModal({ isOpen, onClose }: RSSQueueSettingsProps
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

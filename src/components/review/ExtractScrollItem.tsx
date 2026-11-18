@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
+import { clampMenuPosition } from "../../lib/contextMenus";
 import {
   ArrowCounterClockwise,
   ChatCircle,
@@ -626,12 +628,20 @@ export function ExtractScrollItem({
             </div>
 
             {/* Right-click context menu */}
-            {contextMenu && (
+            {contextMenu && createPortal(
+                (() => {
+                    const clampedPos = clampMenuPosition(
+                        contextMenu.x,
+                        contextMenu.y,
+                        { w: 200, h: 160 },
+                        { w: window.innerWidth, h: window.innerHeight },
+                    );
+                    return (
                 <>
                     <div className="fixed inset-0 z-[9999]" onClick={() => setContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }} />
                     <div
                         className="fixed z-[10000] bg-card border border-border rounded-lg shadow-xl py-1 min-w-[180px]"
-                        style={{ left: contextMenu.x, top: contextMenu.y }}
+                        style={{ left: clampedPos.x, top: clampedPos.y }}
                     >
                         {onCreateCloze && (
                             <button
@@ -672,6 +682,9 @@ export function ExtractScrollItem({
                         )}
                     </div>
                 </>
+                    );
+                })(),
+                document.body,
             )}
         </div>
     );

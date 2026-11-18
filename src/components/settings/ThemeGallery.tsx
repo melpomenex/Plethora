@@ -12,11 +12,11 @@ import {
   Check,
   DeviceMobile,
   Sparkle,
-  X,
 } from "@phosphor-icons/react";
 import { cn } from "../../utils";
 import { builtInThemes as registeredBuiltInThemes } from "../../themes/builtin";
 import { useI18n } from "../../lib/i18n";
+import { ResponsiveDialogSheet } from "../adaptive/ResponsiveDialogSheet";
 
 interface ThemeGalleryProps {
   onClose?: () => void;
@@ -249,43 +249,32 @@ export function ThemeGallery({ onClose, onThemeSelect }: ThemeGalleryProps) {
   const lightThemes = themes.filter((t) => t.variant === "light").sort(themeSort);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div
-        className="w-full max-w-6xl max-h-[90vh] overflow-hidden rounded-xl shadow-2xl flex flex-col"
-        style={{ backgroundColor: theme.colors.surface }}
-      >
-        {/* Header */}
-        <div
-          className="flex items-center justify-between p-4 border-b"
-          style={{ borderColor: theme.colors.outline }}
-        >
-          <div>
-            <h2
-              className="text-xl font-bold"
-              style={{ color: theme.colors.onSurface }}
-            >
-              {t("settings.themeGalleryTitle")}
-            </h2>
-            <p className="text-sm" style={{ color: theme.colors.textSecondary }}>
-              {t("settings.themeGalleryDesc")}
-            </p>
+    <ResponsiveDialogSheet
+      open
+      onClose={() => onClose?.()}
+      title={t("settings.themeGalleryTitle")}
+      description={t("settings.themeGalleryDesc")}
+      desktopMaxWidth="72rem"
+      footer={
+        <div className="flex w-full items-center justify-between gap-3">
+          <div className="text-sm" style={{ color: theme.colors.textSecondary }}>
+            {t("settings.themeCount", { count: themes.length })}
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 rounded-lg transition-colors"
+            className="px-4 py-2 rounded-lg font-medium transition-colors"
             style={{
-              color: theme.colors.textSecondary,
-              backgroundColor: 'transparent'
+              backgroundColor: theme.colors.primary,
+              color: theme.colors.onPrimary,
             }}
-            onMouseEnter={(e) => e.currentTarget.style.backgroundColor = theme.variant === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.05)'}
-            onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
           >
-            <X className="w-5 h-5" />
+            {t("common.done")}
           </button>
         </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-6">
+      }
+    >
+      <div className="space-y-6">
           {/* Jellyfish animated family */}
           {jellyfishThemes.length > 0 && (
             <section>
@@ -352,30 +341,8 @@ export function ThemeGallery({ onClose, onThemeSelect }: ThemeGalleryProps) {
               </div>
             </section>
           )}
-
-        </div>
-
-        {/* Footer */}
-        <div
-          className="flex items-center justify-between p-4 border-t"
-          style={{ borderColor: theme.colors.outline }}
-        >
-          <div className="text-sm" style={{ color: theme.colors.textSecondary }}>
-            {t("settings.themeCount", { count: themes.length })}
-          </div>
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg font-medium transition-colors"
-            style={{
-              backgroundColor: theme.colors.primary,
-              color: theme.colors.onPrimary,
-            }}
-          >
-            {t("common.done")}
-          </button>
-        </div>
       </div>
-    </div>
+    </ResponsiveDialogSheet>
   );
 }
 

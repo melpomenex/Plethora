@@ -14,9 +14,11 @@
  */
 
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useAccountStore } from '../../stores/accountStore';
 import { useSyncStore } from '../../stores/syncStore';
 import { PLETHORA_API_URL } from '../../config/product';
+import { useOverlayDismissal } from '../../hooks/useOverlayDismissal';
 
 const CONFIRM_PHRASE = 'DELETE';
 
@@ -54,6 +56,10 @@ export function DeleteAccountFlow({ open, onClose }: DeleteAccountFlowProps) {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
   const [exportNote, setExportNote] = useState<string | null>(null);
+
+  useOverlayDismissal(open, () => {
+    if (!isDeleting) onClose();
+  });
 
   if (!open) return null;
 
@@ -125,9 +131,9 @@ export function DeleteAccountFlow({ open, onClose }: DeleteAccountFlowProps) {
     setExportNote(null);
   };
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-[var(--md-z-dialog)] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label="Delete account"
@@ -280,6 +286,7 @@ export function DeleteAccountFlow({ open, onClose }: DeleteAccountFlowProps) {
           </>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

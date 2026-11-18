@@ -3,6 +3,7 @@ import { useDestinationAction } from "../../commandPalette/destinationActions";
 import { emitUserInteraction } from "../../lib/feedback/orchestrator";
 import { Fragment, lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { clampMenuPosition } from "../../lib/contextMenus";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Archive,
@@ -2055,9 +2056,17 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
 
           {/* List mode context menu (rendered via portal) */}
           {listCtxDoc && createPortal(
+            (() => {
+              const clampedPos = clampMenuPosition(
+                listCtxDoc.pos.x,
+                listCtxDoc.pos.y,
+                { w: 220, h: 320 },
+                { w: window.innerWidth, h: window.innerHeight },
+              );
+              return (
             <Fragment>
               <div className="fixed inset-0 z-[9998]" onContextMenu={(e) => { e.preventDefault(); setListCtxDoc(null); }} onClick={() => setListCtxDoc(null)} />
-              <div ref={listCtxRef} role="menu" className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[200px]" style={{ left: listCtxDoc.pos.x, top: listCtxDoc.pos.y }}>
+              <div ref={listCtxRef} role="menu" className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[200px]" style={{ left: clampedPos.x, top: clampedPos.y }}>
                 <button
                   className="flex items-center gap-2.5 w-full text-left px-3 py-1.5 text-sm hover:bg-muted text-foreground"
                   onClick={() => { setListCtxDoc(null); onOpenDocument?.(listCtxDoc.doc); }}
@@ -2213,7 +2222,9 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                   Delete
                 </button>
               </div>
-            </Fragment>,
+            </Fragment>
+              );
+            })(),
             document.body
           )}
 
@@ -4337,9 +4348,17 @@ function LibraryCard({
 
       {/* Context Menu (rendered via portal) */}
       {ctxPos && createPortal(
+        (() => {
+          const clampedPos = clampMenuPosition(
+            ctxPos.x,
+            ctxPos.y,
+            { w: 220, h: 320 },
+            { w: window.innerWidth, h: window.innerHeight },
+          );
+          return (
         <Fragment>
           <div className="fixed inset-0 z-[9998]" onContextMenu={(e) => { e.preventDefault(); setCtxPos(null); }} />
-          <div ref={menuRef} role="menu" className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[200px]" style={{ left: ctxPos.x, top: ctxPos.y }}>
+          <div ref={menuRef} role="menu" className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[200px]" style={{ left: clampedPos.x, top: clampedPos.y }}>
             {menuItems.map((item, i) =>
               item.divider ? (
                 <div key={i} className="h-px bg-border my-1" />
@@ -4355,7 +4374,9 @@ function LibraryCard({
               )
             )}
           </div>
-        </Fragment>,
+        </Fragment>
+          );
+        })(),
         document.body
       )}
 

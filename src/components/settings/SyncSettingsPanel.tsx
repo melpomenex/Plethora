@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { useSyncStore } from "../../stores/syncStore";
 import { useAccountStore } from "../../stores/accountStore";
 import { selectIsPro, useEntitlementStore } from "../../stores/entitlementStore";
@@ -334,8 +335,8 @@ export function SyncSettingsPanel() {
         )}
       </div>
 
-      {showKeyModal && activeKey && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      {showKeyModal && activeKey && createPortal(
+        <div className="fixed inset-0 z-[var(--md-z-dialog)] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-card border rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
             <h3 className="text-lg font-semibold text-foreground flex items-center gap-2">
               <Key className="w-5 h-5 text-indigo-500" />
@@ -354,7 +355,8 @@ export function SyncSettingsPanel() {
               I have safely stored this key
             </button>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

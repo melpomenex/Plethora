@@ -916,7 +916,7 @@ export function VimiumCommandBar({
   });
 
   return (
-    <div className="vimium-container fixed bottom-4 left-1/2 -translate-x-1/2 z-[999999] bg-background border border-border rounded-lg shadow-lg overflow-hidden min-w-[420px]">
+    <div className="vimium-container fixed bottom-4 left-1/2 -translate-x-1/2 z-[999999] bg-background border border-border rounded-lg shadow-lg overflow-hidden min-w-[min(420px,calc(100vw-2rem))] max-w-[calc(100vw-2rem)]">
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
         <span className="text-muted-foreground">:</span>
         <input

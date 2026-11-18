@@ -4,10 +4,12 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "../../lib/tauri";
 import { Microphone, Upload, Play, Stop, Check, X, CircleNotch, SpeakerHigh } from "@phosphor-icons/react";
 import { cloneOpenAIVoice } from "../../api/tts/providers/openai-compatible";
+import { useOverlayDismissal } from "../../hooks/useOverlayDismissal";
 
 interface VoiceCloningStudioModalProps {
   isOpen: boolean;
@@ -50,6 +52,7 @@ export function VoiceCloningStudioModal({
     };
   }, [audioUrl]);
 
+  useOverlayDismissal(isOpen, onClose);
   if (!isOpen) return null;
 
   const startRecording = async () => {
@@ -187,8 +190,8 @@ export function VoiceCloningStudioModal({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[var(--md-z-dialog)] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
       <div className="relative w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl">
         <div className="flex items-center justify-between pb-4 border-b border-border">
           <div>
@@ -324,6 +327,7 @@ export function VoiceCloningStudioModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { invokeCommand as invoke } from "../../lib/tauri";
 import {
   ArrowsClockwise,
@@ -474,8 +475,8 @@ export function BackupRestorePanel({
       )}
 
       {/* Restore Confirmation Dialog */}
-      {showRestoreConfirm && selectedBackup && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      {showRestoreConfirm && selectedBackup && createPortal(
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[var(--md-z-dialog)]">
           <div className="bg-card border border-border rounded-lg p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-semibold text-foreground mb-4">
               {t("backup.confirmRestore")}
@@ -533,12 +534,13 @@ export function BackupRestorePanel({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* Encryption Password Dialog */}
-      {showPasswordPrompt && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      {showPasswordPrompt && createPortal(
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[var(--md-z-dialog)]">
           <div className="bg-card border border-border rounded-lg p-6 max-w-md w-full mx-4">
             <h3 className="text-lg font-semibold text-foreground mb-2 flex items-center gap-2">
               <Shield className="w-5 h-5 text-primary" />
@@ -642,7 +644,8 @@ export function BackupRestorePanel({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
 
       {/* Success Message */}

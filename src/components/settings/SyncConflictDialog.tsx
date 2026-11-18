@@ -4,8 +4,10 @@
  */
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { invokeCommand as invoke } from "../../lib/tauri";
 import { useI18n } from "../../lib/i18n";
+import { useOverlayDismissal } from "../../hooks/useOverlayDismissal";
 import {
   ArrowsClockwise,
   Calendar,
@@ -120,8 +122,10 @@ export function SyncConflictDialog({
 
   const allResolved = conflicts.every((_, index) => resolutions.has(index));
 
-  return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+  useOverlayDismissal(true, onClose);
+
+  return createPortal(
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[var(--md-z-dialog)] p-4">
       <div className="bg-card border border-border rounded-lg max-w-3xl w-full max-h-[90vh] overflow-hidden flex flex-col">
         {/* Header */}
         <div className="p-6 border-b border-border">
@@ -306,6 +310,7 @@ export function SyncConflictDialog({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

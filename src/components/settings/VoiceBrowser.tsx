@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { TTSProviderId, TTSVoiceInfo } from "../../api/tts/types";
 import { requestPaidConsent } from "../../utils/aiBillingConsent";
 import { t } from "../../lib/i18n";
+import { useOverlayDismissal } from "../../hooks/useOverlayDismissal";
 
 export interface ParsedVoiceMetadata {
   language?: string;
@@ -58,6 +60,7 @@ export function VoiceBrowser({
   onToggleFavorite,
 }: VoiceBrowserProps) {
   const [query, setQuery] = useState("");
+  useOverlayDismissal(true, onClose);
   const [providerFilter, setProviderFilter] = useState("");
   const [vendorFilter, setVendorFilter] = useState("");
   const [languageFilter, setLanguageFilter] = useState("");
@@ -171,8 +174,8 @@ export function VoiceBrowser({
   };
 
   const shown = filteredVoices.slice(0, visibleCount);
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="Voice browser">
+  return createPortal(
+    <div className="fixed inset-0 z-[var(--md-z-dialog)] flex items-center justify-center bg-black/40 p-4" role="dialog" aria-modal="true" aria-label="Voice browser">
       <div className="flex max-h-[min(90vh,52rem)] w-full max-w-4xl flex-col overflow-hidden rounded-xl border border-border bg-card shadow-xl">
         <div className="shrink-0 space-y-3 border-b border-border p-4">
           <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-2"><div><h2 className="text-lg font-semibold">Choose a voice</h2><p className="text-xs text-muted-foreground">Search by voice, model, or vendor.</p></div>{isBilled && <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400" title={t("paid.badgeTooltip")}>{t("paid.badge")}</span>}</div><button type="button" onClick={onClose} className="rounded border border-border px-3 py-1.5 text-sm">Close</button></div>
@@ -191,7 +194,8 @@ export function VoiceBrowser({
         </div>
         {isBilled && <p className="shrink-0 border-t border-border px-4 py-2 text-xs text-muted-foreground">{t("settings.ttsPreviewCostDisclosure")}</p>}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

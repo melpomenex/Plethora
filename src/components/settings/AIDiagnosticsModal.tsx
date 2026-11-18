@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { X, ArrowsClockwise, Cpu, Sparkle, Download, Stop } from "@phosphor-icons/react";
 import { useI18n } from "../../lib/i18n";
+import { useOverlayDismissal } from "../../hooks/useOverlayDismissal";
 import {
   clearAllDiagnostics,
   getFeatureSummaries,
@@ -146,6 +148,8 @@ export function AIDiagnosticsModal({ isOpen, onClose }: AIDiagnosticsModalProps)
     // Intentionally only on open: opening diagnostics never runs a smoke test.
   }, [isOpen]);
 
+  useOverlayDismissal(isOpen, onClose);
+
   if (!isOpen) return null;
 
   const summaryById = new Map(featureSummaries.map((summary) => [summary.featureId, summary]));
@@ -196,8 +200,8 @@ export function AIDiagnosticsModal({ isOpen, onClose }: AIDiagnosticsModalProps)
     onClose();
   };
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+  return createPortal(
+    <div className="fixed inset-0 z-[var(--md-z-dialog)] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
       <div className="w-full max-w-3xl bg-card border border-border rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-border bg-muted/40">
@@ -525,6 +529,7 @@ export function AIDiagnosticsModal({ isOpen, onClose }: AIDiagnosticsModalProps)
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

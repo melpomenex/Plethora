@@ -1,4 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
+import { clampMenuPosition } from "../../lib/contextMenus";
 import {
   ArrowLeft,
   ArrowsVertical,
@@ -1521,12 +1523,18 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
         const ctxDeck = decks.find((d) => d.id === contextMenu.deckId);
         if (!ctxDeck) return null;
         const ctxCounts = deckCardCounts.get(contextMenu.deckId);
-        return (
+        const clampedPos = clampMenuPosition(
+          contextMenu.x,
+          contextMenu.y,
+          { w: 200, h: 300 },
+          { w: window.innerWidth, h: window.innerHeight },
+        );
+        return createPortal(
           <>
-            <div className="fixed inset-0 z-40" onClick={closeContextMenu} />
+            <div className="fixed inset-0 z-[var(--md-z-dialog)]" onClick={closeContextMenu} />
             <div
-              className="fixed z-50 bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[180px]"
-              style={{ left: contextMenu.x, top: contextMenu.y }}
+              className="fixed z-[var(--md-z-menu)] bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[180px]"
+              style={{ left: clampedPos.x, top: clampedPos.y }}
             >
               <button
                 onClick={() => handleDeckStudy(contextMenu.deckId)}
@@ -1590,7 +1598,8 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
                 Delete Deck
               </button>
             </div>
-          </>
+          </>,
+          document.body,
         );
       })()}
       {isMobile && selectionMode && (

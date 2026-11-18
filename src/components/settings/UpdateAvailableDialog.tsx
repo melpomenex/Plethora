@@ -3,6 +3,8 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { useOverlayDismissal } from "../../hooks/useOverlayDismissal";
 import {
   ArrowSquareOut,
   Clock,
@@ -244,11 +246,15 @@ export function UpdateAvailableDialog({
     onClose();
   };
 
-  return (
+  useOverlayDismissal(true, () => {
+    if (install.phase !== "installing") onClose();
+  });
+
+  return createPortal(
     <div
       ref={backdropRef}
       onClick={handleBackdropClick}
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-[var(--md-z-dialog)] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4"
     >
       <div className="bg-card border border-border rounded-lg shadow-xl max-w-lg w-full max-h-[80vh] flex flex-col animate-slide-up">
         {/* Header */}
@@ -394,6 +400,7 @@ export function UpdateAvailableDialog({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

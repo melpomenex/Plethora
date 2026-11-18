@@ -37,7 +37,7 @@ export const ConnectionsAffordance: React.FC<ConnectionsAffordanceProps> = ({
 
       {/* Popover */}
       {isOpen && (
-        <div className="absolute left-0 mt-2 z-40 w-80 p-3 bg-popover text-popover-foreground rounded-xl shadow-xl border border-border space-y-3">
+        <div className="absolute left-0 mt-2 z-40 w-80 max-w-[calc(100vw-2rem)] p-3 bg-popover text-popover-foreground rounded-xl shadow-xl border border-border space-y-3">
           <div className="flex items-center justify-between border-b pb-2">
             <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
               <Sparkle className="w-3.5 h-3.5 text-amber-500" />

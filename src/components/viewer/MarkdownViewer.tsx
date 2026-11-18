@@ -1,5 +1,7 @@
 import { textAnnotationTargetsAtPoint, type ReaderContextMenuPayload } from "./annotationContextMenu";
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
+import { clampMenuPosition } from "../../lib/contextMenus";
 import { Document } from "../../types";
 import { renderMarkdown } from "../../utils/markdown";
 import { useI18n } from "../../lib/i18n";
@@ -340,12 +342,20 @@ export function MarkdownViewer({
       {breakoutTrigger}
       {breakoutModal}
 
-      {contextMenu && onCreateFlashcard && (
+      {contextMenu && onCreateFlashcard && createPortal(
+        (() => {
+          const clampedPos = clampMenuPosition(
+            contextMenu.x,
+            contextMenu.y,
+            { w: 200, h: 60 },
+            { w: window.innerWidth, h: window.innerHeight },
+          );
+          return (
         <>
           <div className="fixed inset-0 z-[9999]" onClick={() => setContextMenu(null)} onContextMenu={(e) => { e.preventDefault(); setContextMenu(null); }} />
           <div
             className="fixed z-[10000] bg-card border border-border rounded-lg shadow-xl py-1 min-w-[180px]"
-            style={{ left: contextMenu.x, top: contextMenu.y }}
+            style={{ left: clampedPos.x, top: clampedPos.y }}
           >
             <button
               className="w-full text-left px-3 py-2 text-sm text-foreground hover:bg-muted transition-colors flex items-center gap-2"
@@ -360,6 +370,9 @@ export function MarkdownViewer({
             </button>
           </div>
         </>
+          );
+        })(),
+        globalThis.document.body,
       )}
     </div>
     </>

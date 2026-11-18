@@ -1,6 +1,8 @@
 import { useDestinationAction, useDestinationActionStore } from "../../commandPalette/destinationActions";
 import { useSavedQueueActions, savedQueueIsApplied } from "../queue/useSavedQueueActions";
 import React, { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
+import { clampMenuPosition } from "../../lib/contextMenus";
 import { useShallow } from "zustand/react/shallow";
 import {
   ArrowCounterClockwise,
@@ -2353,7 +2355,15 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
       </div>
 
       {/* Right-click Context Menu */}
-      {ctxPos && ctxItem && (
+      {ctxPos && ctxItem && createPortal(
+        (() => {
+          const clampedPos = clampMenuPosition(
+            ctxPos.x,
+            ctxPos.y,
+            { w: 230, h: 320 },
+            { w: window.innerWidth, h: window.innerHeight },
+          );
+          return (
         <>
           <div className="fixed inset-0 z-[9998]" onContextMenu={(e) => { e.preventDefault(); setCtxPos(null); setCtxItem(null); }} />
           <div
@@ -2361,7 +2371,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
             role="menu"
             aria-label={translateRecentFeature("i18nAudit.ui.actions-for-var0.9c112300", {var0: ctxItem.documentTitle})}
             className="fixed z-[9999] bg-popover border border-border rounded-lg shadow-xl py-1 min-w-[220px] animate-in fade-in-0 zoom-in-95 duration-100"
-            style={{ left: ctxPos.x, top: ctxPos.y }}
+            style={{ left: clampedPos.x, top: clampedPos.y }}
           >
             {/* Study / Open */}
             <button
@@ -2484,6 +2494,9 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
             )}
           </div>
         </>
+          );
+        })(),
+        document.body,
       )}
 
       <QueueItemActionSheet
