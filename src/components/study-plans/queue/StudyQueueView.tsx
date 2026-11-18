@@ -27,6 +27,7 @@ import {
   projectStudyQueue,
   type StudyQueueEntry,
 } from '../../../lib/study-plans/trail/queueProjection';
+import { studyErrorMessage } from '../../../lib/study-plans/studyErrorMessage';
 import type { StudyPlanDetail } from '../../../types/learningPaths';
 import type {
   AssessmentEligibilityPolicy,
@@ -62,6 +63,7 @@ export const StudyQueueView: React.FC<StudyQueueViewProps> = ({
 
   const planId = planDetail.plan.id;
   const versionId = planDetail.version.id;
+  const isModelOnly = planDetail.version.knowledgeAuthority.kind === 'model-only';
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -76,7 +78,7 @@ export const StudyQueueView: React.FC<StudyQueueViewProps> = ({
         setOverview(data);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load Study Queue');
+      setError(studyErrorMessage(err, 'Failed to load Study Queue'));
     } finally {
       setLoading(false);
     }
@@ -87,13 +89,27 @@ export const StudyQueueView: React.FC<StudyQueueViewProps> = ({
   }, [refresh]);
 
   const handleGenerate = async () => {
+    if (isModelOnly) {
+      setError(
+        'This study plan uses AI-only knowledge without library sources, so no source reading trail can be generated.',
+      );
+      return;
+    }
     setGenerating(true);
     setError(null);
     try {
       const data = await generateStudyTrailSegments({ planId, versionId, policy });
       setOverview(data);
+      if (data.trailItems.length === 0) {
+        const hasIncludedNodes = planDetail.version.nodes.some((n) => n.included);
+        setError(
+          hasIncludedNodes
+            ? 'No Study Trail items could be generated for this plan.'
+            : 'No included curriculum topics were found to build a Study Trail.',
+        );
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate Study Trail');
+      setError(studyErrorMessage(err, 'Failed to generate Study Trail'));
     } finally {
       setGenerating(false);
     }
@@ -144,10 +160,10 @@ export const StudyQueueView: React.FC<StudyQueueViewProps> = ({
           <Button
             variant="tonal"
             size="sm"
-            disabled={generating}
+            disabled={generating || isModelOnly}
             onClick={() => void handleGenerate()}
           >
-            <ArrowsClockwise size={15} />
+            <ArrowsClockwise size={15} className={generating ? 'animate-spin' : undefined} />
             <span>
               {generating
                 ? 'Analyzing Sources…'
@@ -214,14 +230,23 @@ export const StudyQueueView: React.FC<StudyQueueViewProps> = ({
       {(!overview || overview.trailItems.length === 0) && (
         <section className="rounded-2xl border border-outline-variant bg-surface-container-low p-6 space-y-3">
           <h3 className="text-base font-semibold text-on-surface">Prepare Your Guided Study Trail</h3>
-          <p className="text-sm text-on-surface-variant max-w-2xl">
-            Plethora will analyze the structure of your selected sources, exclude tables of contents, bibliographies, and
-            incidental mentions, and assemble coherent, prerequisite-ordered reading assignments for each learning objective.
-          </p>
-          <Button variant="filled" size="md" disabled={generating} onClick={() => void handleGenerate()}>
-            <Sparkle size={16} />
-            <span>{generating ? 'Generating Learning Segments…' : 'Generate Study Trail'}</span>
-          </Button>
+          {isModelOnly ? (
+            <p className="text-sm text-on-surface-variant max-w-2xl">
+              This study plan uses AI-only knowledge without attached library sources. Add sources to generate a
+              guided reading trail, or use List / Graph view to start lessons directly.
+            </p>
+          ) : (
+            <>
+              <p className="text-sm text-on-surface-variant max-w-2xl">
+                Plethora will analyze the structure of your selected sources, exclude tables of contents, bibliographies, and
+                incidental mentions, and assemble coherent, prerequisite-ordered reading assignments for each learning objective.
+              </p>
+              <Button variant="filled" size="md" disabled={generating} onClick={() => void handleGenerate()}>
+                {generating ? <ArrowsClockwise size={16} className="animate-spin" /> : <Sparkle size={16} />}
+                <span>{generating ? 'Generating Learning Segments…' : 'Generate Study Trail'}</span>
+              </Button>
+            </>
+          )}
         </section>
       )}
 
