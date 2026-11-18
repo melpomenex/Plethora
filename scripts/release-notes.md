@@ -1,20 +1,23 @@
 ### Added
 
-- **Unified session chrome & end-of-item triage** — Consolidated reading and review session headers with a provenance pill (`QueueProvenancePill`) showing why an item appeared, plus an end-of-item triage bar (`EndOfItemTriageBar`) for fast post-item actions.
-- **Split Q&A / Cloze creation & chained clozes** — Dedicated `QACreatorPopup` and `ClozeCreatorPopup` with inline selection action bar support and chained cloze creation for multi-part cards.
-- **Progressive disclosure density modes** — Switch between UI density modes (`uiStore`) to declutter reading and review surfaces, paired with expanded command palette actions and navigation.
-- **Ghost Context Peek & Subway Minimap** — Preview surrounding source context inline during review (`GhostContextPeek`) and navigate long documents via a visual `SubwayMinimap`.
-- **Timebox session playlists** — Build timeboxed study playlists (`TimeboxSessionLauncher` and `timeboxPlaylistBuilder`) tailored to available session minutes.
-- **Triage Compost Sweep & Leech Refactor Wizard** — Batch-sweep stale or postponed queue items with `TriageCompostSweepModal` and split or rewrite stubborn leeches inline with `LeechRefactorWizard`.
-- **Transcript video slicing & role-voice TTS PiP** — Extract timed video slices directly from `TranscriptSync`, and listen with multi-voice/role-voice TTS in a persistent `MiniAudioPlayer` picture-in-picture bar.
-- **Breakout View & Socratic Margin** — Open focused `BreakoutOverlayModal` views for dense content and iframes, and ask/reflect in-context with `SocraticMarginThread` alongside documents, EPUBs, and markdown.
-- **Today's Horizon & Knowledge Gap queue injection** — See daily learning focus in `TodaysHorizonBanner` on the dashboard and inject targeted items from `KnowledgeGapCard` directly into the active queue.
-- **Graceful AI fallbacks & Knowledge Graph heatmaps/lasso** — Degrade cleanly when AI providers are unavailable (`GracefulAiFallbackCard`), and explore `ObsidianGraph` with mastery/activity heatmaps and lasso multi-selection.
-- **Ingestion Airlock & automatic heading splitter** — Stage, preview, and split incoming documents by headings (`IngestionAirlockModal`, `documentHeadingSplitter`) before committing them to the library.
-- **Mobile thumb-arc & double-tap ergonomics** — Redesigned `MobileQueueView` with one-handed thumb-arc controls and double-tap gestures.
+- **Custom OKLCH image-to-theme creator** — Upload any image to automatically generate a balanced, accessible OKLCH color theme (`ImageThemeModal`), with live preview, mobile WebView file-upload support, and fuzzy search in the Theme Gallery.
+- **Knowledge Atlas, Directory View & Context Inspector** — Redesigned the Knowledge Graph with a Knowledge Atlas, hierarchical Directory View, and a Context Inspector for exploring connected concepts and sources.
+- **Settings Integrations master-detail redesign** — Rebuilt the Settings Integrations tabs into a responsive master-detail layout for cleaner navigation across desktop and mobile.
+- **Guided Reading Trails & Study Queue checks** — Added an end-to-end guided study trail pipeline with a `StudyQueueView`, `GuidedReadingPanel` navigation, and inline multiple-choice comprehension checks.
+- **Cactus Compute Mirage vision engine** — Integrated the Mirage vision engine across document ingestion, image occlusion, FTS5 full-text search, and the browser clipper.
+- **Instant local media playback & HLS streaming** — Added instant local media playback and HTTP Live Streaming (HLS) support for smoother video and audio scrubbing.
+- **Mobile Assistant chat & history** — Added New Chat and Recent Chat History support to the mobile assistant.
+- **Mouse & wheel navigation across views** — Support mouse back/forward buttons globally across views, horizontal wheel page turning in the reader, and EPUB iframe mouse navigation.
+- **Right-click context menus** — Added right-click context menus across all dashboard elements and audiobook cards.
+- **Plethora Capture 1.16.0** — Persisted highlights and smart-tag extracts in the browser extension with upgraded priority UX.
 
 ### Fixed & Improved
 
-- **EPUB & HTML iframe shortcuts and Breakout View** — Forward keyboard shortcuts reliably out of EPUB/HTML iframes, guard `j`/`k` navigation against modifier keys, and support Breakout View inside iframe viewers.
-- **Ingestion Airlock & mobile fallbacks** — Wired `IngestionAirlockModal` into `ImportNeedsReviewPage` and added default thumb-arc fallbacks in `MobileQueueView`.
-- **CI build performance across all platforms** — Parallelized Cargo release builds (`CARGO_BUILD_JOBS=4`) on Linux, macOS, Windows, and Android, disabled ThinLTO on 16 GB CI runners, added Windows Defender exclusions, and removed redundant frontend/sidecar build passes.
+- **Startup & document loading performance** — Accelerated app launch and streamlined the startup lifecycle, added `epub_server` for instant document/EPUB loading, batched query embeddings with precomputed corpus analysis for study trails, and added a scoped document lexical fast-path for retrieval.
+- **Video playback & transcription** — Preserved and flushed initial seek positions across HLS and compatibility streams, auto-hid controls on mouse inactivity, added CORS headers to HLS stream routes, cached X/Twitter videos with inline transcription, and supported Cactus Whistle (`Needle`) in `generate_video_transcript`.
+- **DAQE & decision-model ranking** — Wired Clef and decision-model ranking and added the Gemini decision model.
+- **Assistant & study plans** — Persisted assistant panel conversations to SQLite with unified video/document keys, isolated text selection/context menus/scroll position, allowed resuming study plan generation jobs after reviewing updated model/embedding configs, and fixed mobile button wrapping and theme-aware surface tokens.
+- **EPUB, PDF & HTML reading** — Resolved relative section resource URLs with local server CSP support in EPUBs, clipped PDF passage highlights, and supported converted HTML views.
+- **UI layering, themes & shortcuts** — Fixed Theme Gallery and modal layering (`ResponsiveDialogSheet` on mobile), prevented preview/revert flicker loops in `ImageThemeModal`, clamped off-screen menus, wired default keybindings through `useShortcutStore`, and hid mobile-only settings on desktop.
+- **Android & Linux packaging** — Preserved `RustWebChromeClient` file chooser when hooking permissions on Android, updated the Android launcher icon to a transparent bird-only icon, and updated the Linux AppImage packaging script and tests.
+- **Handbook documentation** — Documented guided reading trails, media streaming, Mirage vision, and UX overhaul features/shortcuts across all 6 locales.
