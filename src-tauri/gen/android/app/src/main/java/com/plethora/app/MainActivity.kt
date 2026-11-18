@@ -5,12 +5,17 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioManager
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.view.ViewGroup
 import android.view.KeyEvent
 import android.view.WindowManager
+import android.webkit.GeolocationPermissions
+import android.webkit.JsPromptResult
+import android.webkit.JsResult
 import android.webkit.PermissionRequest
+import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.ConsoleMessage
@@ -115,13 +120,139 @@ class MainActivity : TauriActivity() {
     }
 
     /**
+     * WebChromeClient wrapper that preserves Tauri/Wry's RustWebChromeClient
+     * (file chooser for `<input type="file">`, JS dialogs, fullscreen video,
+     * geolocation, title updates) while adding startup console tracing and
+     * our OS-to-WebView media permission bridge.
+     */
+    private inner class PlethoraWebChromeClient(
+        private val delegate: WebChromeClient?
+    ) : WebChromeClient() {
+        override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+            val traced = startupTrace.console(message)
+            val delegated = delegate?.onConsoleMessage(message) ?: false
+            return traced || delegated
+        }
+
+        override fun onShowFileChooser(
+            webView: WebView,
+            filePathCallback: ValueCallback<Array<Uri?>?>,
+            fileChooserParams: FileChooserParams
+        ): Boolean {
+            return delegate?.onShowFileChooser(webView, filePathCallback, fileChooserParams)
+                ?: super.onShowFileChooser(webView, filePathCallback, fileChooserParams)
+        }
+
+        override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+            if (delegate != null) {
+                delegate.onShowCustomView(view, callback)
+            } else {
+                super.onShowCustomView(view, callback)
+            }
+        }
+
+        override fun onHideCustomView() {
+            if (delegate != null) {
+                delegate.onHideCustomView()
+            } else {
+                super.onHideCustomView()
+            }
+        }
+
+        override fun onJsAlert(
+            view: WebView,
+            url: String,
+            message: String,
+            result: JsResult
+        ): Boolean {
+            return delegate?.onJsAlert(view, url, message, result)
+                ?: super.onJsAlert(view, url, message, result)
+        }
+
+        override fun onJsConfirm(
+            view: WebView,
+            url: String,
+            message: String,
+            result: JsResult
+        ): Boolean {
+            return delegate?.onJsConfirm(view, url, message, result)
+                ?: super.onJsConfirm(view, url, message, result)
+        }
+
+        override fun onJsPrompt(
+            view: WebView,
+            url: String,
+            message: String,
+            defaultValue: String,
+            result: JsPromptResult
+        ): Boolean {
+            return delegate?.onJsPrompt(view, url, message, defaultValue, result)
+                ?: super.onJsPrompt(view, url, message, defaultValue, result)
+        }
+
+        override fun onGeolocationPermissionsShowPrompt(
+            origin: String,
+            callback: GeolocationPermissions.Callback
+        ) {
+            if (delegate != null) {
+                delegate.onGeolocationPermissionsShowPrompt(origin, callback)
+            } else {
+                super.onGeolocationPermissionsShowPrompt(origin, callback)
+            }
+        }
+
+        override fun onReceivedTitle(view: WebView, title: String) {
+            if (delegate != null) {
+                delegate.onReceivedTitle(view, title)
+            } else {
+                super.onReceivedTitle(view, title)
+            }
+        }
+
+        override fun onPermissionRequest(request: PermissionRequest) {
+            runOnUiThread {
+                val supported = request.resources.toSet()
+                val wantCamera = PermissionRequest.RESOURCE_VIDEO_CAPTURE in supported
+                val wantAudio = PermissionRequest.RESOURCE_AUDIO_CAPTURE in supported
+
+                val cameraGranted = !wantCamera || ContextCompat.checkSelfPermission(
+                    this@MainActivity, Manifest.permission.CAMERA
+                ) == PackageManager.PERMISSION_GRANTED
+                val audioGranted = !wantAudio || ContextCompat.checkSelfPermission(
+                    this@MainActivity, Manifest.permission.RECORD_AUDIO
+                ) == PackageManager.PERMISSION_GRANTED
+
+                if (cameraGranted && audioGranted) {
+                    // OS already permits everything requested — forward to WebView.
+                    val toGrant = mutableListOf<String>()
+                    if (wantCamera) toGrant.add(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
+                    if (wantAudio) toGrant.add(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
+                    request.grant(toGrant.toTypedArray())
+                } else {
+                    // Hold the WebView request, surface the OS dialog, resolve on result.
+                    pendingWebViewPermission = request
+                    val toRequest = mutableListOf<String>()
+                    if (wantCamera && !cameraGranted) toRequest.add(Manifest.permission.CAMERA)
+                    if (wantAudio && !audioGranted) toRequest.add(Manifest.permission.RECORD_AUDIO)
+                    if (toRequest.isEmpty()) {
+                        request.grant(request.resources)
+                        pendingWebViewPermission = null
+                    } else {
+                        requestPermissionsLauncher.launch(toRequest.toTypedArray())
+                    }
+                }
+            }
+        }
+    }
+
+    /**
      * Install a WebChromeClient that bridges WebView getUserMedia requests to
-     * the OS permission layer. Used by the sync QR scanner (qr-scanner, video)
-     * and the Document Assistant voice feature (Web Speech API, audio).
+     * the OS permission layer while delegating file chooser and other callbacks
+     * to Tauri's RustWebChromeClient. Used by the sync QR scanner (qr-scanner,
+     * video) and the Document Assistant voice feature (Web Speech API, audio).
      *
-     * NOTE: this replaces Tauri's default WebChromeClient for the permission
-     * callback. We grant both RESOURCE_VIDEO_CAPTURE and RESOURCE_AUDIO_CAPTURE
-     * when the corresponding OS permission is held, so the existing mic flow is
+     * We grant both RESOURCE_VIDEO_CAPTURE and RESOURCE_AUDIO_CAPTURE when the
+     * corresponding OS permission is held, so the existing mic flow is
      * preserved. We deliberately do NOT set AudioManager.MODE_IN_COMMUNICATION
      * (this is a podcast/reading app; forcing that mode would disrupt media
      * playback).
@@ -138,46 +269,9 @@ class MainActivity : TauriActivity() {
         if (BuildConfig.DEBUG) {
             WebView.setWebContentsDebuggingEnabled(true)
         }
-        wv.webChromeClient = object : WebChromeClient() {
-            override fun onConsoleMessage(message: ConsoleMessage): Boolean {
-                return startupTrace.console(message)
-            }
-
-            override fun onPermissionRequest(request: PermissionRequest) {
-                runOnUiThread {
-                    val supported = request.resources.toSet()
-                    val wantCamera = PermissionRequest.RESOURCE_VIDEO_CAPTURE in supported
-                    val wantAudio = PermissionRequest.RESOURCE_AUDIO_CAPTURE in supported
-
-                    val cameraGranted = !wantCamera || ContextCompat.checkSelfPermission(
-                        this@MainActivity, Manifest.permission.CAMERA
-                    ) == PackageManager.PERMISSION_GRANTED
-                    val audioGranted = !wantAudio || ContextCompat.checkSelfPermission(
-                        this@MainActivity, Manifest.permission.RECORD_AUDIO
-                    ) == PackageManager.PERMISSION_GRANTED
-
-                    if (cameraGranted && audioGranted) {
-                        // OS already permits everything requested — forward to WebView.
-                        val toGrant = mutableListOf<String>()
-                        if (wantCamera) toGrant.add(PermissionRequest.RESOURCE_VIDEO_CAPTURE)
-                        if (wantAudio) toGrant.add(PermissionRequest.RESOURCE_AUDIO_CAPTURE)
-                        request.grant(toGrant.toTypedArray())
-                    } else {
-                        // Hold the WebView request, surface the OS dialog, resolve on result.
-                        pendingWebViewPermission = request
-                        val toRequest = mutableListOf<String>()
-                        if (wantCamera && !cameraGranted) toRequest.add(Manifest.permission.CAMERA)
-                        if (wantAudio && !audioGranted) toRequest.add(Manifest.permission.RECORD_AUDIO)
-                        if (toRequest.isEmpty()) {
-                            request.grant(request.resources)
-                            pendingWebViewPermission = null
-                        } else {
-                            requestPermissionsLauncher.launch(toRequest.toTypedArray())
-                        }
-                    }
-                }
-            }
-        }
+        val existing = wv.webChromeClient
+        if (existing is PlethoraWebChromeClient) return
+        wv.webChromeClient = PlethoraWebChromeClient(existing)
     }
 
     /**
