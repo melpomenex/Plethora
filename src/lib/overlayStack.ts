@@ -84,6 +84,10 @@ export function requestOverlayBack(completion?: NavigationCompletion): boolean {
   return true;
 }
 
+export function hasEligibleOverlay(): boolean {
+  return entries.some(isEligibleOverlay);
+}
+
 export function resetOverlayStackForTests() {
   entries.splice(0, entries.length);
   order = 0;

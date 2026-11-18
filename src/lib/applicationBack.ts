@@ -1,6 +1,7 @@
 import { useTabsStore } from "../stores/tabsStore";
 import { requestContextualBack } from "./contextualBack";
-import { requestOverlayBack } from "./overlayStack";
+import { requestContextualForward } from "./contextualForward";
+import { hasEligibleOverlay, requestOverlayBack } from "./overlayStack";
 import { createNavigationCompletion } from "./navigationFeedback";
 
 export interface BackInput {
@@ -9,9 +10,18 @@ export interface BackInput {
   intent?: "hierarchy" | "leave-view";
 }
 
+export interface ForwardInput {
+  source: "ui";
+  id: string;
+}
+
 export type BackDispatch =
   | { kind: "consumed"; outcome: "completed" | "pending" | "blocked"; transitionId?: string }
   | { kind: "root" }
+  | { kind: "unavailable" };
+
+export type ForwardDispatch =
+  | { kind: "consumed"; outcome: "completed" | "pending" | "blocked"; transitionId?: string }
   | { kind: "unavailable" };
 
 const RECENT_BACK_ID_LIMIT = 256;
@@ -80,6 +90,43 @@ export function requestApplicationBack(): boolean {
 export function requestApplicationBackIntent(intent: "hierarchy" | "leave-view"): boolean {
   const id = `ui-${Date.now()}-${++generatedBackId}`;
   return dispatchApplicationBack({ source: "ui", id, intent }).kind === "consumed";
+}
+
+/**
+ * Dispatch application forward. Blocked when an overlay is open so mouse/UI
+ * forward never switches tabs behind a modal or menu.
+ */
+export function dispatchApplicationForward(
+  input: ForwardInput,
+  options: { emitFeedback?: (id: string) => boolean } = {},
+): ForwardDispatch {
+  if (!rememberBackId(input.id)) return { kind: "consumed", outcome: "blocked" };
+  if (dispatching) return { kind: "consumed", outcome: "pending" };
+  const completion = createNavigationCompletion(input.id, options.emitFeedback);
+  dispatching = true;
+  try {
+    if (hasEligibleOverlay()) {
+      return { kind: "consumed", outcome: "blocked" };
+    }
+    if (requestContextualForward(input, completion)) {
+      return { kind: "consumed", outcome: "pending" };
+    }
+    if (useTabsStore.getState().goToNextTab()) {
+      completion.complete();
+      return { kind: "consumed", outcome: "completed", transitionId: input.id };
+    }
+    return { kind: "unavailable" };
+  } catch {
+    return { kind: "consumed", outcome: "blocked" };
+  } finally {
+    dispatching = false;
+  }
+}
+
+export function requestApplicationForward(): boolean {
+  const id = `ui-fwd-${Date.now()}-${++generatedBackId}`;
+  const result = dispatchApplicationForward({ source: "ui", id });
+  return result.kind === "consumed" && result.outcome !== "blocked";
 }
 
 export function resetApplicationBackForTests(): void {

@@ -8,6 +8,7 @@ import { afterLocalStartupReady, hasLocalStartupReady } from "../../lib/startupO
 import { useVimModeStore } from "../../stores/vimModeStore";
 import { useI18n } from "../../lib/i18n";
 import { useGlobalShortcuts } from "../../hooks/useKeyboardShortcuts";
+import { useMouseNavigation } from "../../hooks/useMouseNavigation";
 import { useInterfaceZoomBridge } from "../../hooks/useInterfaceZoom";
 import { useShortcut } from "../common/KeyboardShortcuts";
 import { VimiumNavigationProvider, useVimiumEnabled, type VimiumCommand } from "../common/VimiumNavigation";
@@ -164,6 +165,7 @@ export function MainLayout() {
   // primary-modifier zoom chords have exactly one capture-phase owner.
   useInterfaceZoomBridge();
   useGlobalShortcuts();
+  useMouseNavigation();
   useShortcut("gen.screenshot", () => {
     void captureAndSaveScreenshot()
       .then((asset) => {

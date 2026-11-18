@@ -1,10 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createTabPane, useTabsStore } from "../../stores/tabsStore";
-import { dispatchApplicationBack, requestApplicationBack, resetApplicationBackForTests } from "../applicationBack";
+import {
+  dispatchApplicationBack,
+  dispatchApplicationForward,
+  requestApplicationBack,
+  requestApplicationForward,
+  resetApplicationBackForTests,
+} from "../applicationBack";
 import {
   registerContextualBackHandler,
   resetContextualBackHandlersForTests,
 } from "../contextualBack";
+import {
+  registerContextualForwardHandler,
+  resetContextualForwardHandlersForTests,
+} from "../contextualForward";
 import {
   registerOverlayDismissal,
   resetOverlayStackForTests,
@@ -14,6 +24,7 @@ describe("requestApplicationBack", () => {
   beforeEach(() => {
     resetOverlayStackForTests();
     resetContextualBackHandlersForTests();
+    resetContextualForwardHandlersForTests();
     resetApplicationBackForTests();
     useTabsStore.setState({
       tabs: [],
@@ -137,5 +148,63 @@ describe("requestApplicationBack", () => {
     expect(useTabsStore.getState().tabs.find((tab) => tab.type === "dashboard")).toBeDefined();
     expect(useTabsStore.getState().navigationByPane[pane.id]).toMatchObject({ back: [] });
     expect(dispatchApplicationBack({ source: "android-system", id: "epoch-2:2" })).toEqual({ kind: "root" });
+  });
+});
+
+describe("requestApplicationForward", () => {
+  beforeEach(() => {
+    resetOverlayStackForTests();
+    resetContextualBackHandlersForTests();
+    resetContextualForwardHandlersForTests();
+    resetApplicationBackForTests();
+    useTabsStore.setState({
+      tabs: [],
+      rootPane: createTabPane([], null),
+      closedTabs: [],
+      activeTabHistory: [],
+    });
+  });
+
+  it("blocks forward navigation when an overlay is open", () => {
+    const contextual = vi.fn(() => true);
+    const workspace = vi.spyOn(useTabsStore.getState(), "goToNextTab");
+    registerOverlayDismissal(vi.fn());
+    registerContextualForwardHandler(contextual);
+
+    expect(requestApplicationForward()).toBe(false);
+    expect(contextual).not.toHaveBeenCalled();
+    expect(workspace).not.toHaveBeenCalled();
+  });
+
+  it("runs contextual forward before workspace tab forward", () => {
+    const contextual = vi.fn(() => true);
+    const workspace = vi.spyOn(useTabsStore.getState(), "goToNextTab");
+    registerContextualForwardHandler(contextual);
+
+    expect(requestApplicationForward()).toBe(true);
+    expect(contextual).toHaveBeenCalledOnce();
+    expect(workspace).not.toHaveBeenCalled();
+  });
+
+  it("navigates back and forward through workspace tab history", () => {
+    const pane = createTabPane(["first", "second"], "second");
+    useTabsStore.setState({
+      tabs: [
+        { id: "first", title: "First", icon: null, type: "documents", content: () => null, closable: true },
+        { id: "second", title: "Second", icon: null, type: "queue", content: () => null, closable: true },
+      ],
+      rootPane: pane,
+      navigationByPane: { [pane.id]: { back: ["first"], current: "second", forward: [] } },
+      navigationPaneId: pane.id,
+      navigationReady: true,
+    });
+
+    expect(requestApplicationBack()).toBe(true);
+    expect(useTabsStore.getState().findPaneById(pane.id)).toMatchObject({ activeTabId: "first" });
+
+    expect(requestApplicationForward()).toBe(true);
+    expect(useTabsStore.getState().findPaneById(pane.id)).toMatchObject({ activeTabId: "second" });
+
+    expect(dispatchApplicationForward({ source: "ui", id: "no-more-fwd" })).toEqual({ kind: "unavailable" });
   });
 });

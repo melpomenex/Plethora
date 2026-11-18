@@ -61,6 +61,8 @@ import {
 } from "../../utils/assistantContext";
 import { trimToTokenWindow } from "../../utils/tokenizer";
 import { useSettingsStore, useTabsStore } from "../../stores";
+import { useContextualBack } from "../../lib/contextualBack";
+import { useContextualForward } from "../../lib/contextualForward";
 import { WebBrowserTab as LazyWebBrowserTab } from "./TabRegistry";
 import { useToast } from "../common/Toast";
 import { formatRelativeTime } from "../../utils/date";
@@ -654,6 +656,39 @@ export function WebBrowserTab({ initialUrl }: { initialUrl?: string }) {
       scheduleIframeBlockedFallback();
     }
   }, [currentUrl, scheduleIframeBlockedFallback]);
+
+  const isWebBrowserActive = useCallback(() => {
+    const state = useTabsStore.getState();
+    const pane = state.navigationPaneId ? state.findPaneById(state.navigationPaneId) : null;
+    const activeTabId = pane?.type === "tabs" ? pane.activeTabId : null;
+    if (!activeTabId) return false;
+    const tab = state.tabs.find((candidate) => candidate.id === activeTabId);
+    return tab?.type === "web-browser";
+  }, []);
+
+  useContextualBack(
+    (input) => {
+      if (input?.intent === "leave-view" || historyIndex <= 0) return false;
+      handleBack();
+      return true;
+    },
+    {
+      priority: 15,
+      isEligible: () => isWebBrowserActive() && historyIndex > 0,
+    },
+  );
+
+  useContextualForward(
+    () => {
+      if (historyIndex >= history.length - 1) return false;
+      handleForward();
+      return true;
+    },
+    {
+      priority: 15,
+      isEligible: () => isWebBrowserActive() && historyIndex < history.length - 1,
+    },
+  );
 
   const handleOpenInBrowser = async () => {
     if (currentUrl) {
