@@ -297,17 +297,51 @@ pub async fn generate_video_transcript(
 
     emit_status("processing", None);
 
-    let model_manager = ModelManager::new(&app_handle)
-        .map_err(|e| format!("Failed to initialize model manager: {}", e))?;
+    let is_whistle = model_id == "cactus-whistle" || model_id.starts_with("whistle-stt:");
 
-    if !model_manager.is_model_installed(&model_id) {
-        let msg = format!(
-            "Model '{}' is not installed. Download it in Settings > Audio Transcription.",
-            model_id
+    let model_path = if is_whistle {
+        if !crate::models::hf::manager::is_whistle_installed(repo.pool()).await {
+            let msg = "Cactus Whistle (Needle) is not installed. Download it in Settings > Audio Transcription.".to_string();
+            emit_status("failed", Some(msg.clone()));
+            return Err(msg);
+        }
+        let hf_model_id = crate::models::hf::manager::model_id_for(
+            crate::models::hf::adapters::HfRuntime::WhistleStt,
+            crate::models::hf::manager::WHISTLE_REPO_ID,
+            crate::models::hf::manager::WHISTLE_REVISION,
         );
-        emit_status("failed", Some(msg.clone()));
-        return Err(msg);
-    }
+        let Some((install_dir, contract)) =
+            crate::models::hf::manager::resolve_installed_whistle(repo.pool(), &hf_model_id).await
+        else {
+            let msg = "Cactus Whistle install metadata is missing.".to_string();
+            emit_status("failed", Some(msg.clone()));
+            return Err(msg);
+        };
+        match contract {
+            crate::models::hf::adapters::RunContract::Whistle { model_file } => {
+                install_dir.join(model_file)
+            }
+            _ => {
+                let msg = "Invalid Cactus Whistle run contract.".to_string();
+                emit_status("failed", Some(msg.clone()));
+                return Err(msg);
+            }
+        }
+    } else {
+        let model_manager = ModelManager::new(&app_handle)
+            .map_err(|e| format!("Failed to initialize model manager: {}", e))?;
+
+        if !model_manager.is_model_installed(&model_id) {
+            let msg = format!(
+                "Model '{}' is not installed. Download it in Settings > Audio Transcription.",
+                model_id
+            );
+            emit_status("failed", Some(msg.clone()));
+            return Err(msg);
+        }
+
+        model_manager.get_model_path(&model_id)
+    };
 
     let input_path = std::path::Path::new(&file_path);
     if !input_path.exists() {
@@ -330,13 +364,12 @@ pub async fn generate_video_transcript(
             .map_err(|e| format!("Failed to prepare audio: {}", e))?;
         wav_path = Some(prepared.clone());
 
-        let model_path = model_manager.get_model_path(&model_id);
-
-        // Route to the right engine based on the model family. Sherpa-onnx models
-        // (parakeet-*, sense-voice-*) run via the sherpa-onnx sidecar; everything
-        // else is a Whisper (ggml) model. Mirrors the audiobook/podcast/auto-queue
-        // paths — without this, selecting a Parakeet model feeds an ONNX file to
-        // whisper.cpp and fails with "invalid model data (bad magic)".
+        // Route to the right engine based on the model family. Cactus Whistle
+        // runs via the Needle sidecar; Sherpa-onnx models (parakeet-*,
+        // sense-voice-*) run via the sherpa-onnx sidecar; everything else is
+        // a Whisper (ggml) model. Mirrors the audiobook/podcast/auto-queue
+        // paths — without this, selecting Cactus Whistle fails the Whisper
+        // ModelManager check or feeds a .cact file to whisper.cpp.
         let on_segment = move |seg: crate::transcription::engine::TranscriptSegment| {
             let text = seg.text.trim().to_string();
             if text.is_empty() {
@@ -355,7 +388,11 @@ pub async fn generate_video_transcript(
             let _ = app_for_cb.emit("video-transcription://segment", segment);
         };
 
-        if model_id.starts_with("sense-voice-") {
+        if is_whistle {
+            engine
+                .transcribe_whistle(&prepared, &model_path, &language, on_segment, None)
+                .await
+        } else if model_id.starts_with("sense-voice-") {
             engine
                 .transcribe_sensevoice(&prepared, &model_path, &language, on_segment, None)
                 .await
