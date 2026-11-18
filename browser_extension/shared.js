@@ -154,6 +154,7 @@
       capture_context: captureContext,
       tags: data?.tags,
       priority: data?.priority,
+      color: data?.color,
       analysis: data?.analysis,
       fsrs_data: data?.fsrs_data
     };

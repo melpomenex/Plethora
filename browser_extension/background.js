@@ -1163,6 +1163,60 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           break;
         }
 
+        case 'fetchPageExtractsFromServer': {
+          const targetUrl = (message.url || sender?.tab?.url || '').trim();
+          if (!targetUrl) {
+            sendResponse({ success: false, extracts: [] });
+            break;
+          }
+          await loadSettings();
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3000);
+          try {
+            const resp = await fetch(
+              `${PLETHORA_BASE_URL}/api/browser-sync/extracts?url=${encodeURIComponent(targetUrl)}`,
+              { method: 'GET', signal: controller.signal }
+            );
+            clearTimeout(timeoutId);
+            if (!resp.ok) {
+              sendResponse({ success: false, extracts: [] });
+              break;
+            }
+            const data = await resp.json();
+            sendResponse({
+              success: Boolean(data && data.success),
+              extracts: Array.isArray(data?.extracts) ? data.extracts : []
+            });
+          } catch (_err) {
+            clearTimeout(timeoutId);
+            sendResponse({ success: false, extracts: [] });
+          }
+          break;
+        }
+
+        case 'deleteExtractOnServer': {
+          const extractId = (message.extractId || '').trim();
+          if (!extractId) {
+            sendResponse({ success: false });
+            break;
+          }
+          await loadSettings();
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 3000);
+          try {
+            const resp = await fetch(
+              `${PLETHORA_BASE_URL}/api/browser-sync/extracts/${encodeURIComponent(extractId)}`,
+              { method: 'DELETE', signal: controller.signal }
+            );
+            clearTimeout(timeoutId);
+            sendResponse({ success: resp.ok });
+          } catch (_err) {
+            clearTimeout(timeoutId);
+            sendResponse({ success: false });
+          }
+          break;
+        }
+
         default:
           sendResponse({ success: false, error: 'Unknown action' });
       }

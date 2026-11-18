@@ -9,7 +9,8 @@ import {
 import { getImageAssetById, listImageAssets, updateImageAssetMetadata } from "../../api/image-registry";
 import { isTauri } from "../tauri";
 import { runSmartTagging } from "../ai/tasks/definitions/smartTaggingTask";
-import { normalizeForComparison } from "./normalization";
+import { classifyDocumentBaseline } from "./baseline";
+import { canonicalizeTag, normalizeForComparison } from "./normalization";
 import {
   BROWSER_CAPTURE_CONTEXT_VERSION,
   buildDocumentTarget,
@@ -118,6 +119,53 @@ function libraryTagCandidates(): Array<{ name: string; itemCount: number }> {
     for (const tag of document.tags || []) counts.set(tag, (counts.get(tag) || 0) + 1);
   }
   return Array.from(counts.entries()).map(([name, itemCount]) => ({ name, itemCount }));
+}
+
+const GENERIC_PAGE_TITLES = new Set([
+  "untitled",
+  "browser extract",
+  "home",
+  "new tab",
+  "index",
+]);
+
+/**
+ * Derive a clean, concise tag representing the article or page title for a
+ * browser highlight extract. Strips common trailing site suffixes and caps
+ * length at a word boundary so it stays usable as a tag.
+ */
+export function deriveSourcePageTag(
+  rawTitle?: string,
+  existingLibraryTags: string[] = [],
+): string | null {
+  if (!rawTitle) return null;
+  let cleaned = rawTitle.replace(/\s+/g, " ").trim();
+  if (!cleaned || /^https?:\/\//i.test(cleaned)) return null;
+
+  // Strip trailing site suffix like "Article Name | Substack" or "Article - Medium"
+  for (const sep of [" | ", " — ", " – ", " :: ", " - "]) {
+    const idx = cleaned.lastIndexOf(sep);
+    if (idx >= 3) {
+      const prefix = cleaned.slice(0, idx).trim();
+      const suffix = cleaned.slice(idx + sep.length).trim();
+      if (prefix.length >= 3 && suffix.length > 0 && suffix.length <= 32) {
+        cleaned = prefix;
+        break;
+      }
+    }
+  }
+
+  if (GENERIC_PAGE_TITLES.has(cleaned.toLowerCase())) return null;
+
+  const MAX_LEN = 48;
+  if (cleaned.length > MAX_LEN) {
+    const sliced = cleaned.slice(0, MAX_LEN);
+    const lastSpace = sliced.lastIndexOf(" ");
+    cleaned = (lastSpace >= 20 ? sliced.slice(0, lastSpace) : sliced).trim();
+  }
+
+  if (cleaned.length < 2) return null;
+  return canonicalizeTag(cleaned, existingLibraryTags);
 }
 
 function existingOrganizationDetails(target: BrowserOrganizationTarget): SmartTagDetail[] {
@@ -324,6 +372,7 @@ export async function organizeBrowserTarget(target: BrowserOrganizationTarget): 
     ...existingDetails.filter((detail) => detail.dismissed).map((detail) => detail.tag),
   ]));
   const candidates = libraryTagCandidates();
+  const candidateNames = candidates.map((candidate) => candidate.name);
   const result = await runSmartTagging({
     title: target.title,
     author: target.author,
@@ -331,7 +380,7 @@ export async function organizeBrowserTarget(target: BrowserOrganizationTarget): 
     fileType: target.fileType,
     headings: target.headings,
     content: target.content,
-    candidateExistingTags: candidates.map((candidate) => candidate.name),
+    candidateExistingTags: candidateNames,
     existingLibraryTagsList: candidates,
     manualTags,
     dismissedTags,
@@ -343,7 +392,49 @@ export async function organizeBrowserTarget(target: BrowserOrganizationTarget): 
     sourceTags: target.sourceTags,
     sourceDocumentId: target.sourceDocumentId,
   });
-  const merged = mergeOrganizationTags(target, result.tagDetails, manualTags, dismissedTags);
+
+  let generatedDetails = [...result.tagDetails];
+  if (target.targetType === "extract") {
+    // Ensure short browser highlights still receive content-based tags when
+    // Tier 1 baseline frequency>=2 gating returned nothing.
+    if (generatedDetails.length === 0) {
+      const extractBaseline = classifyDocumentBaseline({
+        title: target.title,
+        headings: target.headings,
+        body: [target.content, target.captureContext?.nearbyText].filter(Boolean).join("\n"),
+        existingLibraryTags: candidates,
+        manualTags,
+        dismissedTags,
+        config: {
+          maxTags: settings.maxTagsPerDocument || 6,
+          minPhraseFrequency: 1,
+          minConfidence: 0.65,
+        },
+      });
+      generatedDetails = extractBaseline;
+    }
+
+    // Tag browser highlights with the article/page name so extracts from the
+    // same page group together cleanly alongside content-based tags.
+    const pageTag = deriveSourcePageTag(target.title, candidateNames);
+    if (pageTag) {
+      const pageNorm = normalizeForComparison(pageTag);
+      const alreadyPresent = generatedDetails.some(
+        (detail) => normalizeForComparison(detail.tag) === pageNorm,
+      );
+      if (!alreadyPresent) {
+        generatedDetails.unshift({
+          tag: pageTag,
+          provenance: "smart-local",
+          confidence: 0.92,
+          reason: "Article/page title from browser highlight",
+          assignedAt: new Date().toISOString(),
+        });
+      }
+    }
+  }
+
+  const merged = mergeOrganizationTags(target, generatedDetails, manualTags, dismissedTags);
   const organization = organizationResult(target, merged.details, result.fallbackUsed);
   organization.manualTags = manualTags;
   organization.dismissedTags = dismissedTags;

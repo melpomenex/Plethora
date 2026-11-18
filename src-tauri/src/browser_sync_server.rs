@@ -40,7 +40,7 @@ use crate::models::{Document, DocumentImageAsset, Extract, FileType, ItemType, L
 use crate::podcast::parser::parse_podcast_feed;
 use axum::{
     body::Body,
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, Request, StatusCode},
     middleware::{self, Next},
     response::{IntoResponse, Json, Response},
@@ -169,6 +169,8 @@ pub struct ExtensionRequest {
     pub tags: Option<Vec<String>>,
     #[serde(default)]
     pub priority: Option<i32>,
+    #[serde(default)]
+    pub color: Option<String>,
     #[serde(default)]
     pub analysis: Option<serde_json::Value>,
     #[serde(default)]
@@ -537,6 +539,14 @@ pub async fn start_server(
             post(handle_image_registry_ingest),
         )
         .route("/api/theme", get(handle_get_theme))
+        .route(
+            "/api/browser-sync/extracts",
+            get(handle_get_browser_extracts),
+        )
+        .route(
+            "/api/browser-sync/extracts/:id",
+            delete(handle_delete_browser_extract),
+        )
         .route(
             "/api/rss/feeds",
             post(handle_create_feed).get(handle_list_feeds),
@@ -1328,6 +1338,7 @@ fn normalize_browser_capture_input(
         extension_version: None,
         tags: None,
         priority: None,
+        color: None,
         analysis: None,
         fsrs_data: None,
         test: None,
@@ -1661,6 +1672,7 @@ fn spawn_browser_document_enrichment(
                         extension_version: None,
                         tags: None,
                         priority: None,
+                        color: None,
                         analysis: None,
                         fsrs_data: None,
                         test: None,
@@ -2340,6 +2352,8 @@ async fn handle_extract_request(
     let notes = build_extension_extract_notes(payload);
     let memory_state = extract_memory_state_from_fsrs(payload.fsrs_data.as_ref());
 
+    let clamped_priority = payload.priority.map(|p| p.clamp(1, 100));
+
     let extract = Extract {
         id: uuid::Uuid::new_v4().to_string(),
         collection_id: collection_id.clone(),
@@ -2350,7 +2364,7 @@ async fn handle_extract_request(
         page_title: Some(payload.title.clone()),
         page_number: None,
         selection_context,
-        highlight_color: None,
+        highlight_color: payload.color.clone(),
         notes,
         progressive_disclosure_level: 0,
         // Browser captures are opt-in for progressive disclosure too.
@@ -2366,8 +2380,8 @@ async fn handle_extract_request(
         review_count: 0,
         reps: 0,
         source_hash: None,
-        priority_score: 0.0,
-        priority_slider: None,
+        priority_score: clamped_priority.map(|p| p as f64).unwrap_or(0.0),
+        priority_slider: clamped_priority,
         is_dismissed: false,
         total_time_spent: None,
     };
@@ -2395,6 +2409,108 @@ async fn handle_extract_request(
         extract_id: Some(created.id),
         error: None,
     })
+}
+
+#[derive(Debug, Deserialize)]
+struct BrowserExtractsQuery {
+    url: String,
+}
+
+async fn handle_get_browser_extracts(
+    State(state): State<ServerState>,
+    Query(query): Query<BrowserExtractsQuery>,
+) -> Response {
+    let raw_url = query.url.trim();
+    if raw_url.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "success": false, "error": "Missing url parameter" })),
+        )
+            .into_response();
+    }
+
+    let normalized_url = normalize_browser_source_url(raw_url);
+    let doc = match state.repo.find_document_by_url(&normalized_url).await {
+        Ok(Some(doc)) => Some(doc),
+        _ if normalized_url != raw_url => state
+            .repo
+            .find_document_by_url(raw_url)
+            .await
+            .ok()
+            .flatten(),
+        _ => None,
+    };
+
+    let Some(doc) = doc else {
+        return (
+            StatusCode::OK,
+            Json(json!({ "success": true, "document_id": null, "extracts": [] })),
+        )
+            .into_response();
+    };
+
+    match state.repo.list_extracts_by_document(&doc.id).await {
+        Ok(extracts) => {
+            let items: Vec<serde_json::Value> = extracts
+                .into_iter()
+                .filter(|e| !e.is_dismissed)
+                .map(|e| {
+                    let priority = e.priority_slider.or_else(|| {
+                        if e.priority_score > 0.0 {
+                            Some(e.priority_score.round() as i32)
+                        } else {
+                            None
+                        }
+                    });
+                    let context = e
+                        .selection_context
+                        .as_ref()
+                        .and_then(|v| v.get("context"))
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string);
+                    json!({
+                        "id": e.id,
+                        "text": e.content,
+                        "url": e.source_url.unwrap_or_else(|| normalized_url.clone()),
+                        "title": e.page_title.unwrap_or_else(|| doc.title.clone()),
+                        "color": e.highlight_color,
+                        "tags": e.tags,
+                        "priority": priority,
+                        "context": context,
+                        "timestamp": e.date_created.to_rfc3339(),
+                    })
+                })
+                .collect();
+            (
+                StatusCode::OK,
+                Json(json!({
+                    "success": true,
+                    "document_id": doc.id,
+                    "extracts": items,
+                })),
+            )
+                .into_response()
+        }
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "success": false, "error": err.to_string() })),
+        )
+            .into_response(),
+    }
+}
+
+async fn handle_delete_browser_extract(
+    State(state): State<ServerState>,
+    Path(id): Path<String>,
+) -> Response {
+    match state.repo.delete_extract(&id).await {
+        Ok(()) => (StatusCode::OK, Json(json!({ "success": true }))).into_response(),
+        Err(err) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "success": false, "error": err.to_string() })),
+        )
+            .into_response(),
+    }
 }
 
 fn build_extension_selection_context(
@@ -2649,6 +2765,8 @@ fn is_public_browser_extension_endpoint(path: &str, method: &axum::http::Method)
         || (path == "/ai/mirage-clip" && method == axum::http::Method::POST)
         || (path == "/api/image-registry/ingest" && method == axum::http::Method::POST)
         || (path == "/api/theme" && method == axum::http::Method::GET)
+        || (path == "/api/browser-sync/extracts" && method == axum::http::Method::GET)
+        || (path.starts_with("/api/browser-sync/extracts/") && method == axum::http::Method::DELETE)
 }
 
 /// Bounds the *decoded* image. Mirrored in `browser_extension/shared.js` as
@@ -3083,6 +3201,7 @@ fn image_capture_context(payload: &ImageRegistryIngestPayload) -> Option<serde_j
         extension_version: payload.extension_version.clone(),
         tags: payload.tags.clone(),
         priority: None,
+        color: None,
         analysis: None,
         fsrs_data: None,
         test: None,
@@ -6352,6 +6471,7 @@ mod browser_import_persistence_tests {
             extension_version: None,
             tags: None,
             priority: None,
+            color: None,
             analysis: None,
             fsrs_data: None,
             test: Some(true),
@@ -6649,6 +6769,7 @@ mod x_thread_capture_tests {
             extension_version: None,
             tags: None,
             priority: None,
+            color: None,
             analysis: None,
             fsrs_data: None,
             test: Some(true),

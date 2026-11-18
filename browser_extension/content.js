@@ -269,6 +269,37 @@
   let pageExtracts = [];
   
   loadPageExtracts();
+
+  // Re-load and restore highlights on SPA navigation (pushState / popstate)
+  let lastObservedPageUrl = getNormalizedPageUrl();
+  function handleSpaUrlChange() {
+    const nextUrl = getNormalizedPageUrl();
+    if (nextUrl === lastObservedPageUrl) return;
+    lastObservedPageUrl = nextUrl;
+    highlights = [];
+    pageExtracts = [];
+    setTimeout(() => {
+      loadPageExtracts();
+    }, 150);
+  }
+
+  try {
+    const origPushState = history.pushState;
+    const origReplaceState = history.replaceState;
+    history.pushState = function (...args) {
+      const res = origPushState.apply(this, args);
+      handleSpaUrlChange();
+      return res;
+    };
+    history.replaceState = function (...args) {
+      const res = origReplaceState.apply(this, args);
+      handleSpaUrlChange();
+      return res;
+    };
+    window.addEventListener('popstate', handleSpaUrlChange);
+  } catch (_err) {
+    // ignore if history is non-configurable
+  }
   
   // Add visual indicator when page is saved
   function showSaveIndicator(message, type = 'success', options = {}) {
@@ -1054,9 +1085,11 @@
     const range = selection.getRangeAt(0);
     const container = range.commonAncestorContainer;
     const context = container.textContent || container.innerText || '';
+    const domSignals = extractDomPrioritySignals(range);
 
-    // Calculate priority based on text analysis and user selection
-    let calculatedPriority = calculateExtractPriority(text, analysis, options.priority);
+    // Calculate priority based on concrete text/DOM signals and user selection
+    const priorityDetails = calculateExtractPriorityDetailed(text, analysis, domSignals);
+    let calculatedPriority = calculateExtractPriority(text, analysis, options.priority, domSignals);
 
     // Capture HTML content with computed styles for visual fidelity
     const html_content = captureSelectionHTML(range);
@@ -1071,7 +1104,7 @@
         html_content: html_content,
         context: context.substring(Math.max(0, context.indexOf(text) - 200),
                                   context.indexOf(text) + text.length + 200),
-        url: window.location.href,
+        url: getNormalizedPageUrl(),
         title: document.title,
         timestamp: new Date().toISOString(),
         selector: getElementSelector(range.startContainer),
@@ -1086,6 +1119,7 @@
         category: options.category || 'general',
         priority: calculatedPriority,
         priority_source: options.priority_source || 'automatic',
+        priority_factors: priorityDetails.factors,
         color: options.color || activeColor,
         fsrs_data: {
           initial_difficulty: calculateInitialDifficulty(text, analysis),
@@ -1104,6 +1138,10 @@
         extract: extractData
       }).then((response) => {
         if (response && response.success) {
+          if (response.extract_id) {
+            extractData.serverId = response.extract_id;
+            savePageExtracts();
+          }
           chrome.storage.sync.get(['enableHighlights'], (settings) => {
             if (settings && settings.enableHighlights !== false) {
               highlightText(range, extractData.id, extractData.color || getPriorityColor(calculatedPriority));
@@ -1126,84 +1164,157 @@
     });
   }
 
-  // Calculate extract priority based on text analysis
-  function calculateExtractPriority(text, analysis, userPriority = null) {
-    // If user explicitly set priority, use it
-    if (userPriority) {
+  function extractDomPrioritySignals(range) {
+    const signals = {
+      inHeading: false,
+      inQuote: false,
+      inEmphasis: false,
+      inListOrCode: false,
+      positionRatio: 0.5
+    };
+    if (!range) return signals;
+    try {
+      let node = range.commonAncestorContainer;
+      if (node && node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+      let cur = node;
+      let depth = 0;
+      while (cur && cur !== document.body && depth < 8) {
+        const tag = (cur.tagName || '').toUpperCase();
+        if (/^H[1-4]$/.test(tag)) signals.inHeading = true;
+        if (tag === 'BLOCKQUOTE' || tag === 'Q') signals.inQuote = true;
+        if (tag === 'STRONG' || tag === 'B' || tag === 'EM' || tag === 'MARK') signals.inEmphasis = true;
+        if (tag === 'LI' || tag === 'CODE' || tag === 'PRE' || tag === 'TH' || tag === 'TD') signals.inListOrCode = true;
+        cur = cur.parentElement;
+        depth++;
+      }
+      if (node && typeof node.getBoundingClientRect === 'function' && document.documentElement) {
+        const docHeight = Math.max(1, document.documentElement.scrollHeight);
+        const absTop = node.getBoundingClientRect().top + (window.scrollY || 0);
+        signals.positionRatio = Math.max(0, Math.min(1, absTop / docHeight));
+      }
+    } catch (_err) {
+      // ignore DOM inspection errors
+    }
+    return signals;
+  }
+
+  function getPriorityTierInfo(score) {
+    const s = Math.max(1, Math.min(100, Math.round(score)));
+    if (s >= 80) return { tier: 'urgent', label: 'Urgent', color: '#ef4444' };
+    if (s >= 60) return { tier: 'high', label: 'High', color: '#f59e0b' };
+    if (s >= 40) return { tier: 'normal', label: 'Normal', color: '#10b981' };
+    return { tier: 'low', label: 'Low', color: '#3b82f6' };
+  }
+
+  // Concrete priority auto-calculation based on information density,
+  // structural/author prominence, reviewability (atomic length), and rhetorical role.
+  function calculateExtractPriorityDetailed(text, analysis, domSignals = {}) {
+    const factors = [];
+    let score = 45; // Neutral baseline
+
+    const words = text.trim().split(/\s+/).filter(Boolean);
+    const wordCount = analysis?.wordCount || words.length;
+
+    // 1. Reviewability / Atomicity (FSRS-aligned: atomic extracts review best)
+    if (wordCount >= 15 && wordCount <= 100) {
+      score += 10;
+      factors.push({ label: `Atomic length (${wordCount}w)`, delta: 10 });
+    } else if (wordCount < 6) {
+      score -= 8;
+      factors.push({ label: 'Very short fragment', delta: -8 });
+    } else if (wordCount > 220) {
+      score -= 6;
+      factors.push({ label: 'Long passage (needs split)', delta: -6 });
+    }
+
+    // 2. Lexical diversity / Information density
+    if (wordCount >= 8) {
+      const uniqueWords = new Set(words.map(w => w.toLowerCase().replace(/[^a-z0-9]/g, '')).filter(Boolean));
+      const diversity = uniqueWords.size / wordCount;
+      if (diversity >= 0.72) {
+        score += 7;
+        factors.push({ label: 'High concept density', delta: 7 });
+      }
+    }
+
+    // 3. Quantitative / Empirical evidence (numbers, %, years, units)
+    const numberMatches = text.match(/\b\d+(?:[.,]\d+)?%?\b/g) || [];
+    if (numberMatches.length > 0) {
+      const delta = numberMatches.length >= 2 ? 10 : 7;
+      score += delta;
+      factors.push({ label: 'Quantitative data', delta });
+    }
+
+    // 4. Named entities / Proper nouns (mid-sentence capitalized terms)
+    const entityMatches = text.slice(1).match(/\b[A-Z][a-zA-Z0-9]{2,}\b/g) || [];
+    if (entityMatches.length >= 2) {
+      score += 8;
+      factors.push({ label: 'Entity-rich', delta: 8 });
+    }
+
+    // 5. Structural / Author emphasis in the page DOM
+    if (domSignals.inHeading || domSignals.inQuote) {
+      score += 12;
+      factors.push({ label: domSignals.inHeading ? 'Heading' : 'Blockquote', delta: 12 });
+    } else if (domSignals.inEmphasis) {
+      score += 8;
+      factors.push({ label: 'Author emphasis', delta: 8 });
+    } else if (domSignals.inListOrCode) {
+      score += 6;
+      factors.push({ label: 'Structured/code', delta: 6 });
+    }
+
+    // 6. Rhetorical / Definitional / Causal value
+    const textLower = text.toLowerCase();
+    if (
+      text.includes('?') ||
+      /\b(is defined as|means that|because|therefore|results in|in contrast|however|crucially|the key|fundamental)\b/i.test(textLower)
+    ) {
+      score += 8;
+      factors.push({ label: 'Causal/definitional claim', delta: 8 });
+    }
+
+    // 7. Article position (intro thesis or conclusion takeaway)
+    if (typeof domSignals.positionRatio === 'number') {
+      if (domSignals.positionRatio <= 0.18 || domSignals.positionRatio >= 0.85) {
+        score += 5;
+        factors.push({ label: domSignals.positionRatio <= 0.18 ? 'Lead section' : 'Conclusion', delta: 5 });
+      }
+    }
+
+    const finalScore = Math.max(1, Math.min(100, Math.round(score)));
+    const tierInfo = getPriorityTierInfo(finalScore);
+    factors.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+    return {
+      score: finalScore,
+      tier: tierInfo.tier,
+      label: tierInfo.label,
+      color: tierInfo.color,
+      factors: factors.slice(0, 4)
+    };
+  }
+
+  // Calculate extract priority based on concrete text/DOM analysis or user selection
+  function calculateExtractPriority(text, analysis, userPriority = null, domSignals = {}) {
+    if (typeof userPriority === 'number' && Number.isFinite(userPriority)) {
+      return Math.max(1, Math.min(100, Math.round(userPriority)));
+    }
+    if (typeof userPriority === 'string' && userPriority !== 'auto') {
+      const numeric = Number(userPriority);
+      if (Number.isFinite(numeric) && userPriority.trim() !== '') {
+        return Math.max(1, Math.min(100, Math.round(numeric)));
+      }
       const priorityMap = {
         'low': 25,
         'normal': 50,
         'high': 75,
         'urgent': 95
       };
-      return priorityMap[userPriority] || 50;
+      if (priorityMap[userPriority] !== undefined) {
+        return priorityMap[userPriority];
+      }
     }
-
-    let priorityScore = 50; // Base priority
-
-    // Adjust based on text length (medium-length content gets higher priority)
-    const wordCount = analysis.wordCount;
-    if (wordCount < 10) {
-      priorityScore -= 10; // Very short text might be less important
-    } else if (wordCount >= 10 && wordCount <= 50) {
-      priorityScore += 15; // Good length for quick reviews
-    } else if (wordCount > 200) {
-      priorityScore -= 5; // Very long text might be overwhelming
-    }
-
-    // Adjust based on content type indicators
-    if (analysis.hasNumbers) {
-      priorityScore += 10; // Contains data/numbers
-    }
-
-    if (analysis.hasUrls || analysis.hasEmails) {
-      priorityScore += 8; // Contains references or contact info
-    }
-
-    if (analysis.sentiment === 'positive') {
-      priorityScore += 5; // Positive content might be more motivating
-    } else if (analysis.sentiment === 'negative') {
-      priorityScore += 8; // Negative content might be important warnings/problems
-    }
-
-    // Keyword relevance
-    const importantKeywords = [
-      'important', 'critical', 'urgent', 'key', 'essential', 'must',
-      'remember', 'note', 'warning', 'caution', 'attention',
-      'summary', 'conclusion', 'result', 'finding', 'discovery',
-      'definition', 'concept', 'principle', 'rule', 'formula',
-      'TODO', 'FIXME', 'NOTE', 'HACK', 'XXX'
-    ];
-
-    const textLower = text.toLowerCase();
-    const foundKeywords = importantKeywords.filter(keyword =>
-      textLower.includes(keyword.toLowerCase())
-    );
-
-    priorityScore += foundKeywords.length * 12; // +12 for each important keyword
-
-    // Question or definition indicators
-    if (textLower.includes('?') || textLower.includes('what is') ||
-        textLower.includes('define') || textLower.includes('meaning of')) {
-      priorityScore += 15; // Questions and definitions are high value
-    }
-
-    // Technical content indicators
-    const technicalKeywords = [
-      'algorithm', 'function', 'method', 'class', 'variable', 'code',
-      'formula', 'equation', 'theorem', 'proof', 'hypothesis',
-      'data', 'analysis', 'research', 'study', 'experiment',
-      'API', 'database', 'system', 'architecture', 'design'
-    ];
-
-    const foundTechnicalKeywords = technicalKeywords.filter(keyword =>
-      textLower.includes(keyword.toLowerCase())
-    );
-
-    priorityScore += foundTechnicalKeywords.length * 8; // +8 for each technical keyword
-
-    // Ensure priority stays within bounds (1-100)
-    return Math.max(1, Math.min(100, Math.round(priorityScore)));
+    return calculateExtractPriorityDetailed(text, analysis, domSignals).score;
   }
 
   // Calculate initial difficulty for FSRS based on text characteristics
@@ -1356,6 +1467,14 @@
       existingDialog.remove();
     }
 
+    const selectionRange = selection.getRangeAt(0).cloneRange();
+    const analysis = analyzeSelectedText(text);
+    const domSignals = extractDomPrioritySignals(selectionRange);
+    const autoPriority = calculateExtractPriorityDetailed(text, analysis, domSignals);
+    const factorsSummary = autoPriority.factors.length > 0
+      ? autoPriority.factors.map(f => `${f.label} (${f.delta >= 0 ? '+' : ''}${f.delta})`).join(' · ')
+      : 'Neutral baseline (no strong emphasis or data signals)';
+
     const swatchesHtml = HIGHLIGHT_COLORS.map((color) => `
             <button type="button" class="highlight-swatch${color.value.toLowerCase() === (activeColor || '').toLowerCase() ? ' selected' : ''}" data-color="${color.value}" title="${color.name}" aria-label="Highlight color ${color.name}" style="background:${color.value};"></button>`).join('');
 
@@ -1364,41 +1483,39 @@
     dialog.innerHTML = `
       <div class="priority-dialog-content">
         <div class="priority-dialog-header">
-          <h3>📚 Create Extract with Priority</h3>
+          <h3>📚 Create Extract</h3>
           <button type="button" class="priority-dialog-close" data-action="close-dialog" aria-label="Close dialog">&times;</button>
         </div>
         <div class="priority-dialog-body">
           <div class="extract-preview">
-            <strong>Selected Text:</strong>
+            <strong>Selected Text</strong>
             <p>"${escapeHtml(text.substring(0, 200))}${text.length > 200 ? '...' : ''}"</p>
           </div>
           <div class="priority-selection">
-            <label><strong>Priority Level:</strong></label>
-            <div class="priority-options">
-              <label class="priority-option">
-                <input type="radio" name="priority" value="urgent" checked>
-                <span class="priority-urgent">🔴 Urgent (95)</span>
-              </label>
-              <label class="priority-option">
-                <input type="radio" name="priority" value="high">
-                <span class="priority-high">🟡 High (75)</span>
-              </label>
-              <label class="priority-option">
-                <input type="radio" name="priority" value="normal">
-                <span class="priority-normal">🟢 Normal (50)</span>
-              </label>
-              <label class="priority-option">
-                <input type="radio" name="priority" value="low">
-                <span class="priority-low">🔵 Low (25)</span>
-              </label>
-              <label class="priority-option">
-                <input type="radio" name="priority" value="auto">
-                <span class="priority-auto">🤖 Auto-calculate</span>
-              </label>
+            <div class="priority-header-row">
+              <label><strong>Priority</strong></label>
+              <span class="priority-live-badge" id="plethora-priority-badge" style="--badge-color: ${autoPriority.color};">
+                <span class="priority-live-dot"></span>
+                <span id="plethora-priority-badge-text">Auto · ${autoPriority.score} (${autoPriority.label})</span>
+              </span>
+            </div>
+            <div class="priority-pills" role="radiogroup" aria-label="Priority presets">
+              <button type="button" class="priority-pill active" data-preset="auto" data-value="${autoPriority.score}">✨ Auto (${autoPriority.score})</button>
+              <button type="button" class="priority-pill" data-preset="low" data-value="25">Low (25)</button>
+              <button type="button" class="priority-pill" data-preset="normal" data-value="50">Normal (50)</button>
+              <button type="button" class="priority-pill" data-preset="high" data-value="75">High (75)</button>
+              <button type="button" class="priority-pill" data-preset="urgent" data-value="95">Urgent (95)</button>
+            </div>
+            <div class="priority-slider-row">
+              <input type="range" id="extract-priority-slider" min="1" max="100" value="${autoPriority.score}" aria-label="Priority score from 1 to 100">
+              <span class="priority-slider-value" id="plethora-priority-num">${autoPriority.score}</span>
+            </div>
+            <div class="priority-factors-note" id="plethora-priority-factors">
+              ${escapeHtml(factorsSummary)}
             </div>
           </div>
           <div class="highlight-color-selection">
-            <label><strong>Highlight Color:</strong></label>
+            <label><strong>Highlight Color</strong></label>
             <div class="highlight-swatch-row">${swatchesHtml}</div>
             <div class="highlight-custom-color">
               <label for="extract-custom-color">Custom:</label>
@@ -1406,8 +1523,9 @@
             </div>
           </div>
           <div class="extract-tags">
-            <label><strong>Tags (optional):</strong></label>
-            <input type="text" id="extract-tags" placeholder="Enter tags separated by commas">
+            <label for="extract-tags"><strong>Tags (optional)</strong></label>
+            <input type="text" id="extract-tags" placeholder="Add extra tags separated by commas">
+            <div class="extract-tags-hint">Smart Tagging will also auto-tag with the page title &amp; content topics.</div>
           </div>
         </div>
         <div class="priority-dialog-footer">
@@ -1441,23 +1559,24 @@
         border-radius: 12px;
         box-shadow: 0 8px 32px rgba(0,0,0,0.3);
         max-width: 500px;
-        width: 90%;
-        max-height: 80vh;
+        width: 92%;
+        max-height: 86vh;
         overflow-y: auto;
+        color: #1f2937;
       }
 
       .priority-dialog-header {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        padding: 20px 20px 10px 20px;
+        padding: 16px 20px 12px 20px;
         border-bottom: 1px solid #eee;
       }
 
       .priority-dialog-header h3 {
         margin: 0;
-        color: #333;
-        font-size: 18px;
+        color: #111827;
+        font-size: 17px;
       }
 
       .priority-dialog-close {
@@ -1479,69 +1598,144 @@
       }
 
       .priority-dialog-body {
-        padding: 20px;
+        padding: 16px 20px;
       }
 
       .extract-preview {
-        margin-bottom: 20px;
+        margin-bottom: 16px;
+      }
+
+      .extract-preview strong {
+        font-size: 13px;
+        color: #374151;
       }
 
       .extract-preview p {
         background: #f8f9fa;
-        padding: 12px;
+        padding: 10px 12px;
         border-radius: 6px;
-        border-left: 4px solid #007bff;
-        margin: 8px 0 0 0;
+        border-left: 4px solid #3b82f6;
+        margin: 6px 0 0 0;
         font-style: italic;
-        color: #555;
+        font-size: 13px;
+        line-height: 1.45;
+        color: #4b5563;
       }
 
       .priority-selection {
-        margin-bottom: 20px;
+        margin-bottom: 16px;
       }
 
-      .priority-selection label {
-        display: block;
-        margin-bottom: 8px;
-        color: #333;
-      }
-
-      .priority-options {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-      }
-
-      .priority-option {
+      .priority-header-row {
         display: flex;
         align-items: center;
-        gap: 8px;
-        padding: 8px 12px;
-        border-radius: 6px;
-        cursor: pointer;
-        transition: background-color 0.2s;
+        justify-content: space-between;
+        margin-bottom: 8px;
       }
 
-      .priority-option:hover {
-        background: #f0f0f0;
-      }
-
-      .priority-option input[type="radio"] {
+      .priority-header-row label {
         margin: 0;
+        font-size: 13px;
+        color: #374151;
+      }
+
+      .priority-live-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 3px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        font-weight: 600;
+        background: #f3f4f6;
+        color: #111827;
+        border: 1px solid #e5e7eb;
+      }
+
+      .priority-live-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--badge-color, #10b981);
+      }
+
+      .priority-pills {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        margin-bottom: 10px;
+      }
+
+      .priority-pill {
+        flex: 1 1 auto;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid #d1d5db;
+        background: #ffffff;
+        color: #374151;
+        font-size: 12px;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+        text-align: center;
+        white-space: nowrap;
+      }
+
+      .priority-pill:hover {
+        background: #f3f4f6;
+      }
+
+      .priority-pill.active {
+        background: #111827;
+        color: #ffffff;
+        border-color: #111827;
+      }
+
+      .priority-slider-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+
+      .priority-slider-row input[type="range"] {
+        flex: 1;
+        height: 6px;
+        border-radius: 999px;
+        appearance: none;
+        background: linear-gradient(90deg, #3b82f6 0%, #10b981 45%, #f59e0b 75%, #ef4444 100%);
+        outline: none;
+        cursor: pointer;
+      }
+
+      .priority-slider-value {
+        min-width: 28px;
+        text-align: right;
+        font-size: 13px;
+        font-weight: 600;
+        color: #111827;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .priority-factors-note {
+        margin-top: 6px;
+        font-size: 11px;
+        line-height: 1.35;
+        color: #6b7280;
       }
 
       .extract-tags {
-        margin-bottom: 20px;
+        margin-bottom: 8px;
       }
 
       .highlight-color-selection {
-        margin-bottom: 20px;
+        margin-bottom: 16px;
       }
 
       .highlight-color-selection > label {
         display: block;
         margin-bottom: 8px;
-        color: #333;
+        font-size: 13px;
+        color: #374151;
       }
 
       .highlight-swatch-row {
@@ -1551,8 +1745,8 @@
       }
 
       .highlight-swatch {
-        width: 32px;
-        height: 32px;
+        width: 30px;
+        height: 30px;
         border-radius: 50%;
         border: 2px solid #d0d0d0;
         cursor: pointer;
@@ -1574,7 +1768,8 @@
         align-items: center;
         gap: 8px;
         margin-top: 10px;
-        color: #333;
+        font-size: 13px;
+        color: #374151;
       }
 
       .highlight-custom-color input[type="color"] {
@@ -1589,34 +1784,42 @@
 
       .extract-tags label {
         display: block;
-        margin-bottom: 8px;
-        color: #333;
+        margin-bottom: 6px;
+        font-size: 13px;
+        color: #374151;
       }
 
       .extract-tags input {
         width: 100%;
+        box-sizing: border-box;
         padding: 8px 12px;
-        border: 1px solid #ddd;
+        border: 1px solid #d1d5db;
         border-radius: 6px;
-        font-size: 14px;
+        font-size: 13px;
+      }
+
+      .extract-tags-hint {
+        margin-top: 4px;
+        font-size: 11px;
+        color: #6b7280;
       }
 
       .priority-dialog-footer {
         display: flex;
         justify-content: flex-end;
-        gap: 12px;
-        padding: 20px;
+        gap: 10px;
+        padding: 14px 20px;
         border-top: 1px solid #eee;
         background: #f8f9fa;
         border-radius: 0 0 12px 12px;
       }
 
       .priority-btn-cancel, .priority-btn-create {
-        padding: 10px 20px;
+        padding: 8px 16px;
         border: none;
         border-radius: 6px;
         cursor: pointer;
-        font-size: 14px;
+        font-size: 13px;
         font-weight: 500;
         transition: all 0.2s;
       }
@@ -1631,28 +1834,74 @@
       }
 
       .priority-btn-create {
-        background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
         color: white;
       }
 
       .priority-btn-create:hover {
-        background: linear-gradient(135deg, #0056b3 0%, #004085 100%);
+        background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
       }
     `;
       document.head.appendChild(style);
       priorityDialogStyleAdded = true;
     }
 
-    const selectionRange = selection.getRangeAt(0).cloneRange();
+    let currentPriorityValue = autoPriority.score;
+    let currentPrioritySource = 'automatic';
+
+    const sliderEl = dialog.querySelector('#extract-priority-slider');
+    const numEl = dialog.querySelector('#plethora-priority-num');
+    const badgeEl = dialog.querySelector('#plethora-priority-badge');
+    const badgeTextEl = dialog.querySelector('#plethora-priority-badge-text');
+    const factorsEl = dialog.querySelector('#plethora-priority-factors');
+
+    const updatePriorityUI = (score, source, activePreset = null) => {
+      const clamped = Math.max(1, Math.min(100, Math.round(score)));
+      currentPriorityValue = clamped;
+      currentPrioritySource = source;
+      if (sliderEl) sliderEl.value = String(clamped);
+      if (numEl) numEl.textContent = String(clamped);
+      const tierInfo = getPriorityTierInfo(clamped);
+      if (badgeEl) badgeEl.style.setProperty('--badge-color', tierInfo.color);
+      if (badgeTextEl) {
+        badgeTextEl.textContent = source === 'automatic'
+          ? `Auto · ${clamped} (${tierInfo.label})`
+          : `${clamped} (${tierInfo.label})`;
+      }
+      if (factorsEl) {
+        factorsEl.textContent = source === 'automatic'
+          ? factorsSummary
+          : `Manual override (${tierInfo.label}) — Auto score was ${autoPriority.score}`;
+      }
+      dialog.querySelectorAll('.priority-pill').forEach((pill) => {
+        pill.classList.toggle('active', activePreset !== null && pill.dataset.preset === activePreset);
+      });
+    };
 
     const closeDialog = () => {
       dialog.remove();
     };
 
+    if (sliderEl) {
+      sliderEl.addEventListener('input', () => {
+        const val = Number(sliderEl.value);
+        const matchingPreset = val === autoPriority.score ? 'auto' : null;
+        updatePriorityUI(val, matchingPreset ? 'automatic' : 'user_selected', matchingPreset);
+      });
+    }
+
     dialog.addEventListener('click', (event) => {
       const action = event.target?.dataset?.action;
       if (action === 'close-dialog' || event.target === dialog) {
         closeDialog();
+        return;
+      }
+
+      const presetBtn = event.target?.closest?.('.priority-pill');
+      if (presetBtn) {
+        const preset = presetBtn.dataset.preset;
+        const val = Number(presetBtn.dataset.value);
+        updatePriorityUI(val, preset === 'auto' ? 'automatic' : 'user_selected', preset);
         return;
       }
 
@@ -1668,13 +1917,12 @@
       }
 
       if (action === 'create-extract') {
-        const selectedPriority = dialog.querySelector('input[name="priority"]:checked');
         const selectedColor = dialog.querySelector('.highlight-swatch.selected');
         const customColorInput = dialog.querySelector('#extract-custom-color');
         const tagsInput = dialog.querySelector('#extract-tags');
         const options = {
-          priority: selectedPriority ? selectedPriority.value : 'normal',
-          priority_source: 'user_selected',
+          priority: currentPriorityValue,
+          priority_source: currentPrioritySource,
           color: (customColorInput && customColorInput.value) || (selectedColor && selectedColor.dataset.color) || null,
           tags: tagsInput ? tagsInput.value.split(',').map(tag => tag.trim()).filter(tag => tag) : []
         };
@@ -1710,7 +1958,7 @@
     }
 
     document.body.appendChild(dialog);
-    dialog.querySelector('input[name="priority"]:checked')?.focus();
+    dialog.querySelector('.priority-pill.active')?.focus();
   }
 
   // Page structure analysis
@@ -1982,6 +2230,7 @@
     }
     if (added.length > 0) {
       savePageExtracts();
+      restoreAllPageHighlights();
     }
     return { success: true, added: added.length, duplicates: duplicates.length };
   }
@@ -2047,34 +2296,48 @@
       existingTooltip.remove();
     }
 
+    const priorityVal = typeof extract.priority === 'number' && extract.priority > 0 ? extract.priority : null;
+    const priorityInfo = priorityVal ? getPriorityTierInfo(priorityVal) : null;
+    const priorityHtml = priorityInfo
+      ? `<span style="display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:999px;background:rgba(255,255,255,0.12);font-size:11px;font-weight:600;"><span style="width:7px;height:7px;border-radius:50%;background:${priorityInfo.color};display:inline-block;"></span>Priority ${priorityVal} (${priorityInfo.label})</span>`
+      : '';
+    const tagsList = Array.isArray(extract.tags) ? extract.tags.filter(Boolean) : [];
+    const tagsHtml = tagsList.length > 0
+      ? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:6px;">${tagsList.map(t => `<span style="background:rgba(59,130,246,0.28);color:#dbeafe;padding:2px 6px;border-radius:4px;font-size:11px;">#${escapeHtml(t)}</span>`).join('')}</div>`
+      : '';
+
     const tooltip = document.createElement('div');
     tooltip.id = 'plethora-extract-tooltip';
     tooltip.innerHTML = `
       <div class="tooltip-content">
-        <div class="tooltip-text">${escapeHtml(extract.text)}</div>
-        <div class="tooltip-meta">
-          <span>Created: ${new Date(extract.timestamp).toLocaleString()}</span>
-          <button class="tooltip-delete" data-extract-id="${extractId}">🗑️ Delete</button>
+        <div class="tooltip-text" style="margin-bottom:6px;line-height:1.4;">${escapeHtml(extract.text.substring(0, 220))}${extract.text.length > 220 ? '...' : ''}</div>
+        ${priorityHtml}
+        ${tagsHtml}
+        <div class="tooltip-meta" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;padding-top:6px;border-top:1px solid rgba(255,255,255,0.15);color:#cbd5e1;font-size:11px;">
+          <span>${new Date(extract.timestamp).toLocaleString()}</span>
+          <button class="tooltip-delete" data-extract-id="${escapeHtml(extractId)}" style="background:rgba(239,68,68,0.2);color:#fecaca;border:none;border-radius:4px;padding:3px 8px;cursor:pointer;font-size:11px;">🗑️ Delete</button>
         </div>
       </div>
     `;
     tooltip.style.cssText = `
-      position: absolute;
-      background: rgba(0, 0, 0, 0.9);
+      position: fixed;
+      background: rgba(17, 24, 39, 0.96);
       color: white;
       padding: 12px;
       border-radius: 8px;
       font-size: 12px;
-      max-width: 300px;
-      z-index: 10002;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      max-width: 320px;
+      z-index: 2147483646;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.35);
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     `;
 
-    // Position tooltip
+    // Position tooltip in viewport coordinates, clamped inside viewport
     const rect = element.getBoundingClientRect();
-    tooltip.style.left = rect.left + 'px';
-    tooltip.style.top = (rect.bottom + 5) + 'px';
+    const left = Math.max(8, Math.min(rect.left, window.innerWidth - 332));
+    const top = rect.bottom + 8 + 160 > window.innerHeight ? Math.max(8, rect.top - 140) : rect.bottom + 6;
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = top + 'px';
 
     document.body.appendChild(tooltip);
 
@@ -2084,25 +2347,34 @@
       tooltip.remove();
     });
 
-    // Auto-hide after 5 seconds
+    // Auto-hide after 6 seconds
     setTimeout(() => {
       if (tooltip.parentNode) {
         tooltip.remove();
       }
-    }, 5000);
+    }, 6000);
   }
 
   function deleteExtractById(extractId) {
+    const target = pageExtracts.find(e => e.id === extractId);
     pageExtracts = pageExtracts.filter(e => e.id !== extractId);
     savePageExtracts();
+
+    const serverId = target?.serverId || (extractId && !extractId.startsWith('extract_') ? extractId : null);
+    if (serverId) {
+      sendRuntimeMessage({ action: 'deleteExtractOnServer', extractId: serverId }).catch(() => {});
+    }
 
     const highlight = highlights.find(h => h.extractId === extractId);
     if (highlight) {
       const element = highlight.element;
       const parent = element.parentNode;
       if (parent) {
-        // Replace highlighted element with its text content
-        parent.replaceChild(document.createTextNode(element.textContent), element);
+        // Unwrap highlighted element while preserving any inner markup
+        while (element.firstChild) {
+          parent.insertBefore(element.firstChild, element);
+        }
+        parent.removeChild(element);
         parent.normalize(); // Merge adjacent text nodes
       }
       highlights = highlights.filter(h => h.extractId !== extractId);
@@ -2273,13 +2545,22 @@
     return div.innerHTML;
   }
 
+  function getNormalizedPageUrl(rawHref = window.location.href) {
+    try {
+      const parsed = new URL(rawHref);
+      parsed.hash = '';
+      return parsed.toString();
+    } catch (_err) {
+      return String(rawHref || '').split('#')[0];
+    }
+  }
+
   // Durable extract storage keys in chrome.storage.local: one bucket scoped
-  // to the exact page URL, one scoped to the hostname. The hostname bucket
-  // mirrors the old localStorage scheme so per-site behavior is preserved;
-  // the URL bucket lets an exact page restore only what belongs to it.
+  // to the normalized page URL (without #hash), one scoped to the hostname.
   function pageExtractsStorageKeys() {
+    const normalizedUrl = getNormalizedPageUrl();
     return {
-      urlKey: `plethora_extracts_url_${window.location.href}`,
+      urlKey: `plethora_extracts_url_${normalizedUrl}`,
       hostKey: `plethora_extracts_host_${window.location.hostname}`,
       legacyCurrent: `plethora_extracts_${window.location.hostname}`,
       legacyLegacy: `incrementum_extracts_${window.location.hostname}`
@@ -2370,27 +2651,100 @@
     });
   }
 
+  function mergeServerExtracts(serverExtracts) {
+    if (!Array.isArray(serverExtracts) || serverExtracts.length === 0) return false;
+    let changed = false;
+    for (const srv of serverExtracts) {
+      if (!srv || !srv.id || !srv.text) continue;
+      const srvNorm = normalizeSearchText(srv.text);
+      const existing = pageExtracts.find((local) =>
+        local && (
+          local.id === srv.id ||
+          local.serverId === srv.id ||
+          (local.text && normalizeSearchText(local.text) === srvNorm)
+        )
+      );
+      if (existing) {
+        if (!existing.serverId) { existing.serverId = srv.id; changed = true; }
+        if (Array.isArray(srv.tags) && srv.tags.length > 0 &&
+            JSON.stringify(existing.tags || []) !== JSON.stringify(srv.tags)) {
+          existing.tags = srv.tags;
+          changed = true;
+        }
+        if (typeof srv.priority === 'number' && srv.priority > 0 && existing.priority !== srv.priority) {
+          existing.priority = srv.priority;
+          changed = true;
+        }
+        if (srv.color && existing.color !== srv.color) {
+          existing.color = srv.color;
+          changed = true;
+        }
+      } else {
+        pageExtracts.push({
+          id: srv.id,
+          serverId: srv.id,
+          text: srv.text,
+          url: srv.url || getNormalizedPageUrl(),
+          title: srv.title || document.title,
+          color: srv.color || undefined,
+          tags: Array.isArray(srv.tags) ? srv.tags : [],
+          priority: typeof srv.priority === 'number' ? srv.priority : undefined,
+          context: srv.context || undefined,
+          timestamp: srv.timestamp || new Date().toISOString()
+        });
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  function syncPageExtractsFromServer(expectedUrl) {
+    const targetUrl = expectedUrl || getNormalizedPageUrl();
+    sendRuntimeMessage({
+      action: 'fetchPageExtractsFromServer',
+      url: targetUrl
+    }).then((response) => {
+      if (getNormalizedPageUrl() !== targetUrl) return;
+      if (response && response.success && Array.isArray(response.extracts) && response.extracts.length > 0) {
+        const changed = mergeServerExtracts(response.extracts);
+        if (changed) {
+          savePageExtracts();
+        }
+        restoreAllPageHighlights();
+      }
+    }).catch(() => {});
+  }
+
   function loadPageExtracts() {
     const keys = pageExtractsStorageKeys();
+    const currentUrl = getNormalizedPageUrl();
     // Read durable storage through the background (same context that owns the
-    // writes — see savePageExtracts).
+    // writes — see savePageExtracts), then hydrate any server-persisted
+    // extracts (e.g. smart tags, cross-session highlights).
     sendRuntimeMessage({
       action: 'loadPageExtractsStorage',
       keys: { urlKey: keys.urlKey, hostKey: keys.hostKey }
     }).then((response) => {
+      if (getNormalizedPageUrl() !== currentUrl) return;
       if (response && response.success &&
           (response.urlExtracts !== undefined || response.hostExtracts !== undefined)) {
-        pageExtracts = parseStoredExtracts(
+        const rawList = parseStoredExtracts(
           response.urlExtracts !== undefined ? response.urlExtracts : response.hostExtracts
         );
+        // If falling back to hostExtracts, filter to extracts matching this URL when available
+        pageExtracts = response.urlExtracts !== undefined
+          ? rawList
+          : rawList.filter((item) => !item?.url || getNormalizedPageUrl(item.url) === currentUrl);
         restoreAllPageHighlights();
       } else {
         // First visit since the storage upgrade — migrate.
         migrateLocalStorageExtracts(keys);
       }
+      syncPageExtractsFromServer(currentUrl);
     }).catch(() => {
       // Background unreachable (extension reloading, etc.) — legacy path.
       loadPageExtractsFromLocalStorage(keys);
+      syncPageExtractsFromServer(currentUrl);
     });
   }
 
@@ -2407,28 +2761,168 @@
     }
   }
 
+  function normalizeSearchText(str) {
+    return String(str || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function collectHighlightableTextNodes(root) {
+    const nodes = [];
+    if (!root) return nodes;
+    const walker = document.createTreeWalker(
+      root,
+      NodeFilter.SHOW_TEXT,
+      {
+        acceptNode(node) {
+          const parent = node.parentElement;
+          if (!parent) return NodeFilter.FILTER_REJECT;
+          const tag = parent.tagName;
+          if (tag === 'SCRIPT' || tag === 'STYLE' || tag === 'NOSCRIPT' || tag === 'TEXTAREA') {
+            return NodeFilter.FILTER_REJECT;
+          }
+          if (parent.closest('.plethora-highlight, .incrementum-highlight, #plethora-priority-dialog, #plethora-extract-tooltip')) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          if (!node.textContent || node.textContent.length === 0) {
+            return NodeFilter.FILTER_REJECT;
+          }
+          return NodeFilter.FILTER_ACCEPT;
+        }
+      },
+      false
+    );
+    let n;
+    while ((n = walker.nextNode())) {
+      nodes.push(n);
+    }
+    return nodes;
+  }
+
+  function resolveSavedRange(extract) {
+    if (!extract?.range?.startContainer || !extract?.range?.endContainer) return null;
+    try {
+      const startEl = document.querySelector(extract.range.startContainer);
+      const endEl = document.querySelector(extract.range.endContainer);
+      if (!startEl || !endEl) return null;
+      const startNode = startEl.firstChild && startEl.firstChild.nodeType === Node.TEXT_NODE ? startEl.firstChild : startEl;
+      const endNode = endEl.firstChild && endEl.firstChild.nodeType === Node.TEXT_NODE ? endEl.firstChild : endEl;
+      const range = document.createRange();
+      range.setStart(startNode, Math.min(extract.range.startOffset || 0, (startNode.textContent || '').length));
+      range.setEnd(endNode, Math.min(extract.range.endOffset || 0, (endNode.textContent || '').length));
+      if (normalizeSearchText(range.toString()) === normalizeSearchText(extract.text)) {
+        return range;
+      }
+    } catch (_err) {
+      // Fall through to text search
+    }
+    return null;
+  }
+
+  function findRangeAcrossTextNodes(extract) {
+    const targetRaw = extract.text;
+    const targetNorm = normalizeSearchText(targetRaw);
+    if (!targetNorm) return null;
+
+    const textNodes = collectHighlightableTextNodes(document.body);
+    if (textNodes.length === 0) return null;
+
+    // Build concatenated raw buffer + whitespace-normalized buffer with
+    // exact (node, offset) back-mapping for every character.
+    let rawConcat = '';
+    const rawMap = []; // { node, offset }
+    let normConcat = '';
+    const normMap = []; // index into rawMap
+    let lastWasSpace = true;
+
+    for (const node of textNodes) {
+      const content = node.textContent;
+      for (let i = 0; i < content.length; i++) {
+        const ch = content[i];
+        const rawIdx = rawMap.length;
+        rawConcat += ch;
+        rawMap.push({ node, offset: i });
+
+        if (/\s/.test(ch)) {
+          if (!lastWasSpace) {
+            normConcat += ' ';
+            normMap.push(rawIdx);
+            lastWasSpace = true;
+          }
+        } else {
+          normConcat += ch;
+          normMap.push(rawIdx);
+          lastWasSpace = false;
+        }
+      }
+    }
+
+    // 1. Try exact raw match across concatenated text nodes
+    const rawMatches = [];
+    let searchFrom = 0;
+    while (searchFrom <= rawConcat.length - targetRaw.length) {
+      const idx = rawConcat.indexOf(targetRaw, searchFrom);
+      if (idx === -1) break;
+      rawMatches.push({ start: idx, end: idx + targetRaw.length - 1 });
+      searchFrom = idx + 1;
+      if (rawMatches.length >= 10) break;
+    }
+
+    if (rawMatches.length > 0) {
+      let best = rawMatches[0];
+      if (rawMatches.length > 1 && extract.context) {
+        const ctxNorm = normalizeSearchText(extract.context);
+        let bestScore = -1;
+        for (const m of rawMatches) {
+          const snippet = normalizeSearchText(rawConcat.slice(Math.max(0, m.start - 120), m.end + 120));
+          const overlap = ctxNorm && snippet.includes(ctxNorm.slice(0, 40)) ? 2 : 0;
+          if (overlap > bestScore) {
+            bestScore = overlap;
+            best = m;
+          }
+        }
+      }
+      const startLoc = rawMap[best.start];
+      const endLoc = rawMap[best.end];
+      if (startLoc && endLoc) {
+        const range = document.createRange();
+        range.setStart(startLoc.node, startLoc.offset);
+        range.setEnd(endLoc.node, endLoc.offset + 1);
+        return range;
+      }
+    }
+
+    // 2. Fallback: whitespace-normalized match across text nodes
+    const normIdx = normConcat.indexOf(targetNorm);
+    if (normIdx !== -1) {
+      const startRawIdx = normMap[normIdx];
+      const endRawIdx = normMap[normIdx + targetNorm.length - 1];
+      const startLoc = rawMap[startRawIdx];
+      const endLoc = rawMap[endRawIdx];
+      if (startLoc && endLoc) {
+        const range = document.createRange();
+        range.setStart(startLoc.node, startLoc.offset);
+        range.setEnd(endLoc.node, endLoc.offset + 1);
+        return range;
+      }
+    }
+
+    return null;
+  }
+
   function restoreHighlight(extract) {
     // Try to find and restore highlight for existing extract
     if (!extract || !extract.id || !extract.text) return;
     // Skip extracts already highlighted in the DOM — a re-check after a
     // dynamic DOM mutation must not double-wrap the same text.
     if (document.querySelector('[data-extract-id="' + cssEscape(extract.id) + '"]')) return;
+    if (extract.serverId && document.querySelector('[data-extract-id="' + cssEscape(extract.serverId) + '"]')) return;
 
-    const textNodes = getTextNodes(document.body);
-    for (const node of textNodes) {
-      const text = node.textContent;
-      const index = text.indexOf(extract.text);
-      if (index !== -1) {
-        try {
-          const range = document.createRange();
-          range.setStart(node, index);
-          range.setEnd(node, index + extract.text.length);
-          highlightText(range, extract.id, extract.color);
-          return;
-        } catch (error) {
-          console.warn('[Content] Could not restore highlight for extract:', error.message);
-        }
+    try {
+      const range = resolveSavedRange(extract) || findRangeAcrossTextNodes(extract);
+      if (range) {
+        highlightText(range, extract.id, extract.color);
       }
+    } catch (error) {
+      console.warn('[Content] Could not restore highlight for extract:', error.message);
     }
   }
 

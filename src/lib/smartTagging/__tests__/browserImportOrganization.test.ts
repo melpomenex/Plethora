@@ -8,6 +8,8 @@ import {
   normalizeBrowserCaptureContext,
   rankInheritedSourceTags,
 } from "../browserImportOrganization";
+import { deriveSourcePageTag } from "../browserOrganizationAdapter";
+import { classifyDocumentBaseline } from "../baseline";
 
 describe("browser import organization contracts", () => {
   it("bounds untrusted capture context and derives source identity", () => {
@@ -86,5 +88,24 @@ describe("image asset organization targets", () => {
   it("returns null for assets without browser provenance", () => {
     expect(buildImageAssetTarget({ id: "asset-2", file_name: "uploaded.png", mime_type: "image/png", metadata: {} })).toBeNull();
     expect(buildImageAssetTarget({ id: "asset-3", file_name: "x.png", mime_type: "image/png" })).toBeNull();
+  });
+});
+
+describe("browser highlight smart tagging helpers", () => {
+  it("derives a clean source page tag and strips site suffixes", () => {
+    expect(deriveSourcePageTag("The Inference Cost Crisis | Substack")).toBe("The Inference Cost Crisis");
+    expect(deriveSourcePageTag("Spaced Repetition Systems - Gwern")).toBe("Spaced Repetition Systems");
+    expect(deriveSourcePageTag("Untitled")).toBeNull();
+    expect(deriveSourcePageTag("https://example.com/article")).toBeNull();
+  });
+
+  it("extracts content tags from short highlights when minPhraseFrequency is 1", () => {
+    const details = classifyDocumentBaseline({
+      title: "The Inference Cost Crisis",
+      body: "DeepMind is subsidized by Google while inference costs dominate cloud economics.",
+      existingLibraryTags: [{ name: "Inference Costs", itemCount: 2 }],
+      config: { minPhraseFrequency: 1, minConfidence: 0.65 },
+    });
+    expect(details.some((d) => d.tag === "Inference Costs")).toBe(true);
   });
 });

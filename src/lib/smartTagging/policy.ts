@@ -17,6 +17,7 @@ export interface PolicyConfig {
   minConfidence?: number;
   maxTags?: number;
   preferExisting?: boolean;
+  minPhraseFrequency?: number;
 }
 
 export function evaluateAndFilterTags(
@@ -31,6 +32,7 @@ export function evaluateAndFilterTags(
 ): SmartTagDetail[] {
   const minConfidence = config.minConfidence ?? DEFAULT_CONFIDENCE_THRESHOLD;
   const maxTags = Math.min(MAX_TAG_CAP, Math.max(MIN_TAG_CAP, config.maxTags ?? DEFAULT_MAX_TAGS));
+  const minPhraseFrequency = Math.max(1, config.minPhraseFrequency ?? 2);
   const now = new Date().toISOString();
 
   const dismissedNorms = new Set(dismissedTags.map(normalizeForComparison));
@@ -95,7 +97,7 @@ export function evaluateAndFilterTags(
   for (const st of salientTerms) {
     if (proposedDetails.length >= maxTags) break;
 
-    if (st.isPhrase && st.score >= 3.0 && st.frequency >= 2) {
+    if (st.isPhrase && st.score >= 3.0 && st.frequency >= minPhraseFrequency) {
       const canonical = canonicalizeTag(st.term, existingLibraryTags);
       const norm = normalizeForComparison(canonical);
 
