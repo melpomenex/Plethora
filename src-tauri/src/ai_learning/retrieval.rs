@@ -79,8 +79,12 @@ pub async fn retrieve(
     }
     let k = k.clamp(1, MAX_K);
 
-    // 1. Lexical prefilter over FTS5 documents.
-    let fts_doc_ids = fts_document_prefilter(repo, query).await;
+    // 1. Lexical prefilter over FTS5 documents (skipped when caller already scoped document_ids).
+    let fts_doc_ids = if filters.document_ids.is_some() {
+        None
+    } else {
+        fts_document_prefilter(repo, query).await
+    };
 
     // 2. Semantic path when a backend is available and query embedding works.
     let query_embedding = if backend.is_available() {
@@ -343,6 +347,122 @@ fn row_to_result(row: sqlx::sqlite::SqliteRow, score: f32, mode: &str) -> Search
     }
 }
 
+fn extract_lexical_tokens(query: &str) -> Vec<String> {
+    const STOPWORDS: &[&str] = &[
+        "a", "an", "and", "are", "as", "at", "be", "been", "by", "for", "from", "how", "in",
+        "is", "it", "its", "of", "on", "or", "that", "the", "this", "to", "was", "were", "what",
+        "when", "where", "which", "who", "why", "with",
+    ];
+    let all_tokens: Vec<String> = query
+        .split_whitespace()
+        .filter_map(|tok| {
+            let cleaned: String = tok
+                .chars()
+                .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_')
+                .collect::<String>()
+                .to_lowercase();
+            if cleaned.is_empty() {
+                None
+            } else {
+                Some(cleaned)
+            }
+        })
+        .collect();
+    let content_tokens: Vec<String> = all_tokens
+        .iter()
+        .filter(|t| t.len() >= 2 && !STOPWORDS.contains(&t.as_str()))
+        .cloned()
+        .collect();
+    if content_tokens.is_empty() {
+        all_tokens
+    } else {
+        content_tokens
+    }
+}
+
+/// Fast indexed lexical scoring when `document_ids` is scoped to a small set.
+/// Avoids scanning the global `semantic_chunks_fts` table (where `document_id`
+/// is UNINDEXED) on large databases.
+async fn scoped_document_lexical_chunks(
+    repo: &Repository,
+    query: &str,
+    k: usize,
+    doc_ids: &[String],
+    source_types: Option<&[String]>,
+) -> Result<Vec<SearchResult>> {
+    let tokens = extract_lexical_tokens(query);
+    if tokens.is_empty() || doc_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut builder: QueryBuilder<sqlx::Sqlite> = QueryBuilder::new(
+        "SELECT c.id, c.document_id, c.source_type, c.source_id, c.ordinal, \
+                c.text, c.heading_path, c.location_json, c.content_hash, c.token_count \
+         FROM semantic_chunks c \
+         JOIN documents d ON d.id = c.document_id \
+         WHERE d.is_archived = 0 AND d.is_ai_excluded = 0 AND c.document_id IN (",
+    );
+    {
+        let mut separated = builder.separated(", ");
+        for doc_id in doc_ids {
+            separated.push_bind(doc_id.clone());
+        }
+        separated.push_unseparated(")");
+    }
+    if let Some(types) = source_types {
+        if types.is_empty() {
+            return Ok(Vec::new());
+        }
+        builder.push(" AND c.source_type IN (");
+        let mut separated = builder.separated(", ");
+        for t in types {
+            separated.push_bind(t.clone());
+        }
+        separated.push_unseparated(")");
+    }
+
+    let rows = builder.build().fetch_all(repo.pool()).await?;
+    let mut scored: Vec<(f32, i64, SearchResult)> = Vec::new();
+
+    for row in rows {
+        let text: String = row.try_get("text").unwrap_or_default();
+        let text_lower = text.to_lowercase();
+        let mut matched_tokens = 0usize;
+        let mut total_hits = 0usize;
+
+        for tok in &tokens {
+            let hits = text_lower.match_indices(tok.as_str()).count();
+            if hits > 0 {
+                matched_tokens += 1;
+                total_hits += hits;
+            }
+        }
+
+        if matched_tokens == 0 {
+            continue;
+        }
+
+        let coverage = matched_tokens as f32 / tokens.len() as f32;
+        let tf_boost = (total_hits as f32).ln_1p() * 0.08;
+        let score = if matched_tokens == tokens.len() {
+            (0.70 + 0.22 * coverage + tf_boost).min(0.99)
+        } else {
+            (0.65 * coverage + tf_boost * 0.5).clamp(0.05, 0.69)
+        };
+        let ordinal: i64 = row.try_get("ordinal").unwrap_or(0);
+        let result = row_to_result(row, score, RetrievalMode::LexicalOnly.as_str());
+        scored.push((score, ordinal, result));
+    }
+
+    scored.sort_by(|a, b| {
+        b.0.partial_cmp(&a.0)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.1.cmp(&b.1))
+    });
+    scored.truncate(k);
+    Ok(scored.into_iter().map(|(_, _, r)| r).collect())
+}
+
 /// Lexical-only results: queries `semantic_chunks_fts` across all canonical
 /// chunk types (`document`, `transcript`, `session`, `extract`, `annotation`,
 /// `card`) enforcing `is_archived = 0 AND is_ai_excluded = 0`, with relaxed OR
@@ -382,8 +502,26 @@ async fn lexical_results(
 
     let mut seen_chunk_ids = HashSet::new();
     let chunk_limit = (k.saturating_mul(3)).max(32) as i64;
+    let use_scoped_fast_path = filters
+        .document_ids
+        .as_ref()
+        .is_some_and(|ids| !ids.is_empty() && ids.len() <= 32);
 
-    if let Ok(chunk_rows) = sqlx::query(
+    if let Some(doc_ids) = filters.document_ids.as_ref().filter(|_| use_scoped_fast_path) {
+        for result in scoped_document_lexical_chunks(
+            repo,
+            query,
+            k,
+            doc_ids,
+            filters.source_types.as_deref(),
+        )
+        .await?
+        {
+            if seen_chunk_ids.insert(result.chunk_id.clone()) {
+                out.push(result);
+            }
+        }
+    } else if let Ok(chunk_rows) = sqlx::query(
         "SELECT c.id, c.document_id, c.source_type, c.source_id, c.ordinal,
                 c.text, c.heading_path, c.location_json, c.content_hash, c.token_count,
                 semantic_chunks_fts.rank AS bm25_rank
@@ -422,7 +560,7 @@ async fn lexical_results(
     }
 
     // Relaxed multi-term OR query over semantic_chunks_fts if strict AND returned < k hits.
-    if out.len() < k {
+    if !use_scoped_fast_path && out.len() < k {
         let tokens: Vec<&str> = fts_query.split_whitespace().collect();
         if tokens.len() > 1 {
             let or_query = tokens.join(" OR ");
