@@ -14,8 +14,10 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use axum::{
+    body::Body,
     extract::Path as AxumPath,
-    http::{header, StatusCode},
+    http::{header, HeaderValue, Method, Request, StatusCode},
+    middleware::{self, Next},
     response::{IntoResponse, Response},
     routing::get,
     Router,
@@ -42,11 +44,34 @@ pub fn global_manager() -> Arc<StreamingSessionManager> {
         .clone()
 }
 
+async fn cors_middleware(req: Request<Body>, next: Next) -> Response {
+    let mut response = if req.method() == Method::OPTIONS {
+        StatusCode::NO_CONTENT.into_response()
+    } else {
+        next.run(req).await
+    };
+    let headers = response.headers_mut();
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_ORIGIN,
+        HeaderValue::from_static("*"),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_METHODS,
+        HeaderValue::from_static("GET, OPTIONS"),
+    );
+    headers.insert(
+        header::ACCESS_CONTROL_ALLOW_HEADERS,
+        HeaderValue::from_static("Range, Content-Type"),
+    );
+    response
+}
+
 pub fn router() -> Router<crate::media_server::MediaServerState> {
     Router::new()
         .route("/media-stream/:session_id/playlist.m3u8", get(playlist_handler))
         .route("/media-stream/:session_id/init.mp4", get(init_handler))
         .route("/media-stream/:session_id/seg/:segment", get(segment_handler))
+        .layer(middleware::from_fn(cors_middleware))
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -760,5 +785,52 @@ mod tests {
         assert!(joined.windows(2).any(|w| w == ["-output_ts_offset", "120.000"]));
         assert!(joined.windows(2).any(|w| w == ["-tag:v", "hvc1"]));
         assert!(joined.windows(2).any(|w| w == ["-hls_segment_type", "fmp4"]));
+    }
+
+    #[tokio::test]
+    async fn cors_middleware_attaches_allow_origin_on_get_and_options() {
+        use tower05::ServiceExt;
+
+        let app = Router::new()
+            .route("/media-stream/:session_id/playlist.m3u8", get(playlist_handler))
+            .layer(middleware::from_fn(cors_middleware));
+
+        let get_resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/media-stream/missing-session/playlist.m3u8")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            get_resp
+                .headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .and_then(|v| v.to_str().ok()),
+            Some("*")
+        );
+
+        let opt_resp = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::OPTIONS)
+                    .uri("/media-stream/missing-session/playlist.m3u8")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(opt_resp.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            opt_resp
+                .headers()
+                .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+                .and_then(|v| v.to_str().ok()),
+            Some("*")
+        );
     }
 }

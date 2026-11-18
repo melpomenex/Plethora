@@ -236,9 +236,14 @@ export function LocalVideoPlayer({
   const artifactSrc =
     compatibility.state.kind === "ready" ? compatibility.state.artifactUrl : null;
   const compatibilityBusy =
-    compatibility.state.kind === "preparing" || compatibility.state.kind === "consent";
+    compatibility.state.kind === "inspecting" ||
+    compatibility.state.kind === "preparing" ||
+    compatibility.state.kind === "consent";
   const activeSource = resolvedSourceIndex !== null ? normalizedSources[resolvedSourceIndex] ?? null : null;
-  const activeSrc = artifactSrc ?? activeSource?.src ?? "";
+  const activeSrc =
+    compatibility.state.kind === "inspecting"
+      ? ""
+      : artifactSrc ?? activeSource?.src ?? "";
   const isHlsStream = isHlsPlaylistUrl(activeSrc);
   const activeSourceStrategy = artifactSrc
     ? "media-compatibility"
